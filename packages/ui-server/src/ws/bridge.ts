@@ -156,7 +156,7 @@ export function makeBridge(
   // does not void it. Inbox intake stages files, so it keeps the full check.
   const current = () => !signal.aborted && principalIsAuthorized();
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
-    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
+    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}) });
   if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   // Host bridge tools run outside the worker's mounts, so they refuse the
@@ -244,15 +244,19 @@ export function makeBridge(
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
         host.inboxTools?.shares?.bind(turnId, msg.sessionId);
         if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
+          // Both commit after the row above (#2850); the frame reads them as submitted.
+          const named = msg.sessionId;
+          const unrecorded = (error: unknown) => host.log.emit({ severityText: "WARN", body: "session worker profile not recorded",
+            attributes: { "session.id": named, error: error instanceof Error ? error.message : String(error) } });
           if (!profileBound && workerProfile.draftId && workerProfile.preference) {
-            host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId);
+            host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId).catch(unrecorded);
             profileBound = true;
           }
-          host.sessionProfiles.record(msg.sessionId, workerProfile.origin, workerProfile.actualProfile);
+          host.sessionProfiles.record(msg.sessionId, workerProfile.origin, workerProfile.actualProfile).catch(unrecorded);
           msg = { ...msg, workerProfile: host.sessionProfiles.read(turn.principalId, "session", msg.sessionId) };
         }
 
-        host.policyProposals?.bind(turnId, msg.sessionId);
+        host.policyProposals?.bind(turnId, msg.sessionId).catch(() => { /* Its proposals keep a null session: unbound, never misattributed. */ });
         // The session's pill label follows its latest request (#1004), asked
         // for once its row exists, so the answer always has a row to land on.
         if (!labelAsked) {
@@ -697,6 +701,7 @@ export function makeBridge(
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
         lock: applicationPolicy.lock, isAuthorized, hold, isAvailable: () => work?.posture !== "voice",
+        ...(turnData ? { turnTree: turnData.tree } : {}),
         record: result => recorder?.recordApplication?.(result) });
       const requestMask = bridge.requestMask!;
       bridge.requestMask = async (imagePath, instruction) => {

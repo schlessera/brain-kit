@@ -4,8 +4,8 @@
  * A strict worker runs configuration from the immutable startup view at the
  * brain path (#1649), so the host's applications in its own turn never reach
  * that view. Its brain tools read a separate data tree instead: a host copy of
- * the view's documents, with this turn's committed Markdown written into it as
- * each application commits, and the turn's own search index over its
+ * the view's documents, with this turn's committed Markdown and image masks
+ * written into it as each application commits, and the turn's own search index over its
  * `.brain-index/`. Both are read-only to the worker. At the next index read a
  * credential-free worker, configured from the same frozen view, brings the
  * index up to date with the tree; nothing a peer applied mid-turn enters it.
@@ -24,8 +24,9 @@
  * the next update drops it from the index too. A governed masked turn reads
  * the live brain, so its tree feeds only its index updates.
  */
-import { chmodSync, chownSync, closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
+import { chmodSync, chownSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
   readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmod, copyFile, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, relative } from "node:path";
 import { Database, constants as sqlite } from "bun:sqlite";
@@ -40,11 +41,14 @@ import { createPrivateIndexDirectory, PRIVATE_INDEX_BUILD_MS, removePrivateIndex
 import { MAINTENANCE_ENTRY } from "./host-boundary.js";
 
 /**
- * One committed Markdown effect of an application: its bytes, or null for a
- * removal, and the live base it transformed: the path's own, or for an
- * archive destination the base of the source it was moved `from`.
+ * One committed effect of an application: its bytes, or null for a removal,
+ * and the live base it transformed: the path's own, or for an archive
+ * destination the base of the source it was moved `from`. Markdown carries
+ * text; an image mask (#2892) carries the PNG's bytes.
  */
-export interface AppliedEffect { readonly path: string; readonly content: string | null; readonly base: string | null; readonly from?: string }
+export interface AppliedEffect {
+  readonly path: string; readonly content: string | Uint8Array | null; readonly base: string | Uint8Array | null; readonly from?: string;
+}
 
 /** The provider rules a masked turn's tree admits effects under. */
 export interface TurnTreeMasks {
@@ -87,15 +91,43 @@ const COPY_ENTRIES = 200_000, COPY_DEPTH = 256;
 const errno = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
 
 /**
- * Copy the view's documents into `target`: links stay links, timestamps and
- * modes are kept, nothing else (sockets, devices) is copied. `skip` names
- * repo-relative paths left out. Across UIDs, a file or directory the server
- * cannot read (a worker's own `0600` file) is left out too: the worker that
- * could read it sees it at the brain path.
+ * Files copied at once. A copy onto the server's temporary directory crosses
+ * filesystems and waits on I/O, so a pool takes about half the time of one
+ * file after another (#2891); a reflink, where the filesystem offers one, is
+ * requested and taken.
  */
-function copyView(view: string, target: string, skip: (rel: string) => boolean): void {
+const COPY_WIDTH = 16;
+const COPY_FLAGS = constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE;
+
+/**
+ * Run `jobs` at most `COPY_WIDTH` at a time. The first failure, or an abort,
+ * stops new jobs; it is thrown once every started job has settled, so nothing
+ * still writes into a tree its caller is about to remove.
+ */
+async function pooled(jobs: readonly (() => Promise<void>)[], signal?: AbortSignal): Promise<void> {
+  let next = 0, failed = false, failure: unknown;
+  await Promise.all(Array.from({ length: Math.min(COPY_WIDTH, jobs.length) }, async () => {
+    while (!failed && next < jobs.length) {
+      const job = jobs[next++]!;
+      try { signal?.throwIfAborted(); await job(); } catch (error) { if (!failed) { failed = true; failure = error; } }
+    }
+  }));
+  if (failed) throw failure;
+}
+
+/**
+ * Plan the copy of the view's documents into `target`: links stay links,
+ * timestamps and modes are kept, nothing else (sockets, devices) is copied.
+ * `skip` names repo-relative paths left out. Across UIDs, a file or directory
+ * the server cannot read (a worker's own `0600` file) is left out too: the
+ * worker that could read it sees it at the brain path. Directories and links
+ * are made here; the returned jobs copy the files, and `finish` then gives
+ * each directory its mode and times, deepest first.
+ */
+function planCopy(view: string, target: string, skip: (rel: string) => boolean): { files: (() => Promise<void>)[]; finish(): void } {
   let entries = 0;
   const unreadable = (error: unknown) => errno(error) === "EACCES";
+  const files: (() => Promise<void>)[] = [], directories: { to: string; info: import("node:fs").Stats }[] = [];
   const walk = (rel: string, depth: number) => {
     if (depth > COPY_DEPTH) throw new Error("The startup view exceeds the data tree's directory depth bound.");
     let listed: import("node:fs").Dirent[];
@@ -106,28 +138,28 @@ function copyView(view: string, target: string, skip: (rel: string) => boolean):
       if (++entries > COPY_ENTRIES) throw new Error(`The startup view exceeds the data tree's ${COPY_ENTRIES} entry bound.`);
       const from = join(view, path), to = join(target, path), info = lstatSync(from);
       if (info.isSymbolicLink()) symlinkSync(readlinkSync(from), to);
-      else if (info.isDirectory()) {
-        mkdirSync(to, { mode: 0o700 }); walk(path, depth + 1);
-        chmodSync(to, info.mode & 0o7777); utimesSync(to, info.atime, info.mtime);
-      } else if (info.isFile()) {
-        try { copyFileSync(from, to, constants.COPYFILE_EXCL); } catch (error) { if (unreadable(error)) continue; throw error; }
-        chmodSync(to, info.mode & 0o7777); utimesSync(to, info.atime, info.mtime);
-      }
+      else if (info.isDirectory()) { mkdirSync(to, { mode: 0o700 }); directories.push({ to, info }); walk(path, depth + 1); }
+      else if (info.isFile()) files.push(async () => {
+        try { await copyFile(from, to, COPY_FLAGS); } catch (error) { if (unreadable(error)) return; throw error; }
+        await chmod(to, info.mode & 0o7777); await utimes(to, info.atime, info.mtime);
+      });
     }
   };
   walk("", 0);
+  // A directory is planned before everything in it, so the reverse order
+  // closes each one after its contents.
+  return { files, finish() { for (const { to, info } of directories.reverse()) { chmodSync(to, info.mode & 0o7777); utimesSync(to, info.atime, info.mtime); } } };
 }
 
-/** Seed `index` with the view's index files. The updater runs as the worker identity, which shares the server's group. */
-function seedIndex(view: string, index: string, separateIdentity: boolean): void {
+/** Jobs that seed `index` with the view's index files. The updater runs as the worker identity, which shares the server's group. */
+function seedIndex(view: string, index: string, separateIdentity: boolean): (() => Promise<void>)[] {
   const source = join(view, INDEX_DIR);
   const names = (() => { try { return readdirSync(source, { withFileTypes: true }); } catch (error) { if (errno(error) === "ENOENT") return []; throw error; } })();
-  for (const entry of names) {
-    if (!entry.isFile()) continue;
+  return names.filter(entry => entry.isFile()).map(entry => async () => {
     const to = join(index, entry.name);
-    copyFileSync(join(source, entry.name), to, constants.COPYFILE_EXCL);
-    chmodSync(to, separateIdentity ? 0o660 : 0o600);
-  }
+    await copyFile(join(source, entry.name), to, COPY_FLAGS);
+    await chmod(to, separateIdentity ? 0o660 : 0o600);
+  });
 }
 
 /**
@@ -187,18 +219,18 @@ function openParent(root: string, path: string): { fd: number; name: string } {
   } catch (error) { closeSync(fd); throw error; }
 }
 
-function readTree(root: string, path: string): string | null {
+function readTree(root: string, path: string): Buffer | null {
   let parent: { fd: number; name: string };
   try { parent = openParent(root, path); } catch (error) { if (["ENOENT", "ENOTDIR", "ELOOP"].includes(errno(error) ?? "")) return null; throw error; }
   try {
     let fd: number;
     try { fd = openSync(at(parent.fd, parent.name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
     catch (error) { if (["ENOENT", "ELOOP"].includes(errno(error) ?? "")) return null; throw error; }
-    try { return fstatSync(fd).isFile() ? readFileSync(fd, "utf8") : null; } finally { closeSync(fd); }
+    try { return fstatSync(fd).isFile() ? readFileSync(fd) : null; } finally { closeSync(fd); }
   } finally { closeSync(parent.fd); }
 }
 
-function writeTree(root: string, path: string, content: string | null): void {
+function writeTree(root: string, path: string, content: string | Uint8Array | null): void {
   const parent = openParent(root, path);
   try {
     const target = at(parent.fd, parent.name);
@@ -211,8 +243,9 @@ function writeTree(root: string, path: string, content: string | null): void {
   } finally { closeSync(parent.fd); }
 }
 
-const declaredType = (text: string | null): string | undefined => {
-  if (text === null) return undefined;
+const declaredType = (text: string | Uint8Array | null): string | undefined => {
+  // Only Markdown declares a type; an image's bytes never do.
+  if (typeof text !== "string") return undefined;
   try { const type = parseFrontmatter(text, { dataOnly: true }).data?.type; return type === undefined || type === null ? undefined : String(type); }
   catch { return undefined; }
 };
@@ -265,6 +298,8 @@ async function runOnTree(options: {
     // Never leave the worker behind a failed read of its answer.
     try { stop(); } catch { /* already gone */ }
     await worker.exited.catch(() => {});
+    await worker.released();
+    options.signal?.throwIfAborted();
   }
 }
 
@@ -272,9 +307,11 @@ async function runOnTree(options: {
  * Copy the view into a new tree, before the worker launches. `index` is the
  * masked turn's private index, already built; an unmasked turn's is seeded
  * from the view. `pending` names paths the view's index may lag its documents
- * on (`IndexBatch.watermark`): the first index read updates them.
+ * on (`IndexBatch.watermark`): the first index read updates them. The files
+ * and the index seed are copied together, off the event loop; an abort stops
+ * the copy and removes what it made.
  */
-export function createTurnDataTree(options: {
+export async function createTurnDataTree(options: {
   brainPath: string; view: WorkerStartupView; maskPaths: readonly string[];
   /** Mount it for the worker: false for a governed turn, which reads the live brain. */
   mount: boolean;
@@ -289,7 +326,9 @@ export function createTurnDataTree(options: {
   update?: (tree: WorkerDataTree, paths: readonly string[]) => Promise<void>;
   /** Default: the maintenance program's capture planning, on the tree. */
   plan?: (tree: WorkerDataTree, input: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
-}): TurnDataTree {
+  /** The admission's: stops the copy. */
+  signal?: AbortSignal;
+}): Promise<TurnDataTree> {
   const separateIdentity = Boolean(workerIdentityHelper());
   const root = mkdtempSync(join(tmpdir(), "brain-turn-data-"));
   let index: string | undefined;
@@ -301,14 +340,16 @@ export function createTurnDataTree(options: {
     // The `.env*` masks cover link targets at the brain path only, so the tree
     // leaves those targets out as well.
     const hidden = [...(masks?.buildFolders ?? []), ...envMaskedPaths(options.view.root, options.brainPath)];
-    copyView(options.view.root, root, rel => {
+    const copy = planCopy(options.view.root, root, rel => {
       const top = !rel.includes("/");
       if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel)) || (masks && rel === PROVIDER_CACHE_DIR))) return true;
       return hidden.some(folder => rel === folder || rel.startsWith(`${folder}/`));
     });
     mkdirSync(join(root, INDEX_DIR), { mode: 0o755 });
     index = options.index ?? createPrivateIndexDirectory();
-    if (!options.index) seedIndex(options.view.root, index, separateIdentity);
+    // The index files are the largest; they start first.
+    await pooled([...options.index ? [] : seedIndex(options.view.root, index, separateIdentity), ...copy.files], options.signal);
+    copy.finish();
     settleIndex(index, separateIdentity);
   } catch (error) {
     try { removeCopy(root); } finally { if (index && !options.index) removePrivateIndexDirectory(index); }
@@ -334,7 +375,9 @@ export function createTurnDataTree(options: {
     if ((resultType !== undefined && types.has(resultType)) || (baseType !== undefined && types.has(baseType))) return false;
     // The base the application transformed must be what this turn could
     // already see: the view's bytes or its own earlier effect, never a peer's.
-    return readTree(root, effect.from ?? effect.path) === effect.base;
+    const seen = readTree(root, effect.from ?? effect.path);
+    if (seen === null || effect.base === null) return seen === effect.base;
+    return typeof effect.base === "string" ? seen.toString("utf8") === effect.base : seen.equals(effect.base);
   };
   let closed: Promise<void> | undefined;
   return {

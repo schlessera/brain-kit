@@ -26,11 +26,16 @@ export function supportsSessionRecovery(host: Pick<WsHost, "catalog">): boolean 
   return typeof host.catalog.acceptWork === "function" && typeof host.catalog.latestWork === "function";
 }
 
+/** Each coordinator's newest acceptance per session: only its outcome orders the session. */
+const latestAcceptance = new WeakMap<object, Map<string, number>>();
+
 /**
  * Record that the host accepted a request for a known session, and return
  * its revision. A failed write leaves the session unordered: its recovery
  * reads `unknown` until a later acceptance is recorded, because the
  * persisted latest request is now older than the work actually accepted.
+ * The write commits off the event loop (#2850); acceptances settle in the
+ * order they were made, so the last one to settle decides.
  */
 export function acceptRequest(
   host: Pick<WsHost, "catalog" | "coordinator">,
@@ -39,12 +44,20 @@ export function acceptRequest(
   backendId: string | null
 ): number | undefined {
   if (!host.catalog.acceptWork) return undefined;
-  const revision = host.catalog.acceptWork(sessionId, requestId ?? null, backendId);
+  const { unorderedSessions } = host.coordinator;
+  const latest = latestAcceptance.get(host.coordinator) ?? new Map<string, number>();
+  latestAcceptance.set(host.coordinator, latest);
+  const mine = (latest.get(sessionId) ?? 0) + 1;
+  latest.set(sessionId, mine);
+  const revision = host.catalog.acceptWork(sessionId, requestId ?? null, backendId, (stored) => {
+    if (latest.get(sessionId) !== mine) return;
+    latest.delete(sessionId);
+    if (stored) unorderedSessions.delete(sessionId); else unorderedSessions.add(sessionId);
+  });
   if (revision === null) {
-    host.coordinator.unorderedSessions.add(sessionId);
+    unorderedSessions.add(sessionId);
     return undefined;
   }
-  host.coordinator.unorderedSessions.delete(sessionId);
   return revision;
 }
 

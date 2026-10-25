@@ -3,7 +3,7 @@ import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
 import { createHash } from "node:crypto";
 import type { Logger } from "@opentelemetry/api-logs";
 import { mkdir, readdir, rename, rm, writeFile, realpath, lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   SHARE_MAX_FILES,
   SHARE_MAX_FILE_BYTES,
@@ -302,7 +302,14 @@ export async function stageShareAt(
   log?: Logger,
   source: "web-share-target" | "cli" = "web-share-target",
   /** Receives every staged file's bytes, by brain-relative path, before they are published. */
-  onPublish?: (files: ReadonlyMap<string, Uint8Array>) => void
+  onPublish?: (files: ReadonlyMap<string, Uint8Array>) => void,
+  /**
+   * Throws for a path this call may not change (#2876), named relative to
+   * the brain's canonical path exactly as it is about to be changed. Asked
+   * again before each change, since links can move in between; a refusal is
+   * never recorded as a skipped file.
+   */
+  guard?: (path: string) => void
 ): Promise<ShareIntakeResult> {
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid staging id");
   input.signal?.throwIfAborted();
@@ -340,6 +347,9 @@ export async function stageShareAt(
   const dir = `${SHARE_STAGING_DIR}/${id}`;
   const finalDir = join(root, id);
   const partialDir = join(root, `.${id}.partial`);
+  const brain = guard ? await realpath(brainPath) : "";
+  const check = (path: string) => guard?.(relative(brain, path));
+  check(partialDir);
   await mkdir(partialDir, { recursive: true });
 
   try {
@@ -385,6 +395,7 @@ export async function stageShareAt(
         trackMeta = { incomingName, sha256: createHash("sha256").update(bytes).digest("hex"), detected: imported.format,
           summary: { ...summary, waypointCount: imported.waypointCount, waypointOmitted: imported.waypointOmissions.length } };
       }
+      check(join(partialDir, name));
       try {
         // "wx": never follow a link, never truncate something that exists. In a
         // freshly minted directory nothing can pre-exist, so this is a loud
@@ -429,14 +440,17 @@ export async function stageShareAt(
       ...(skipped.length ? { skipped } : {}),
     };
     const meta = `${JSON.stringify(manifest, null, 2)}\n`;
+    check(join(partialDir, "meta.json"));
     await writeFile(join(partialDir, "meta.json"), meta, "utf-8");
     published.set(`${dir}/meta.json`, new TextEncoder().encode(meta));
     onPublish?.(published);
 
     // The share becomes visible here, whole, in one operation.
     input.signal?.throwIfAborted();
+    check(partialDir); check(finalDir);
     await rename(partialDir, finalDir);
     if (input.signal?.aborted) {
+      check(finalDir);
       await rm(finalDir, { recursive: true, force: true });
       input.signal.throwIfAborted();
     }
@@ -444,7 +458,7 @@ export async function stageShareAt(
     const { source: _source, ...result } = manifest;
     return result;
   } catch (err) {
-    await rm(partialDir, { recursive: true, force: true }).catch(() => {});
+    try { check(partialDir); await rm(partialDir, { recursive: true, force: true }); } catch { /* A refused or failed removal leaves the partial for reconciliation. */ }
     throw err;
   }
 }

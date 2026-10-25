@@ -5,7 +5,7 @@
  * backend is a script that reads through the worker the turn admitted.
  */
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -30,6 +30,7 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import { createPrincipal, isUsablePrincipal, resolvePrincipal } from "../src/db/principals";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { handleClientMessage } from "../src/ws/dispatch";
 
 const REPO = resolve(import.meta.dir, "../../..");
 const CORPUS = join(REPO, "packages/core/fixtures/corpus");
@@ -86,7 +87,9 @@ function fixture(masked: boolean): Fixture {
   return { root, brain, live, liveIndexed };
 }
 
-type Script = (turn: { bridge: BackendBridge; request: StartTurnRequest; brain: string; approve: <T>(pending: Promise<T>) => Promise<T> }) => Promise<void>;
+type Script = (turn: { bridge: BackendBridge; request: StartTurnRequest; brain: string; approve: <T>(pending: Promise<T>) => Promise<T>;
+  /** The PNG the connected client paints for the next mask request. */
+  paint: (png: Uint8Array) => void }) => Promise<void>;
 
 /** One hosted turn through admission, run-session and the bridge; the script plays the backend. */
 async function hostedTurn(f: Fixture, profile: "strict" | "governed", script: Script,
@@ -101,7 +104,7 @@ async function hostedTurn(f: Fixture, profile: "strict" | "governed", script: Sc
     maskPaths: [], index: async () => {}, report() {}, privateIndexCommand: CLI, indexBatch: f.live, ...turnsOptions });
   if (shared) { shared.turns = turns; shared.db = db; shared.execution = execution; }
   const claude = createClaudeBackend({ brainPath: f.brain });
-  let failure: unknown, ws: WsHost | undefined;
+  let failure: unknown, ws: WsHost | undefined, painted: Uint8Array | undefined;
   /** Approve the one destructive application `pending` waits on, as the user would. */
   const approve = async <T>(pending: Promise<T>): Promise<T> => {
     const deadline = Date.now() + 10_000;
@@ -110,15 +113,23 @@ async function hostedTurn(f: Fixture, profile: "strict" | "governed", script: Sc
     return pending;
   };
   const backend = { ...makeFakeBackend({ id: "claude", startTurn: async request => {
-    try { await script({ bridge: request.bridge, request, brain: f.brain, approve }); } catch (error) { failure = error; }
+    try { await script({ bridge: request.bridge, request, brain: f.brain, approve, paint: png => { painted = png; } }); } catch (error) { failure = error; }
     request.bridge.emit({ type: "session_info", sessionId: `tree-${crypto.randomUUID()}`, isNew: true });
     request.bridge.emit({ type: "result", sessionId: "tree", durationMs: 1, numTurns: 1, isError: false });
   } }), brainApplicationPolicy: claude.brainApplicationPolicy };
   ws = new WsHost({ brainPath: f.brain, governedTurns: turns, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db),
     isPrincipalAuthorized: id => { const found = resolvePrincipal(db, id); return found !== null && isUsablePrincipal(found, Date.now()); },
     indexBatch: f.live, applicationPlanner: { index: async () => {}, planAdd: async () => { throw new Error("NO_LIVE_PLANNING_IN_THIS_TEST"); } }, ...host });
+  const authorization = testAuthorization(principal.id);
+  // The browser that paints a requested mask.
+  const client = { send(data: string) {
+    const frame = JSON.parse(data);
+    if (frame.type === "mask_request" && painted) void handleClientMessage(ws!, client, { type: "mask_response", requestId: frame.requestId, turnId: frame.turnId,
+      maskPng: Buffer.from(painted).toString("base64") }, { principal, authorization, protocolRev: 3 });
+  } };
+  ws.clients.add(client, principal.id);
   try {
-    await runSession(ws, { authorization: testAuthorization(principal.id), text: "Odysseus works on his notes.", attachments: [] });
+    await runSession(ws, { authorization, text: "Odysseus works on his notes.", attachments: [] });
     if (failure) throw failure;
   } finally { ws.close(); if (!shared) { await turns.close(); execution.release(); db.close(); } }
 }
@@ -300,6 +311,91 @@ for (const profile of ["strict", "governed"] as const) {
   });
 }
 
+/** A PNG whose bytes carry `marker` after the signature. */
+const PNG_WITH = (marker: string) => Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from(marker)]);
+/** Only the masks a turn replaces or prunes hold it; no read in the turn may return it once they are gone. */
+const OLD_MASK = "Charybdisoldmask";
+
+/**
+ * An image with an earlier mask, and an expired scratch sketch the next
+ * scratch mask prunes. Returns the host's maintenance, which checks the
+ * scratch ignore rule.
+ */
+function maskFixture(f: Fixture): Partial<ConstructorParameters<typeof WsHost>[0]> {
+  mkdirSync(join(f.brain, "assets"), { recursive: true });
+  writeFileSync(join(f.brain, "assets/raft.png"), PNG_WITH("raft"));
+  writeFileSync(join(f.brain, "assets/raft-mask.png"), PNG_WITH(OLD_MASK));
+  mkdirSync(join(f.brain, ".brain/scratch"), { recursive: true });
+  writeFileSync(join(f.brain, ".gitignore"), ".brain/scratch/\n");
+  expect(Bun.spawnSync(["git", "init", "-q"], { cwd: f.brain }).exitCode).toBe(0);
+  writeFileSync(join(f.brain, ".brain/scratch/sail.png"), PNG_WITH("sail"));
+  writeFileSync(join(f.brain, ".brain/scratch/old-sketch.png"), PNG_WITH(OLD_MASK));
+  utimesSync(join(f.brain, ".brain/scratch/old-sketch.png"), new Date(0), new Date(0));
+  // Expired too, but a protected link names it, so the prune keeps it (#2876).
+  writeFileSync(join(f.brain, ".brain/scratch/kept-sketch.png"), PNG_WITH("kept"));
+  utimesSync(join(f.brain, ".brain/scratch/kept-sketch.png"), new Date(0), new Date(0));
+  symlinkSync(".brain/scratch/kept-sketch.png", join(f.brain, "kept"));
+  const policy = join(f.brain, "context/policies/governance.md");
+  writeFileSync(policy, readFileSync(policy, "utf8").replace("schema_version: 1\n", "schema_version: 1\nprotect: [kept]\n"));
+  const view = createFixtureWorkerStartupView(f.brain);
+  cleanup.push(() => view.cleanup());
+  return { maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } as never };
+}
+
+const bytesAt = (root: string, rel: string) => existsSync(join(root, rel)) ? readFileSync(join(root, rel)) : null;
+
+/** Apply one painted mask through the bridge, as the backend's mask tool does. */
+async function mask(bridge: BackendBridge, paint: (png: Uint8Array) => void, imagePath: string, maskPath: string, png: Uint8Array) {
+  paint(png);
+  const painted = await bridge.requestMask!(imagePath, "Mark the sail.");
+  return bridge.applyImageMask!({ imagePath, maskPath, png: painted });
+}
+
+test("a strict turn's own image masks reach its tree before its next read, and the replaced and pruned bytes do not", async () => {
+  const f = fixture(false);
+  const host = maskFixture(f);
+  await hostedTurn(f, "strict", async ({ bridge, request, brain, paint }) => {
+    const tree = request.workerSandbox!.dataTree!;
+    expect(bytesAt(tree.root, "assets/raft-mask.png")?.toString("latin1"), "THE_TREE_STARTS_WITH_THE_EARLIER_MASK").toContain(OLD_MASK);
+    const replaced = await mask(bridge, paint, "assets/raft.png", "assets/raft-mask.png", PNG_WITH("Scyllanewmask"));
+    expect(replaced.ok, JSON.stringify(replaced)).toBe(true);
+    const scratch = await mask(bridge, paint, ".brain/scratch/sail.png", ".brain/scratch/sail-mask.png", PNG_WITH("Sirensailmask"));
+    expect(scratch.ok, JSON.stringify(scratch)).toBe(true);
+    expect(scratch.changes.map(change => change.path), "THE_PRUNE_REMOVED_THE_OLD_SKETCH").toContain(".brain/scratch/old-sketch.png");
+    // The tree follows exactly what the live prune removed and kept.
+    expect([existsSync(join(brain, ".brain/scratch/kept-sketch.png")), existsSync(join(tree.root, ".brain/scratch/kept-sketch.png"))],
+      "THE_TREE_KEEPS_WHAT_THE_PRUNE_KEPT").toEqual([true, true]);
+    expect([existsSync(join(brain, ".brain/scratch/old-sketch.png")), existsSync(join(tree.root, ".brain/scratch/old-sketch.png"))],
+      "THE_TREE_DROPS_WHAT_THE_PRUNE_REMOVED").toEqual([false, false]);
+    // The turn's next read waits for its index, which takes the same paths.
+    await bridge.awaitIndex!("mcp__brain__brain_search");
+    const read = inWorker(request, brain, ["/bin/sh", "-c", `cat ${DATA}/assets/raft-mask.png ${DATA}/.brain/scratch/sail-mask.png; `
+      + `test -e ${DATA}/.brain/scratch/old-sketch.png && echo PRUNED_SKETCH_PRESENT; grep -rl ${OLD_MASK} ${DATA} ${DATA}/.brain; true`]);
+    expect(read.stdout, `IN_WORKER_READ_SEES_THE_NEW_MASKS: ${read.stderr}`).toBe(Buffer.concat([PNG_WITH("Scyllanewmask"), PNG_WITH("Sirensailmask")]).toString());
+    expect(bytesAt(tree.root, "assets/raft-mask.png"), "THE_TREE_HOLDS_THE_APPLIED_PNG").toEqual(PNG_WITH("Scyllanewmask"));
+    // A Claude `Read` at the brain path would return the turn-start mask.
+    const refusal = await bridge.awaitIndex!("Read", { file_path: join(brain, "assets/raft-mask.png") }).then(() => "admitted", (error: Error) => error.message);
+    expect(refusal, "APPLIED_MASK_READ_REFUSED").toContain("mcp__brain__brain_read");
+  }, {}, host);
+});
+
+test("a masked turn's image mask enters its tree under the provenance rule, and a peer-changed base does not", async () => {
+  const f = fixture(true);
+  const host = maskFixture(f);
+  writeFileSync(join(f.brain, "assets/shield.png"), PNG_WITH("shield"));
+  writeFileSync(join(f.brain, "assets/shield-mask.png"), PNG_WITH("shield turn-start"));
+  await hostedTurn(f, "strict", async ({ bridge, request, brain, paint }) => {
+    const tree = request.workerSandbox!.dataTree!;
+    expect((await mask(bridge, paint, "assets/raft.png", "assets/raft-mask.png", PNG_WITH("Scyllanewmask"))).ok).toBe(true);
+    expect(bytesAt(tree.root, "assets/raft-mask.png"), "MASKED_TURN_TREE_HOLDS_ITS_OWN_MASK").toEqual(PNG_WITH("Scyllanewmask"));
+    // A peer replaced the mask after the turn started: its base is not what this turn saw.
+    writeFileSync(join(brain, "assets/shield-mask.png"), PNG_WITH(OLD_MASK));
+    expect((await mask(bridge, paint, "assets/shield.png", "assets/shield-mask.png", PNG_WITH("Shieldnewmask"))).ok).toBe(true);
+    expect(existsSync(join(tree.root, "assets/shield-mask.png")), "A_PEER_BASED_MASK_LEAVES_THE_TREE").toBe(false);
+    await bridge.awaitIndex!("mcp__brain__brain_search");
+  }, {}, host);
+});
+
 test("the brain's MCP server on the read-only tree stays fresh across in-place index updates", async () => {
   const f = fixture(false);
   await hostedTurn(f, "strict", async ({ bridge, request, brain }) => {
@@ -384,7 +480,7 @@ test("the tree leaves out .env link targets and, under any provider rule, the le
   try {
     // A recipient allowed every provider folder: no folder is masked, and
     // neither is `.brain-cache/`; a legacy root-level cache still is (#2725).
-    const tree = createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, providerRules: true, update: async () => {} });
+    const tree = await createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, providerRules: true, update: async () => {} });
     const root = tree.mount!.root;
     expect(["settings/ithaca-credentials.txt", ".env", ".context-cache.jsonl"].filter(rel => existsSync(join(root, rel))), "TREE_OMITS_ENV_TARGETS_AND_LEGACY_CACHES").toEqual([]);
     expect(existsSync(join(root, ".brain-cache/contexts.jsonl")), "ALLOWED_TREE_KEEPS_THE_CACHE_DIRECTORY").toBe(true);
@@ -392,5 +488,67 @@ test("the tree leaves out .env link targets and, under any provider rule, the le
     expect(existsSync(join(root, "archive-sealed/raft.md")), "READ_ONLY_DIRECTORIES_ARE_COPIED").toBe(true);
     await tree.close();
     expect([existsSync(root), existsSync(tree.index)], "TREE_AND_INDEX_REMOVED_DESPITE_READ_ONLY_DIRECTORIES").toEqual([false, false]);
+  } finally { await view.cleanup(); }
+});
+
+/** Every entry under `root` but the index: kind, mode, mtime, and bytes or link target. */
+function inventory(root: string, rel = ""): Record<string, unknown> {
+  const listed: Record<string, unknown> = {};
+  for (const name of readdirSync(join(root, rel)).sort()) {
+    const path = rel ? `${rel}/${name}` : name;
+    if (path === ".brain-index") continue;
+    const info = lstatSync(join(root, path));
+    const kind = info.isSymbolicLink() ? "link" : info.isDirectory() ? "dir" : "file";
+    // A link is made anew: its target is what the copy keeps.
+    listed[path] = { kind, ...(kind === "link" ? { target: readlinkSync(join(root, path)) } : { mode: (info.mode & 0o7777).toString(8), mtime: Math.floor(info.mtimeMs) }),
+      ...(kind === "link" ? {} : kind === "file" ? { sha: createHash("sha256").update(readFileSync(join(root, path))).digest("hex") } : {}) };
+    if (kind === "dir") Object.assign(listed, inventory(root, path));
+  }
+  return listed;
+}
+
+test("the pooled copy is the view, entry for entry: bytes, links, modes and times, and the seeded index", async () => {
+  const f = fixture(false);
+  // More files than the pool is wide, nested, with read-only directories and modes to keep.
+  for (let i = 0; i < 70; i++) {
+    const dir = join(f.brain, `voyages/leg-${i % 7}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `log-${i}.md`), NOTE(`Log ${i}`, `Odysseus logs leg ${i}.`));
+    utimesSync(join(dir, `log-${i}.md`), new Date(Date.UTC(2026, 6, 12, 0, i)), new Date(Date.UTC(2026, 6, 12, 1, i)));
+  }
+  chmodSync(join(f.brain, "voyages/leg-3/log-3.md"), 0o600);
+  chmodSync(join(f.brain, "voyages/leg-4/log-4.md"), 0o755);
+  // Bits a creating process's umask would strip.
+  chmodSync(join(f.brain, "voyages/leg-5/log-5.md"), 0o664);
+  symlinkSync("../leg-1/log-1.md", join(f.brain, "voyages/leg-2/sister.md"));
+  utimesSync(join(f.brain, "voyages/leg-5"), new Date(Date.UTC(2026, 6, 1)), new Date(Date.UTC(2026, 6, 2)));
+  chmodSync(join(f.brain, "voyages/leg-6"), 0o555);
+  cleanup.push(() => chmodSync(join(f.brain, "voyages/leg-6"), 0o755));
+  const view = await startup.prepareNativeWorkerStartupView(f.brain, undefined as never);
+  try {
+    const tree = await createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, update: async () => {} });
+    try {
+      const omitted = new Set([".git", "node_modules"]);
+      const expected = Object.fromEntries(Object.entries(inventory(view.root)).filter(([path]) => !omitted.has(path.split("/")[0]!)));
+      expect(inventory(tree.mount!.root), "THE_TREE_IS_THE_VIEW_ENTRY_FOR_ENTRY").toEqual(expected);
+      expect(existsSync(join(tree.index, "brain.db")), "THE_SEED_COPIED_THE_INDEX").toBe(true);
+      expect(snapshot(tree.index), "THE_SEEDED_INDEX_IS_THE_VIEWS").toEqual(snapshot(join(view.root, ".brain-index")));
+    } finally { await tree.close(); }
+  } finally { await view.cleanup(); }
+});
+
+test("an aborted admission stops the copy and leaves no tree or index behind", async () => {
+  const f = fixture(false);
+  for (let i = 0; i < 400; i++) writeFileSync(join(f.brain, "notes", `oar-${i}.md`), NOTE(`Oar ${i}`, "The crew rows on."));
+  const view = await startup.prepareNativeWorkerStartupView(f.brain, undefined as never);
+  const left = () => readdirSync(tmpdir()).filter(name => name.startsWith("brain-turn-data-") || name.startsWith("brain-private-index-"));
+  try {
+    const before = left();
+    const controller = new AbortController();
+    const pending = createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, update: async () => {}, signal: controller.signal });
+    controller.abort(new Error("Odysseus cancels the voyage."));
+    const outcome = await Promise.resolve(pending).then(tree => { void tree.close(); return "created"; }, (error: Error) => error.message);
+    expect(outcome, "AN_ABORTED_COPY_REFUSES").toBe("Odysseus cancels the voyage.");
+    expect(left(), "AN_ABORTED_COPY_LEAVES_NOTHING").toEqual(before);
   } finally { await view.cleanup(); }
 });

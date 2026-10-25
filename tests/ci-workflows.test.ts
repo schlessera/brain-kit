@@ -552,6 +552,12 @@ test("small exact inventories wire bounded planner partitions into actual unit e
   expect(step.run).toBe('bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"');
 });
 
+test("all unit partitions upload incremental memory diagnostics even after proof failure", () => {
+  const upload = ci.jobs.unit!.steps.find(s => s.uses === "actions/upload-artifact@v7")!;
+  expect(upload.if).toBe("always()");
+  expect(String(upload.with!.path).split("\n"), "UNIT_MEMORY_DIAGNOSTICS_RETAINED").toContain("tmp/unit-memory.jsonl");
+});
+
 
 test("runtime categories have distinct complete commands and strict aggregate dependencies", () => {
   const original = read("ci.yml");

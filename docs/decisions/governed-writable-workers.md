@@ -150,7 +150,7 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-132`;
 `begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:658-663`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:662-667`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -315,6 +315,44 @@ files, directory descendants and ancestors too. Refusals use the existing
 `policy_denied` result with no partial mutation; membership, live principal
 authority, exact browser submissions, voice exclusions and static alias checks
 remain independent requirements.
+
+**Every host writer a turn drives (maintainer, 2026-10-25, #2876 option 1).**
+Conversation inbox staging (`inbox_add`) and an autonomous turn's exactly
+approved application refuse every target in the turn's admitted protection
+set, with the application route's refusal: `policy_denied`, "This target is
+protected by the policy admitted for this turn; no change was applied." The
+hosted bridge hands inbox staging the list it captured at admission; an
+autonomous turn's application takes it from the policy the turn was admitted
+under (`protectedPaths: protectedPaths(policy.policy)`,
+`packages/ui-server/src/inbox/autonomous-turn.ts:315`), where it previously
+had none, so an approved autonomous write to a protected path now refuses.
+One check serves every host writer, the application route and image masks
+included (`createProtectedTargetCheck`,
+`packages/ui-server/src/brain/protected-target.ts:81-90`). A target refuses
+when it, an ancestor or a descendant is protected, compared both as named and
+where every link on the way leads, so a link into a protected folder and a
+protected path that is itself a link both count. The application route and
+image masks open every target without following links, so a link on a
+target's own way keeps their `alias_denied` refusal; only inbox staging,
+which follows links, refuses it as protected. The `.env*` names count by
+prefix, both a name a target would create and an existing one that links
+elsewhere. A link no writer could follow, through a file or by `..` after a
+missing folder, protects only its own name. A mask's scratch prune retains
+the same places, where links lead included. Inbox staging is judged at each directory and file it creates, before
+it publishes, and before every compensation removes anything: its own
+partial or published arrival, and an earlier arrival that the call
+reconciles (`conversation: (input`,
+`packages/ui-server/src/inbox/intake.ts:174-177`). A call refused before
+staging leaves no receipt and no item. Links are read at each change, so a
+link a governed worker swaps in between two changes stops the next one; one
+swapped in between a check and its own system call is not covered, because
+staging writes by path rather than through anchored descriptors. When a link
+moves an arrival into a protected path after staging began, its compensation
+leaves it there with its cleanup receipt rather than remove protected
+content. Writers the server
+runs for itself are outside this rule: the staging cleanup and prune, which
+already refuse a linked staging root, and the scratch prune pass. A policy
+proposal writes the policy file because the owner approved that exact change.
 
 ## The host execution boundary
 
@@ -812,7 +850,26 @@ configuration still loads from the frozen view at the brain path.
   `0600` file) is left out too.
   It costs O(brain), 0.11-0.31 s on the 2,000-note fixture, besides the
   approved index copy. Applications write only non-hidden `.md` outside
-  `context/policies`, so every other byte in the tree equals the view.
+  `context/policies`, and the image-mask operation only its PNG and its
+  scratch prune's removals, so every other byte in the tree equals the view.
+- **The copy runs as a pool (#2891).** Admission plans the tree (directories
+  and links) in one walk, then copies the files and the index seed sixteen at
+  a time off the event loop, requesting a reflink, and closes each directory's
+  mode and times last. Measured with the real admission code on a native
+  Btrfs checkpoint into the server's temporary directory, warm, as UID 1000
+  and as root (receipts on #2891, 2026-10-25): 2,000 notes of 16 KiB with a
+  115 MiB index 100 ms → 51 ms, 10,000 notes with a 574 MiB index
+  471 ms → 245 ms; a cold first copy 283 ms → 59 ms and 1,234 ms → 247 ms.
+  Two cheaper constructions were measured and not adopted. A reflink
+  placement on the managed volume takes 43 ms and 202 ms with one file after
+  another, because Bun's copy reflinks there already, but the server owns no
+  directory on that volume outside the live brain (the manager requires a
+  root-owned store, and the live subvolume is what governed peers write and
+  checkpoints qualify), so it needs a manager-provisioned location and a
+  capacity ruling first. Hardlinks from a shared base are refused by the
+  readers that require one link (`checkGovernancePolicy`, the embedding
+  policy, storage-attachment facts) and cannot cross subvolumes. The tree
+  still holds one copy per concurrent turn on the temporary directory.
 - **Committed bytes enter the tree inside the commit boundary.** Each
   application hands the tree its committed effects with the live base each
   one replaced, partial staged failures included; an archive writes the
@@ -850,7 +907,14 @@ configuration still loads from the frozen view at the brain path.
   the tree must stay data that only the brain tools read. pi's `read_file`,
   `grep` and `brain_read` resolve against the tree, and pi's shell runs in it;
   pi loads its context files at startup from the frozen path. The sandbox note
-  names the data path. Image-mask PNGs are not copied into the tree mid-turn.
+  names the data path.
+- **Image masks reach the tree too (#2892).** The mask operation hands the
+  tree its committed PNG, with the mask bytes it replaced as the base, and the
+  scratch prune's removals, inside the same lock as the live write. A worker's
+  next read of the mask in the tree returns the applied bytes, a pruned
+  scratch file is gone from it, and a Claude `Read` of the mask at the brain
+  path is refused like any applied path. In a masked turn the PNG enters only
+  under the provenance rule below, compared byte for byte.
 
 **Provider-restricted turns (#2846, B1).** A masked turn's tree leaves out
 the masked folders, the operational-state folders `.brain` and `.brain-ui` and
@@ -1072,7 +1136,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:198-225`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:210-237`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1660,7 +1724,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:368`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:375`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2587,7 +2651,7 @@ every turn without a proven recipient:
   - **The handoff summary.** Drafting a handoff summary refuses when the
     policy has provider rules and the source chat's lineage does not cover
     every provider folder, before its history is read (`unprovenHistory`,
-    `packages/ui-server/src/ws/handoff.ts:303-306`). The run has no proven
+    `packages/ui-server/src/ws/handoff.ts:309-312`). The run has no proven
     recipient, so every provider folder is denied to it. A policy with a type
     selector always refuses: the type's folders follow the current taxonomy,
     which this check does not translate, and a remembered translation may be
@@ -2618,7 +2682,7 @@ every turn without a proven recipient:
     roadblock signatures (`scope=roadblocks`). `running` and `rollups`
     return labels and counts that may also name documents.
   - `inbox_list` and `inbox_get` (`inboxList`,
-    `packages/ui-server/src/inbox/bridge-tools.ts:57-78`): each item's stored
+    `packages/ui-server/src/inbox/bridge-tools.ts:62-83`): each item's stored
     payload, titles, details and option labels, and its thread.
 
   None of these fields records which documents its text came from. A run from
@@ -2637,7 +2701,7 @@ every turn without a proven recipient:
   #2741 option C).** #2698 left autonomous turns out. Their bridge still
   serves `inbox_list` and `inbox_get` when the exact roster allows them,
   scoped to the turn's origin thread (`inboxList: async`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:57-78`), and the dispatcher
+  `packages/ui-server/src/inbox/bridge-tools.ts:62-83`), and the dispatcher
   embeds the thread's text in the first message (`async function context`,
   `packages/ui-server/src/inbox/dispatcher.ts:163-185`). Source inspection
   finds these retained thread inputs:
@@ -2654,18 +2718,18 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:377`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:380`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
+  `packages/ui-server/src/inbox/bridge-tools.ts:52-56`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
   recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = author`,
-  `packages/ui-server/src/inbox/intake.ts:110`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:125`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); text an autonomous run wrote (escalations, yields)
   whose admitted masks hid every folder now masked; and, since #2816, an
@@ -2831,10 +2895,10 @@ brain, which no turn writes, still loads. The relative `bun
 scripts/brain-cli.ts` fallback cannot launch in a masked worker at all (the
 launcher requires an absolute executable), so a protected fallback refuses
 too until that is fixed separately (#2865). Host writers that a turn drives
-outside its worker, such as inbox staging and an autonomous turn's exactly
-approved application, do not consult the policy's `protect` list; a
-configuration that reads files they write is outside this rule until they do
-(#2876).
+outside its worker, inbox staging and an autonomous turn's exactly approved
+application, refuse the policy's protected paths as the application route
+does (2026-10-25 ruling, #2876; "Every host writer a turn drives" under
+[The policy file](#the-policy-file)).
 Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.

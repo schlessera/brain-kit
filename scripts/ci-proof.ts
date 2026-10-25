@@ -11,6 +11,7 @@ import { balanceTests, discoverTests } from "./test-shards";
 import { resolveBrowserPin } from "./captures/provenance";
 import { diagramInstallationIdentity } from "./diagram-export-installation.mjs";
 import { diagramProducerRuntime } from "./diagram-export-producer.mjs";
+import { startUnitMemorySampler } from "./unit-memory";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable, type Inputs } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
@@ -141,6 +142,7 @@ if (import.meta.main) {
         samples++; peakUsedBytes = Math.max(peakUsedBytes, totalmem() - available);
       };
       sample(); const sampler = setInterval(sample, 1000);
+      const unitMemory = category === "unit" ? await startUnitMemorySampler(join(root, "tmp/unit-memory.jsonl"), 10_000, true) : undefined;
       const phases: { name: string; elapsedSeconds: number; success: boolean }[] = [];
       try {
         for (const command of commands) {
@@ -157,6 +159,7 @@ if (import.meta.main) {
           scope: "VM-wide during proof commands, including container work; setup/install and queue are measured separately by job steps. Sampling is not an exact process peak." };
         await Bun.write(join(root, "tmp/proof-resources.json"), JSON.stringify(resources, null, 2));
         console.log(`BRAIN_RESOURCE_RECEIPT ${JSON.stringify(resources)}`);
+        await unitMemory?.stop();
       }
       if (category === "unit") {
         const { validateUnitReports } = await import("./unit-proof-report");

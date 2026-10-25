@@ -614,7 +614,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Budget writes commit on the write worker (#2850).
   const budgets = createTurnBudgets(db, pricing, Date.now, writer);
   relayBudgets = budgets;
-  const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
+  // Catalog rows, and the profile rows and proposal binds that reference
+  // them, commit on the write worker (#2850).
+  const catalog = createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites, writer,
+    pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs } });
+  const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
@@ -624,7 +628,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => journal.close());
   // Startup recovery commits, or refuses boot, before any turn can run.
   await journal.ready;
-  const policyProposals = createPolicyProposals({ root: config.brainPath, db,
+  const policyProposals = createPolicyProposals({ root: config.brainPath, db, writer,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
@@ -651,7 +655,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     brainPath: config.brainPath,
     registry,
     observability,
-    catalog: createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites }),
+    catalog,
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
     inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver, config.brainPath),
@@ -938,7 +942,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
-  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));
+  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
+    settled: () => host.historySettled() }));
   app.route("/api", createJournalRoutes({ journal }));
   const storageHistory = createStorageHistory(db, config.brainPath);
   bootCleanup.push(() => storageHistory.close());

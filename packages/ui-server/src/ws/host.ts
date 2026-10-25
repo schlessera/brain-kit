@@ -557,6 +557,9 @@ export class WsHost {
       const messages = await backend.getHistory(sessionId);
       if (!authorized()) return "unauthorized";
       await this.failureReplay.wait(sessionId);
+      // Catalog rows and proposal binds commit off the event loop (#2850):
+      // the history is joined onto what was submitted before it was read.
+      await this.historySettled();
       if (!authorized()) return "unauthorized";
       if (read.changed) return "changed";
       publish(messages);
@@ -589,6 +592,15 @@ export class WsHost {
       read.changed = true;
       if (msg.type === "result") read.resultTurnId = turnId;
     }
+  }
+
+  /**
+   * Settles once every catalog write and proposal bind submitted before it
+   * has settled (#2850). Await it before `prepareHistory`.
+   * @internal Host wiring.
+   */
+  async historySettled(): Promise<void> {
+    await Promise.all([this.catalog.settled?.(), this.policyProposals?.settled()]);
   }
 
   /**

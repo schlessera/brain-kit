@@ -53,7 +53,10 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
         expect(heartbeatSize(), "SCOPE_ADAPTER_HEARTBEAT_GROWS_WHILE_RUNNING").toBeGreaterThan(1);
         yield { type: "system", subtype: "init", session_id: "11111111-1111-4111-8111-111111111111" };
         for (let call = 1; call <= 4; call++) {
-          while (call > 2 && params.options.abortController.signal.aborted === false && paused()) await Bun.sleep(10);
+          // A frozen worker makes no call: this in-process stream stands in
+          // for one, so it holds while the host has the turn paused, not only
+          // once the pause summary reaches the client after its commit (#2850).
+          while (call > 2 && params.options.abortController.signal.aborted === false && (paused() || hostPaused())) await Bun.sleep(10);
           if (params.options.abortController.signal.aborted) break;
           yield { type: "assistant", message: { content: [{ type: "tool_use", id: `loom-${call}`, name: "Bash", input: { command: "printf Ithaca" } }] } };
           yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `loom-${call}`, content: "Ithaca", is_error: false }] } };
@@ -68,6 +71,7 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
   const frames: ServerMessage[] = [];
   const latest = () => frames.filter((frame): frame is Extract<ServerMessage,{ type:"turn_journal" }> => frame.type === "turn_journal").at(-1);
   const paused = () => latest()?.journal.scope?.receipts.at(-1)?.state === "paused";
+  const hostPaused = () => [...app?.wsHost.coordinator.running ?? []].some(turn => app!.wsHost.scope?.isPaused(turn.turnId));
   let releaseObservation!: () => void, observationHeld = false;
   const observationReleased = new Promise<void>(done => { releaseObservation = done; });
   let captureSpy: ReturnType<typeof spyOn> | undefined;

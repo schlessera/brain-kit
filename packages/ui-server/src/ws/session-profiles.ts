@@ -2,23 +2,63 @@
 import { scopeLimits } from "../brain/turn-scope.js";
 import type { Database } from "bun:sqlite";
 import { SESSION_DRAFT_LIMITS, type SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
-import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import type { GovernedTurns } from "../brain/governed-turn.js";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import * as writes from "./session-profile-writes.js";
+import { authorizeProfile, draftProfile, SessionProfileError } from "./session-profile-writes.js";
+
+export { SessionProfileError };
 
 type Profile = "governed" | "strict";
-export class SessionProfileError extends Error {
-  constructor(readonly status: 400 | 401 | 404 | 409 | 507, message: string) { super(message); }
-}
-export function createSessionProfiles(db: Database, turns: GovernedTurns, budgets?: import("../brain/turn-budgets.js").TurnBudgets, limits?: { hardTimeoutMs: () => number }) {
-  const authorize = (principalId: string) => {
-    const principal = resolvePrincipal(db, principalId);
-    if (!principal || !isUsablePrincipal(principal, Date.now())) throw new SessionProfileError(401, "Authentication required.");
+type SessionRow = { preference: Profile; actualProfile: Profile | null; origin: "interactive" | "voice" };
+type Effect = { bind: Profile } | { record: { origin: "interactive" | "voice"; actualProfile: Profile } };
+
+export function createSessionProfiles(db: Database, turns: GovernedTurns, budgets?: import("../brain/turn-budgets.js").TurnBudgets, limits?: { hardTimeoutMs: () => number },
+  /**
+   * Where a session's bind and record commit: the app's write worker
+   * (#2850), after the catalog row they reference. `catalog` answers whether
+   * a session's row exists, its pending row included, and when the
+   * catalog's writes have settled.
+   */
+  options: { writer?: SqliteWriter; catalog?: { hasSession?(sessionId: string): boolean; settled?(): Promise<void> } } = {}) {
+  const authorize = (principalId: string) => authorizeProfile(db, principalId, Date.now());
+  const submit = procedureCaller(db, writes, undefined, options.writer);
+  // Each session's submitted, unsettled bind and record, in order. Both are
+  // idempotent over the row they produce, so a read applies them to the
+  // committed row whether or not they have landed yet.
+  const pending = new Map<string, Effect[]>();
+  let tail: Promise<void> = Promise.resolve();
+  const write = (sessionId: string, effect: Effect, name: string, ...args: unknown[]) => {
+    const effects = pending.get(sessionId) ?? [];
+    effects.push(effect);
+    pending.set(sessionId, effects);
+    const done = submit(name, ...args);
+    tail = done.then(() => {}, () => {});
+    void tail.then(() => {
+      effects.splice(effects.indexOf(effect), 1);
+      if (effects.length === 0 && pending.get(sessionId) === effects) pending.delete(sessionId);
+    });
+    return done;
   };
+  const exists = (id: string) => options.catalog?.hasSession?.(id) ?? db.query("SELECT 1 FROM sessions WHERE id = ?").get(id) !== null;
   const session = (id: string) => {
-    if (!db.query("SELECT 1 FROM sessions WHERE id = ?").get(id)) throw new SessionProfileError(404, "This chat is not known to the host.");
-    return db.query("SELECT preference, actual_profile AS actualProfile, origin FROM session_worker_profiles WHERE session_id = ?").get(id) as { preference: Profile; actualProfile: Profile | null; origin: "interactive" | "voice" } | null;
+    if (!exists(id)) throw new SessionProfileError(404, "This chat is not known to the host.");
+    let row = db.query("SELECT preference, actual_profile AS actualProfile, origin FROM session_worker_profiles WHERE session_id = ?").get(id) as SessionRow | null;
+    for (const effect of pending.get(id) ?? []) {
+      if ("bind" in effect) row ??= { preference: effect.bind, actualProfile: null, origin: "interactive" };
+      else row = row ? { ...row, ...effect.record } : { preference: "governed", ...effect.record };
+    }
+    return row;
   };
-  const draft = (principalId: string, id: string) => db.query("SELECT preference FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").get(principalId, id) as { preference: Profile } | null;
+  // A bind consumes its draft: once submitted, the draft reads as gone.
+  const consumed = new Set<string>();
+  const draft = (principalId: string, id: string) => consumed.has(JSON.stringify([principalId, id])) ? null : draftProfile(db, principalId, id);
+  /** Settles once every bind and record submitted before it, and the catalog rows they need, have settled. */
+  const settled = async () => {
+    await options.catalog?.settled?.();
+    let waiting: Promise<void>;
+    do { waiting = tail; await waiting; } while (waiting !== tail);
+  };
   const facts = (preference: Profile, origin: "interactive" | "voice", actualProfile?: Profile): SessionWorkerProfile => {
     const resolved = turns.facts(origin);
     const caps = scopeLimits(resolved.policy.policy);
@@ -44,7 +84,10 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   };
   return {
     read,
-    save(principalId: string, kind: "session" | "draft", id: string, preference: Profile) {
+    settled,
+    // A saved preference still commits here, after what it reads has settled.
+    async save(principalId: string, kind: "session" | "draft", id: string, preference: Profile) {
+      await settled();
       return db.transaction(() => {
         const current = read(principalId, kind, id);
         if (current.origin === "voice") throw new SessionProfileError(409, "Voice uses this brain's policy.");
@@ -71,20 +114,19 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
       if (!row) throw new SessionProfileError(409, "This draft preference is unavailable. Refresh before sending.");
       return row.preference;
     },
-    bind(principalId: string, draftId: string, sessionId: string) {
-      db.transaction(() => {
-        authorize(principalId); session(sessionId);
-        const row = draft(principalId, draftId);
-        if (!row) throw new SessionProfileError(409, "This draft preference is unavailable.");
-        // A save during the first turn is for its NEXT admission; the running profile stays frozen.
-        db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
-          .run(sessionId, row.preference, Date.now(), principalId);
-        db.query("DELETE FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").run(principalId, draftId);
-      }).immediate();
+    /** Checked now, as the inline write did; it commits after the session's row. */
+    bind(principalId: string, draftId: string, sessionId: string): Promise<unknown> {
+      authorize(principalId); session(sessionId);
+      const row = draft(principalId, draftId);
+      if (!row) throw new SessionProfileError(409, "This draft preference is unavailable.");
+      const key = JSON.stringify([principalId, draftId]);
+      consumed.add(key);
+      const done = write(sessionId, { bind: row.preference }, "bind", principalId, draftId, sessionId, Date.now());
+      void done.then(() => {}, () => {}).then(() => consumed.delete(key));
+      return done;
     },
-    record(sessionId: string, origin: "interactive" | "voice", actualProfile: Profile) {
-      db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by, origin, actual_profile) VALUES (?, 'governed', ?, 'host', ?, ?) ON CONFLICT(session_id) DO UPDATE SET origin = excluded.origin, actual_profile = excluded.actual_profile")
-        .run(sessionId, Date.now(), origin, actualProfile);
+    record(sessionId: string, origin: "interactive" | "voice", actualProfile: Profile): Promise<unknown> {
+      return write(sessionId, { record: { origin, actualProfile } }, "record", sessionId, origin, actualProfile, Date.now());
     },
   };
 }

@@ -21,6 +21,9 @@ const ROOT = resolve(import.meta.dir, "..");
 const REPORT_DIR = join(ROOT, "api-report");
 
 const reports = generateReports();
+// Only the strings survive report generation. Collect the full repository's
+// compiler graph before the fixture programs and later files share this VM.
+Bun.gc(true);
 
 /** A report's export names and its signature section, apart. */
 function sections(report: string): { names: string; signatures: string } {
@@ -142,6 +145,10 @@ export class Client {
         .replaceAll(relative(ROOT, dir), "<dir>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+      // Each fixture creates an independent TypeScript program, including its
+      // library ASTs. Release it here instead of multiplying a worker's heap
+      // target by dozens of unreachable compiler graphs (#2945).
+      Bun.gc(true);
     }
   }
 
