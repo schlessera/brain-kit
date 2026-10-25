@@ -7,7 +7,7 @@ import { createClaudeBackend } from "../../src/backend.js";
 import { historyHost } from "../../../../tests/fixtures/provider-history-host.js";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { replaceNativeStartupAcquisitionForFixture } from "../../../ui-server/tests/helpers/fixture-native-startup.js";
-import { changeRepository, fixtureBrain } from "../../../../tests/fixtures/provider-history-brain.js";
+import { changeRepository, fixtureBrain, turnDataTree } from "../../../../tests/fixtures/provider-history-brain.js";
 import type { Captures, HistoryCapture } from "../../../../tests/helpers/provider-history.js";
 import type { ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
 
@@ -51,7 +51,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "datatree"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -67,7 +67,8 @@ try {
       const view = createFixtureWorkerStartupView(brain);
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
-        workerStartupView: view, workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } } },
+        workerStartupView: view, workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
+          ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
         client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
         ...(scenario === "posture" && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" as const }; },

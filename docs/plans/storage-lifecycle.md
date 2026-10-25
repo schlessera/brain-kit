@@ -23,7 +23,7 @@ through its owners. Offer selected canonical attachment removal only after a
 dedicated, stale-safe, journaled application operation exists. The current
 file routes read files; they have no deletion endpoint. The curated application
 route accepts ordinary Markdown, not arbitrary binaries
-(`function validatePath`, `packages/ui-server/src/brain/application.ts:36-54`).
+(`function validatePath`, `packages/ui-server/src/brain/application.ts:37-55`).
 Document archive changes visibility/relevance and may move Markdown; it does
 not remove an attachment or reclaim its history. Do not present it as Delete.
 
@@ -82,11 +82,11 @@ Source foundations for the matrix:
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source
-  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:188-242`).
+  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:217-274`).
 - Journal collection requires no refs/reservations and only expires ended
-  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:223-243`).
+  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:232-252`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:340-371`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:350-381`).
   Object copies reserve temporary bytes before writing
   (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:95-150`).
 - Turn-temp purge has its own scope and measured result

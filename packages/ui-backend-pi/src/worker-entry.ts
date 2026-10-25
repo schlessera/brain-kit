@@ -6,7 +6,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentSession, SessionManager, FileEntry } from "@earendil-works/pi-coding-agent";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns } from "@schlessera/brain-ui-sdk/server";
-import { createTurnTempPressure, TURN_TEMP_ROOT, WORKER_INFERENCE_SOCKET, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { createTurnTempPressure, TURN_TEMP_ROOT, WORKER_DATA_ROOT, WORKER_INFERENCE_SOCKET, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import type { PiWorkerInference } from "./autonomous-envelope.js";
 import type { PiRelayedInference } from "./host-inference.js";
 import { createBrainAccess } from "./brain-access.js";
@@ -31,6 +31,8 @@ interface Init {
   sandboxNote?: string;
   fixedAppend?: string;
   governed?: boolean;
+  /** The worker reads its turn's data tree at `WORKER_DATA_ROOT` (#2848). */
+  dataTree?: boolean;
   sharedLock?: boolean;
   /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
   inference?: PiWorkerInference;
@@ -131,7 +133,9 @@ async function initialize(init: Init): Promise<void> {
       ...init.relayed.providerConfig, baseUrl: `http://127.0.0.1:${forward.port}${init.relayed.basePath}` } } }));
   }
   const resources = createSessionResources({ backend: init.backend,
-    brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ? {
+    // A strict turn's brain tools read its data tree (#2848); configuration
+    // still loads from the frozen view at the brain path.
+    brain: createBrainAccess(init.dataTree ? WORKER_DATA_ROOT : init.backend.brainPath), lock: init.sharedLock ? {
       async withKey(key, fn) {
         if (key === null) return fn();
         const scope = toolScope.getStore();
@@ -149,7 +153,7 @@ async function initialize(init: Init): Promise<void> {
       const scope = toolScope.getStore();
       if (!scope || scope.id !== id) throw new Error("A file observation needs the active native tool call");
       await rpc("fileObservation", scope.name, id, { phase, path });
-    } }) } : { shellCwd: WORKER_SCRATCH }),
+    } }) } : { shellCwd: init.dataTree ? WORKER_DATA_ROOT : WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     fixedAppend: init.fixedAppend, observeAppend: append => { renderedAppend = append; },
     permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {

@@ -28,11 +28,14 @@ test("a turn allowed every provider folder mounts no mask over them, its history
 test("a masked folder hides history and binds the private index, which it cannot do without", () => {
   const { brain, index } = view();
   expect(() => providerMaskMounts(brain, brain, { folders: ["me"] }), "MASKED_FOLDER_NEEDS_PRIVATE_INDEX").toThrow("need the turn's private index");
+  // Read-only to the turn's agent (#2846); only the host's own builds write it.
   expect(providerMaskMounts(brain, brain, { folders: ["me"], index })).toEqual([
     "--tmpfs", join(brain, "me"), "--remount-ro", join(brain, "me"),
     "--tmpfs", join(brain, ".git"), "--remount-ro", join(brain, ".git"),
-    "--bind", index, join(brain, ".brain-index"),
+    "--ro-bind", index, join(brain, ".brain-index"),
   ]);
+  expect(providerMaskMounts(brain, brain, { folders: ["me"], index, indexWritable: true }).slice(-3), "HOST_BUILD_WRITES_THE_PRIVATE_INDEX")
+    .toEqual(["--bind", index, join(brain, ".brain-index")]);
 });
 
 test("a worker shown only some paths starts from an empty brain and binds back exactly those, refusing aliases (#2699)", () => {
@@ -48,7 +51,8 @@ test("a worker shown only some paths starts from an empty brain and binds back e
     "--ro-bind", join(brain, "node_modules"), join(brain, "node_modules"),
     "--tmpfs", join(brain, "me"), "--remount-ro", join(brain, "me"),
     "--tmpfs", join(brain, ".git"), "--remount-ro", join(brain, ".git"),
-    "--bind", index, join(brain, ".brain-index"),
+    // Read-only unless the host's own build asks (#2846).
+    "--ro-bind", index, join(brain, ".brain-index"),
   ]);
   // Bubblewrap would bind whatever a link points at, so no name on the way may be one.
   mkdirSync(join(brain, "lib"));

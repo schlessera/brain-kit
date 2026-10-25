@@ -36,7 +36,7 @@ for (const mode of ["default", "narrowed", "absent", "forged-tool", "mismatched-
       });
       exits.push(exited);
       return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, exited, kill: (signal?: NodeJS.Signals) => child.kill(signal),
-        limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+        limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as ReturnType<typeof worker.launchAgentWorker>;
     });
     try {
       const backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"),

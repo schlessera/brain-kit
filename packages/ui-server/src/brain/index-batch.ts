@@ -47,6 +47,13 @@ export interface IndexBatch {
   pending(): boolean;
   /** Settles once no update is running; for shutdown. */
   idle(): Promise<void>;
+  /**
+   * Mark the queue before a checkpoint of the brain is taken (#2848). Read
+   * after it, `paths` names every path queued but not yet indexed at the mark,
+   * and every path queued since, flushed or not: the checkpoint's index may
+   * lack any of them. Over-inclusion is harmless. Release it once read.
+   */
+  watermark(): { paths(): string[]; release(): void };
 }
 
 interface Entry { seq: number; paths: readonly string[]; settle?: (outcome: IndexOutcome) => void; failed: boolean }
@@ -57,6 +64,10 @@ export function createIndexBatch(options: {
 }): IndexBatch {
   let queued = 0, indexed = 0;
   let entries: Entry[] = [];
+  // Flushed entries a held watermark still names.
+  let history: Entry[] = [];
+  const marks = new Set<{ seq: number }>();
+  const lowest = () => Math.min(...[...marks].map(mark => mark.seq));
   let flight: Promise<void> | undefined;
   const report = (entry: Entry, outcome: IndexOutcome) => {
     try { entry.settle?.(outcome); } catch { /* A receipt sink cannot fail the update it reports. */ }
@@ -71,6 +82,7 @@ export function createIndexBatch(options: {
       for (const entry of batch) if (!entry.failed) { entry.failed = true; report(entry, { paths: entry.paths, indexed: false, indexError }); }
       throw new IndexFlushError(paths, indexError);
     }
+    if (marks.size) history.push(...batch.filter(entry => entry.seq > lowest()));
     entries = entries.filter(entry => entry.seq > through);
     indexed = Math.max(indexed, through);
     for (const entry of batch) report(entry, { paths: entry.paths, indexed: true });
@@ -97,6 +109,14 @@ export function createIndexBatch(options: {
     },
     pending: () => entries.length > 0,
     async idle() { while (flight) await flight.catch(() => {}); },
+    watermark() {
+      const mark = { seq: indexed };
+      marks.add(mark);
+      return {
+        paths: () => [...new Set([...history, ...entries].filter(entry => entry.seq > mark.seq).flatMap(entry => entry.paths))].sort(),
+        release() { marks.delete(mark); history = marks.size ? history.filter(entry => entry.seq > lowest()) : []; },
+      };
+    },
   };
 }
 

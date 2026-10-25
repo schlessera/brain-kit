@@ -390,6 +390,21 @@ write verified scratch/workspace copies through the aliases below.
   execution view stays read-only and ordinary Markdown changes use the server's
   validated write/edit tools. Direct writes outside its selected area aliases
   fail. Autonomous turns retain their restricted permissions.
+- **The turn's data tree** (`/tmp/brain-worker-data`, read-only) is what a
+  strict, voice or autonomous worker's brain tools read: the documents as the
+  turn started plus every change the turn's own applications committed, with
+  a search index the server brings up to date before the next search. The
+  `brain` CLI in a shell, Claude's `brain` MCP server and pi's brain tools use
+  it as their data root (`BRAIN_ROOT`); configuration still loads from the
+  frozen view at the brain path. Claude's `Read`, `Grep` and `Glob` and shell
+  commands that name the brain path see the turn-start bytes; a Claude `Read`
+  of a path the turn changed is refused and points to `mcp__brain__brain_read`, and
+  Claude's file tools do not read the tree itself.
+  Admission copies the startup view's documents into it (O(brain): 0.1-0.3 s
+  for 2,000 notes) and seeds its index, on the server's temporary directory.
+  Under a provider rule the tree leaves out the masked folders, and only
+  changes that pass the provenance rule enter it; the turn's private index is
+  read-only to the agent.
 - **`.brain/scratch/`** is created when missing and made writable when every
   segment is a real directory (no symlink), no mount point sits at or below
   it, and, in a git repository, git ignores it (`brain doctor --fix` adds the

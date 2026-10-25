@@ -419,9 +419,9 @@ export async function checkIndexDrift(
   if (!existsSync(dbPath)) return issues;
 
   try {
-    const { Database } = await import("bun:sqlite");
+    const { openDatabase } = await import("./db.js");
 
-    const db = new Database(dbPath, { readonly: true });
+    const db = openDatabase(dbPath, { readonly: true });
     const dbPaths = new Set(
       (db.prepare("SELECT path FROM documents WHERE asset_type = 'markdown'").all() as { path: string }[])
         .map((r) => r.path)

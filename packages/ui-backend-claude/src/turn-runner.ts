@@ -185,7 +185,7 @@ export function createClaudeTurnRunner(options: {
         ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
         : undefined;
       fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
-        ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
+        ?? (req.sessionId && observationStorage ? await NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
       if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
     } catch (error) {
       req.signal.removeEventListener("abort", onHostAbort);
@@ -652,7 +652,11 @@ export function createClaudeTurnRunner(options: {
             // busy slot from its placeholder, so a resume of this session while
             // it still runs is detected as busy.
             sessionId = msg.session_id;
-            if (fileVersions && observationStorage) fileVersions.retain({ ...observationStorage, sessionId });
+            // Saved off the event loop (#2416) and queued before any tool's
+            // observation save, which each native tool awaits. A failure
+            // refuses native writes until a later save succeeds.
+            if (fileVersions && observationStorage) fileVersions.retain({ ...observationStorage, sessionId })
+              .catch(error => options.log("warn", "Claude native file observations could not be retained", { error: String(error) }));
             if (fileVersions) { fileVersionsBySession.delete(turnKey); fileVersionsBySession.set(sessionId, fileVersions); }
             activeTurns.delete(turnKey);
             activeTurns.set(sessionId, turn);

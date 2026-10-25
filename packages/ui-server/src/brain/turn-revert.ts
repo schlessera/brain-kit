@@ -42,6 +42,8 @@ export function createTurnReverts(db: Database, options: {
     return [...folded.values()].map(item => {
       let reason: string | null = null;
       if (!reversibleJournalPath(item.path) && !journal.claudeMemoryTarget(turnId, item.path)) reason = "non_reversible_metadata";
+      // The disposable index is rebuilt from Markdown, never restored (#2873).
+      else if ([item.before, item.after].some(version => version?.metadataOnly)) reason = "metadata_only";
       else if (details.missing.some(missing => prefix(item.path, missing.path))) reason = "incomplete_observation";
       else if ([item.before, item.after].some(version => version && (version.ignored || version.kind === "other" || version.kind === "file" && !version.hash))) reason = "version_unavailable";
       else if (action === "restore" && (!item.quarantined || !item.after)) reason = "not_quarantined";
@@ -62,7 +64,7 @@ export function createTurnReverts(db: Database, options: {
       const change=changes.find(change=>change.sequence===ref.sequence&&ref.turnId===turnId&&ref.side==="after");
       if (!change) throw new RevertUnavailable("Selected observation is unavailable.");
       const version=change.after;
-      if(version&&(version.ignored||version.kind==="other"||version.kind==="file"&&!version.hash)) throw new RevertUnavailable("Selected raw version is unavailable.");
+      if(version&&(version.ignored||version.metadataOnly||version.kind==="other"||version.kind==="file"&&!version.hash)) throw new RevertUnavailable("Selected raw version is unavailable.");
       return version;
     }
     const desired=selected(request.version);
@@ -142,7 +144,8 @@ export function createTurnReverts(db: Database, options: {
           payload:{conflicts:conflicts.slice(offset,offset+1).map(path=>({path:path.path,state:"changed"})),restored:selected.filter(path=>path.state==="restored").length}});
       }));
       await journal.finish(row.journal_turn_id);
-      const partial = selected.some(path => ["conflict", "failed", "excluded"].includes(path.state)) || journal.summary(row.journal_turn_id).state !== "complete";
+      // The index is rebuilt by the refresh below, not restored: leaving it is no partial revert.
+      const partial = selected.some(path => ["conflict", "failed"].includes(path.state) || path.state === "excluded" && path.reason !== "metadata_only") || journal.summary(row.journal_turn_id).state !== "complete";
       await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=trim(error) WHERE id=?", partial ? "partial" : "complete", Date.now(), row.id)]);
     } catch (error) {
       const reason = (error as {reason?:string}).reason === "journal_capacity" ? "journal_capacity" : (error as {reason?:string}).reason === "journal_storage_unavailable" ? "journal_unavailable" : error instanceof RevertUnavailable ? "authorization_changed" : "operation_unavailable";

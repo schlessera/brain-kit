@@ -694,7 +694,8 @@ async function runRetainedSession(
           } },
           governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
             ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
-            ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined
+            ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined,
+          governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined
         );
         // A failed update is already on each application's Activity record,
         // and its paths stay queued for the next reader; the turn still ends.

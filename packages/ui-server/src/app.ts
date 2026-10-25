@@ -606,7 +606,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
       index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
-      exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}) });
+      exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
   relayBudgets = budgets;

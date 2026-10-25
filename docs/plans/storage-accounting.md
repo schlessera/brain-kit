@@ -70,7 +70,7 @@ Source anchors, checked against the reviewed commit:
 - D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:292-328`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:108-114`).
-- E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).
+- E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:30-39`).
 - F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:8-28`).
 - G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
   and settlement-aware cleanup (`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-42`).

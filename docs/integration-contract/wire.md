@@ -129,7 +129,9 @@ counter; field shapes and scope decisions are unchanged. The brain root's
 disposable index (`.brain-index/brain.db` and its SQLite sidecars) is counted
 the same way, ignored or not, and a `.brain-index/.maintenance-<uuid>` publication
 copy that a later observation saw removed is neither a changed path nor bytes;
-one that stays counts like any other file (#2831). Every host index refresh
+one that stays counts like any other file (#2831). Since 0.44.0 every one of
+those index versions is metadata-only (#2873), and a staying publication copy
+counts its largest observed size once, like the index itself. Every host index refresh
 rewrites the whole database, so a strict turn's host applies otherwise charged
 it the index's full size per edit. The counter does not
 claim to capture writes overwritten between observations. Missing snapshots

@@ -5,8 +5,9 @@ import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { hasNativeBrainBoundary } from "./worker-startup-view.js";
 import { runWorkerStepsSync, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
+import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
-  type WorkerProtection, type ProtectedWorkerPath, type WorkerProviderMasks } from "./worker-sandbox.js";
+  type WorkerProtection, type ProtectedWorkerPath, type WorkerProviderMasks, type WorkerDataTree } from "./worker-sandbox.js";
 
 const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code ?? String(error);
@@ -244,7 +245,54 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
       throw new Error("the private index must be an unaliased directory outside the brain");
     const target = lstatSync(join(view, INDEX_DIR), { throwIfNoEntry: false });
     if (!target?.isDirectory() || target.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the worker's view`);
-    argv.push("--bind", masks.index, join(brain, INDEX_DIR));
+    // The turn's agent reads it; only the host's own builds write it (#2846).
+    argv.push(masks.indexWritable ? "--bind" : "--ro-bind", masks.index, join(brain, INDEX_DIR));
+  }
+  return argv;
+}
+
+/**
+ * The repo-relative paths a worker's `.env*` masks cover in `view`, link
+ * targets included (`maintenanceEnvMasks`): a turn's data tree leaves each out,
+ * since its masks cover only the brain path (#2848).
+ */
+export function envMaskedPaths(view: string, brain: string): string[] {
+  const argv = maintenanceEnvMasks(view, brain), paths = new Set<string>();
+  for (let i = 0; i < argv.length; i++) {
+    const target = argv[i] === "--ro-bind" && argv[i + 1] === "/dev/null" ? argv[i + 2] : argv[i] === "--tmpfs" ? argv[i + 1] : undefined;
+    if (target && target.startsWith(`${brain}/`)) paths.add(target.slice(brain.length + 1));
+  }
+  return [...paths].sort();
+}
+
+const outsideOf = (dir: string, path: string) => path !== dir && !path.startsWith(`${dir}/`) && !dir.startsWith(`${path}/`);
+
+/**
+ * A turn's data tree at `target` (#2848): its host directory read-only, the
+ * turn's index over `.brain-index/`, writable only to the host's updater, and
+ * the same provider masks as the brain path. The host leaves masked folders
+ * and the generated-text caches out of the tree; a name that is there anyway
+ * reads as empty.
+ */
+export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTree): string[] {
+  for (const dir of [tree.root, tree.index]) {
+    const info = lstatSync(dir, { throwIfNoEntry: false });
+    if (!isAbsolute(dir) || normalize(dir) !== dir || !info?.isDirectory() || info.isSymbolicLink() || !outsideOf(brain, dir) || !outsideOf(dir, target))
+      throw new Error("the turn's data tree and index must be unaliased directories outside the brain");
+  }
+  if (!outsideOf(tree.root, tree.index)) throw new Error("the turn's index must be outside its data tree");
+  const index = lstatSync(join(tree.root, INDEX_DIR), { throwIfNoEntry: false });
+  if (!index?.isDirectory() || index.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the turn's data tree`);
+  const argv = ["--ro-bind", tree.root, target, tree.indexWritable ? "--bind" : "--ro-bind", tree.index, join(target, INDEX_DIR)];
+  for (const name of PROVIDER_CACHE_FILES) {
+    const info = lstatSync(join(tree.root, name), { throwIfNoEntry: false });
+    if (info && tree.masked) argv.push("--ro-bind", "/dev/null", join(target, name));
+  }
+  for (const rel of [...new Set(tree.masked ?? [])].sort()) {
+    if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`)) throw new Error("invalid provider mask folder");
+    const info = lstatSync(join(tree.root, rel), { throwIfNoEntry: false });
+    if (info?.isDirectory() && !info.isSymbolicLink()) argv.push("--tmpfs", join(target, rel), "--remount-ro", join(target, rel));
+    else if (info) argv.push("--ro-bind", "/dev/null", join(target, rel));
   }
   return argv;
 }

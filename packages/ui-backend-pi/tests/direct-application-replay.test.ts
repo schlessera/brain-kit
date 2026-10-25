@@ -21,7 +21,7 @@ for (const mode of ["none", "header", "late", "cancel", "multiple", "resume"]) t
     const exited = new Promise<number>((resolve, reject) => { child.once("exit", (code, signal) => { expect(signal === "SIGKILL" || code === 0).toBe(true); resolve(code ?? 128); }); child.once("error", reject); });
     exits.push(exited);
     return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, exited,
-      kill: (signal?: NodeJS.Signals) => child.kill(signal), limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+      kill: (signal?: NodeJS.Signals) => child.kill(signal), limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   try {
     const resumeId = "11111111-1111-4111-8111-111111111111";

@@ -114,8 +114,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let ownedPrompt: { id: string; text: string; images: boolean } | undefined;
   const observationStorage = { directory: join(sessionDir, "native-observations"), brainPath: backend.brainPath, sessionId };
   const nativeVersions = nativeSessions.get(sessionId)
-    ?? (!env.autonomous && resumeId ? NativeFileVersions.restore(observationStorage) : new NativeFileVersions());
-  if (!env.autonomous && !resumeId) nativeVersions.retain(observationStorage);
+    ?? (!env.autonomous && resumeId ? await NativeFileVersions.restore(observationStorage) : new NativeFileVersions());
+  if (!env.autonomous && !resumeId) await nativeVersions.retain(observationStorage);
   if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
   /** Entries saved before this turn: only their own turn owns their display mappings. */
   const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
@@ -163,7 +163,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerProviderMasks, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
+  const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
   const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
   let cachedNpmModules: string | undefined;
   if (npmPath && existsSync(npmPath)) {
@@ -175,7 +175,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       throw new BackendRequestError("Pi prepared npm resources must be inside the selected agent directory's npm tree.");
     }
   }
-  const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { exec, brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
+  const init = { type: "init", governed: workerSandbox?.profile === "governed", dataTree: Boolean(workerSandbox?.dataTree ?? workerDataTree), sharedLock: Boolean(workerLock), backend: { exec, brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, fixedAppend: promptContext?.append(), ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
@@ -231,7 +231,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
     sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
-      ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}) }
+      ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}), ...(workerDataTree ? { dataTree: workerDataTree } : {}) }
       : workerSandbox ?? await prepareWorkerSandboxAsync(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {
@@ -276,6 +276,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (launchedChild) {
       await attempt(() => launchedChild!.kill("SIGKILL"));
       await attempt(() => launchedChild!.exited);
+      // Nothing reads its stdio yet: close the server's ends, then wait out Bun's duplicates (#2863).
+      await attempt(() => { launchedChild!.stdin.end(); launchedChild!.stdout.destroy(); launchedChild!.stderr.destroy(); return launchedChild!.released(); });
       workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.closeAsync());
     }
     if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());
@@ -346,6 +348,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     return new WorkerResourceLimitError(report.hits);
   })();
   const send = (value: unknown) => sendPipe(child.stdin, value);
+  /**
+   * Once the worker has exited, its stdio can still be open here (#2863): Bun
+   * closes its own duplicates of the FIFO descriptors on its pool after their
+   * streams end. A turn's prompt and a refused initialization settle only
+   * after this, which resolves once they are closed or `released()`'s bound expires.
+   */
+  const stdioReleased = (): Promise<void> => { child.stdin.end(); return child.released(); };
   function live(): void {
     if (!active || ended || !turnContext.bridge || !turnContext.signal || turnContext.signal.aborted) {
       throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked.");
@@ -493,13 +502,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       const observed = child.observeFile?.(input.path);
       if (!observed) throw new Error("Native file observation is outside the worker file view");
-      if (phase === "read_start") nativeVersions.beginRead(msg.toolCallId, observed.key, observed.version);
-      else if (phase === "read_end") nativeVersions.finishRead(msg.toolCallId, observed.version, true);
+      if (phase === "read_start") await nativeVersions.beginRead(msg.toolCallId, observed.key, observed.version);
+      else if (phase === "read_end") await nativeVersions.finishRead(msg.toolCallId, observed.version, true);
       else if (phase === "write_check") {
         const refusal = nativeVersions.check(observed.key, observed.version);
         if (refusal) throw new Error(refusal);
-        nativeVersions.beginWrite(observed.key);
-      } else nativeVersions.finishWrite(observed.key, observed.version);
+        await nativeVersions.beginWrite(observed.key);
+      } else await nativeVersions.finishWrite(observed.key, observed.version);
       executed(msg).phases.add(phase as string);
       return { ok: true };
     }
@@ -705,7 +714,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) {
-    fail(error); await child.exited;
+    fail(error);
+    try { await child.exited; } finally { await stdioReleased(); }
     // A worker that never ran a turn frees its turn temp here, awaited (#2854).
     // A refused close keeps the reservation; the startup error stays the refusal.
     try { await closeTurnTemp(); }
@@ -740,7 +750,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       finally {
         child.stdin.end(); child.kill("SIGKILL");
         try { await child.exited; await received; await promote(); }
-        finally { await closeTurnTemp(); }
+        finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
       }
       if (error) throw error;
     },
