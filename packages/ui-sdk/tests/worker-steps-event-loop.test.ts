@@ -591,6 +591,9 @@ function heldRootSeam(f: ReturnType<typeof fixture>, status: () => IdentityWorke
   };
 }
 
+const settledWithin = <T>(promise: Promise<T>, ms: number) =>
+  Promise.race([promise.then(() => "settled", () => "settled"), Bun.sleep(ms).then(() => "pending")]);
+
 /** Launch through the seam, with both handles unless `handles` is false; `exit()` makes the supervisor report the worker gone. */
 async function heldRootLaunch(handles = true, answer: IdentityWorkerStatus = { exited: true, code: 0 }) {
   const f = fixture(), view = createFixtureWorkerStartupView(f.brain);
@@ -608,13 +611,11 @@ async function heldRootLaunch(handles = true, answer: IdentityWorkerStatus = { e
     exit: () => { gone = true; },
     cleanup: async () => {
       try { process.kill(launched.pid, "SIGKILL"); } catch { /* already gone */ }
-      await launched.exited.catch(() => {});
+      // Bounded: a failed case may have left the exit unsettled.
+      await settledWithin(launched.exited, 3_000);
       helper.mockRestore(); await seam.restore(); view.cleanup(); f.cleanup();
     } };
 }
-
-const settledWithin = <T>(promise: Promise<T>, ms: number) =>
-  Promise.race([promise.then(() => "settled", () => "settled"), Bun.sleep(ms).then(() => "pending")]);
 
 test("an asynchronously launched separate-UID worker's exit settles with handles held, and its last handle closes the broker through awaited steps", async () => {
   for (const order of ["sequential", "concurrent"] as const) {
@@ -622,8 +623,8 @@ test("an asynchronously launched separate-UID worker's exit settles with handles
     try {
       run.exit();
       // The exit settles while both handles are held, without closing the broker.
-      expect({ order, exited: await run.worker.exited, operations: run.seam.operations() }, "EXIT_SETTLES_WHILE_HANDLES_HELD")
-        .toEqual({ order, exited: 0, operations: [] });
+      expect({ order, exit: await settledWithin(run.worker.exited, 3_000) }, "EXIT_SETTLES_WHILE_HANDLES_HELD").toEqual({ order, exit: "settled" });
+      expect({ order, exited: await run.worker.exited, operations: run.seam.operations() }).toEqual({ order, exited: 0, operations: [] });
       const spawns = identityControlSpawns();
       let closes, ticks;
       try {
@@ -687,7 +688,7 @@ test("a separate-UID worker's exit with no handle held closes its broker through
       } finally { spawns.restore(); }
       expect({ reply, closes }, "ZERO_HANDLE_EXIT_CLOSES_BROKER_THROUGH_AWAITED_STEPS").toEqual({ reply, closes: { sync: [], async: ["close"] } });
       // The exit settled only after the supervisor answered the close.
-      expect({ reply, operations: run.seam.operations() }).toEqual({ reply, operations: ["close", "close:answered"] });
+      expect({ reply, operations: run.seam.operations() }, "ZERO_HANDLE_EXIT_SETTLES_AFTER_ITS_CLOSE").toEqual({ reply, operations: ["close", "close:answered"] });
       if (!reply) expect(outcome, "ZERO_HANDLE_EXIT_SETTLES_AFTER_CONFIRMED_CLOSE").toBe(0);
       else {
         expect(identity.workerCleanupUnconfirmed(outcome), "ZERO_HANDLE_EXIT_REFUSES_UNCONFIRMED_CLOSE").toBe(true);

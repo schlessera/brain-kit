@@ -214,7 +214,10 @@ test("Pi releases a turn's turn-temp reservation only once its awaited close con
       close() { throw new Error("PI_SYNC_TURN_TEMP_CLOSE_ON_AN_ASYNC_LAUNCH"); },
       closeAsync: () => attempts[closes++]!.promise } }));
   const baseline = worker.processStateLedger().turnTempHeld;
-  const until = async (count: number) => { while (closes < count) await Bun.sleep(5); };
+  const until = async (count: number) => {
+    for (const deadline = Date.now() + 3_000; closes < count && Date.now() < deadline;) await Bun.sleep(5);
+    expect(closes, "PI_TURN_TEMP_CLOSE_ATTEMPTED").toBe(count);
+  };
   const turning = turn(null);
   await until(1);
   expect(worker.processStateLedger().turnTempHeld, "PI_RESERVATION_HELD_WHILE_CLOSE_PENDING").toBeGreaterThan(baseline);
