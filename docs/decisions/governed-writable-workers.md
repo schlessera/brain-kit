@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:619-624`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:652-657`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -194,7 +194,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:41`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:42`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -939,6 +939,17 @@ collected. An incomplete initial snapshot refuses the worker; missing mid-turn
 observations stop it while retaining observed versions and partial work. No
 automatic revert or claim of recovering writes between observations is made.
 
+**Host changes wait out a hold (#2853).** A journal observation or a scope
+pause stops host-applied changes for a while; neither revokes the turn's
+principal. No application, image mask or policy publication commits while one
+is active. A route that meets one waits for it outside the shared brain lock,
+for at most 60 seconds from the first hold, then checks again, and its final
+check still runs synchronously before the commit. Past that bound it refuses
+with nothing written, as `application_failed` for an application or a mask,
+since a long hold is not revocation. A principal that really lost authority
+refuses `authority_revoked` at once, waiting or not (`export async function retryHeld`,
+`packages/ui-server/src/brain/authority-hold.ts:92-102`).
+
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
 The live receipt's polite accessibility status follows authoritative cost and
@@ -953,7 +964,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:183-210`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:197-224`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1207,7 +1218,7 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:188`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:220`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:171-190`),

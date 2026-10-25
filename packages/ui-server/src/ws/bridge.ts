@@ -35,6 +35,7 @@ import type { TurnRecorder } from "../activity/recorder.js";
 import { TurnTextCollector } from "../classification/classify-turn.js";
 import { JournalCapacityError } from "../brain/journal-objects.js";
 import { JournalStorageUnavailable } from "../brain/journal-accounting.js";
+import { AUTHORITY_HOLD_WAIT_MS, waitForAuthority, waitWhile, type AuthorityHold } from "../brain/authority-hold.js";
 
 const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
 
@@ -111,15 +112,46 @@ export function makeBridge(
   const principalId = turn.principalId;
   const authorization = turn.authorization;
   const signal = turn.abortController.signal;
+  // The turn's own authority: its identity, authorization and principal are current.
   const principalIsAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
-    authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId) && !host.scope?.isPaused(turnId);
-  const isAuthorized = () => principalIsAuthorized() && !host.journal?.isHeld();
+    authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId);
+  // A journal observation or a scope pause stops host effects for a while but
+  // revokes nothing (#2853). An effect waits for one, bounded, and checks again;
+  // `isAuthorized` stays false while one is active, so nothing commits under it.
+  const scopePaused = () => !!host.scope?.isPaused(turnId);
+  const isAuthorized = () => principalIsAuthorized() && !host.journal?.isHeld() && !scopePaused();
+  // A pause ends with the user's answer, which has no event here; the wait rechecks it.
+  const holdOf = (held: () => boolean): AuthorityHold => ({ waitMs: AUTHORITY_HOLD_WAIT_MS,
+    active: () => !signal.aborted && principalIsAuthorized() && held(),
+    settled: () => host.journal?.isHeld() ? host.journal.idle() : new Promise(() => {}) });
+  const hold = holdOf(() => !!host.journal?.isHeld() || scopePaused());
   const assertAuthority = () => {
-    if (signal.aborted || !isAuthorized() || host.scope?.isPaused(turnId)) throw new Error("This turn no longer has current principal authority.");
+    if (signal.aborted || !isAuthorized()) throw new Error("This turn no longer has current principal authority.");
   };
+  /**
+   * Starts `effect` after earlier journal work and, with `holds`, once no hold
+   * remains, checked in the same tick it starts. A hold that begins after
+   * `idle()` resolves is waited out, bounded, rather than read as revoked
+   * authority. Revocation or cancellation ends either wait at once; `effect`
+   * still makes its own final check.
+   */
+  const afterHolds = async <T>(effect: () => T, holds = true): Promise<Awaited<T>> => {
+    const deadline = Date.now() + hold.waitMs;
+    let idle = !host.journal;
+    const idled = host.journal?.idle().then(() => { idle = true; });
+    await waitWhile(() => !idle && !signal.aborted && principalIsAuthorized(), () => idled!, signal, deadline);
+    if (holds) {
+      while (hold.active() && await waitForAuthority(hold, signal, deadline)) { /* Recheck in this tick. */ }
+      if (hold.active()) throw new Error("This turn's host effect stayed held by a journal observation or a scope pause past the wait bound; nothing was applied.");
+    }
+    return await effect();
+  };
+  // Share state is a server record, not Markdown: a hold that begins mid-call
+  // does not void it. Inbox intake stages files, so it keeps the full check.
+  const current = () => !signal.aborted && principalIsAuthorized();
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
-  if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, () => !signal.aborted && isAuthorized());
+  if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   // Host bridge tools run outside the worker's mounts, so they refuse the
   // folders the worker masks, with one governance event per refused call (#2690).
@@ -419,7 +451,7 @@ export function makeBridge(
     },
     // Always present: a promotion also reaches the live view (#1698).
     activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
-      if (event.kind === "permission_denied" && work?.posture === "voice" && !signal.aborted && isAuthorized() && turn.turnId === turnId && coordinator.resolvedApprovals.get(event.toolUseId)?.turnId !== turnId) {
+      if (event.kind === "permission_denied" && work?.posture === "voice" && !signal.aborted && principalIsAuthorized() && turn.turnId === turnId && coordinator.resolvedApprovals.get(event.toolUseId)?.turnId !== turnId) {
         coordinator.recordApprovalOutcome(event.toolUseId, { outcome: "denied", turnId, sessionId: turn.sessionId, reason: "voice_posture" });
       }
       if (event.kind === "main_model") {
@@ -599,8 +631,9 @@ export function makeBridge(
       // The policy file is a document too: a policy masking its folder hides it here as well.
       maskGuard?.assert(toolName(PROPOSE_POLICY_CHANGE_TOOL_NAME), [GOVERNANCE_POLICY_PATH]);
       return host.policyProposals!.propose({
-        principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: principalIsAuthorized,
-        isAvailable: () => work?.posture !== "voice",
+        // Publication runs inside its own journal observation, so only a scope pause holds it.
+        principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: () => principalIsAuthorized() && !scopePaused(),
+        hold: holdOf(scopePaused), isAvailable: () => work?.posture !== "voice",
         approve: async review => {
           const decision = await bridge.requestPermission({ toolUseId: requestId,
             toolName: backendId === "claude" ? `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}` : PROPOSE_POLICY_CHANGE_TOOL_NAME,
@@ -621,7 +654,7 @@ export function makeBridge(
       protectedPaths,
       ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => operationTools[operation] } } : {}),
       ...(host.applicationPlanner ? { planner: host.applicationPlanner } : {}),
-      isAuthorized,
+      isAuthorized, hold,
       approve: async (input, destructive) => {
         if (work?.posture === "voice") return false;
         const decision = await bridge.requestPermission({ toolUseId: `application-${crypto.randomUUID()}`,
@@ -639,23 +672,22 @@ export function makeBridge(
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(host.brainPath!, path, maskGuard ? { guard: maskGuard, tool: toolName("brain_read_base") } : undefined);
     };
-    bridge.applyBrain = async input => {
-      await host.journal?.idle();
+    // The application waits for holds itself, so its refusals are recorded.
+    bridge.applyBrain = input => afterHolds(() => {
       const execute = () => apply({ principalId, turnId, input });
-      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, execute) : execute();
-    };
-    if (host.inboxTools?.shares && work?.posture !== "voice") bridge.completeShare = async input => {
-      await host.journal?.idle();
-      return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, async () => {
+      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, current, input, execute) : execute();
+    }, false);
+    if (host.inboxTools?.shares && work?.posture !== "voice") bridge.completeShare = input => afterHolds(() => {
+      return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, current, input, async () => {
         const decision = await bridge.requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: toolName("complete_share"), input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
         return decision.behavior === "allow" && decision.updatedInput === undefined;
       }, applicationPolicy!.lock, maskGuard ? paths => maskGuard.assert(toolName("complete_share"), paths) : undefined);
-    };
+    });
     if (backendId === "claude" || backendId === "pi") {
       // The scratch prune that follows a mask never removes a masked folder's files.
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
-        lock: applicationPolicy.lock, isAuthorized, isAvailable: () => work?.posture !== "voice",
+        lock: applicationPolicy.lock, isAuthorized, hold, isAvailable: () => work?.posture !== "voice",
         record: result => recorder?.recordApplication?.(result) });
       const requestMask = bridge.requestMask!;
       bridge.requestMask = async (imagePath, instruction) => {
@@ -663,12 +695,12 @@ export function makeBridge(
         maskGuard?.assert(toolName("request_image_mask"), [imagePath]);
         const base = readMaskBase(host.brainPath!, imagePath, backendId);
         const png = await requestMask(imagePath, instruction);
-        assertAuthority();
-        pendingMasks.set(imagePath, { base, png: Uint8Array.from(png) });
+        await afterHolds(() => { assertAuthority(); pendingMasks.set(imagePath, { base, png: Uint8Array.from(png) }); });
         return png;
       };
-      bridge.applyImageMask = async input => {
-        await host.journal?.idle(); assertAuthority();
+      // The mask application waits for holds itself, so its refusals are recorded.
+      bridge.applyImageMask = input => afterHolds(() => {
+        if (signal.aborted || !principalIsAuthorized()) throw new Error("This turn no longer has current principal authority.");
         try { maskGuard?.assert(toolName("request_image_mask"), [input.imagePath, input.maskPath]); }
         catch (error) {
           if (!(error instanceof ProviderMaskRefusedError)) throw error;
@@ -682,7 +714,7 @@ export function makeBridge(
           recorder?.recordApplication?.(result); return result;
         }
         return applyMask({ principalId, turnId, input, base: pending.base });
-      };
+      }, false);
       // Hosted scratch pruning is part of the mask operation, including its
       // exact removals. No second, unrecorded prune callback is handed out.
       delete bridge.pruneScratch;
@@ -728,11 +760,12 @@ export function makeBridge(
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
       if (name === "requestPermission" && work?.posture === "voice") return Promise.resolve({ behavior: "deny", message: "Voice cannot grant tools." });
       try {
-        await host.journal?.idle();
-        assertAuthority();
-        if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "pruneScratch"].includes(name))
-          throw new Error("This capability is outside the voice membership.");
-        return (original as (...input: unknown[]) => unknown)(...args);
+        return await afterHolds(() => {
+          assertAuthority();
+          if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "pruneScratch"].includes(name))
+            throw new Error("This capability is outside the voice membership.");
+          return (original as (...input: unknown[]) => unknown)(...args);
+        });
       } catch (error) { return Promise.reject(error); }
     };
   }

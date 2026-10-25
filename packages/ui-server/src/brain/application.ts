@@ -14,6 +14,7 @@ import { createHostBoundary, MAINTENANCE_ENTRY, type HostBoundary } from "./host
 import { createIndexBatch, IndexFlushError, type IndexBatch } from "./index-batch.js";
 import { subprocessEnv } from "../config/env.js";
 import { isProtectedTarget } from "./protected-target.js";
+import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
 import { isProviderMasked, ProviderMaskRefusedError, type ProviderMaskGuard } from "./provider-mask-refusal.js";
 
 export const contentHash = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
@@ -235,7 +236,14 @@ export function createBrainApplication(options: {
   /** The admitted turn's provider masks (#2690); `tool` names an operation as the agent called it. */
   providerMasks?: { guard: ProviderMaskGuard; tool(operation: BrainApplicationInput["operation"]): string };
   signal: AbortSignal;
+  /** Whether a change may commit now; false while a `hold` is active as well as once authority is gone. */
   isAuthorized(): boolean;
+  /**
+   * Holds that stop changes without revoking authority (#2853). While one is
+   * active the route waits for it, bounded, and checks again rather than
+   * refusing. Omitted: every failed check refuses as revoked.
+   */
+  hold?: AuthorityHold;
   approve(input: BrainApplicationInput, destructive: boolean): Promise<boolean>;
   /** Records the result; a returned string names its record for later index outcomes. */
   record(result: BrainApplicationResult): unknown;
@@ -264,10 +272,22 @@ export function createBrainApplication(options: {
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));
   const indexBatch = options.indexBatch ?? createIndexBatch({ index: paths => planner.index(root, undefined, paths) });
   function authority(request: BrainApplicationRequest): void {
-    if (request.principalId !== options.principalId || request.turnId !== options.turnId || !options.isAuthorized())
+    if (request.principalId !== options.principalId || request.turnId !== options.turnId)
       refuse("authority_revoked", "This turn no longer has current principal authority to apply changes.");
+    if (!options.isAuthorized()) {
+      if (options.signal.aborted) refuse("cancelled", "The turn was cancelled; no change was applied.");
+      if (options.hold?.active()) throw new AuthorityHeld();
+      refuse("authority_revoked", "This turn no longer has current principal authority to apply changes.");
+    }
     if (options.signal.aborted) refuse("cancelled", "The turn was cancelled; no change was applied.");
   }
+  // Every attempt that meets a hold has committed nothing; it runs again once
+  // the hold clears. A hold that outlasts the bound is not revocation.
+  const expired = (): never => {
+    if (options.signal.aborted) refuse("cancelled", "The turn was cancelled; no change was applied.");
+    refuse("application_failed", "This turn's changes stayed held by a journal observation or a scope pause past the wait bound; no change was applied.");
+  };
+  const afterHolds = <T>(budget: { deadline?: number }, attempt: () => T | Promise<T>) => retryHeld(options.hold, options.signal, attempt, expired, budget);
   const apply = async (request: BrainApplicationRequest): Promise<BrainApplicationResult> => {
     const committed: BrainApplicationResult["changes"] = [];
     // A deferred outcome names the application record it follows, even one
@@ -287,10 +307,13 @@ export function createBrainApplication(options: {
       indexBatch.queue(applied.map(change => change.path), settled => receipt.report({ changes: applied, indexed: settled.indexed, ...(settled.indexError ? { indexError: settled.indexError } : {}) }));
     };
     let result: BrainApplicationResult;
+    // One wait bound for every hold this application meets.
+    const budget: { deadline?: number } = {};
     try {
       if (!request || Object.keys(request).some(key => !["principalId", "turnId", "input"].includes(key)))
         refuse("invalid_request", "Use the exact turn-bound application envelope; commands cannot be applied.");
-      authority(request);
+      const admitted = admitHeld(options.hold, options.signal, () => authority(request), expired, budget);
+      if (admitted) await admitted;
       if (process.platform !== "linux" || !existsSync("/proc/self/fd"))
         refuse("unsupported_host", "Descriptor-anchored application requires a supported Linux host with procfs.");
       if (Buffer.byteLength(JSON.stringify(request), "utf8") > BRAIN_APPLICATION_MAX_BYTES)
@@ -319,144 +342,148 @@ export function createBrainApplication(options: {
       // authority and input/base are rechecked inside the shared lock.
       if ((!options.policy.autoAllowed.includes(input.operation) || destructive) && !await options.approve(input, destructive))
         refuse("permission_denied", "The exact application was not approved; no change was applied.");
-      // Capture planning reads the index (title matches, appends): it waits
-      // for earlier writes like any other reader, before the lock they share.
-      if (input.operation === "add") {
-        try { await indexBatch.barrier(options.signal); }
-        catch (error) {
-          if (error instanceof IndexFlushError) refuse("index_stale", `${error.message} No change was applied.`);
-          throw error;
+      // A hold met inside the lock releases it: the attempt waits outside and
+      // runs again from the barrier, so a hold never keeps other writers out.
+      result = await afterHolds(budget, async () => {
+        // Capture planning reads the index (title matches, appends): it waits
+        // for earlier writes like any other reader, before the lock they share.
+        if (input.operation === "add") {
+          try { await indexBatch.barrier(options.signal); }
+          catch (error) {
+            if (error instanceof IndexFlushError) refuse("index_stale", `${error.message} No change was applied.`);
+            throw error;
+          }
         }
-      }
-      result = await options.policy.lock.withLock(BRAIN_LOCK_KEY, async () => {
-        authority(request); membership();
-        const core = await import("@schlessera/brain/internal");
-        authority(request);
-        const targets: Target[] = [];
-        const created: string[] = [];
-        const changes: Change[] = [];
-        let outcome: Record<string, unknown> = {};
-        try {
-          const targetFor = (path: string, expected: string | null) => {
-            validateTarget(path); assertVisible([path]);
-            const target = openTarget(root, path, expected === null, created);
-            targets.push(target);
-            if (target.hash !== expected) refuse("stale_base", "The stated base does not match the current document. Read it again; no change was applied.");
-            return target;
-          };
-          if (input.operation === "add") {
-            if (input.target !== undefined) validateTarget(input.target);
-            const plan = await planner.planAdd(root, { ...input, path: input.target }, path => {
-              validatePath(path); // Protection is read-only; planning may still read it.
-              // A masked document is absent to planning; a destination it
-              // chooses there still refuses by name when it is opened.
-              if (options.providerMasks && isProviderMasked(path, options.providerMasks.guard.folders)) return null;
-              let target: Target;
-              try { target = openTarget(root, path, false); }
-              catch (error) { if (errno(error) === "ENOENT") return null; throw error; }
-              try { return target.content; } finally { closeTarget(target); }
-            }, options.signal, options.providerMasks?.guard.folders);
-            authority(request);
-            const expected = input.expectedBaseHash === undefined
-              ? (plan.baseContent === null ? null : contentHash(plan.baseContent)) : input.expectedBaseHash;
-            if (input.target !== undefined && input.target !== plan.path) refuse("invalid_target", "The capture plan differs from its requested target.");
-            targetFor(plan.path, expected);
-            changes.push({ path: plan.path, content: plan.content, expectedBaseHash: expected });
-            outcome = { ...plan.outcome };
-          } else if (input.operation === "staged") {
-            const named = new Set<string>();
-            for (const file of input.files) {
-              if (named.has(file.path)) refuse("invalid_request", "A staged request must name each file exactly once.");
-              named.add(file.path); targetFor(file.path, file.expectedBaseHash); changes.push(file);
-            }
-          } else {
-            const target = targetFor(input.path, input.expectedBaseHash);
-            let content: string;
-            if (input.operation === "write") content = input.content;
-            else {
-              if (target.content === null) refuse("missing_document", "This operation requires an existing document.");
-              const raw = target.content!;
-              if (input.operation === "edit") {
-                if (raw.split(input.old_string).length - 1 !== 1) refuse("edit_conflict", "The old string must occur exactly once in the stated base.");
-                content = raw.replace(input.old_string, input.new_string);
-              } else {
-                const updated = new Date().toISOString().slice(0, 10);
-                const fields: Record<string, string | string[] | null> = { updated };
-                for (const key of ["summary", "status", "relevance", "tags", "deadline", "next_review"] as const) {
-                  const value = input.operation === "update" ? input[key] : undefined;
-                  if (value !== undefined) fields[key] = value === "" ? null : value;
-                }
-                if (input.operation === "archive") fields.status = "archived";
-                if (fields.status === "archived") {
-                  const relevance = core.relevanceOnArchive(raw, typeof fields.relevance === "string" ? fields.relevance : undefined);
-                  if (relevance) fields.relevance = relevance;
-                }
-                const append = input.operation === "update" ? input.append_content : undefined;
-                if (input.operation === "update" && Object.keys(fields).length === 1 && !append) refuse("invalid_request", "No changes specified.");
-                content = core.updateDocument(raw, fields, append || undefined);
-                outcome = { path: input.path, updated, changes: [...Object.keys(fields).filter(k => k !== "updated"), ...(append ? ["content"] : [])] };
-                if (input.operation === "archive") {
-                  const destination = archiveDestination(input.path);
-                  outcome = { path: destination, status: "archived", moved: destination !== input.path, updated, ...(input.dry_run ? { dryRun: true } : {}) };
-                  if (input.dry_run) return { ok: true, message: "Archive preview; no change applied.", changes: [], outcome };
-                  if (destination !== input.path) {
-                    targetFor(destination, null);
-                    changes.push({ path: input.path, expectedBaseHash: target.hash, content: null });
-                    changes.push({ path: destination, expectedBaseHash: null, content });
+        return options.policy.lock.withLock(BRAIN_LOCK_KEY, async () => {
+          authority(request); membership();
+          const core = await import("@schlessera/brain/internal");
+          authority(request);
+          const targets: Target[] = [];
+          const created: string[] = [];
+          const changes: Change[] = [];
+          let outcome: Record<string, unknown> = {};
+          try {
+            const targetFor = (path: string, expected: string | null) => {
+              validateTarget(path); assertVisible([path]);
+              const target = openTarget(root, path, expected === null, created);
+              targets.push(target);
+              if (target.hash !== expected) refuse("stale_base", "The stated base does not match the current document. Read it again; no change was applied.");
+              return target;
+            };
+            if (input.operation === "add") {
+              if (input.target !== undefined) validateTarget(input.target);
+              const plan = await planner.planAdd(root, { ...input, path: input.target }, path => {
+                validatePath(path); // Protection is read-only; planning may still read it.
+                // A masked document is absent to planning; a destination it
+                // chooses there still refuses by name when it is opened.
+                if (options.providerMasks && isProviderMasked(path, options.providerMasks.guard.folders)) return null;
+                let target: Target;
+                try { target = openTarget(root, path, false); }
+                catch (error) { if (errno(error) === "ENOENT") return null; throw error; }
+                try { return target.content; } finally { closeTarget(target); }
+              }, options.signal, options.providerMasks?.guard.folders);
+              authority(request);
+              const expected = input.expectedBaseHash === undefined
+                ? (plan.baseContent === null ? null : contentHash(plan.baseContent)) : input.expectedBaseHash;
+              if (input.target !== undefined && input.target !== plan.path) refuse("invalid_target", "The capture plan differs from its requested target.");
+              targetFor(plan.path, expected);
+              changes.push({ path: plan.path, content: plan.content, expectedBaseHash: expected });
+              outcome = { ...plan.outcome };
+            } else if (input.operation === "staged") {
+              const named = new Set<string>();
+              for (const file of input.files) {
+                if (named.has(file.path)) refuse("invalid_request", "A staged request must name each file exactly once.");
+                named.add(file.path); targetFor(file.path, file.expectedBaseHash); changes.push(file);
+              }
+            } else {
+              const target = targetFor(input.path, input.expectedBaseHash);
+              let content: string;
+              if (input.operation === "write") content = input.content;
+              else {
+                if (target.content === null) refuse("missing_document", "This operation requires an existing document.");
+                const raw = target.content!;
+                if (input.operation === "edit") {
+                  if (raw.split(input.old_string).length - 1 !== 1) refuse("edit_conflict", "The old string must occur exactly once in the stated base.");
+                  content = raw.replace(input.old_string, input.new_string);
+                } else {
+                  const updated = new Date().toISOString().slice(0, 10);
+                  const fields: Record<string, string | string[] | null> = { updated };
+                  for (const key of ["summary", "status", "relevance", "tags", "deadline", "next_review"] as const) {
+                    const value = input.operation === "update" ? input[key] : undefined;
+                    if (value !== undefined) fields[key] = value === "" ? null : value;
+                  }
+                  if (input.operation === "archive") fields.status = "archived";
+                  if (fields.status === "archived") {
+                    const relevance = core.relevanceOnArchive(raw, typeof fields.relevance === "string" ? fields.relevance : undefined);
+                    if (relevance) fields.relevance = relevance;
+                  }
+                  const append = input.operation === "update" ? input.append_content : undefined;
+                  if (input.operation === "update" && Object.keys(fields).length === 1 && !append) refuse("invalid_request", "No changes specified.");
+                  content = core.updateDocument(raw, fields, append || undefined);
+                  outcome = { path: input.path, updated, changes: [...Object.keys(fields).filter(k => k !== "updated"), ...(append ? ["content"] : [])] };
+                  if (input.operation === "archive") {
+                    const destination = archiveDestination(input.path);
+                    outcome = { path: destination, status: "archived", moved: destination !== input.path, updated, ...(input.dry_run ? { dryRun: true } : {}) };
+                    if (input.dry_run) return { ok: true, message: "Archive preview; no change applied.", changes: [], outcome };
+                    if (destination !== input.path) {
+                      targetFor(destination, null);
+                      changes.push({ path: input.path, expectedBaseHash: target.hash, content: null });
+                      changes.push({ path: destination, expectedBaseHash: null, content });
+                    }
                   }
                 }
               }
+              if (!changes.length) changes.push({ path: input.path, expectedBaseHash: input.expectedBaseHash, content });
             }
-            if (!changes.length) changes.push({ path: input.path, expectedBaseHash: input.expectedBaseHash, content });
-          }
-          if (changes.reduce((n, c) => n + Buffer.byteLength(c.content ?? "", "utf8"), 0) > BRAIN_APPLICATION_MAX_BYTES)
-            refuse("payload_too_large", "Proposed Markdown exceeds the application byte bound.");
-          // Prepare complete bytes privately. No awaited work occurs between
-          // final authority/topology/base validation and the commit burst.
-          const prepared: { change: Change; target: Target; temp?: string }[] = [];
-          try {
-            for (const change of changes) {
-              const target = targets.find(t => t.path === change.path)!;
-              let temp: string | undefined;
-              if (change.content !== null) {
-                temp = at(target.chain.at(-1)!, `.brain-apply-${crypto.randomUUID()}.tmp`);
-                const mode = target.mode ?? (input.operation === "archive" ? targets.find(t => t.path === input.path)?.mode : undefined);
-                const fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, mode ?? 0o644);
-                prepared.push({ change, target, temp });
-                try { writeFileSync(fd, change.content, "utf8"); if (mode !== undefined) fchmodSync(fd, mode); fsyncSync(fd); }
-                finally { closeSync(fd); }
-              } else prepared.push({ change, target });
+            if (changes.reduce((n, c) => n + Buffer.byteLength(c.content ?? "", "utf8"), 0) > BRAIN_APPLICATION_MAX_BYTES)
+              refuse("payload_too_large", "Proposed Markdown exceeds the application byte bound.");
+            // Prepare complete bytes privately. No awaited work occurs between
+            // final authority/topology/base validation and the commit burst.
+            const prepared: { change: Change; target: Target; temp?: string }[] = [];
+            try {
+              for (const change of changes) {
+                const target = targets.find(t => t.path === change.path)!;
+                let temp: string | undefined;
+                if (change.content !== null) {
+                  temp = at(target.chain.at(-1)!, `.brain-apply-${crypto.randomUUID()}.tmp`);
+                  const mode = target.mode ?? (input.operation === "archive" ? targets.find(t => t.path === input.path)?.mode : undefined);
+                  const fd = openSync(temp, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, mode ?? 0o644);
+                  prepared.push({ change, target, temp });
+                  try { writeFileSync(fd, change.content, "utf8"); if (mode !== undefined) fchmodSync(fd, mode); fsyncSync(fd); }
+                  finally { closeSync(fd); }
+                } else prepared.push({ change, target });
+              }
+              options.beforeCommit?.();
+              authority(request); membership();
+              for (const entry of prepared) { validateTarget(entry.change.path); verifyTarget(entry.target, entry.change.expectedBaseHash); }
+              // Create destinations first so an archive never loses its source
+              // before no-clobber publication. Abort cannot interleave this burst.
+              for (const { change, target, temp } of prepared.filter(p => p.change.content !== null)) {
+                if (change.expectedBaseHash === null) linkSync(temp!, target.at);
+                else renameSync(temp!, target.at);
+                committed.push({ path: change.path, contentHash: contentHash(change.content!) });
+              }
+              for (const { change, target } of prepared.filter(p => p.change.content === null)) {
+                unlinkSync(target.at); committed.push({ path: change.path, contentHash: null });
+              }
+              for (const target of targets) fsyncSync(target.chain.at(-1)!.fd);
+            } finally {
+              for (const { temp } of prepared) if (temp) { try { unlinkSync(temp); } catch { /* Best-effort cleanup of private temporary bytes. */ } }
             }
-            options.beforeCommit?.();
-            authority(request); membership();
-            for (const entry of prepared) { validateTarget(entry.change.path); verifyTarget(entry.target, entry.change.expectedBaseHash); }
-            // Create destinations first so an archive never loses its source
-            // before no-clobber publication. Abort cannot interleave this burst.
-            for (const { change, target, temp } of prepared.filter(p => p.change.content !== null)) {
-              if (change.expectedBaseHash === null) linkSync(temp!, target.at);
-              else renameSync(temp!, target.at);
-              committed.push({ path: change.path, contentHash: contentHash(change.content!) });
-            }
-            for (const { change, target } of prepared.filter(p => p.change.content === null)) {
-              unlinkSync(target.at); committed.push({ path: change.path, contentHash: null });
-            }
-            for (const target of targets) fsyncSync(target.chain.at(-1)!.fd);
           } finally {
-            for (const { temp } of prepared) if (temp) { try { unlinkSync(temp); } catch { /* Best-effort cleanup of private temporary bytes. */ } }
+            for (const target of targets) closeTarget(target);
+            if (!committed.length) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Preserve concurrent directory contents. */ } }
           }
-        } finally {
-          for (const target of targets) closeTarget(target);
-          if (!committed.length) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Preserve concurrent directory contents. */ } }
-        }
-        // Markdown has committed. Its index update waits, batched with every
-        // other committed path, for the next index-dependent read or the end
-        // of the turn (#2835); cancellation cannot drop it or misreport the
-        // write as refused. Its outcome is recorded when an update settles.
-        queue();
-        return { ok: true, message: "Applied authoritative Markdown. Its index update is queued: the next search or read that needs the index waits for it.",
-          changes: [...committed], indexed: false, indexStatus: "pending" as const,
-          outcome: { ...outcome, ...(input.operation === "add" ? { indexed: false, indexStatus: "pending" } : {}) } };
-      }, { signal: options.signal });
+          // Markdown has committed. Its index update waits, batched with every
+          // other committed path, for the next index-dependent read or the end
+          // of the turn (#2835); cancellation cannot drop it or misreport the
+          // write as refused. Its outcome is recorded when an update settles.
+          queue();
+          return { ok: true, message: "Applied authoritative Markdown. Its index update is queued: the next search or read that needs the index waits for it.",
+            changes: [...committed], indexed: false, indexStatus: "pending" as const,
+            outcome: { ...outcome, ...(input.operation === "add" ? { indexed: false, indexStatus: "pending" } : {}) } };
+        }, { signal: options.signal });
+      });
     } catch (error) {
       queue();
       result = { ok: false, code: error instanceof Refusal || error instanceof ProviderMaskRefusedError ? error.code : (error instanceof Error && error.name === "AbortError" ? "cancelled" : "application_failed"), message: error instanceof Error ? error.message : "Application failed.", changes: [...committed] };
