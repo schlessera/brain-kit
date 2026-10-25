@@ -213,6 +213,8 @@ export interface MaintenanceWorker {
   pid: number;
   /** Outer monitor exit; runMaintenanceWorker also awaits namespace-owned output EOF. */
   exited: Promise<number>;
+  /** Resolves once no descriptor of the worker's stdio remains open in this process, once its streams have ended (#2862). */
+  released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
 }
 
@@ -289,6 +291,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
         stderr: Readable.toWeb(running.stderr) as unknown as ReadableStream<Uint8Array>,
         pid: running.pid,
         exited: helperCompletion,
+        released: running.released,
         kill: signal => running.kill(signal),
       };
     }
@@ -317,6 +320,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       stderr: fifoStream(ends.stderr),
       pid: running.pid,
       exited: running.exited.finally(() => { try { closeInput(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } } }),
+      released: pipes.released,
       kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
     };
   } catch (error) {
@@ -380,6 +384,8 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   const worker = await launchMaintenanceWorkerAsync(input);
   let killed = false;
   const kill = () => { killed = true; worker.kill("SIGKILL"); };
+  let releasing: Promise<void> | undefined;
+  const released = () => releasing ??= worker.released();
   input.signal?.addEventListener("abort", kill, { once: true });
   // An abort accepted while the launch was awaited still stops the worker.
   if (input.signal?.aborted) kill();
@@ -398,11 +404,15 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   const inputWrite = worker.input(input.stdin ?? "");
   try {
     const [stdout, stderr, exitCode] = await Promise.all([stdoutRead, stderrRead, worker.exited, inputWrite]);
+    // Ended streams can still hold Bun's duplicate descriptors (#2862); an
+    // abort that lands while they close still refuses the result.
+    await released();
     input.signal?.throwIfAborted();
     return { stdout, stderr, exitCode, killed };
   } catch (error) {
     kill();
     await Promise.allSettled([stdoutRead, stderrRead, worker.exited, inputWrite]);
+    await released();
     throw error;
   } finally {
     if (timer) clearTimeout(timer);

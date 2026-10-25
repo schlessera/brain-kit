@@ -1014,6 +1014,8 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   observeFile?: (path: string) => ObservedWorkerFile | undefined;
   pid: number;
   exited: Promise<number>;
+  /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
+  released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
   /** Confirm the worker and all descendants are frozen before returning. */
   freeze(): void;
@@ -1468,7 +1470,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       finally { if (!input.preparedOutput) await startupView?.cleanup(); }
       throw error;
     });
-    const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+    const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, released: pipes.released, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
