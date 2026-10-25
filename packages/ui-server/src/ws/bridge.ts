@@ -156,7 +156,7 @@ export function makeBridge(
   // does not void it. Inbox intake stages files, so it keeps the full check.
   const current = () => !signal.aborted && principalIsAuthorized();
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
-    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
+    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}) });
   if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   // Host bridge tools run outside the worker's mounts, so they refuse the
@@ -318,7 +318,7 @@ export function makeBridge(
       host.sendToClients(scoped);
       // Identity must reach the client before its first scoped journal receipt.
       // The journal publishes its receipt once the binding commits, after this frame.
-      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
+      if (msg.type === "session_info" && turn.turnId === turnId) { void host.budgets?.bind(turnId, msg.sessionId).catch(() => { /* The turn's accounting is unavailable; its next observation stops it. */ }); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late

@@ -603,7 +603,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       "1. **Turn temp: deleted when the turn ends.** `$BRAIN_WORKER_SCRATCH`, `/tmp` and `$HOME` (the turn's own state, never the host home) are the only writable places. Nothing written there reaches the reader; never link to it.",
       `2. **No persistent scratch.** \`${WORKER_AREAS.scratch}/\` and \`${WORKER_AREAS.workspaces}/\` are read-only in this turn.`,
       "3. **The brain: canonical, and read-only here.** Change it only through the approved brain tools.",
-      ...(sandbox.providerMasks ? ["", `Provider policy hides ${sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ")} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty, and the brain tools refuse ${sandbox.providerMasks.folders.length === 1 ? "it" : "them"}. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents.`] : []),
+      ...(sandbox.providerMasks ? ["", `Provider policy hides ${sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ")} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty, and the brain tools refuse ${sandbox.providerMasks.folders.length === 1 ? "it" : "them"}. The generated-text caches (\`.brain-cache/\`, and any root-level \`.context-cache.jsonl\` or \`.asset-cache.jsonl\` an earlier release left) read as empty. The search index is this turn's private copy without those documents.`] : []),
     );
   } else {
     const scratch = sandbox.areas.find(area => area.name === "scratch" && area.mount.writable);
@@ -632,7 +632,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   }
   if (profile !== "restricted" && sandbox.providerMasks?.folders.length) {
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
-    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents. It is read-only: the host adds this turn's own applications to it, so \`brain index\` and \`brain\` CLI captures cannot write it, and the brain's own index is rebuilt from Markdown after the turn.`);
+    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches (\`.brain-cache/\`, and any root-level \`.context-cache.jsonl\` or \`.asset-cache.jsonl\` an earlier release left) read as empty. The search index is this turn's private copy without those documents. It is read-only: the host adds this turn's own applications to it, so \`brain index\` and \`brain\` CLI captures cannot write it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }
   if (profile !== "restricted" && sandbox.references) lines.push("", ...REFERENCE_GUIDANCE);
   if (profile !== "restricted" && sandbox.worktrees) lines.push("", ...WORKTREE_GUIDANCE);

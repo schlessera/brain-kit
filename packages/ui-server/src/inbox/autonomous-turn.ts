@@ -24,7 +24,8 @@ import { privateIndexBuildFolders } from "../brain/private-index-cache.js";
 import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
-import { recordGovernanceEvent } from "../governance/events.js";
+import type { GovernanceEventInput } from "../governance/events.js";
+import { createGovernanceWrites } from "../governance/event-writes.js";
 import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerDeniedTypes, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { createProviderMaskGuard, type ProviderMaskGuard } from "../brain/provider-mask-refusal.js";
 import { translateProviderTypesInView } from "../brain/provider-types.js";
@@ -34,6 +35,7 @@ import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirec
 import { ensureIndexDirectory } from "../brain/index-directory.js";
 import { ProviderThreadRefusedError } from "../brain/provider-mask-refusal.js";
 import { admitOriginThread, type OriginThreadAdmission } from "./provenance.js";
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -172,9 +174,12 @@ async function executeAutonomousTurn(
   if (!origin) throw new BackendRequestError("Autonomous inbox origin is unavailable.");
   // Own immutable request policy for the attempt; callbacks cannot widen it.
   // Governance events (#1651) and roadblocks (#1671) go to the same database as the attempt.
-  const governance = deps.governance ?? ((event: Parameters<typeof recordGovernanceEvent>[1]) => { recordGovernanceEvent(deps.db, event); });
+  const governanceWrites = deps.governanceWrites ?? createGovernanceWrites(deps.governanceDb ?? deps.db);
+  const governance = deps.governance ?? ((event: GovernanceEventInput) => governanceWrites.record(event).then(() => {}, (error: unknown) => {
+    deps.log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
+  }));
   const recorder = createTurnRecorder({ ...deps, governance,
-    governanceDb: deps.governanceDb ?? deps.db },
+    governanceDb: deps.governanceDb ?? deps.db, governanceWrites },
     { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
     billingMode: input.billingMode, pricingRoute: input.pricingRoute });
@@ -306,6 +311,8 @@ async function executeAutonomousTurn(
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
       planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
+      // The policy admitted for this turn protects its targets, as for a hosted turn (#2876).
+      protectedPaths: protectedPaths(policy.policy),
       ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => applicationToolName(deps.backend.id, operation) } } : {}),
       isAuthorized: current,
       approve: async (proposal, destructive) => {

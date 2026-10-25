@@ -152,7 +152,7 @@ restart/retry controls, rather than relying on a worker-supplied counter.
 
 Budget coverage excluded provider/tool spend until #1673; it now names the
 relayed CLI providers and nothing else
-(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:45`).
+(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:46`).
 Only qualified recorded units may advance that disclosure. Before activation,
 prove refusal before the next dispatch once the applicable known budget is
 exhausted, alongside native cancellation/cleanup and deduplication. Exact advance

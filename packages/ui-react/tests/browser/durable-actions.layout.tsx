@@ -77,6 +77,7 @@ interface Device {
   host: HTMLDivElement;
   frames: () => ClientMessage[];
   hello: () => Promise<void>;
+  reconnect: () => void;
 }
 
 let server: InboxFixtureServer;
@@ -96,12 +97,15 @@ afterAll(async () => {
   styles?.remove();
   await page.viewport(viewport.width, viewport.height);
 });
-afterEach(() => {
+function disposeDevices() {
   for (const { device, renderer } of devices.splice(0)) {
     flushSync(() => renderer.unmount());
     device.ui.dispose();
     device.host.remove();
   }
+}
+afterEach(() => {
+  disposeDevices();
   window.history.replaceState(null, "", window.location.pathname + window.location.search + initialHash);
   document.documentElement.dataset.theme = "dark";
   vi.unstubAllGlobals();
@@ -141,8 +145,10 @@ async function device(id: string, opts: { width?: number; height?: number; theme
   document.body.append(host);
   const ui = createBrainUiRoot({ storage: null, request: api(opts.notices, opts.runs, opts.stale) });
   ui.stores.connection.setState({ wsStatus: "connected" } as never);
-  const client = server.connect(id, (msg: ServerMessage) => ui.connection.handleServerMessage(msg));
-  ui.connection.send = (msg: ClientMessage) => server.receive(id, msg);
+  const deviceServer = server;
+  const client = deviceServer.connect(id, (msg: ServerMessage) => ui.connection.handleServerMessage(msg));
+  // Retained senders act only on this original fixture, even after UI disposal.
+  ui.connection.send = (msg: ClientMessage) => deviceServer.receive(id, msg);
   if (opts.approval) {
     ui.stores.chat.setState({
       draft: {
@@ -166,6 +172,10 @@ async function device(id: string, opts: { width?: number; height?: number; theme
     hello: async () => {
       ui.connection.handleServerMessage({ type: "server_hello", protocolRev: 2, capabilities: { inbox: true } });
       await settle();
+    },
+    reconnect: () => {
+      deviceServer.reconnect(id);
+      ui.connection.send = msg => deviceServer.receive(id, msg);
     },
   };
   devices.push({ device: dev, renderer });
@@ -220,6 +230,33 @@ function noOverflow(el: HTMLElement) {
 }
 
 describe("durable Actions", () => {
+  for (const sender of ["original", "reconnected"] as const)
+    test(`a disposed durable device's ${sender} sender cannot reach a replacement server with the same device id`, async () => {
+      const previousServer = server = createInboxFixtureServer();
+      previousServer.seed(thread("t-harbour"), [decision("a-one", "t-harbour")]);
+      const previous = await device("laptop");
+      if (sender === "reconnected") {
+        previousServer.disconnect(previous.id);
+        previous.ui.connection.send = () => true;
+        previous.reconnect();
+        await previous.hello();
+      }
+      const send = previous.ui.connection.send;
+      const previousCount = previous.frames().length;
+      disposeDevices();
+      const nextServer = server = createInboxFixtureServer();
+      nextServer.seed(thread("t-harbour"), [decision("a-one", "t-harbour")]);
+      const next = await device("laptop");
+      const nextCount = next.frames().length;
+      await Promise.resolve().then(() => send({ type: "inbox_resolve", itemId: "a-one", optionId: "approve" }));
+      expect(next.frames().length, "the retained durable sender appends no frame to the replacement device").toBe(nextCount);
+      await settle();
+      expect(nextServer.resolutions.size, "the retained durable sender cannot resolve the replacement Action").toBe(0);
+      expect(nextServer.action("a-one").status).toBe("pending");
+      expect(previous.frames().length, "the retained sender still belongs to the original fixture").toBe(previousCount + 1);
+      expect(previousServer.resolutions.size).toBe(1);
+    });
+
   test("1 · 2: live approval, durable decisions and notices, in that order, with one badge number", async () => {
     server = createInboxFixtureServer();
     server.seed(thread("t-harbour"), [decision("a-harbour", "t-harbour"), decision("a-fyi", "t-harbour", { type: "fyi", options: [], payload: { title: "A decision was dropped at the Actions limit", detail: "Raft repairs" } })]);
@@ -379,8 +416,7 @@ describe("durable Actions", () => {
     d.ui.connection.send = () => true;
     await click(button(card(d, "a-one"), "Approve: Edit finances/ithaca-port.md"));
     d.ui.stores.inbox.getState().connectionLost();
-    server.reconnect("laptop");
-    d.ui.connection.send = (msg) => server.receive("laptop", msg);
+    d.reconnect();
     await d.hello();
     await settle(6);
     const c = card(d, "a-one");

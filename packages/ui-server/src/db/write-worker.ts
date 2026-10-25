@@ -46,6 +46,26 @@ export interface SqliteWriter {
   close(): Promise<void>;
 }
 
+/** Calls one module's procedures by name; each call settles once its write has committed. */
+export type ProcedureCall = <T = unknown>(name: string, ...args: unknown[]) => Promise<T>;
+
+/**
+ * A module's procedures on `writer` (#2850). Without one (a process that
+ * commits its own writes, or a test), the same procedures run on `db` at
+ * once, behind the same promises.
+ */
+export function procedureCaller<O>(db: Database, module: WriteModule<O>, options: O, writer?: SqliteWriter,
+  revive?: (error: WireError) => Error | undefined): ProcedureCall {
+  if (writer) {
+    const channel = writer.channel(module, options, revive);
+    return (name, ...args) => channel.call(name, ...args);
+  }
+  const procedures = module.setup(db, options);
+  return <T>(name: string, ...args: unknown[]) => {
+    try { return Promise.resolve(Reflect.apply(procedures[name]!, procedures, args) as T); } catch (error) { return Promise.reject(error); }
+  };
+}
+
 export class SqliteWriterClosed extends Error {
   constructor(message = "The SQLite write worker is closed.") { super(message); }
 }

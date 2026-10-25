@@ -658,6 +658,7 @@ signatures (every public export and the types it is made of)
         membership: "interactive" | "voice" | "restricted";
         allowedReads?: readonly ("inbox_list" | "inbox_get")[];
         qualifyOrigin?: () => void;
+        protectedPaths?: readonly string[];
         approvedAction?: {
             sessionId: string;
             itemId: string;
@@ -1254,6 +1255,8 @@ signatures (every public export and the types it is made of)
         costUsd?: number;
         model?: string;
     }
+  StagingGuard (packages/ui-server/src/inbox/intake.ts)
+    type StagingGuard = (path: string) => void;
   StartSpanInput (packages/ui-server/src/activity/store.ts)
     export interface StartSpanInput {
         spanId: string;
@@ -1506,7 +1509,7 @@ signatures (every public export and the types it is made of)
             threadId: string;
         }>;
         close: () => Promise<void>;
-        conversation: (input: ShareInput, key: string, principal: Principal, turnId: string, isCurrent: () => boolean) => Promise<{
+        conversation: (input: ShareInput, key: string, principal: Principal, turnId: string, isCurrent: () => boolean, protectedPaths?: readonly string[]) => Promise<{
             created: boolean;
             itemId: string;
             result: ShareIntakeResult;
@@ -1519,7 +1522,7 @@ signatures (every public export and the types it is made of)
             threadId: string;
         }>;
         protectedIds: () => Set<string>;
-        reconcile: () => Promise<void>;
+        reconcile: (guard?: StagingGuard) => Promise<void>;
         share: (input: ShareInput, principal: Principal) => Promise<{
             created: boolean;
             itemId: string;
@@ -1749,6 +1752,7 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
+        releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
@@ -1841,7 +1845,7 @@ signatures (every public export and the types it is made of)
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   reconcile (packages/ui-server/src/inbox/intake.ts)
-    function reconcile(): Promise<void>;
+    function reconcile(guard?: StagingGuard): Promise<void>;
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
         budgets: {

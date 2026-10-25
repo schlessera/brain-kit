@@ -86,7 +86,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:73-79`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:77-83`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -969,7 +969,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:70-92`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:50-72`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1537,7 +1537,7 @@ wrappers do not borrow that exemption
 (`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:2-27`).
 The first source is kept as a session `taint` governance event, using the same
 SQLite transaction for the existing-source check and write
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-22`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-23`).
 The recorder waits for a tool result and excludes known denied calls; failed
 calls can still return untrusted partial output. It records the source kind
 and tool name, without copying command text or content into the payload. If

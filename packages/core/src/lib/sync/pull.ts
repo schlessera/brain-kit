@@ -4,9 +4,11 @@
  * merged by key, never left for anyone to resolve by hand.
  */
 
+import { LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
+import { migrateSidecarCaches } from "../indexer/caches.js";
 import { classifyPostSyncDirt, DERIVED_CACHES, workingTreeDirt } from "./assess.js";
 import { git, isAncestor, unmergedPaths } from "./git.js";
 import { conclude, foreignReason, pendingState, rememberStash, type PendingKind } from "./merge-state.js";
@@ -293,6 +295,26 @@ function pullOriginMain(root: string, strategy: "rebase" | "merge"): { pass: Pul
   return { pass: { ...pass, mergedCaches: [...new Set([...resolvedCaches, ...pass.mergedCaches])] }, concluded };
 }
 
+/**
+ * An older clone still commits the generated-text caches at their root-level
+ * names (#2725). When the commits a pull brought in touched one, move its
+ * lines into `.brain-cache/` now, in the working tree, rather than leave it
+ * for the next index run: a sync that then stops for judgment never runs its
+ * post-sync index, and its working tree is what a hosted brain publishes. The
+ * move is derived-cache dirt, which post-sync commits. A move that cannot run
+ * leaves the file for the next index run.
+ */
+function moveIncomingLegacyCaches(root: string, before: string, status: string): void {
+  if (status === "fetch-failed" || status === "merge-failed" || !before) return;
+  const legacy = LEGACY_SIDECAR_CACHES.map((pair) => pair.legacy);
+  if (!git(root, ["diff", "--name-only", before, "origin/main", "--", ...legacy]).stdout) return;
+  try {
+    migrateSidecarCaches(root);
+  } catch {
+    // The next index run moves it, or reports why it cannot.
+  }
+}
+
 /** Fetch origin/main, then `pullOriginMain`. */
 export function pull(root: string, strategy: "rebase" | "merge" = "rebase"): PullEnvelope {
   const fetch = git(root, ["fetch", "origin", "main"]);
@@ -310,7 +332,9 @@ export function pull(root: string, strategy: "rebase" | "merge" = "rebase"): Pul
   // Measured before anything below moves HEAD.
   const localAhead = countCommits(root, "origin/main..HEAD");
   const remoteAhead = countCommits(root, "HEAD..origin/main");
+  const before = git(root, ["rev-parse", "HEAD"]).stdout;
   const { pass, concluded } = pullOriginMain(root, strategy);
   const { status, conflicts, mergedCaches, reason } = pass;
+  moveIncomingLegacyCaches(root, before, status);
   return { status, localAhead, remoteAhead, conflicts, mergedCaches, concluded, ...(reason === undefined ? {} : { reason }) };
 }

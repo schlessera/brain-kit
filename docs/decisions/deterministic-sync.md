@@ -124,7 +124,7 @@ files in the body. An agent may rewrite them through `commit --plan` and
 entries are dropped only when the working tree already contains them, and
 popped only when they are autostashes that apply cleanly and stage no
 version a pop without `--index` would lose
-(`reconcileStashes`, `packages/core/src/lib/sync/stash.ts:320`).
+(`reconcileStashes`, `packages/core/src/lib/sync/stash.ts:321`).
 
 Because `run` works unattended, it refuses anything it cannot prove is its
 own. It concludes only a merge or squash of commits `origin/main` already
@@ -243,7 +243,7 @@ whole deterministic sync, including retries after a rejected push.
 
 A stopped rebase is aborted and the original HEAD and operation state checked
 before the existing merge path runs (`mergeOriginMain`,
-`packages/core/src/lib/sync/pull.ts:138-188`). Thus the resolver still sees
+`packages/core/src/lib/sync/pull.ts:140-190`). Thus the resolver still sees
 local OURS and remote THEIRS, rather than the reversed rebase stages. Pending
 merge/index state is handled before any attempt; #328 may conclude a
 sync-owned cache-only merge first. An existing rebase/apply operation is

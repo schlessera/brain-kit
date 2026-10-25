@@ -143,7 +143,7 @@ After showing a summary of what will be written, generate:
   into `AGENTS.md`, and importing both would load it twice. Run `brain skills sync` after
   writing the config so `AGENTS.md` carries the contract before the first session.
 - **`.env`** from `.env.example` with keys commented out.
-- Ensure the empty sidecar caches exist (`.context-cache.jsonl`, `.asset-cache.jsonl`).
+- Ensure the empty sidecar caches exist (`.brain-cache/contexts.jsonl`, `.brain-cache/assets.jsonl`).
 
 Then commit once:
 

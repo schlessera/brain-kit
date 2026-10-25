@@ -39,6 +39,8 @@ for (const cancel of [false, true]) test(`runtime main identity preserves earlie
     }
     oldBridge = req.bridge;
     req.bridge.activity?.(promotion(`before-${started}`));
+    // The row's attribution is taken when it is raised; it commits off the event loop (#2850).
+    await waitFor(() => queryGovernanceEvents(app.db, { limit: 100, turnId: req.turnId, kinds: ["promotion_refused"] }).length > 0);
     const before = queryGovernanceEvents(app.db, { limit: 100, turnId: req.turnId, kinds: ["promotion_refused"] });
     expect(before[0]?.model, "MODEL_LIVE_EARLY_UNKNOWN").toBeNull();
     const adapter = new StreamAdapter(req.bridge.activity);

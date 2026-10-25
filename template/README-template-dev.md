@@ -15,9 +15,9 @@ up in the user's brand-new brain verbatim.
    with **fresh git history** (no monorepo history).
 2. **Exclude this file** (`README-template-dev.md`) from the copy — it is the
    only file here that must not ship.
-3. The zero-byte sidecars (`.context-cache.jsonl`, `.asset-cache.jsonl`) must be
-   committed empty; they are the sidecar-cache contract and `brain index`
-   expects them to exist.
+3. The zero-byte sidecars (`.brain-cache/contexts.jsonl`,
+   `.brain-cache/assets.jsonl`) must be committed empty; they are the
+   sidecar-cache contract and `brain index` expects them to exist.
 4. Verify: `bun install && bun run setup` in a clone completes cleanly, and
    `brain search hello` returns `notes/hello-brain.md` with no API key.
 
@@ -31,7 +31,7 @@ up in the user's brand-new brain verbatim.
 - `.mcp.json` — stdio entry pointing at the packaged `brain mcp` command.
 - `.env.example` — `GEMINI_API_KEY`, commented, framed as optional.
 - `me/.gitkeep`, `context/.gitkeep`, `notes/hello-brain.md` — starter structure.
-- `.context-cache.jsonl`, `.asset-cache.jsonl` — empty sidecars.
+- `.brain-cache/contexts.jsonl`, `.brain-cache/assets.jsonl` — empty sidecars.
 - `.claude/settings.json` — conservative default permissions.
 - `.agents/skills/.gitkeep` — user-local skills overlay dir.
 - `.gitignore` — `brain.db*`, `.env`, `node_modules/`, `workspaces/*/`.

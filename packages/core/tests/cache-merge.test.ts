@@ -4,7 +4,7 @@
  * `brain doctor` checks for it and `--fix` adds it.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -12,7 +12,7 @@ import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 import { parseHistory } from "../src/lib/stats-history";
 
 const TEMPLATE_ATTRIBUTES = resolve(import.meta.dir, "../../../template/.gitattributes");
-const CACHE = ".context-cache.jsonl";
+const CACHE = ".brain-cache/contexts.jsonl";
 const HISTORY = ".stats-history.jsonl";
 
 const dirs: string[] = [];
@@ -37,6 +37,7 @@ function divergedRepo(attributes: string | null): string {
   git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   if (attributes !== null) writeFileSync(join(root, ".gitattributes"), attributes);
+  mkdirSync(join(root, ".brain-cache"));
   writeFileSync(join(root, CACHE), '{"k":"a","v":"base"}\n');
   git(root, "add", "-A");
   git(root, "commit", "-qm", "base");
@@ -123,14 +124,14 @@ describe("brain doctor cache-merge", () => {
         if (repo) git(root, "init", "-q");
         const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
         expect(cacheMerge(before)?.status).toBe("warn");
-        expect(cacheMerge(before)?.detail).toContain(".context-cache.jsonl, .asset-cache.jsonl and .stats-history.jsonl");
+        expect(cacheMerge(before)?.detail).toContain(".brain-cache/contexts.jsonl, .brain-cache/assets.jsonl and .stats-history.jsonl");
 
         const fixed = JSON.parse((await runCli(root, ["doctor", "--fix", "--json"])).stdout) as DoctorOut;
         expect(fixed.fixesApplied).toContain("cache-merge");
         expect(cacheMerge(fixed)?.status).toBe("pass");
         const attributes = readFileSync(join(root, ".gitattributes"), "utf8");
-        expect(attributes).toContain(".context-cache.jsonl merge=union\n");
-        expect(attributes).toContain(".asset-cache.jsonl merge=union\n");
+        expect(attributes).toContain(".brain-cache/contexts.jsonl merge=union\n");
+        expect(attributes).toContain(".brain-cache/assets.jsonl merge=union\n");
         expect(attributes).toContain(".stats-history.jsonl merge=union\n");
 
         // A second --fix changes nothing.
@@ -148,7 +149,7 @@ describe("brain doctor cache-merge", () => {
       git(root, "init", "-q");
       const committed = readFileSync(TEMPLATE_ATTRIBUTES, "utf8");
       writeFileSync(join(root, ".gitattributes"), committed);
-      writeFileSync(join(root, ".git", "info", "attributes"), ".context-cache.jsonl -merge\n");
+      writeFileSync(join(root, ".git", "info", "attributes"), ".brain-cache/contexts.jsonl -merge\n");
 
       const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
       expect(cacheMerge(before)?.status).toBe("warn");
@@ -170,17 +171,17 @@ describe("brain doctor cache-merge", () => {
     try {
       git(root, "init", "-q");
       const local = join(root, ".git", "local-attributes");
-      writeFileSync(local, ".context-cache.jsonl merge=union\n.asset-cache.jsonl merge=union\n.stats-history.jsonl merge=union\n");
+      writeFileSync(local, ".brain-cache/contexts.jsonl merge=union\n.brain-cache/assets.jsonl merge=union\n.stats-history.jsonl merge=union\n");
       git(root, "config", "core.attributesFile", local);
-      expect(git(root, "check-attr", "merge", "--", ".context-cache.jsonl").out).toContain("merge: union");
+      expect(git(root, "check-attr", "merge", "--", ".brain-cache/contexts.jsonl").out).toContain("merge: union");
 
       const before = JSON.parse((await runCli(root, ["doctor", "--json"])).stdout) as DoctorOut;
       expect(cacheMerge(before)?.status).toBe("warn");
-      expect(cacheMerge(before)?.detail).toContain(".gitattributes gives .context-cache.jsonl, .asset-cache.jsonl and .stats-history.jsonl no merge=union");
+      expect(cacheMerge(before)?.detail).toContain(".gitattributes gives .brain-cache/contexts.jsonl, .brain-cache/assets.jsonl and .stats-history.jsonl no merge=union");
 
       const fixed = JSON.parse((await runCli(root, ["doctor", "--fix", "--json"])).stdout) as DoctorOut;
       expect(cacheMerge(fixed)?.status).toBe("pass");
-      expect(readFileSync(join(root, ".gitattributes"), "utf8")).toContain(".context-cache.jsonl merge=union");
+      expect(readFileSync(join(root, ".gitattributes"), "utf8")).toContain(".brain-cache/contexts.jsonl merge=union");
     } finally {
       cleanup(root);
     }
@@ -192,7 +193,7 @@ describe("brain doctor cache-merge", () => {
       writeFileSync(join(root, ".gitattributes"), "*.txt text\r\n");
       await runCli(root, ["doctor", "--fix", "--json"]);
       const text = readFileSync(join(root, ".gitattributes"), "utf8");
-      expect(text).toContain(".asset-cache.jsonl merge=union\r\n");
+      expect(text).toContain(".brain-cache/assets.jsonl merge=union\r\n");
       expect(text.replaceAll("\r\n", "")).not.toContain("\n");
     } finally {
       cleanup(root);

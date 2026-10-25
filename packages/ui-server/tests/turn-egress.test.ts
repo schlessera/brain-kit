@@ -12,6 +12,9 @@ import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk
 import { createUiDb } from "../src/db/client.js";
 import { queryGovernanceEvents, recordGovernanceEvent, type GovernanceEventInput } from "../src/governance/events.js";
 import { createOutwardCalls, prepareTurnEgress } from "../src/brain/turn-egress.js";
+import { openSqliteWriter } from "../src/db/write-worker.js";
+import { createGovernanceWrites } from "../src/governance/event-writes.js";
+import * as probe from "./fixtures/write-worker-probe.js";
 
 function get(socketPath: string, target: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -265,4 +268,48 @@ test("the first admitted connection taints the session before its bytes; later t
     third.stop();
     expect(events("taint"), "TURN_EGRESS_FIRST_SOURCE_ONLY").toHaveLength(1);
   } finally { harbour.stop(true); island.stop(true); db.close(); }
+});
+
+test("on the write worker, a connection's bytes wait for its taint commit and a pending taint narrows the next host", async () => {
+  const root = mkdtempSync(join(tmpdir(), "turn-egress-worker-odysseus-")), db = createUiDb(join(root, "ui.db")), writer = openSqliteWriter(db);
+  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+  const hits: number[] = [];
+  const harbour = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { hits.push(Date.now()); return new Response("Ithaca"); } });
+  const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => { hits.push(-1); return new Response("Aeaea"); } });
+  const writes = createGovernanceWrites(db, writer);
+  const held = writer.channel(probe, { table: "odysseus_log" });
+  const proxy = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-harbour", sessionId: () => "ithaca",
+    record: event => writes.record(event), governanceDb: db, governanceWrites: writes });
+  try {
+    expect(writer.offloop).toBe(true);
+    await held.ready;
+    // A slow commit ahead of the taint, as an fsync under load would be.
+    const slow = held.call("slow", "Calypso", 400), started = Date.now();
+    const first = get(proxy.socketPath, harbour.url.href);
+    await Bun.sleep(100);
+    expect(writes.taint("turn-harbour", "ithaca")?.source, "TURN_EGRESS_PENDING_TAINT_IN_FORCE").toBe("egress_connection");
+    expect(await get(proxy.socketPath, island.url.href), "TURN_EGRESS_PENDING_TAINT_NARROWS_NEW_HOST").toBe(403);
+    expect(await first).toBe(200);
+    await slow;
+    expect(hits, "TURN_EGRESS_NEW_HOST_NEVER_CONTACTED").toHaveLength(1);
+    expect(hits[0]! - started, "TURN_EGRESS_BYTES_AFTER_TAINT_COMMIT").toBeGreaterThanOrEqual(350);
+    proxy.stop();
+    await proxy.settled();
+    expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection", "egress_denial"], limit: 10 }).map(event => event.kind).sort(),
+      "TURN_EGRESS_RECORDS_COMMITTED_BY_SETTLED").toEqual(["egress_connection", "egress_connection", "egress_denial"]);
+    expect(proxy.recordingFailure()).toBeUndefined();
+  } finally { proxy.stop(); harbour.stop(true); island.stop(true); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a record that fails to commit is the turn's recording failure once settled", async () => {
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+  const controller = new AbortController();
+  const proxy = await prepareTurnEgress({ ...inputs(controller), record: () => new Promise((_, reject) => setTimeout(() => reject(new Error("Scylla took the record")), 50)) });
+  try {
+    expect(await get(proxy.socketPath, origin.url.href)).toBe(200);
+    proxy.stop();
+    await proxy.settled();
+    expect(proxy.recordingFailure()?.message, "TURN_EGRESS_LATE_RECORD_FAILURE_IS_FINAL_AFTER_SETTLED").toBe("Turn egress recording is unavailable");
+    expect(controller.signal.aborted).toBe(true);
+  } finally { proxy.stop(); origin.stop(true); }
 });

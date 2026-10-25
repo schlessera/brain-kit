@@ -38,11 +38,12 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { Database } from "bun:sqlite";
 
 import type { GovernanceEventInput, GovernanceProfile } from "../governance/events.js";
-import { recordTurnRoadblocks, type TracedCall, type UsageSample } from "../governance/roadblocks.js";
+import type { TracedCall, UsageSample } from "../governance/roadblocks.js";
+import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
+import { recordFirstTaint } from "../governance/session-taint.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import { inputTaintSource, outputTaintSource, type IngestionSource } from "./ingestion-taint.js";
-import { recordFirstTaint } from "../governance/session-taint.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
@@ -54,14 +55,23 @@ export interface TurnRecorderDeps {
   /** Called after any committed write so the live stream can pump. */
   onWrite?: () => void;
   log?: Logger;
-  /** The governance-event writer (#1651). Absent: interventions stay span events only. */
-  governance?: (input: GovernanceEventInput) => void;
+  /**
+   * The governance-event writer (#1651). Absent: interventions stay span
+   * events only. A returned promise is the commit (#2850): `settled()` waits
+   * for it.
+   */
+  governance?: (input: GovernanceEventInput) => unknown;
   /**
    * The server database the turn's roadblocks are classified against and
    * recorded in at finish (#1671): it reads the turn's other governance
    * events as well as writing. Absent records none.
    */
   governanceDb?: Database;
+  /**
+   * Where the turn's taint and roadblocks commit (#2850): the hosted server's
+   * write worker. Absent, they commit on `governanceDb` itself.
+   */
+  governanceWrites?: GovernanceWrites;
   /** The brain's host path, so an absolute file-tool path resolves to the area it reads (G6). */
   brainPath?: string;
   /** Stops the turn when its untrusted-input taint cannot be persisted: outward rules must not stay loose. */
@@ -213,6 +223,17 @@ export function createTurnRecorder(
   const writes = orderedWrites(deps.store, dropped);
   const store = writes.store;
   const onWrite = wrote ? () => writes.after(wrote) : undefined;
+  // Governance rows are submitted when raised, so a later classification sees
+  // them; `settled()` also waits for their commits (#2850).
+  const governanceWrites = deps.governanceWrites ?? (deps.governanceDb ? createGovernanceWrites(deps.governanceDb) : undefined);
+  // Without a write worker the taint commits through `governance`, at once, as it always did.
+  const governanceDb = deps.governanceDb, record = deps.governance;
+  const firstTaint = deps.governanceWrites ? (input: GovernanceEventInput<"taint">) => deps.governanceWrites!.firstTaint(input)
+    : governanceDb && record ? (input: GovernanceEventInput<"taint">) => { recordFirstTaint(governanceDb, input, record); return Promise.resolve(); } : undefined;
+  const govern = (input: GovernanceEventInput) => {
+    const committed = deps.governance?.(input);
+    if (committed instanceof Promise) writes.after(() => committed);
+  };
 
   function ensureRoot() {
     if (rootStarted) return;
@@ -326,15 +347,17 @@ export function createTurnRecorder(
             const ingestion = ingestions.get(msg.toolUseId);
             ingestions.delete(msg.toolUseId);
             const source = ingestion && (ingestion.source ?? outputTaintSource(ingestion.tool, msg.output, deps.brainPath));
-            if (ingestion && source && !traced?.denied && deps.governanceDb && deps.governance) {
-              try {
-                recordFirstTaint(deps.governanceDb, { kind: "taint", payload: { source, tool: ingestion.tool, detail: null },
-                  sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
-                  model: mainModel, profile: turn.profile ?? null }, deps.governance);
-              } catch (error) {
+            if (ingestion && source && !traced?.denied && firstTaint && deps.governance) {
+              const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
                 deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
-              }
+              };
+              try {
+                const committed = firstTaint({ kind: "taint", payload: { source, tool: ingestion.tool, detail: null },
+                  sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
+                  model: mainModel, profile: turn.profile ?? null }).then(() => {}, untracked);
+                writes.after(() => committed);
+              } catch (error) { untracked(error); }
             }
             // A `brain` command in the worker that needed a withheld provider key (#1666).
             if (turn.origin !== "autonomous" && deps.governance && !traced?.denied && providerUnavailableRecorded < MAX_PROVIDER_UNAVAILABLE_PER_TURN) {
@@ -342,7 +365,7 @@ export function createTurnRecorder(
                 if (providerUnavailableRecorded >= MAX_PROVIDER_UNAVAILABLE_PER_TURN) break;
                 providerUnavailableRecorded++;
                 try {
-                  deps.governance({ kind: "provider_unavailable", payload, sessionId: sessionId ?? null, turnId: runId,
+                  govern({ kind: "provider_unavailable", payload, sessionId: sessionId ?? null, turnId: runId,
                     actor: turn.posture ?? "interactive", model: mainModel, profile: turn.profile ?? null });
                 } catch (error) {
                   log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
@@ -521,7 +544,7 @@ export function createTurnRecorder(
             ensureRoot();
             store.appendEvent(rootSpanId, event.kind, event.payload);
             try {
-              deps.governance?.({ kind: event.kind, payload: event.payload,
+              govern({ kind: event.kind, payload: event.payload,
                 sessionId: sessionId ?? null, turnId: runId,
                 actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
                 model: turn.origin === "autonomous" ? resultUsage?.model ?? null : mainModel, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
@@ -542,7 +565,7 @@ export function createTurnRecorder(
             }
             if (deps.governance && event.limits.length) {
               try {
-                deps.governance({ kind: "resource_limit", payload: { limits: event.limits.slice(0, 20), fatal: event.fatal },
+                govern({ kind: "resource_limit", payload: { limits: event.limits.slice(0, 20), fatal: event.fatal },
                   sessionId: sessionId ?? null, turnId: runId,
                   actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
                   model: null, profile: turn.profile ?? (turn.origin === "autonomous" ? "restricted" : null) });
@@ -727,11 +750,11 @@ export function createTurnRecorder(
       });
       // Separately guarded: a classification or storage failure loses the
       // roadblock records, never the turn's own Activity write above.
-      const governance = deps.governanceDb;
-      if (governance && !roadblocksRecorded) {
+      if (governanceWrites && !roadblocksRecorded) {
         roadblocksRecorded = true;
         guard(() => {
-          recordTurnRoadblocks(governance, {
+          // Submitted now, so it classifies exactly the events raised before finish.
+          const recorded = governanceWrites.roadblocks({
             turnId: runId,
             sessionId: sessionId ?? null,
             actor: turn.origin === "autonomous" ? "autonomous" : turn.posture ?? "interactive",
@@ -749,6 +772,7 @@ export function createTurnRecorder(
             cancelledAt,
             cancelledCallIds,
           });
+          writes.after(() => recorded);
         });
       }
     },
