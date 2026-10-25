@@ -13,7 +13,7 @@ import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createHostBoundary, MAINTENANCE_ENTRY, type HostBoundary } from "./host-boundary.js";
 import { createIndexBatch, IndexFlushError, type IndexBatch } from "./index-batch.js";
 import { subprocessEnv } from "../config/env.js";
-import { isProtectedTarget } from "./protected-target.js";
+import { createProtectedTargetCheck, PROTECTED_TARGET_REFUSAL } from "./protected-target.js";
 import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
 import { isProviderMasked, ProviderMaskRefusedError, type ProviderMaskGuard } from "./provider-mask-refusal.js";
 
@@ -272,10 +272,12 @@ export function createBrainApplication(options: {
   beforeCommit?: () => void;
 }) {
   const root = realpathSync(options.root);
-  const protectedPaths = [...(options.protectedPaths ?? [])];
+  // Links are followed both ways (#2876): a target that leads into a protected
+  // path, and a protected path that is a link to the target, refuse alike.
+  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, options.protectedPaths) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
-    if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This target is protected by the policy admitted for this turn; no change was applied.");
+    if (isProtected?.(path)) refuse("policy_denied", PROTECTED_TARGET_REFUSAL);
   };
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));
   const indexBatch = options.indexBatch ?? createIndexBatch({ index: paths => planner.index(root, undefined, paths) });

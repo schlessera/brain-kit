@@ -823,6 +823,10 @@ qualifies.
 origins, and refuses an untrusted origin thread. Its key is scoped to principal
 and turn: retries with identical text return the same item; different text
 under that key refuses. It stages triage work and grants no operation authority.
+In a turn with an admitted protection set, staging, publication and every
+compensation refuse a protected target, ancestor, descendant or link alias
+with the application route's `policy_denied` refusal; nothing is staged and no
+item is created (#2876).
 Voice and restricted memberships allow reads and refuse both mutations.
 Autonomous rosters remain exact server-selected authority.
 

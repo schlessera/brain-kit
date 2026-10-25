@@ -34,6 +34,7 @@ import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirec
 import { ensureIndexDirectory } from "../brain/index-directory.js";
 import { ProviderThreadRefusedError } from "../brain/provider-mask-refusal.js";
 import { admitOriginThread, type OriginThreadAdmission } from "./provenance.js";
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -306,6 +307,8 @@ async function executeAutonomousTurn(
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
       planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
+      // The policy admitted for this turn protects its targets, as for a hosted turn (#2876).
+      protectedPaths: protectedPaths(policy.policy),
       ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => applicationToolName(deps.backend.id, operation) } } : {}),
       isAuthorized: current,
       approve: async (proposal, destructive) => {

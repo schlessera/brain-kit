@@ -316,6 +316,35 @@ files, directory descendants and ancestors too. Refusals use the existing
 authority, exact browser submissions, voice exclusions and static alias checks
 remain independent requirements.
 
+**Every host writer a turn drives (maintainer, 2026-10-25, #2876 option 1).**
+Conversation inbox staging (`inbox_add`) and an autonomous turn's exactly
+approved application refuse every target in the turn's admitted protection
+set, with the application route's refusal: `policy_denied`, "This target is
+protected by the policy admitted for this turn; no change was applied." The
+hosted bridge hands inbox staging the list it captured at admission; an
+autonomous turn's application takes it from the policy the turn was admitted
+under (`protectedPaths: protectedPaths(policy.policy)`,
+`packages/ui-server/src/inbox/autonomous-turn.ts:311`), where it previously
+had none, so an approved autonomous write to a protected path now refuses.
+One check serves every host writer, the application route and image masks
+included (`createProtectedTargetCheck`,
+`packages/ui-server/src/brain/protected-target.ts:54-66`). A target refuses
+when it, an ancestor or a descendant is protected, compared both as named and
+where every link on the way leads, so a link into a protected folder and a
+protected path that is itself a link both count; the `.env*` names count by
+prefix. Inbox staging is judged at each directory and file it creates, before
+it publishes, and before every compensation removes anything: its own
+partial or published arrival, and an earlier arrival that the call
+reconciles (`conversation: (input`,
+`packages/ui-server/src/inbox/intake.ts:172-175`). A refused call leaves no
+receipt and no item. Links are read at each change, so a link a governed
+worker swaps in between two changes stops the next one; one swapped in
+between a check and its own system call is not covered, because staging
+writes by path rather than through anchored descriptors. Writers the server
+runs for itself are outside this rule: the staging cleanup and prune, which
+already refuse a linked staging root, and the scratch prune pass. A policy
+proposal writes the policy file because the owner approved that exact change.
+
 ## The host execution boundary
 
 The independent review of this record showed that read-only mounts cannot, on
@@ -2673,10 +2702,10 @@ brain, which no turn writes, still loads. The relative `bun
 scripts/brain-cli.ts` fallback cannot launch in a masked worker at all (the
 launcher requires an absolute executable), so a protected fallback refuses
 too until that is fixed separately (#2865). Host writers that a turn drives
-outside its worker, such as inbox staging and an autonomous turn's exactly
-approved application, do not consult the policy's `protect` list; a
-configuration that reads files they write is outside this rule until they do
-(#2876).
+outside its worker, inbox staging and an autonomous turn's exactly approved
+application, refuse the policy's protected paths as the application route
+does (2026-10-25 ruling, #2876; "Every host writer a turn drives" under
+[The policy file](#the-policy-file)).
 Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.

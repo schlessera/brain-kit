@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { BRAIN_LOCK_KEY, BRAIN_MASK_MAX_BYTES, type BrainMaskInput, type BrainApplicationResult, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertScratchMaskAsync, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
-import { isProtectedTarget } from "./protected-target.js";
+import { createProtectedTargetCheck } from "./protected-target.js";
 import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -113,9 +113,10 @@ export function createMaskApplication(options: {
 }) {
   const root = realpathSync(options.root);
   const protectedPaths = [...(options.protectedPaths ?? [])];
+  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, protectedPaths) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
-    if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
+    if (isProtected?.(path)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
   };
   const authority = (principalId: string, turnId: string) => {
     if (principalId !== options.principalId || turnId !== options.turnId) refuse("authority_revoked", "This mask no longer has current turn authority.");
