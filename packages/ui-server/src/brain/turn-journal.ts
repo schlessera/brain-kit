@@ -12,6 +12,7 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
+import { toolObservation, type ToolExecutionPath } from "./tool-observation.js";
 import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeCheckpointLedger,
   type ReferenceWorktreeJournalPool } from "./reference-worktree-journal.js";
 import { INDEX_DIR, INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
@@ -158,6 +159,13 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
   let scopeTimer: ReturnType<typeof setInterval> | undefined;
+  /**
+   * Per-result schedule (#2834): calls of active turns whose results have not
+   * arrived, and active turns that ran a call whose effects may outlast it.
+   */
+  const calls = new Map<string, { turnId: string; name: string | null; started: boolean; path?: ToolExecutionPath }>();
+  const lasting = new Set<string>();
+  const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
   let holds = 0;
   let observationFailures = 0;
   function held<T>(operation: () => Promise<T>, admission = false): Promise<T> {
@@ -379,6 +387,36 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     observe(): Promise<void> { return held(() => observe()); },
     /**
+     * A call of an active turn started (`start`) or was described; only its
+     * own ending settles it. A second start under a running call's identity,
+     * or another name, makes that call unproven.
+     */
+    toolStarted(turnId: string, toolUseId: string, name: string, start: boolean): void {
+      if (!active.has(turnId)) return;
+      const key = callKey(turnId, toolUseId), call = calls.get(key);
+      if (!call) { calls.set(key, { turnId, name, started: start }); return; }
+      if (call.name !== name || start && call.started) call.name = null;
+      call.started ||= start;
+    },
+    /** The backend's evidence of where the call actually ran (`StartTurnRequest.toolExecution`). */
+    toolExecuted(turnId: string, toolUseId: string, path: ToolExecutionPath): void {
+      const call = calls.get(callKey(turnId, toolUseId));
+      if (call) call.path = call.path === undefined || call.path === path ? path : undefined;
+    },
+    /**
+     * A call's result: observed, unless the call is proven read-only, no
+     * other call is still running and no active turn ran a call whose effects
+     * may outlast it. A call that could write is observed after its own result.
+     */
+    toolEnded(turnId: string, toolUseId: string): Promise<void> {
+      const key = callKey(turnId, toolUseId), call = calls.get(key);
+      calls.delete(key);
+      const effect = call ? toolObservation(call.name, call.path) : "unproven";
+      if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
+      if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
+      return held(() => observe());
+    },
+    /**
      * Cover one managed worktree (#2430) for an active turn before any of its
      * workers can reach it: a baseline checkpoint and inventory of that root.
      */
@@ -421,7 +459,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
       try { await observe(); }
       finally {
-        active.delete(turnId);
+        active.delete(turnId); lasting.delete(turnId);
+        for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         await dropWorktrees(turnId);
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         await write([

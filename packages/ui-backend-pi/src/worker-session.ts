@@ -38,6 +38,22 @@ export function savedModel(entries: import("@earendil-works/pi-coding-agent").Fi
   }
   return undefined;
 }
+/** What the host saw one call do: the RPCs it made, under the name it ran as (#2834). */
+type CallExecution = { name: string; host: boolean; lock: boolean; phases: Set<string> };
+/**
+ * The execution path one completed call proved, from the host's own record of
+ * its RPCs. Only an extension-free worker's calls are ever passed here: its
+ * tools are the curated set, so a name names exactly one implementation.
+ */
+export function provenToolExecution(name: string, seen: CallExecution | undefined): "host_bridge" | "worker_read" | "worker_write" | undefined {
+  if (!seen || seen.name !== name) return undefined;
+  const phases = [...seen.phases].sort().join(",");
+  // Its body ran in the host's handler: the worker side only forwarded it.
+  if (seen.host) return !seen.lock && !phases ? "host_bridge" : undefined;
+  if (name === "read_file") return !seen.lock && phases === "read_end,read_start" ? "worker_read" : undefined;
+  if (name === "write_file" || name === "edit_file") return seen.lock && phases === "write_check,write_end" ? "worker_write" : undefined;
+  return undefined;
+}
 /** The path a granted brain_read_base input names; undefined unless it is a valid input. */
 function grantedReadBasePath(granted: string): string | undefined {
   try { const parsed = brainReadBaseInput.safeParse(JSON.parse(granted)); return parsed.success ? parsed.data.path : undefined; }
@@ -147,7 +163,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerProviderMasks, workerLock, workerStarted, workerStartupView, workerSignal, ...workerSessionEnv } = env;
+  const { workerSandbox, workerProviderMasks, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
   const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
   let cachedNpmModules: string | undefined;
   if (npmPath && existsSync(npmPath)) {
@@ -416,6 +432,24 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
     return parts.join("\n");
   }
+  // Extension code runs on every tool event and can write at any time (#2834):
+  // only a worker that loads none can prove a call's execution path. Proof
+  // also ends, for the worker's lifetime, once it admits a call that can run
+  // other code (bash, grep, brain-owned configuration through an index tool,
+  // an application tool) or starts a call under a running call's identity:
+  // from then on the worker's own reports are no evidence.
+  const extensionFree = envelope !== undefined || backend.loadExtensions === false;
+  const provableTools = new Set(["read_file", "write_file", "edit_file", "brain_read_base", ...bridgeTools.map(tool => tool.name)]);
+  let provable = extensionFree;
+  const running = new Set<string>();
+  const executions = new Map<string, CallExecution>();
+  const executed = (msg: Rpc): CallExecution => {
+    let seen = executions.get(msg.toolCallId);
+    if (!seen) executions.set(msg.toolCallId, seen = { name: msg.toolName, host: false, lock: false, phases: new Set() });
+    // A call that names two tools proves neither.
+    else if (seen.name !== msg.toolName) seen.name = "";
+    return seen;
+  };
   async function dispatch(msg: Rpc): Promise<unknown> {
     live();
     if (msg.id <= lastRpcId) throw new Error("Replayed pi worker RPC");
@@ -438,7 +472,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
       const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
       try { live(); } catch (error) { release(); throw error; }
-      const lockId = randomUUID(); releases.set(lockId, release); return { lockId };
+      const lockId = randomUUID(); releases.set(lockId, release); executed(msg).lock = true; return { lockId };
     }
     if (msg.method === "fileObservation") {
       const grant = grants.get(msg.toolCallId);
@@ -459,6 +493,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         if (refusal) throw new Error(refusal);
         nativeVersions.beginWrite(observed.key);
       } else nativeVersions.finishWrite(observed.key, observed.version);
+      executed(msg).phases.add(phase as string);
       return { ok: true };
     }
     if (msg.method === "syncAuth") {
@@ -470,6 +505,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       return { ok: true };
     }
     if (msg.method === "permission") {
+      if (!provableTools.has(msg.toolName)) provable = false;
       if (isCompletedAutonomousToolCall(turnContext.autonomous, msg.toolName, msg.input)) {
         return { behavior: "deny", message: "This call already completed before yielding; inspect its retained result instead of replaying it." };
       }
@@ -494,6 +530,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       const tool = bridgeTools.find(tool => tool.name === msg.toolName);
       if (!tool) throw new Error("Pi worker bridge is outside the turn's capability roster.");
+      executed(msg).host = true;
       if (msg.toolName === "request_image_mask") {
         REQUEST_IMAGE_MASK_INPUT_SCHEMA.parse(msg.input);
         if (!bridge.applyImageMask) throw new Error("Hosted masks require the server-owned PNG application route.");
@@ -536,10 +573,12 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         throw new Error("Pi document-base request has no matching server permission decision.");
       }
       if (!bridge.readBrainBase) throw new Error("No server document-base reader is available.");
+      executed(msg).host = true;
       return bridge.readBrainBase(msg.input.path);
     }
     const input = brainApplicationInput.parse(msg.input);
     if (!bridge.applyBrain) throw new Error("No authoritative server application route is available for this turn.");
+    executed(msg).host = true;
     // applyBrain binds the principal and turn on the server, validates exact
     // membership/approvals/aliases and rechecks revocation under its write lock.
     const pending = bridge.applyBrain(input);
@@ -584,8 +623,16 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         }).catch(fail);
       } else if (msg.type === "event") {
         if (!active) throw new Error("Pi worker emitted an event outside the turn");
+        if (msg.event.type === "tool_execution_start") {
+          if (running.has(msg.event.toolCallId)) provable = false;
+          running.add(msg.event.toolCallId);
+        }
         if (msg.event.type === "tool_execution_end") {
           reportLimitHits();
+          const started = running.delete(msg.event.toolCallId);
+          const proven = provable && started ? provenToolExecution(msg.event.toolName, executions.get(msg.event.toolCallId)) : undefined;
+          executions.delete(msg.event.toolCallId);
+          if (proven) toolExecution?.(msg.event.toolCallId, proven);
           const receipt = applications.get(msg.event.toolCallId);
           if (receipt) {
             msg.event.result = receipt.output ? { content: receipt.output.content.map(part => ({ ...part })), details: receipt.output.details } : { content: [{ type: "text", text: JSON.stringify(receipt.result) }], details: receipt.result };

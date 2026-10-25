@@ -44,6 +44,22 @@ below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset
 rather than an additive public-contract feature.
 
+## Tool execution evidence (internal #2834)
+
+`StartTurnRequest` adds optional `@internal toolExecution(toolUseId, path)`, a
+server-only callback a backend calls before a call's `tool_result` with where
+that call actually ran: `host_bridge` (its body ran in the host's handler for
+its tool), `worker_read` or `worker_write` (a first-party file tool read or
+wrote in a worker that loaded no extension code). It is never serialized into a
+worker and is not a client, model or permission input. The pi backend reports
+it from its own record of each call's RPCs, and only for a worker that loads no
+extensions; the Claude backend does not report it. The UI server uses it to
+skip the journal observation after a proven read
+([governed-writable-workers](../decisions/governed-writable-workers.md#per-result-observation-schedule--2026-10-25-2834)).
+A backend that never calls it, and every call it reports nothing for, keeps
+the observation after each result. This is first-party implementation sharing
+under the internal-entry classification below and requires a patch changeset.
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
