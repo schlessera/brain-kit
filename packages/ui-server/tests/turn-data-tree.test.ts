@@ -5,7 +5,7 @@
  * backend is a script that reads through the worker the turn admitted.
  */
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -480,7 +480,7 @@ test("the tree leaves out .env link targets and, under any provider rule, the le
   try {
     // A recipient allowed every provider folder: no folder is masked, and
     // neither is `.brain-cache/`; a legacy root-level cache still is (#2725).
-    const tree = createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, providerRules: true, update: async () => {} });
+    const tree = await createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, providerRules: true, update: async () => {} });
     const root = tree.mount!.root;
     expect(["settings/ithaca-credentials.txt", ".env", ".context-cache.jsonl"].filter(rel => existsSync(join(root, rel))), "TREE_OMITS_ENV_TARGETS_AND_LEGACY_CACHES").toEqual([]);
     expect(existsSync(join(root, ".brain-cache/contexts.jsonl")), "ALLOWED_TREE_KEEPS_THE_CACHE_DIRECTORY").toBe(true);
@@ -488,5 +488,67 @@ test("the tree leaves out .env link targets and, under any provider rule, the le
     expect(existsSync(join(root, "archive-sealed/raft.md")), "READ_ONLY_DIRECTORIES_ARE_COPIED").toBe(true);
     await tree.close();
     expect([existsSync(root), existsSync(tree.index)], "TREE_AND_INDEX_REMOVED_DESPITE_READ_ONLY_DIRECTORIES").toEqual([false, false]);
+  } finally { await view.cleanup(); }
+});
+
+/** Every entry under `root` but the index: kind, mode, mtime, and bytes or link target. */
+function inventory(root: string, rel = ""): Record<string, unknown> {
+  const listed: Record<string, unknown> = {};
+  for (const name of readdirSync(join(root, rel)).sort()) {
+    const path = rel ? `${rel}/${name}` : name;
+    if (path === ".brain-index") continue;
+    const info = lstatSync(join(root, path));
+    const kind = info.isSymbolicLink() ? "link" : info.isDirectory() ? "dir" : "file";
+    // A link is made anew: its target is what the copy keeps.
+    listed[path] = { kind, ...(kind === "link" ? { target: readlinkSync(join(root, path)) } : { mode: (info.mode & 0o7777).toString(8), mtime: Math.floor(info.mtimeMs) }),
+      ...(kind === "link" ? {} : kind === "file" ? { sha: createHash("sha256").update(readFileSync(join(root, path))).digest("hex") } : {}) };
+    if (kind === "dir") Object.assign(listed, inventory(root, path));
+  }
+  return listed;
+}
+
+test("the pooled copy is the view, entry for entry: bytes, links, modes and times, and the seeded index", async () => {
+  const f = fixture(false);
+  // More files than the pool is wide, nested, with read-only directories and modes to keep.
+  for (let i = 0; i < 70; i++) {
+    const dir = join(f.brain, `voyages/leg-${i % 7}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `log-${i}.md`), NOTE(`Log ${i}`, `Odysseus logs leg ${i}.`));
+    utimesSync(join(dir, `log-${i}.md`), new Date(Date.UTC(2026, 6, 12, 0, i)), new Date(Date.UTC(2026, 6, 12, 1, i)));
+  }
+  chmodSync(join(f.brain, "voyages/leg-3/log-3.md"), 0o600);
+  chmodSync(join(f.brain, "voyages/leg-4/log-4.md"), 0o755);
+  // Bits a creating process's umask would strip.
+  chmodSync(join(f.brain, "voyages/leg-5/log-5.md"), 0o664);
+  symlinkSync("../leg-1/log-1.md", join(f.brain, "voyages/leg-2/sister.md"));
+  utimesSync(join(f.brain, "voyages/leg-5"), new Date(Date.UTC(2026, 6, 1)), new Date(Date.UTC(2026, 6, 2)));
+  chmodSync(join(f.brain, "voyages/leg-6"), 0o555);
+  cleanup.push(() => chmodSync(join(f.brain, "voyages/leg-6"), 0o755));
+  const view = await startup.prepareNativeWorkerStartupView(f.brain, undefined as never);
+  try {
+    const tree = await createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, update: async () => {} });
+    try {
+      const omitted = new Set([".git", "node_modules"]);
+      const expected = Object.fromEntries(Object.entries(inventory(view.root)).filter(([path]) => !omitted.has(path.split("/")[0]!)));
+      expect(inventory(tree.mount!.root), "THE_TREE_IS_THE_VIEW_ENTRY_FOR_ENTRY").toEqual(expected);
+      expect(existsSync(join(tree.index, "brain.db")), "THE_SEED_COPIED_THE_INDEX").toBe(true);
+      expect(snapshot(tree.index), "THE_SEEDED_INDEX_IS_THE_VIEWS").toEqual(snapshot(join(view.root, ".brain-index")));
+    } finally { await tree.close(); }
+  } finally { await view.cleanup(); }
+});
+
+test("an aborted admission stops the copy and leaves no tree or index behind", async () => {
+  const f = fixture(false);
+  for (let i = 0; i < 400; i++) writeFileSync(join(f.brain, "notes", `oar-${i}.md`), NOTE(`Oar ${i}`, "The crew rows on."));
+  const view = await startup.prepareNativeWorkerStartupView(f.brain, undefined as never);
+  const left = () => readdirSync(tmpdir()).filter(name => name.startsWith("brain-turn-data-") || name.startsWith("brain-private-index-"));
+  try {
+    const before = left();
+    const controller = new AbortController();
+    const pending = createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, update: async () => {}, signal: controller.signal });
+    controller.abort(new Error("Odysseus cancels the voyage."));
+    const outcome = await Promise.resolve(pending).then(tree => { void tree.close(); return "created"; }, (error: Error) => error.message);
+    expect(outcome, "AN_ABORTED_COPY_REFUSES").toBe("Odysseus cancels the voyage.");
+    expect(left(), "AN_ABORTED_COPY_LEAVES_NOTHING").toEqual(before);
   } finally { await view.cleanup(); }
 });

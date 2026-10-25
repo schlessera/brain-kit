@@ -287,7 +287,7 @@ export function createGovernedTurns(options: {
         // this turn's own applications (#2848); a masked one keeps its private
         // index current from it (#2846). Built from this final checkpoint.
         if (workerProfile(resolved) !== "governed" || privateIndex) {
-          dataTree = createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed",
+          dataTree = await createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed", signal,
             ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
               types: providerDeniedTypes(policy.policy, recipient) } } : {}),
             // A recipient allowed every folder still never sees the generated-text caches.

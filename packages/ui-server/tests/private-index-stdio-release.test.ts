@@ -105,7 +105,7 @@ for (const mode of ["success", "failure"] as const) {
     const f = fixture();
     const answer = mode === "success" ? { ok: true, plan: "Ithaca" } : { ok: false, error: "Penelope" };
     const seen = observeLaunch({ pool: "input", script: `IFS= read -r request; sleep 0.3; printf '%s\\n' '${JSON.stringify(answer)}'` });
-    const tree = createTurnDataTree({ brainPath: f.brain, view: f.startupView, maskPaths: [], mount: true });
+    const tree = await createTurnDataTree({ brainPath: f.brain, view: f.startupView, maskPaths: [], mount: true });
     cleanup.push(() => tree.close());
     const result = await outcome(tree.planAdd({ title: "Ithaca" }, new AbortController().signal));
     const open = seen.open();
@@ -124,7 +124,7 @@ for (const path of ["masked CLI", "turn tree"] as const) for (const abort of [fa
     let child: Launched | undefined, settled = false;
     observeLaunch({ script: path === "masked CLI" ? "printf Ithaca" : 'IFS= read -r request; printf \'{"ok":true,"plan":"Ithaca"}\\n\'',
       withheld: { promise: release.promise, called: calling.resolve }, launched: launched => { child = launched; } });
-    const tree = path === "turn tree" ? createTurnDataTree({ brainPath: f.brain, view: f.startupView, maskPaths: [], mount: true }) : undefined;
+    const tree = path === "turn tree" ? await createTurnDataTree({ brainPath: f.brain, view: f.startupView, maskPaths: [], mount: true }) : undefined;
     if (tree) cleanup.push(() => tree.close());
     const work = outcome(tree ? tree.planAdd({}, controller.signal)
       : runMaskedBrainCli({ ...f, signal: controller.signal, command: [] })).then(result => { settled = true; return result; });

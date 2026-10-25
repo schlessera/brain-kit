@@ -401,8 +401,9 @@ write verified scratch/workspace copies through the aliases below.
   commands that name the brain path see the turn-start bytes; a Claude `Read`
   of a path the turn changed is refused and points to `mcp__brain__brain_read`, and
   Claude's file tools do not read the tree itself.
-  Admission copies the startup view's documents into it (O(brain): 0.1-0.3 s
-  for 2,000 notes) and seeds its index, on the server's temporary directory.
+  Admission copies the startup view's documents into it (O(brain): about
+  0.05 s for 2,000 notes and 0.25 s for 10,000 on the native fixture) and
+  seeds its index, on the server's temporary directory.
   Under a provider rule the tree leaves out the masked folders, and only
   changes that pass the provenance rule enter it; the turn's private index is
   read-only to the agent.

@@ -852,6 +852,24 @@ configuration still loads from the frozen view at the brain path.
   approved index copy. Applications write only non-hidden `.md` outside
   `context/policies`, and the image-mask operation only its PNG and its
   scratch prune's removals, so every other byte in the tree equals the view.
+- **The copy runs as a pool (#2891).** Admission plans the tree (directories
+  and links) in one walk, then copies the files and the index seed sixteen at
+  a time off the event loop, requesting a reflink, and closes each directory's
+  mode and times last. Measured with the real admission code on a native
+  Btrfs checkpoint into the server's temporary directory, warm, as UID 1000
+  and as root (receipts on #2891, 2026-10-25): 2,000 notes of 16 KiB with a
+  115 MiB index 100 ms → 51 ms, 10,000 notes with a 574 MiB index
+  471 ms → 245 ms; a cold first copy 283 ms → 59 ms and 1,234 ms → 247 ms.
+  Two cheaper constructions were measured and not adopted. A reflink
+  placement on the managed volume takes 43 ms and 202 ms with one file after
+  another, because Bun's copy reflinks there already, but the server owns no
+  directory on that volume outside the live brain (the manager requires a
+  root-owned store, and the live subvolume is what governed peers write and
+  checkpoints qualify), so it needs a manager-provisioned location and a
+  capacity ruling first. Hardlinks from a shared base are refused by the
+  readers that require one link (`checkGovernancePolicy`, the embedding
+  policy, storage-attachment facts) and cannot cross subvolumes. The tree
+  still holds one copy per concurrent turn on the temporary directory.
 - **Committed bytes enter the tree inside the commit boundary.** Each
   application hands the tree its committed effects with the live base each
   one replaced, partial staged failures included; an archive writes the

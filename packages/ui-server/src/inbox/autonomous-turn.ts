@@ -394,7 +394,7 @@ async function executeAutonomousTurn(
       controller.signal.throwIfAborted();
       workerProviderMasks = Object.freeze({ folders: Object.freeze([...maskedFolders]), index: privateIndex });
     }
-    dataTree = createTurnDataTree({ brainPath, view: startupView, maskPaths: deps.privateIndex?.maskPaths ?? [], mount: true,
+    dataTree = await createTurnDataTree({ brainPath, view: startupView, maskPaths: deps.privateIndex?.maskPaths ?? [], mount: true, signal: controller.signal,
       ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView.root),
         types: providerDeniedTypes(policy.policy, undefined) } } : {}),
       pending: watermark?.paths() ?? [] });
