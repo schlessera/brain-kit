@@ -4,7 +4,7 @@ import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOut
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalStorageUnavailable } from "./journal-accounting.js";
-import { replaySteeringEvents } from "./journal-governance.js";
+import { createGovernanceWrites } from "../governance/event-writes.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
 import * as journalStore from "./journal-store.js";
 import { reviveJournalError, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
@@ -78,7 +78,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     await ledger.call("recover");
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
-    replaySteeringEvents(db);
+    await createGovernanceWrites(db, writer).replaySteering();
     const interrupted = (db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
     for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id)]);

@@ -91,11 +91,28 @@ thread waits for it.
   snapshot as the app's pricing instance and reloads the table whenever the
   app's refresh replaces it. A refresh whose cache write failed leaves the
   worker on the previous table until the next successful write.
-- **Other app-connection writers stay on the loop**: governance events written
-  outside a journal transaction, the writer gate, turn budgets and scope, the
-  session catalog, inbox and settings. Each commits at FULL on the loop, and
-  while a worker procedure holds its turn, such a write also waits there for
-  the worker's commit to finish. Those writers are tracked separately
+- **Governance events and turn scope moved next**
+  ([#2850](https://github.com/schlessera/brain-kit/issues/2850)). Every
+  governance event raised outside a journal transaction, the session's first
+  taint, roadblock classification and turn scope rows commit on the same
+  worker (`packages/ui-server/src/governance/event-writes.ts`,
+  `packages/ui-server/src/brain/turn-scope-writes.ts`). An event is validated
+  and its clock taken where it is raised. Three reads that followed those
+  writes now wait for them: a connection's first byte waits for its taint's
+  commit, while admission counts a taint from submission; a scope decision
+  runs only after the turn's earlier scope writes commit, and settles after
+  its own; and a turn's outcome waits for its egress records. The scope
+  summary the client hears of is sent once its row commits. A process without
+  a write worker, such as the cron runner, runs the same procedures on its own
+  connection.
+- **Other app-connection writers stay on the loop for now**: the writer gate,
+  turn budgets, the session catalog and message sources, the Activity
+  notifier and push ticks, auth sessions, inbox and settings. Each commits at
+  FULL on the loop, and while a worker procedure holds its turn, such a write
+  also waits there for the worker's commit to finish, including a journal
+  procedure that writes only `journal.db`, because the ledger's
+  `BEGIN IMMEDIATE` locks every attached file. Moving each of them to the
+  worker queue ends that wait too
   ([#2850](https://github.com/schlessera/brain-kit/issues/2850)).
 
 ## Rejected

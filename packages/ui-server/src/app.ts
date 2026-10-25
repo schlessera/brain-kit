@@ -12,7 +12,6 @@ import { createStorageMaintenanceRoutes } from "./routes/storage-maintenance.js"
 import { createStorageCoordinator } from "./storage/coordinator.js";
 import { createStorageRoutes } from "./routes/storage.js";
 import type { StorageStore } from "./storage/collect.js";
-import { recordGovernanceEvent } from "./governance/events.js";
 import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
 import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
@@ -573,7 +572,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     });
   const scratchPins = createScratchPins(config.brainPath, registry);
   bootCleanup.push(() => scratchPins.close());
-  const scratchPrune = startScratchPrune({ brain, pins: scratchPins, db, log: observability.logger("cron") });
+  const scratchPrune = startScratchPrune({ brain, pins: scratchPins, governance: activity.governanceWrites, log: observability.logger("cron") });
   bootCleanup.push(() => scratchPrune.close());
   // The subscription token (#254): boot warnings now, the expiry check daily,
   // and what /api/status says about it.
@@ -624,10 +623,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
-    recordEvent: (review, turn) => recordGovernanceEvent(db, { kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
+    recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
       payload: { requestId: review.requestId, baseHash: review.baseHash, proposedHash: review.proposedHash, sections: review.sections, outcome: "updated" }, dedupeKey: `${turn.turnId}:${review.requestId}` }),
   });
-  const scope = createTurnScope(db, { brainPath: config.brainPath, journal,
+  const scope = createTurnScope(db, { brainPath: config.brainPath, journal, writer, governance: activity.governanceWrites, log: brainLog,
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const host = new WsHost({
@@ -648,7 +647,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     brainPath: config.brainPath,
     registry,
     observability,
-    catalog: createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store }),
+    catalog: createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites }),
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
     inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver, config.brainPath),
@@ -693,6 +692,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       runtime: activity.runtime,
       governance: activity.governance,
       governanceDb: db,
+      governanceWrites: activity.governanceWrites,
     },
   });
   bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
@@ -700,7 +700,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
-    store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
+    store: activity.store, runtime: activity.runtime, governanceWrites: activity.governanceWrites, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
   // The agent worker boundary, probed now (#1632) so the server knows at boot
   // whether this host can run a turn, and says so in the log, on /api/status
   // and in the client. Unlike a missing runtime, a failure does not refuse
@@ -995,7 +995,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => storageRemoval.close());
   app.route("/api", createStorageRemovalRoutes(storageRemoval));
 
-  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
+  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock, governance: activity.governanceWrites,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
   bootCleanup.push(() => reverts.close());

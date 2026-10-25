@@ -5,6 +5,7 @@ import { requestToolPermission, type BackendActivityEvent, type BackendBridge } 
 import type { Database } from "bun:sqlite";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint } from "../governance/session-taint.js";
+import type { GovernanceWrites } from "../governance/event-writes.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -60,14 +61,31 @@ export async function prepareTurnEgress(options: {
   policy: EffectiveGovernancePolicy; bridge: BackendBridge; controller: AbortController;
   turnId: string; sessionId: () => string | null; model: () => string | null;
   profile: "governed" | "strict"; origin: "interactive" | "voice";
-  /** Absent when the host keeps no governance record: limits still apply. */
-  record?(event: GovernanceEventInput): void;
+  /**
+   * Absent when the host keeps no governance record: limits still apply. A
+   * returned promise is the record's commit (#2850); its failure stops the
+   * turn like a synchronous one, and `settled()` waits for it.
+   */
+  record?(event: GovernanceEventInput): unknown;
   /** The record the session's taint and contacted hosts are read from (G6). Absent: no taint narrowing. */
   governanceDb?: Database;
+  /**
+   * Where the session's first taint commits, and how admission reads it back
+   * before that commit lands (#2850). Absent: the taint commits on
+   * `governanceDb` through `record`.
+   */
+  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint">;
 }) {
   const calls = createOutwardCalls();
   let recordingFailure: Error | undefined;
   const db = options.governanceDb;
+  // Without a write worker the taint commits through `record`, at once, as it always did.
+  const record = options.record;
+  const writes = options.governanceWrites ?? (db && record ? {
+    taint: (turnId: string | null, sessionId: string | null) => sessionTaint(db, turnId, sessionId),
+    firstTaint: (event: GovernanceEventInput<"taint">) => { recordFirstTaint(db, event, record); return Promise.resolve(true); },
+  } : undefined);
+  const recording = new Set<Promise<unknown>>();
   // Hosts earlier turns of the session reached, then every host this turn admits.
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
   let tainted = false;
@@ -77,19 +95,24 @@ export async function prepareTurnEgress(options: {
     recordingFailure ??= new Error("Turn egress recording is unavailable");
     options.controller.abort(recordingFailure);
   };
+  const track = (committed: unknown) => {
+    if (!(committed instanceof Promise)) return;
+    const pending = committed.catch(fail).finally(() => recording.delete(pending));
+    recording.add(pending);
+  };
   const report = (record: EgressRecord): void => {
     if (!options.record) return;
     try {
-      options.record({ ...base(), kind: "egress_connection", payload: record });
+      track(options.record({ ...base(), kind: "egress_connection", payload: record }));
       const denied = options.policy.egress.deny.some(pattern => {
         const normalized = pattern.toLowerCase().replace(/\.$/, "");
         return normalized.startsWith("*.") ? record.host.endsWith(normalized.slice(1)) && record.host !== normalized.slice(2) : record.host === normalized;
       });
       const reason = record.reason === "destination_not_allowed" ? denied ? "denied_host" : "not_allowlisted"
         : record.reason === "max_bytes_per_turn" ? "byte_cap" : record.reason === "taint_not_allowed" ? "taint_allowlist" : undefined;
-      if (reason) options.record({ ...base(), kind: "egress_denial", payload: {
+      if (reason) track(options.record({ ...base(), kind: "egress_denial", payload: {
         host: record.host, port: record.port, method: record.method, reason, bytes: record.bytes,
-      } });
+      } }));
     } catch { fail(); }
   };
   /**
@@ -98,19 +121,27 @@ export async function prepareTurnEgress(options: {
    */
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
-    tainted: () => tainted ||= sessionTaint(db, options.turnId, options.sessionId()) !== null,
+    // A taint submitted but not yet committed counts (#2850).
+    tainted: () => tainted ||= (writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId())) !== null,
     contacted: (host: string) => contacted.has(host),
   } : undefined;
-  const admitted = (destination: { host: string; port: number; method: string; inference: boolean }): void => {
+  /**
+   * The proxy awaits this before the connection's first byte, so the taint
+   * has committed by then. It is in force for every later admission from the
+   * moment it is submitted.
+   */
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean }): Promise<void> => {
     if (destination.inference) return;
     contacted.add(destination.host);
-    if (!db || !options.record || tainted) return;
+    if (!writes || tainted) return;
+    tainted = true;
     try {
-      recordFirstTaint(db, { ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
-        detail: `${destination.method} ${destination.host}:${destination.port}` } }, options.record);
-      tainted = true;
+      await writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
+        detail: `${destination.method} ${destination.host}:${destination.port}` } });
     } catch (error) { fail(); throw error; }
   };
+  /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
+  const settled = async () => { while (recording.size) await Promise.all([...recording]); };
   const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
@@ -131,5 +162,5 @@ export async function prepareTurnEgress(options: {
     emit(message) { calls.emitted(message); original.emit(message); },
     activity(event) { calls.activity(event); original.activity?.(event); },
   };
-  return { ...proxy, bridge, recordingFailure: () => recordingFailure };
+  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled };
 }

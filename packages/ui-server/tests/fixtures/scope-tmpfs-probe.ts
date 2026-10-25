@@ -22,7 +22,7 @@ try {
     if (f.receipt().dimension !== "tool_calls" || f.receipt().newCap !== 2) throw Error("Fixture did not pause at its tool cap");
     writeFileSync(join(brain, ".brain/scratch/disk-pressure"), Buffer.alloc(33 * 1024 ** 2));
     // Fresh Continue admission itself observes the floor, without waiting for a new interval.
-    if (f.scope.decide(previous, true).state !== "refused") throw Error("SCOPE_PAUSED_CONTINUE_BYPASSED_FLOOR");
+    if ((await f.scope.decide(previous, true)).state !== "refused") throw Error("SCOPE_PAUSED_CONTINUE_BYPASSED_FLOOR");
   }
   const deadline = Date.now() + 32_000;
   if (clock) {
@@ -47,8 +47,8 @@ try {
   if (receipt.dimension !== "free_space_floor" || receipt.state !== "paused" || !receipt.frozen || receipt.newCap !== undefined) throw Error(JSON.stringify(receipt));
   await Bun.sleep(200);
   if (readdirSync(join(brain, ".brain/scratch")).length !== count) throw Error("SCOPE_TMPFS_LOOP_NOT_FROZEN");
-  if (f.scope.decide(f.message("continue"), true).state !== "refused") throw Error("SCOPE_TMPFS_FLOOR_GRANTED");
-  f.scope.decide(f.message("stop"), true); await child.exited;
+  if ((await f.scope.decide(f.message("continue"), true)).state !== "refused") throw Error("SCOPE_TMPFS_FLOOR_GRANTED");
+  (await f.scope.decide(f.message("stop"), true)); await child.exited;
   console.log(JSON.stringify({ proof: "supported tmpfs worker freeze/Stop", receipt: f.receipt(), retainedFiles: count, timings }));
 } finally {
   const cleanup = [async () => { child?.kill("SIGKILL"); if (child) await child.exited; }, () => f.close()];
