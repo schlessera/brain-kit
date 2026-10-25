@@ -265,6 +265,8 @@ async function runOnTree(options: {
     // Never leave the worker behind a failed read of its answer.
     try { stop(); } catch { /* already gone */ }
     await worker.exited.catch(() => {});
+    await worker.released();
+    options.signal?.throwIfAborted();
   }
 }
 
