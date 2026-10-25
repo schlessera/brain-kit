@@ -77,6 +77,13 @@ thread waits for it.
   `withRetainedVersion` and `version().stream()`. Turn revert `start` and
   storage removal `start`/`cancel` follow. `createTurnJournal` exposes `ready`,
   which the app awaits before serving.
+- **Memory records take their turn beside observations.** Once commits await,
+  an observation reads a turn's last sequence before its commit and stores the
+  result after it, and `finish` can end a turn while a memory save is still
+  committing. `persistClaudeMemory` and `recordClaudeMemory` therefore run in
+  the journal's observation order: a save requested before `finish` is recorded
+  before the turn ends, one requested after is refused before it saves, and a
+  record never reuses a sequence an observation is committing.
 
 ## The exceptions
 
