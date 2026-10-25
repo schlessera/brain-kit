@@ -577,9 +577,9 @@ describe("the published template", () => {
     // already thought of.
     expect(await templateFilesToPublish()).toEqual([
       ".agents/skills/.gitkeep",
-      ".asset-cache.jsonl",
+      ".brain-cache/assets.jsonl",
+      ".brain-cache/contexts.jsonl",
       ".claude/settings.json",
-      ".context-cache.jsonl",
       ".env.example",
       ".gitattributes",
       ".gitignore",
@@ -605,7 +605,7 @@ describe("the published template", () => {
   });
 
   test("the sidecar caches ship empty, which is the contract brain index expects", () => {
-    for (const sidecar of [".context-cache.jsonl", ".asset-cache.jsonl"]) {
+    for (const sidecar of [".brain-cache/contexts.jsonl", ".brain-cache/assets.jsonl"]) {
       expect(readFileSync(join(ROOT, "template", sidecar), "utf8")).toBe("");
     }
   });

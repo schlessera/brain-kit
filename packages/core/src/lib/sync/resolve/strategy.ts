@@ -10,10 +10,10 @@
  * 6. anything else → `synthesize`.
  */
 
+import { LEGACY_SIDECAR_CACHES, SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { basename } from "path";
 
-import { SIDECAR_CACHES } from "../../cache-attributes.js";
 import { frontmatterLength } from "../../document-parts.js";
 import type { Taxonomy } from "../../taxonomy.js";
 import type { MergeStrategy } from "../types.js";
@@ -55,7 +55,8 @@ function typeOf(path: string, taxonomy: Taxonomy, sides: MergeSides): string | n
 
 export function strategyFor(path: string, taxonomy: Taxonomy, sides: MergeSides): MergeStrategy {
   const name = basename(path);
-  if ((SIDECAR_CACHES as readonly string[]).includes(name)) return "cache-union";
+  if (SIDECAR_CACHES.some((cache) => path === cache || path.endsWith(`/${cache}`))
+    || LEGACY_SIDECAR_CACHES.some((pair) => pair.legacy === name)) return "cache-union";
   if (!name.toLowerCase().endsWith(".md") || CODE_MARKDOWN.has(name)) return "code-merge";
   const type = typeOf(path, taxonomy, sides);
   const configured = type ? taxonomy.types[type]?.mergeStrategy : undefined;

@@ -443,6 +443,7 @@ async function runRetainedSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
               ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
+              ...(host.activity.governanceWrites ? { governanceWrites: host.activity.governanceWrites } : {}),
               ...(host.brainPath ? { brainPath: host.brainPath } : {}),
               abort: error => abortController.abort(error),
             },
@@ -505,6 +506,7 @@ async function runRetainedSession(
       let referenceViews: { public: string; private: string } | null = null, referenceTurn = false;
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
+      const budgetWrites = new Set<Promise<unknown>>();
       let scopeStopReason: string | undefined;
       turn.backendStarted = false;
       let enteredBackend = false;
@@ -537,11 +539,11 @@ async function runRetainedSession(
         if (!governedHold || !host.journal) lifecycle?.skip("journal");
         if (governedHold && host.budgets) {
           lifecycle?.mark("budgetStartedAt");
-          try { host.budgets.begin(turn.turnId,resumeId,governedHold.policy.policy,billing?.pricingRoute); }
+          try { await host.budgets.begin(turn.turnId,resumeId,governedHold.policy.policy,billing?.pricingRoute); }
           catch (error) { if(error instanceof BudgetExceeded) throw error; throw new BudgetUnavailable(); }
         }
         if (governedHold && host.budgets) lifecycle?.mark("budgetAdmittedAt");
-        try { if(governedHold && host.budgets) for(const item of host.budgets.warnings(turn.turnId)) host.activity?.governance?.({
+        try { if(governedHold && host.budgets) for(const item of await host.budgets.warnings(turn.turnId)) host.activity?.governance?.({
           kind:"budget_warning",turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:mainModel,profile:governedHold.sandbox.profile ?? "strict",
           payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
             limit:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.warnUsd:item.warnTokens!,
@@ -583,7 +585,7 @@ async function runRetainedSession(
             generation: worktreeGeneration ?? null, signal: abortController.signal });
         }
         const scopeTurnId = turn.turnId;
-        if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
+        if (governedHold && host.scope) await host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
           origin, model: () => mainModel, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
           source: governedHold.policy.source === "default" ? "default" : "policy", hardTimeoutMs: host.turnTimeoutMs,
           current: () => turn.turnId === scopeTurnId && !abortController.signal.aborted && current.authorization.valid && current.authorization.expiresAt > Date.now() && host.isPrincipalAuthorized(current.principalId),
@@ -639,6 +641,12 @@ async function runRetainedSession(
           recorder?.recordBudgetStop(budgetFailure.message,"budget_unavailable");
           abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
         };
+        // A budget write's commit, and what the turn does with its outcome;
+        // the turn's outcome waits for every one (#2850).
+        const budgetWrite = (work: Promise<unknown>) => {
+          const pending = work.catch(() => { if (!budgetFailure) budgetUnavailable(); }).finally(() => budgetWrites.delete(pending));
+          budgetWrites.add(pending);
+        };
         const bridge = makeBridge(
           host,
           turn,
@@ -670,20 +678,28 @@ async function runRetainedSession(
             ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,
           host.budgets && governedHold ? (usage,backstop=false) => {
             if (budgetFailure || abortController.signal.aborted || turn.cancelled) return;
+            // The report is priced now; its receipt, warnings and any block
+            // follow its commit (#2850), judged against the turn as it is then.
+            const live = () => !budgetFailure && !abortController.signal.aborted && !turn.cancelled;
             try {
-              const saved = backstop ? host.budgets!.backstop(turn.turnId) : undefined;
-              const result = saved ? {receipt:saved,warnings:[],blocked:{...saved.scopes[0]!,blocked:true}} : host.budgets!.observe(turn.turnId,usage);
-              if (!result) return;
-              budgetWarnings(result.warnings);
-              if (!backstop) {
+              if (backstop) {
+                budgetWrite(host.budgets!.backstop(turn.turnId).then(saved => { if (live()) budgetBlocked({...saved.scopes[0]!,blocked:true}, true); }));
+                return;
+              }
+              const observed = host.budgets!.observe(turn.turnId,usage);
+              if (!observed) return;
+              const listPrice = host.budgets!.listPrice(turn.turnId,usage);
+              budgetWrite(observed.then(result => {
+                if (!live()) return;
+                budgetWarnings(result.warnings);
                 const {costUsd:reportedCost,...counts}=usage;
                 void reportedCost;
                 host.sendToClients(withTurnScope({type:"usage",turnId:turn.turnId,usage:{...counts,
                   ...(result.receipt.listPriceCostUsd !== null ? {costUsd:result.receipt.listPriceCostUsd} : {})},
                   observedAt:result.receipt.observedAt,budget:result.receipt},turn));
-              }
-              if (result.blocked) budgetBlocked(result.blocked, backstop);
-              return {...usage,...(result.receipt.listPriceCostUsd !== null ? {costUsd:result.receipt.listPriceCostUsd} : {})};
+                if (result.blocked) budgetBlocked(result.blocked, false);
+              }));
+              return {...usage,...(listPrice !== null ? {costUsd:listPrice} : {})};
             } catch { budgetUnavailable(); }
           } : undefined,
           billing,
@@ -713,11 +729,13 @@ async function runRetainedSession(
         if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
           throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
         if (governedHold?.managedStorage && relayed) {
-          const governance = host.activity?.governance;
+          const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
           turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", origin,
-            ...(governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
+            // A record's commit failure stops the turn, as a synchronous one did (#2850).
+            ...(governanceWrites ? { record: (event: Parameters<typeof governanceWrites.record>[0]) => governanceWrites.record(event), governanceWrites }
+              : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
             ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           });
           // The CLI's paid providers reach the network only through this relay,
@@ -726,23 +744,27 @@ async function runRetainedSession(
           // The turn this relay meters, fixed now: a late report never lands on a later turn.
           const egress = turnEgress, hold = governedHold, relayTurnId = turn.turnId;
           providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
-            admit: () => {
+            admit: async () => {
               if (budgetFailure) return { allowed: false, message: budgetFailure.message };
               if (!host.budgets) return { allowed: true };
               try {
-                const blocked = host.budgets.providerAdmission(relayTurnId, hold.policy.policy);
+                const blocked = await host.budgets.providerAdmission(relayTurnId, hold.policy.policy);
+                // The turn may have stopped while admission waited for earlier budget writes.
+                const stopped = budgetFailure as Error | undefined;
+                if (stopped) return { allowed: false, message: stopped.message };
                 return blocked ? { allowed: false, message: new BudgetExceeded(blocked, "mid_turn").message } : { allowed: true };
               } catch { return { allowed: false, message: new BudgetUnavailable().message }; }
             },
             observe: attempt => {
               if (!host.budgets) return;
               try {
-                const result = host.budgets.observeProvider(relayTurnId, attempt);
-                if (!result || budgetFailure || abortController.signal.aborted || turn.cancelled) return;
-                // A crossed block refuses each further relayed request (ruling D3 on
-                // #1673); the agent's next completed response, which sees the same
-                // scopes, stops the turn as any usage over a block does.
-                budgetWarnings(result.warnings);
+                budgetWrite(host.budgets.observeProvider(relayTurnId, attempt).then(result => {
+                  if (!result || budgetFailure || abortController.signal.aborted || turn.cancelled) return;
+                  // A crossed block refuses each further relayed request (ruling D3 on
+                  // #1673); the agent's next completed response, which sees the same
+                  // scopes, stops the turn as any usage over a block does.
+                  budgetWarnings(result.warnings);
+                }));
               } catch { if (!budgetFailure) budgetUnavailable(); }
             },
           });
@@ -753,7 +775,9 @@ async function runRetainedSession(
         // The session's recorded untrusted input, read live by outward admission and the note (G6).
         const governanceDb = host.activity?.governanceDb;
         const commandPolicy = governedHold?.sandbox.commandPolicy && governanceDb ? { ...governedHold.sandbox.commandPolicy,
-          taint: () => sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
+          // A taint submitted to the write worker counts before it commits (#2850).
+          taint: () => host.activity?.governanceWrites ? host.activity.governanceWrites.taint(turn.turnId, turn.sessionId ?? null)
+            : sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
         enteredBackend = true;
         turn.backendStarted = true;
         lifecycle?.mark("backendInvokedAt");
@@ -799,6 +823,8 @@ async function runRetainedSession(
         // Every relayed attempt reports before the turn's accounting closes.
         await providerRelay?.stop();
         turnEgress?.stop();
+        // Every egress record commits, or fails the turn, before its outcome (#2850).
+        await turnEgress?.settled();
         const egressFailure = turnEgress?.recordingFailure();
         if (egressFailure) throw egressFailure;
         // Final observation is part of this host outcome, after worker writes
@@ -806,6 +832,7 @@ async function runRetainedSession(
         // A worktree generation retires first: no grant can follow that observation.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id);
         await host.journal?.finish(turn.turnId);
+        while (budgetWrites.size) await Promise.all([...budgetWrites]);
         if (budgetFailure) throw budgetFailure;
         if (journalFailure) throw journalFailure;
         // A host timeout ends the turn like a cancel: its late result is
@@ -840,6 +867,8 @@ async function runRetainedSession(
       } catch (err) {
         lifecycle?.mark("failureObservedAt");
         await settleIndex?.();
+        await turnEgress?.settled();
+        while (budgetWrites.size) await Promise.all([...budgetWrites]);
         const egressFailure = turnEgress?.recordingFailure();
         const terminal = budgetFailure ?? journalFailure ?? egressFailure ?? err;
         if (terminal instanceof BudgetExceeded && terminal.stage === "admission") {
@@ -869,6 +898,8 @@ async function runRetainedSession(
       } finally {
         await providerRelay?.stop();
         turnEgress?.stop();
+        // The session's next turn reads these hosts back as contacted (G6).
+        await turnEgress?.settled();
         if (referenceTurn) host.referenceTools?.end(turn.turnId);
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});

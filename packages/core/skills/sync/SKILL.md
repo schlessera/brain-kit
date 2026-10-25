@@ -190,7 +190,7 @@ passage choices Jev made and how many took the default. The strategy comes from 
 
 | File kind | Strategy |
 |---|---|
-| sidecar caches (`.context-cache.jsonl`, `.asset-cache.jsonl`) | **cache-union** (done by `pull`) |
+| sidecar caches (`.brain-cache/contexts.jsonl`, `.brain-cache/assets.jsonl`, and an older clone's root-level `.context-cache.jsonl` / `.asset-cache.jsonl`) | **cache-union** (done by `pull`) |
 | not markdown, or exact `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` basename at any depth | **code-merge** (left to you) |
 | a type with `mergeStrategy` in the taxonomy | that strategy |
 | any `_index.md` | **table-union** |

@@ -61,7 +61,7 @@ test("one matched set feeds masks and retention", () => {
   const selected = policy({ paths: ["ithaca/**"], types: ["identity"] });
   expect(providerTypeSelectors(selected)).toEqual(["identity"]);
   expect(providerMaskedFolders(selected, { identity: ["me"] }), "MASKED_SET_IS_FOLDERS_PLUS_TYPE_FOLDERS").toEqual(["ithaca", "me"]);
-  expect(retainedFolderRoots(policy({ types: ["identity"] }), ["me"]), "TYPE_FOLDERS_RETAINED_WITH_THE_INDEX").toEqual([".brain-index", "me"]);
+  expect(retainedFolderRoots(policy({ types: ["identity"] }), ["me"]), "TYPE_FOLDERS_RETAINED_WITH_THE_INDEX").toEqual([".brain-cache", ".brain-index", "me"]);
   expect(retainedFolderRoots(policy({ types: ["identity"] })), "NOTHING_RETAINED_BEFORE_TRANSLATION").toEqual([]);
   // A folder inside another is hidden by the outer mask alone; bubblewrap
   // cannot mount inside that empty read-only tmpfs (#2718).
@@ -69,7 +69,7 @@ test("one matched set feeds masks and retention", () => {
   expect(providerFolderRoots(nested), "NESTED_PATH_FOLDER_DROPPED").toEqual(["ithaca/palace", "me", "mean"]);
   expect(providerMaskedFolders(nested, { place: ["ithaca"], vault: ["me/vault"] }), "NESTED_FOLDERS_DROPPED_FROM_THE_MASKED_SET")
     .toEqual(["ithaca", "me", "mean"]);
-  expect(retainedFolderRoots(nested, ["ithaca", "me/vault"]), "NESTED_FOLDERS_DROPPED_FROM_RETENTION").toEqual([".brain-index", "ithaca", "me", "mean"]);
+  expect(retainedFolderRoots(nested, ["ithaca", "me/vault"]), "NESTED_FOLDERS_DROPPED_FROM_RETENTION").toEqual([".brain-cache", ".brain-index", "ithaca", "me", "mean"]);
 });
 
 test("a document declaring a translated type outside its folders is found wherever the turn can read it", () => {

@@ -13,7 +13,9 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
    * A separate root (#2430) is content only: none of its files configure the
    * brain's agent, and its `.brain-index/` is not the brain's index.
    */
-  rootScope: { steering: boolean; index: boolean } = { steering: true, index: true }) {
+  rootScope: { steering: boolean; index: boolean } = { steering: true, index: true },
+  /** A previous checkpoint's release failed after its observation committed (#2872). */
+  releaseFailed?: (error: unknown) => void) {
   const workerUid = () => {
     if (!identity || !workerIdentityHelper()) return undefined;
     const actual = verifiedWorkerIdentity(identity.brainPath);
@@ -26,7 +28,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
     if (!manager.readCheckpoint || !identity) throw new Error("Native private-file recovery requires the configured fixed checkpoint reader.");
     return { checkpointId: root.id, workerUid: uid, manager: { readCheckpoint: manager.readCheckpoint.bind(manager) }, signal, createTemporary: identity.createTemporary };
   };
-  const observer = createNativeJournalObserver(manager, workerUid);
+  const observer = createNativeJournalObserver(manager, workerUid, releaseFailed);
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
     if (!scope || metadata.kind === "directory") return undefined;
@@ -138,6 +140,8 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         return { changes, steering, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };
       } catch (error) { await observation.abort().catch(() => {}); throw error; }
     },
+    releases() { return observer.releases(); },
+    releasesSettled() { return observer.releasesSettled(); },
     close() { return observer.close(); },
   };
 }

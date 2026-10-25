@@ -14,8 +14,7 @@ import { createPrivateIndexCache, privateIndexBuildFolders, type PrivateIndexAdv
 import { privateIndexArgv } from "./client.js";
 import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
-import { ensureIndexDirectory } from "./index-directory.js";
-import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { ensureRetainedDirectories } from "./index-directory.js";
 import type { IndexBatch } from "./index-batch.js";
 import { createTurnDataTree, type TurnDataTree } from "./turn-data-tree.js";
 
@@ -213,9 +212,10 @@ export function createGovernedTurns(options: {
         const folderPaths = hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList))
           ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
         // Retention needs the directory to exist; the host creates the index
-        // directory (never a provider folder) before the layout is resolved.
-        // An alias or file under the name stays for the resolver to refuse.
-        if (folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(options.brainPath); } catch { /* resolver refuses */ } }
+        // and cache directories (never a provider folder) before the layout
+        // is resolved. An alias or file under a name stays for the resolver
+        // to refuse.
+        try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
         const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,

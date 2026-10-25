@@ -814,8 +814,10 @@ content/index membership; the root-relative content exclusions are unchanged.
 `brain sync resolve` (and `brain sync run`) picks one strategy for each
 conflicted file. The first match wins:
 
-1. A derived cache (`.context-cache.jsonl`, `.asset-cache.jsonl`) is
-   `cache-union`. `brain sync pull` has already unioned it.
+1. A derived cache (`.brain-cache/contexts.jsonl`, `.brain-cache/assets.jsonl`,
+   or the root-level `.context-cache.jsonl` and `.asset-cache.jsonl` an older
+   clone still writes) is `cache-union`. `brain sync pull` has already unioned
+   it.
 2. A file that is not markdown, or whose exact basename is `CLAUDE.md`,
    `AGENTS.md` or `GEMINI.md` at any depth, is `code-merge`. Conflicted
    instructions and their Git index stages stay intact for agent/person

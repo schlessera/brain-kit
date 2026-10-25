@@ -64,7 +64,7 @@ test("the retained topology adds the index directory exactly when provider folde
   expect(retainedFolderRoots({ providers: [] }), "NO_PROVIDER_FOLDERS_NO_RETENTION").toEqual([]);
   const policy = { providers: [{ paths: ["group/private/**", "me/*.md"], allow: ["anthropic"] }] } as Parameters<typeof retainedFolderRoots>[0];
   expect(providerFolderRoots(policy)).toEqual(["group/private"]);
-  expect(retainedFolderRoots(policy), "INDEX_DIRECTORY_RETAINED_BESIDE_PROVIDER_FOLDERS").toEqual([".brain-index", "group/private"]);
+  expect(retainedFolderRoots(policy), "INDEX_DIRECTORY_RETAINED_BESIDE_PROVIDER_FOLDERS").toEqual([".brain-cache", ".brain-index", "group/private"]);
 });
 
 test("a file mask over the old root-level index detaches when a governed peer replaces it", async () => {
@@ -124,7 +124,7 @@ test("admission creates the index directory with the brain root's mode before re
     const info = lstatSync(join(f.brain, ".brain-index"));
     expect(info.isDirectory(), "ADMISSION_CREATED_INDEX_DIRECTORY").toBe(true);
     expect(info.mode & 0o7777).toBe(statSync(f.brain).mode & 0o7777);
-    expect(hold.sandbox.retainedFolders).toEqual([".brain-index", "group/private"]);
+    expect(hold.sandbox.retainedFolders).toEqual([".brain-cache", ".brain-index", "group/private"]);
   } finally { await hold.end(); }
 });
 

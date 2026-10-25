@@ -24,6 +24,11 @@ export interface InboxBridgeContext {
    * holds. Run in each read's transaction before any payload is built.
    */
   qualifyOrigin?: () => void;
+  /**
+   * The turn's admitted protection set (#2876): `inbox_add` staging and its
+   * compensation refuse a protected target, as the turn's application does.
+   */
+  protectedPaths?: readonly string[];
   /** Server-held exact approval only. V1 never creates a discuss binding. */
   approvedAction?: { sessionId: string; itemId: string; optionId: string; expectedVersion: number; effect: V1ResolutionEffect };
 }
@@ -83,7 +88,7 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
           // Reuse compensated, principal-checked intake; never accept a model
           // source/trust field. The turn is this bridge's own: its host lineage
           // alone decides what the item can qualify for (#2816).
-          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(); return true; });
+          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(); return true; }, context.protectedPaths);
           return { created: result.created, threadId: result.threadId, itemId: result.itemId };
         },
         resolveAction: async input => {

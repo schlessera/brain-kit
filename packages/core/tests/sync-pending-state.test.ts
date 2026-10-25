@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { conclude, pendingState } from "../src/lib/sync/merge-state.js";
 import { makeTempBrain, runCli } from "./cli-harness";
 
-const CACHE = ".context-cache.jsonl";
+const CACHE = ".brain-cache/contexts.jsonl";
 const NOTE = "notes/sailor-log.md";
 const dirs: string[] = [];
 

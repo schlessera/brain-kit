@@ -5,13 +5,15 @@ import { statfsSync } from "node:fs";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import type { ClientScopeDecision, ServerScopeDecisionReceipt, ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "@schlessera/brain-ui-sdk/protocol";
-import { recordTurnRoadblocks } from "../governance/roadblocks.js";
-import { recordGovernanceEvent } from "../governance/events.js";
-import { processAlive } from "./writer-gate.js";
+import type { Logger } from "@opentelemetry/api-logs";
+import type { GovernanceEventInput } from "../governance/events.js";
+import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { setup, url } from "./turn-scope-writes.js";
 import type { TurnJournal } from "./turn-journal.js";
 
 type Worker = Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
-type Live = { sessionId: string | null; principalId: string; origin: "interactive" | "voice"; profile: "strict" | "governed";
+type Live = { unrecorded?: boolean; sessionId: string | null; principalId: string; origin: "interactive" | "voice"; profile: "strict" | "governed";
   startedAt: number; summary: TurnScopeSummary; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
   checking?: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
 export const SCOPE_DISCONNECTED_MS = 30 * 60_000;
@@ -22,25 +24,47 @@ export function scopeLimits(policy: EffectiveGovernancePolicy) {
 }
 export function createTurnScope(db: Database, options: { brainPath: string; journal: TurnJournal;
   connected: (sessionId: string | null) => boolean; changed: (turnId: string, sessionId: string) => void;
-  now?: () => number; space?: () => { total: number; free: number } }) {
+  now?: () => number; space?: () => { total: number; free: number };
+  /** Where scope rows and their governance events commit: the write worker (#2850). Absent: on `db`, at once. */
+  writer?: SqliteWriter; governance?: Pick<GovernanceWrites, "record">; log?: Logger }) {
   const now = options.now ?? Date.now;
   const space = options.space ?? (() => { const fs = statfsSync(options.brainPath); return { total: fs.blocks * fs.bsize, free: fs.bavail * fs.bsize }; });
   const active = new Map<string, Live>();
-  const save = (turnId: string, turn: Live) => {
-    db.query("UPDATE turn_scope SET session_id=?,summary=? WHERE turn_id=?").run(turn.sessionId, JSON.stringify(turn.summary), turnId);
-    if (turn.sessionId) options.changed(turnId, turn.sessionId);
+  const submit = procedureCaller(db, { url, setup }, undefined, options.writer);
+  // Each turn's latest scope write, until it settles: a decision reads the
+  // turn's row only once every write submitted before it has committed.
+  const tails = new Map<string, Promise<unknown>>();
+  const call = (turnId: string, name: string, ...args: unknown[]): Promise<unknown> => {
+    const done = submit(name, turnId, ...args);
+    const tail = done.then(() => {}, () => {});
+    tails.set(turnId, tail);
+    void tail.then(() => { if (tails.get(turnId) === tail) tails.delete(turnId); });
+    return done;
   };
-  // A restart cannot resume a kernel process or turn whose authority ended.
-  for (const row of db.query("SELECT s.turn_id,s.session_id,s.summary,j.actor,j.profile,j.started_at,j.pid,j.pid_start FROM turn_scope s LEFT JOIN turn_journal_turns j ON j.turn_id=s.turn_id WHERE s.ended_at IS NULL").all() as { turn_id: string; session_id: string | null; summary: string; actor: "interactive" | "voice" | "user" | null; profile: "strict" | "governed" | null; started_at: number | null; pid: number | null; pid_start: string | null }[]) {
-    if (row.pid !== null && row.pid_start !== null && processAlive(row.pid, row.pid_start)) continue;
-    const summary = JSON.parse(row.summary) as TurnScopeSummary;
-    for (const receipt of summary.receipts) if (receipt.state === "paused") {
-      receipt.state = "ended_before_answer"; receipt.reason = "Host restarted; the turn was interrupted.";
-    }
-    if (summary.receipts.some(receipt => receipt.state === "ended_before_answer")) recordTurnRoadblocks(db, { turnId: row.turn_id, sessionId: row.session_id, actor: row.actor ?? "interactive", model: null, profile: row.profile },
-      { startedAt: row.started_at ?? summary.observedAt, endedAt: now(), calls: [], usage: [], finalUsage: null, outcomeDetail: null });
-    db.query("UPDATE turn_scope SET summary=?,ended_at=? WHERE turn_id=?").run(JSON.stringify(summary), now(), row.turn_id);
-  }
+
+  const governance = options.governance ?? createGovernanceWrites(db, options.writer);
+  /**
+   * A scope record that cannot be kept stops its turn: its caps could no
+   * longer be decided against what was recorded.
+   */
+  const unrecorded = (turnId: string, error: unknown) => {
+    options.log?.emit({ severityText: "WARN", body: `turn scope not recorded: ${error instanceof Error ? error.message : String(error)}`, attributes: { "turn.id": turnId } });
+    const turn = active.get(turnId);
+    if (!turn || turn.unrecorded || !turn.current()) return;
+    turn.unrecorded = true;
+    for (const worker of turn.workers) worker.kill("SIGKILL");
+    turn.stop("The turn's scope could not be recorded; the turn stopped. Partial work remains.");
+  };
+  // The summary is taken now; the client hears of it once the row has
+  // committed, because the journal summary it is sent with reads it back.
+  const save = (turnId: string, turn: Live): Promise<void> => {
+    const sessionId = turn.sessionId;
+    return call(turnId, "save", sessionId, JSON.stringify(turn.summary)).then(() => { if (sessionId) options.changed(turnId, sessionId); }, error => unrecorded(turnId, error));
+  };
+  const scopeEvent = (turnId: string, input: GovernanceEventInput<"scope_cap">) => {
+    try { governance.record(input).catch(error => unrecorded(turnId, error)); } catch (error) { unrecorded(turnId, error); }
+  };
+  void submit("recover", now()).catch(error => options.log?.emit({ severityText: "WARN", body: `turn scope recovery failed: ${error instanceof Error ? error.message : String(error)}` }));
   function stop(turnId: string, turn: Live, receipt: ScopeCapReceipt, state: "stopped" | "voice_stopped" | "ended_before_answer", reason: string) {
     receipt.state = state; receipt.reason = reason;
     save(turnId, turn);
@@ -78,7 +102,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "free_space_floor", count: fs.free, cap: floor,
           overshoot: floor - fs.free, frozen: pending.frozen, observedAt: now(), state: "paused", reason: "Free space fell below its floor while this turn was paused. Stop only." };
         turn.summary.receipts.push(receipt);
-        recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
+        scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
           dedupeKey: receipt.eventId, payload: { cap: receipt.dimension, limit: floor, observed: fs.free, overshoot: receipt.overshoot,
             frozen: receipt.frozen, outcome: "paused", source: "default" } });
       }
@@ -114,7 +138,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused" };
       refreshHeadroom(turn, receipt);
       turn.summary.receipts.push(receipt);
-      recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
+      scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
         dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed, overshoot: receipt.overshoot,
           frozen, outcome: turn.origin === "voice" ? "voice_stopped" : frozen ? "paused" : "stopped", source: turn.source } });
       if (turn.origin === "voice") stop(turnId, turn, receipt, "voice_stopped", `I stopped because this turn reached its limit of ${cap} ${dimension === "tool_calls" ? "tool calls" : dimension === "minutes" ? "wall minutes" : dimension === "files_changed" ? "distinct changed paths" : "bytes"}${dimension === "free_space_floor" ? " of free space" : ""}. Ask again to carry on.`);
@@ -176,8 +200,12 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       const summary: TurnScopeSummary = { policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
         changedPaths: null, observedBytes: null, coverage: "partial", observedAt: now(), receipts: [] };
       const turn: Live = { ...input, startedAt: now(), summary, workers: new Set(), calls: new Set() };
-      db.query("INSERT INTO turn_scope(turn_id,session_id,principal_id,summary) VALUES (?,?,?,?)").run(turnId, input.sessionId, input.principalId, JSON.stringify(summary));
       active.set(turnId, turn);
+      // The turn starts only once its row has committed; refused, it never runs.
+      return call(turnId, "insert", input.sessionId, input.principalId, JSON.stringify(summary)).then(() => {}, (error: unknown) => {
+        if (active.get(turnId) === turn) active.delete(turnId);
+        throw error;
+      });
     },
     workerStarted(turnId: string, worker: Worker) {
       const turn = active.get(turnId); if (!turn || !turn.current()) { worker.kill("SIGKILL"); return; }
@@ -197,48 +225,65 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       turn.calls.add(toolUseId); turn.summary.calls = turn.calls.size; check(turnId, turn);
     },
     isPaused(turnId: string) { return active.get(turnId)?.summary.receipts.some(receipt => receipt.state === "paused") ?? false; },
-    decide(msg: ClientScopeDecision, authorized: boolean): ServerScopeDecisionReceipt {
-      const response = (state: ServerScopeDecisionReceipt["state"], reason?: string): ServerScopeDecisionReceipt => ({ ...msg, type: "scope_decision_receipt", state, ...(reason ? { reason } : {}) });
-      if (!authorized) return response("refused", "Current authenticated authority is required.");
-      const row = db.query("SELECT session_id,summary,ended_at FROM turn_scope WHERE turn_id=?").get(msg.turnId) as { session_id: string | null; summary: string; ended_at: number | null } | null;
-      if (!row || row.session_id !== msg.sessionId) return response("refused", "This decision does not match the turn and session.");
-      const summary = JSON.parse(row.summary) as TurnScopeSummary, receipt = summary.receipts.find(receipt => receipt.eventId === msg.eventId);
-      if (!receipt) return response("refused", "This cap event is not recognized.");
-      if (receipt.state === "ended_before_answer" || row.ended_at !== null && receipt.state === "paused") return response("ended_before_answer", receipt.reason);
-      if (receipt.submissionId === msg.submissionId) return response("accepted");
-      if (receipt.state !== "paused") return response("answered_elsewhere");
-      const turn = active.get(msg.turnId);
-      if (!turn || !turn.current()) return response("ended_before_answer");
-      if (msg.action === "readback") return response("pending");
-      if (msg.action === "continue" && receipt.newCap !== turn.summary.receipts.find(item => item.eventId === msg.eventId)?.newCap)
-        return response("refused", "This continuation offer no longer matches the live turn.");
-      // A grant cannot bypass a floor that another writer crossed while this worker waited.
-      if (msg.action === "continue") check(msg.turnId, turn);
-      if (!turn.current()) return response("ended_before_answer");
-      const latestPause = turn.summary.receipts.findLast(receipt => receipt.state === "paused");
-      if (msg.action === "continue" && latestPause?.eventId !== msg.eventId) return response("refused", "The free-space floor now requires Stop only.");
-      const liveReceipt = turn.summary.receipts.find(receipt => receipt.eventId === msg.eventId)!;
-      if (msg.action === "continue" && (liveReceipt.newCap === undefined || turn.checking || observationHolds > 0))
-        return response("refused", liveReceipt.reason ?? "This limit permits Stop only while continuation headroom is unconfirmed.");
-      try {
-        if (msg.action === "continue") {
-          // Grant is consumed before resumption; a failed resume cannot issue another increment.
-          turn.summary.limits[liveReceipt.dimension as Exclude<ScopeDimension,"free_space_floor">] = liveReceipt.newCap!;
-          liveReceipt.state = "continued"; liveReceipt.submissionId = msg.submissionId; save(msg.turnId, turn);
-          if (observationHolds === 0) for (const worker of turn.workers) worker.resume();
-        } else { liveReceipt.submissionId = msg.submissionId; stop(msg.turnId, turn, liveReceipt, "stopped", "You stopped the turn at its scope limit."); }
-        return response("accepted");
-      } catch (error) {
-        stop(msg.turnId, turn, liveReceipt, "ended_before_answer", "The host could not resume the worker; it stopped. Partial work remains.");
-        return response("failed", String(error));
-      }
+    /**
+     * Settles once every scope write the turn made before the decision has
+     * committed, the decision has run against its committed row, and the
+     * writes the decision made have committed too (#2850).
+     */
+    async decide(msg: ClientScopeDecision, authorized: boolean): Promise<ServerScopeDecisionReceipt> {
+      if (!authorized) return { ...msg, type: "scope_decision_receipt", state: "refused", reason: "Current authenticated authority is required." };
+      // Checked again after every wait, with nothing awaited between the last
+      // check and the decision: a concurrent one waits for this one's writes.
+      for (let tail = tails.get(msg.turnId); tail; tail = tails.get(msg.turnId)) await tail;
+      const receipt = decideCommitted(msg);
+      for (let tail = tails.get(msg.turnId); tail; tail = tails.get(msg.turnId)) await tail;
+      return receipt;
     },
-    finish(turnId: string) {
-      const turn = active.get(turnId); if (!turn) return;
+    /** Settles once the turn's final summary and end have committed. */
+    finish(turnId: string): Promise<void> {
+      const turn = active.get(turnId); if (!turn) return Promise.resolve();
       for (const receipt of turn.summary.receipts) if (receipt.state === "paused") { receipt.state = "ended_before_answer"; receipt.reason = "The turn ended before an answer."; }
-      save(turnId, turn); db.query("UPDATE turn_scope SET ended_at=? WHERE turn_id=?").run(now(), turnId); active.delete(turnId);
+      const saved = save(turnId, turn), ended = call(turnId, "end", now()).catch(error => unrecorded(turnId, error));
+      active.delete(turnId);
+      return Promise.all([saved, ended]).then(() => {});
     },
     close() { unsubscribe(); for (const [id, turn] of active) { for (const worker of turn.workers) worker.kill("SIGKILL"); turn.stop("Host closed; the turn was interrupted."); this.finish(id); } },
   };
+  /** A decision, synchronous from its read of the committed row through the writes it submits. */
+  function decideCommitted(msg: ClientScopeDecision): ServerScopeDecisionReceipt {
+    const response = (state: ServerScopeDecisionReceipt["state"], reason?: string): ServerScopeDecisionReceipt => ({ ...msg, type: "scope_decision_receipt", state, ...(reason ? { reason } : {}) });
+    const row = db.query("SELECT session_id,summary,ended_at FROM turn_scope WHERE turn_id=?").get(msg.turnId) as { session_id: string | null; summary: string; ended_at: number | null } | null;
+    if (!row || row.session_id !== msg.sessionId) return response("refused", "This decision does not match the turn and session.");
+    const summary = JSON.parse(row.summary) as TurnScopeSummary, receipt = summary.receipts.find(receipt => receipt.eventId === msg.eventId);
+    if (!receipt) return response("refused", "This cap event is not recognized.");
+    if (receipt.state === "ended_before_answer" || row.ended_at !== null && receipt.state === "paused") return response("ended_before_answer", receipt.reason);
+    if (receipt.submissionId === msg.submissionId) return response("accepted");
+    if (receipt.state !== "paused") return response("answered_elsewhere");
+    const turn = active.get(msg.turnId);
+    if (!turn || !turn.current()) return response("ended_before_answer");
+    if (msg.action === "readback") return response("pending");
+    if (msg.action === "continue" && receipt.newCap !== turn.summary.receipts.find(item => item.eventId === msg.eventId)?.newCap)
+      return response("refused", "This continuation offer no longer matches the live turn.");
+    // A grant cannot bypass a floor that another writer crossed while this worker waited.
+    if (msg.action === "continue") check(msg.turnId, turn);
+    if (!turn.current()) return response("ended_before_answer");
+    const latestPause = turn.summary.receipts.findLast(receipt => receipt.state === "paused");
+    if (msg.action === "continue" && latestPause?.eventId !== msg.eventId) return response("refused", "The free-space floor now requires Stop only.");
+    const liveReceipt = turn.summary.receipts.find(receipt => receipt.eventId === msg.eventId)!;
+    if (msg.action === "continue" && (liveReceipt.newCap === undefined || turn.checking || observationHolds > 0))
+      return response("refused", liveReceipt.reason ?? "This limit permits Stop only while continuation headroom is unconfirmed.");
+    try {
+      if (msg.action === "continue") {
+        // Grant is consumed before resumption; a failed resume cannot issue another increment.
+        turn.summary.limits[liveReceipt.dimension as Exclude<ScopeDimension,"free_space_floor">] = liveReceipt.newCap!;
+        liveReceipt.state = "continued"; liveReceipt.submissionId = msg.submissionId; save(msg.turnId, turn);
+        if (observationHolds === 0) for (const worker of turn.workers) worker.resume();
+      } else { liveReceipt.submissionId = msg.submissionId; stop(msg.turnId, turn, liveReceipt, "stopped", "You stopped the turn at its scope limit."); }
+      return response("accepted");
+    } catch (error) {
+      stop(msg.turnId, turn, liveReceipt, "ended_before_answer", "The host could not resume the worker; it stopped. Partial work remains.");
+      return response("failed", String(error));
+    }
+  }
 }
 export type TurnScope = ReturnType<typeof createTurnScope>;

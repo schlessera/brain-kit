@@ -331,6 +331,12 @@ function maskFixture(f: Fixture): Partial<ConstructorParameters<typeof WsHost>[0
   writeFileSync(join(f.brain, ".brain/scratch/sail.png"), PNG_WITH("sail"));
   writeFileSync(join(f.brain, ".brain/scratch/old-sketch.png"), PNG_WITH(OLD_MASK));
   utimesSync(join(f.brain, ".brain/scratch/old-sketch.png"), new Date(0), new Date(0));
+  // Expired too, but a protected link names it, so the prune keeps it (#2876).
+  writeFileSync(join(f.brain, ".brain/scratch/kept-sketch.png"), PNG_WITH("kept"));
+  utimesSync(join(f.brain, ".brain/scratch/kept-sketch.png"), new Date(0), new Date(0));
+  symlinkSync(".brain/scratch/kept-sketch.png", join(f.brain, "kept"));
+  const policy = join(f.brain, "context/policies/governance.md");
+  writeFileSync(policy, readFileSync(policy, "utf8").replace("schema_version: 1\n", "schema_version: 1\nprotect: [kept]\n"));
   const view = createFixtureWorkerStartupView(f.brain);
   cleanup.push(() => view.cleanup());
   return { maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } as never };
@@ -356,6 +362,11 @@ test("a strict turn's own image masks reach its tree before its next read, and t
     const scratch = await mask(bridge, paint, ".brain/scratch/sail.png", ".brain/scratch/sail-mask.png", PNG_WITH("Sirensailmask"));
     expect(scratch.ok, JSON.stringify(scratch)).toBe(true);
     expect(scratch.changes.map(change => change.path), "THE_PRUNE_REMOVED_THE_OLD_SKETCH").toContain(".brain/scratch/old-sketch.png");
+    // The tree follows exactly what the live prune removed and kept.
+    expect([existsSync(join(brain, ".brain/scratch/kept-sketch.png")), existsSync(join(tree.root, ".brain/scratch/kept-sketch.png"))],
+      "THE_TREE_KEEPS_WHAT_THE_PRUNE_KEPT").toEqual([true, true]);
+    expect([existsSync(join(brain, ".brain/scratch/old-sketch.png")), existsSync(join(tree.root, ".brain/scratch/old-sketch.png"))],
+      "THE_TREE_DROPS_WHAT_THE_PRUNE_REMOVED").toEqual([false, false]);
     // The turn's next read waits for its index, which takes the same paths.
     await bridge.awaitIndex!("mcp__brain__brain_search");
     const read = inWorker(request, brain, ["/bin/sh", "-c", `cat ${DATA}/assets/raft-mask.png ${DATA}/.brain/scratch/sail-mask.png; `
@@ -424,11 +435,12 @@ test("a masked tree leaves out the masked folders, the operational state and the
   mkdirSync(join(f.brain, ".brain"), { recursive: true });
   writeFileSync(join(f.brain, ".brain/state.md"), NOTE("State", `${SENTINEL} in operational state.`));
   writeFileSync(join(f.brain, ".context-cache.jsonl"), `{"text":"${SENTINEL}"}\n`);
+  mkdirSync(join(f.brain, ".brain-cache")); writeFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), `{"text":"${SENTINEL}"}\n`);
   writeFileSync(join(f.brain, ".env"), "ODYSSEUS_SECRET=Nobody\n");
   await hostedTurn(f, "strict", async ({ request }) => {
     const tree = request.workerSandbox!.dataTree!;
     const present = (rel: string) => existsSync(join(tree.root, rel));
-    expect(["me", "health", ".brain", ".context-cache.jsonl", ".env", ".git", "node_modules"].filter(present), "TREE_OMITS_WHAT_THE_TURN_CANNOT_SEE").toEqual([]);
+    expect(["me", "health", ".brain", ".context-cache.jsonl", ".brain-cache", ".env", ".git", "node_modules"].filter(present), "TREE_OMITS_WHAT_THE_TURN_CANNOT_SEE").toEqual([]);
     expect(present("notes/quick-note-eagle.md"), "TREE_HOLDS_THE_VISIBLE_DOCUMENTS").toBe(true);
     expect(tree.masked, "THE_UPDATER_SEES_THE_SAME_MASKS_AS_THE_BUILD").toEqual([".brain", "health", "me"]);
   });
@@ -454,22 +466,25 @@ test("a masked turn's updates never touch the reusable private index base", asyn
   } finally { await shared.turns?.close(); shared.execution?.release(); shared.db?.close(); }
 });
 
-test("the tree leaves out .env link targets and, under any provider rule, the caches; it is removed whole", async () => {
+test("the tree leaves out .env link targets and, under any provider rule, the legacy caches; it is removed whole", async () => {
   const f = fixture(false);
   mkdirSync(join(f.brain, "settings"), { recursive: true });
   writeFileSync(join(f.brain, "settings/ithaca-credentials.txt"), "ODYSSEUS_SECRET=Nobody\n");
   symlinkSync("settings/ithaca-credentials.txt", join(f.brain, ".env"));
   writeFileSync(join(f.brain, ".context-cache.jsonl"), "{}\n");
+  mkdirSync(join(f.brain, ".brain-cache")); writeFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), "{}\n");
   mkdirSync(join(f.brain, "archive-sealed")); writeFileSync(join(f.brain, "archive-sealed/raft.md"), NOTE("Sealed", "Kept read-only."));
   chmodSync(join(f.brain, "archive-sealed"), 0o555);
   cleanup.push(() => chmodSync(join(f.brain, "archive-sealed"), 0o755));
   const view = await startup.prepareNativeWorkerStartupView(f.brain, undefined as never);
   try {
-    // A recipient allowed every provider folder: no folder is masked, the caches still are.
+    // A recipient allowed every provider folder: no folder is masked, and
+    // neither is `.brain-cache/`; a legacy root-level cache still is (#2725).
     const tree = createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, providerRules: true, update: async () => {} });
     const root = tree.mount!.root;
-    expect(["settings/ithaca-credentials.txt", ".env", ".context-cache.jsonl"].filter(rel => existsSync(join(root, rel))), "TREE_OMITS_ENV_TARGETS_AND_CACHES").toEqual([]);
-    expect(tree.mount!.masked, "THE_CACHES_ARE_MASKED_ON_THE_TREE_TOO").toEqual([]);
+    expect(["settings/ithaca-credentials.txt", ".env", ".context-cache.jsonl"].filter(rel => existsSync(join(root, rel))), "TREE_OMITS_ENV_TARGETS_AND_LEGACY_CACHES").toEqual([]);
+    expect(existsSync(join(root, ".brain-cache/contexts.jsonl")), "ALLOWED_TREE_KEEPS_THE_CACHE_DIRECTORY").toBe(true);
+    expect(tree.mount!.masked, "THE_LEGACY_CACHES_ARE_MASKED_ON_THE_TREE_TOO").toEqual([]);
     expect(existsSync(join(root, "archive-sealed/raft.md")), "READ_ONLY_DIRECTORIES_ARE_COPIED").toBe(true);
     await tree.close();
     expect([existsSync(root), existsSync(tree.index)], "TREE_AND_INDEX_REMOVED_DESPITE_READ_ONLY_DIRECTORIES").toEqual([false, false]);

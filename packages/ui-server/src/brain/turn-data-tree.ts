@@ -16,7 +16,7 @@
  * turn's effects ever enter the tree.
  *
  * A turn under provider rules keeps the masked folders, the generated-text
- * caches and the operational-state folders out of the tree, and its index is
+ * caches (#2725) and the operational-state folders out of the tree, and its index is
  * the turn's private one. An effect enters the tree only if its path is
  * visible, neither its result nor its base declares a type the turn's
  * recipient may not see, and its base is the tree's own bytes: the view's, or
@@ -32,7 +32,7 @@ import { Database, constants as sqlite } from "bun:sqlite";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { isEnvName } from "@schlessera/brain-common/internal/protected-paths";
-import { envMaskedPaths, launchAgentWorker, prepareWorkerSandbox, PROVIDER_CACHE_FILES, retainWorkerStartupView, workerIdentityHelper, WORKER_DATA_ROOT,
+import { envMaskedPaths, launchAgentWorker, prepareWorkerSandbox, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, retainWorkerStartupView, workerIdentityHelper, WORKER_DATA_ROOT,
   type WorkerDataTree, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { createIndexBatch, type IndexBatch } from "./index-batch.js";
 import { isProviderMasked } from "./provider-mask-refusal.js";
@@ -284,8 +284,9 @@ export function createTurnDataTree(options: {
   mount: boolean;
   masks?: TurnTreeMasks; index?: string; pending?: readonly string[];
   /**
-   * The turn is under provider rules (#2692, #2695): the generated-text caches
-   * stay out of its tree even when its recipient is allowed every folder.
+   * The turn is under provider rules (#2692, #2695): the legacy root-level
+   * generated-text caches stay out of its tree even when its recipient is
+   * allowed every folder. `.brain-cache/` stays out only with `masks` (#2725).
    */
   providerRules?: boolean;
   /** Default: the maintenance program's targeted index update, on the tree. */
@@ -298,13 +299,15 @@ export function createTurnDataTree(options: {
   let index: string | undefined;
   try {
     if (separateIdentity) { chownSync(root, process.getuid!(), process.getgid!()); chmodSync(root, 0o750); }
+    // The legacy root-level caches stay out under any provider rule;
+    // `.brain-cache/` only while a folder is masked (#2725).
     const masks = options.masks, caches = Boolean(masks || options.providerRules);
     // The `.env*` masks cover link targets at the brain path only, so the tree
     // leaves those targets out as well.
     const hidden = [...(masks?.buildFolders ?? []), ...envMaskedPaths(options.view.root, options.brainPath)];
     copyView(options.view.root, root, rel => {
       const top = !rel.includes("/");
-      if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel as typeof PROVIDER_CACHE_FILES[number])))) return true;
+      if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel)) || (masks && rel === PROVIDER_CACHE_DIR))) return true;
       return hidden.some(folder => rel === folder || rel.startsWith(`${folder}/`));
     });
     mkdirSync(join(root, INDEX_DIR), { mode: 0o755 });

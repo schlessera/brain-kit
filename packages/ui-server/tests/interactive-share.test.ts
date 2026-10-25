@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { existsSync, linkSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateSignedCookie } from "hono/cookie";
@@ -93,7 +94,7 @@ test("real app/WS completion verifies filing and retained PDF, then a lost reply
   const repeated = await f.upload(); expect(repeated.id).toBe(share.id);
   expect(repeated.filingSessionId, "LOST_ADMISSION_RECOVERS_BOUND_SESSION_WITHOUT_DISPATCH").toBe(sid);
   await f.send(repeated, async req => {
-    await expect(req.bridge.completeShare!(request), "COMPLETION_REPLAY_IS_IDEMPOTENT").resolves.toEqual({ ...receipt, replay: true });
+    expect(await req.bridge.completeShare!(request), "COMPLETION_REPLAY_IS_IDEMPOTENT").toEqual({ ...receipt, replay: true });
     expect((await req.bridge.applyBrain!(application(share))).shareReceiptId).toBe(request.receiptIds[0]);
   }, sid);
   expect(f.frames.findLast(frame => frame.type === "session_info").sessionId, "REUPLOADED_SHARE_RESUMES_ORIGINAL_SESSION").toBe(sid);
@@ -113,7 +114,7 @@ test("partial filing and duplicate application delivery recover the same item/se
     expect(result.ok).toBe(true);
     expect(await req.bridge.applyBrain!(application(share)), "FILING_REPLAY_HAS_ORIGINAL_RECEIPT").toEqual(result);
     expect(await req.bridge.applyBrain!({ ...application(share), expectedBaseHash: result.changes[0].contentHash } as BrainApplicationInput), "FRESH_BASE_CANNOT_DUPLICATE_FILING").toEqual(result);
-    await expect(req.bridge.completeShare!({ receiptIds: ["forged"], files: [] })).rejects.toThrow("forged");
+    await expectRejection(req.bridge.completeShare!({ receiptIds: ["forged"], files: [] }), "forged");
   });
   expect(f.item(share).status).toBe("ready");
   expect((await f.upload(false)).filingSessionId, "PARTIAL_FILING_RECOVERS_THE_SAME_SESSION").toBe(sid);
@@ -137,25 +138,25 @@ test("unrelated writes, another item's receipt, changed binaries and stale autho
   await f.send(share, async req => {
     const unrelated = await req.bridge.applyBrain!({ operation: "write", path: "notes/unrelated.md", expectedBaseHash: null, content: "Telemachus sails.\n" });
     const input = { receiptIds: [unrelated.shareReceiptId!], files: [] };
-    await expect(req.bridge.completeShare!(input)).rejects.toThrow("source identity");
-    await expect(req.bridge.completeShare!({ ...input, receiptIds: [foreign.shareReceiptId] })).rejects.toThrow("unrelated");
+    await expectRejection(req.bridge.completeShare!(input), "source identity");
+    await expectRejection(req.bridge.completeShare!({ ...input, receiptIds: [foreign.shareReceiptId] }), "unrelated");
     const result = await req.bridge.applyBrain!(application(share));
     const complete = { receiptIds: [result.shareReceiptId!], files: [{ sourcePath: share.files[0]!.path, disposition: "retained" as const, path: "assets/ithaca.pdf" }] };
-    await expect(req.bridge.completeShare!(complete)).rejects.toThrow("differs");
+    await expectRejection(req.bridge.completeShare!(complete), "differs");
     // Equal-sized original tampering cannot replace intake evidence.
     writeFileSync(join(f.brainPath, share.files[0]!.path), pdf.replace("Odysseus", "Achilles"));
     writeFileSync(join(f.brainPath, "assets/ithaca.pdf"), pdf.replace("Odysseus", "Achilles"));
-    await expect(req.bridge.completeShare!(complete)).rejects.toThrow("verified intake evidence");
+    await expectRejection(req.bridge.completeShare!(complete), "verified intake evidence");
     writeFileSync(join(f.brainPath, share.files[0]!.path), pdf);
     unlinkSync(join(f.brainPath, "assets/ithaca.pdf"));
     symlinkSync(join(f.brainPath, share.files[0]!.path), join(f.brainPath, "assets/ithaca.pdf"));
-    await expect(req.bridge.completeShare!(complete), "ALIASED_RETENTION_IS_NOT_EVIDENCE").rejects.toThrow();
+    await expectRejection(req.bridge.completeShare!(complete), undefined, "ALIASED_RETENTION_IS_NOT_EVIDENCE");
     unlinkSync(join(f.brainPath, "assets/ithaca.pdf"));
     linkSync(join(f.brainPath, share.files[0]!.path), join(f.brainPath, "assets/ithaca.pdf"));
-    await expect(req.bridge.completeShare!(complete), "HARDLINKED_RETENTION_IS_NOT_EVIDENCE").rejects.toThrow("Unsupported binary evidence");
+    await expectRejection(req.bridge.completeShare!(complete), "Unsupported binary evidence", "HARDLINKED_RETENTION_IS_NOT_EVIDENCE");
     unlinkSync(join(f.brainPath, "assets/ithaca.pdf")); writeFileSync(join(f.brainPath, "assets/ithaca.pdf"), pdf);
     revokePrincipal(f.app.db, f.principal.id, Date.now());
-    await expect(req.bridge.completeShare!(complete)).rejects.toThrow("principal authority");
+    await expectRejection(req.bridge.completeShare!(complete), "principal authority");
   });
   expect(f.item(share).status).toBe("ready"); expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
 });
@@ -180,9 +181,9 @@ test("share completion refuses a filed document or retained original under a pro
     const result = await req.bridge.applyBrain!(application(share));
     const input = { receiptIds: [result.shareReceiptId!], files: [{ sourcePath: share.files[0]!.path, disposition: "retained" as const, path: "assets/ithaca.pdf" }] };
     masked = ["notes"];
-    await expect(req.bridge.completeShare!(input), "MASKED_FILED_DOCUMENT_REFUSED").rejects.toThrow("provider_masked: notes/ithaca-share.md");
+    await expectRejection(req.bridge.completeShare!(input), "provider_masked: notes/ithaca-share.md", "MASKED_FILED_DOCUMENT_REFUSED");
     masked = ["assets"];
-    await expect(req.bridge.completeShare!(input), "MASKED_RETAINED_ORIGINAL_REFUSED").rejects.toThrow("provider_masked: assets/ithaca.pdf");
+    await expectRejection(req.bridge.completeShare!(input), "provider_masked: assets/ithaca.pdf", "MASKED_RETAINED_ORIGINAL_REFUSED");
     expect(f.item(share).status).toBe("claimed");
     masked = [];
     expect(await req.bridge.completeShare!(input), "UNMASKED_COMPLETION_STILL_FILES").toMatchObject({ status: "done", replay: false });
@@ -238,7 +239,7 @@ test("client cancellation preserves partial effects and originals and never comm
     req.signal.addEventListener("abort", () => cancelled.resolve(), { once: true });
     f.ws.send(JSON.stringify({ type: "cancel", sessionId: "odysseus-share-1" }));
     await cancelled.promise;
-    await expect(req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: [] })).rejects.toThrow("principal authority");
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: [] }), "principal authority");
   });
   expect(f.item(share).status, "CANCEL_IS_NEVER_SUCCESSFUL_FILING").toBe("ready");
   expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
@@ -254,8 +255,8 @@ test("uncertain application receipt refuses replay instead of duplicating a comm
   // journaled. The pending operation remains authoritative replay restriction.
   f.app.db.query("UPDATE inbox_share_applications SET result_json = NULL WHERE id = ?").run(result.shareReceiptId);
   await f.send(share, async req => {
-    await expect(req.bridge.applyBrain!(application(share))).rejects.toThrow("outcome is uncertain");
-    await expect(req.bridge.completeShare!({ receiptIds: [result.shareReceiptId], files: [] })).rejects.toThrow("Unsupported");
+    await expectRejection(req.bridge.applyBrain!(application(share)), "outcome is uncertain");
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [result.shareReceiptId], files: [] }), "Unsupported");
   }, sid);
   expect(f.item(share).status).toBe("ready"); expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
   expect(readFileSync(join(f.brainPath, "notes/ithaca-share.md"), "utf8")).toBe((application(share) as { content: string }).content);
@@ -304,7 +305,7 @@ test("completed filing preserves success and uncertainty replay guards while all
   // Even after completion an interrupted reply remains a replay restriction.
   f.app.db.query("UPDATE inbox_share_applications SET result_json = NULL WHERE id = ?").run(filed.shareReceiptId);
   await f.send(share, async req => {
-    await expect(req.bridge.applyBrain!(application(share, "notes/filed-ithaca.md")), "COMPLETION_NEVER_REOPENS_UNCERTAIN_WRITES").rejects.toThrow("outcome is uncertain");
+    await expectRejection(req.bridge.applyBrain!(application(share, "notes/filed-ithaca.md")), "outcome is uncertain", "COMPLETION_NEVER_REOPENS_UNCERTAIN_WRITES");
   }, sid);
   expect(f.item(share).status).toBe("done");
 });

@@ -131,8 +131,11 @@ export interface ProviderRelayOptions {
   credential?(name: string): string | undefined;
   /** The concrete turn proxy: share its destination admission, byte ceiling and connection records. */
   egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed">;
-  /** Called before each dispatch. A refusal is answered with `budget_exceeded` and nothing is sent. */
-  admit?(): { allowed: true } | { allowed: false; message: string };
+  /**
+   * Called before each dispatch, and awaited. A refusal is answered with
+   * `budget_exceeded` and nothing is sent.
+   */
+  admit?(): { allowed: true } | { allowed: false; message: string } | Promise<{ allowed: true } | { allowed: false; message: string }>;
   /** One receipt per dispatched attempt. A throw is reported through `failed`, never to the worker. */
   observe?(receipt: ProviderRelayReceipt): void;
   refused?(refusal: ProviderRelayRefusal): void;
@@ -315,7 +318,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     // Header placement trims surrounding whitespace: redact and send the same value.
     const secret = credential(key)?.trim();
     if (!secret || /[\r\n]/.test(secret)) return refuse(403, "credential_unavailable", `The host has no ${key} to relay`);
-    const budget = options.admit?.() ?? { allowed: true as const };
+    const budget = await options.admit?.() ?? { allowed: true as const };
     if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
     const target = new URL(path, origin);
     const operation = options.egress?.relayed(request.method, target, request.signal);
@@ -393,7 +396,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     };
     if (operation && !operation.charge(headerBytes(`POST ${path} HTTP/1.1`, headers))) return denied("max_bytes_per_turn");
     // Admission again, after every wait: a scope may have blocked meanwhile.
-    const now = options.admit?.() ?? { allowed: true as const };
+    const now = await options.admit?.() ?? { allowed: true as const };
     if (!now.allowed) {
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);

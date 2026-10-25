@@ -39,10 +39,12 @@ export interface ActivityRuntime {
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
   /** Where each turn's runtime report and auth failures are kept for /api/status. */
   runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven" | "recordWorkerHost">>;
-  /** The governance-event writer (#1651) the turn recorders emit through. */
-  governance?: (input: GovernanceEventInput) => void;
-  /** The server database each turn's roadblocks are classified and recorded in (#1671); absent records none. */
+  /** The governance-event writer (#1651) the turn recorders emit through. A returned promise is its commit (#2850). */
+  governance?: (input: GovernanceEventInput) => unknown;
+  /** The server database each turn's roadblocks are classified against and its taint read from (#1671); absent records none. */
   governanceDb?: import("bun:sqlite").Database;
+  /** Where governance rows commit: the write worker, off the event loop (#2850). Absent: on `governanceDb`. */
+  governanceWrites?: import("../governance/event-writes.js").GovernanceWrites;
 }
 
 /** Host-side turn timeout. The backend no longer times out — the host owns it. */

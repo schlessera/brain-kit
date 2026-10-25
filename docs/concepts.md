@@ -243,11 +243,17 @@ mechanically-safe fixes, and propose the judgment calls to you.
 
 ## Sidecar caches
 
-Two committed sidecar files speed up embeddings without becoming a second source
-of truth:
+Two committed sidecar files in `.brain-cache/` speed up embeddings without
+becoming a second source of truth:
 
-- `.context-cache.jsonl` — generated chunk contexts.
-- `.asset-cache.jsonl` — generated descriptions of binary assets.
+- `.brain-cache/contexts.jsonl` — generated chunk contexts.
+- `.brain-cache/assets.jsonl` — generated descriptions of binary assets.
+
+Releases before 0.44.0 kept them at the brain root as `.context-cache.jsonl`
+and `.asset-cache.jsonl`. Reads still count those files, and the next index
+run moves every line into `.brain-cache/` and deletes them, so no paid
+enrichment is lost (#2725). A directory, unlike a loose file, can be masked
+whole from a provider-restricted hosted turn.
 
 Both are content-hash-keyed `{k, v}` JSONL, appended from `brain.db` after an
 embeddings run. They are **machine-managed**: never hand-edit them. They
