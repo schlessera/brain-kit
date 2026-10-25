@@ -191,6 +191,13 @@ signatures (every public export and the types it is made of)
             linkPolicy?: "visible-destinations";
         }): Promise<Buffer | Uint8Array>;
     }
+  AppliedEffect (packages/ui-server/src/brain/turn-data-tree.ts)
+    export interface AppliedEffect {
+        readonly path: string;
+        readonly content: string | null;
+        readonly base: string | null;
+        readonly from?: string;
+    }
   AuthConfig (packages/ui-server/src/config/env.ts)
     export interface AuthConfig {
         mode: AuthModeName | null;
@@ -609,6 +616,7 @@ signatures (every public export and the types it is made of)
         readonly startupView?: WorkerStartupView;
         readonly managedStorage: boolean;
         readonly privateIndex?: PrivateIndexOutcome;
+        readonly dataTree?: TurnDataTree;
         end(): Promise<Reconciliation | null>;
     }
   GovernedTurnRoute (packages/ui-server/src/brain/governed-turn.ts)
@@ -1267,6 +1275,17 @@ signatures (every public export and the types it is made of)
     }
   ToolExecutionPath (packages/ui-server/src/brain/tool-observation.ts)
     export type ToolExecutionPath = Parameters<NonNullable<StartTurnRequest["toolExecution"]>>[1];
+  TurnDataTree (packages/ui-server/src/brain/turn-data-tree.ts)
+    export interface TurnDataTree {
+        readonly mount?: WorkerDataTree;
+        readonly index: string;
+        commit(effects: readonly AppliedEffect[]): void;
+        applied(path: string): boolean;
+        planAdd(input: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
+        barrier(signal?: AbortSignal): Promise<void>;
+        pending(): boolean;
+        close(): Promise<void>;
+    }
   TurnGovernancePolicy (packages/ui-server/src/brain/governance-policy.ts)
     export interface TurnGovernancePolicy {
         readonly commandRuleIndices: Readonly<GovernanceCommandRuleIndices>;
@@ -1338,6 +1357,12 @@ signatures (every public export and the types it is made of)
         readonly pattern: string;
         readonly reason?: string;
         readonly index: number;
+    }
+  WorkerDataTree (packages/ui-sdk/src/server/worker-sandbox.ts)
+    export interface WorkerDataTree {
+        readonly root: string;
+        readonly index: string;
+        readonly masked?: readonly string[];
     }
   WorkerHome (packages/ui-sdk/src/server/worker-sandbox.ts)
     export type WorkerHome = {

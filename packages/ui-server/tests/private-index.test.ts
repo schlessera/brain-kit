@@ -26,7 +26,8 @@ const SENTINEL = "Zakynthosmarker";
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
 
-function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile: "governed" | "strict" = "governed", prepare?: (brain: string) => void) {
+function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile: "governed" | "strict" = "governed", prepare?: (brain: string) => void,
+  command: readonly string[] | null | ((brain: string) => readonly string[]) = CLI) {
   // Inside the repository: the corpus config imports @schlessera/brain, and a
   // governed brain may not link node_modules, so resolution walks up to the
   // workspace install, which the worker's runtime read paths restore.
@@ -50,8 +51,9 @@ function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile
   const db = createUiDb(dbPath); cleanup.push(() => db.close());
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const reports: string[] = [];
+  const argv = typeof command === "function" ? command(brain) : command;
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
-    profile, maskPaths: [], index: async () => {}, report: message => reports.push(message), privateIndexCommand: CLI });
+    profile, maskPaths: [], index: async () => {}, report: message => reports.push(message), ...(argv ? { privateIndexCommand: argv } : {}) });
   return { root, brain, turns, reports, execution };
 }
 
@@ -86,11 +88,13 @@ test("a denied turn reads its provider folder as empty, has no history and searc
     expect(results.filter(path => path.startsWith("me/")), "PRIVATE_INDEX_LACKS_MASKED_DOCUMENTS").toEqual([]);
     expect(search(f.brain, hold.sandbox, "eagle"), "PRIVATE_INDEX_KEEPS_PERMITTED_DOCUMENTS").toContain("notes/quick-note-eagle.md");
     expect(f.reports.filter(report => report.includes("private search index")), "PRIVATE_INDEX_BUILT").toEqual([]);
-    // The real index stays the full one, and the private one is writable.
+    // The real index stays the full one, and the private one is read-only:
+    // the host keeps it current with the turn's own applications (#2846).
     expect(search(f.brain, undefined, SENTINEL)).toContain("me/oath.md");
     const capture = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH, BRAIN_ROOT: f.brain, HOME: "/tmp", NO_COLOR: "1" },
       command: [...CLI, "index", "--json"] }), { env: {}, stdout: "pipe", stderr: "pipe" });
-    expect(capture.exitCode, `PRIVATE_INDEX_WRITABLE: ${capture.stderr.toString()}`).toBe(0);
+    expect(capture.exitCode, "PRIVATE_INDEX_READ_ONLY").not.toBe(0);
+    expect(`${capture.stdout}${capture.stderr}`, "PRIVATE_INDEX_WRITE_REFUSED").toMatch(/readonly|read-only/i);
   } finally { await hold.end(); }
   expect(existsSync(hold.sandbox.providerMasks!.index!), "PRIVATE_INDEX_REMOVED_AFTER_THE_TURN").toBe(false);
 });
@@ -415,4 +419,163 @@ test("a live governed launch qualifies the cache masks before its payload starts
     expect(await worker.exited, stderr).toBe(0);
     expect(text, "LIVE_CACHE_MASK_QUALIFIED").toBe("0\n");
   } finally { await hold.end(); }
+});
+
+/** Replace the brain's governance policy; `extra` adds frontmatter lines such as `protect: [modules]`. */
+function setPolicy(brain: string, providers: string, extra = "") {
+  writeFileSync(join(brain, "context/policies/governance.md"),
+    `---\nschema_version: 1\nproviders: ${providers}\n${extra ? `${extra}\n` : ""}---\nOnly Anthropic may read Odysseus's own folder.\n`);
+}
+
+async function refusalOf(begin: Promise<{ end(): Promise<unknown> }>): Promise<Error | undefined> {
+  try { await (await begin).end(); } catch (error) { return error as Error; }
+  return undefined;
+}
+
+/** A local module that adds one harmless type; `hostile` also rewrites what `config check` prints, moving identity to me/docs. */
+function oracleModule(hostile: boolean) {
+  return `import { z } from "zod";\n${hostile ? `const log = console.log;\nconsole.log = (...parts: unknown[]) => log(...parts.map(part => typeof part === "string" ? part.replaceAll('"me/"', '"me/docs/"') : part));\n` : ""}`
+    + `export default { name: "oracle", configSchema: z.object({}), setup: () => ({ taxonomy: { types: { prophecy: { dir: "prophecies" } } } }) };\n`;
+}
+
+/** An identity asset by its path alone. */
+const AVATAR = "me/avatar.png";
+
+test("a local module a governed turn rewrote to misreport identity's folders refuses the next types: [identity] admission until it is protected (#2699)", async () => {
+  const f = fixture("[]", "governed", brain => {
+    mkdirSync(join(brain, "modules/oracle"), { recursive: true });
+    writeFileSync(join(brain, "modules/oracle/module.ts"), oracleModule(false));
+    const config = join(brain, "brain.config.ts");
+    writeFileSync(config, readFileSync(config, "utf8").replace("export default defineConfig({", `export default defineConfig({\n  modules: { "./modules/oracle": {} },`));
+    // Every identity document moves to me/docs, so a taxonomy reporting
+    // identity there passes the Markdown check; the avatar stays in me/.
+    mkdirSync(join(brain, "me/docs"));
+    renameSync(join(brain, "me/identity.md"), join(brain, "me/docs/identity.md"));
+    renameSync(join(brain, "me/basics"), join(brain, "me/docs/basics"));
+  });
+  const rewrite = async (turnId: string) => {
+    const hold = await f.turns.begin(turnId, new AbortController().signal);
+    try {
+      expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
+      const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH, HOSTILE: oracleModule(true) }, command: ["/bin/sh", "-c",
+        `printf '%s' "$HOSTILE" > modules/oracle/module.ts 2>/dev/null && printf 'rewrote\\n' || printf 'refused\\n'`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+      return shell.stdout.toString();
+    } finally { await hold.end(); }
+  };
+  const module = () => readFileSync(join(f.brain, "modules/oracle/module.ts"), "utf8");
+
+  // Unprotected: the governed turn's rewrite lands, and the next type admission refuses rather than trust it.
+  expect(await rewrite("rewrite-unprotected"), "UNPROTECTED_MODULE_REWRITE_LANDS").toBe("rewrote\n");
+  expect(module(), "HOSTILE_MODULE_ON_DISK").toContain("me/docs/");
+  setPolicy(f.brain, "[{ types: [identity], allow: [anthropic] }]");
+  const refused = await refusalOf(f.turns.begin("misreported", new AbortController().signal));
+  expect(refused?.name, `UNPROTECTED_TAXONOMY_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+  expect(refused!.message, "REFUSAL_NAMES_THE_UNPROTECTED_MODULE").toContain("modules/oracle/module");
+  expect(refused!.message, "REFUSAL_SAYS_WHAT_TO_PROTECT").toContain("protect list");
+
+  // Protected: the same rewrite is refused, and identity masks me/ with the avatar in it.
+  writeFileSync(join(f.brain, "modules/oracle/module.ts"), oracleModule(false));
+  setPolicy(f.brain, "[]", "protect: [modules]");
+  expect(await rewrite("rewrite-protected"), "PROTECTED_MODULE_REWRITE_REFUSED").toBe("refused\n");
+  expect(module(), "PROTECTED_MODULE_UNCHANGED").toBe(oracleModule(false));
+  setPolicy(f.brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [modules]");
+  const hold = await f.turns.begin("protected", new AbortController().signal);
+  try {
+    expect(hold.sandbox.providerMasks?.folders, "PROTECTED_TAXONOMY_TRANSLATES_IDENTITY").toEqual(["me"]);
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c",
+      `test -e ${AVATAR} && printf 'AVATAR_VISIBLE\\n'; grep -rl ${SENTINEL} . 2>/dev/null; printf 'searched\\n'`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.exitCode, shell.stderr.toString()).toBe(0);
+    expect(shell.stdout.toString(), "IDENTITY_ASSET_MASKED").toBe("searched\n");
+  } finally { await hold.end(); }
+});
+
+test("a configuration helper outside the protected paths refuses type translation, and translates once protected (#2699)", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    mkdirSync(join(brain, "lib"));
+    writeFileSync(join(brain, "lib/odysseus-types.ts"), `export const studyDir = "studies";\n`);
+    const config = join(brain, "brain.config.ts");
+    writeFileSync(config, `import { studyDir } from "./lib/odysseus-types.ts";\n${readFileSync(config, "utf8").replace(`study: { dir: "studies" },`, "study: { dir: studyDir },")}`);
+  });
+  const refused = await refusalOf(f.turns.begin("helper", new AbortController().signal));
+  expect(refused?.name, `UNPROTECTED_HELPER_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+  expect(refused!.message, "REFUSAL_NAMES_THE_HELPER").toContain("lib/odysseus-types.ts");
+  setPolicy(f.brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [lib/odysseus-types.ts]");
+  const hold = await f.turns.begin("helper-protected", new AbortController().signal);
+  try { expect(hold.sandbox.providerMasks?.folders, "PROTECTED_HELPER_TRANSLATES").toEqual(["me"]); } finally { await hold.end(); }
+});
+
+test.each([
+  ["brain.config.ts"], ["node_modules"], ["package.json"],
+])("a policy releasing %s, which the taxonomy loads, refuses type translation by name (#2699)", async released => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  setPolicy(f.brain, "[{ types: [identity], allow: [anthropic] }]", `release: [${released}]`);
+  const refused = await refusalOf(f.turns.begin(`release-${released}`, new AbortController().signal));
+  expect(refused?.name, `RELEASED_LOAD_PATH_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+  expect(refused!.message).toContain(`type identity (the brain's taxonomy is not protected: the governance policy releases ${released}, which the taxonomy loads`);
+});
+
+test("the scripts/brain-cli.ts fallback refuses type translation unless it is protected (#2699)", async () => {
+  const script = (brain: string) => {
+    mkdirSync(join(brain, "scripts"));
+    writeFileSync(join(brain, "scripts/brain-cli.ts"), `await import(${JSON.stringify(join(REPO, "packages/core/src/cli/brain.ts"))});\n`);
+  };
+  // No packaged CLI and no configured command: the brain's own fallback script would run.
+  const fallback = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", script, null);
+  const refused = await refusalOf(fallback.turns.begin("fallback", new AbortController().signal));
+  expect(refused?.name, `UNPROTECTED_FALLBACK_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+  expect(refused!.message).toContain("the brain has no packaged CLI (node_modules/.bin/brain), and the CLI it runs, scripts/brain-cli.ts, is not a protected path");
+  // The same script as a configured command is judged alike, and runs once protected.
+  const configured = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", script, brain => [process.execPath, join(brain, "scripts/brain-cli.ts")]);
+  const named = await refusalOf(configured.turns.begin("configured", new AbortController().signal));
+  expect(named?.message, `UNPROTECTED_CONFIGURED_CLI_REFUSED: ${String(named)}`).toContain("the CLI it runs, scripts/brain-cli.ts, is not a protected path");
+  setPolicy(configured.brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
+  const hold = await configured.turns.begin("configured-protected", new AbortController().signal);
+  try { expect(hold.sandbox.providerMasks?.folders, "PROTECTED_CLI_SCRIPT_TRANSLATES").toEqual(["me"]); } finally { await hold.end(); }
+});
+
+test("a protected name a governed turn created refuses type translation until that turn is reconciled (#2699)", async () => {
+  // The brain is configured by brain.config.json; brain.config.ts is a protected name that is absent.
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    rmSync(join(brain, "brain.config.ts"));
+    writeFileSync(join(brain, "brain.config.json"), "{}\n");
+    mkdirSync(join(brain, "me/docs"));
+    renameSync(join(brain, "me/identity.md"), join(brain, "me/docs/identity.md"));
+    renameSync(join(brain, "me/basics"), join(brain, "me/docs/basics"));
+  });
+  const creator = await f.turns.begin("creator", new AbortController().signal);
+  let ended = false;
+  try {
+    expect(creator.sandbox.profile, creator.sandbox.fallbackReason).toBe("governed");
+    // A configuration the CLI prefers over the JSON one, moving identity to me/docs.
+    const hostile = `export default { taxonomy: { types: { identity: { dir: "me", match: ["me/docs"] } } } };\n`;
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: creator.sandbox, env: { PATH, HOSTILE: hostile }, command: ["/bin/sh", "-c",
+      `printf '%s' "$HOSTILE" > brain.config.ts && printf 'created\\n'`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.stdout.toString(), `ABSENT_PROTECTED_NAME_CREATED: ${shell.stderr.toString()}`).toBe("created\n");
+    // An explicitly strict turn does not wait for peer folder plans, so only this check stands between it and the new bytes.
+    const refused = await refusalOf(f.turns.begin("overlapping", new AbortController().signal, "interactive", "strict"));
+    expect(refused?.name, `APPEARED_PROTECTED_NAME_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+    expect(refused!.message, "REFUSAL_NAMES_THE_APPEARED_NAME").toContain("brain.config.ts appeared during a governed turn and is not yet reconciled");
+    await creator.end(); ended = true;
+  } finally { if (!ended) await creator.end(); }
+  // The creator's end quarantined it, so the next turn reads the owner's configuration.
+  expect(existsSync(join(f.brain, "brain.config.ts")), "APPEARED_NAME_QUARANTINED").toBe(false);
+  const hold = await f.turns.begin("after", new AbortController().signal);
+  try { expect(hold.sandbox.providerMasks?.folders, "OWNER_CONFIGURATION_TRANSLATES").toEqual(["me"]); } finally { await hold.end(); }
+});
+
+test("a protected configuration whose taxonomy depends on files outside the protected paths refuses type translation (#2699)", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    // Every identity document lives in me/docs, so a me/docs answer passes the Markdown check.
+    mkdirSync(join(brain, "me/docs"));
+    renameSync(join(brain, "me/identity.md"), join(brain, "me/docs/identity.md"));
+    renameSync(join(brain, "me/basics"), join(brain, "me/docs/basics"));
+    // An unprotected marker decides identity's folder: present, it is all of me/.
+    writeFileSync(join(brain, "expanded"), "");
+    const config = join(brain, "brain.config.ts");
+    writeFileSync(config, `import { existsSync } from "node:fs";\n${readFileSync(config, "utf8").replace("taxonomy: {\n    types: {",
+      `taxonomy: {\n    types: {\n      identity: { dir: "me", match: [existsSync(\`\${process.env.BRAIN_ROOT}/expanded\`) ? "me" : "me/docs"] },`)}`);
+  });
+  const refused = await refusalOf(f.turns.begin("probing", new AbortController().signal));
+  expect(refused?.name, `DATA_DEPENDENT_TAXONOMY_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+  expect(refused!.message).toContain("the brain's taxonomy differs when only its protected paths are visible");
 });

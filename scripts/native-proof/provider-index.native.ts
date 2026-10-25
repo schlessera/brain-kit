@@ -11,8 +11,11 @@ import { createProviderExposures } from "../../packages/ui-server/src/brain/prov
 import { createHostExecution } from "../../packages/ui-server/src/brain/host-execution.js";
 import { createUiDb } from "../../packages/ui-server/src/db/client.js";
 import { openDatabase } from "../../packages/core/src/lib/db.js";
+import { createKeyedLock } from "../../packages/ui-sdk/src/server/keyed-lock.js";
+import { contentHash, createBrainApplication } from "../../packages/ui-server/src/brain/application.js";
+import { createIndexBatch } from "../../packages/ui-server/src/brain/index-batch.js";
 
-const sentinel = "Zakynthosmarker", permitted = "Phaeacianmarker";
+const sentinel = "Zakynthosmarker", permitted = "Phaeacianmarker", applied = "Scheriaappliedmarker";
 const MIB = 1024 ** 2;
 const document = (title: string, body: string) => `---\ntype: note\ntitle: ${title}\ncreated: 2026-07-12\nupdated: 2026-07-12\n---\n${body}\n`;
 const text = (stream: Readable) => new Response(Readable.toWeb(stream) as unknown as ReadableStream).text();
@@ -26,6 +29,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
   mkdirSync(join(brain, "me")); mkdirSync(join(brain, "context/policies"), { recursive: true });
   writeFileSync(join(brain, "me/oath.md"), document("Odysseus private oath", sentinel));
   writeFileSync(join(brain, "notes/provider-voyage.md"), document("Odysseus permitted voyage", permitted));
+  writeFileSync(join(brain, "notes/provider-peer.md"), document("Odysseus shared raft", "A peer may change this note mid-turn."));
   writeFileSync(join(brain, "context/policies/governance.md"),
     "---\nschema_version: 1\nproviders: [{ paths: [me/**], allow: [anthropic] }]\n---\nOdysseus keeps his oath with one provider.\n");
   try {
@@ -66,6 +70,24 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         // The worker's user namespace deliberately does not map the server UID.
         expect(info.uid, "NATIVE_PRIVATE_INDEX_SERVER_OWNER").toBe(21001);
         expect(info.gid, "NATIVE_PRIVATE_INDEX_SHARED_GROUP_OWNER").toBe(21001);
+        // #2846: the turn's own applications reach its private index through the
+        // real separate-UID updater, under the provenance rule: a note a peer
+        // filled with masked text is kept out, whatever the turn does to it.
+        expect(hold.dataTree, "NATIVE_MASKED_TURN_HAS_A_DATA_TREE").toBeDefined();
+        const apply = createBrainApplication({ root: brain, principalId: "odysseus", turnId: `native-private-index-${profile}`, signal: new AbortController().signal,
+          policy: { autoAllowed: ["write", "edit"], available: ["write", "edit"], lock: createKeyedLock() }, isAuthorized: () => true, approve: async () => true,
+          record: () => {}, indexBatch: createIndexBatch({ index: async () => {} }), turnTree: hold.dataTree! });
+        const wrote = await apply({ principalId: "odysseus", turnId: `native-private-index-${profile}`, input: { operation: "write", path: `notes/provider-applied-${profile}.md`,
+          content: document("Odysseus lands on Scheria", applied), expectedBaseHash: null } });
+        expect(wrote.ok, `NATIVE_MASKED_APPLICATION_COMMITTED: ${JSON.stringify(wrote)}`).toBe(true);
+        const peered = document("Odysseus shared raft", `A peer copied ${sentinel} here.`);
+        writeFileSync(join(brain, "notes/provider-peer.md"), peered);
+        const edited = await apply({ principalId: "odysseus", turnId: `native-private-index-${profile}`, input: { operation: "edit", path: "notes/provider-peer.md",
+          old_string: "A peer copied", new_string: "Odysseus found that a peer copied", expectedBaseHash: contentHash(peered) } });
+        expect(edited.ok, `NATIVE_PEER_BASED_EDIT_COMMITTED: ${JSON.stringify(edited)}`).toBe(true);
+        const barrierStarted = performance.now();
+        await hold.dataTree!.barrier();
+        console.log(JSON.stringify({ nativeMaskedTurnIndexUpdate: "pass", profile, barrierMs: Math.round(performance.now() - barrierStarted) }));
         if (profile === "strict") {
           expect(hold.startupView, "NATIVE_STRICT_PROVIDER_INDEX_SEALED_VIEW").toBeDefined();
           prepared = await prepareNativeWorkerOutput(brain, { startupView: hold.startupView!,
@@ -80,7 +102,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         const launch = { brainPath: brain, sandbox: hold.sandbox,
           ...(prepared ? { startupView: prepared.view, preparedOutput: prepared } : {}), stateBytes: MIB, turnTempBytes: 16 * MIB,
           env: { PATH: "/usr/local/bin:/usr/bin:/bin", BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" },
-          command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, `${info.dev}:${info.ino}`] };
+          command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, `${info.dev}:${info.ino}`, `applied:${applied}:notes/provider-applied-${profile}.md`] };
         const result = await (async () => {
           const worker = launchAgentWorker(launch), timer = setTimeout(() => worker.kill("SIGKILL"), 30_000);
           worker.stdin.end();
@@ -112,6 +134,9 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         }
       }
       expect(privateIndex && existsSync(privateIndex), "NATIVE_PRIVATE_INDEX_REMOVED_AFTER_TURN").toBe(false);
+      // The peer's copy is live, permitted text now; the next profile's turn
+      // would rightly index it. Restore the note before that turn's checkpoint.
+      writeFileSync(join(brain, "notes/provider-peer.md"), document("Odysseus shared raft", "A peer may change this note mid-turn."));
     }
     // The allowed route (#2695): a turn whose relay reaches Anthropic's own
     // origin sees the folder, `.git` and the real index on managed storage,
@@ -181,7 +206,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       console.log(JSON.stringify({ nativeProviderHardlink: "refused", profile }));
     }
   } finally {
-    for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", "notes/provider-voyage.md", "notes/oath-alias.txt",
+    for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", "notes/provider-voyage.md", "notes/provider-peer.md", "notes/provider-applied-strict.md", "notes/provider-applied-governed.md", "notes/oath-alias.txt",
       ".brain/scratch/provider-index-strict", ".brain/scratch/provider-index-governed"])
       rmSync(join(brain, rel), { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
 import { Database, constants } from "bun:sqlite";
 import { statSync } from "fs";
 import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
-import { SCHEMA_VERSION } from "../lib/db.js";
+import { retryRecovery, SCHEMA_VERSION } from "../lib/db.js";
 import type { QueryCode, QueryResult, Root } from "./types.js";
 /** Private control flow: native messages and input values never escape. */
 export class QueryFailure extends Error {
@@ -96,7 +96,7 @@ export function withSnapshot<T>(opts: Root, feature: Feature, validate: () => vo
       const dbPath = indexDbPath(opts.brainPath);
       if (!statSync(dbPath).isFile())
         throw new QueryFailure("unavailable_index");
-      db = new Database(dbPath, feature === "storage" ? constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_NOFOLLOW : { readonly: true });
+      db = retryRecovery(new Database(dbPath, feature === "storage" ? constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_NOFOLLOW : { readonly: true }));
       db.run("PRAGMA busy_timeout=100");
       const connection = db;
       return db.transaction(() => {

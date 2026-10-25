@@ -7,6 +7,9 @@ os.environ["BRAIN_NATIVE_PROOF_BACKEND"] = BACKEND
 APP_UID = sys.argv[2] if len(sys.argv) == 3 else "1000"
 if APP_UID not in ("0", "1000"): raise RuntimeError("Unknown native app UID proof selection")
 os.environ["BRAIN_NATIVE_PROOF_APP_UID"] = APP_UID
+# The #2834 observation cell makes 220 model requests; the #2848 timing cell
+# waits for the earlier turns' index refresh before its turn.
+HOSTED_TIMEOUT = 1500 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 300 if os.environ.get("BRAIN_NATIVE_PROOF_APPLY_TIMING") == "1" else 180
 ROOT = pathlib.Path("/proof")
 STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")
@@ -88,8 +91,7 @@ try:
     run(["mount", "-t", "btrfs", "-o", "nosuid,nodev,nodiscard", str(DEVICE), str(STORE)]); mounted = True
     run(["btrfs", "subvolume", "create", str(STORE / "brain")])
     # The #2834 timing turn alone makes 220 tool calls, each one model request.
-    run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))],
-        timeout=1500 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 180)
+    run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)
 except BaseException as error:
     failure = error
     record("failure", detail=str(error))

@@ -6,7 +6,7 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedInBoth, ProviderContinuationRefusedError, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, retainedFolderRoots, uncoveredFolders, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
+import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedInBoth, ProviderContinuationRefusedError, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerDeniedTypes, providerMaskedFolders, providerTypeSelectors, retainedFolderRoots, uncoveredFolders, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory, updatePrivateIndex } from "./private-index.js";
@@ -16,6 +16,8 @@ import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import type { IndexBatch } from "./index-batch.js";
+import { createTurnDataTree, type TurnDataTree } from "./turn-data-tree.js";
 
 export interface GovernedTurnHold {
   readonly sandbox: WorkerSandbox;
@@ -30,6 +32,11 @@ export interface GovernedTurnHold {
   readonly managedStorage: boolean;
   /** How the turn's private index was made: a clean build, or a reused or updated base (#2833). */
   readonly privateIndex?: PrivateIndexOutcome;
+  /**
+   * The turn's data tree (#2848): every turn that does not read the live
+   * brain, and every masked turn, whose private index it keeps current (#2846).
+   */
+  readonly dataTree?: TurnDataTree;
   /** Call only once every worker has exited. Quarantine precedes gate release. */
   end(): Promise<Reconciliation | null>;
 }
@@ -87,6 +94,11 @@ export function createGovernedTurns(options: {
   privateIndexDiffer?: PrivateIndexDiffer;
   /** What each off-turn advance of the private index bases did (#2833). */
   onPrivateIndexAdvance?: (results: PrivateIndexAdvance[]) => void;
+  /** The host's deferred index updates: what a turn's checkpoint index may still lack (#2848). */
+  indexBatch?: IndexBatch;
+  /** How a turn's data tree updates its index and plans captures; default a credential-free worker. Tests only. */
+  turnIndexUpdate?: Parameters<typeof createTurnDataTree>[0]["update"];
+  turnPlan?: Parameters<typeof createTurnDataTree>[0]["plan"];
 }): GovernedTurns {
   const policyReader = governancePolicyReaderFor(options.brainPath);
   const canonicalBrain = (() => { try { return realpathSync(options.brainPath); } catch { return options.brainPath; } })();
@@ -131,9 +143,21 @@ export function createGovernedTurns(options: {
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
+      // Governed turns that end from here on may have written into this
+      // turn's checkpoints before their quarantine (#2699).
+      const since = Date.now();
       const hold = await gate.acquire("shared", `turn:${turnId}`, { signal, turn: true });
       let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, indexOutcome: PrivateIndexOutcome | undefined;
+      // A governed masked turn's own checkpoint, kept only to update its private index (#2846).
+      let indexView: WorkerStartupView | undefined, dataTree: TurnDataTree | undefined;
       const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
+      const release = async () => {
+        try { await dataTree?.close(); } finally {
+          try { await startupView?.cleanup(); } finally { try { await indexView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { hold.release(); } } }
+        }
+      };
+      // Marked before the checkpoint: its index may lack what is queued (#2848).
+      const watermark = options.indexBatch?.watermark();
       try {
         startupView = await prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal);
         signal.throwIfAborted();
@@ -150,7 +174,8 @@ export function createGovernedTurns(options: {
         const refused = unsupportedProviderSelectors(policy.policy);
         const types = providerTypeSelectors(policy.policy);
         const translate = (view: WorkerStartupView) => translateProviderTypesInView({ brainPath: options.brainPath, policy: policy.policy, view,
-          maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
+          maskPaths: options.maskPaths, signal, appeared: root => manifests.appearedIn(root, since),
+          ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
         let typeFolders: Record<string, string[]> = {};
         if (types.length && !refused.length) {
           const translated = await translate(startupView);
@@ -258,8 +283,19 @@ export function createGovernedTurns(options: {
         const providerMasks = privateIndex ? Object.freeze({ folders: Object.freeze(maskedFolders), index: privateIndex })
           : providerFolders.length ? Object.freeze({ folders: Object.freeze([] as string[]) }) : undefined;
         const inferenceRecipient = recipient !== undefined && providerFolders.length ? Object.freeze({ name: recipient, origin: route!.inferenceOrigin! }) : undefined;
+        // Every turn that does not read the live brain gets a data tree with
+        // this turn's own applications (#2848); a masked one keeps its private
+        // index current from it (#2846). Built from this final checkpoint.
+        if (workerProfile(resolved) !== "governed" || privateIndex) {
+          dataTree = createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed",
+            ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
+              types: providerDeniedTypes(policy.policy, recipient) } } : {}),
+            // A recipient allowed every folder still never sees the generated-text caches.
+            providerRules: providerFolders.length > 0, pending: watermark?.paths() ?? [], ...(options.turnIndexUpdate ? { update: options.turnIndexUpdate } : {}),
+            ...(options.turnPlan ? { plan: options.turnPlan } : {}) });
+        }
         const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
-          ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}),
+          ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}), ...(dataTree?.mount ? { dataTree: dataTree.mount } : {}),
           ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
@@ -267,7 +303,7 @@ export function createGovernedTurns(options: {
         for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
         const managedStorage = isManagedWorkerStartupView(startupView);
         if (inferenceRecipient && !managedStorage) throw new Error("The turn's startup view is no longer on managed storage; its inference recipient cannot be proven. Retry admission.");
-        if (governed) { await startupView.cleanup(); startupView = undefined; }
+        if (governed) { if (dataTree) indexView = startupView; else await startupView.cleanup(); startupView = undefined; }
         signal.throwIfAborted();
         // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
         const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
@@ -277,16 +313,18 @@ export function createGovernedTurns(options: {
         else if (lineage) options.exposures?.startMasked(turnId, lineage);
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
-        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}), async end() {
+        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}),
+          ...(dataTree ? { dataTree } : {}), async end() {
           if (ended) return null;
           ended = true;
           try {
             const result = governed ? manifests.end(turnId) : null;
             if (result) assertReconciled([result]);
             return result;
-          } finally { try { await startupView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { hold.release(); } } }
+          } finally { await release(); }
         } };
-      } catch (error) { try { await startupView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { hold.release(); } } throw error; }
+      } catch (error) { await release(); throw error; }
+      finally { watermark?.release(); }
     },
   };
 }

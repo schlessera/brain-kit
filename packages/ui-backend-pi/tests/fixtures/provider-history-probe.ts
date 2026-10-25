@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createPiBackend } from "../../src/backend.js";
 import { prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { startFixtureTurn } from "../../../../tests/fixtures/worker-input-fixture.js";
-import { changeRepository, fixtureBrain } from "../../../../tests/fixtures/provider-history-brain.js";
+import { changeRepository, fixtureBrain, turnDataTree } from "../../../../tests/fixtures/provider-history-brain.js";
 import { historyHost } from "../../../../tests/fixtures/provider-history-host.js";
 import type { Captures, HistoryCapture } from "../../../../tests/helpers/provider-history.js";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
@@ -52,7 +52,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
 writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.stringify({ providers: { openai: { baseUrl: `${server.url.origin}/v1`, apiKey: "offline-odysseus" } } }));
 try {
-  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness"]) {
+  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "datatree"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
@@ -70,7 +70,8 @@ try {
       try {
         await startFixtureTurn(backend, brain, { prompt: `Odysseus checks voyage step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId: `odysseus-${turnIndex}`,
-          workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } } },
+          workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
+            ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
           client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
           bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; },
             // The second turn has no host handler: the tool refuses, and the roster must not change.

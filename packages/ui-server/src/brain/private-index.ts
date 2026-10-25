@@ -68,10 +68,13 @@ export async function runMaskedBrainCli(options: {
   maskPaths: readonly string[]; signal: AbortSignal; timeoutMs: number; command: readonly string[];
   /** Names the run in failure details, such as `brain index`. */
   label: string; outputBytes?: number;
-}): Promise<{ ok: true; stdout: string } | { ok: false; detail: string }> {
+  /** The only brain paths the worker sees, as `WorkerProviderMasks.visible`; default: the whole view. */
+  visible?: readonly string[];
+}): Promise<{ ok: true; stdout: string } | { ok: false; detail: string; stdout?: string }> {
   options.signal.throwIfAborted();
   const sandbox = { ...prepareWorkerSandbox(options.brainPath, { profile: "strict", areas: [], maskPaths: options.maskPaths }),
-    providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index }) };
+    providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index, indexWritable: true,
+      ...(options.visible ? { visible: Object.freeze([...options.visible]) } : {}) }) };
   const view = retainWorkerStartupView(options.startupView);
   let worker: ReturnType<typeof launchAgentWorker>;
   try {
@@ -90,7 +93,8 @@ export async function runMaskedBrainCli(options: {
     const [stdout, stderr, exit] = await Promise.all([bounded(worker.stdout, options.outputBytes ?? OUTPUT_BYTES), bounded(worker.stderr, OUTPUT_BYTES), worker.exited]);
     options.signal.throwIfAborted();
     if (timedOut) return { ok: false, detail: `${options.label} did not finish within ${options.timeoutMs / 1000} s` };
-    if (exit !== 0) return { ok: false, detail: `${options.label} exited ${exit}: ${stderr.text.trim().split("\n").at(-1) ?? ""}` };
+    if (exit !== 0) return { ok: false, detail: `${options.label} exited ${exit}: ${stderr.text.trim().split("\n").at(-1) ?? ""}`,
+      ...(options.outputBytes !== undefined && stdout.whole ? { stdout: stdout.text } : {}) };
     // Output is read only when it is wanted, and then only whole.
     return options.outputBytes === undefined || stdout.whole ? { ok: true, stdout: stdout.text }
       : { ok: false, detail: `${options.label} wrote more than ${options.outputBytes} bytes` };

@@ -282,7 +282,7 @@ Core owns feature compatibility tables: supported old layouts and each required
 column/table, the maximum understood layout, metadata validation and disposable
 schema detection. Minimum schema numbers are internal choices; they are not
 caller parameters. Current baseline is 3 (`MIN_BRAIN_SCHEMA_VERSION`, `packages/ui-server/src/db/brain-db.ts:24`) and core writes its one source
-(`SCHEMA_VERSION`, `packages/core/src/lib/db.ts:20`). A newer unknown schema must fail `incompatible_index` unless core has
+(`SCHEMA_VERSION`, `packages/core/src/lib/db.ts:21`). A newer unknown schema must fail `incompatible_index` unless core has
 an explicit compatible-layout rule. A high claimed version with missing required
 structures is corrupt/incompatible, never trusted because its number is high.
 Normal additive old layouts remain usable where the requested feature exists.

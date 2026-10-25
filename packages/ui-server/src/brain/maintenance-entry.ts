@@ -15,7 +15,7 @@ import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs
 import { maintenanceDataRoot } from "../config/env.js";
 import { isProviderMasked } from "./provider-mask-refusal.js";
 
-interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown>; masked?: string[] }
+interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown>; masked?: string[]; /** A turn's own index, mounted read-only (#2846). */ readonlyIndex?: boolean }
 interface IndexRequest { op: "index"; root: string; paths?: string[] }
 interface StorageRequest { op: "storage-facts"; root: string; paths: string[] }
 
@@ -45,7 +45,7 @@ async function main(): Promise<unknown> {
   }
   const core = await import("@schlessera/brain/internal");
   const context = await core.initContext({ root });
-  const db = core.openDatabase(context.dbPath);
+  const db = core.openDatabase(context.dbPath, request.op === "plan-add" && request.readonlyIndex === true ? { readonly: true } : undefined);
   try {
     if (request.op === "plan-add") {
       const plan = core.prepareIngest(request.input as unknown as Parameters<typeof core.prepareIngest>[0], db,

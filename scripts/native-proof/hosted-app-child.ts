@@ -34,6 +34,14 @@ spyOn(brainClients, "createBrainClient").mockImplementation((...args: Parameters
 // and every index barrier, without changing either call.
 const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 if (APPLY_TIMING) {
+  // #2848: how long admission takes to copy the turn's data tree and seed its index.
+  const trees = await import(join(source!, "packages/ui-server/src/brain/turn-data-tree.ts"));
+  const createTurnDataTree = trees.createTurnDataTree;
+  spyOn(trees, "createTurnDataTree").mockImplementation((...args: Parameters<typeof createTurnDataTree>) => {
+    const start = performance.now(); const tree = createTurnDataTree(...args);
+    event("turn_tree_seed", { ms: performance.now() - start, masked: Boolean((args[0] as { masks?: unknown }).masks), mounted: Boolean(tree.mount) });
+    return tree;
+  });
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation((...args: Parameters<typeof makeBridge>) => {
@@ -43,9 +51,9 @@ if (APPLY_TIMING) {
       event("apply_timing", { operation: input.operation, path: input.path, ms: performance.now() - start, ok: result.ok, indexed: result.indexed, indexStatus: result.indexStatus ?? null });
       return result;
     };
-    if (awaitIndex) bridge.awaitIndex = async (name: string) => {
+    if (awaitIndex) bridge.awaitIndex = async (name: string, input?: Record<string, unknown>) => {
       const start = performance.now();
-      try { await awaitIndex(name); event("index_barrier", { name, ms: performance.now() - start, ok: true }); }
+      try { await awaitIndex(name, input); event("index_barrier", { name, ms: performance.now() - start, ok: true }); }
       catch (error) { event("index_barrier", { name, ms: performance.now() - start, ok: false, error: String(error) }); throw error; }
     };
     return bridge;
@@ -118,12 +126,18 @@ async function* scheriaClaudeTurn(params: any, attempt: number) {
         session_id: sid, transcript_path: "", cwd: brain }, "scheria-search", { signal: params.options.abortController.signal });
       if (output?.hookSpecificOutput?.permissionDecision === "deny") throw Error(`search refused: ${output.hookSpecificOutput.permissionDecisionReason}`);
     }
-    const { Database } = await import("bun:sqlite");
-    const index = new Database(join(brain!, ".brain-index", "brain.db"), { readonly: true });
-    try {
-      const rows = index.query("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'harbour AND Nausicaa' ORDER BY d.path").all() as { path: string }[];
-      event("scheria_search", { backend: "claude", paths: rows.map(row => row.path) });
-    } finally { index.close(); }
+    // #2848: the search runs where the agent's does, in the turn's actual
+    // strict worker, through the brain's own MCP server on its data tree.
+    const worker = params.options.spawnClaudeCodeProcess({ command: process.execPath,
+      args: [join(source!, "scripts/native-proof/mcp-search-worker.ts"), join(source!, "packages/core/src/cli/brain.ts"), "harbour Nausicaa", brain],
+      env: { PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") }, signal: params.options.abortController.signal });
+    worker.stdin.end();
+    let output = "", errors = "";
+    worker.stdout.on("data", (part: Buffer) => { output += part.toString(); });
+    worker.stderr?.on("data", (part: Buffer) => { errors += part.toString(); });
+    const code = await new Promise<number | null>(resolve => worker.on("exit", (exit: number | null) => resolve(exit)));
+    const answer = (() => { try { return JSON.parse(output.trim().split("\n").at(-1) ?? ""); } catch { return { error: output.slice(-400) }; } })();
+    event("scheria_search", { backend: "claude", via: "worker-mcp", code, errors: errors.slice(-400), ...answer });
   } finally { await client.close(); }
   yield { type: "assistant", session_id: sid, message: { content: [{ type: "text", text: "Odysseus files the Scheria log." }] } };
   yield { type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 100, duration_api_ms: 0, num_turns: 1,

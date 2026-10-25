@@ -13,6 +13,9 @@
  * @experimental Until 1.0; follows the shared integration contract.
  */
 
+/** Configuration files belong to the worker's frozen view, separate from content. */
+export { configurationRoot } from "./lib/config.js";
+
 // Path containment and atomic writes
 export { safeResolve, resolveWritable, writeFileSafely, WriteRefusedError } from "./lib/safe-path.js";
 export type { WriteFileSafelyOptions } from "./lib/safe-path.js";

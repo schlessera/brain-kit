@@ -57,6 +57,13 @@ export const WORKER_AREA_ROOT = "/tmp/brain-worker-areas";
 export const WORKER_WORKTREE_ROOT = "/tmp/brain-worktrees";
 /** Where a worker reads shared reference source (#2432): `public/` and `private/`, one entry per published source. */
 export const WORKER_REFERENCE_ROOT = "/tmp/brain-reference";
+/**
+ * Where a strict worker reads its turn's data tree (#2848): the startup
+ * documents plus this turn's own committed applications, with the turn's
+ * search index at `.brain-index/`. Fixed, so the sandbox note naming it stays
+ * byte-identical from turn to turn.
+ */
+export const WORKER_DATA_ROOT = "/tmp/brain-worker-data";
 
 export interface WorkerArea {
   readonly name: WorkerAreaName;
@@ -79,11 +86,38 @@ export interface WorkerProviderMasks {
    */
   readonly folders: readonly string[];
   /**
-   * Absolute host directory mounted read-write over `.brain-index/`, with
-   * `.git` hidden. Present exactly when `folders` is not empty: a turn allowed
-   * every provider folder keeps the real index and its history.
+   * Absolute host directory mounted over `.brain-index/`, with `.git` hidden.
+   * Present exactly when `folders` is not empty: a turn allowed every provider
+   * folder keeps the real index and its history. Read-only to the turn's
+   * agent: the host keeps it current with the turn's own applications (#2846).
    */
   readonly index?: string;
+  /**
+   * When present, the only brain-relative paths of the view the worker sees,
+   * each read-only; the rest of the brain is an empty tmpfs. The taxonomy
+   * worker sees only the policy's protected paths, so no code a governed turn
+   * can write decides which folders a type selector masks (#2699).
+   */
+  readonly visible?: readonly string[];
+  /** @internal Only the host's own index builds write it. */
+  readonly indexWritable?: boolean;
+}
+
+/**
+ * A strict turn's data tree (#2848): host directories outside the brain,
+ * mounted read-only at `WORKER_DATA_ROOT` with `index` over its
+ * `.brain-index/`. Brain tools use it as their data root while configuration
+ * keeps loading from the frozen startup view at the brain path.
+ */
+export interface WorkerDataTree {
+  /** Absolute host directory: the startup documents and this turn's committed applications. */
+  readonly root: string;
+  /** Absolute host directory holding the turn's search index. */
+  readonly index: string;
+  /** @internal Only the host's index updater writes the index. */
+  readonly indexWritable?: boolean;
+  /** Present for a turn under provider rules: folders absent from `root`, each also masked there. */
+  readonly masked?: readonly string[];
 }
 
 /** The proven inference recipient a turn's provider folders were judged against (#2695). */
@@ -118,6 +152,8 @@ export interface WorkerSandbox {
   readonly providerMasks?: WorkerProviderMasks;
   /** @internal The proven recipient admission unmasked provider folders for; absent while none is proven (#2695). */
   readonly inferenceRecipient?: WorkerInferenceRecipient;
+  /** @internal The turn's data tree, for every turn that does not run on the live brain (#2848). */
+  readonly dataTree?: WorkerDataTree;
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -581,7 +617,8 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       ...sandbox.areas.map(area => AREA_LINES[area.name](area, profile === "governed" ? area.rel : `${WORKER_AREA_ROOT}/${area.name}`)),
       ...(profile === "strict" ? ["Configuration executes from an immutable startup view, including imported helpers and absent names.",
         ...sandbox.areas.filter(area => area.mount.writable).map(area =>
-          `Write \`${area.rel}/\` through \`${WORKER_AREA_ROOT}/${area.name}/\`, outside that view; link the repo-relative destination.`)] : []),
+          `Write \`${area.rel}/\` through \`${WORKER_AREA_ROOT}/${area.name}/\`, outside that view; link the repo-relative destination.`),
+        ...(sandbox.dataTree ? [`The brain tools and the \`brain\` CLI read this turn's data tree at \`${WORKER_DATA_ROOT}/\`: the documents as the turn started plus every change this turn applied, with a search index the host keeps current. Files at the brain path stay as the turn started; read a document this turn changed with the brain tools, or with a shell command under \`${WORKER_DATA_ROOT}/\`.`] : [])] : []),
       ...(sandbox.areas.length ? [] : ["   - No directory outside the brain's documents is writable this turn."]),
       "3. **The brain: canonical and versioned.**",
       "",
@@ -595,7 +632,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   }
   if (profile !== "restricted" && sandbox.providerMasks?.folders.length) {
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
-    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
+    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents. It is read-only: the host adds this turn's own applications to it, so \`brain index\` and \`brain\` CLI captures cannot write it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }
   if (profile !== "restricted" && sandbox.references) lines.push("", ...REFERENCE_GUIDANCE);
   if (profile !== "restricted" && sandbox.worktrees) lines.push("", ...WORKTREE_GUIDANCE);

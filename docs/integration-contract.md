@@ -164,6 +164,26 @@ turn narrowed so it no longer covers those folders, are still refused with
 the same message. Tool names, schemas,
 refusal codes and the `inbox_add` result are unchanged.
 
+## Protected taxonomy code (breaking, 0.44.0, #2699)
+
+A `types:` provider selector now translates only from a taxonomy read where
+the brain shows nothing but the policy's protected paths, as specified under
+[supported inputs](supported-inputs.md#governance-policy). A configuration
+whose taxonomy loads a helper, local module, CLI script or other file outside
+those paths, a policy releasing `brain.config.ts`, `brain.config.json`,
+`package.json`, `bun.lock` or `node_modules`, a brain whose only CLI is its
+own fallback script, a taxonomy that changes when only the protected paths
+are visible, a protected name that an unreconciled governed turn created, and
+a brain path that is not canonical now refuse every type selector with
+`ProviderPolicyRefusedError` in hosted and autonomous turns. Each refusal
+names the reason. Adding the files the configuration loads or reads to the
+policy's `protect` list restores translation, except for the fallback
+script, which needs the packaged CLI. This is breaking: such configurations
+translated before. The
+maintainer ruled it on #2699 (2026-10-24, option B, restriction approved). The
+internal `WorkerProviderMasks` gains optional `visible`. No schema, CLI
+`--json` shape, MCP tool or HTTP route changes.
+
 ## Separate-UID provider folder turns (additive, 0.44.0, #2696)
 
 The host identity helper protocol (`--brain-worker-identity-v1`) gains a
