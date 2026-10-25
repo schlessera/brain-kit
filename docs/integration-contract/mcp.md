@@ -825,8 +825,10 @@ and turn: retries with identical text return the same item; different text
 under that key refuses. It stages triage work and grants no operation authority.
 In a turn with an admitted protection set, staging, publication and every
 compensation refuse a protected target, ancestor, descendant or link alias
-with the application route's `policy_denied` refusal; nothing is staged and no
-item is created (#2876).
+with the application route's `policy_denied` refusal (#2876). Refused before
+staging, it stages nothing and creates no item; a compensation refused after
+a link moved its arrival into a protected path leaves the arrival and its
+cleanup receipt in place.
 Voice and restricted memberships allow reads and refuse both mutations.
 Autonomous rosters remain exact server-selected authority.
 

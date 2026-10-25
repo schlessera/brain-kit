@@ -92,3 +92,17 @@ test("the guard judges every change staging makes, as it lands, in order", async
   const undonePartial = `${SHARE_STAGING_DIR}/.${aborted}.partial`, published = `${SHARE_STAGING_DIR}/${aborted}`;
   expect(undone, "ABORT_REMOVAL_JUDGED").toEqual([undonePartial, `${undonePartial}/meta.json`, undonePartial, published, published, undonePartial]);
 });
+
+test("a link planted where the manifest goes cannot create a `.env*` name", async () => {
+  const { brain, guard } = fixture();
+  const staging = id();
+  const letter = new File(["Penelope weaves by day."], "letter.txt", { type: "text/plain" });
+  // While the partial is open, its manifest name becomes a link to a `.env*` name that does not exist yet.
+  Object.defineProperty(letter, "arrayBuffer", { value: async () => {
+    symlinkSync("../../../.env.local", join(brain, SHARE_STAGING_DIR, `.${staging}.partial`, "meta.json"));
+    return new TextEncoder().encode("Penelope weaves by day.").buffer;
+  } });
+  await expect(stageShareAt(brain, { text: "A letter for Odysseus.", files: [letter] }, staging, undefined, "cli", undefined, guard))
+    .rejects.toBeInstanceOf(ProtectedTargetRefusedError);
+  expect(existsSync(join(brain, ".env.local")), "NO_ENV_NAME_CREATED").toBe(false);
+});

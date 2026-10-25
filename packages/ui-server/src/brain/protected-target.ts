@@ -1,5 +1,5 @@
-import { lstatSync, readlinkSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isEnvName } from "@schlessera/brain-common/internal/protected-paths";
 
 /** The refusal every host writer gives for a target in the turn's admitted protection set. */
@@ -17,8 +17,9 @@ const MAX_LINKS = 40;
 /**
  * Where a brain-relative path lands once every link on the way is followed:
  * what a writer that follows links changes. The walk ends at the first
- * missing component, and the rest is taken as named. Undefined when the
- * links loop.
+ * missing component, and the rest is taken as named. Undefined where no
+ * writer could land: links that loop, a component below a file, or `..`
+ * after a missing component.
  */
 function landing(root: string, path: string): string | undefined {
   const pending = path.split("/");
@@ -30,9 +31,13 @@ function landing(root: string, path: string): string | undefined {
     const next = join(current, part);
     let link: string;
     try {
-      if (!lstatSync(next).isSymbolicLink()) { current = next; continue; }
+      const info = lstatSync(next);
+      if (!info.isSymbolicLink()) {
+        if (!info.isDirectory() && pending.some(rest => rest && rest !== ".")) return undefined;
+        current = next; continue;
+      }
       link = readlinkSync(next);
-    } catch { return resolve(next, ...pending); }
+    } catch { return pending.includes("..") ? undefined : join(next, ...pending); }
     if (++links > MAX_LINKS) return undefined;
     if (isAbsolute(link)) current = sep;
     pending.unshift(...link.split("/"));
@@ -42,25 +47,40 @@ function landing(root: string, path: string): string | undefined {
 
 const within = (path: string, folder: string) => path === folder || path.startsWith(folder === sep ? folder : `${folder}${sep}`);
 
+/** A brain-relative path as named, and where its links lead when that differs. */
+function places(brain: string, path: string): string[] {
+  const named = join(brain, path), landed = landing(brain, path);
+  return landed === undefined || landed === named ? [named] : [named, landed];
+}
+
+/**
+ * Every absolute place the admitted protection covers now: each protected
+ * path as named and where its links lead, and the same for each `.env*` name
+ * at the brain root, which is protected by prefix rather than listed.
+ */
+export function protectedPlaces(root: string, protectedPaths: readonly string[]): string[] {
+  const brain = realpathSync(root);
+  let env: string[] = [];
+  try { env = readdirSync(brain).filter(isEnvName); } catch { /* An unreadable root lists no names. */ }
+  return [...protectedPaths, ...env].flatMap(path => places(brain, path));
+}
+
 /**
  * Whether a host writer must refuse a brain-relative target as protected by
  * the turn's admitted policy (#2876): the hosted application's rule,
- * extended to aliases. A target is protected when it, one of its ancestors or one of its
- * descendants is protected, compared both as named and where every link on
- * the way leads, so a link to a protected path and a protected path that is
- * itself a link both count; the `.env*` names are protected by prefix. Links
- * are read at each call, as close to the write as the caller can make it.
+ * extended to aliases. A target is protected when it, one of its ancestors or
+ * one of its descendants is protected, compared both as named and where every
+ * link on the way leads, so a link to a protected path and a protected path
+ * that is itself a link both count; the `.env*` names are protected by
+ * prefix, including one a target would create. Links are read at each call,
+ * as close to the write as the caller can make it.
  */
 export function createProtectedTargetCheck(root: string, protectedPaths: readonly string[]): (path: string) => boolean {
   const brain = realpathSync(root), admitted = [...protectedPaths];
-  const both = (path: string) => [join(brain, path), landing(brain, path)].filter((place): place is string => place !== undefined);
   return path => {
-    const targets = both(path);
-    if (targets.some(target => {
-      const inside = relative(brain, target);
-      return within(target, brain) && isEnvName(inside.split(sep)[0]!);
-    })) return true;
-    const protectedPlaces = admitted.flatMap(both);
-    return targets.some(target => protectedPlaces.some(place => within(target, place) || within(place, target)));
+    const targets = places(brain, path);
+    if (targets.some(target => within(target, brain) && isEnvName(relative(brain, target).split(sep)[0]!))) return true;
+    const covered = protectedPlaces(brain, admitted);
+    return targets.some(target => covered.some(place => within(target, place) || within(place, target)));
   };
 }

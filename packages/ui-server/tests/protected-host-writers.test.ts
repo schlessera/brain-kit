@@ -10,7 +10,7 @@ import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js"
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentBackend, BrainApplicationInput, BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
@@ -128,6 +128,9 @@ const AUTONOMOUS_CASES: { name: string; protect: string[]; proposal: BrainApplic
   { name: "the real folder a protected link names", protect: ["taxonomy"],
     arrange: brain => symlinkSync("lore", join(brain, "taxonomy")),
     proposal: { operation: "edit", path: "lore/taxonomy.md", expectedBaseHash: contentHash(LORE), old_string: "gather", new_string: "scatter" } },
+  { name: "the document a `.env*` link names", protect: [],
+    arrange: brain => { writeFileSync(join(brain, "lore/harbor-secrets.md"), NOTE); symlinkSync("lore/harbor-secrets.md", join(brain, ".env")); },
+    proposal: { operation: "write", path: "lore/harbor-secrets.md", expectedBaseHash: contentHash(NOTE), content: LORE } },
 ];
 
 for (const { name, protect, proposal, arrange, absent } of AUTONOMOUS_CASES) test(`an autonomous turn's approved application refuses ${name}`, async () => {
@@ -151,6 +154,20 @@ test("a hosted application refuses the real document a protected link names, and
   expect(written.ok, written.message).toBe(true);
 });
 
+// A link that resolves nowhere protects its own name and nothing else.
+test("a protected link that no writer could follow refuses nothing beside it", async () => {
+  const { brain } = brainWith(["taxonomy", "legacy"], brain => {
+    writeFileSync(join(brain, "notes/harbor.md"), NOTE);
+    symlinkSync("notes/harbor.md/..", join(brain, "taxonomy"));
+    symlinkSync("missing/../notes", join(brain, "legacy"));
+  });
+  const apply = createBrainApplication({ root: brain, principalId: "odysseus", turnId: "hosted", signal: new AbortController().signal,
+    protectedPaths: protectedPaths({ protect: ["taxonomy", "legacy"] }), policy: { available: ["write"], autoAllowed: ["write"], lock: createKeyedLock() },
+    isAuthorized: () => true, approve: async () => true, record() {}, planner: { planAdd: async () => { throw new Error("No capture in this fixture"); }, index: async () => {} } });
+  const written = await apply({ principalId: "odysseus", turnId: "hosted", input: { operation: "write", path: "notes/ithaca.md", expectedBaseHash: null, content: NOTE } });
+  expect(written.ok, `UNRESOLVABLE_PROTECTED_LINK_PROTECTS_NOTHING_ELSE ${written.message}`).toBe(true);
+});
+
 // An image mask is a hosted writer too: it follows a protected link the same way.
 test("an image mask refuses a target a protected link names, and still writes beside it", async () => {
   const { brain } = brainWith(["artwork"], brain => { mkdirSync(join(brain, "assets")); symlinkSync("assets", join(brain, "artwork")); });
@@ -167,6 +184,27 @@ test("an image mask refuses a target a protected link names, and still writes be
   writeFileSync(join(brain, "notes/raft.png"), png);
   const written = await apply({ principalId: "odysseus", turnId: "mask", base: readMaskBase(brain, "notes/raft.png"), input: { imagePath: "notes/raft.png", maskPath: "notes/raft-mask.png", png } });
   expect(written.ok, written.message).toBe(true);
+});
+
+test("an image mask's scratch prune keeps the expired file a protected link names", async () => {
+  const { brain } = brainWith(["kept"], brain => {
+    mkdirSync(join(brain, ".brain/scratch"), { recursive: true });
+    writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n");
+    symlinkSync(".brain/scratch/old.png", join(brain, "kept"));
+  });
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  writeFileSync(join(brain, ".brain/scratch/raft.png"), png);
+  writeFileSync(join(brain, ".brain/scratch/old.png"), png);
+  utimesSync(join(brain, ".brain/scratch/old.png"), new Date(0), new Date(0));
+  const view = createFixtureWorkerStartupView(brain);
+  cleanup.push(() => view.cleanup());
+  const apply = createMaskApplication({ maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } }, root: brain,
+    principalId: "odysseus", turnId: "prune", signal: new AbortController().signal, protectedPaths: protectedPaths({ protect: ["kept"] }),
+    lock: createKeyedLock(), isAuthorized: () => true, isAvailable: () => true, record() {} });
+  const result = await apply({ principalId: "odysseus", turnId: "prune", base: readMaskBase(brain, ".brain/scratch/raft.png"),
+    input: { imagePath: ".brain/scratch/raft.png", maskPath: ".brain/scratch/raft-mask.png", png } });
+  expect(result.ok, result.message).toBe(true);
+  expect(existsSync(join(brain, ".brain/scratch/old.png")), "PRUNE_KEEPS_A_PROTECTED_LINK_TARGET").toBe(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -261,6 +299,8 @@ test("inbox_add's compensation of its own arrival refuses once a link leads it i
   expect(moved, "ARRIVAL_STAGED_BEFORE_THE_LINK").toBeDefined();
   expect(Object.keys(snapshot(join(f.brain, "lore/inbox", moved!))), "OWN_COMPENSATION_REFUSED_INSIDE_PROTECTION").toEqual(["meta.json"]);
   expect(f.items()).toBe(0);
+  // The refused removal keeps its receipt, so the arrival stays accounted for.
+  expect(f.db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(moved!), "RECEIPT_KEPT_FOR_RECOVERY").toEqual({ state: "cleanup" });
 });
 
 // ---------------------------------------------------------------------------

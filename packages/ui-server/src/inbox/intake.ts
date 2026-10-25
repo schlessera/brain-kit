@@ -50,10 +50,12 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
   }
   async function clean(id: string, guard?: StagingGuard): Promise<void> {
     // safeResolve and server-only UUIDs prevent compensation touching other files.
-    const paths = await Promise.all([id, `.${id}.partial`].map(name => safeResolve(`${SHARE_STAGING_DIR}/${name}`, brainRoot)));
-    // A turn's compensation judges each directory as resolved, before removing either.
-    if (guard) { const brain = realpathSync(brainRoot); for (const path of paths) guard(relative(brain, path)); }
-    for (const path of paths) await rm(path, { recursive: true, force: true });
+    for (const name of [id, `.${id}.partial`]) {
+      const path = await safeResolve(`${SHARE_STAGING_DIR}/${name}`, brainRoot);
+      // A turn's compensation judges each directory as resolved, just before removing it.
+      guard?.(relative(realpathSync(brainRoot), path));
+      await rm(path, { recursive: true, force: true });
+    }
     db.query("DELETE FROM inbox_intake_receipts WHERE staging_id = ? AND state = 'cleanup'").run(id);
   }
   async function reconcile(guard?: StagingGuard): Promise<void> {

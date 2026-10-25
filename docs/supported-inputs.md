@@ -90,7 +90,8 @@ same way, with the protection of the policy that turn was admitted under; an
 approved autonomous write to a protected path no longer applies (#2876). Every
 writer compares a target both as named and where its links lead, so a link
 into a protected path, a protected path that is itself a link, and a `.env*`
-name are protected too.
+name are protected too, and a mask's scratch prune retains where protected
+links lead.
 
 At every interactive/voice admission, the host reads the policy as data and
 captures an immutable effective policy/hash for that turn. Invalid edits record

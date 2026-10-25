@@ -328,19 +328,25 @@ under (`protectedPaths: protectedPaths(policy.policy)`,
 had none, so an approved autonomous write to a protected path now refuses.
 One check serves every host writer, the application route and image masks
 included (`createProtectedTargetCheck`,
-`packages/ui-server/src/brain/protected-target.ts:54-66`). A target refuses
+`packages/ui-server/src/brain/protected-target.ts:78-86`). A target refuses
 when it, an ancestor or a descendant is protected, compared both as named and
 where every link on the way leads, so a link into a protected folder and a
-protected path that is itself a link both count; the `.env*` names count by
-prefix. Inbox staging is judged at each directory and file it creates, before
+protected path that is itself a link both count. The `.env*` names count by
+prefix, both a name a target would create and an existing one that links
+elsewhere. A link no writer could follow, through a file or by `..` after a
+missing folder, protects only its own name. A mask's scratch prune retains
+the same places, where links lead included. Inbox staging is judged at each directory and file it creates, before
 it publishes, and before every compensation removes anything: its own
 partial or published arrival, and an earlier arrival that the call
 reconciles (`conversation: (input`,
-`packages/ui-server/src/inbox/intake.ts:172-175`). A refused call leaves no
-receipt and no item. Links are read at each change, so a link a governed
-worker swaps in between two changes stops the next one; one swapped in
-between a check and its own system call is not covered, because staging
-writes by path rather than through anchored descriptors. Writers the server
+`packages/ui-server/src/inbox/intake.ts:174-177`). A call refused before
+staging leaves no receipt and no item. Links are read at each change, so a
+link a governed worker swaps in between two changes stops the next one; one
+swapped in between a check and its own system call is not covered, because
+staging writes by path rather than through anchored descriptors. When a link
+moves an arrival into a protected path after staging began, its compensation
+leaves it there with its cleanup receipt rather than remove protected
+content. Writers the server
 runs for itself are outside this rule: the staging cleanup and prune, which
 already refuse a linked staging root, and the scratch prune pass. A policy
 proposal writes the policy file because the owner approved that exact change.
@@ -2489,7 +2495,7 @@ every turn without a proven recipient:
     roadblock signatures (`scope=roadblocks`). `running` and `rollups`
     return labels and counts that may also name documents.
   - `inbox_list` and `inbox_get` (`inboxList`,
-    `packages/ui-server/src/inbox/bridge-tools.ts:57-78`): each item's stored
+    `packages/ui-server/src/inbox/bridge-tools.ts:62-83`): each item's stored
     payload, titles, details and option labels, and its thread.
 
   None of these fields records which documents its text came from. A run from
@@ -2508,7 +2514,7 @@ every turn without a proven recipient:
   #2741 option C).** #2698 left autonomous turns out. Their bridge still
   serves `inbox_list` and `inbox_get` when the exact roster allows them,
   scoped to the turn's origin thread (`inboxList: async`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:57-78`), and the dispatcher
+  `packages/ui-server/src/inbox/bridge-tools.ts:62-83`), and the dispatcher
   embeds the thread's text in the first message (`async function context`,
   `packages/ui-server/src/inbox/dispatcher.ts:163-185`). Source inspection
   finds these retained thread inputs:
@@ -2525,18 +2531,18 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:373`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:376`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
+  `packages/ui-server/src/inbox/bridge-tools.ts:52-56`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
   recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = author`,
-  `packages/ui-server/src/inbox/intake.ts:110`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:125`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); text an autonomous run wrote (escalations, yields)
   whose admitted masks hid every folder now masked; and, since #2816, an
