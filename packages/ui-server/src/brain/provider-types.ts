@@ -20,7 +20,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import type { WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { brainCliCommand, taxonomyArgv } from "./client.js";
+import { taxonomyArgv } from "./client.js";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { providerFolderRoots, providerMaskedFolders, providerTypeSelectors, translateProviderTypes, type ProviderTaxonomy } from "./governance-policy.js";
 import { createPrivateIndexDirectory, removePrivateIndexDirectory, runMaskedBrainCli } from "./private-index.js";
@@ -70,7 +70,8 @@ export function taxonomyProtection(brainPath: string, policy: { protect?: readon
   // Turn state and host staging the server writes for turns (`.brain/`
   // areas, the `.brain-ui/` inbox) are never shown, even when protected.
   const visible = protectedPaths(policy).filter(path => ![".git", ...TURN_STATE_FOLDERS].some(folder => path === folder || path.startsWith(`${folder}/`)));
-  const argv = command ?? brainCliCommand(brainPath);
+  // The CLI part of the argv the taxonomy worker runs, without `config check --json`.
+  const argv = taxonomyArgv(brainPath, command).slice(0, -3);
   // Every argument that names something in the brain, however spelled.
   const files = argv.slice(1).map(arg => isAbsolute(arg) ? normalize(arg) : normalize(join(brain, arg)))
     .filter(path => path === brain || path.startsWith(`${brain}/`)).map(path => path.slice(brain.length + 1))

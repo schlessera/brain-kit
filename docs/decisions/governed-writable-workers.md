@@ -2271,7 +2271,7 @@ were rejected.
   stores that value whatever its path. The taxonomy alone therefore does not
   bound a type. Admission also reads the turn's immutable view, data only, for
   `.md` files outside the masked folders whose frontmatter declares the type
-  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:125-163`).
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:126-164`).
   It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
   and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
   the file it resolves to, as the indexer reads it, unless that file is in a
@@ -2286,7 +2286,7 @@ The taxonomy is code in `brain.config.ts` and its modules, so the host does
 not load it. The brain's own CLI reports it (`brain config check --json`)
 from a credential-free strict worker on the startup view with the literal
 folders masked (`readProviderTaxonomy`,
-`packages/ui-server/src/brain/provider-types.ts:94-111`). That worker sees
+`packages/ui-server/src/brain/provider-types.ts:95-112`). That worker sees
 selected documents outside the literal folders, so it writes into a throwaway
 directory that is deleted before the private index is created. Its answer is
 parsed as untrusted data: a malformed or oversized answer refuses every type
@@ -2316,7 +2316,7 @@ absent, so the configuration loads only from what no governed turn can
 change, or does not load, and its own error, which names the file, becomes
 every type's refusal. Two cases are judged on the host first, by name
 (`taxonomyProtection`,
-`packages/ui-server/src/brain/provider-types.ts:62-82`): a policy that
+`packages/ui-server/src/brain/provider-types.ts:62-83`): a policy that
 releases a tier B name the load reads (`brain.config.ts`,
 `brain.config.json`, `package.json`, `bun.lock`, `node_modules`), and a CLI
 that is a brain file outside the protected paths, such as the
