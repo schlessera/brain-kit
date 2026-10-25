@@ -30,7 +30,8 @@ export interface JournalVersion {
   /**
    * Recorded by path, size and mode only, never by content: its bytes were not
    * retained and it cannot be read or restored. Set for the brain's disposable
-   * index family (`.brain-index/`), which `brain index --force` rebuilds from
+   * index family (`.brain-index/`: the database, its sidecars and the
+   * embeddings lock database), which `brain index --force` rebuilds from
    * Markdown. An intentional observation state, not a failed capture. Such a
    * version has no `hash` and no symlink `target`.
    */

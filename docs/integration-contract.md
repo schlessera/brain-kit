@@ -91,8 +91,9 @@ standalone CLI keeps its synchronous `indexed` meaning.
 ## Metadata-only index history (breaking, 0.44.0, #2873)
 
 The turn journal records the brain's disposable index family
-(`.brain-index/brain.db`, its SQLite sidecars and an index publication copy) by
-path, size and change stamp only. Its versions carry the additive
+(`.brain-index/brain.db`, its SQLite sidecars, the embeddings lock database
+`.brain-index/brain.db.embedding-lock.db` and its sidecars, and an index
+publication copy) by path, size and change stamp only. Its versions carry the additive
 `JournalVersion.metadataOnly: true` and `stamp`, and no content hash; they
 cannot be previewed, downloaded or restored, and history revert excludes them
 as `metadata_only`. Earlier retained index versions are presented the same way.
@@ -103,8 +104,12 @@ states the presentation and the
 accounting.
 
 This is breaking: index versions were byte-retained and restorable before. The
-maintainer ruled it on #2873 (2026-10-25, option B). History recorded by
-earlier releases is not erased.
+maintainer ruled it on #2873 (2026-10-25, option B), and on its confirmation
+(#2903) added the embeddings lock to the family and had the bytes earlier
+releases retained for these versions purged: the first journal open after the
+upgrade rewrites those versions to metadata-only entries and removes their
+objects, except an object another record also names. Their history rows
+stay.
 
 ## Provider folder turns (additive, 0.44.0, #1668)
 
