@@ -9,7 +9,7 @@
 import { createFixtureMaintenanceHost, createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { expect, spyOn, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { identityWorkerExit, launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, prepareWorkerSandboxAsync, probeWorkerHost, probeWorkerHostAsync,
   requireWorkerHostAsync, workerHostBoundary, WorkerHostError, type IdentityWorkerStatus, type LaunchedWorker } from "../src/server/worker-launcher";
@@ -145,7 +145,7 @@ function statusRequests(replies: IdentityWorkerStatus[], ms: number) {
 function supervision() {
   let finished = false, released = 0;
   return { state: () => ({ finished, released }),
-    hooks: { finished: () => finished, finish: () => { finished = true; }, release: () => { released++; } } };
+    hooks: { finished: () => finished, finish: () => { finished = true; }, release: async () => { released++; } } };
 }
 
 test("a separate-UID worker's exit is polled with the event loop free and maps the supervisor's answer as before", async () => {
@@ -166,19 +166,42 @@ test("a separate-UID worker's exit is polled with the event loop free and maps t
   } finally { failed.stop(); }
 });
 
-test("a broker release that cannot confirm cleanup after the exit stays handled, as when the poll caught it", async () => {
+test("a broker release that cannot confirm cleanup after the exit refuses that exit, handled (#2854)", async () => {
   const requests = statusRequests([{ exited: true, code: 0 }], 1);
   const unhandled: unknown[] = [];
   const record = (reason: unknown) => { unhandled.push(reason); };
   process.on("unhandledRejection", record);
   let finished = false;
   try {
-    const code = await identityWorkerExit(requests.status, new Promise<number>(() => {}), { finished: () => finished,
-      finish: () => { finished = true; }, release: () => { throw new Error("worker_identity_cleanup_unconfirmed: fixture"); } });
-    expect(code).toBe(0);
+    const refusal = await identityWorkerExit(requests.status, new Promise<number>(() => {}), { finished: () => finished,
+      finish: () => { finished = true; }, release: async () => { throw new identity.WorkerIdentityCleanupError("worker_identity_cleanup_unconfirmed: fixture"); } })
+      .then(code => code, (error: unknown) => error);
+    expect(identity.workerCleanupUnconfirmed(refusal), "IDENTITY_EXIT_RELEASE_FAILURE_OBSERVABLE").toBe(true);
     await Bun.sleep(20);
     expect(unhandled, "IDENTITY_RELEASE_FAILURE_HANDLED").toEqual([]);
   } finally { process.off("unhandledRejection", record); requests.stop(); }
+});
+
+test("an exit settles only once its release has, and a failed supervision is refused without one (#2854)", async () => {
+  const requests = statusRequests([{ exited: true, code: 0 }], 1);
+  const release = Promise.withResolvers<void>();
+  let finished = false, releases = 0, settled = false;
+  try {
+    const exit = identityWorkerExit(requests.status, new Promise<number>(() => {}), { finished: () => finished,
+      finish: () => { finished = true; }, release: () => { releases++; return release.promise; } }).finally(() => { settled = true; });
+    while (!releases) await Bun.sleep(5);
+    await Bun.sleep(20);
+    expect(settled, "IDENTITY_EXIT_AWAITS_ITS_RELEASE").toBe(false);
+    release.resolve();
+    expect(await exit).toBe(0);
+  } finally { requests.stop(); }
+  const failed = statusRequests([{ exited: true, code: 0, failure: "the worker could not be confined" }], 1);
+  const owner = supervision();
+  try {
+    await identityWorkerExit(failed.status, new Promise<number>(() => {}), owner.hooks).catch(() => {});
+    // Its owner terminates the worker before it closes the broker.
+    expect(owner.state(), "FAILED_SUPERVISION_LEAVES_RELEASE_TO_ITS_OWNER").toEqual({ finished: true, released: 0 });
+  } finally { failed.stop(); }
 });
 
 test("a supervisor lost while a status request is outstanding refuses once and ignores the late answer", async () => {
@@ -518,4 +541,212 @@ test("a failed asynchronous launch closes its separate-UID broker through awaite
     expect(await runs(async () => launchAgentWorker(launch(views[3]!)), { ok: false }), "SYNC_LAUNCH_REFUSES_UNCONFIRMED_CLOSE")
       .toEqual({ ...refused, spawns: { sync: 1, async: 0 } });
   } finally { helper.mockRestore(); for (const view of views) view.cleanup(); f.cleanup(); }
+});
+
+// #2854: the broker close after an asynchronous launch has returned: the last
+// handle's, a zero-handle exit's and a failed supervision's.
+
+/**
+ * The launcher's seam with held roots. The worker holds each requested root's
+ * directory on descriptor 7 (state) or 8 (turn temp), as a supervisor holds
+ * its tmpfs roots, and its exit is whatever `status` answers. The broker and
+ * its close are real, against a stand-in control socket whose close reply can
+ * be changed between attempts.
+ */
+function heldRootSeam(f: ReturnType<typeof fixture>, status: () => IdentityWorkerStatus) {
+  const prepare = identity.prepareWorkerIdentity;
+  const roots = { state: join(f.root, "state-root"), temp: join(f.root, "temp-root") };
+  for (const root of Object.values(roots)) mkdirSync(root);
+  let broker: Broker | undefined, control: ReturnType<typeof identityControl> | undefined;
+  const spy = spyOn(identity, "prepareWorkerIdentity").mockImplementation((...args: Parameters<typeof prepare>) => {
+    const real = broker = prepare(...args);
+    control = identityControl(real, { delayMs: 100 });
+    const requested = new Set(args[2].map(root => root.name));
+    return { ...real, command: ["/bin/sh", "-c", 'exec 7<"$1" 8<"$2"; exec sleep 30', "sh", roots.state, roots.temp],
+      *readySteps(supervisor: number) {
+        // Until its bootstrap has executed the shell, those descriptors are the bootstrap's own.
+        const holds = (fd: number, root: string) => { try { return readlinkSync(`/proc/${supervisor}/fd/${fd}`) === root; } catch { return false; } };
+        while (!control!.ready() || !holds(7, roots.state) || !holds(8, roots.temp)) yield* workerStepSleep(1);
+        return { ok: true as const, workerUid: process.getuid!() + 1, worker: { pid: supervisor, start: "1" }, roots: {
+          ...(requested.has("state") ? { state: { fd: 7, dev: 0, ino: 0 } } : {}), ...(requested.has("temp") ? { temp: { fd: 8, dev: 0, ino: 0 } } : {}) } };
+      },
+      *requestSteps<T extends object>(operation: string): WorkerSteps<T> {
+        yield* workerStepSleep(1);
+        return (operation === "status" ? status() : { ok: true }) as T;
+      } };
+  });
+  return {
+    operations: () => control?.operations() ?? [],
+    /** The broker's private directory, which only a confirmed close removes. */
+    retained: () => existsSync(brokerDirectory(broker!)),
+    /** Answer the next closes with `reply`, from a new stand-in on the same socket. */
+    answerClose: async (reply?: object) => {
+      await control!.stop();
+      // The stale socket would answer `listening()` before the new stand-in has bound it.
+      rmSync(control!.socket, { force: true });
+      control = identityControl(broker!, { delayMs: 100, ...(reply ? { replies: { close: reply } } : {}) });
+      await control.listening();
+    },
+    restore: async () => { spy.mockRestore(); await control?.stop(); broker?.discard(); },
+  };
+}
+
+const settledWithin = <T>(promise: Promise<T>, ms: number) =>
+  Promise.race([promise.then(() => "settled", () => "settled"), Bun.sleep(ms).then(() => "pending")]);
+
+/** Launch through the seam, with both handles unless `handles` is false; `exit()` makes the supervisor report the worker gone. */
+async function heldRootLaunch(handles = true, answer: IdentityWorkerStatus | (() => IdentityWorkerStatus) = { exited: true, code: 0 }) {
+  const f = fixture(), view = createFixtureWorkerStartupView(f.brain);
+  const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue(IDENTITY_HELPER);
+  let gone = false;
+  const seam = heldRootSeam(f, () => !gone ? { exited: false, code: null } : typeof answer === "function" ? answer() : answer);
+  let worker: LaunchedWorker | undefined;
+  try {
+    worker = await launchAgentWorkerAsync({ brainPath: f.brain, startupView: view, command: ["/bin/true"], env: {},
+      ...(handles ? { stateBytes: 1024 * 1024, turnTempBytes: 1024 * 1024 } : {}) });
+  } catch (error) { helper.mockRestore(); await seam.restore(); view.cleanup(); f.cleanup(); throw error; }
+  const launched = worker;
+  launched.stdin.end(); launched.stdout.resume(); launched.stderr.resume();
+  return { worker: launched, seam,
+    exit: () => { gone = true; },
+    cleanup: async () => {
+      try { process.kill(launched.pid, "SIGKILL"); } catch { /* already gone */ }
+      // Bounded: a failed case may have left the exit unsettled.
+      await settledWithin(launched.exited, 3_000);
+      helper.mockRestore(); await seam.restore(); view.cleanup(); f.cleanup();
+    } };
+}
+
+test("an asynchronously launched separate-UID worker's exit settles with handles held, and its last handle closes the broker through awaited steps", async () => {
+  for (const order of ["sequential", "concurrent", "repeated"] as const) {
+    const run = await heldRootLaunch();
+    try {
+      run.exit();
+      // The exit settles while both handles are held, without closing the broker.
+      expect({ order, exit: await settledWithin(run.worker.exited, 3_000) }, "EXIT_SETTLES_WHILE_HANDLES_HELD").toEqual({ order, exit: "settled" });
+      expect({ order, exited: await run.worker.exited, operations: run.seam.operations() }).toEqual({ order, exited: 0, operations: [] });
+      const spawns = identityControlSpawns();
+      let closes, ticks;
+      try {
+        if (order === "sequential") {
+          // Releasing a handle that is not the last waits for nothing.
+          expect(await settledWithin(run.worker.state!.closeAsync(), 50), "NON_FINAL_HANDLE_RELEASE_DOES_NOT_WAIT").toBe("settled");
+          expect(run.seam.operations(), "NON_FINAL_HANDLE_KEEPS_BROKER").toEqual([]);
+          ({ ticks } = await ticksDuring(() => run.worker.turnTemp!.closeAsync()));
+        } else if (order === "repeated") {
+          // Repeating a non-final handle's close while the last one's broker close runs waits only for its own.
+          ({ ticks } = await ticksDuring(async () => {
+            const first = run.worker.state!.closeAsync(), last = run.worker.turnTemp!.closeAsync();
+            expect(await settledWithin(run.worker.state!.closeAsync(), 50), "REPEATED_NON_FINAL_CLOSE_DOES_NOT_WAIT_FOR_THE_LAST").toBe("settled");
+            await Promise.all([first, last]);
+          }));
+        } else {
+          ({ ticks } = await ticksDuring(() => Promise.all([run.worker.state!.closeAsync(), run.worker.turnTemp!.closeAsync(),
+            run.worker.turnTemp!.closeAsync(), run.worker.state!.closeAsync()])));
+        }
+        closes = spawns.operations();
+      } finally { spawns.restore(); }
+      expect({ order, closes }, "LAST_HANDLE_CLOSES_BROKER_THROUGH_AWAITED_STEPS").toEqual({ order, closes: { sync: [], async: ["close"] } });
+      expect({ order, free: ticks > 0 }, "LAST_HANDLE_CLOSE_LEAVES_EVENT_LOOP_FREE").toEqual({ order, free: true });
+      expect({ order, operations: run.seam.operations(), retained: run.seam.retained() }, "ONE_CONFIRMED_BROKER_CLOSE")
+        .toEqual({ order, operations: ["close", "close:answered"], retained: false });
+      // Closed handles stay closed: neither form asks again.
+      await run.worker.turnTemp!.closeAsync(); run.worker.state!.close();
+      expect(run.seam.operations()).toEqual(["close", "close:answered"]);
+    } finally { await run.cleanup(); }
+  }
+});
+
+test("an unconfirmed last-handle close rejects every waiter once, retains the broker, and a retry releases it without a second reference release", async () => {
+  const run = await heldRootLaunch();
+  try {
+    run.exit();
+    await run.worker.exited;
+    await run.seam.answerClose({ ok: false });
+    await run.worker.state!.closeAsync();
+    const refusals = await Promise.all([run.worker.turnTemp!.closeAsync(), run.worker.turnTemp!.closeAsync()].map(close => close.then(() => undefined, (error: unknown) => error)));
+    expect(refusals.map(identity.workerCleanupUnconfirmed), "UNCONFIRMED_LAST_HANDLE_CLOSE_REJECTS").toEqual([true, true]);
+    expect({ operations: run.seam.operations(), retained: run.seam.retained() }, "UNCONFIRMED_CLOSE_SHARED_AND_RETAINS_BROKER")
+      .toEqual({ operations: ["close", "close:answered"], retained: true });
+    // A retry from either handle closes again. Had either reference been
+    // released twice, the count would not reach zero and nothing would close.
+    await run.seam.answerClose();
+    await run.worker.state!.closeAsync();
+    expect(run.seam.operations(), "CLOSED_NON_FINAL_HANDLE_DOES_NOT_RETRY").toEqual([]);
+    const spawns = identityControlSpawns();
+    try { await run.worker.turnTemp!.closeAsync(); expect(spawns.operations(), "RETRY_CLOSES_THROUGH_AWAITED_STEPS").toEqual({ sync: [], async: ["close"] }); }
+    finally { spawns.restore(); }
+    expect({ operations: run.seam.operations(), retained: run.seam.retained() }, "RETRIED_CLOSE_RELEASES_BROKER")
+      .toEqual({ operations: ["close", "close:answered"], retained: false });
+  } finally { await run.cleanup(); }
+});
+
+test("a separate-UID worker's exit with no handle held closes its broker through awaited steps before it settles, and refuses an unconfirmed close", async () => {
+  for (const reply of [undefined, { ok: false }]) {
+    const run = await heldRootLaunch(false);
+    try {
+      if (reply) await run.seam.answerClose(reply);
+      const spawns = identityControlSpawns();
+      let outcome: unknown, closes;
+      try {
+        run.exit();
+        outcome = await run.worker.exited.then(code => code, (error: unknown) => error);
+        closes = spawns.operations();
+      } finally { spawns.restore(); }
+      expect({ reply, closes }, "ZERO_HANDLE_EXIT_CLOSES_BROKER_THROUGH_AWAITED_STEPS").toEqual({ reply, closes: { sync: [], async: ["close"] } });
+      // The exit settled only after the supervisor answered the close.
+      expect({ reply, operations: run.seam.operations() }, "ZERO_HANDLE_EXIT_SETTLES_AFTER_ITS_CLOSE").toEqual({ reply, operations: ["close", "close:answered"] });
+      if (!reply) expect(outcome, "ZERO_HANDLE_EXIT_SETTLES_AFTER_CONFIRMED_CLOSE").toBe(0);
+      else {
+        expect(identity.workerCleanupUnconfirmed(outcome), "ZERO_HANDLE_EXIT_REFUSES_UNCONFIRMED_CLOSE").toBe(true);
+        expect(run.seam.retained(), "UNCONFIRMED_EXIT_CLOSE_RETAINS_BROKER").toBe(true);
+      }
+    } finally { await run.cleanup(); }
+  }
+});
+
+test("a failed supervision terminates its worker before an awaited broker close, and an unconfirmed close stays the exit's refusal", async () => {
+  const failure = { exited: true, code: 0, failure: "the worker could not be confined" };
+  for (const reply of [undefined, { ok: false }]) {
+    const run = await heldRootLaunch(false, failure);
+    try {
+      if (reply) await run.seam.answerClose(reply);
+      const spawns = identityControlSpawns();
+      let refusal: unknown, requests;
+      try {
+        run.exit();
+        refusal = await run.worker.exited.then(() => new Error("exit_succeeded"), (error: unknown) => error);
+        requests = spawns.operations();
+      } finally { spawns.restore(); }
+      // Termination is a synchronous signal request (out of #2854's scope); the close is awaited.
+      expect({ reply, requests }, "EXIT_REJECTION_CLOSES_BROKER_THROUGH_AWAITED_STEPS").toEqual({ reply, requests: { sync: ["signal"], async: ["close"] } });
+      expect({ reply, operations: run.seam.operations() }, "TERMINATION_PRECEDES_BROKER_CLOSE")
+        .toEqual({ reply, operations: ["signal", "signal:answered", "close", "close:answered"] });
+      const error = refusal as WorkerHostError;
+      if (!reply) expect({ requirement: error.requirement, unconfirmed: identity.workerCleanupUnconfirmed(error) }, "FAILED_SUPERVISION_REFUSED_AS_BEFORE")
+        .toEqual({ requirement: "worker_identity_supervision_failed: the worker could not be confined", unconfirmed: false });
+      else {
+        expect(identity.workerCleanupUnconfirmed(error), "EXIT_REJECTION_REFUSES_UNCONFIRMED_CLOSE").toBe(true);
+        expect(error.message, "EXIT_REJECTION_KEEPS_ORIGINAL_FAILURE").toContain("worker_identity_supervision_failed");
+      }
+    } finally { await run.cleanup(); }
+  }
+  // A status request that lost control, with a supervisor stop it could not
+  // confirm, is still terminated and closed: only the exit's own close refusal is final.
+  const lost = await heldRootLaunch(false, () => { throw new identity.WorkerIdentityCleanupError("worker_identity_supervisor_stop_unconfirmed: fixture"); });
+  try {
+    lost.exit();
+    const refusal = await lost.worker.exited.then(() => new Error("exit_succeeded"), (error: unknown) => error);
+    expect({ unconfirmed: identity.workerCleanupUnconfirmed(refusal), operations: lost.seam.operations() }, "LOST_CONTROL_STILL_TERMINATES_AND_CLOSES")
+      .toEqual({ unconfirmed: true, operations: ["signal", "signal:answered", "close", "close:answered"] });
+  } finally { await lost.cleanup(); }
+  // With handles held, the failed exit leaves the close to the last of them.
+  const held = await heldRootLaunch(true, failure);
+  try {
+    held.exit();
+    await held.worker.exited.catch(() => {});
+    expect(held.seam.operations(), "FAILED_EXIT_WITH_HANDLES_DEFERS_CLOSE").toEqual(["signal", "signal:answered"]);
+    await held.worker.state!.closeAsync(); await held.worker.turnTemp!.closeAsync();
+    expect(held.seam.operations()).toEqual(["signal", "signal:answered", "close", "close:answered"]);
+  } finally { await held.cleanup(); }
 });

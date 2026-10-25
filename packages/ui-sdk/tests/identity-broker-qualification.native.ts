@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { join } from "node:path";
 import { createConnection } from "node:net";
 import { once } from "node:events";
-import { launchAgentWorker, prepareWorkerSandbox, probeWorkerHost, WORKER_STATE, type LaunchedWorker } from "../src/server/worker-launcher.js";
+import { launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, probeWorkerHost, WORKER_STATE, type LaunchedWorker } from "../src/server/worker-launcher.js";
 import { prepareRecoveredWorkerFile, prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "../src/server/worker-identity-reader.js";
 import { processStateLedger } from "../src/server/worker-state-budget.js";
 import { hostOutputStagingLimits } from "../src/server/worker-state-limits.js";
@@ -540,6 +540,36 @@ await worker.exited;`;
       const ended=statSync(pulse).size;await sleep(100);expect(statSync(pulse).size).toBe(ended);if(duringSetup)expect(existsSync(mustNotRun)).toBe(false);
       await stdout;expect(await stderr).toBe("");
     } finally { if(server.exitCode===null)server.kill("SIGKILL");await server.exited; }
+  });
+  // #2854: a turn's backend releases its worker's last handle once the worker
+  // has exited, which closes the identity broker. Measured both ways on the
+  // real broker: the longest the event loop went without a 1 ms timer firing.
+  await check("the last handle's broker close at the end of a turn leaves the event loop free", async () => {
+    const stall = async (close: (handle: NonNullable<LaunchedWorker["turnTemp"]>) => unknown) => {
+      const worker = await launchAgentWorkerAsync({ brainPath: brain,
+        sandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
+        stateBytes: MIB, turnTempBytes: MIB, env: { HOME: WORKER_STATE }, command: ["/usr/bin/python3", "-I", "-S", "-c", "pass"] });
+      worker.stdin.end();
+      const streams = Promise.all([collect(worker.stdout, () => {}), collect(worker.stderr, () => {})]);
+      expect(await worker.exited).toBe(0);
+      await worker.state!.closeAsync();
+      let last = performance.now(), maxGapMs = 0, ticks = 0;
+      const timer = setInterval(() => { const now = performance.now(); maxGapMs = Math.max(maxGapMs, now - last); last = now; ticks++; }, 1);
+      const started = performance.now();
+      try { await close(worker.turnTemp!); } finally { clearInterval(timer); }
+      const ended = performance.now();
+      maxGapMs = Math.max(maxGapMs, ended - last);
+      await streams;
+      await until(() => workerPids().length === 0, "IDENTITY_STALL_CASE_LEFT_WORKER");
+      return { closeMs: Math.round(ended - started), maxGapMs: Math.round(maxGapMs), ticks };
+    };
+    const blocking = [], awaited = [];
+    for (let round = 0; round < 3; round++) {
+      blocking.push(await stall(handle => handle.close()));
+      awaited.push(await stall(handle => handle.closeAsync()));
+    }
+    console.log(JSON.stringify({ endOfTurnBrokerClose: { blocking, awaited } }));
+    for (const { ticks } of awaited) expect(ticks, "LAST_HANDLE_BROKER_CLOSE_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
   });
   await import("./egress-identity-qualification.native.js");
   console.log(JSON.stringify({ identityQualification: "pass", cases, serverUid: process.getuid(), workerUid: 21002, limits: "owned-tree cleanup and best-effort observed-byte recovery; external references are not globally excluded" }));

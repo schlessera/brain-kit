@@ -842,7 +842,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1113-1141`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1125-1153`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1637,7 +1637,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1839`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1899`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2810,11 +2810,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1076-1104`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1088-1116`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1113-1139`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1125-1151`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1287-1360`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1314-1402`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2926,6 +2926,36 @@ supervision was lost; the selected policy instead fails and terminates it.
 Unbounded shared storage, Btrfs/qgroup redesign and universal cross-worker
 confinement do not follow from this ruling. The existing optional no-helper,
 same-uid mask-only mode remains available with truthful host-status disclosure.
+
+### Awaited broker cleanup after launch — 2026-10-24
+
+The maintainer selected **option A** on
+[#2854](https://github.com/schlessera/brain-kit/issues/2854): both backends
+explicitly await a separate-UID worker's handle cleanup, behind one shared
+single-flight broker close. It extends the cleanup rule above to the closes
+that run after an asynchronous launch has returned.
+
+- **Confirmed means awaited.** A runtime-state or turn-temp handle's awaited
+  close (`closeAsync`) resolves only once the broker's asynchronous control
+  steps have confirmed cleanup. The backend awaits it before it releases the
+  turn's storage reservation, authority or accounting. Scheduling a close is
+  not success. An unconfirmed close rejects, keeps ownership charged and can be
+  retried. The synchronous throw remains only for synchronous launches.
+- **One close, once.** The launcher counts handle references and keeps one
+  broker close in flight, whoever asks: the last handle, a zero-handle exit or
+  a failed supervision. Concurrent or repeated closes share it; references and
+  descriptors are released once; a failed confirmation can be retried without
+  releasing a reference again. Releasing a handle that is not the last waits
+  for nothing.
+- **Exit settlement stays separate.** A worker's exit never waits for a handle
+  still held, because the backends release their handles only after the exit.
+  An exit holding no handle settles after the broker close, and its refusal is
+  the exit's. A failed supervision is terminated before the close, and an
+  unconfirmed close refuses that exit. Cleanup failures reach the lifecycle
+  owner instead of being dropped after the exit has settled.
+
+Termination and the signal requests stay synchronous; this ruling does not
+cover them.
 
 ### Outward actions (G5)
 

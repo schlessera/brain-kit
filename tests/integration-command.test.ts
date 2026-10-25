@@ -1,14 +1,56 @@
-import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { GitReservationStore, emptyReservation, reservationTransition, MAX_MS } from "../scripts/integration-reservation";
+import { invocationChild } from "../scripts/test-invocation-child";
+import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; state: ReturnType<GitReservationStore["read"]>["state"] };
+type Scenario = { dir?: string; child?: ReturnType<typeof invocationChild>; work?: Promise<ScenarioResult>; settled: boolean; beforeRead?: () => Promise<void> };
+const scenarios = new Set<Scenario>();
+let deadline: ReturnType<typeof setTimeout>, overdue = false, deadlineCleanup: Promise<void> | undefined;
+beforeEach(() => {
+  overdue = false; deadlineCleanup = undefined;
+  // Bun kills dangling children before afterEach on timeout. Reserve three
+  // seconds inside its unchanged 30-second cap for the owned group/output join.
+  deadline = setTimeout(() => {
+    overdue = true;
+    deadlineCleanup = stopScenarios();
+    void deadlineCleanup.catch(() => {}); // afterEach observes cleanup errors.
+  }, 27_000);
+});
+async function stopScenarios() {
+  const active = [...scenarios];
+  const stopped = await Promise.allSettled(active.map(owner => owner.child?.stop("SIGTERM")));
+  // A timed-out Bun test can still resume after its child exits. Join the
+  // entire scenario, including its final Git read, before removing its cwd.
+  await Promise.allSettled(active.map(owner => owner.work));
+  const errors = stopped.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+  if (errors.length) throw new AggregateError(errors, "Integration fixture cleanup failed");
+}
+afterEach(async () => {
+  clearTimeout(deadline);
+  await deadlineCleanup;
+  await stopScenarios();
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 const NOW = Date.parse("2026-07-12T00:00:00Z");
-async function scenario(mode: string) {
+function startScenario(mode: string, beforeRead?: () => Promise<void>) {
+  const owner: Scenario = { settled: false, beforeRead };
+  scenarios.add(owner);
+  const work = runScenario(mode, owner);
+  owner.work = work;
+  const settled = () => { owner.settled = true; scenarios.delete(owner); };
+  void work.then(settled, settled);
+  return { owner, work };
+}
+function scenario(mode: string) { return startScenario(mode).work; }
+async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResult> {
+  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
   const dir = mkdtempSync(join(tmpdir(), "odysseus-integration-command-")); dirs.push(dir);
+  owner.dir = dir;
   const root = join(dir, "client"), remote = join(dir, "remote.git"), bin = join(dir, "bin");
   mkdirSync(root); mkdirSync(bin);
   const realGit = Bun.which("git")!;
@@ -34,9 +76,14 @@ async function scenario(mode: string) {
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
   const library = resolve(import.meta.dir, "../scripts/integration-reservation.ts");
   const shim = join(bin, "git");
-  writeFileSync(shim, `#!${process.execPath}
-    const args=process.argv.slice(2);if(args.join(" ")==="remote get-url origin")console.log("https://github.com/odysseus/brain-kit.git");
-    else {const result=Bun.spawnSync([${JSON.stringify(realGit)},...args],{stdin:"inherit",stdout:"inherit",stderr:"inherit"});process.exit(result.exitCode);}`); chmodSync(shim, 0o755);
+  // Sixty real remote-CAS renewals must fit the unchanged deadline. Only the
+  // origin display is synthetic; exec Git directly for every actual operation.
+  writeFileSync(shim, `#!/bin/sh
+if [ "$#" -eq 3 ] && [ "$1" = remote ] && [ "$2" = get-url ] && [ "$3" = origin ]; then
+  printf '%s\\n' 'https://github.com/odysseus/brain-kit.git'
+else
+  exec '${realGit.replaceAll("'", "'\\''")}' "$@"
+fi`); chmodSync(shim, 0o755);
   const gh = join(bin, "gh"), actual = { sha: synthetic, tree, parents: [base, head] };
   writeFileSync(gh, `#!${process.execPath}
     import {readFileSync,writeFileSync} from "node:fs";
@@ -62,6 +109,10 @@ async function scenario(mode: string) {
     else if(args[0]==="pr"&&args[1]==="merge") {writeFileSync(${JSON.stringify(sentinel)},"merged");s.merged=true;const result=Bun.spawnSync([${JSON.stringify(realGit)},"--git-dir",remote,"update-ref","refs/heads/main",squash]);if(result.exitCode)throw new Error("Fixture main update failed");value="merged";}
     else if(args[0]==="api") {
       const path=args.find(x=>x.startsWith("repos/"))??args[1];
+      if(s.mode==="confirm-held"&&s.requested&&path.includes("actions/workflows/ci.yml/runs")){
+        writeFileSync(${JSON.stringify(join(dir, "held"))},JSON.stringify({pid:process.pid,start:readFileSync("/proc/self/stat","utf8").split(") ").at(-1).split(" ")[19]}));
+        await new Promise(()=>setInterval(()=>{},1000));
+      }
       if(args.includes("--include")){console.log("HTTP/2.0 200 OK\\nDate: "+new Date(s.now).toUTCString()+"\\n\\n{}");writeFileSync(file,JSON.stringify(s));process.exit(0);}
       if(path==="user")value={id:101,login:"odysseus"};
       else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"}};
@@ -87,11 +138,23 @@ async function scenario(mode: string) {
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
     Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
-  const child = Bun.spawn([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", "odysseus/brain-kit#9"], {
-    cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", "odysseus/brain-kit#9"], {
+    cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
   });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  return { code, out, err, dispatched: existsSync(sentinel), state: store.read().state };
+  owner.child = child;
+  const output = Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  try {
+    await child.ready;
+    const [code, out, err] = await output;
+    await child.finish();
+    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+    await owner.beforeRead?.();
+    return { code, out, err, dispatched: existsSync(sentinel), state: store.read().state };
+  } finally {
+    await child.stop("SIGTERM");
+    await Promise.allSettled([output]);
+    await child.finish();
+  }
 }
 
 test("shared merge executable rejects missing, stale, wrong-owner and changed-candidate authority before merge", async () => {
@@ -125,6 +188,32 @@ test("confirmation executable renews automatically, releases cancellation and ca
       expect(result.err).toContain("expired");
     }
   }
+});
+
+test("scenario teardown stops the executable and its helper, drains output and joins the final Git read", async () => {
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const { owner, work } = startScenario("confirm-held", async () => { entered.resolve(); await release.promise; });
+  try {
+    const marker = join(owner.dir!, "held"), deadline = Date.now() + 5_000;
+    while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(10);
+    expect(existsSync(marker), "REAL_CONFIRMATION_HELPER_REACHED_OWNED_HOLD").toBe(true);
+    const helper = JSON.parse(readFileSync(marker, "utf8")) as { pid: number; start: string };
+    expect(processIdentity(helper.pid)?.start).toBe(helper.start);
+    let cleaned = false;
+    const cleanup = stopScenarios().then(() => { cleaned = true; });
+    await entered.promise;
+    // Join the same native stop before observing the still-held continuation.
+    await owner.child!.stop("SIGTERM");
+    expect(cleaned, "TEARDOWN_MUST_JOIN_LATE_SCENARIO_BEFORE_REMOVING_CWD").toBe(false);
+    expect(existsSync(owner.dir!)).toBe(true);
+    release.resolve(); await cleanup;
+    expect(owner.settled, "TEARDOWN_JOINS_FINAL_GIT_READ").toBe(true);
+    const result = await work;
+    expect(result.code).not.toBe(0);
+    expect(result.out, "CANCELLATION_DRAINS_EXECUTABLE_OUTPUT").toContain('"acquired":');
+    expect(processIdentity(helper.pid)?.start, "TEARDOWN_STOPS_OWNED_HELPER").not.toBe(helper.start);
+    expect(processIdentity(owner.child!.pid), "TEARDOWN_STOPS_OWNED_EXECUTABLE").toBeUndefined();
+  } finally { release.resolve(); await stopScenarios(); }
 });
 
 // The delivered workflow has three browser jobs. Keep this independent fixture

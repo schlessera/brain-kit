@@ -276,7 +276,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (launchedChild) {
       await attempt(() => launchedChild!.kill("SIGKILL"));
       await attempt(() => launchedChild!.exited);
-      workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.close());
+      workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.closeAsync());
     }
     if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());
     await attempt(() => envelope?.relay.stop());
@@ -288,9 +288,15 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     throw error;
   }
   const held = reservation;
-  let turnTempClosed = false;
-  /** Frees the worker's turn temp: the tmpfs goes once the worker is gone and this descriptor is closed. */
-  const closeTurnTemp = () => { if (turnTempClosed) return; turnTemp?.close(); held.release(); turnTempClosed = true; };
+  let turnTempClosing: Promise<void> | undefined;
+  /**
+   * Frees the worker's turn temp: the tmpfs goes once the worker is gone and
+   * this descriptor is closed. The reservation is released only once a
+   * separate-UID worker's broker cleanup is confirmed; a refusal keeps it
+   * charged, and the next call tries again (#2854).
+   */
+  const closeTurnTemp = (): Promise<void> => turnTempClosing ??= (async () => { await turnTemp?.closeAsync(); held.release(); })()
+    .catch((error: unknown) => { turnTempClosing = undefined; throw error; });
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
   void child.exited.finally(() => { workerLive = false; }).catch(() => {});
@@ -308,9 +314,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const releases = new Map<string, () => void>();
   void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); }).catch(() => {});
   // A worker that never ran a turn has nothing to promote; one that did is
-  // cleaned up by `promote` once its answer has been read.
+  // cleaned up by `promote` once its answer has been read. Initialization
+  // failure and an inactive abort also await this close themselves.
   let prompted = false;
-  void child.exited.finally(() => { if (!prompted) closeTurnTemp(); }).catch(() => {});
+  void child.exited.finally(() => prompted ? undefined : closeTurnTemp()).catch(() => {});
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -417,7 +424,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
     } catch (failure) {
       backend.log?.("warn", `promoting linked turn-temp files failed: ${failure instanceof Error ? failure.message : String(failure)}`);
-    } finally { closeTurnTemp(); }
+    } finally { await closeTurnTemp(); }
   }
   /** The answer text of this turn's new assistant entries, as the worker has reported them. */
   function answerText(): string {
@@ -697,7 +704,14 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     send({ ...init, sandboxNote });
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
-  } catch (error) { fail(error); await child.exited; throw error; }
+  } catch (error) {
+    fail(error); await child.exited;
+    // A worker that never ran a turn frees its turn temp here, awaited (#2854).
+    // A refused close keeps the reservation; the startup error stays the refusal.
+    try { await closeTurnTemp(); }
+    catch (failure) { try { backend.log?.("warn", `Pi worker turn-temp cleanup was not confirmed after its startup failure: ${String(failure)}`); } catch { /* Reporting cannot replace the startup error. */ } }
+    throw error;
+  }
   finally { workerSignal?.removeEventListener("abort", abortInitialization); }
   const session: PiSessionLike = {
     ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
@@ -726,13 +740,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       finally {
         child.stdin.end(); child.kill("SIGKILL");
         try { await child.exited; await received; await promote(); }
-        finally { closeTurnTemp(); }
+        finally { await closeTurnTemp(); }
       }
       if (error) throw error;
     },
     async abort() {
       if (ended) return;
-      if (!active) { ended = true; child.kill("SIGKILL"); await child.exited; return; }
+      if (!active) { ended = true; child.kill("SIGKILL"); await child.exited; await closeTurnTemp(); return; }
       send({ type: "abort" });
       const deadline = setTimeout(() => { ended = true; done.resolve(); child.kill("SIGKILL"); }, 1000);
       try { await done.promise.catch(() => {}); }

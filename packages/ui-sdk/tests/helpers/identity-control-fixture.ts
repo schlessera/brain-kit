@@ -66,8 +66,17 @@ export function identityControlSpawns() {
   const sync = spyOn(Bun, "spawnSync"), spawn = spyOn(Bun, "spawn");
   const programs = new Set([WORKER_IDENTITY_CLIENT, WORKER_IDENTITY_STOP, WORKER_IDENTITY_FALLBACK]);
   const runs = (calls: unknown[][]) => calls.filter(([command]) => Array.isArray(command) && programs.has(String(command[4]))).length;
+  // The control client's operation, or which other identity-control program ran.
+  const operations = (calls: unknown[][]) => calls.flatMap(([command]) => {
+    if (!Array.isArray(command) || !programs.has(String(command[4]))) return [];
+    if (command[4] === WORKER_IDENTITY_STOP) return ["supervisor-stop"];
+    if (command[4] === WORKER_IDENTITY_FALLBACK) return ["fallback"];
+    return [(JSON.parse(String(command[6])) as { operation: string }).operation];
+  });
   return {
     counts: () => ({ sync: runs(sync.mock.calls), async: runs(spawn.mock.calls) }),
+    /** The same subprocesses, named, in the order each form started them. */
+    operations: () => ({ sync: operations(sync.mock.calls), async: operations(spawn.mock.calls) }),
     /** The worker launches (a bootstrap carrying its launch payload) started so far. */
     launches: () => spawn.mock.calls.flatMap(([, options], index) =>
       (options as { env?: Record<string, string> } | undefined)?.env?.BRAIN_WORKER_LAUNCH ? [spawn.mock.results[index]!.value as ReturnType<typeof Bun.spawn>] : []),
