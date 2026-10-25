@@ -298,7 +298,9 @@ The taxonomy worker sees only the policy's protected paths: the built-in
 tiers (`brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock`,
 `node_modules`, `bunfig.toml`, `context/policies` and the rest), minus what
 the policy releases, plus its `protect` list. The rest of the brain, `.git`
-included, is absent from that worker. Every type selector of the policy
+included, is absent from that worker, and so are `.brain/` and `.brain-ui/`,
+which the server writes for turns, even when protected. Every type selector
+of the policy
 refuses with `ProviderPolicyRefusedError`, naming the reason, when:
 
 - the policy releases `brain.config.ts`, `brain.config.json`, `package.json`,
@@ -314,7 +316,8 @@ refuses with `ProviderPolicyRefusedError`, naming the reason, when:
 - the taxonomy it reports differs from the one read with the rest of the
   brain visible too, because the configuration reads or probes a file outside
   the protected paths. Both reads run on the same checkpoint, and only the
-  protected one is used;
+  protected one is used, so the masks never depend on a file a turn can
+  change even when code such a file holds makes the two reads agree;
 - a protected name, such as `brain.config.ts` beside a `brain.config.json`,
   was created by a governed turn that is still running, or has ended since
   admission began, and has not been reconciled. A protected name that does

@@ -131,6 +131,10 @@ test("taxonomy protection refuses an aliased brain path and an in-brain CLI howe
   expect(taxonomyProtection(brain, none, [process.execPath, brain]), "THE_BRAIN_ITSELF_REFUSED")
     .toEqual({ ok: false, reason: "the CLI it runs, the brain itself, is not a protected path" });
   expect(taxonomyProtection(brain, { protect: ["scripts"], release: [] }, [process.execPath, "./scripts/brain-cli.ts"]), "PROTECTED_SCRIPT_ACCEPTED").toMatchObject({ ok: true });
+  expect(taxonomyProtection(`${brain}/`, none, [process.execPath, "/opt/brain/cli.ts"]), "TRAILING_SLASH_ACCEPTED").toMatchObject({ ok: true });
+  const shown = taxonomyProtection(brain, { protect: [".brain-ui/inbox", ".brain", "lib"], release: [] }, [process.execPath, "/opt/brain/cli.ts"]);
+  expect(shown.ok && shown.visible, "TURN_STATE_NEVER_SHOWN").toEqual(expect.arrayContaining(["lib", "brain.config.ts"]));
+  expect(shown.ok && shown.visible.filter(path => path.startsWith(".brain")), "TURN_STATE_NEVER_SHOWN").toEqual([]);
   symlinkSync(brain, join(root, "alias"));
   expect(taxonomyProtection(join(root, "alias"), none, [process.execPath, "/opt/brain/cli.ts"]), "ALIASED_BRAIN_REFUSED")
     .toEqual({ ok: false, reason: "the configured brain path is not its canonical path, so the live brain may be visible to the taxonomy under another name" });

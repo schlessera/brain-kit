@@ -14,7 +14,7 @@
  * Whatever the taxonomy claims, such a document refuses the turn.
  */
 import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { isAbsolute, join, normalize, resolve } from "node:path";
 import { z } from "zod";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
@@ -44,6 +44,9 @@ const ConfigInvalid = z.object({ valid: z.literal(false), error: z.string() });
  */
 const TAXONOMY_TIER_B = ["brain.config.ts", "brain.config.json", "package.json", "bun.lock", "node_modules"] as const;
 
+/** Folders the server writes for turns, as `PRIVATE_INDEX_STATE_FOLDERS`: never protected content. */
+const TURN_STATE_FOLDERS = [".brain", ".brain-ui"] as const;
+
 /**
  * Whether a type-translated turn can establish that no governed turn could
  * have changed the code its taxonomy runs (#2699, option B). Everything the
@@ -60,16 +63,19 @@ export function taxonomyProtection(brainPath: string, policy: { protect?: readon
   command?: readonly string[]): { ok: true; visible: string[] } | { ok: false; reason: string } {
   const released = TAXONOMY_TIER_B.filter(path => policy.release?.includes(path));
   if (released.length) return { ok: false, reason: `the governance policy releases ${released.join(", ")}, which the taxonomy loads, so a turn could change it` };
+  const brain = resolve(brainPath);
   let real: string | undefined;
-  try { real = realpathSync(brainPath); } catch { /* refused below */ }
-  if (real !== brainPath) return { ok: false, reason: "the configured brain path is not its canonical path, so the live brain may be visible to the taxonomy under another name" };
-  const visible = protectedPaths(policy).filter(path => path !== ".git" && !path.startsWith(".git/"));
+  try { real = realpathSync(brain); } catch { /* refused below */ }
+  if (real !== brain) return { ok: false, reason: "the configured brain path is not its canonical path, so the live brain may be visible to the taxonomy under another name" };
+  // Turn state and host staging the server writes for turns (`.brain/`
+  // areas, the `.brain-ui/` inbox) are never shown, even when protected.
+  const visible = protectedPaths(policy).filter(path => ![".git", ...TURN_STATE_FOLDERS].some(folder => path === folder || path.startsWith(`${folder}/`)));
   const argv = command ?? brainCliCommand(brainPath);
   // Every argument that names something in the brain, however spelled.
-  const files = argv.slice(1).map(arg => isAbsolute(arg) ? normalize(arg) : normalize(join(brainPath, arg)))
-    .filter(path => path === brainPath || path.startsWith(`${brainPath}/`)).map(path => path.slice(brainPath.length + 1))
-    .concat(isAbsolute(argv[0] ?? "") && normalize(argv[0]!).startsWith(`${brainPath}/`) ? [normalize(argv[0]!).slice(brainPath.length + 1)] : []);
-  const unprotected = files.filter(file => existsSync(join(brainPath, file)) || /\.[cm]?[jt]sx?$/u.test(file) || !file)
+  const files = argv.slice(1).map(arg => isAbsolute(arg) ? normalize(arg) : normalize(join(brain, arg)))
+    .filter(path => path === brain || path.startsWith(`${brain}/`)).map(path => path.slice(brain.length + 1))
+    .concat(isAbsolute(argv[0] ?? "") && normalize(argv[0]!).startsWith(`${brain}/`) ? [normalize(argv[0]!).slice(brain.length + 1)] : []);
+  const unprotected = files.filter(file => existsSync(join(brain, file)) || /\.[cm]?[jt]sx?$/u.test(file) || !file)
     .filter(file => !visible.some(path => file === path || file.startsWith(`${path}/`)));
   if (unprotected.length) return { ok: false, reason: `${command ? "" : "the brain has no packaged CLI (node_modules/.bin/brain), and "}the CLI it runs, ${unprotected.map(file => file || "the brain itself").join(", ")}, is not a protected path` };
   return { ok: true, visible };
