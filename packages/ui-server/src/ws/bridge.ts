@@ -156,7 +156,7 @@ export function makeBridge(
   // does not void it. Inbox intake stages files, so it keeps the full check.
   const current = () => !signal.aborted && principalIsAuthorized();
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
-    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
+    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}) });
   if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   // Host bridge tools run outside the worker's mounts, so they refuse the

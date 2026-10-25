@@ -316,6 +316,44 @@ files, directory descendants and ancestors too. Refusals use the existing
 authority, exact browser submissions, voice exclusions and static alias checks
 remain independent requirements.
 
+**Every host writer a turn drives (maintainer, 2026-10-25, #2876 option 1).**
+Conversation inbox staging (`inbox_add`) and an autonomous turn's exactly
+approved application refuse every target in the turn's admitted protection
+set, with the application route's refusal: `policy_denied`, "This target is
+protected by the policy admitted for this turn; no change was applied." The
+hosted bridge hands inbox staging the list it captured at admission; an
+autonomous turn's application takes it from the policy the turn was admitted
+under (`protectedPaths: protectedPaths(policy.policy)`,
+`packages/ui-server/src/inbox/autonomous-turn.ts:315`), where it previously
+had none, so an approved autonomous write to a protected path now refuses.
+One check serves every host writer, the application route and image masks
+included (`createProtectedTargetCheck`,
+`packages/ui-server/src/brain/protected-target.ts:81-90`). A target refuses
+when it, an ancestor or a descendant is protected, compared both as named and
+where every link on the way leads, so a link into a protected folder and a
+protected path that is itself a link both count. The application route and
+image masks open every target without following links, so a link on a
+target's own way keeps their `alias_denied` refusal; only inbox staging,
+which follows links, refuses it as protected. The `.env*` names count by
+prefix, both a name a target would create and an existing one that links
+elsewhere. A link no writer could follow, through a file or by `..` after a
+missing folder, protects only its own name. A mask's scratch prune retains
+the same places, where links lead included. Inbox staging is judged at each directory and file it creates, before
+it publishes, and before every compensation removes anything: its own
+partial or published arrival, and an earlier arrival that the call
+reconciles (`conversation: (input`,
+`packages/ui-server/src/inbox/intake.ts:174-177`). A call refused before
+staging leaves no receipt and no item. Links are read at each change, so a
+link a governed worker swaps in between two changes stops the next one; one
+swapped in between a check and its own system call is not covered, because
+staging writes by path rather than through anchored descriptors. When a link
+moves an arrival into a protected path after staging began, its compensation
+leaves it there with its cleanup receipt rather than remove protected
+content. Writers the server
+runs for itself are outside this rule: the staging cleanup and prune, which
+already refuse a linked staging root, and the scratch prune pass. A policy
+proposal writes the policy file because the owner approved that exact change.
+
 ## The host execution boundary
 
 The independent review of this record showed that read-only mounts cannot, on
@@ -2618,7 +2656,7 @@ every turn without a proven recipient:
     roadblock signatures (`scope=roadblocks`). `running` and `rollups`
     return labels and counts that may also name documents.
   - `inbox_list` and `inbox_get` (`inboxList`,
-    `packages/ui-server/src/inbox/bridge-tools.ts:57-78`): each item's stored
+    `packages/ui-server/src/inbox/bridge-tools.ts:62-83`): each item's stored
     payload, titles, details and option labels, and its thread.
 
   None of these fields records which documents its text came from. A run from
@@ -2637,7 +2675,7 @@ every turn without a proven recipient:
   #2741 option C).** #2698 left autonomous turns out. Their bridge still
   serves `inbox_list` and `inbox_get` when the exact roster allows them,
   scoped to the turn's origin thread (`inboxList: async`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:57-78`), and the dispatcher
+  `packages/ui-server/src/inbox/bridge-tools.ts:62-83`), and the dispatcher
   embeds the thread's text in the first message (`async function context`,
   `packages/ui-server/src/inbox/dispatcher.ts:163-185`). Source inspection
   finds these retained thread inputs:
@@ -2654,18 +2692,18 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:377`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:380`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
+  `packages/ui-server/src/inbox/bridge-tools.ts:52-56`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
   recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = author`,
-  `packages/ui-server/src/inbox/intake.ts:110`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:125`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); text an autonomous run wrote (escalations, yields)
   whose admitted masks hid every folder now masked; and, since #2816, an
@@ -2831,10 +2869,10 @@ brain, which no turn writes, still loads. The relative `bun
 scripts/brain-cli.ts` fallback cannot launch in a masked worker at all (the
 launcher requires an absolute executable), so a protected fallback refuses
 too until that is fixed separately (#2865). Host writers that a turn drives
-outside its worker, such as inbox staging and an autonomous turn's exactly
-approved application, do not consult the policy's `protect` list; a
-configuration that reads files they write is outside this rule until they do
-(#2876).
+outside its worker, inbox staging and an autonomous turn's exactly approved
+application, refuse the policy's protected paths as the application route
+does (2026-10-25 ruling, #2876; "Every host writer a turn drives" under
+[The policy file](#the-policy-file)).
 Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.

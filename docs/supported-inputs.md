@@ -84,6 +84,14 @@ targets, directory descendants and ancestor replacement refuse as
 remain intact. A mask's scratch cleanup also retains protected files, directories
 and ancestors. Neither a later session nor a new policy load can replace an
 already admitted application's protection (#1743).
+Conversation inbox staging (`inbox_add`) and its compensation, and an
+autonomous turn's exactly approved application, refuse protected targets the
+same way, with the protection of the policy that turn was admitted under; an
+approved autonomous write to a protected path no longer applies (#2876). A
+protected path that is itself a link, or a `.env*` name that is one, also
+protects where it leads, and a mask's scratch prune retains those places. A
+target reached through a link keeps the application route's `alias_denied`
+refusal; inbox staging, which follows links, refuses it as protected.
 
 At every interactive/voice admission, the host reads the policy as data and
 captures an immutable effective policy/hash for that turn. Invalid edits record
