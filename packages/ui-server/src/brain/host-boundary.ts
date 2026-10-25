@@ -714,7 +714,14 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return code;
       })
-        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
+        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { await view!.cleanup(); } });
+      // The launch settles, freeing its output slot and gate hold, only once no
+      // descriptor on the worker's stdio is open here, Bun's own duplicates
+      // included (#2863). That waits behind `exited`, never inside it: a caller
+      // that drains the streams only after the exit still can, and the wait is bounded.
+      void exited.then(() => worker.released(), () => worker.released())
+        .finally(() => { try { releaseOutput(); } finally { hold?.release(); } })
+        .catch(error => options.log?.emit({ severityText: "WARN", body: "maintenance launch release refused", attributes: { error: String(error) } }));
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       // An abort accepted while the launch was awaited still stops the worker.

@@ -7,7 +7,7 @@
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { availableParallelism } from "node:os";
-import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, read, readdirSync, readlinkSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import { launchAgentWorkerAsync } from "../src/server/worker-launcher";
 import { runMaintenanceWorker } from "../src/server/maintenance-worker";
 import { createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { mkfifoShim } from "./helpers/mkfifo-shim.js";
+import { holdWorkPool } from "./helpers/work-pool.js";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
@@ -68,23 +69,6 @@ function ownedTmp() {
       rmSync(dir, { recursive: true, force: true });
     },
   };
-}
-
-/**
- * Holds every thread of Bun's pool on a blocking FIFO read until `release`.
- * Bun's file streams and sinks close their duplicate descriptors on that pool
- * (#2862), so while it is held they stay open after their streams end.
- */
-function holdWorkPool(dir: string) {
-  const plug = join(dir, "pool-plug");
-  if (Bun.spawnSync(["mkfifo", plug]).exitCode !== 0) throw new Error("mkfifo failed");
-  const writer = openSync(plug, constants.O_RDWR);
-  const reads = Array.from({ length: 8 * availableParallelism() + 16 }, () => {
-    const fd = openSync(plug, constants.O_RDONLY);
-    return new Promise<void>(done => read(fd, Buffer.alloc(1), 0, 1, null, () => { closeSync(fd); done(); }));
-  });
-  let released: Promise<void> | undefined;
-  return { release: () => released ??= (writeSync(writer, Buffer.alloc(reads.length)), Promise.all(reads).then(() => closeSync(writer))) };
 }
 
 /**
