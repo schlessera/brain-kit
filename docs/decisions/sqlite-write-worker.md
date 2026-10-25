@@ -112,8 +112,17 @@ thread waits for it.
   summary the client hears of is sent once its row commits. A process without
   a write worker, such as the cron runner, runs the same procedures on its own
   connection.
+- **Turn budgets followed** (#2850). Every ledger write (admission,
+  session binding, completed-response and relayed-provider observations,
+  warnings, the SDK backstop) commits on the worker, with the receipt it
+  computes read inside the same transaction
+  (`budgetLedger`, `packages/ui-server/src/brain/turn-budgets.ts`). A report
+  is priced where it arrives, so the backend still gets the turn's list price
+  at once; its warnings and any block follow the commit. A relayed provider
+  request is admitted only after every budget write submitted before it has
+  committed, and a turn's outcome waits for its budget writes.
 - **Other app-connection writers stay on the loop for now**: the writer gate,
-  turn budgets, the session catalog and message sources, the Activity
+  the session catalog and message sources, the Activity
   notifier and push ticks, auth sessions, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal

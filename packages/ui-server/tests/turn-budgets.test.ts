@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnBudgets, BudgetExceeded, inferenceBudgetLimits, inferenceBudgetContext } from "../src/brain/turn-budgets.js";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
@@ -10,13 +11,13 @@ function fixture() {
   return { db, budgets, tick(ms: number) { now += ms; }, close() { db.close(); } };
 }
 const usage = (n: number, model = "odysseus") => ({ inputTokens: n, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, perModel: { [model]: { inputTokens: n } } });
-test("list-price completed usage warns once; resumed terminal totals and subscription effective zero cannot change it", () => {
+test("list-price completed usage warns once; resumed terminal totals and subscription effective zero cannot change it", async () => {
   const f = fixture();
   try {
-    f.budgets.begin("athena", "ithaca", policy());
-    expect(f.budgets.observe("athena", usage(1))!.warnings.map(w => w.scope)).toEqual(["turn"]);
-    expect(f.budgets.observe("athena", usage(1))!.warnings).toEqual([]);
-    expect(f.budgets.observe("athena", usage(2))!.blocked?.scope).toBe("turn");
+    await f.budgets.begin("athena", "ithaca", policy());
+    expect((await f.budgets.observe("athena", usage(1)))!.warnings.map(w => w.scope)).toEqual(["turn"]);
+    expect((await f.budgets.observe("athena", usage(1)))!.warnings).toEqual([]);
+    expect((await f.budgets.observe("athena", usage(2)))!.blocked?.scope).toBe("turn");
     f.db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,cost_usd,effective_cost_usd,input_tokens) VALUES('athena','session','invoke_agent','ithaca',?,200,0,200)").run(Date.UTC(2026, 6, 12));
     expect(f.budgets.receipt("athena").scopes.find(s => s.scope === 'session')!.costUsd).toBe(2);
   }
@@ -24,46 +25,46 @@ test("list-price completed usage warns once; resumed terminal totals and subscri
     f.close();
   }
 });
-test("unpriced usage remains unknown and token fallback blocks without inventing zero", () => {
+test("unpriced usage remains unknown and token fallback blocks without inventing zero", async () => {
   const f = fixture();
   try {
-    f.budgets.begin("athena", "ithaca", policy());
-    const first = f.budgets.observe("athena", usage(9, "unknown"))!;
+    await f.budgets.begin("athena", "ithaca", policy());
+    const first = (await f.budgets.observe("athena", usage(9, "unknown")))!;
     expect(first.receipt.listPriceCostUsd).toBeNull();
     expect(first.blocked).toBeUndefined();
-    expect(f.budgets.observe("athena", usage(10, "unknown"))!.blocked?.scope).toBe("turn");
+    expect((await f.budgets.observe("athena", usage(10, "unknown")))!.blocked?.scope).toBe("turn");
   }
   finally {
     f.close();
   }
 });
-test("retained root Activity list prices block session/day admission and live sessions share day totals", () => {
+test("retained root Activity list prices block session/day admission and live sessions share day totals", async () => {
   const f = fixture();
   try {
     f.db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,cost_usd,effective_cost_usd,input_tokens) VALUES('old','session','invoke_agent','ithaca',?,4,0,4)").run(Date.UTC(2026, 6, 12));
-    expect(() => f.budgets.begin("new", "ithaca", policy())).toThrow(BudgetExceeded);
+    await expectRejection(f.budgets.begin("new", "ithaca", policy()), BudgetExceeded);
     f.tick(120000);
-    expect(() => f.budgets.begin("next", "other", policy())).not.toThrow();
-    f.budgets.observe("next", usage(2));
-    f.budgets.begin("peer", "third", policy());
-    f.budgets.observe("peer", usage(2));
-    expect(() => f.budgets.begin("later", "fourth", policy())).toThrow(BudgetExceeded);
+    await f.budgets.begin("next", "other", policy());
+    await f.budgets.observe("next", usage(2));
+    await f.budgets.begin("peer", "third", policy());
+    await f.budgets.observe("peer", usage(2));
+    await expectRejection(f.budgets.begin("later", "fourth", policy()), BudgetExceeded);
     expect(f.budgets.receipt("peer").scopes.find(s => s.scope === 'day')!.resetAt).toBe(Date.UTC(2026, 6, 14));
   }
   finally {
     f.close();
   }
 });
-test("UTC response slices do not recharge yesterday's cumulative usage and survive host restart", () => {
+test("UTC response slices do not recharge yesterday's cumulative usage and survive host restart", async () => {
   const f = fixture();
   try {
-    f.budgets.begin("athena", "ithaca", policy());
-    f.budgets.observe("athena", usage(1));
+    await f.budgets.begin("athena", "ithaca", policy());
+    await f.budgets.observe("athena", usage(1));
     f.tick(120000);
-    f.budgets.observe("athena", usage(2));
+    await f.budgets.observe("athena", usage(2));
     expect(f.budgets.receipt("athena").scopes.find(s => s.scope === 'day')!.costUsd).toBe(1);
     const restarted = createTurnBudgets(f.db, { resolve: () => null }, () => Date.UTC(2026, 6, 13, 0, 1));
-    restarted.begin("later", "ithaca", policy());
+    await restarted.begin("later", "ithaca", policy());
     expect(restarted.receipt("later").scopes.find(s => s.scope === 'session')!.costUsd).toBe(2);
     expect(restarted.receipt("later").scopes.find(s => s.scope === 'day')!.costUsd).toBe(1);
   }
@@ -71,45 +72,45 @@ test("UTC response slices do not recharge yesterday's cumulative usage and survi
     f.close();
   }
 });
-test("the shared Activity calculator uses the admitted pricing route and frozen per-model rates for all token classes", () => {
+test("the shared Activity calculator uses the admitted pricing route and frozen per-model rates for all token classes", async () => {
   const db = createUiDb(":memory:");
   let inputRate = 0.01;
   const routes: Array<string | undefined> = [];
   const budgets = createTurnBudgets(db, { resolve: (_model, route) => { routes.push(route); return { input: route === "openrouter" ? inputRate : 10, output: 0.1, cacheRead: 0.001, cacheWrite: 0.02, estimate: false, source: "snapshot" }; } });
   try {
-    budgets.begin("athena", "ithaca", policy(), "openrouter");
+    await budgets.begin("athena", "ithaca", policy(), "openrouter");
     const sample = { inputTokens: 10, outputTokens: 2, cacheReadTokens: 100, cacheCreationTokens: 5, perModel: { odysseus: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 100, cacheCreationTokens: 5 } } };
-    expect(budgets.observe("athena", sample)!.receipt.listPriceCostUsd, "BUDGET_ACTIVITY_CATALOG_AND_FOUR_CLASSES").toBeCloseTo(0.5);
+    expect((await budgets.observe("athena", sample))!.receipt.listPriceCostUsd, "BUDGET_ACTIVITY_CATALOG_AND_FOUR_CLASSES").toBeCloseTo(0.5);
     inputRate = 100;
-    expect(budgets.observe("athena", sample)!.blocked).toBeUndefined();
+    expect((await budgets.observe("athena", sample))!.blocked).toBeUndefined();
     expect(routes).toEqual(["openrouter"]);
   }
   finally {
     db.close();
   }
 });
-test("adding unpriced inference cannot erase a priced lower bound, warning or stop", () => {
+test("adding unpriced inference cannot erase a priced lower bound, warning or stop", async () => {
   const f = fixture();
   try {
-    f.budgets.begin("athena", "ithaca", policy());
-    f.budgets.observe("athena", usage(1));
+    await f.budgets.begin("athena", "ithaca", policy());
+    await f.budgets.observe("athena", usage(1));
     const mixed = (n: number) => ({ inputTokens: n + 1, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, perModel: { odysseus: { inputTokens: n }, unknown: { inputTokens: 1 } } });
-    const first = f.budgets.observe("athena", mixed(1))!;
+    const first = (await f.budgets.observe("athena", mixed(1)))!;
     expect(first.receipt.listPriceCostUsd).toBeNull();
     expect(first.receipt.scopes[0]).toMatchObject({ costUsd: 1, unknownRuns: 1, warning: true, blocked: false });
-    expect(f.budgets.observe("athena", mixed(2))!.blocked).toMatchObject({ scope: "turn", costUsd: 2 });
+    expect((await f.budgets.observe("athena", mixed(2)))!.blocked).toMatchObject({ scope: "turn", costUsd: 2 });
   }
   finally {
     f.close();
   }
 });
-test("retained warning evidence is disclosed once at admission, without inventing a response", () => {
+test("retained warning evidence is disclosed once at admission, without inventing a response", async () => {
   const f = fixture();
   try {
     f.db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,cost_usd,input_tokens) VALUES('retained','session','invoke_agent','ithaca',?,3,3)").run(Date.UTC(2026, 6, 12));
-    f.budgets.begin("athena", "ithaca", policy());
-    expect(f.budgets.warnings("athena").map(item => item.scope)).toEqual(["session", "day"]);
-    expect(f.budgets.warnings("athena")).toEqual([]);
+    await f.budgets.begin("athena", "ithaca", policy());
+    expect((await f.budgets.warnings("athena")).map(item => item.scope)).toEqual(["session", "day"]);
+    expect((await f.budgets.warnings("athena"))).toEqual([]);
     expect(f.budgets.saved("athena")?.listPriceCostUsd).toBeNull();
   }
   finally {
@@ -117,15 +118,15 @@ test("retained warning evidence is disclosed once at admission, without inventin
   }
 });
 
-test("session prompt limits exclude running usage and only actionable warnings enter current context", () => {
+test("session prompt limits exclude running usage and only actionable warnings enter current context", async () => {
   const f = fixture();
   try {
-    f.budgets.begin("athena", "ithaca", policy());
+    await f.budgets.begin("athena", "ithaca", policy());
     const initial = f.budgets.receipt("athena");
     const fixed = inferenceBudgetLimits(initial);
     expect(fixed).toContain("turn: warn $1; stop $2");
     expect(inferenceBudgetContext(initial)).toBeUndefined();
-    f.budgets.observe("athena", usage(1));
+    await f.budgets.observe("athena", usage(1));
     const changed = f.budgets.receipt("athena");
     expect(inferenceBudgetLimits(changed), "FIXED_LIMITS_HAVE_NO_RUNNING_USAGE").toBe(fixed);
     const warning = inferenceBudgetContext(changed)!;
@@ -134,4 +135,16 @@ test("session prompt limits exclude running usage and only actionable warnings e
     expect(warning).not.toContain("$1");
     expect(fixed).not.toContain(String(changed.observedAt));
   } finally { f.close(); }
+});
+test("a failed session binding makes the turn's accounting unavailable", async () => {
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", undefined, policy());
+    f.db.exec("CREATE TEMP TRIGGER odysseus_bind_failure BEFORE UPDATE OF session_id ON main.turn_budget_usage BEGIN SELECT RAISE(ABORT, 'Scylla took the binding'); END");
+    await expectRejection(f.budgets.bind("athena", "ithaca"), "Scylla took the binding");
+    expect(() => f.budgets.observe("athena", usage(1)), "BUDGET_FAILED_BIND_STOPS_ACCOUNTING").toThrow("Scylla took the binding");
+  }
+  finally {
+    f.close();
+  }
 });
