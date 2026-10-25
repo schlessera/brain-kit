@@ -276,6 +276,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (launchedChild) {
       await attempt(() => launchedChild!.kill("SIGKILL"));
       await attempt(() => launchedChild!.exited);
+      // Nothing reads its stdio yet: close the server's ends, then wait out Bun's duplicates (#2863).
+      await attempt(() => { launchedChild!.stdin.end(); launchedChild!.stdout.destroy(); launchedChild!.stderr.destroy(); return launchedChild!.released(); });
       workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.closeAsync());
     }
     if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());
@@ -346,6 +348,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     return new WorkerResourceLimitError(report.hits);
   })();
   const send = (value: unknown) => sendPipe(child.stdin, value);
+  /**
+   * Once the worker has exited, its stdio can still be open here (#2863): Bun
+   * closes its own duplicates of the FIFO descriptors on its pool after their
+   * streams end. A turn's prompt and a refused initialization settle only
+   * after this, which resolves once they are closed or `released()`'s bound expires.
+   */
+  const stdioReleased = (): Promise<void> => { child.stdin.end(); return child.released(); };
   function live(): void {
     if (!active || ended || !turnContext.bridge || !turnContext.signal || turnContext.signal.aborted) {
       throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked.");
@@ -705,7 +714,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) {
-    fail(error); await child.exited;
+    fail(error);
+    try { await child.exited; } finally { await stdioReleased(); }
     // A worker that never ran a turn frees its turn temp here, awaited (#2854).
     // A refused close keeps the reservation; the startup error stays the refusal.
     try { await closeTurnTemp(); }
@@ -740,7 +750,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       finally {
         child.stdin.end(); child.kill("SIGKILL");
         try { await child.exited; await received; await promote(); }
-        finally { await closeTurnTemp(); }
+        finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
       }
       if (error) throw error;
     },

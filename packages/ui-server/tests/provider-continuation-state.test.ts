@@ -183,7 +183,7 @@ test("pi: real admission and session open refuse pre-policy entries and continue
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as worker.LaunchedWorker;
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as worker.LaunchedWorker;
   });
   const backend = createPiBackend({ brainPath: b.brain, sessionDir, model: "anthropic/claude-sonnet-4-5", loadExtensions: false });
   const h = hosted(b, backend);

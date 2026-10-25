@@ -101,6 +101,13 @@ export interface StreamingExecution {
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   exited: Promise<number>;
+  /**
+   * Resolves, never rejects, once the launch has released what it holds,
+   * its gate hold and its worker's stdio included (#2863). It follows
+   * `exited` and the end of both streams; an owner that closes the gate's
+   * database or exits awaits it first. Absent where nothing outlives `exited`.
+   */
+  settled?: Promise<void>;
   readonly signalCode: string | null;
   kill(signal?: NodeJS.Signals): void;
 }
@@ -308,8 +315,10 @@ function retainExecutionAdmission(execution: StreamingExecution,
   if (!hold) return execution;
   const kill = () => execution.kill("SIGKILL");
   const stdout = credentialOutput(execution.stdout, kill), stderr = credentialOutput(execution.stderr, kill);
-  void Promise.allSettled([execution.exited, stdout.done, stderr.done]).then(() => hold.release());
-  return { stdout: stdout.stream, stderr: stderr.stream, exited: execution.exited,
+  const released = Promise.allSettled([execution.exited, stdout.done, stderr.done]).then(() => hold.release());
+  // Settled once this admission is released too, and whatever the launch itself still held.
+  const settled = Promise.allSettled([released, execution.settled]).then(() => {});
+  return { stdout: stdout.stream, stderr: stderr.stream, exited: execution.exited, settled,
     get signalCode() { return execution.signalCode; }, kill: execution.kill };
 }
 /**
@@ -714,12 +723,19 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return code;
       })
-        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
+        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { await view!.cleanup(); } });
+      // The launch settles, freeing its output slot and gate hold, only once no
+      // descriptor on the worker's stdio is open here, Bun's own duplicates
+      // included (#2863). That waits behind `exited`, never inside it: a caller
+      // that drains the streams only after the exit still can, and the wait is bounded.
+      const settled = exited.then(() => worker.released(), () => worker.released())
+        .finally(() => { try { releaseOutput(); } finally { hold?.release(); } })
+        .catch(error => { try { options.log?.emit({ severityText: "WARN", body: "maintenance launch release refused", attributes: { error: String(error) } }); } catch { /* Logging cannot fail the settlement. */ } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       // An abort accepted while the launch was awaited still stops the worker.
       if (execution.signal?.aborted) kill("SIGKILL");
-      return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill }, credential);
+      return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
     },
     runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");

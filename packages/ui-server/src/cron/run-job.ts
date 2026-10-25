@@ -39,6 +39,8 @@ interface SpawnedJob {
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   exited: Promise<number>;
+  /** A maintenance launch's own settlement (`StreamingExecution.settled`), after its exit and output. */
+  settled?: Promise<void>;
   signalCode: string | null;
 }
 
@@ -307,6 +309,9 @@ export async function runJob(
       }),
       proc.exited,
     ]);
+    // The launch frees its writer gate only once its worker's stdio is
+    // released (#2863); the host's database closes right after this job.
+    await proc.settled;
     for (const outcome of outcomes.slice(0, 2)) {
       if (outcome.status === "rejected") {
         writeLine(stderr, `[cron-run] output capture failed: ${messageOf(outcome.reason)}`);

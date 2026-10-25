@@ -492,7 +492,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:408-415`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:417-424`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
@@ -1356,7 +1356,7 @@ part of its read proves nothing (`export function provenToolExecution`,
 `packages/ui-backend-pi/src/worker-session.ts:48-56`). It reports nothing at
 all for a worker that loads extensions. Extension handlers run on every tool
 event, bridge reads included, and can write at any time
-(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:448`).
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:457`).
 With extensions loaded, which is pi's default, every result is observed as
 before. The worker's reports are evidence only while it has run nothing but
 curated code. Once it admits a call outside the provable set (`bash`, `grep`,
@@ -3405,7 +3405,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:493-504`).
+  `packages/ui-server/src/brain/host-boundary.ts:502-513`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal

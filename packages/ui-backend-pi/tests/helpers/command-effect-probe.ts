@@ -75,7 +75,7 @@ export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; c
           }
           callback();
         } });
-        return { configurationRoot, stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+        return { configurationRoot, stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as ReturnType<typeof worker.launchAgentWorker>;
       }); cleanup.push(() => launch.mockRestore());
       const brain = join(root, "brain"); mkdirSync(brain);
       installGitIdentity(brain);

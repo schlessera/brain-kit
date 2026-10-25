@@ -68,6 +68,8 @@ test("real isolated credentialed maintenance admits its writer before waiting, e
   expect(await child.exited).toBe(0); expect(stderr).toBe("");
   const next = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); next.release();
   expect((await resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).source).toBe("stored-login");
+  // The writer is released when the launch settles, once its stdio is (#2863).
+  await child.settled;
   expect(writerHeld).toBe(false);
 });
 

@@ -258,7 +258,12 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           const refused = closed.find(result => result.status === "rejected");
           if (refused) throw refused.reason;
           state.release();
-        });
+        })
+        // The exit is reported above, but the worker's stdio can still be open
+        // here (#2863): Bun closes its own duplicates of the FIFO descriptors on
+        // its pool after their streams end. The worker settles once they are
+        // closed, or once `released()`'s bound expires.
+        .finally(async () => { worker.stdin.end(); await worker.released(); });
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
       const process = { stdin: worker.stdin, stdout: worker.stdout, get killed() { return killed; },

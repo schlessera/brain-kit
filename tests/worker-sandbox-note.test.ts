@@ -109,7 +109,7 @@ async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: st
       callback();
     } });
     // The real launcher owns prepared output through its exit cleanup.
-    return { stdin, stdout, stderr, exited: exited.promise.finally(() => input.preparedOutput?.cleanup()), kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as worker.LaunchedWorker;
+    return { stdin, stdout, stderr, exited: exited.promise.finally(() => input.preparedOutput?.cleanup()), kill: stop, limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as worker.LaunchedWorker;
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });

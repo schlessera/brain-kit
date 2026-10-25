@@ -20,7 +20,7 @@ for (const restart of [false, true]) test(`${restart ? "restarted backend" : "fr
     const exited = new Promise<number>((resolve, reject) => { child.once("exit", code => resolve(code ?? 0)); child.once("error", reject); });
     return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, exited, kill: () => child.kill(),
       observeFile: worker.createWorkerFileObserver({ brain, configurationRoot: brain, areas: [] }),
-      limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+      limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   try {
     let backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions") });
