@@ -73,12 +73,16 @@ export function protectedPlaces(root: string, protectedPaths: readonly string[])
  * link on the way leads, so a link to a protected path and a protected path
  * that is itself a link both count; the `.env*` names are protected by
  * prefix, including one a target would create. Links are read at each call,
- * as close to the write as the caller can make it.
+ * as close to the write as the caller can make it. A writer that refuses
+ * every link on a target's way itself, as the application route does with
+ * `alias_denied`, judges the target as named (`links: "refused"`) and keeps
+ * that refusal for it.
  */
-export function createProtectedTargetCheck(root: string, protectedPaths: readonly string[]): (path: string) => boolean {
+export function createProtectedTargetCheck(root: string, protectedPaths: readonly string[],
+  { links = "followed" }: { links?: "followed" | "refused" } = {}): (path: string) => boolean {
   const brain = realpathSync(root), admitted = [...protectedPaths];
   return path => {
-    const targets = places(brain, path);
+    const targets = links === "followed" ? places(brain, path) : [join(brain, path)];
     if (targets.some(target => within(target, brain) && isEnvName(relative(brain, target).split(sep)[0]!))) return true;
     const covered = protectedPlaces(brain, admitted);
     return targets.some(target => covered.some(place => within(target, place) || within(place, target)));

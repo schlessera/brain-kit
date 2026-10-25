@@ -113,7 +113,7 @@ export function createMaskApplication(options: {
 }) {
   const root = realpathSync(options.root);
   const protectedPaths = [...(options.protectedPaths ?? [])];
-  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, protectedPaths) : undefined;
+  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
     if (isProtected?.(path)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");

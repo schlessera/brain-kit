@@ -272,9 +272,9 @@ export function createBrainApplication(options: {
   beforeCommit?: () => void;
 }) {
   const root = realpathSync(options.root);
-  // Links are followed both ways (#2876): a target that leads into a protected
-  // path, and a protected path that is a link to the target, refuse alike.
-  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, options.protectedPaths) : undefined;
+  // A protected path that is a link protects where it leads (#2876); a target
+  // reached through a link refuses as an alias where it is opened.
+  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, options.protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
     if (isProtected?.(path)) refuse("policy_denied", PROTECTED_TARGET_REFUSAL);

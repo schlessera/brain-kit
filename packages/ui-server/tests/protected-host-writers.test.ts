@@ -114,15 +114,20 @@ test("an autonomous turn's approved write outside the protection set still appli
   expect(readFileSync(join(brain, "notes/harbor.md"), "utf8")).toBe(NOTE);
 });
 
-/** `absent` names what the refused application must not have created. */
-const AUTONOMOUS_CASES: { name: string; protect: string[]; proposal: BrainApplicationInput & { operation: "write" | "edit" | "update" }; arrange?: (brain: string) => void; absent?: string }[] = [
+/**
+ * `absent` names what the refused application must not have created. A link
+ * on the target's own way keeps the route's alias refusal, as for a hosted turn.
+ */
+const ALIAS_REFUSAL = { code: "alias_denied", message: "A target directory is a symlink or is not a directory." };
+const AUTONOMOUS_CASES: { name: string; protect: string[]; proposal: BrainApplicationInput & { operation: "write" | "edit" | "update" }; arrange?: (brain: string) => void;
+  absent?: string; refusal?: { code: string; message: string } }[] = [
   { name: "the protected document itself", protect: ["lore/taxonomy.md"],
     proposal: { operation: "update", path: "lore/taxonomy.md", expectedBaseHash: contentHash(LORE), append_content: "The suitors are gone." } },
   { name: "a new document below a protected folder", protect: ["lore"], absent: "lore/suitors.md",
     proposal: { operation: "write", path: "lore/suitors.md", expectedBaseHash: null, content: NOTE } },
   { name: "a document whose missing folders a protected path names", protect: ["lore/heroes"], absent: "lore/heroes",
     proposal: { operation: "write", path: "lore/heroes/odysseus.md", expectedBaseHash: null, content: NOTE } },
-  { name: "a link that leads into a protected folder", protect: ["lore"], absent: "lore/suitors.md",
+  { name: "a link that leads into a protected folder", protect: ["lore"], absent: "lore/suitors.md", refusal: ALIAS_REFUSAL,
     arrange: brain => symlinkSync("../lore", join(brain, "notes/legends")),
     proposal: { operation: "write", path: "notes/legends/suitors.md", expectedBaseHash: null, content: NOTE } },
   { name: "the real folder a protected link names", protect: ["taxonomy"],
@@ -133,10 +138,10 @@ const AUTONOMOUS_CASES: { name: string; protect: string[]; proposal: BrainApplic
     proposal: { operation: "write", path: "lore/harbor-secrets.md", expectedBaseHash: contentHash(NOTE), content: LORE } },
 ];
 
-for (const { name, protect, proposal, arrange, absent } of AUTONOMOUS_CASES) test(`an autonomous turn's approved application refuses ${name}`, async () => {
+for (const { name, protect, proposal, arrange, absent, refusal } of AUTONOMOUS_CASES) test(`an autonomous turn's approved application refuses ${name}`, async () => {
   const { brain, applied, before, after } = await autonomousApply(protect, proposal, arrange);
   expect({ ok: applied.ok, code: applied.code, message: applied.message, changes: applied.changes }, `AUTONOMOUS_PROTECTED_TARGET_REFUSED ${name}`)
-    .toEqual({ ok: false, code: "policy_denied", message: PROTECTED_TARGET_REFUSAL, changes: [] });
+    .toEqual({ ok: false, ...(refusal ?? { code: "policy_denied", message: PROTECTED_TARGET_REFUSAL }), changes: [] });
   expect(after, "PROTECTED_BYTES_UNCHANGED").toEqual(before);
   if (absent) expect(existsSync(join(brain, absent)), "NOTHING_CREATED_UNDER_PROTECTION").toBe(false);
 });

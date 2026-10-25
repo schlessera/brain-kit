@@ -328,10 +328,13 @@ under (`protectedPaths: protectedPaths(policy.policy)`,
 had none, so an approved autonomous write to a protected path now refuses.
 One check serves every host writer, the application route and image masks
 included (`createProtectedTargetCheck`,
-`packages/ui-server/src/brain/protected-target.ts:78-86`). A target refuses
+`packages/ui-server/src/brain/protected-target.ts:81-90`). A target refuses
 when it, an ancestor or a descendant is protected, compared both as named and
 where every link on the way leads, so a link into a protected folder and a
-protected path that is itself a link both count. The `.env*` names count by
+protected path that is itself a link both count. The application route and
+image masks open every target without following links, so a link on a
+target's own way keeps their `alias_denied` refusal; only inbox staging,
+which follows links, refuses it as protected. The `.env*` names count by
 prefix, both a name a target would create and an existing one that links
 elsewhere. A link no writer could follow, through a file or by `..` after a
 missing folder, protects only its own name. A mask's scratch prune retains
