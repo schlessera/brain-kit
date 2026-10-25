@@ -425,7 +425,7 @@ function setPolicy(brain: string, providers: string, extra = "") {
     `---\nschema_version: 1\nproviders: ${providers}\n${extra ? `${extra}\n` : ""}---\nOnly Anthropic may read Odysseus's own folder.\n`);
 }
 
-async function refusalOf(begin: Promise<{ end(): Promise<void> }>): Promise<Error | undefined> {
+async function refusalOf(begin: Promise<{ end(): Promise<unknown> }>): Promise<Error | undefined> {
   try { await (await begin).end(); } catch (error) { return error as Error; }
   return undefined;
 }
@@ -529,4 +529,51 @@ test("the scripts/brain-cli.ts fallback refuses type translation unless it is pr
   setPolicy(configured.brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
   const hold = await configured.turns.begin("configured-protected", new AbortController().signal);
   try { expect(hold.sandbox.providerMasks?.folders, "PROTECTED_CLI_SCRIPT_TRANSLATES").toEqual(["me"]); } finally { await hold.end(); }
+});
+
+test("a protected name a governed turn created refuses type translation until that turn is reconciled (#2699)", async () => {
+  // The brain is configured by brain.config.json; brain.config.ts is a protected name that is absent.
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    rmSync(join(brain, "brain.config.ts"));
+    writeFileSync(join(brain, "brain.config.json"), "{}\n");
+    mkdirSync(join(brain, "me/docs"));
+    renameSync(join(brain, "me/identity.md"), join(brain, "me/docs/identity.md"));
+    renameSync(join(brain, "me/basics"), join(brain, "me/docs/basics"));
+  });
+  const creator = await f.turns.begin("creator", new AbortController().signal);
+  let ended = false;
+  try {
+    expect(creator.sandbox.profile, creator.sandbox.fallbackReason).toBe("governed");
+    // A configuration the CLI prefers over the JSON one, moving identity to me/docs.
+    const hostile = `export default { taxonomy: { types: { identity: { dir: "me", match: ["me/docs"] } } } };\n`;
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: creator.sandbox, env: { PATH, HOSTILE: hostile }, command: ["/bin/sh", "-c",
+      `printf '%s' "$HOSTILE" > brain.config.ts && printf 'created\\n'`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.stdout.toString(), `ABSENT_PROTECTED_NAME_CREATED: ${shell.stderr.toString()}`).toBe("created\n");
+    // An explicitly strict turn does not wait for peer folder plans, so only this check stands between it and the new bytes.
+    const refused = await refusalOf(f.turns.begin("overlapping", new AbortController().signal, "interactive", "strict"));
+    expect(refused?.name, `APPEARED_PROTECTED_NAME_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+    expect(refused!.message, "REFUSAL_NAMES_THE_APPEARED_NAME").toContain("brain.config.ts appeared during a governed turn and is not yet reconciled");
+    await creator.end(); ended = true;
+  } finally { if (!ended) await creator.end(); }
+  // The creator's end quarantined it, so the next turn reads the owner's configuration.
+  expect(existsSync(join(f.brain, "brain.config.ts")), "APPEARED_NAME_QUARANTINED").toBe(false);
+  const hold = await f.turns.begin("after", new AbortController().signal);
+  try { expect(hold.sandbox.providerMasks?.folders, "OWNER_CONFIGURATION_TRANSLATES").toEqual(["me"]); } finally { await hold.end(); }
+});
+
+test("a protected configuration whose taxonomy depends on files outside the protected paths refuses type translation (#2699)", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    // Every identity document lives in me/docs, so a me/docs answer passes the Markdown check.
+    mkdirSync(join(brain, "me/docs"));
+    renameSync(join(brain, "me/identity.md"), join(brain, "me/docs/identity.md"));
+    renameSync(join(brain, "me/basics"), join(brain, "me/docs/basics"));
+    // An unprotected marker decides identity's folder: present, it is all of me/.
+    writeFileSync(join(brain, "expanded"), "");
+    const config = join(brain, "brain.config.ts");
+    writeFileSync(config, `import { existsSync } from "node:fs";\n${readFileSync(config, "utf8").replace("taxonomy: {\n    types: {",
+      `taxonomy: {\n    types: {\n      identity: { dir: "me", match: [existsSync(\`\${process.env.BRAIN_ROOT}/expanded\`) ? "me" : "me/docs"] },`)}`);
+  });
+  const refused = await refusalOf(f.turns.begin("probing", new AbortController().signal));
+  expect(refused?.name, `DATA_DEPENDENT_TAXONOMY_REFUSED: ${String(refused)}`).toBe("ProviderPolicyRefusedError");
+  expect(refused!.message).toContain("the brain's taxonomy differs when only its protected paths are visible");
 });

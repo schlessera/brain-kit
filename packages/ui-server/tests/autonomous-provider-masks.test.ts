@@ -23,6 +23,8 @@ import { createInboxIntake } from "../src/inbox/intake.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
 import { governancePolicyReaderFor } from "../src/brain/governance-policy.js";
+import { createGovernedManifests } from "../src/brain/governed-manifest.js";
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 
 const REPO = resolve(import.meta.dir, "../../..");
@@ -206,6 +208,21 @@ test("an autonomous turn refuses a type selector whose taxonomy loads code outsi
   await runAutonomousTurn({ ...p.deps, backend: restrictedBackend(p.brain, async request => { folders = request.workerProviderMasks?.folders; }) }, p.input);
   expect(folders, "AUTONOMOUS_PROTECTED_HELPER_TRANSLATES").toEqual(["me"]);
 }, 180_000);
+
+test("an autonomous turn refuses a type selector while a protected name a running governed turn created is unreconciled (#2699)", async () => {
+  const f = await fixture("[{ types: [identity], allow: [anthropic] }]");
+  // The owner configures the brain with JSON; brain.config.ts is a protected name that is absent.
+  rmSync(join(f.brain, "brain.config.ts")); writeFileSync(join(f.brain, "brain.config.json"), "{}\n");
+  const manifests = createGovernedManifests(f.db, { brainPath: f.brain, quarantineDir: join(f.root, "quarantine") });
+  manifests.begin("running-governed", protectedPaths());
+  // What that turn wrote, as its worker could: a configuration the CLI prefers.
+  writeFileSync(join(f.brain, "brain.config.ts"), `export default {};\n`);
+  let started = 0, refusal: unknown;
+  try { await runAutonomousTurn({ ...f.deps, backend: restrictedBackend(f.brain, async () => { started++; }) }, f.input); } catch (error) { refusal = error; }
+  expect((refusal as Error | undefined)?.name, `AUTONOMOUS_APPEARED_NAME_REFUSED: ${String(refusal)}`).toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message)).toContain("brain.config.ts appeared during a governed turn and is not yet reconciled");
+  expect(started, "NO_AUTONOMOUS_WORKER_STARTED").toBe(0);
+}, 120_000);
 
 test("an autonomous turn under a provider folder rule refuses without the host's private index masks", async () => {
   const f = await fixture();

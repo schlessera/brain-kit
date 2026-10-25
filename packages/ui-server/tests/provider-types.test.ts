@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { providerFolderRoots, providerMaskedFolders, providerTypeSelectors,
   retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type ProviderTaxonomy } from "../src/brain/governance-policy";
-import { strayTypedDocuments } from "../src/brain/provider-types";
+import { strayTypedDocuments, taxonomyProtection } from "../src/brain/provider-types";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
@@ -115,4 +115,23 @@ test("a document declaring a translated type outside its folders is found wherev
   expect(strayTypedDocuments(root, ["identity"], ["me"], live).map(stray => stray.path), "LINK_INTO_THE_LIVE_BRAIN_NOT_UNVERIFIED").not.toContain("notes/live-folder");
   expect(strayTypedDocuments(root, ["identity"], ["me"]).map(stray => stray.path), "UNMASKED_TARGET_COUNTED").toContain("notes/live-link.md");
   expect(strayTypedDocuments(root, ["identity"], ["me", "notes", ".obsidian", "node_modules"]), "MASKED_FOLDERS_SKIPPED").toEqual([]);
+});
+
+test("taxonomy protection refuses an aliased brain path and an in-brain CLI however it is spelled (#2699)", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-taxonomy-protection-"));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const brain = join(root, "brain");
+  mkdirSync(join(brain, "scripts"), { recursive: true }); writeFileSync(join(brain, "scripts/brain-cli"), "");
+  const none = { protect: [], release: [] };
+  expect(taxonomyProtection(brain, none, [process.execPath, "/opt/brain/cli.ts"]), "OUTSIDE_CLI_ACCEPTED").toMatchObject({ ok: true });
+  expect(taxonomyProtection(brain, none), "FALLBACK_NAMED").toEqual({ ok: false,
+    reason: "the brain has no packaged CLI (node_modules/.bin/brain), and the CLI it runs, scripts/brain-cli.ts, is not a protected path" });
+  for (const arg of ["./scripts/brain-cli.ts", "node_modules/../scripts/brain-cli.ts", join(brain, "scripts/brain-cli.ts"), "scripts/brain-cli"])
+    expect(taxonomyProtection(brain, none, [process.execPath, arg]), arg).toMatchObject({ ok: false, reason: expect.stringContaining("is not a protected path") });
+  expect(taxonomyProtection(brain, none, [process.execPath, brain]), "THE_BRAIN_ITSELF_REFUSED")
+    .toEqual({ ok: false, reason: "the CLI it runs, the brain itself, is not a protected path" });
+  expect(taxonomyProtection(brain, { protect: ["scripts"], release: [] }, [process.execPath, "./scripts/brain-cli.ts"]), "PROTECTED_SCRIPT_ACCEPTED").toMatchObject({ ok: true });
+  symlinkSync(brain, join(root, "alias"));
+  expect(taxonomyProtection(join(root, "alias"), none, [process.execPath, "/opt/brain/cli.ts"]), "ALIASED_BRAIN_REFUSED")
+    .toEqual({ ok: false, reason: "the configured brain path is not its canonical path, so the live brain may be visible to the taxonomy under another name" });
 });

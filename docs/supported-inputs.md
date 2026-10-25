@@ -311,13 +311,27 @@ refuses with `ProviderPolicyRefusedError`, naming the reason, when:
   (`./<folder>` in `modules`), reads a `tsconfig.json` path alias or reads
   any other file outside them. The refusal quotes the configuration's own
   error, which names the file;
+- the taxonomy it reports differs from the one read with the rest of the
+  brain visible too, because the configuration reads or probes a file outside
+  the protected paths. Both reads run on the same checkpoint, and only the
+  protected one is used;
+- a protected name, such as `brain.config.ts` beside a `brain.config.json`,
+  was created by a governed turn that is still running, or has ended since
+  admission began, and has not been reconciled. A protected name that does
+  not exist is not mounted, so a turn can create it; its end moves the new
+  file out of the brain;
+- the configured brain path is not its canonical path (it is reached through
+  a symbolic link);
 - a protected path, or a folder on the way to it, is a symbolic link, is a
   hardlinked file, or is neither a file nor a folder in the turn's view.
 
 To keep translating, add each such file or folder to the policy's `protect`
 list, for example `protect: [modules, lib/odysseus-types.ts]`. A governed turn
 then cannot change it either. A configuration that imports only installed
-packages, as the template's does, needs nothing. Protection is judged against
+packages, as the template's does, needs nothing. A brain that has only the
+fallback script still refuses after protecting it, because that script
+cannot yet start in the taxonomy worker; install the packaged CLI instead.
+Protection is judged against
 the policy in force at admission: a file that an earlier policy left
 unprotected keeps whatever a turn wrote to it then, so review it before
 protecting it. Code outside the brain, which no turn can write, still loads.

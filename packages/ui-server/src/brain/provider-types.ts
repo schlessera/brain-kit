@@ -13,8 +13,8 @@
  * view, data only, for documents of a translated type outside its folders.
  * Whatever the taxonomy claims, such a document refuses the turn.
  */
-import { closeSync, constants, fstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, normalize } from "node:path";
 import { z } from "zod";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
@@ -49,23 +49,37 @@ const TAXONOMY_TIER_B = ["brain.config.ts", "brain.config.json", "package.json",
  * have changed the code its taxonomy runs (#2699, option B). Everything the
  * taxonomy worker loads from the brain must be a protected path: it sees
  * nothing else. That cannot hold while the policy releases a tier B name the
- * load reads, or while the CLI it runs is a brain file outside the protected
- * paths, such as the `scripts/brain-cli.ts` fallback; both refuse here, by
- * name. Imports and local modules are settled by the worker itself, where an
- * unprotected file is simply absent. `.git` is never shown.
+ * load reads, while the CLI it runs is a brain file outside the protected
+ * paths, such as the `scripts/brain-cli.ts` fallback, or while the brain path
+ * is reached through a link, since the worker's runtime may restore the live
+ * brain under its real path; each refuses here, by name. Imports and local
+ * modules are settled by the worker itself, where an unprotected file is
+ * simply absent. `.git` is never shown.
  */
 export function taxonomyProtection(brainPath: string, policy: { protect?: readonly string[]; release?: readonly string[] },
   command?: readonly string[]): { ok: true; visible: string[] } | { ok: false; reason: string } {
   const released = TAXONOMY_TIER_B.filter(path => policy.release?.includes(path));
   if (released.length) return { ok: false, reason: `the governance policy releases ${released.join(", ")}, which the taxonomy loads, so a turn could change it` };
+  let real: string | undefined;
+  try { real = realpathSync(brainPath); } catch { /* refused below */ }
+  if (real !== brainPath) return { ok: false, reason: "the configured brain path is not its canonical path, so the live brain may be visible to the taxonomy under another name" };
   const visible = protectedPaths(policy).filter(path => path !== ".git" && !path.startsWith(".git/"));
   const argv = command ?? brainCliCommand(brainPath);
-  const files = argv.flatMap(arg => isAbsolute(arg) ? (arg.startsWith(`${brainPath}/`) ? [arg.slice(brainPath.length + 1)] : [])
-    : /\.[cm]?[jt]sx?$/u.test(arg) ? [arg] : []);
-  const unprotected = files.filter(file => !visible.some(path => file === path || file.startsWith(`${path}/`)));
-  if (unprotected.length) return { ok: false, reason: `${command ? "" : "the brain has no packaged CLI (node_modules/.bin/brain), and "}the CLI it runs, ${unprotected.join(", ")}, is not a protected path` };
+  // Every argument that names something in the brain, however spelled.
+  const files = argv.slice(1).map(arg => isAbsolute(arg) ? normalize(arg) : normalize(join(brainPath, arg)))
+    .filter(path => path === brainPath || path.startsWith(`${brainPath}/`)).map(path => path.slice(brainPath.length + 1))
+    .concat(isAbsolute(argv[0] ?? "") && normalize(argv[0]!).startsWith(`${brainPath}/`) ? [normalize(argv[0]!).slice(brainPath.length + 1)] : []);
+  const unprotected = files.filter(file => existsSync(join(brainPath, file)) || /\.[cm]?[jt]sx?$/u.test(file) || !file)
+    .filter(file => !visible.some(path => file === path || file.startsWith(`${path}/`)));
+  if (unprotected.length) return { ok: false, reason: `${command ? "" : "the brain has no packaged CLI (node_modules/.bin/brain), and "}the CLI it runs, ${unprotected.map(file => file || "the brain itself").join(", ")}, is not a protected path` };
   return { ok: true, visible };
 }
+
+const sameTaxonomy = (a: ProviderTaxonomy, b: ProviderTaxonomy) => {
+  const key = (taxonomy: ProviderTaxonomy) => JSON.stringify([taxonomy.inbox,
+    Object.keys(taxonomy.types).sort().map(type => [type, [...taxonomy.types[type]!.prefixes].sort()])]);
+  return key(a) === key(b);
+};
 
 /**
  * Read the effective taxonomy in a worker that sees the brain through `folders`
@@ -144,29 +158,42 @@ export function strayTypedDocuments(root: string, types: readonly string[], mask
 
 /**
  * Translate a policy's type selectors on one immutable view, as every turn
- * admission does (hosted and autonomous, #2694, #2691). The taxonomy worker
- * sees only the protected paths, with the literal folders masked, so it
- * writes into a throwaway directory, never a turn's private index. Without
- * established protection every type refuses, naming why (#2699). A type maps
- * only if no Markdown document of it lies outside the folders it would mask.
+ * admission does (hosted and autonomous, #2694, #2691). The taxonomy is read
+ * twice, both with the literal folders masked and each into a throwaway
+ * directory, never a turn's private index: once seeing only the protected
+ * paths, and once seeing the rest of the view too. Only the first is used,
+ * and only when protection is established and both agree, so neither code
+ * nor data a turn can change decides it (#2699); otherwise every type refuses,
+ * naming why. `appeared` names the protected paths a governed turn created
+ * that are not yet reconciled. A type maps only if no Markdown document of it
+ * lies outside the folders it would mask.
  */
 export async function translateProviderTypesInView(options: {
   brainPath: string; policy: Pick<EffectiveGovernancePolicy, "providers" | "protect" | "release">; view: WorkerStartupView;
   maskPaths: readonly string[]; signal: AbortSignal; command?: readonly string[];
+  appeared?: (root: string) => readonly string[];
 }): Promise<{ folders: Record<string, string[]>; refused: string[] }> {
   const types = providerTypeSelectors(options.policy);
+  const refuse = (reason: string) => ({ folders: {}, refused: types.map(type => `type ${type} (${reason})`) });
   const protection = taxonomyProtection(options.brainPath, options.policy, options.command);
-  if (!protection.ok) return { folders: {}, refused: types.map(type => `type ${type} (the brain's taxonomy is not protected: ${protection.reason})`) };
-  const scratch = createPrivateIndexDirectory();
-  let read: Awaited<ReturnType<typeof readProviderTaxonomy>>;
-  try {
-    read = await readProviderTaxonomy({ brainPath: options.brainPath, startupView: options.view, folders: providerFolderRoots(options.policy), index: scratch,
-      maskPaths: options.maskPaths, signal: options.signal, visible: protection.visible, ...(options.command ? { command: options.command } : {}) });
-  } finally { removePrivateIndexDirectory(scratch); }
+  if (!protection.ok) return refuse(`the brain's taxonomy is not protected: ${protection.reason}`);
+  const appeared = (options.appeared?.(options.view.root) ?? [])
+    .filter(path => protection.visible.some(rel => path === rel || path.startsWith(`${rel}/`) || rel.startsWith(`${path}/`)));
+  if (appeared.length) return refuse(`the brain's taxonomy is not protected: ${appeared.join(", ")} appeared during a governed turn and ${appeared.length === 1 ? "is" : "are"} not yet reconciled`);
+  const read = (visible?: readonly string[]) => {
+    const scratch = createPrivateIndexDirectory();
+    return readProviderTaxonomy({ brainPath: options.brainPath, startupView: options.view, folders: providerFolderRoots(options.policy), index: scratch,
+      maskPaths: options.maskPaths, signal: options.signal, ...(visible ? { visible } : {}), ...(options.command ? { command: options.command } : {}) })
+      .finally(() => removePrivateIndexDirectory(scratch));
+  };
+  const [protectedRead, wholeRead] = await Promise.all([read(protection.visible), read()]);
   options.signal.throwIfAborted();
-  if (!read.ok) return { folders: {}, refused: types.map(type => `type ${type} (the brain's taxonomy could not be read from its protected paths alone: ${read.detail}; `
-    + "protect every file the configuration, its modules and its CLI load, with the governance policy's protect list)") };
-  const translated = translateProviderTypes(types, read.taxonomy);
+  if (!protectedRead.ok) return refuse(`the brain's taxonomy could not be read from its protected paths alone: ${protectedRead.detail}; `
+    + "protect every file the configuration, its modules and its CLI load, with the governance policy's protect list");
+  if (!wholeRead.ok) return refuse(`the brain's taxonomy could not be read: ${wholeRead.detail}`);
+  if (!sameTaxonomy(protectedRead.taxonomy, wholeRead.taxonomy)) return refuse("the brain's taxonomy differs when only its protected paths are visible, "
+    + "so it depends on files a turn can change; protect every file the configuration, its modules and its CLI read");
+  const translated = translateProviderTypes(types, protectedRead.taxonomy);
   const strays = strayTypedDocuments(options.view.root, Object.keys(translated.folders), providerMaskedFolders(options.policy, translated.folders), options.brainPath);
   const listed = (paths: string[]) => `${paths.slice(0, 3).join(", ")}${paths.length > 3 ? ` and ${paths.length - 3} more` : ""}`;
   const unverified = strays.filter(stray => stray.type === undefined).map(stray => stray.path);
