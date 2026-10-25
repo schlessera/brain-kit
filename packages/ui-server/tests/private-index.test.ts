@@ -88,11 +88,13 @@ test("a denied turn reads its provider folder as empty, has no history and searc
     expect(results.filter(path => path.startsWith("me/")), "PRIVATE_INDEX_LACKS_MASKED_DOCUMENTS").toEqual([]);
     expect(search(f.brain, hold.sandbox, "eagle"), "PRIVATE_INDEX_KEEPS_PERMITTED_DOCUMENTS").toContain("notes/quick-note-eagle.md");
     expect(f.reports.filter(report => report.includes("private search index")), "PRIVATE_INDEX_BUILT").toEqual([]);
-    // The real index stays the full one, and the private one is writable.
+    // The real index stays the full one, and the private one is read-only:
+    // the host keeps it current with the turn's own applications (#2846).
     expect(search(f.brain, undefined, SENTINEL)).toContain("me/oath.md");
     const capture = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH, BRAIN_ROOT: f.brain, HOME: "/tmp", NO_COLOR: "1" },
       command: [...CLI, "index", "--json"] }), { env: {}, stdout: "pipe", stderr: "pipe" });
-    expect(capture.exitCode, `PRIVATE_INDEX_WRITABLE: ${capture.stderr.toString()}`).toBe(0);
+    expect(capture.exitCode, "PRIVATE_INDEX_READ_ONLY").not.toBe(0);
+    expect(`${capture.stdout}${capture.stderr}`, "PRIVATE_INDEX_WRITE_REFUSED").toMatch(/readonly|read-only/i);
   } finally { await hold.end(); }
   expect(existsSync(hold.sandbox.providerMasks!.index!), "PRIVATE_INDEX_REMOVED_AFTER_THE_TURN").toBe(false);
 });

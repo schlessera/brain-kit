@@ -203,6 +203,8 @@ export interface SessionEnv {
   workerSandbox?: import("@schlessera/brain-ui-sdk/internal").WorkerSandbox;
   /** Host-admitted provider masks for the restricted envelope; never serialized into a worker. */
   workerProviderMasks?: import("@schlessera/brain-ui-sdk/internal").WorkerProviderMasks;
+  /** Host-prepared turn data tree for the restricted envelope (#2848); never serialized into a worker. */
+  workerDataTree?: import("@schlessera/brain-ui-sdk/internal").WorkerDataTree;
   workerLock?: import("@schlessera/brain-ui-sdk/server").KeyedLock;
   autonomous?: AutonomousTurnOptions;
   client?: ClientEnvironment;

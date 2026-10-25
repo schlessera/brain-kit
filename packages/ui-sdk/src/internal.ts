@@ -28,7 +28,7 @@ export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
 export type { PrepareWorkerSandboxOptions } from "./server/worker-launcher.js";
 export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, WORKER_AREAS, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
-export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile, WorkerProviderMasks } from "./server/worker-sandbox.js";
+export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile, WorkerProviderMasks, WorkerDataTree } from "./server/worker-sandbox.js";
 export { createLimitTracker, describeLimitHits, limitFailureMessage, mergeLimitReports, workerLimitsPlan,
   workerLimitsStatus, workerNoteLimits, WORKER_LIMITS_ENV } from "./server/worker-limits.js";
 export type { WorkerLimitHit, WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
@@ -56,7 +56,7 @@ export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROT
 export { createStateLedger, processStateLedger, WorkerStateError } from "./server/worker-state-budget.js";
 export type { Reservation, StateLedger, WorkerStateErrorClass } from "./server/worker-state-budget.js";
 
-export { resolveWorkerProtection } from "./server/worker-protection.js";
+export { envMaskedPaths, PROVIDER_CACHE_FILES, resolveWorkerProtection } from "./server/worker-protection.js";
 
 export { prepareWorkerOutput } from "./server/worker-output.js";
 
@@ -74,7 +74,7 @@ export { NativeFileVersions, nativeFileVersion, STALE_NATIVE_WRITE } from "./ser
 export type { NativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
 export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
-export { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "./server/worker-sandbox.js";
+export { WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "./server/worker-sandbox.js";
 export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-brain-delta.js";
 export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
 

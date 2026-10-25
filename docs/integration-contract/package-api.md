@@ -347,6 +347,14 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+**Additive frozen configuration root (#2848).** `@schlessera/brain/module`
+exports `configurationRoot(root: string): string`. When `root` equals the
+trusted worker's `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT` is
+set, it returns the configuration root; otherwise it returns `root` unchanged.
+Module configuration reads use this view while content reads use the data
+root. Jobs scoring reads both `settings/jobs.json` and relative criteria
+Markdown from this frozen view. This addition ships in a minor.
+
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
 `options.protectedPaths: readonly string[]`. These brain-relative or absolute
@@ -3776,6 +3784,30 @@ Claude and pi backends call it from their every-call admission paths (the
 `PreToolUse` enforcement hook and the shared pi permission decision). A custom
 backend that never calls it can read an index that misses applications its
 turn already committed.
+
+### A turn's data tree (additive, 0.44.0, #2848, #2846)
+
+`BackendBridge.awaitIndex` takes an optional second argument, the tool's
+`input` where the backend has it: `awaitIndex(toolName, input?)`. The host may
+also refuse a read it cannot serve current. The first-party Claude backend
+passes `tool_input` from its `PreToolUse` enforcement hook, and the host refuses
+a Claude `Read` of a brain path this turn applied, naming `mcp__brain__brain_read`.
+A backend that omits the input keeps the earlier behaviour.
+
+The internal `WorkerSandbox` gains optional `@internal dataTree`
+(`WorkerDataTree`: `{ root, index, indexWritable?, masked? }`, exported from
+`/internal` with `WORKER_DATA_ROOT`, `/tmp/brain-worker-data`), and
+`StartTurnRequest` gains the matching `@internal workerDataTree` for the
+restricted envelope, as `workerProviderMasks`. The launcher mounts `root`
+read-only at `WORKER_DATA_ROOT` and `index` read-only over its
+`.brain-index/`, repeats the provider masks there, and sets `BRAIN_ROOT` and
+`BRAIN_WORKER_DATA_ROOT` to `WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT`
+to the brain path. Only a worker on an immutable startup view may receive one.
+`WorkerProviderMasks` gains `@internal indexWritable`: the private index is
+now mounted read-only unless the host's own build sets it. The first-party pi
+backend reads its brain tools, `read_file`, `grep` and `brain_read` from the
+tree and runs its shell there. In `@schlessera/brain-ui-server`,
+`GovernedTurnHold` adds `dataTree?: TurnDataTree`.
 
 ### Prompt-cache diagnostic events (additive, #2050)
 

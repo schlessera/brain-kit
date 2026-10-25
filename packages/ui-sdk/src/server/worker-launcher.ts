@@ -16,7 +16,7 @@ import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerSta
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMountSteps, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT,
+import { resolveScratchMountSteps, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 import { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
@@ -24,7 +24,7 @@ import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_EN
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
-import { resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMountsSteps } from "./worker-protection.js";
+import { dataTreeMounts, resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMountsSteps } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
@@ -591,7 +591,10 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
+  const dataTree = !maintenance && !transport ? input.sandbox?.dataTree : undefined;
+  if (input.sandbox?.dataTree && (maintenance || transport || workerProfile(input.sandbox) === "governed" || !input.startupView))
+    throw new WorkerHostError("a turn data tree belongs only to a worker on an immutable startup view");
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
@@ -650,6 +653,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
     ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
+    // The turn's data tree: brain tools read documents and the index there,
+    // configuration from the frozen view above (#2848).
+    ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.
@@ -683,6 +689,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name) || placeholders.includes(name)),
     // An operator-listed custom key the relay holds, unless the worker was given it.
     ...relayedKeyNames.filter(name => !input.env[name])])].sort();
+  if (dataTree) argv.push("--setenv", "BRAIN_ROOT", WORKER_DATA_ROOT, "--setenv", "BRAIN_WORKER_DATA_ROOT", WORKER_DATA_ROOT, "--setenv", "BRAIN_WORKER_CONFIG_ROOT", brain);
   if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
   if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
   else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);

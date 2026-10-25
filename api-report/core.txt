@@ -160,6 +160,7 @@ export "./module" (./src/module.ts)
   WriteRefusedError
   assertScratchWritable
   buildTaxonomy
+  configurationRoot
   geminiCompletions
   getMarkdownFiles
   inertGeneratedText
@@ -1433,6 +1434,8 @@ signatures (every public export and the types it is made of)
     }): Taxonomy;
   candidateKey (packages/core/src/lib/reranker.ts)
     export function candidateKey(c: RerankCandidate): string;
+  configurationRoot (packages/core/src/lib/config.ts)
+    export function configurationRoot(root: string): string;
   createEnrichment (packages/core/src/lib/enrichment.ts)
     export function createEnrichment(provider: CompletionProvider): Enrichment;
   defineAgentRunner (packages/core/src/lib/seams.ts)

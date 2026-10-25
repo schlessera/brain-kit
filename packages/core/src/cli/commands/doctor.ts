@@ -644,7 +644,7 @@ function checkSearchLanguage(cli: CliContext): Check {
   }
   let built: string | null = null;
   try {
-    const db = new Database(cli.brain.dbPath, { readonly: true });
+    const db = openDatabase(cli.brain.dbPath, { readonly: true });
     try {
       built = builtFtsTokenizer(db);
     } finally {

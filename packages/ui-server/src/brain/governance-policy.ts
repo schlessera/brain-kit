@@ -200,6 +200,15 @@ export function providerDeniedFolders(policy: Pick<EffectiveGovernancePolicy, "p
   return outermostFolders(denied.map(folder => all.find(outer => folder === outer || folder.startsWith(`${outer}/`)) ?? folder));
 }
 
+/**
+ * The document types a hosted turn's recipient may not see: those a rule that
+ * does not allow it selects. An unproven recipient is allowed none. A masked
+ * turn's own applications of such a type stay out of its private index (#2846).
+ */
+export function providerDeniedTypes(policy: Pick<EffectiveGovernancePolicy, "providers">, recipient: string | undefined): string[] {
+  return [...new Set(policy.providers.filter(rule => recipient === undefined || !rule.allow.includes(recipient)).flatMap(rule => rule.types ?? []))].sort();
+}
+
 /** What an admitted turn's recipient saw of the provider folders (#2695). */
 export interface ProviderExposure {
   readonly recipient: string;

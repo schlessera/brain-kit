@@ -110,7 +110,9 @@ test("a governed peer cannot replace the retained index directory under a privat
   renameSync(join(f.brain, ".brain-index/.maintenance-rebuilt"), join(f.brain, ".brain-index/brain.db"));
   expect(await restricted.read(), "PRIVATE_INDEX_VIEW_SURVIVES_PEER_AND_PUBLICATION").toBe(PRIVATE);
   expect(peer.exitCode, peer.stderr.toString()).toBe(0);
-  expect(peer.stdout.toString(), "PEER_CANNOT_REPLACE_BUT_CAN_REFRESH_THE_INDEX").toBe("");
+  // The peer is masked too: its own `.brain-index` is its private index, which
+  // is read-only to it; the host keeps it current (#2846).
+  expect(peer.stdout.toString(), "PEER_CANNOT_REPLACE_OR_WRITE_ITS_PRIVATE_INDEX").toBe("CONTENT_NOT_WRITABLE\nSIDECAR_NOT_WRITABLE\n");
   expect(hold.sandbox.retainedFolders, "PEER_RETAINS_INDEX_DIRECTORY").toContain(".brain-index");
   expect(readFileSync(join(f.brain, ".brain-index/brain.db"), "utf8"), "REAL_INDEX_STILL_REFRESHED").toBe(REAL);
 });

@@ -19,6 +19,17 @@ export function fixtureBrain(scratch: string, scenario: string): string {
   git(brain, "init", "-b", "main"); git(brain, "add", "."); git(brain, "commit", "-m", "Odysseus prepares the voyage");
   return brain;
 }
+/**
+ * A turn's data tree (#2848), as admission copies it: a new host directory
+ * for every turn, mounted at the same fixed worker path, so nothing the
+ * provider sees may depend on where the host keeps it.
+ */
+export function turnDataTree(scratch: string, brain: string, scenario: string, turn: number): { root: string; index: string } {
+  const root = join(scratch, `data-${scenario}-${turn}`), index = join(scratch, `data-index-${scenario}-${turn}`);
+  cpSync(brain, root, { recursive: true, filter: source => !source.startsWith(join(brain, ".git")) });
+  mkdirSync(join(root, ".brain-index"), { recursive: true }); mkdirSync(index, { recursive: true });
+  return { root, index };
+}
 export function changeRepository(brain: string, turn: number): void {
   writeFileSync(join(brain, "notes/raft.md"), `Odysseus repairs mast ${turn}.\n`);
   git(brain, "add", "notes/raft.md"); git(brain, "commit", "-m", `Odysseus repairs mast ${turn}`);

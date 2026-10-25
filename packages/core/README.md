@@ -34,8 +34,8 @@ to touch `process.env`.
 | `BRAIN_STORAGE_GIT_ROOTS` | Trusted storage inventory allowlist: JSON array of up to 16 absolute external Git store roots. Request flags cannot expand it. | no external Git stores |
 | `BRAIN_UI_CHROME_NO_SANDBOX` | Same as BRAIN_CHROME_NO_SANDBOX, in the BRAIN_UI_* spelling a chat-server deployment sets; the server passes it to the brain CLI it spawns. | sandbox on |
 | `BRAIN_WITHHELD_KEYS` | Internal: comma-separated names (never values) of the provider keys the server withheld from this governed or strict agent worker. A command that needs one names the provider with a `provider_unavailable` notice and degrades where it can; set by the worker launcher, not an operator input. | no key is withheld; a missing key keeps the ordinary keyless behaviour |
-| `BRAIN_WORKER_CONFIG_ROOT` | Internal immutable maintenance configuration execution root. Only applies when the requested root equals BRAIN_WORKER_DATA_ROOT. | — |
-| `BRAIN_WORKER_DATA_ROOT` | Internal maintenance output root, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input. | — |
+| `BRAIN_WORKER_CONFIG_ROOT` | Internal immutable configuration execution root for maintenance and hosted turn workers, supplied by the trusted worker launch. Root discovery maps it to BRAIN_WORKER_DATA_ROOT; configuration loading maps the data root back here. | — |
+| `BRAIN_WORKER_DATA_ROOT` | Internal data root for maintenance and hosted turn workers, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input. | — |
 | `CLAUDE_CODE_PATH` | Claude Code binary the Claude agent runner spawns, as for the chat server. | the Agent SDK's built-in binary when the SDK is installed, else `claude` on PATH |
 | `GEMINI_API_KEY` | Default API key for the built-in Gemini embedding/completion providers (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades vector search to FTS. | — |
 | `NO_COLOR` | Any non-empty value suppresses ANSI color in CLI output. | — |

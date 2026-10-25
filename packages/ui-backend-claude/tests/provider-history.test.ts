@@ -21,7 +21,7 @@ test("Claude captures three real resumed interactive turns and a tool result", (
   identical(captures.facts!.appends[0], captures.facts!.appends[1], "stable facts append");
 });
 test("Claude typed tools stay byte-identical across repository and device changes", () => {
-  for (const name of ["control", "repository", "facts", "promotion", "budget"]) for (const [a, b] of pairs(captures[name]!)) identical(body(a).tools, body(b).tools, `tools ${name}`);
+  for (const name of ["control", "repository", "facts", "promotion", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) identical(body(a).tools, body(b).tools, `tools ${name}`);
 });
 test("Claude tool round trips preserve the complete prefix even in known-break scenarios", () => {
   for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture)) if (a.turn === b.turn) {
@@ -31,10 +31,10 @@ test("Claude tool round trips preserve the complete prefix even in known-break s
   }
 });
 test("Claude stable system stays byte-identical on resume", () => {
-  for (const name of ["control", "posture", "promotion", "budget"]) for (const [a, b] of pairs(captures[name]!)) identical(system(a), system(b), `system ${name}`);
+  for (const name of ["control", "posture", "promotion", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) identical(system(a), system(b), `system ${name}`);
 });
 test("Claude ordinary messages retain every previous request and scripted answer", () => {
-  for (const name of ["control", "repository", "facts", "posture", "budget"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
+  for (const name of ["control", "repository", "facts", "posture", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
 });
 test("Claude requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);
@@ -51,7 +51,7 @@ test("Claude system stays identical across device and sandbox changes on resume 
 // append at the provider boundary. The SDK documents that recording as
 // account-gated, so the guard also holds the option brain-kit hands it.
 test("Claude system-prompt option stays identical on resume", () => {
-  for (const name of ["control", "repository", "promotion", "budget"]) {
+  for (const name of ["control", "repository", "promotion", "budget", "datatree"]) {
     const [first, ...rest] = captures[name]!.appends;
     for (const next of rest) identical(first, next, `systemPrompt option ${name}`);
   }

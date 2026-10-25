@@ -176,8 +176,11 @@ export interface BackendBridge {
    * committed before this call, at once for a tool that does not read the
    * index. Rejects when that update failed: the backend refuses the tool with
    * the rejection's message, and the read never runs against a stale index.
+   * `input` is the tool's input where the backend has it: the host may also
+   * refuse a read it cannot serve current, such as a file this turn applied
+   * read where the worker still sees the turn's startup bytes (#2848).
    */
-  awaitIndex?(toolName: string): Promise<void>;
+  awaitIndex?(toolName: string, input?: Readonly<Record<string, unknown>>): Promise<void>;
   /** Narrow, turn-bound PNG mask application; never a general binary writer. */
   applyImageMask?(input: import("./brain-mask.js").BrainMaskInput): Promise<import("./brain-application.js").BrainApplicationResult>;
   emit(msg: ServerMessage): void;
@@ -536,6 +539,8 @@ export interface StartTurnRequest {
    * autonomous envelope, which prepares its own sandbox (#2691).
    */
   workerProviderMasks?: import("./worker-sandbox.js").WorkerProviderMasks;
+  /** @internal The restricted envelope's turn data tree (#2848), as `workerProviderMasks`. */
+  workerDataTree?: import("./worker-sandbox.js").WorkerDataTree;
   /** @internal The host's shared contention locks, including server applications. */
   workerLock?: import("./keyed-lock.js").KeyedLock;
   /** Server-only explicit mode. Absent preserves the ordinary session contract. */
