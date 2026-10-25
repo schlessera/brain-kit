@@ -25,7 +25,7 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
@@ -38,7 +38,7 @@ import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
-import { createNativeBrainManagerClient, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
@@ -435,6 +435,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).
   const legacyIndex = retireLegacyIndex(config.brainPath);
+  const legacyCaches = PROVIDER_CACHE_FILES.filter(name => lstatSync(join(config.brainPath, name), { throwIfNoEntry: false })?.isFile());
   // The server, not a worker identity under its own umask in a staged view,
   // creates the index directory, with the brain root's mode, so every later
   // maintenance or turn worker can create SQLite sidecars in it.
@@ -523,8 +524,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const keyedReindex = coalesced(() => brain.index().catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
     body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
   bootCleanup.push(() => keyedReindex.idle());
-  // A migrating brain rebuilds its index in the new directory once, at boot.
-  if (legacyIndex.removed.length) keyedReindex();
+  // A migrating brain rebuilds its index in the new directory once, at boot,
+  // and that run moves root-level generated-text caches into `.brain-cache/`
+  // (#2725): it keeps their lines, so the index run does the move, not the host.
+  if (legacyIndex.removed.length || legacyCaches.length) keyedReindex();
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   // Applications return after their Markdown commits; the paths they changed
   // are indexed together before the next read that needs them (#2835).

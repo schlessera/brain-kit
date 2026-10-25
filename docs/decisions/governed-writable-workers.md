@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:142-306`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:76-303`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:75-303`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -2063,9 +2063,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:319-326`;
+`packages/ui-sdk/src/server/worker-protection.ts:344-351`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:329-367`).
+`packages/ui-sdk/src/server/worker-protection.ts:354-392`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -2093,7 +2093,7 @@ A peer whose plan only lacks a root is waited for, up to
 are planned only once a turn has translated it under the current policy hash,
 so writers admitted before that translation predate them, and every later
 writer inherits them from the held plan
-(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:262-273`).
+(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:261-272`).
 The translation is recorded in the UI database, so after the first one under a
 policy hash, writers in every process, the cron runner's and a restarted
 server's included, plan its folders without waiting (#2836).
@@ -2208,12 +2208,12 @@ every turn without a proven recipient:
   build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
   build as a base and reuses it while it provably equals a clean build of the
   turn's final startup view (`createPrivateIndexCache`,
-  `packages/ui-server/src/brain/private-index-cache.ts:319-591`):
+  `packages/ui-server/src/brain/private-index-cache.ts:320-592`):
   - *Identity.* A base is keyed by the brain's canonical path, the policy
     hash, the masked folders, the proven recipient, the operational mask
     paths, the build's argv, the runtime version and the change stamps of any
     absolute file the argv names (`privateIndexCacheKey`,
-    `packages/ui-server/src/brain/private-index-cache.ts:87-91`). Any change
+    `packages/ui-server/src/brain/private-index-cache.ts:88-92`). Any change
     to one is another base. The default command is the brain's own CLI, which
     the delta covers.
   - *Freshness.* A base retains the native checkpoint it was built from. The
@@ -2221,8 +2221,8 @@ every turn without a proven recipient:
     send delta, which the kernel derives from both sealed roots; the parser
     must reach `END` and EOF and the helper must exit 0, or the turn builds
     from nothing. Timestamps and the turn journal play no part.
-  - *Reconciliation.* Changes inside the masked folders, `.brain-index` and
-    `.git` cannot change what the masked build reads, nor can changes inside
+  - *Reconciliation.* Changes inside the masked folders, `.brain-index`,
+    `.brain-cache` (#2725) and `.git` cannot change what the masked build reads, nor can changes inside
     `.brain/` and `.brain-ui/` (scratch, pins, inbox staging): the build sees
     those two as empty folders, as it sees masked ones. A renamed or replaced
     directory is expanded in both roots, and a directory, or the root, whose
@@ -2234,7 +2234,7 @@ every turn without a proven recipient:
     else (a file changed, removed, moved into a masked folder, given a second
     name, or any other new file) takes a clean build
     (`classifyPrivateIndexChanges`,
-    `packages/ui-server/src/brain/private-index-cache.ts:178-229`). Nothing
+    `packages/ui-server/src/brain/private-index-cache.ts:179-230`). Nothing
     is ever deleted from a base: a deleted row's bytes survive in SQLite free
     pages, FTS5 segments and the WAL, so text that leaves the masked view only
     ever leaves through a clean build. Physical non-disclosure is not claimed
@@ -2261,7 +2261,7 @@ every turn without a proven recipient:
     After each post-turn index refresh, every kept base is brought to a fresh
     checkpoint of the live brain, in its key's chain, so a turn admitted
     meanwhile waits for it and then reuses it (`advanceBase`,
-    `packages/ui-server/src/brain/private-index-cache.ts:495-546`). It
+    `packages/ui-server/src/brain/private-index-cache.ts:496-547`). It
     reconciles exactly as admission does, with the same classifier and stamp
     check: an unchanged view rebinds the base; new notes are added by the
     incremental index in a staging directory beside the bases, which must
@@ -2334,23 +2334,52 @@ every turn without a proven recipient:
   masks configured, such a turn refuses rather than build an index in a
   worker that sees the host. The private index is removed when the turn
   ends, and the autonomous bridge refuses masked paths as above.
-- **Generated-text caches (maintainer, 2026-10-23, #2692 option A).** The
-  committed sidecar caches `.context-cache.jsonl` (chunk contexts) and
-  `.asset-cache.jsonl` (asset descriptions) hold text generated from every
-  document, masked ones included. Each present cache reads as empty in a
-  denied interactive, voice or autonomous worker, and in the private index
-  build: `providerMaskMounts` binds `/dev/null` over it
-  (`PROVIDER_CACHE_FILES`, the same list as core's `SIDECAR_CACHES`). A
-  cache that is a link or has a second name refuses the launch rather than
-  being followed, and the governed live launcher checks the mask before the
-  payload starts. A loose file mask detaches when another namespace renames
-  or unlinks the path, which is why the index moved into a directory. That is
-  acceptable here because only exclusive, credentialed `--embeddings` runs
-  write the caches, and while no recipient is proven every concurrent turn is
-  denied alike: a detached mask exposes nothing that a denied turn could not
-  already see. Once allowed routes exist (#2695) the argument no longer holds,
-  and the caches move into a masked directory
-  ([#2725](https://github.com/schlessera/brain-kit/issues/2725), option B).
+- **Generated-text caches (maintainer, 2026-10-23, #2692: option A, then
+  option B in #2725).** The committed caches of chunk contexts and asset
+  descriptions hold text generated from every document, masked ones
+  included. Option A file-masked the two root-level files, `.context-cache.jsonl`
+  and `.asset-cache.jsonl`, in every denied turn. A loose file mask detaches
+  when another namespace renames or unlinks the path, which is why the index
+  moved into a directory; A was acceptable only while every concurrent turn
+  was denied alike. Once allowed routes existed (#2695), an allowed turn could
+  rename or recreate a cache under a denied turn's mask, so the caches moved
+  into a masked directory, `.brain-cache/` (`contexts.jsonl`, `assets.jsonl`;
+  [#2725](https://github.com/schlessera/brain-kit/issues/2725), option B):
+  - *Retained like the index directory.* While the policy names provider
+    folders, the retained topology (`retainedFolderRoots`) adds `.brain-cache`
+    beside `.brain-index`, so every governed writer self-binds it read-write,
+    shared gate plans carry it, native publication refuses to remove or
+    replace it, and the host creates it before admission
+    (`ensureRetainedDirectories`). Renaming or recreating a cache *inside* it
+    detaches nothing mounted over it; renaming the directory itself fails in
+    any retaining worker.
+  - *Masked like a provider folder.* A turn that masks any provider folder,
+    and the private index build, see `.brain-cache` as an empty read-only
+    tmpfs (`providerMaskMounts`), and the governed live launcher checks before
+    the payload starts that it shows an empty mount rather than the retained
+    directory. One that is a link or not a directory refuses the launch. A
+    turn allowed every provider folder keeps the real directory, as it keeps
+    `.git` and the real index. A turn's data tree leaves `.brain-cache` out
+    while a folder is masked.
+  - *The transition.* No index run from 0.44.0 on writes the root-level
+    names, and `brain sync pull` moves one an older clone's commits brought in
+    within the same pull, so a hosted sync never publishes one. A clone can
+    still hold them from before the move until an index run moves their lines
+    into `.brain-cache/`.
+    So each present root-level cache keeps option A's `/dev/null` file mask
+    (`PROVIDER_CACHE_FILES`) on every turn under a provider rule, allowed ones
+    included (#2695 ruling 3), and the private index build and data trees
+    leave it out as before. The move only ever deletes such a file, which
+    detaches a mask from a name that is gone, and a turn that sees a present
+    one masked cannot rename or remove it: the mask is a mount point in its
+    own namespace. A turn can create a missing root-level name like any other
+    file; text it copies from what it may read is the copying limitation
+    below, not a cache. A cache that is a link or has a
+    second name refuses the launch rather than being followed. Reads union
+    both locations, so no paid enrichment is regenerated, and ui-server starts
+    an index run at boot when a root-level cache is present. The
+    [integration contract](../integration-contract.md#generated-text-cache-directory-breaking-0440-2725)
+    records the migration.
 - **Backend-retained state (audit, 2026-10-23, #2692).** What a backend
   copies into a denied turn's worker, beyond the brain view:
   - Claude interactive and voice turns copy the brain project's whole
@@ -2564,7 +2593,7 @@ strict checkpoint view (option B) and refusing every such selector (option A)
 were rejected.
 
 "Maps exactly" is defined as follows (`translateProviderTypes`,
-`packages/ui-server/src/brain/governance-policy.ts:153-168`):
+`packages/ui-server/src/brain/governance-policy.ts:156-171`):
 
 - **Paths.** `F/**` and `F/**/*` with a literal `F` map onto `F`; under
   Bun.Glob both match every file at any depth below `F`, hidden files
@@ -2623,7 +2652,7 @@ that runs in it can rewrite that account. The load set is therefore not
 computed. It is enforced by what the worker can see: the brain path is an
 empty tmpfs with only the policy's protected paths bound back read-only
 (`WorkerProviderMasks.visible`; `if (masks.visible)`,
-`packages/ui-sdk/src/server/worker-protection.ts:195-215`). An import, a
+`packages/ui-sdk/src/server/worker-protection.ts:207-227`). An import, a
 local module, a `tsconfig.json` alias or a data file outside them is simply
 absent, so the configuration loads only from what no governed turn can
 change, or does not load, and its own error, which names the file, becomes
@@ -2699,7 +2728,7 @@ index refresh or a cron job, retains them and the next turn's peer check
 passes. Admission records that translation in the UI database, one row per
 canonical brain holding the exact policy hash and its folders, so it reaches
 the cron runner's process and survives a restart (#2836;
-`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:162-171`).
+`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:161-170`).
 The host never translates it itself: only admission does, under its worker
 boundary. A missing, unreadable or other-hash record plans no type folder, and
 a stale one only retains an extra folder. Admission still refuses a peer
@@ -2785,7 +2814,9 @@ is the turn's recipient. The maintainer ruled three things on #2695:
    turn's tool egress and the `brain` CLI's own provider calls (#1673) are
    egress-policy territory (G5). The generated-text caches stay masked on
    every turn under a provider rule, allowed ones included, until #2725 moves
-   them into a masked directory.
+   them into a masked directory. Since #2725, `.brain-cache/` is masked on
+   every turn that masks a folder, and root-level caches from an earlier
+   release keep their file masks on every turn under a provider rule.
 
 The backend supplies the origin before admission through the optional
 `AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
@@ -2793,7 +2824,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:172-173`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:171-172`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -2807,10 +2838,10 @@ when a peer renames that folder, so a denied folder inside another provider
 folder masks the outer folder whole: a policy allowing `me/**` but denying
 `me/letters/**` hides all of `me/` from that recipient, which loses data but
 leaks nothing (`export function providerDeniedFolders`,
-`packages/ui-server/src/brain/governance-policy.ts:192-201`). An unproven
+`packages/ui-server/src/brain/governance-policy.ts:195-204`). An unproven
 recipient is allowed nothing, which is the denied-turn set above. A turn
-allowed every folder gets no folder masks, `.git` and the real
-`.brain-index/`. Its `providerMasks` stays present with no folders and no
+allowed every folder gets no folder masks, `.git`, the real
+`.brain-index/` and the real `.brain-cache/` (#2725). Its `providerMasks` stays present with no folders and no
 private index, so whatever every provider-rule turn hides regardless of
 recipient still applies. A turn allowed some folders masks the rest; `.git`
 stays hidden, because history holds every folder, and its private index is
@@ -2827,7 +2858,7 @@ conversation is named after admission, so its rows carry the turn until the
 session id binds them. A turn conflicts with an earlier record when a folder
 it would mask overlaps a folder that record showed, and that folder was not
 itself hidden then (`export function exposureConflicts`,
-`packages/ui-server/src/brain/governance-policy.ts:234-242`). A handoff's first
+`packages/ui-server/src/brain/governance-policy.ts:237-245`). A handoff's first
 turn is judged against its source's records and copies them into the new
 conversation. The handoff summary is drafted on the source's autonomous
 route, which has no proven recipient, so a conversation with any record gets

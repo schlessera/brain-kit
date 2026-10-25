@@ -10,7 +10,7 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view";
@@ -189,4 +189,50 @@ test("a conversation that showed a folder to one recipient refuses a later turn,
   await (await f.begin("fresh", { inferenceOrigin: GOOGLE })).end();
   f.policy("[{ paths: [me/**], allow: [anthropic, google] }, { paths: [health/**], allow: [google] }]");
   await (await f.begin("policy widened", { inferenceOrigin: GOOGLE, sessionId: "voyage" })).end();
+});
+
+test("a denied turn beside an allowed one cannot read a cache line generated from a masked document after the allowed side renames or recreates a cache (#2725)", async () => {
+  const f = fixture("[{ paths: [me/**], allow: [anthropic] }]");
+  // Generated text of a masked document, as an `--embeddings` run commits it.
+  const line = (how: string) => JSON.stringify({ k: "oath", v: `${SENTINEL} context of me/oath.md, ${how}` });
+  mkdirSync(join(f.brain, ".brain-cache"));
+  writeFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), `${line("committed")}\n`);
+  writeFileSync(join(f.brain, ".brain-cache/assets.jsonl"), `${line("described")}\n`);
+  const denied = await f.begin("denied", {});
+  try {
+    expect(denied.sandbox.providerMasks?.folders, "DENIED_TURN_MASKS_THE_FOLDER").toEqual(["me"]);
+    expect(denied.sandbox.retainedFolders, "CACHE_DIRECTORY_RETAINED").toContain(".brain-cache");
+    // Running, and qualified before its payload, while the allowed side works.
+    const worker = launchAgentWorker({ brainPath: f.brain, sandbox: denied.sandbox, env: { PATH }, command: ["/bin/sh", "-c", `printf 'ready\\n'; IFS= read -r go
+      printf 'entries=%s\\n' "$(ls -A .brain-cache | wc -l)"
+      printf 'found=%s\\n' "$(grep -rl ${SENTINEL} . 2>/dev/null)"`] });
+    const reader = (worker.stdout as unknown as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]();
+    expect(new TextDecoder().decode((await reader.next()).value), "DENIED_WORKER_QUALIFIED_AND_STARTED").toBe("ready\n");
+
+    const allowed = await f.begin("allowed", { inferenceOrigin: ANTHROPIC });
+    try {
+      expect(allowed.sandbox.providerMasks, "ALLOWED_TURN_MASKS_NO_FOLDER").toEqual({ folders: [] });
+      const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: allowed.sandbox, env: { PATH }, command: ["/bin/sh", "-c", `
+        printf 'read=%s\\n' "$(grep -c ${SENTINEL} .brain-cache/contexts.jsonl)"
+        mv .brain-cache/contexts.jsonl .brain-cache/contexts.old && printf '%s\\n' '${line("renamed")}' > .brain-cache/contexts.jsonl && printf 'renamed\\n'
+        rm .brain-cache/assets.jsonl && printf '%s\\n' '${line("recreated")}' > .brain-cache/assets.jsonl && printf 'recreated\\n'
+        if mv .brain-cache .brain-cache-moved 2>/dev/null; then
+          mkdir .brain-cache && printf '%s\\n' '${line("in a replaced directory")}' > .brain-cache/contexts.jsonl; printf 'DIRECTORY_REPLACED\\n'
+        fi
+      `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+      expect(shell.exitCode, shell.stderr.toString()).toBe(0);
+      expect(shell.stdout.toString(), "ALLOWED_SIDE_READS_RENAMES_AND_RECREATES_BUT_CANNOT_REPLACE_THE_DIRECTORY").toBe("read=1\nrenamed\nrecreated\n");
+    } finally { await allowed.end(); }
+    // The host replaces a cache by rename too, as a pull or an embeddings run may.
+    writeFileSync(join(f.brain, ".brain-cache/.next"), `${line("replaced by the host")}\n`);
+    renameSync(join(f.brain, ".brain-cache/.next"), join(f.brain, ".brain-cache/contexts.jsonl"));
+
+    (worker.stdin as unknown as { write(text: string): void; end(): void }).write("go\n");
+    (worker.stdin as unknown as { end(): void }).end();
+    let text = ""; for (let next = await reader.next(); !next.done; next = await reader.next()) text += new TextDecoder().decode(next.value);
+    let stderr = ""; for await (const chunk of worker.stderr as unknown as AsyncIterable<Uint8Array>) stderr += new TextDecoder().decode(chunk);
+    expect(await worker.exited, `${stderr} ${text}`).toBe(0);
+    expect(text, "DENIED_TURN_CANNOT_READ_A_RENAMED_OR_RECREATED_CACHE").toBe("entries=0\nfound=\n");
+  } finally { await denied.end(); }
+  expect(readFileSync(join(f.brain, ".brain-cache/assets.jsonl"), "utf8"), "THE_ALLOWED_SIDE_REALLY_WROTE_THE_LIVE_CACHE").toContain("recreated");
 });

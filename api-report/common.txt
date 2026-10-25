@@ -3,6 +3,14 @@
 # A diff in this file is a public-surface change — review it as one.
 # Names marked `type` are type-only exports; the rest are runtime values.
 
+export "./internal/cache-location" (./src/cache-location.ts)
+  ASSET_CACHE_PATH
+  CACHE_DIR
+  CONTEXT_CACHE_PATH
+  GENERATED_CACHE_PATHS
+  LEGACY_SIDECAR_CACHES
+  SIDECAR_CACHES
+
 export "./internal/env" (./src/env-core.ts)
   type DynamicEnvReadSpec
   type EnvVarSpec

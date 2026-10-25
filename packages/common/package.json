@@ -51,6 +51,11 @@
       "types": "./dist/governance-policy.d.ts",
       "default": "./dist/governance-policy.js"
     },
+    "./internal/cache-location": {
+      "bun": "./src/cache-location.ts",
+      "types": "./dist/cache-location.d.ts",
+      "default": "./dist/cache-location.js"
+    },
     "./internal/index-location": {
       "bun": "./src/index-location.ts",
       "types": "./dist/index-location.d.ts",

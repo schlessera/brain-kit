@@ -14,6 +14,7 @@ import {
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
 } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
+import { migrateSidecarCaches } from "../../lib/indexer/caches.js";
 import { indexStaleness } from "../../lib/ops/staleness.js";
 import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
 import { measureInstructions } from "../../lib/instructions-weight.js";
@@ -34,6 +35,7 @@ import { builtFtsTokenizer, ftsTokenizer } from "../../lib/search-language.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
 import { isGitWorkTree, looseObjects, originalRefs } from "../../lib/git-storage.js";
 import { INDEX_DB_PATH, LEGACY_INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
+import { CACHE_DIR, LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 
 const HELP = `brain doctor — health check battery
 
@@ -780,6 +782,28 @@ function removeLegacyIndex(root: string): boolean {
   return removed;
 }
 
+/**
+ * Generated-text caches a release before 0.44.0 kept at the brain root. They
+ * moved into `.brain-cache/` (#2725), where a hosted turn whose provider
+ * policy hides a folder can have them masked as one directory. They are
+ * committed and paid for, so `--fix` moves their lines; the next index run
+ * would too.
+ */
+function legacyCacheFiles(root: string): string[] {
+  return LEGACY_SIDECAR_CACHES.map((pair) => pair.legacy).filter((name) => lstatSync(join(root, name), { throwIfNoEntry: false }));
+}
+
+function checkLegacyCaches(root: string): Check {
+  const found = legacyCacheFiles(root);
+  if (found.length === 0) return { id: "legacy-caches", status: "pass", detail: `no generated-text caches left in the brain root` };
+  return {
+    id: "legacy-caches",
+    status: "warn",
+    detail: `${found.join(", ")} in the brain root ${found.length === 1 ? "is a cache" : "are caches"} from an earlier release; the caches now live in ${CACHE_DIR}/`,
+    fix: `run \`brain doctor --fix\` or \`brain index\`, which move every line into ${CACHE_DIR}/ and delete the old file`,
+  };
+}
+
 function checkScratch(root: string): Check {
   if (!gitInstalled()) {
     return { id: "scratch", status: "warn", detail: `${GIT_MISSING}, so whether ${SCRATCH_DIR}/ is gitignored was not checked` };
@@ -864,6 +888,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["config", () => checkConfig(cli)],
     ["db", () => checkDb(cli)],
     ["legacy-index", () => checkLegacyIndex(root)],
+    ["legacy-caches", () => checkLegacyCaches(root)],
     ["embeddings", () => checkEmbeddings(cli)],
     ["reranker", () => checkReranker(cli)],
     ["mcp", () => checkMcp(root)],
@@ -959,6 +984,16 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
       if (removeLegacyIndex(root)) applied.push("legacy-index");
     } catch (e) {
       console.error(`doctor --fix: legacy-index fix failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  if (failing.has("legacy-caches")) {
+    try {
+      // The db fix's index run may already have moved them.
+      migrateSidecarCaches(root);
+      if (legacyCacheFiles(root).length === 0) applied.push("legacy-caches");
+      else console.error("doctor --fix: legacy-caches fix failed: the brain root could not be written");
+    } catch (e) {
+      console.error(`doctor --fix: legacy-caches fix failed: ${e instanceof Error ? e.message : e}`);
     }
   }
   if (failing.has("mcp") && which("claude")) {

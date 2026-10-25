@@ -230,6 +230,57 @@ MCP tool, wire frame or HTTP route changes. This is a maintainer-ruled
 availability reduction for provider-denied turns, recorded in the
 [G2 decision](decisions/governed-writable-workers.md#data-to-provider-routing-g2).
 
+## Generated-text cache directory (breaking, 0.44.0, #2725)
+
+The two committed generated-text caches move from the brain root into one
+directory: `.context-cache.jsonl` becomes `.brain-cache/contexts.jsonl` and
+`.asset-cache.jsonl` becomes `.brain-cache/assets.jsonl`. Their line format,
+key rules and append-only semantics are unchanged, as specified under
+[committed sidecars](integration-contract/frontmatter.md); no CLI `--json`
+shape, MCP tool, wire frame or HTTP route changes. `brain doctor` gains the
+additive `legacy-caches` check.
+
+The maintainer ruled this layout on #2692 (option B, 2026-10-23, deferred until
+allowed routes existed; #2695 delivered them). Like the index directory above,
+a directory can be retained and masked whole inside a worker's mount
+namespace, where a file mask over a root-level cache detaches when another
+writer renames or unlinks it. The caches hold paid enrichment, so an existing
+clone migrates by moving lines, never by regenerating them:
+
+- **Reads** union the new file with a root-level legacy file not yet moved,
+  so nothing is lost before the move and a read-only brain still sees every
+  entry.
+- **The move.** Every index run that writes or prunes the caches, and `brain
+  doctor --fix`, first moves each legacy root-level file: the new file becomes
+  the sorted union of both files' distinct lines (a key both hold resolves as a
+  union merge of them would, first line in sorted order), then the legacy file
+  is deleted. The new file is published whole by rename, and the legacy file
+  is deleted only once every line it holds is in the new one, so an
+  interrupted move leaves both intact and the next run finishes it; a file
+  that cannot be read is never deleted. Repeating it changes nothing. A brain
+  the run cannot write is left as it is. ui-server starts one index run at boot
+  when a legacy file is present.
+- **Committed paths and union attributes.** The move deletes the legacy
+  tracked paths and adds the new ones; `brain sync` commits both as derived
+  caches. The template's `.gitattributes` carries `merge=union` for the two new
+  paths, and `brain doctor --fix` (`cache-merge`) appends them to a brain that
+  lacks them. Existing `merge=union` lines for the legacy names are kept: an
+  older clone still writes those names. `brain sync pull` unions a legacy
+  file it merges in (including a modify/delete conflict against the move),
+  and when the commits it brought in touched a legacy name it moves that file
+  into `.brain-cache/` in the same pull, before any later step can stop.
+- **Hosted turns.** Every governed writer retains `.brain-cache/` beside
+  `.brain-index/` while provider folders exist, and the host creates it before
+  admission. A turn that masks any provider folder sees it as an empty
+  read-only folder; a turn allowed every provider folder sees the real one. A
+  legacy root-level cache keeps its `/dev/null` file mask on every turn under a
+  provider rule, allowed or denied, for as long as a clone can hold one. No
+  index run from 0.44.0 on writes the legacy names; the only release code that
+  writes one is `brain sync pull`'s union, which the same pull then moves, so a
+  hosted sync never publishes one into the live brain. ui-server's 0.44.0
+  content CLI floor (see the index directory above) keeps an older CLI from
+  writing them there.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).

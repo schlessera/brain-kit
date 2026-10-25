@@ -206,7 +206,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       console.log(JSON.stringify({ nativeProviderHardlink: "refused", profile }));
     }
   } finally {
-    for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", "notes/provider-voyage.md", "notes/provider-peer.md", "notes/provider-applied-strict.md", "notes/provider-applied-governed.md", "notes/oath-alias.txt",
+    for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", ".brain-cache", "notes/provider-voyage.md", "notes/provider-peer.md", "notes/provider-applied-strict.md", "notes/provider-applied-governed.md", "notes/oath-alias.txt",
       ".brain/scratch/provider-index-strict", ".brain/scratch/provider-index-governed"])
       rmSync(join(brain, rel), { recursive: true, force: true });
   }

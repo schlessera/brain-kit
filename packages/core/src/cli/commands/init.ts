@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
+import { CACHE_DIR, SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 
 import { readEnvVar } from "../../config/env.js";
 import { openDatabase } from "../../lib/db.js";
@@ -131,10 +132,12 @@ async function initDefault(cli: CliContext): Promise<Record<string, unknown>> {
     created.push("_index.md");
   }
 
-  // 4. Empty sidecar caches (contract: templates ship them empty).
-  for (const sidecar of [".context-cache.jsonl", ".asset-cache.jsonl"]) {
+  // 4. Empty sidecar caches (contract: templates ship them empty). An older
+  // brain's root-level caches move into them on the index run below.
+  for (const sidecar of SIDECAR_CACHES) {
     const p = join(root, sidecar);
     if (!existsSync(p)) {
+      mkdirSync(join(root, CACHE_DIR), { recursive: true });
       writeFileSync(p, "", "utf-8");
       created.push(sidecar);
     }
