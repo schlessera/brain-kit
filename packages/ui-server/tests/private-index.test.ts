@@ -6,6 +6,7 @@
  */
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -54,7 +55,7 @@ function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile
   const argv = typeof command === "function" ? command(brain) : command;
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
     profile, maskPaths: [], index: async () => {}, report: message => reports.push(message), ...(argv ? { privateIndexCommand: argv } : {}) });
-  return { root, brain, turns, reports, execution };
+  return { root, brain, db, turns, reports, execution };
 }
 
 function search(brain: string, sandbox: Parameters<typeof workerCommand>[0]["sandbox"], query: string): string[] {
@@ -216,6 +217,15 @@ test("a writer in another process, such as the cron runner, plans the type folde
     expect(code, `CRON_WRITER_EXITED: ${stderr}`).toBe(0);
   }
 }, 90_000);
+
+test("a type selector's translation that cannot be recorded refuses the turn (#2850)", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  // Later writers, in any process, plan only what is recorded: an unrecorded
+  // translation is not admitted beside them.
+  f.db.exec("DROP TABLE provider_type_folders");
+  await expectRejection(f.turns.begin("unrecorded", new AbortController().signal), /provider_type_folders/, "TYPE_FOLDER_RECORD_FAILURE_REFUSES_ADMISSION");
+  expect(f.execution.gate()!.holders(), "TYPE_FOLDER_REFUSAL_RELEASES_ITS_HOLD").toEqual([]);
+});
 
 test("a folder nested inside another masked folder launches under the outer mask alone", async () => {
   // Bubblewrap cannot create me/sub inside the empty read-only tmpfs over me,

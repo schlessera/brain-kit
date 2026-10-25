@@ -238,7 +238,7 @@ describe("provider folder admission beside earlier writers (#2832)", () => {
     const w = world();
     const peer = await w.cron.acquire("shared", "brain CLI version");
     expect(peer.folderPaths, "EARLIER_WRITER_PLANS_NO_FOLDER").toEqual([]);
-    if (host) markUnpinnedHostWriter(peer);
+    if (host) await markUnpinnedHostWriter(peer);
     mkdirSync(join(w.brain, "context/policies"), { recursive: true });
     mkdirSync(join(w.brain, "group/private"), { recursive: true });
     writeFileSync(join(w.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
@@ -310,9 +310,9 @@ describe("unpinned host writer provenance", () => {
     const w = world();
     try {
       const first = await w.server.acquire("shared", "host:odysseus");
-      markUnpinnedHostWriter(first);
+      await markUnpinnedHostWriter(first);
       const second = await w.cron.acquire("shared", "host:athena");
-      markUnpinnedHostWriter(second);
+      await markUnpinnedHostWriter(second);
       expect(w.server.holders()).toHaveLength(2);
       // A folder policy written while the hosts run applies to later admissions.
       writePolicy(w, "providers: [{ paths: [group/private/**], allow: [anthropic] }]\n");
@@ -330,7 +330,7 @@ describe("unpinned host writer provenance", () => {
     try {
       const host = await w.server.acquire("shared", "host:odysseus");
       let refusal: unknown;
-      try { markUnpinnedHostWriter(host); } catch (error) { refusal = error; }
+      try { await markUnpinnedHostWriter(host); } catch (error) { refusal = error; }
       expect(refusal, "FOLDER_POLICY_REFUSES_HOST_CLASSIFICATION").toBeInstanceOf(HostFallbackRefusedError);
       expect(String(refusal)).toContain("group/private");
       expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id), "REFUSED_HOST_KEEPS_ITS_PLAN")
@@ -420,7 +420,7 @@ describe("unpinned host writer provenance", () => {
     try {
       const host = await w.server.acquire("shared", "host:odysseus");
       expect(() => markUnpinnedHostWriter({ ...host })).toThrow("cannot be recorded");
-      markUnpinnedHostWriter(host);
+      await markUnpinnedHostWriter(host);
       expect(() => host.retainFolders!(["group/private"])).toThrow("cannot upgrade");
       expect(() => host.assertPeerFolderPlans!(["group/private"])).toThrow("cannot qualify");
       expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id)).toEqual({ folder_topology: JSON.stringify({ kind: "unpinned_host", roots: [] }) });

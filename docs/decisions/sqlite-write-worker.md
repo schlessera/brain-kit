@@ -121,8 +121,22 @@ thread waits for it.
   at once; its warnings and any block follow the commit. A relayed provider
   request is admitted only after every budget write submitted before it has
   committed, and a turn's outcome waits for its budget writes.
-- **Other app-connection writers stay on the loop for now**: the writer gate,
-  the session catalog and message sources, the Activity
+- **The writer gate followed** (#2850). Acquisition, the turn-waiter queue,
+  release, folder retention, peer-plan checks, the unpinned-host downgrade,
+  the ungated host check and recorded type folders run their transactions on
+  the worker (`gateProcedures`, `packages/ui-server/src/brain/writer-gate.ts`),
+  each still `BEGIN IMMEDIATE`, so they stay serialized against the cron
+  runner's gate, which commits on its own connection. One policy reader on
+  the worker serves every observation the gate makes. A release is submitted
+  at once, so every later gate write of the process sees it, and settles once
+  it has committed; whatever promises the hold is gone (`withGate`, a turn's
+  release, a launch's `settled`, shutdown) waits for it. A host process
+  spawns only after its downgrade has committed, and only if the boundary is
+  still the host fallback afterwards. A type folder translation that cannot
+  be recorded refuses the turn. `holders()`, a diagnostic, still reads on
+  the gate's own connection.
+- **Other app-connection writers stay on the loop for now**: the session
+  catalog and message sources, the Activity
   notifier and push ticks, auth sessions, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal

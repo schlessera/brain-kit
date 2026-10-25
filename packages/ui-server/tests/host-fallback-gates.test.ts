@@ -308,7 +308,7 @@ test("a synchronous host reader refuses under a provider folder policy and runs 
   try {
     const query = { argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"read");console.log("Odysseus reads")`],
       env: { PATH: "/usr/bin:/bin" }, credentials: false, purpose: "Odysseus query", timeoutMs: 5000 };
-    expect(f.boundary().runSync(query), "NO_FOLDER_POLICY_KEEPS_SYNC_HOST_READER").toEqual({ stdout: "Odysseus reads\n", stderr: "", exitCode: 0 });
+    expect(await f.boundary().runSync(query), "NO_FOLDER_POLICY_KEEPS_SYNC_HOST_READER").toEqual({ stdout: "Odysseus reads\n", stderr: "", exitCode: 0 });
     rmSync(f.ready);
     mkdirSync(join(f.brain, "context/policies"), { recursive: true });
     writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");

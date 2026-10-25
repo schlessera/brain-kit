@@ -104,7 +104,7 @@ export function createStorageRemoval(db: Database, options: {
   async function exclusive<T>(signal: AbortSignal, purpose: string, apply: () => Promise<T>): Promise<T> {
     const hold = await options.gate.acquire("exclusive", purpose, { queueTurns: true, signal });
     try { return await options.lock.withLock(BRAIN_LOCK_KEY, () => options.lock.withLock(GIT_LOCK_KEY, apply, { signal }), { signal }); }
-    finally { hold.release(); }
+    finally { await hold.release(); }
   }
   function pathsFor(paths: string[]): string[] {
     if (!Array.isArray(paths) || paths.length < 1 || paths.length > STORAGE_REMOVAL_LIMITS.items || paths.some(path => typeof path !== "string" || Buffer.byteLength(path) > 4096 || /[\\\u0000-\u001f\u007f]/u.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) || new Set(paths).size !== paths.length) throw new StorageUnavailable(400, "Select one bounded exact set of attachment paths.");
