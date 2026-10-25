@@ -75,6 +75,8 @@ export class NativeFileVersions {
     this.saving = saved.catch(() => undefined);
     return saved;
   }
+  /** Settles once every save started so far has; never rejects. A turn awaits it before it settles. */
+  settled(): Promise<void> { return this.saving; }
   beginRead(toolUseId: string, key: string, before: NativeFileVersion): Promise<void> {
     this.pendingReads.set(toolUseId, { key, before });
     return this.persist();

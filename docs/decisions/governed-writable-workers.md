@@ -3223,6 +3223,31 @@ that run after an asynchronous launch has returned.
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
 
+### Turn completion includes worker teardown — 2026-10-25
+
+The maintainer's [#2863 lifecycle ruling](https://github.com/schlessera/brain-kit/issues/2863#issuecomment-6391630082)
+requires Claude and pi turns, and streaming maintenance launches, to settle
+only after worker exit, stream consumption or close, and the launcher's
+`released()` wait. Exit stays independently observable: a consumer waiting for
+exit before draining output must not wait on its own drain. The existing
+five-second release bound may expire without descriptor confirmation; it is
+not proof that Bun has closed its duplicates. An abort during that wait keeps
+the path's existing cancellation or failure outcome.
+
+[#2880](https://github.com/schlessera/brain-kit/issues/2880) applies that rule
+to pi cancellation before `prompt()`. The pool owns a late new or resumed
+acquisition until its awaited abort finishes, then disposes it and preserves
+the accepted cancellation (`cancelAcquiredSession`,
+`packages/ui-backend-pi/src/session-pool.ts:159-166`). After acquisition the
+runner awaits abort when cancellation prevents prompting. The signal handler
+may already have requested it, so the worker session shares one abort promise:
+`ended` revokes work but does not confirm teardown (`abort()`,
+`packages/ui-backend-pi/src/worker-session.ts:758-774`). Its inactive path
+awaits exit and protocol consumption, the awaited turn-temp close above, then
+stdio release even if exit or cleanup refuses. Failed cleanup keeps the
+reservation charged and remains retryable. Disposal and Stop signalling keep
+their synchronous signatures; terminal reporting owns the asynchronous wait.
+
 ### Outward actions (G5)
 
 **Inside the brain, nothing is outward.** Journaled edits, commits to the
