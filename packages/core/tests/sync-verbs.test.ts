@@ -200,7 +200,7 @@ describe("stash", () => {
 
 describe("resolve", () => {
   const EAGLE = "notes/quick-note-eagle.md";
-  const CACHE = ".context-cache.jsonl";
+  const CACHE = ".brain-cache/contexts.jsonl";
   const LINE = "Walk the Ogygia shore twice a week.";
   const PATROL = "health/patrol-log.md";
   const PATROL_TEXT = "---\ntitle: Patrol log\ntype: health\n---\n\n# Patrol log\n\nRadio check at noon.\n";

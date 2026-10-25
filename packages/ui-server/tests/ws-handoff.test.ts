@@ -323,7 +323,7 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
 
     r.send(second, chat(source, "h-dropped-0001"));
     await until(() => second.frames.filter((f) => f.type === "handoff_receipt").length === 2);
-    expect(second.frames.at(-1)).toEqual({ type: "handoff_receipt", handoffId: "h-dropped-0001", state: "created", sessionId: created });
+    expect(second.frames.filter((f) => f.type === "handoff_receipt").at(-1)).toEqual({ type: "handoff_receipt", handoffId: "h-dropped-0001", state: "created", sessionId: created });
     expect(r.starts[pair.destination]).toHaveLength(1);
     expect(r.scripts[pair.destination].sessions).toBe(1);
     expect(handoffRows(r, "h-dropped-0001")).toHaveLength(1);
@@ -346,7 +346,8 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
     await until(() => ws.frames.some((f) => f.type === "result"));
     r.send(ws, { type: "handoff_status", handoffId: "h-racing-0001" });
     await until(() => ws.frames.filter((f) => f.type === "handoff_receipt").length === 3);
-    expect(ws.frames.at(-1)).toMatchObject({ state: "created", sessionId: handoffRows(r, "h-racing-0001")[0]!.id });
+    // A status frame for the finished turn may follow the receipt, so read the last receipt itself.
+    expect(ws.frames.filter((f) => f.type === "handoff_receipt").at(-1)).toMatchObject({ type: "handoff_receipt", handoffId: "h-racing-0001", state: "created", sessionId: handoffRows(r, "h-racing-0001")[0]!.id });
     expect(r.starts[pair.destination]).toHaveLength(1);
     expect(handoffRows(r, "h-racing-0001")).toHaveLength(1);
   });

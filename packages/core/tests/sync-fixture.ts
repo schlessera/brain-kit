@@ -215,7 +215,7 @@ export async function envFor(root: string, judge: SyncJudge, today = "2026-09-28
 // asserts what `run` makes of each; `scripts/measure-sync-run.ts` times them.
 // ---------------------------------------------------------------------------
 
-export const CACHE = ".context-cache.jsonl";
+export const CACHE = ".brain-cache/contexts.jsonl";
 export const RIDGE_LINE = "Walk the Ogygia shore twice a week.";
 export const OURS_RIDGE = "Walk the Ogygia shore with a staff, twice a week.";
 export const THEIRS_RIDGE = "Walk the Ogygia shore at dawn, twice a week.";

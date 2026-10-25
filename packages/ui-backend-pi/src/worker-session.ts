@@ -351,8 +351,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   /**
    * Once the worker has exited, its stdio can still be open here (#2863): Bun
    * closes its own duplicates of the FIFO descriptors on its pool after their
-   * streams end. A turn's prompt and a refused initialization settle only
-   * after this, which resolves once they are closed or `released()`'s bound expires.
+   * streams end. Prompt, refused initialization and pre-prompt cancellation
+   * settle only after this, which resolves once they are closed or its bound expires.
    */
   const stdioReleased = (): Promise<void> => { child.stdin.end(); return child.released(); };
   function live(): void {
@@ -723,6 +723,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     throw error;
   }
   finally { workerSignal?.removeEventListener("abort", abortInitialization); }
+  let aborting: Promise<void> | undefined;
   const session: PiSessionLike = {
     ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
     reportsPromptPrefix: true, sessionId, get model() { return model; }, get thinkingLevel() { return thinkingLevel; },
@@ -754,13 +755,22 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       if (error) throw error;
     },
-    async abort() {
-      if (ended) return;
-      if (!active) { ended = true; child.kill("SIGKILL"); await child.exited; await closeTurnTemp(); return; }
-      send({ type: "abort" });
-      const deadline = setTimeout(() => { ended = true; done.resolve(); child.kill("SIGKILL"); }, 1000);
-      try { await done.promise.catch(() => {}); }
-      finally { clearTimeout(deadline); child.kill("SIGKILL"); await child.exited; }
+    abort() {
+      // `ended` revokes work; it does not confirm teardown. The signal handler
+      // and the runner must join even if the first abort already set it (#2880).
+      return aborting ??= (async () => {
+        if (!active) {
+          ended = true; child.stdin.end(); child.kill("SIGKILL");
+          try { await child.exited; await received; }
+          finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
+          return;
+        }
+        if (ended) return;
+        send({ type: "abort" });
+        const deadline = setTimeout(() => { ended = true; done.resolve(); child.kill("SIGKILL"); }, 1000);
+        try { await done.promise.catch(() => {}); }
+        finally { clearTimeout(deadline); child.kill("SIGKILL"); await child.exited; }
+      })().catch((error: unknown) => { aborting = undefined; throw error; });
     },
     getSessionStats: () => ({ cost }),
     dispose() { ended = true; child.stdin.end(); child.kill("SIGKILL"); },

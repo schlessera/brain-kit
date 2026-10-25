@@ -84,9 +84,9 @@ Source foundations for the matrix:
 - Claude publishes and verifies cold copies before deleting the live source
   (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:217-274`).
 - Journal collection requires no refs/reservations and only expires ended
-  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:243-263`).
+  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:261-281`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:361-392`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:379-415`).
   Object copies reserve temporary bytes before writing
   (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:95-150`).
 - Turn-temp purge has its own scope and measured result
@@ -200,7 +200,7 @@ read the original receipt. Undo is a fresh stale-safe operation, not a blind cop
 over a newer file. Such a receipt protocol is proposed, not implemented here.
 
 The writer gate is cross-process and tracks process identity, not age
-(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:180-333`).
+(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:179-332`).
 Use that primitive alongside lifecycle ownership; do not interpret stale leases
 as proof an actually running backend is dead. Locks, retained readers and backups
 can deliberately prevent immediate reclamation.

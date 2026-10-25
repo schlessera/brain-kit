@@ -201,6 +201,14 @@ to deleted. This control demonstrates a retained-reader failure class; it does
 not establish the cause of the historical automatic-index failure in #1967.
 All four original backend/UID admission and automatic-index checks still run.
 
+The same cell checks the manager's identity checks through its one long-lived
+identity inspector (#2872). A recorded checkpoint made writable is refused by
+checkpoint, by both sides of delta and by release, which deletes nothing; a
+read-only live brain, a nested subvolume and enabled qgroups are each refused
+by checkpoint. The manager starts exactly one interpreter for all of it, and
+that interpreter's answers for the live root and the loop device equal a fresh
+`python3 -I -S` launch of the same program.
+
 The Pi UID-0 automatic index also starts a marked detached descendant inside
 its actual maintenance worker. The child uses the immutable configuration
 view as cwd and remains in that worker's PID namespace. A bounded 50 ms host

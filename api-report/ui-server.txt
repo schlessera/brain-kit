@@ -1749,6 +1749,7 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
+        releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;

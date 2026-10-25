@@ -150,8 +150,8 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-132`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:142-306`).
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:662-667`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:658-663`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:76-303`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:75-303`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1072,7 +1072,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:210-237`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:198-225`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1331,7 +1331,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:191-210`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:207-228`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
@@ -1343,7 +1343,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:432-439`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:455-462`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1462,7 +1462,7 @@ with retained bytes.
 **What the journal records.** Observation and before-version capture classify
 these versions as metadata-only and never open them for retention
 (`const retained = (entry`,
-`packages/ui-server/src/brain/native-journal-capture.ts:37`). A version keeps
+`packages/ui-server/src/brain/native-journal-capture.ts:39`). A version keeps
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
@@ -1506,6 +1506,135 @@ added time is unchanged within noise. Both runs then stopped on the same
 unrelated index publication refusal of a changed sidecar stamp (#2878), after
 the measurement was written.
 
+### Observation cost — 2026-10-25 (#2872)
+
+> **Maintainer ruling (2026-10-25), option 2.** (a) Replace the six fresh
+> `python3 -I -S` identity inspections per observation with one long-lived
+> inspector per manager, with identical inputs, checks and refusals. (b)
+> Release the previous native checkpoint after the capture is recorded,
+> outside the observation hold, under an explicit cleanup owner with a bounded
+> backlog and accounting of retained space; shutdown drains or reports pending
+> releases. (c) A failed release keeps today's outcome: every active turn
+> stops.
+
+**Why.** After #2834 a writer's result, journal begin and journal finish
+still wait for one whole observation inside the hold. On the native fixture
+about 97 ms of each observation was six fresh interpreter launches for the
+native manager's root identity checks, and 113 ms was the release of the
+previous checkpoint, which the observation no longer needs once its capture is
+recorded.
+
+**One identity inspector per manager.** The manager starts one
+`python3 -I -S` interpreter and sends it each inspection as one JSON line
+(`export function createNativeIdentityInspector`,
+`packages/ui-sdk/src/server/native-identity-inspector.ts:66-160`). The root
+and loop-device programs are byte-identical to the ones each fresh launch ran,
+which a test pins by hash. The interpreter compiles them once and runs one in
+fresh globals per request, with the path as its only argument, and answers
+with the program's output, its exit status and the traceback a fresh launch
+printed, without the loop's own frame. The manager turns a failure into the
+same refusal a failed launch produced (`async function inspection`,
+`packages/ui-sdk/src/server/native-brain-manager.ts:186-190`). Every
+`qualify` and `verifyOwned` still inspects the live path on every operation;
+nothing is cached between requests. An interrupted, timed-out, oversized or
+malformed exchange, or one with an interpreter that died, kills the
+interpreter and fails that request with the outcome a killed launch had; the
+next inspection starts a new interpreter. A refused startup and `close()`
+stop it.
+
+**Releasing the previous checkpoint.** `commit()` advances the observer's
+root and hands the previous checkpoint to the observer's release owner, which
+releases one checkpoint at a time in commit order. The release starts as the
+commit hands it over, and the hold no longer waits for it to complete. The
+observation's capture is already durable then, so the
+[native storage rule](native-brain-storage.md) still holds: a checkpoint is
+released only after its observations are durable. Each observed root, the
+brain and every managed worktree, has its own owner, and each owner keeps at
+most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
+queued or failed. An observation makes room before it takes its own
+checkpoint (`async function reserveRelease`,
+`packages/ui-server/src/brain/native-journal-observer.ts:329-335`): it waits
+inside the hold for the oldest queued release, or, when failed releases fill
+the bound, retries the oldest one inside the hold, as every release ran
+before. If that retry fails, the observation is refused before it takes a
+checkpoint, so the bound is never exceeded. Each retained checkpoint is charged with an upper bound of the file content
+it holds that the live root no longer has: the bytes of every file version
+replaced or removed since it was taken
+(`releases(): NativeJournalReleaseAccounting`,
+`packages/ui-server/src/brain/native-journal-observer.ts:478-482`).
+Directory and other metadata extents are not counted. The store's free space,
+which the `free_space_floor` scope limit reads, counts the actual extents until
+each release completes. Shutdown waits for every queued release, retries
+failed ones and the current root, and refuses with the identities of any
+checkpoint still retained; startup recovery releases those. A release that
+never settles is bounded by the manager client's transport deadline, not by
+the owner.
+
+**A failed release.** The checkpoint stays retained and charged until a
+retry, and the journal treats the failure as the hold did
+(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:149-157`):
+every active turn stops and its record is partial, a hold the failure
+overlaps kills its held workers instead of resuming them, and an admission
+requested before the failure, even one still queued behind other journal work,
+is refused. A turn that finished before the failure keeps its record:
+its terminal capture was recorded before the release began, and the failure
+concerns storage cleanup, not what the journal holds. A failure inside the
+hold, of a checkpoint, a delta, a capture, the retry of a failed release or the
+release of an aborted observation, is unchanged.
+
+**Tests.** A fresh launch and the shared interpreter answer each refused
+inspection with the same exit status, output and traceback; every request sees
+the path's current state; a dead interpreter is replaced
+(`packages/ui-sdk/tests/native-identity-inspector.test.ts`). On the native
+fixture, a writable checkpoint is refused by checkpoint, both sides of delta
+and release, which then deletes nothing; a read-only live brain, a nested
+subvolume and enabled qgroups are refused by checkpoint; one manager starts
+one interpreter; and the interpreter's answers for the live root and the loop
+device equal a fresh launch's (`scripts/native-proof/hosted-app.test.ts`, pi
+UID 0). The private-read and stage paths' `verifyOwned` and the UUID and
+transaction comparisons are not exercised there; they share the one
+inspection path. The observer and journal tests prove that the hold ends
+before the release completes, that queued and failed releases share the bound
+and no checkpoint is taken beyond it, that the charge grows with later
+replacements, that a late failure stops every active turn, refuses an
+overlapping or queued admission and fails an overlapping hold, and that
+shutdown drains and reports
+(`packages/ui-server/tests/native-journal-observer.test.ts`,
+`packages/ui-server/tests/turn-journal.test.ts`).
+
+**Measured.** `bun scripts/prove-native-host.ts --backend=pi --app-uid=1000
+--observation-timing` on the native fixture (pi, governed, UID 1000, 2,000
+notes), on 2026-10-25, with the host load recorded. Median added ms with its
+p95, and the median worker hold:
+
+| | Host load (1-min, start → end) | `write_file` | `edit_file` | Writing `bash` | Journal begin + finish | Interpreter launches |
+| --- | --- | --- | --- | --- | --- | --- |
+| Before, run 1 | 5.9 → 7.3 | 278 / 345, held 253 | 326 / 423, held 292 | 285 / 359, held 258 | 547 / 681 | 1,334 |
+| Before, run 2 | 5.7 → 7.9 | 308 / 396, held 277 | 335 / 385, held 302 | 293 / 347, held 267 | 630 / 684 | 1,334 |
+| After, first slice | 8.9 → 12.1 | 186 / 208, held 147 | 172 / 232, held 139 | 222 / 341, held 182 | 347 / 779 | 1 |
+| Paired before | 8.4 → 10.6 | 628 / 976, held 574 | 713 / 950, held 662 | 638 / 1,116, held 590 | 1,010 / 1,089 | 1,363 |
+| Paired after | 9.9 → 11.0 | 358 / 548, held 300 | 458 / 648, held 391 | 431 / 500, held 374 | 801 / 956 | 1 |
+
+The first slice was this change before review moved the backlog wait ahead of
+the checkpoint and added the failure generation; neither runs on a healthy
+path. The paired runs used the final change, back to back, after the host's
+storage had slowed: a native snapshot took 31 ms in both, against 11 to 15 ms
+in the earlier runs, and a proven read, which no observation touches, added
+74 and 72 ms against about 30 ms before. Compare rows within a pair or a quiet
+period, not across them.
+
+The identity inspections now cost one interpreter for the whole run, and the
+release no longer holds a writer's workers: a writer's added time fell by about
+40 % in both comparisons, and begin's by more than half. Finish did not get
+faster (236 to 251 ms before, 234 ms after in the quiet period; 525 to 610 ms
+in the slow pair); what it waits for is not attributed. Neither #2834 target
+is met: writers stay above 150 ms and begin plus finish above 300 ms. The
+manager's own commands inside the hold take about 20 ms of a writer's hold in
+the quiet period (snapshot 15 ms, the subvolume list, the qgroup check and the
+send 1 to 2 ms each); the rest of the hold is not attributed
+(#2915). The targets are
+reported as unmet, not relaxed.
+
 ## Monitoring
 
 **Where it lives.** All monitoring is host operational state in `brain-ui.db`
@@ -1531,7 +1660,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:375`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:368`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2063,9 +2192,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:319-326`;
+`packages/ui-sdk/src/server/worker-protection.ts:344-351`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:329-367`).
+`packages/ui-sdk/src/server/worker-protection.ts:354-392`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -2093,7 +2222,7 @@ A peer whose plan only lacks a root is waited for, up to
 are planned only once a turn has translated it under the current policy hash,
 so writers admitted before that translation predate them, and every later
 writer inherits them from the held plan
-(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:262-273`).
+(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:261-272`).
 The translation is recorded in the UI database, so after the first one under a
 policy hash, writers in every process, the cron runner's and a restarted
 server's included, plan its folders without waiting (#2836).
@@ -2208,12 +2337,12 @@ every turn without a proven recipient:
   build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
   build as a base and reuses it while it provably equals a clean build of the
   turn's final startup view (`createPrivateIndexCache`,
-  `packages/ui-server/src/brain/private-index-cache.ts:319-591`):
+  `packages/ui-server/src/brain/private-index-cache.ts:320-592`):
   - *Identity.* A base is keyed by the brain's canonical path, the policy
     hash, the masked folders, the proven recipient, the operational mask
     paths, the build's argv, the runtime version and the change stamps of any
     absolute file the argv names (`privateIndexCacheKey`,
-    `packages/ui-server/src/brain/private-index-cache.ts:87-91`). Any change
+    `packages/ui-server/src/brain/private-index-cache.ts:88-92`). Any change
     to one is another base. The default command is the brain's own CLI, which
     the delta covers.
   - *Freshness.* A base retains the native checkpoint it was built from. The
@@ -2221,8 +2350,8 @@ every turn without a proven recipient:
     send delta, which the kernel derives from both sealed roots; the parser
     must reach `END` and EOF and the helper must exit 0, or the turn builds
     from nothing. Timestamps and the turn journal play no part.
-  - *Reconciliation.* Changes inside the masked folders, `.brain-index` and
-    `.git` cannot change what the masked build reads, nor can changes inside
+  - *Reconciliation.* Changes inside the masked folders, `.brain-index`,
+    `.brain-cache` (#2725) and `.git` cannot change what the masked build reads, nor can changes inside
     `.brain/` and `.brain-ui/` (scratch, pins, inbox staging): the build sees
     those two as empty folders, as it sees masked ones. A renamed or replaced
     directory is expanded in both roots, and a directory, or the root, whose
@@ -2234,7 +2363,7 @@ every turn without a proven recipient:
     else (a file changed, removed, moved into a masked folder, given a second
     name, or any other new file) takes a clean build
     (`classifyPrivateIndexChanges`,
-    `packages/ui-server/src/brain/private-index-cache.ts:178-229`). Nothing
+    `packages/ui-server/src/brain/private-index-cache.ts:179-230`). Nothing
     is ever deleted from a base: a deleted row's bytes survive in SQLite free
     pages, FTS5 segments and the WAL, so text that leaves the masked view only
     ever leaves through a clean build. Physical non-disclosure is not claimed
@@ -2261,7 +2390,7 @@ every turn without a proven recipient:
     After each post-turn index refresh, every kept base is brought to a fresh
     checkpoint of the live brain, in its key's chain, so a turn admitted
     meanwhile waits for it and then reuses it (`advanceBase`,
-    `packages/ui-server/src/brain/private-index-cache.ts:495-546`). It
+    `packages/ui-server/src/brain/private-index-cache.ts:496-547`). It
     reconciles exactly as admission does, with the same classifier and stamp
     check: an unchanged view rebinds the base; new notes are added by the
     incremental index in a staging directory beside the bases, which must
@@ -2334,23 +2463,52 @@ every turn without a proven recipient:
   masks configured, such a turn refuses rather than build an index in a
   worker that sees the host. The private index is removed when the turn
   ends, and the autonomous bridge refuses masked paths as above.
-- **Generated-text caches (maintainer, 2026-10-23, #2692 option A).** The
-  committed sidecar caches `.context-cache.jsonl` (chunk contexts) and
-  `.asset-cache.jsonl` (asset descriptions) hold text generated from every
-  document, masked ones included. Each present cache reads as empty in a
-  denied interactive, voice or autonomous worker, and in the private index
-  build: `providerMaskMounts` binds `/dev/null` over it
-  (`PROVIDER_CACHE_FILES`, the same list as core's `SIDECAR_CACHES`). A
-  cache that is a link or has a second name refuses the launch rather than
-  being followed, and the governed live launcher checks the mask before the
-  payload starts. A loose file mask detaches when another namespace renames
-  or unlinks the path, which is why the index moved into a directory. That is
-  acceptable here because only exclusive, credentialed `--embeddings` runs
-  write the caches, and while no recipient is proven every concurrent turn is
-  denied alike: a detached mask exposes nothing that a denied turn could not
-  already see. Once allowed routes exist (#2695) the argument no longer holds,
-  and the caches move into a masked directory
-  ([#2725](https://github.com/schlessera/brain-kit/issues/2725), option B).
+- **Generated-text caches (maintainer, 2026-10-23, #2692: option A, then
+  option B in #2725).** The committed caches of chunk contexts and asset
+  descriptions hold text generated from every document, masked ones
+  included. Option A file-masked the two root-level files, `.context-cache.jsonl`
+  and `.asset-cache.jsonl`, in every denied turn. A loose file mask detaches
+  when another namespace renames or unlinks the path, which is why the index
+  moved into a directory; A was acceptable only while every concurrent turn
+  was denied alike. Once allowed routes existed (#2695), an allowed turn could
+  rename or recreate a cache under a denied turn's mask, so the caches moved
+  into a masked directory, `.brain-cache/` (`contexts.jsonl`, `assets.jsonl`;
+  [#2725](https://github.com/schlessera/brain-kit/issues/2725), option B):
+  - *Retained like the index directory.* While the policy names provider
+    folders, the retained topology (`retainedFolderRoots`) adds `.brain-cache`
+    beside `.brain-index`, so every governed writer self-binds it read-write,
+    shared gate plans carry it, native publication refuses to remove or
+    replace it, and the host creates it before admission
+    (`ensureRetainedDirectories`). Renaming or recreating a cache *inside* it
+    detaches nothing mounted over it; renaming the directory itself fails in
+    any retaining worker.
+  - *Masked like a provider folder.* A turn that masks any provider folder,
+    and the private index build, see `.brain-cache` as an empty read-only
+    tmpfs (`providerMaskMounts`), and the governed live launcher checks before
+    the payload starts that it shows an empty mount rather than the retained
+    directory. One that is a link or not a directory refuses the launch. A
+    turn allowed every provider folder keeps the real directory, as it keeps
+    `.git` and the real index. A turn's data tree leaves `.brain-cache` out
+    while a folder is masked.
+  - *The transition.* No index run from 0.44.0 on writes the root-level
+    names, and `brain sync pull` moves one an older clone's commits brought in
+    within the same pull, so a hosted sync never publishes one. A clone can
+    still hold them from before the move until an index run moves their lines
+    into `.brain-cache/`.
+    So each present root-level cache keeps option A's `/dev/null` file mask
+    (`PROVIDER_CACHE_FILES`) on every turn under a provider rule, allowed ones
+    included (#2695 ruling 3), and the private index build and data trees
+    leave it out as before. The move only ever deletes such a file, which
+    detaches a mask from a name that is gone, and a turn that sees a present
+    one masked cannot rename or remove it: the mask is a mount point in its
+    own namespace. A turn can create a missing root-level name like any other
+    file; text it copies from what it may read is the copying limitation
+    below, not a cache. A cache that is a link or has a
+    second name refuses the launch rather than being followed. Reads union
+    both locations, so no paid enrichment is regenerated, and ui-server starts
+    an index run at boot when a root-level cache is present. The
+    [integration contract](../integration-contract.md#generated-text-cache-directory-breaking-0440-2725)
+    records the migration.
 - **Backend-retained state (audit, 2026-10-23, #2692).** What a backend
   copies into a denied turn's worker, beyond the brain view:
   - Claude interactive and voice turns copy the brain project's whole
@@ -2429,7 +2587,7 @@ every turn without a proven recipient:
   - **The handoff summary.** Drafting a handoff summary refuses when the
     policy has provider rules and the source chat's lineage does not cover
     every provider folder, before its history is read (`unprovenHistory`,
-    `packages/ui-server/src/ws/handoff.ts:309-312`). The run has no proven
+    `packages/ui-server/src/ws/handoff.ts:303-306`). The run has no proven
     recipient, so every provider folder is denied to it. A policy with a type
     selector always refuses: the type's folders follow the current taxonomy,
     which this check does not translate, and a remembered translation may be
@@ -2564,7 +2722,7 @@ strict checkpoint view (option B) and refusing every such selector (option A)
 were rejected.
 
 "Maps exactly" is defined as follows (`translateProviderTypes`,
-`packages/ui-server/src/brain/governance-policy.ts:153-168`):
+`packages/ui-server/src/brain/governance-policy.ts:156-171`):
 
 - **Paths.** `F/**` and `F/**/*` with a literal `F` map onto `F`; under
   Bun.Glob both match every file at any depth below `F`, hidden files
@@ -2623,7 +2781,7 @@ that runs in it can rewrite that account. The load set is therefore not
 computed. It is enforced by what the worker can see: the brain path is an
 empty tmpfs with only the policy's protected paths bound back read-only
 (`WorkerProviderMasks.visible`; `if (masks.visible)`,
-`packages/ui-sdk/src/server/worker-protection.ts:195-215`). An import, a
+`packages/ui-sdk/src/server/worker-protection.ts:207-227`). An import, a
 local module, a `tsconfig.json` alias or a data file outside them is simply
 absent, so the configuration loads only from what no governed turn can
 change, or does not load, and its own error, which names the file, becomes
@@ -2699,7 +2857,7 @@ index refresh or a cron job, retains them and the next turn's peer check
 passes. Admission records that translation in the UI database, one row per
 canonical brain holding the exact policy hash and its folders, so it reaches
 the cron runner's process and survives a restart (#2836;
-`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:162-171`).
+`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:161-170`).
 The host never translates it itself: only admission does, under its worker
 boundary. A missing, unreadable or other-hash record plans no type folder, and
 a stale one only retains an extra folder. Admission still refuses a peer
@@ -2785,7 +2943,9 @@ is the turn's recipient. The maintainer ruled three things on #2695:
    turn's tool egress and the `brain` CLI's own provider calls (#1673) are
    egress-policy territory (G5). The generated-text caches stay masked on
    every turn under a provider rule, allowed ones included, until #2725 moves
-   them into a masked directory.
+   them into a masked directory. Since #2725, `.brain-cache/` is masked on
+   every turn that masks a folder, and root-level caches from an earlier
+   release keep their file masks on every turn under a provider rule.
 
 The backend supplies the origin before admission through the optional
 `AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
@@ -2793,7 +2953,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:172-173`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:171-172`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -2807,10 +2967,10 @@ when a peer renames that folder, so a denied folder inside another provider
 folder masks the outer folder whole: a policy allowing `me/**` but denying
 `me/letters/**` hides all of `me/` from that recipient, which loses data but
 leaks nothing (`export function providerDeniedFolders`,
-`packages/ui-server/src/brain/governance-policy.ts:192-201`). An unproven
+`packages/ui-server/src/brain/governance-policy.ts:195-204`). An unproven
 recipient is allowed nothing, which is the denied-turn set above. A turn
-allowed every folder gets no folder masks, `.git` and the real
-`.brain-index/`. Its `providerMasks` stays present with no folders and no
+allowed every folder gets no folder masks, `.git`, the real
+`.brain-index/` and the real `.brain-cache/` (#2725). Its `providerMasks` stays present with no folders and no
 private index, so whatever every provider-rule turn hides regardless of
 recipient still applies. A turn allowed some folders masks the rest; `.git`
 stays hidden, because history holds every folder, and its private index is
@@ -2827,7 +2987,7 @@ conversation is named after admission, so its rows carry the turn until the
 session id binds them. A turn conflicts with an earlier record when a folder
 it would mask overlaps a folder that record showed, and that folder was not
 itself hidden then (`export function exposureConflicts`,
-`packages/ui-server/src/brain/governance-policy.ts:234-242`). A handoff's first
+`packages/ui-server/src/brain/governance-policy.ts:237-245`). A handoff's first
 turn is judged against its source's records and copies them into the new
 conversation. The handoff summary is drafted on the source's autonomous
 route, which has no proven recipient, so a conversation with any record gets
@@ -3223,6 +3383,31 @@ that run after an asynchronous launch has returned.
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
 
+### Turn completion includes worker teardown — 2026-10-25
+
+The maintainer's [#2863 lifecycle ruling](https://github.com/schlessera/brain-kit/issues/2863#issuecomment-6391630082)
+requires Claude and pi turns, and streaming maintenance launches, to settle
+only after worker exit, stream consumption or close, and the launcher's
+`released()` wait. Exit stays independently observable: a consumer waiting for
+exit before draining output must not wait on its own drain. The existing
+five-second release bound may expire without descriptor confirmation; it is
+not proof that Bun has closed its duplicates. An abort during that wait keeps
+the path's existing cancellation or failure outcome.
+
+[#2880](https://github.com/schlessera/brain-kit/issues/2880) applies that rule
+to pi cancellation before `prompt()`. The pool owns a late new or resumed
+acquisition until its awaited abort finishes, then disposes it and preserves
+the accepted cancellation (`cancelAcquiredSession`,
+`packages/ui-backend-pi/src/session-pool.ts:159-166`). After acquisition the
+runner awaits abort when cancellation prevents prompting. The signal handler
+may already have requested it, so the worker session shares one abort promise:
+`ended` revokes work but does not confirm teardown (`abort()`,
+`packages/ui-backend-pi/src/worker-session.ts:758-774`). Its inactive path
+awaits exit and protocol consumption, the awaited turn-temp close above, then
+stdio release even if exit or cleanup refuses. Failed cleanup keeps the
+reservation charged and remains retryable. Disposal and Stop signalling keep
+their synchronous signatures; terminal reporting owns the asynchronous wait.
+
 ### Outward actions (G5)
 
 **Inside the brain, nothing is outward.** Journaled edits, commits to the
@@ -3524,7 +3709,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:277-341`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:295-359`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3547,7 +3732,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:524-554`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:552-582`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits

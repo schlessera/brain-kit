@@ -75,7 +75,7 @@ policy and changes to other agents remain outside this decision.
 The maintainer's [2026-10-03 ruling on #822](https://github.com/schlessera/brain-kit/issues/822#issuecomment-5973600819)
 selects the existing Claude/Agents treatment for root and nested Gemini files.
 Exact root `GEMINI.md` groups as configuration (`domainFor`,
-`packages/core/src/lib/sync/assess.ts:93-99`). At every depth its exact basename
+`packages/core/src/lib/sync/assess.ts:102-108`). At every depth its exact basename
 selects `code-merge` before taxonomy strategies (`strategyFor`,
 `packages/core/src/lib/sync/resolve/strategy.ts:56-68`). An actual conflict stays
 unresolved with its text and index stages intact for agent/person judgment;

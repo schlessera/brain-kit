@@ -5,8 +5,8 @@
 # twice resolves to its first line in sorted order on every clone, and the file
 # is sorted again the next time an index run adds or prunes a line. The
 # built-in driver needs no git config.
-.context-cache.jsonl merge=union
-.asset-cache.jsonl merge=union
+.brain-cache/contexts.jsonl merge=union
+.brain-cache/assets.jsonl merge=union
 
 # The stats history (`brain maintain`, `brain stats --record`) holds one
 # self-contained snapshot per line, one line per day. Union keeps both clones'

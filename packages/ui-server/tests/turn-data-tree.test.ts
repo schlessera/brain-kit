@@ -339,11 +339,12 @@ test("a masked tree leaves out the masked folders, the operational state and the
   mkdirSync(join(f.brain, ".brain"), { recursive: true });
   writeFileSync(join(f.brain, ".brain/state.md"), NOTE("State", `${SENTINEL} in operational state.`));
   writeFileSync(join(f.brain, ".context-cache.jsonl"), `{"text":"${SENTINEL}"}\n`);
+  mkdirSync(join(f.brain, ".brain-cache")); writeFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), `{"text":"${SENTINEL}"}\n`);
   writeFileSync(join(f.brain, ".env"), "ODYSSEUS_SECRET=Nobody\n");
   await hostedTurn(f, "strict", async ({ request }) => {
     const tree = request.workerSandbox!.dataTree!;
     const present = (rel: string) => existsSync(join(tree.root, rel));
-    expect(["me", "health", ".brain", ".context-cache.jsonl", ".env", ".git", "node_modules"].filter(present), "TREE_OMITS_WHAT_THE_TURN_CANNOT_SEE").toEqual([]);
+    expect(["me", "health", ".brain", ".context-cache.jsonl", ".brain-cache", ".env", ".git", "node_modules"].filter(present), "TREE_OMITS_WHAT_THE_TURN_CANNOT_SEE").toEqual([]);
     expect(present("notes/quick-note-eagle.md"), "TREE_HOLDS_THE_VISIBLE_DOCUMENTS").toBe(true);
     expect(tree.masked, "THE_UPDATER_SEES_THE_SAME_MASKS_AS_THE_BUILD").toEqual([".brain", "health", "me"]);
   });
@@ -369,22 +370,25 @@ test("a masked turn's updates never touch the reusable private index base", asyn
   } finally { await shared.turns?.close(); shared.execution?.release(); shared.db?.close(); }
 });
 
-test("the tree leaves out .env link targets and, under any provider rule, the caches; it is removed whole", async () => {
+test("the tree leaves out .env link targets and, under any provider rule, the legacy caches; it is removed whole", async () => {
   const f = fixture(false);
   mkdirSync(join(f.brain, "settings"), { recursive: true });
   writeFileSync(join(f.brain, "settings/ithaca-credentials.txt"), "ODYSSEUS_SECRET=Nobody\n");
   symlinkSync("settings/ithaca-credentials.txt", join(f.brain, ".env"));
   writeFileSync(join(f.brain, ".context-cache.jsonl"), "{}\n");
+  mkdirSync(join(f.brain, ".brain-cache")); writeFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), "{}\n");
   mkdirSync(join(f.brain, "archive-sealed")); writeFileSync(join(f.brain, "archive-sealed/raft.md"), NOTE("Sealed", "Kept read-only."));
   chmodSync(join(f.brain, "archive-sealed"), 0o555);
   cleanup.push(() => chmodSync(join(f.brain, "archive-sealed"), 0o755));
   const view = await startup.prepareNativeWorkerStartupView(f.brain, undefined as never);
   try {
-    // A recipient allowed every provider folder: no folder is masked, the caches still are.
+    // A recipient allowed every provider folder: no folder is masked, and
+    // neither is `.brain-cache/`; a legacy root-level cache still is (#2725).
     const tree = createTurnDataTree({ brainPath: f.brain, view, maskPaths: [], mount: true, providerRules: true, update: async () => {} });
     const root = tree.mount!.root;
-    expect(["settings/ithaca-credentials.txt", ".env", ".context-cache.jsonl"].filter(rel => existsSync(join(root, rel))), "TREE_OMITS_ENV_TARGETS_AND_CACHES").toEqual([]);
-    expect(tree.mount!.masked, "THE_CACHES_ARE_MASKED_ON_THE_TREE_TOO").toEqual([]);
+    expect(["settings/ithaca-credentials.txt", ".env", ".context-cache.jsonl"].filter(rel => existsSync(join(root, rel))), "TREE_OMITS_ENV_TARGETS_AND_LEGACY_CACHES").toEqual([]);
+    expect(existsSync(join(root, ".brain-cache/contexts.jsonl")), "ALLOWED_TREE_KEEPS_THE_CACHE_DIRECTORY").toBe(true);
+    expect(tree.mount!.masked, "THE_LEGACY_CACHES_ARE_MASKED_ON_THE_TREE_TOO").toEqual([]);
     expect(existsSync(join(root, "archive-sealed/raft.md")), "READ_ONLY_DIRECTORIES_ARE_COPIED").toBe(true);
     await tree.close();
     expect([existsSync(root), existsSync(tree.index)], "TREE_AND_INDEX_REMOVED_DESPITE_READ_ONLY_DIRECTORIES").toEqual([false, false]);

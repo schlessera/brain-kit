@@ -173,7 +173,7 @@ describe("per-type embedding policy", () => {
     const p = recordingProviders();
     await indexAll(f.db, { ...f.options, ...p, embeddings: true });
     expect(vectors(f.db, "generated")).toBeGreaterThan(3);
-    expect(existsSync(join(f.root, ".context-cache.jsonl"))).toBe(true);
+    expect(existsSync(join(f.root, ".brain-cache/contexts.jsonl"))).toBe(true);
     const cachedChunk = f.db.query("SELECT d.title, c.heading, c.content FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.type='generated' AND d.asset_type='markdown' LIMIT 1").get() as { title: string; heading: string; content: string };
     expect(loadContextCache(f.root).has(chunkContextKey(cachedChunk.title, cachedChunk.heading, cachedChunk.content))).toBe(true);
     const beforeCalls = p.texts.length + p.images.length + p.pdfs.length;

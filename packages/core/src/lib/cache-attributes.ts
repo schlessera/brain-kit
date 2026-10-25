@@ -16,15 +16,21 @@
  * day resolve to the later recording (`parseHistory`), and the next recording
  * rewrites the file sorted. It is not a derived cache, so `brain sync pull`
  * does not union it itself; with the attribute, git never conflicts on it.
+ *
+ * Since 0.44.0 the caches are `.brain-cache/contexts.jsonl` and
+ * `.brain-cache/assets.jsonl` (#2725). A brain's existing lines for the old
+ * root-level names are kept, never removed: they still union-merge an older
+ * clone's root-level file until an index run moves its lines.
  */
 import { existsSync, lstatSync, readFileSync, realpathSync } from "fs";
 import { join, resolve } from "path";
+import { SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 
 import { WriteRefusedError, writeFileSafely } from "./safe-path.js";
 import { emptyRepository } from "./scratch.js";
 import { STATS_HISTORY_FILE } from "./stats-history.js";
 
-export const SIDECAR_CACHES = [".context-cache.jsonl", ".asset-cache.jsonl"] as const;
+export { SIDECAR_CACHES };
 
 /** Every file the brain's `.gitattributes` should union-merge. */
 export const UNION_MERGED_FILES = [...SIDECAR_CACHES, STATS_HISTORY_FILE] as const;

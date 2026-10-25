@@ -240,14 +240,40 @@ export interface NativeJournalObservation {
   changes: NativeJournalChange[];
   stats: { readEntries: number; walkedDirectories: number };
   unreadable: NativeJournalUnreadable[];
-  /** Invoke only after the caller's raw versions/change refs are durable. */
+  /**
+   * Invoke only after the caller's raw versions/change refs are durable.
+   * Advances the root and hands the previous one to the release owner, which
+   * the observation reserved room for before taking its checkpoint.
+   */
   commit(): Promise<void>;
   /** Retains the previous rolling root/index; release failure stays retryable. */
   abort(): Promise<void>;
 }
 
-/** Caller serializes membership and keeps startup consumers independently leased. */
-export function createNativeJournalObserver(native: NativeJournalManager, workerUid?: () => number | undefined) {
+/**
+ * Previous checkpoints committed observations may leave unreleased (#2872),
+ * queued or failed. Each holds the extents of the versions replaced since it
+ * was taken, so the bound caps that retained space. An observation takes no
+ * checkpoint until there is room for its predecessor.
+ */
+export const NATIVE_RELEASE_BACKLOG = 2;
+/** Retained previous checkpoints: queued or running releases, and failed ones awaiting a retry. */
+export interface NativeJournalReleaseAccounting {
+  pending: number; failed: number;
+  /**
+   * Upper bound of the file content these checkpoints hold that the live root
+   * no longer has: the bytes of every file version replaced or removed since
+   * each was taken. Directory and other metadata extents are not counted.
+   */
+  retainedBytes: number;
+}
+
+/**
+ * Caller serializes membership and keeps startup consumers independently leased.
+ * `releaseFailed` is told when a previous checkpoint's release fails after its
+ * observation committed, outside the caller's hold.
+ */
+export function createNativeJournalObserver(native: NativeJournalManager, workerUid?: () => number | undefined, releaseFailed?: (error: unknown) => void) {
   let index = new MetadataIndex(), root: NativeJournalCheckpoint | undefined;
   let missingInventory = new Map<string, NativeJournalUnreadable>();
   const uncertain = (path: string) => {
@@ -273,6 +299,46 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     const id = typeof checkpoint === "string" ? checkpoint : checkpoint.id;
     await native.release(id); retained.delete(id);
   }
+  // The cleanup owner of previous checkpoints: one release at a time, in commit
+  // order, once the capture that superseded each is recorded (#2872).
+  const outstanding = new Map<string, { bytes: number; state: "pending" | "failed" }>();
+  let releasing: Promise<void> | undefined;
+  const settledWaiters = new Set<() => void>();
+  const queued = () => [...outstanding.values()].filter(entry => entry.state === "pending").length;
+  function releaseNext(): void {
+    if (releasing) return;
+    const next = [...outstanding].find(([, entry]) => entry.state === "pending");
+    if (!next) { for (const settled of settledWaiters) settled(); settledWaiters.clear(); return; }
+    const [id, entry] = next;
+    releasing = release(id).then(() => { outstanding.delete(id); }, error => {
+      // The checkpoint stays retained and charged until a retry releases it.
+      entry.state = "failed";
+      try { releaseFailed?.(error); } catch { /* Reporting never blocks the next release. */ }
+    }).finally(() => { releasing = undefined; releaseNext(); });
+  }
+  function releasesSettled(): Promise<void> {
+    if (!queued()) return Promise.resolve();
+    return new Promise(settled => { settledWaiters.add(settled); });
+  }
+  /**
+   * Room for one more retained checkpoint, made before an observation takes
+   * its own: wait for the oldest queued release, or retry the oldest failed
+   * one inside the hold, as every release ran before #2872. A retry that fails
+   * again refuses the observation, so the bound is never exceeded.
+   */
+  async function reserveRelease(): Promise<void> {
+    while (outstanding.size >= NATIVE_RELEASE_BACKLOG) {
+      if (queued()) { await releasing; continue; }
+      const [id] = outstanding.keys();
+      await release(id!); outstanding.delete(id!);
+    }
+  }
+  function deferRelease(id: string, bytes: number): void {
+    const entry = outstanding.get(id);
+    // Repeating a commit retries a failed release, as before; it keeps its slot and charge.
+    if (entry) entry.state = "pending"; else outstanding.set(id, { bytes, state: "pending" });
+    releaseNext();
+  }
   async function initialize(signal?: AbortSignal): Promise<void> {
     if (closed) unavailable("Native observer is closed.");
     if (root) return;
@@ -292,6 +358,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   }
   async function prepare(signal?: AbortSignal): Promise<NativeJournalObservation> {
     await initialize(signal);
+    await reserveRelease();
     const active = signalFor(signal), before = root!;
     let after: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
     try {
@@ -366,6 +433,9 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         if (previous || current) changes.push({ path, before: previous, after: current });
       }
       const next = after;
+      // Content the previous root alone keeps once this observation commits.
+      let replacedBytes = 0;
+      for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replacedBytes += change.before.bytes;
       let state: "pending" | "committed" | "aborted" = "pending";
       const observation: NativeJournalObservation = {
         beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats }, unreadable: [...reader.unreadable.values()],
@@ -375,8 +445,10 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
             for (const [path, entry] of patches) { if (entry) index.put(entry); else if (entry === null) index.remove(path); }
             missingInventory = new Map(reader!.unreadable);
             root = next; state = "committed"; pending = undefined;
+            // Every older retained checkpoint also still holds what this replaced.
+            for (const entry of outstanding.values()) entry.bytes += replacedBytes;
           }
-          if (retained.has(before.id)) await release(before);
+          if (retained.has(before.id)) deferRelease(before.id, replacedBytes);
         },
         async abort() {
           if (state === "committed") unavailable("Native observation was already committed.");
@@ -402,12 +474,24 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       const operation = prepare(signal); inFlight = operation;
       try { return await operation; } finally { inFlight = undefined; }
     },
+    /** Accounting of previous checkpoints whose release left the observation. */
+    releases(): NativeJournalReleaseAccounting {
+      let retainedBytes = 0;
+      for (const entry of outstanding.values()) retainedBytes += entry.bytes;
+      return { pending: queued(), failed: outstanding.size - queued(), retainedBytes };
+    },
+    /** Resolves once every queued release has been attempted. */
+    releasesSettled,
+    /** Drains queued releases, retries failed ones, and reports any checkpoint still retained. */
     async close() {
       closed = true; shutdown.abort(new Error("native_observer_closed"));
       await initializing?.catch(() => {}); await inFlight?.catch(() => {});
       if (pending) await pending.abort().catch(() => {});
-      for (const id of retained) await release(id);
+      await releasesSettled();
+      const errors: unknown[] = [];
+      for (const id of retained) { try { await release(id); outstanding.delete(id); } catch (error) { errors.push(error); } }
       root = undefined; index = new MetadataIndex(); missingInventory.clear();
+      if (errors.length) throw new NativeJournalObservationError(`${retained.size} native checkpoint(s) remain retained after shutdown: ${[...retained].join(", ")}. ${String(errors[0])}`);
     },
   };
 }

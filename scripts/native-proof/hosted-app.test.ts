@@ -607,6 +607,63 @@ if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor rele
 }, 90_000);
 
 
+// #2872: one long-lived identity inspector serves every manager operation, and
+// each operation still refuses a changed identity, immutability or qualification.
+if (BACKEND === "pi" && APP_UID === 0) test("every native manager check still refuses through one identity inspector", async () => {
+  const brain = "/brain-fixture/brain", nested = join(brain, "nested-voyage");
+  const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
+  const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
+  const { createNativeIdentityInspector, NATIVE_ROOT_INSPECTION, NATIVE_LOOP_INSPECTION } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-identity-inspector.ts"));
+  const btrfs = (...args: string[]) => { const result = Bun.spawnSync(["/usr/bin/btrfs", ...args]); expect(result.exitCode, `btrfs ${args.join(" ")}: ${result.stderr}`).toBe(0); return result.stdout.toString(); };
+  const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(btrfs("subvolume", "show", brain))![1]!.replaceAll("-", "");
+  const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(btrfs("inspect-internal", "dump-super", "/dev/brain-native-proof-loop"))![1]!;
+  const inspectors = () => readFileSync(join(ARTIFACTS, "native-operations.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line))
+    .filter(row => row.stage === "start" && row.command[0] === "identity-inspect").length;
+  const launchedBefore = inspectors(), socketPath = "/native-runtime/identity-checks.sock";
+  const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath,
+    appGid: APP_UID, capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+  const client = createNativeBrainManagerClient({ socketPath }), first = randomUUID(), second = randomUUID();
+  const changed = "Recorded checkpoint native identity or immutability changed";
+  let paths: string[] = [];
+  try {
+    const roots = [await client.checkpoint(first), await client.checkpoint(second)]; paths = roots.map(root => root.path);
+    const delta = await client.delta(first, second); await new Response(delta.stream).arrayBuffer(); await delta.completed;
+    // Immutability: every operation on a recorded checkpoint verifies it again.
+    btrfs("property", "set", "-ts", roots[0]!.path, "ro", "false");
+    await expect(client.checkpoint(first), "NATIVE_SEALED_CHECKPOINT_REVERIFIED").rejects.toThrow(changed);
+    await expect(client.delta(first, second), "NATIVE_DELTA_VERIFIES_FROM").rejects.toThrow(changed);
+    await expect(client.delta(second, first), "NATIVE_DELTA_VERIFIES_TO").rejects.toThrow(changed);
+    await expect(client.release(first), "NATIVE_RELEASE_VERIFIES_BEFORE_DELETE").rejects.toThrow(changed);
+    expect(existsSync(roots[0]!.path), "NATIVE_UNVERIFIED_CHECKPOINT_NOT_DELETED").toBe(true);
+    btrfs("property", "set", "-ts", roots[0]!.path, "ro", "true");
+    // Qualification: every checkpoint qualifies the live brain and the store again.
+    btrfs("property", "set", "-ts", brain, "ro", "true");
+    try { await expect(client.checkpoint(randomUUID()), "NATIVE_CHECKPOINT_QUALIFIES_LIVE_IDENTITY").rejects.toThrow("identity changed or is read-only"); }
+    finally { btrfs("property", "set", "-ts", brain, "ro", "false"); }
+    btrfs("subvolume", "create", nested);
+    try { await expect(client.checkpoint(randomUUID()), "NATIVE_CHECKPOINT_QUALIFIES_NESTED_SUBVOLUMES").rejects.toThrow("Nested brain subvolumes are unsupported"); }
+    finally { btrfs("subvolume", "delete", nested); }
+    btrfs("quota", "enable", "/brain-fixture");
+    try { await expect(client.checkpoint(randomUUID()), "NATIVE_CHECKPOINT_QUALIFIES_DISABLED_QGROUPS").rejects.toThrow("qgroups disabled"); }
+    finally { btrfs("quota", "disable", "/brain-fixture"); }
+    for (const id of [first, second]) expect(await client.release(id), "NATIVE_RESTORED_CHECKPOINT_RELEASES").toEqual({ id, state: "deleted" });
+  } finally {
+    for (const id of [first, second]) await client.release(id).catch(() => {});
+    await service.close();
+  }
+  expect(inspectors() - launchedBefore, "NATIVE_MANAGER_ONE_IDENTITY_INSPECTOR").toBe(1);
+  // The shared interpreter answers exactly as a fresh launch of the same program does.
+  const inspector = createNativeIdentityInspector({ python: "/usr/bin/python3", env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" }, timeoutMs: 30_000, maximumBytes: 65_536 });
+  try {
+    for (const [program, path] of [["root", brain], ["loop", "/dev/brain-native-proof-loop"]] as const) {
+      const fresh = Bun.spawnSync(["/usr/bin/python3", "-I", "-S", "-c", program === "root" ? NATIVE_ROOT_INSPECTION : NATIVE_LOOP_INSPECTION, path], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" }, cwd: "/" });
+      expect(fresh.exitCode).toBe(0);
+      expect(await inspector.run(program, path), `NATIVE_INSPECTOR_MATCHES_FRESH_LAUNCH ${program}`).toEqual({ code: 0, text: fresh.stdout.toString(), errors: "" });
+    }
+  } finally { inspector.close(); }
+  for (const path of paths) expect(existsSync(path), "NATIVE_IDENTITY_CHECK_ROOTS_RELEASED").toBe(false);
+}, 90_000);
+
 if (BACKEND === "claude" && APP_UID === 1000) test("native recovery pages bound indexed work across retained identity growth (#1792)", async () => {
   await proveRecoveryInventory(ARTIFACTS);
 }, 120000);
