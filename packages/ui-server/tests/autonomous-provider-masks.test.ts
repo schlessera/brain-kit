@@ -8,7 +8,7 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createKeyedLock, type AgentBackend, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
@@ -180,6 +180,31 @@ test("an autonomous turn translates a type selector as hosted turns do: a mappin
   expect((refusal as Error | undefined)?.name, "AUTONOMOUS_UNTRANSLATABLE_TYPE_REFUSED").toBe("ProviderPolicyRefusedError");
   expect(String((refusal as Error).message)).toContain("type note");
   expect(started).toBe(0);
+}, 180_000);
+
+test("an autonomous turn refuses a type selector whose taxonomy loads code outside the protected paths, before its worker starts (#2699)", async () => {
+  // A helper a governed turn could rewrite decides where identity lives.
+  const helped = async (extra = "") => {
+    const f = await fixture("[{ types: [identity], allow: [anthropic] }]");
+    mkdirSync(join(f.brain, "lib"));
+    writeFileSync(join(f.brain, "lib/identity-dir.ts"), `export const identityDir = "me";\n`);
+    const config = join(f.brain, "brain.config.ts");
+    writeFileSync(config, `import { identityDir } from "./lib/identity-dir.ts";\nvoid identityDir;\n${readFileSync(config, "utf8")}`);
+    if (extra) writeFileSync(join(f.brain, "context/policies/governance.md"),
+      `---\nschema_version: 1\nproviders: [{ types: [identity], allow: [anthropic] }]\n${extra}\n---\nOnly Anthropic may read Odysseus's own folder.\n`);
+    return f;
+  };
+  const f = await helped();
+  let started = 0, refusal: unknown;
+  try { await runAutonomousTurn({ ...f.deps, backend: restrictedBackend(f.brain, async () => { started++; }) }, f.input); } catch (error) { refusal = error; }
+  expect((refusal as Error | undefined)?.name, `AUTONOMOUS_UNPROTECTED_TAXONOMY_REFUSED: ${String(refusal)}`).toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message), "AUTONOMOUS_REFUSAL_NAMES_THE_HELPER").toContain("lib/identity-dir.ts");
+  expect(started, "NO_AUTONOMOUS_WORKER_STARTED").toBe(0);
+  // Protected, the same configuration translates.
+  const p = await helped("protect: [lib]");
+  let folders: readonly string[] | undefined;
+  await runAutonomousTurn({ ...p.deps, backend: restrictedBackend(p.brain, async request => { folders = request.workerProviderMasks?.folders; }) }, p.input);
+  expect(folders, "AUTONOMOUS_PROTECTED_HELPER_TRANSLATES").toEqual(["me"]);
 }, 180_000);
 
 test("an autonomous turn under a provider folder rule refuses without the host's private index masks", async () => {

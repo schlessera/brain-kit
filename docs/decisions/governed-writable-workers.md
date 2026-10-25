@@ -1751,9 +1751,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:248-255`;
+`packages/ui-sdk/src/server/worker-protection.ts:271-278`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:258-296`).
+`packages/ui-sdk/src/server/worker-protection.ts:281-319`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -2271,7 +2271,7 @@ were rejected.
   stores that value whatever its path. The taxonomy alone therefore does not
   bound a type. Admission also reads the turn's immutable view, data only, for
   `.md` files outside the masked folders whose frontmatter declares the type
-  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:60-98`).
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:105-143`).
   It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
   and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
   the file it resolves to, as the indexer reads it, unless that file is in a
@@ -2286,7 +2286,7 @@ The taxonomy is code in `brain.config.ts` and its modules, so the host does
 not load it. The brain's own CLI reports it (`brain config check --json`)
 from a credential-free strict worker on the startup view with the literal
 folders masked (`readProviderTaxonomy`,
-`packages/ui-server/src/brain/provider-types.ts:35-46`). That worker sees
+`packages/ui-server/src/brain/provider-types.ts:74-91`). That worker sees
 selected documents outside the literal folders, so it writes into a throwaway
 directory that is deleted before the private index is created. Its answer is
 parsed as untrusted data: a malformed or oversized answer refuses every type
@@ -2296,8 +2296,44 @@ is its path's type under the same configuration, so the reported folders
 decide which assets are hidden. That trusts the code the configuration runs.
 `brain.config.ts` and `node_modules` are protected (tier B), but local
 modules, helper files the configuration imports and the `scripts/brain-cli.ts`
-fallback are not: a turn that rewrites them can make a later admission's
-taxonomy misreport, and so leave that type's assets outside the masks.
+fallback were not: a turn that rewrote them could make a later admission's
+taxonomy misreport, and so leave that type's assets outside the masks. The
+next ruling closes that.
+
+**The taxonomy runs only protected code (maintainer, 2026-10-24, #2699
+option B).** Type translation is refused, naming the brain's configuration
+and the reason, unless protection of its complete executable load set is
+established; the resulting restriction of previously accepted configurations
+is approved. A partial list of protected entry files was ruled insufficient,
+and so was trusting the worker's own account of what it loaded, since code
+that runs in it can rewrite that account. The load set is therefore not
+computed. It is enforced by what the worker can see: the brain path is an
+empty tmpfs with only the policy's protected paths bound back read-only
+(`WorkerProviderMasks.visible`; `if (masks.visible)`,
+`packages/ui-sdk/src/server/worker-protection.ts:194-214`). An import, a
+local module, a `tsconfig.json` alias or a data file outside them is simply
+absent, so the configuration loads only from what no governed turn can
+change, or does not load, and its own error, which names the file, becomes
+every type's refusal. Two cases are judged on the host first, by name
+(`taxonomyProtection`,
+`packages/ui-server/src/brain/provider-types.ts:57-68`): a policy that
+releases a tier B name the load reads (`brain.config.ts`,
+`brain.config.json`, `package.json`, `bun.lock`, `node_modules`), and a CLI
+that is a brain file outside the protected paths, such as the
+`scripts/brain-cli.ts` fallback. Each protected path and every folder on the
+way to it must be neither a link, which bubblewrap would follow in a bind's
+source, nor a hardlinked file. Hosted and autonomous admission share
+`translateProviderTypesInView`, so both refuse before any worker reaches a
+provider. An owner keeps translation by adding the files to the policy's
+`protect` list, which also makes them read-only to governed turns.
+
+Protection is judged against the policy at admission. A file that an earlier
+policy left writable keeps what a turn wrote to it then; the supported-input
+contract tells owners to review a file before protecting it. Code outside the
+brain, which no turn writes, still loads. The relative `bun
+scripts/brain-cli.ts` fallback cannot launch in a masked worker at all (the
+launcher requires an absolute executable), so a protected fallback refuses
+too until that is fixed separately.
 Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
@@ -3205,7 +3241,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:556-621`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:563-628`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

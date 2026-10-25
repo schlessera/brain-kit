@@ -84,6 +84,13 @@ export interface WorkerProviderMasks {
    * every provider folder keeps the real index and its history.
    */
   readonly index?: string;
+  /**
+   * When present, the only brain-relative paths of the view the worker sees,
+   * each read-only; the rest of the brain is an empty tmpfs. The taxonomy
+   * worker sees only the policy's protected paths, so no code a governed turn
+   * can write decides which folders a type selector masks (#2699).
+   */
+  readonly visible?: readonly string[];
 }
 
 /** The proven inference recipient a turn's provider folders were judged against (#2695). */

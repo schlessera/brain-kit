@@ -1,0 +1,8 @@
+---
+"@schlessera/brain-ui-server": minor
+"@schlessera/brain-ui-sdk": minor
+---
+
+Changed (breaking supported input, #2699): a hosted or autonomous turn whose governance policy has a `providers` rule with `types:` now reads the brain's taxonomy only from the policy's protected paths. The `brain config check` worker that translates a type into folder masks sees `brain.config.ts`, `node_modules`, `package.json` and the other protected paths, and nothing else of the brain. A configuration that imports a helper, loads a local module or runs a CLI script outside those paths no longer loads there, so every type selector refuses with `ProviderPolicyRefusedError`, naming the file it could not load. The same refusal follows when the policy releases `brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock` or `node_modules`, and when the brain has no packaged CLI and its `scripts/brain-cli.ts` fallback is not protected. Previously those configurations translated, trusting code a governed turn could rewrite to decide which assets the masks hide. To keep translating, add every such file or folder to the policy's `protect` list (for example `protect: [modules, lib/odysseus-types.ts]`). Configurations whose taxonomy loads only from protected paths, such as the template's, are unaffected.
+
+Added: `WorkerProviderMasks.visible`, the only brain paths a worker sees, each read-only over an empty brain.
