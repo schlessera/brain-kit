@@ -51,8 +51,6 @@ const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null
 } : null;
 const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(entry ? { ...version(entry), ...(entry.ignored ? { stamp: entry.stamp } : {}) } : null);
 
-type ClaudeMemoryTarget = { directory: string; device: string; inode: string; note: string };
-
 export interface TurnJournalOptions {
   brainPath: string; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
   nativeManager: NativeJournalManager;
@@ -137,7 +135,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
    * before its commit and stores the result after, so a record between the
    * two would reuse an observed sequence (#2814).
    */
-  async function recordClaudeMemory(turnId: string, path: string, target: ClaudeMemoryTarget, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
+  async function recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
     const turn = active.get(turnId); if (!turn) throw new JournalStorageUnavailable("memory observation requires an active turn");
     const sequence = ++turn.sequence;
     await retain(() => call("recordClaudeMemory", turnId, sequence, path, target, before, after, now()));
@@ -552,7 +550,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * @internal Record a successful native save or authenticated recovery with existing retained objects.
      * Takes its turn beside observations, so its sequence follows any committing one.
      */
-    recordClaudeMemory(turnId: string, path: string, target: ClaudeMemoryTarget, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
+    recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
       return serialize(() => recordClaudeMemory(turnId, path, target, before, after));
     },
     /** All operation metadata uses the journal's existing physical allocation owner: one accounted write of these statements. */
