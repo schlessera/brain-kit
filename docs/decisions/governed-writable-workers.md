@@ -1210,7 +1210,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:188`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:171-190`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:180-199`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:134-142`). Pi's agent loop runs in
@@ -1222,7 +1222,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:411-418`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:421-428`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1303,9 +1303,87 @@ before the call starts. At that load it does not reach the 50 ms target. A
 writer's result is observed as before, so writers stay far above 150 ms, and
 journal begin plus finish stay above 300 ms (Claude 1,124 ms, pi 3,508 ms).
 The observation's native checkpoint and release dominate a writer's cost
-(#2872), and pi's finish also retains a whole new index version after each
-automatic refresh (#2873). Neither can be cut by scheduling without weakening
-capture, so these targets are reported as unmet rather than relaxed.
+(#2872), and pi's finish also retained a whole new index version after each
+automatic refresh (#2873, since made metadata-only; see below). Neither can be
+cut by scheduling without weakening capture, so these targets are reported as
+unmet rather than relaxed.
+
+### Metadata-only index history — 2026-10-25 (#2873)
+
+> **Maintainer ruling (2026-10-25), Option B.** Record metadata only for the
+> disposable `.brain-index/` family, including its database, WAL/sidecars and
+> refresh publication artifacts under that directory. Keep path, size and
+> change stamp/available identity facts so history shows that the index
+> changed; do not retain, hash into retained objects, expose historical content
+> for, or restore its bytes. History must identify these entries as
+> metadata-only and non-restorable, not as complete retained versions or a
+> failed capture. Rebuild the index from authoritative Markdown through the
+> existing index workflow.
+
+**Why.** Every governed turn queues an automatic index refresh after it
+(`host.governedTurns?.refresh(host.workerLock)`,
+`packages/ui-server/src/ws/run-session.ts:898`). The refresh usually finishes
+while the next turn runs, so that turn's finish observation found a rewritten
+`brain.db` and copied a whole new version of it into retained objects, inside
+the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
+one strict turn. The index is disposable: `brain index --force` regenerates it
+from Markdown, and restoring an old copy over a newer one only makes it stale.
+
+**The family.** Exactly `.brain-index/brain.db`, its `-wal`, `-shm` and
+`-journal` sidecars, and a `.brain-index/.maintenance-<uuid>` publication copy,
+by journal-relative path in the brain root's own capture, named from the shared
+index location constant (`export function journalMetadataOnlyPath`,
+`packages/ui-server/src/brain/native-journal-policy.ts:25-27`). Another name
+inside `.brain-index/`, another root's `.brain-index/` (a workspace or a
+managed worktree) and a similarly named file elsewhere stay ordinary content
+with retained bytes.
+
+**What the journal records.** Observation and before-version capture classify
+these versions as metadata-only and never open them for retention
+(`const retained = (entry`,
+`packages/ui-server/src/brain/native-journal-capture.ts:37`). A version keeps
+kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
+its opaque change stamp, with no content hash and no symlink target. Two
+versions of equal size are told apart by that stamp, as ignored ones are
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:61`),
+so every observed refresh remains a recorded change. A metadata-only version is an intentional
+observation state: it adds no `missing` entry and does not make the turn
+partial. Removal coverage never treats the family as eligible, and history
+offers no shared-window conflict between versions it does not keep.
+Scope accounting keeps its rules: the family already counted its largest size
+once per path (#2831); the one difference is that a publication copy that
+stays now counts its largest size once too, rather than each version.
+
+**History.** History presents every index-family version as metadata-only
+however it was recorded, so a version an earlier release retained keeps its
+stored row and object until ordinary retention but is no longer read
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:54-59`).
+The reader groups these entries as the search index, recorded by size and
+timestamps only, with no review action. Preview reports `metadata_only` and
+download has nothing to serve. History revert and Undo read that same
+presentation and exclude the family as `metadata_only`, so a version retained
+by an earlier release is not restored either
+(`reason = "metadata_only"`, `packages/ui-server/src/brain/turn-revert.ts:43`).
+The operation's ordinary index refresh rebuilds it, so that exclusion alone
+does not make the operation partial
+(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:145`). Existing
+retained history is not erased; ordinary bounded retention expires it.
+
+**Measured.** `scripts/prove-native-host.ts --backend=pi --app-uid=1000
+--observation-timing` on the native fixture (pi, governed, UID 1000, 2,000
+notes) times journal finish for 10 one-write turns in one conversation, each
+after the previous turn's automatic index refresh. On 2026-10-25:
+
+| | Host load (1-min, start → end) | Finish median | Finish p95 | Begin median |
+| --- | --- | --- | --- | --- |
+| Before (retained index versions) | 7.8 → 14.0 | 2,531 ms | 3,019 ms | 514 ms |
+| After (metadata-only index) | 10.0 → 12.7 | 518 ms | 563 ms | 486 ms |
+
+Finish now costs about what begin does: the remaining time is the
+observation's native checkpoint and release (#2872), not index bytes. Per-call
+added time is unchanged within noise. Both runs then stopped on the same
+unrelated index publication refusal of a changed sidecar stamp (#2878), after
+the measurement was written.
 
 ## Monitoring
 
@@ -3253,7 +3331,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:257-320`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:266-330`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3276,8 +3354,8 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:501-536`; destination-bound recovery
-is `const target`, `packages/ui-server/src/brain/turn-revert.ts:108-118`.
+`packages/ui-server/src/brain/turn-journal.ts:511-546`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:110-120`.
 
 ### Concurrent edits
 
@@ -3310,7 +3388,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:50-73`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:52-75`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name

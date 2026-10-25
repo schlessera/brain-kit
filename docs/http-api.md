@@ -599,7 +599,9 @@ are 400. Successful preview is `{ inline:true, before, after }`, decoding raw
 UTF-8 only. Combined before/after bytes above 256 KiB, combined lines above
 5,000, binary data or unavailable bytes return `{ inline:false, reason }`.
 Size fallback also supplies before/after byte sizes. It never reads more than
-the inline byte allowance to build a preview.
+the inline byte allowance to build a preview. A metadata-only index version has no
+retained bytes: its preview is `{ inline:false, reason:"metadata_only" }` and
+its raw download is 404.
 
 GET the same path plus `/:sequence/:side`, with `side` exactly `before` or
 `after`, returns retained raw bytes as an octet-stream attachment with private
@@ -614,7 +616,9 @@ require an authenticated human (`owner` or ambient human principal), never an
 agent/system principal. Original voice or unavailable/expired turns cannot be
 selected. The plan folds a path's first observed before-state and last observed
 after-state; ignored, incomplete, unsupported and Git-metadata paths are named
-as excluded. `action=restore` selects retained observed versions of quarantined
+as excluded, and the metadata-only index family as `metadata_only`, which alone
+does not make the operation partial
+([#2873](integration-contract/http.md#metadata-only-index-history-breaking-2873)). `action=restore` selects retained observed versions of quarantined
 paths, without exposing host-private quarantine paths or moving Git refs.
 
 POST accepts `{ id, path?, action? }`. `id` is an opaque 16–96 character ASCII

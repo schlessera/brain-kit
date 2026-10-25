@@ -88,6 +88,24 @@ from `true` to `false` while its update is queued. The maintainer ruled it on
 deferred failure delivery separately approved). `brain add --json` in the
 standalone CLI keeps its synchronous `indexed` meaning.
 
+## Metadata-only index history (breaking, 0.44.0, #2873)
+
+The turn journal records the brain's disposable index family
+(`.brain-index/brain.db`, its SQLite sidecars and an index publication copy) by
+path, size and change stamp only. Its versions carry the additive
+`JournalVersion.metadataOnly: true` and `stamp`, and no content hash; they
+cannot be previewed, downloaded or restored, and history revert excludes them
+as `metadata_only`. Earlier retained index versions are presented the same way.
+All other paths keep their retained bytes. The
+[HTTP contract](integration-contract/http.md#metadata-only-index-history-breaking-2873)
+states the presentation and the
+[turn scope counter](integration-contract/wire.md#turn-scope-additive-1670) its
+accounting.
+
+This is breaking: index versions were byte-retained and restorable before. The
+maintainer ruled it on #2873 (2026-10-25, option B). History recorded by
+earlier releases is not erased.
+
 ## Provider folder turns (additive, 0.44.0, #1668)
 
 A governance policy's `providers` rules now take effect in hosted interactive,

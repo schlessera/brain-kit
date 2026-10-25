@@ -11,7 +11,7 @@ const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.st
 
 /** `copy` reads an already verified, leased CAS object; it writes only the supplied regular descriptor. */
 export function restoreJournalPath(brain: string, path: string, expected: JournalVersion | null, desired: JournalVersion | null, copy: (fd: number) => void, beforeCommit?: () => void): "restored" | "conflict" {
-  if (process.platform !== "linux" || !reversibleJournalPath(path) || [expected, desired].some(item => item && (item.ignored || item.kind === "other"))) return "conflict";
+  if (process.platform !== "linux" || !reversibleJournalPath(path) || [expected, desired].some(item => item && (item.ignored || item.metadataOnly || item.kind === "other"))) return "conflict";
   const descriptors: number[] = [], parents: { parent: number; name: string; child: number }[] = [];
   let target: number | undefined;
   try {
@@ -73,7 +73,7 @@ export function restoreJournalPath(brain: string, path: string, expected: Journa
 /** Same sync naming, but raw bytes and exclusive descriptor-rooted creation. */
 export async function createJournalSibling(brain: string, source: string, desired: JournalVersion, copy: (fd: number) => void,
   prepare: (path: string) => void | Promise<void>, occupied: (path: string) => void | Promise<void>): Promise<string> {
-  if (process.platform !== "linux" || !reversibleJournalPath(source) || desired.kind !== "file" || desired.ignored || !desired.hash) throw new Error("sibling_version_unavailable");
+  if (process.platform !== "linux" || !reversibleJournalPath(source) || desired.kind !== "file" || desired.ignored || desired.metadataOnly || !desired.hash) throw new Error("sibling_version_unavailable");
   const descriptors: number[] = [], parents: {parent:number;name:string;child:number}[] = [];
   let file: number | undefined;
   try {
