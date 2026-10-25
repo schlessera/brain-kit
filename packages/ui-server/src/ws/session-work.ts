@@ -22,21 +22,22 @@ export interface AcceptedWork {
 }
 
 /**
- * Record that the host accepted a request for `sessionId` and return its
- * revision: one more than the last. The read and the write are one
- * statement, so two acceptances can never share a revision.
+ * Record that the host accepted a request for `sessionId` at `revision`. The
+ * catalog assigns revisions where it accepts, one above the highest it has
+ * issued or seen committed (#2850), so two acceptances never share one and a
+ * failed write's revision is never issued again; a gap orders as before.
  */
 export function acceptWork(
   db: Database,
   sessionId: string,
-  input: { requestId: string | null; backendId: string | null; at: number }
+  input: { revision: number; requestId: string | null; backendId: string | null; at: number }
 ): number {
   const row = db
     .query(
       `INSERT INTO session_work (session_id, revision, request_id, turn_id, backend_id, accepted_at, started_at)
-       VALUES (?, 1, ?, NULL, ?, ?, NULL)
+       VALUES (?, ?, ?, NULL, ?, ?, NULL)
        ON CONFLICT(session_id) DO UPDATE SET
-         revision = revision + 1,
+         revision = excluded.revision,
          request_id = excluded.request_id,
          turn_id = NULL,
          backend_id = COALESCE(excluded.backend_id, backend_id),
@@ -44,7 +45,7 @@ export function acceptWork(
          started_at = NULL
        RETURNING revision`
     )
-    .get(sessionId, input.requestId, input.backendId, input.at) as { revision: number };
+    .get(sessionId, input.revision, input.requestId, input.backendId, input.at) as { revision: number };
   return row.revision;
 }
 

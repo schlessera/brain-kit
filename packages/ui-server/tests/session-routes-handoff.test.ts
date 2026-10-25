@@ -13,7 +13,7 @@ describe("GET /sessions handoff links (#61)", () => {
     const catalog = createSessionCatalog(() => db);
     catalog.persistSessionStub("src", "Plan the return", "claude", "claude");
     catalog.persistSessionStub("dst", "Odysseus is sailing home", "pi", "pi");
-    expect(catalog.recordHandoff!("dst", "h-ithaca-0001", "src", 4)).toBe(true);
+    expect(await catalog.recordHandoff!("dst", "h-ithaca-0001", "src", 4)).toBe(true);
     const registry = createStaticBackendRegistry([
       makeFakeBackend({ id: "claude", sessions: [listed("src", "Ithaca return")] }),
       makeFakeBackend({ id: "pi", sessions: [listed("dst", "Odysseus is sailing home")] }),
@@ -26,9 +26,9 @@ describe("GET /sessions handoff links (#61)", () => {
     expect(catalog.findHandoff!("h-ithaca-0001")).toBe("dst");
     // The key is unique: a second destination cannot claim it.
     catalog.persistSessionStub("dst2", "again", "pi", "pi");
-    expect(catalog.recordHandoff!("dst2", "h-ithaca-0001", "src", 4)).toBe(false);
+    expect(await catalog.recordHandoff!("dst2", "h-ithaca-0001", "src", 4)).toBe(false);
     // A destination whose stub never persisted has no row: not recorded.
-    expect(catalog.recordHandoff!("never-stored", "h-ithaca-0002", "src", 1)).toBe(false);
+    expect(await catalog.recordHandoff!("never-stored", "h-ithaca-0002", "src", 1)).toBe(false);
     expect(catalog.findHandoff!("h-ithaca-0002")).toBeNull();
     db.close();
   });
