@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, linkSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createNativeJournalObserver, NativeJournalObservationError, type NativeJournalManager } from "../src/brain/native-journal-observer.js";
+import { createNativeJournalObserver, NativeJournalObservationError, NATIVE_RELEASE_BACKLOG, type NativeJournalManager } from "../src/brain/native-journal-observer.js";
+import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 
 type Entry = { path: string; ino: number; kind: string; mode: number; size: number; sha256?: string };
 const warmStream = Buffer.from("YnRyZnMtc3RyZWFtAAEAAABPAAAAAgDqvW00DwALAHdhcm0tODAwMC0wAQAQANEC0Ek2Vs1Ek6SKUp+teD8CAAgATwAAAAAAAAAUABAASziH678uVkGhaToa8/usdRUACABPAAAAAAAAAAAAAAAVAFBsyZ0=", "base64");
@@ -53,7 +54,7 @@ test("one initial metadata index and no metadata/content walk on warm no-change 
     expect(result.changes).toEqual([]);
     expect(result.stats,"NATIVE_OBSERVER_WARM_NO_FULL_WALK").toEqual({readEntries:0,walkedDirectories:0});
     expect(f.live.size).toBe(2);expect(f.observer.currentRoot()).toBe(before);
-    await result.commit();expect(f.live.size).toBe(1);expect(f.observer.currentRoot()).toBe(result.afterRoot);
+    await result.commit();await f.observer.releasesSettled();expect(f.live.size).toBe(1);expect(f.observer.currentRoot()).toBe(result.afterRoot);
     await result.commit();expect(f.released).toHaveLength(1);
   } finally {await f.close();}
 });
@@ -136,4 +137,146 @@ test("invalid UTF-8 initial names refuse and release the initial root",async()=>
   writeFileSync(Buffer.concat([Buffer.from(f.previous+"/"),Buffer.from([0xff])]),"Odysseus");
   try{await expect(f.observer.initialize()).rejects.toThrow("non-UTF-8");expect(f.live.size).toBe(0);}
   finally{await f.close();}
+});
+
+/** Copied roots whose releases wait for the test, one deferred per release. */
+function releaseFixture() {
+  const root=mkdtempSync(join(tmpdir(),"native-observer-release-odysseus-")),brain=join(root,"brain");
+  mkdirSync(join(brain,"notes"),{recursive:true});writeFileSync(join(brain,"notes","ithaca.md"),"Penelope waits at Ithaca.\n");
+  const native=createNativeJournalFixture(brain,root),release=native.manager.release.bind(native.manager),checkpoint=native.manager.checkpoint.bind(native.manager);
+  const counts={checkpoints:0};native.manager.checkpoint=(id,signal)=>{counts.checkpoints++;return checkpoint(id,signal);};
+  const waiting:{id:string;settle(error?:Error):void}[]=[],unsettled=new Set<{settle(error?:Error):void}>(),failures:unknown[]=[];
+  native.manager.release=id=>new Promise((resolve,reject)=>{const entry={id,settle(error?:Error){unsettled.delete(entry);if(error)reject(error);else resolve(release(id));}};unsettled.add(entry);waiting.push(entry);});
+  const observer=createNativeJournalObserver(native.manager,undefined,error=>failures.push(error));
+  const next=async()=>{for(let attempt=0;attempt<200&&!waiting.length;attempt++)await Bun.sleep(5);return waiting.shift()!;};
+  return {brain,native,observer,waiting,failures,next,counts,async close(){native.manager.release=release;waiting.length=0;for(const entry of [...unsettled])entry.settle();await observer.close().catch(()=>{});await native.close();rmSync(root,{recursive:true,force:true});}};
+}
+const settledWithin=async(promise:Promise<unknown>,ms=100)=>Promise.race([promise.then(()=>true),Bun.sleep(ms).then(()=>false)]);
+
+test("a commit hands the previous checkpoint to the release owner without waiting for its release",async()=>{
+  const f=releaseFixture();
+  try{
+    await f.observer.initialize();const first=f.observer.currentRoot();
+    writeFileSync(join(f.brain,"notes","ithaca.md"),"Odysseus is home on 2026-07-12.\n");
+    const result=await f.observer.observe();
+    expect(await settledWithin(result.commit()),"NATIVE_COMMIT_DOES_NOT_AWAIT_RELEASE").toBe(true);
+    expect(f.observer.currentRoot()).toBe(result.afterRoot);
+    const release=await f.next();expect(release.id,"NATIVE_RELEASE_OWNER_RELEASES_PREVIOUS_ROOT").toBe(first.id);
+    expect(f.observer.releases(),"NATIVE_RELEASE_RETAINED_SPACE_ACCOUNTED").toEqual({pending:1,failed:0,retainedBytes:"Penelope waits at Ithaca.\n".length});
+    release.settle();await f.observer.releasesSettled();
+    expect(f.observer.releases()).toEqual({pending:0,failed:0,retainedBytes:0});
+    expect(f.failures).toEqual([]);
+  }finally{await f.close();}
+});
+
+test("a release failing after its commit is reported, stays retained and charged, and shutdown retries then reports it",async()=>{
+  const f=releaseFixture();
+  try{
+    await f.observer.initialize();const first=f.observer.currentRoot();
+    writeFileSync(join(f.brain,"notes","ithaca.md"),"Suitors in the hall\n");
+    await (await f.observer.observe()).commit();
+    (await f.next()).settle(new Error("Odysseus release refused"));await f.observer.releasesSettled();
+    expect(f.failures.map(String),"NATIVE_LATE_RELEASE_FAILURE_REPORTED").toEqual(["Error: Odysseus release refused"]);
+    expect(f.observer.releases(),"NATIVE_FAILED_RELEASE_STAYS_CHARGED").toEqual({pending:0,failed:1,retainedBytes:"Penelope waits at Ithaca.\n".length});
+    const closing=f.observer.close();
+    const retry=await f.next();expect(retry.id,"NATIVE_SHUTDOWN_RETRIES_FAILED_RELEASE").toBe(first.id);retry.settle(new Error("still pinned"));
+    const current=await f.next();current.settle();
+    await expect(closing,"NATIVE_SHUTDOWN_REPORTS_RETAINED_CHECKPOINT").rejects.toThrow(`1 native checkpoint(s) remain retained after shutdown: ${first.id}`);
+  }finally{await f.close();}
+});
+
+test("shutdown drains queued releases before releasing the current root",async()=>{
+  const f=releaseFixture();
+  try{
+    await f.observer.initialize();const first=f.observer.currentRoot();
+    writeFileSync(join(f.brain,"notes","ithaca.md"),"Telemachus returns\n");
+    await (await f.observer.observe()).commit();const second=f.observer.currentRoot();
+    const closing=f.observer.close();
+    const queued=await f.next();expect(queued.id).toBe(first.id);
+    expect(await settledWithin(closing),"NATIVE_SHUTDOWN_WAITS_FOR_QUEUED_RELEASE").toBe(false);
+    queued.settle();
+    const current=await f.next();expect(current.id,"NATIVE_SHUTDOWN_RELEASES_CURRENT_ROOT_LAST").toBe(second.id);current.settle();
+    await closing;expect(f.observer.releases()).toEqual({pending:0,failed:0,retainedBytes:0});
+  }finally{await f.close();}
+});
+
+test("the release backlog is bounded: an observation takes no checkpoint until a queued release leaves room",async()=>{
+  const f=releaseFixture();
+  try{
+    await f.observer.initialize();
+    for(let index=0;index<NATIVE_RELEASE_BACKLOG;index++){
+      writeFileSync(join(f.brain,"notes","ithaca.md"),`Voyage ${index}\n`);
+      expect(await settledWithin((await f.observer.observe()).commit()),`NATIVE_COMMIT_WITHIN_BACKLOG ${index}`).toBe(true);
+    }
+    expect(f.observer.releases().pending).toBe(NATIVE_RELEASE_BACKLOG);
+    writeFileSync(join(f.brain,"notes","ithaca.md"),"Voyage past the bound\n");
+    const taken=f.counts.checkpoints,observed=f.observer.observe();
+    expect(await settledWithin(observed),"NATIVE_OBSERVATION_PAST_BACKLOG_WAITS").toBe(false);
+    expect(f.counts.checkpoints,"NATIVE_NO_CHECKPOINT_BEYOND_THE_BOUND").toBe(taken);
+    (await f.next()).settle();
+    const result=await observed;await result.commit();
+    expect(f.observer.releases().pending,"NATIVE_RELEASE_BACKLOG_NEVER_EXCEEDS_BOUND").toBe(NATIVE_RELEASE_BACKLOG);
+    for(let index=0;index<NATIVE_RELEASE_BACKLOG;index++)(await f.next()).settle();
+    await f.observer.releasesSettled();expect(f.observer.releases().pending).toBe(0);
+  }finally{await f.close();}
+});
+
+test("failed releases share the bound: with every slot failed, an observation retries the oldest inside the hold and is refused if it fails again",async()=>{
+  const f=releaseFixture(),failed:string[]=[];
+  try{
+    await f.observer.initialize();
+    for(let index=0;index<NATIVE_RELEASE_BACKLOG;index++){
+      writeFileSync(join(f.brain,"notes","ithaca.md"),`Storm ${index}\n`);
+      await (await f.observer.observe()).commit();
+      const release=await f.next();failed.push(release.id);release.settle(new Error(`Odysseus release refused ${index}`));await f.observer.releasesSettled();
+    }
+    expect(f.observer.releases().failed).toBe(NATIVE_RELEASE_BACKLOG);
+    writeFileSync(join(f.brain,"notes","ithaca.md"),"Storm in the hold\n");
+    const taken=f.counts.checkpoints,refused=f.observer.observe();refused.catch(()=>{});
+    const retry=await f.next();expect(retry?.id,"NATIVE_FULL_OF_FAILURES_RETRIES_OLDEST").toBe(failed[0]);
+    retry.settle(new Error("Odysseus release refused again"));
+    await expect(refused,"NATIVE_FULL_OF_FAILURES_REFUSES_OBSERVATION").rejects.toThrow("refused again");
+    expect(f.counts.checkpoints,"NATIVE_REFUSED_OBSERVATION_TAKES_NO_CHECKPOINT").toBe(taken);
+    expect(f.observer.releases().failed,"NATIVE_RETAINED_NEVER_EXCEEDS_BOUND").toBe(NATIVE_RELEASE_BACKLOG);
+    expect(f.failures,"NATIVE_IN_HOLD_RETRY_IS_THE_OBSERVATION_FAILURE").toHaveLength(NATIVE_RELEASE_BACKLOG);
+    const calm=f.observer.observe();
+    (await f.next()).settle();
+    await (await calm).commit();
+    expect(f.observer.releases(),"NATIVE_SUCCESSFUL_RETRY_MAKES_ROOM").toMatchObject({pending:1,failed:NATIVE_RELEASE_BACKLOG-1});
+  }finally{await f.close();}
+});
+
+test("a retained checkpoint stays charged with content replaced after it was taken, queued or failed",async()=>{
+  const f=releaseFixture(),original="Penelope waits at Ithaca.\n",feast="The suitors feast.\n",bow="Odysseus strings the bow.\n";
+  try{
+    await f.observer.initialize();
+    await (await f.observer.observe()).commit();
+    (await f.next()).settle(new Error("Odysseus release refused"));await f.observer.releasesSettled();
+    expect(f.observer.releases()).toEqual({pending:0,failed:1,retainedBytes:0});
+    writeFileSync(join(f.brain,"notes","ithaca.md"),feast);
+    await (await f.observer.observe()).commit();
+    (await f.next()).settle();await f.observer.releasesSettled();
+    expect(f.observer.releases(),"NATIVE_FAILED_CHECKPOINT_CHARGED_WITH_LATER_REPLACEMENTS").toEqual({pending:0,failed:1,retainedBytes:original.length});
+    writeFileSync(join(f.brain,"notes","ithaca.md"),bow);
+    await (await f.observer.observe()).commit();
+    const queued=await f.next();
+    expect(f.observer.releases(),"NATIVE_QUEUED_CHECKPOINT_CHARGED").toEqual({pending:1,failed:1,retainedBytes:original.length+2*feast.length});
+    queued.settle();await f.observer.releasesSettled();
+  }finally{await f.close();}
+});
+
+test("repeating a commit hands its checkpoint over once, and retries it after a failure",async()=>{
+  const f=releaseFixture(),requested:string[]=[];
+  try{
+    await f.observer.initialize();
+    writeFileSync(join(f.brain,"notes","ithaca.md"),"Voyage repeated\n");
+    const result=await f.observer.observe();
+    await Promise.all([result.commit(),result.commit()]);
+    const first=await f.next();requested.push(first.id);first.settle(new Error("Odysseus release refused"));await f.observer.releasesSettled();
+    await Bun.sleep(50);expect(f.waiting,"NATIVE_REPEATED_COMMIT_RELEASES_ONCE").toEqual([]);
+    await result.commit();
+    const retry=await f.next();requested.push(retry.id);retry.settle();await f.observer.releasesSettled();
+    expect(requested,"NATIVE_REPEATED_COMMIT_RETRIES_FAILED_RELEASE").toEqual([result.beforeRoot.id,result.beforeRoot.id]);
+    expect(f.observer.releases()).toEqual({pending:0,failed:0,retainedBytes:0});
+  }finally{await f.close();}
 });

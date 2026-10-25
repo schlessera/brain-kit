@@ -230,6 +230,81 @@ test("a delayed observation holds authority synchronously until its complete ser
   } finally { resume(); await f.close(); }
 });
 
+test("a previous checkpoint is released after the hold, and a release failure found there still stops every active turn", async () => {
+  const f = fixture();
+  const release = f.native.manager.release;
+  let fail: ((error: Error) => void) | undefined, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  try {
+    const stopped: Error[] = [];
+    for (const id of ["telemachus", "penelope"])
+      await f.journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
+    await f.journal.releasesSettled();
+    f.native.manager.release = () => new Promise((_resolve, reject) => { fail = reject; entered(); });
+    writeFileSync(join(f.brain, "notes", "odysseus.md"), "The suitors are gone.\n");
+    const observed = f.journal.observe().then(() => true);
+    expect(await Promise.race([observed, Bun.sleep(5_000).then(() => false)]), "JOURNAL_OBSERVATION_ENDS_BEFORE_RELEASE").toBe(true);
+    expect(f.journal.isHeld(), "JOURNAL_RELEASE_OUTSIDE_THE_HOLD").toBe(false);
+    await started;
+    expect(stopped, "JOURNAL_PENDING_RELEASE_STOPS_NOTHING").toEqual([]);
+    expect(f.journal.summary("telemachus").state).toBe("recording");
+    fail!(new Error("Odysseus release refused"));
+    await f.journal.releasesSettled();
+    expect(stopped.length, "JOURNAL_LATE_RELEASE_FAILURE_STOPS_EVERY_ACTIVE_TURN").toBe(2);
+    await f.journal.idle();
+    for (const id of ["telemachus", "penelope"]) expect(f.journal.summary(id).state, `JOURNAL_LATE_RELEASE_FAILURE_PARTIAL ${id}`).toBe("partial");
+    f.native.manager.release = release;
+    for (const id of ["telemachus", "penelope"]) await f.journal.finish(id);
+    expect(f.journal.summary("telemachus").state).toBe("partial");
+  } finally { fail?.(new Error("Odysseus cleanup")); f.native.manager.release = release; await f.close(); }
+});
+
+test("a release failing during an admission refuses it and fails the hold it overlaps", async () => {
+  const f = fixture();
+  const release = f.native.manager.release;
+  try {
+    const stopped: Error[] = [], completed: boolean[] = [];
+    await f.journal.begin("telemachus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
+    await f.journal.releasesSettled();
+    f.journal.onObservation(() => {}, { before() {}, after(ok) { completed.push(ok); } });
+    // The release begun by this admission's observation fails before the admission registers its turn.
+    f.native.manager.release = async () => { throw new Error("Odysseus release refused"); };
+    await expectRejection(f.begin("penelope"), "release failed during admission");
+    await f.journal.releasesSettled(); await f.journal.idle();
+    expect(f.journal.summary("penelope").state, "JOURNAL_ADMISSION_REFUSED_BY_LATE_RELEASE_FAILURE").not.toBe("recording");
+    expect(stopped.length, "JOURNAL_ACTIVE_TURN_STOPPED_BY_LATE_RELEASE_FAILURE").toBe(1);
+    expect(completed, "JOURNAL_OVERLAPPED_HOLD_DOES_NOT_RESUME").toEqual([false]);
+    f.native.manager.release = release;
+    await f.journal.finish("telemachus"); await f.journal.finish("penelope");
+  } finally { f.native.manager.release = release; await f.close(); }
+});
+
+test("an admission queued behind other journal work is refused when a release fails while it waits", async () => {
+  const f = fixture();
+  const release = f.native.manager.release, delta = f.native.manager.delta;
+  let fail: ((error: Error) => void) | undefined, resume!: () => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  try {
+    const stopped: Error[] = [];
+    await f.journal.begin("telemachus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
+    await f.journal.releasesSettled();
+    f.native.manager.release = () => new Promise((_resolve, reject) => { fail = reject; });
+    writeFileSync(join(f.brain, "notes", "odysseus.md"), "Athena guides the voyage.\n");
+    await f.journal.observe();
+    f.native.manager.delta = async (...args) => { entered(); await blocked; return delta(...args); };
+    const occupied = f.journal.observe(); occupied.catch(() => {});
+    await started;
+    const queued = f.begin("penelope"); queued.catch(() => {});
+    fail!(new Error("Odysseus release refused")); fail = undefined;
+    f.native.manager.release = release; f.native.manager.delta = delta; resume();
+    await occupied.catch(() => {});
+    await expectRejection(queued, "release failed during admission");
+    expect(stopped.length, "JOURNAL_ACTIVE_TURN_STOPPED_BY_LATE_RELEASE_FAILURE").toBe(1);
+    expect(f.journal.summary("penelope").state, "JOURNAL_QUEUED_ADMISSION_REFUSED_BY_RELEASE_FAILURE").not.toBe("recording");
+    await f.journal.finish("telemachus"); await f.journal.finish("penelope");
+  } finally { fail?.(new Error("Odysseus cleanup")); resume(); f.native.manager.release = release; f.native.manager.delta = delta; await f.close(); }
+});
+
 test("cancellation while native admission awaits cannot create an active late turn", async () => {
   const f = fixture(), cancellation = new AbortController();
   let resume!: () => void, entered!: () => void;

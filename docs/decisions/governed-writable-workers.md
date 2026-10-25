@@ -1331,7 +1331,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:180-199`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:196-217`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:134-142`). Pi's agent loop runs in
@@ -1343,7 +1343,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:421-428`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:444-451`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1462,7 +1462,7 @@ with retained bytes.
 **What the journal records.** Observation and before-version capture classify
 these versions as metadata-only and never open them for retention
 (`const retained = (entry`,
-`packages/ui-server/src/brain/native-journal-capture.ts:37`). A version keeps
+`packages/ui-server/src/brain/native-journal-capture.ts:39`). A version keeps
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
@@ -1505,6 +1505,135 @@ observation's native checkpoint and release (#2872), not index bytes. Per-call
 added time is unchanged within noise. Both runs then stopped on the same
 unrelated index publication refusal of a changed sidecar stamp (#2878), after
 the measurement was written.
+
+### Observation cost — 2026-10-25 (#2872)
+
+> **Maintainer ruling (2026-10-25), option 2.** (a) Replace the six fresh
+> `python3 -I -S` identity inspections per observation with one long-lived
+> inspector per manager, with identical inputs, checks and refusals. (b)
+> Release the previous native checkpoint after the capture is recorded,
+> outside the observation hold, under an explicit cleanup owner with a bounded
+> backlog and accounting of retained space; shutdown drains or reports pending
+> releases. (c) A failed release keeps today's outcome: every active turn
+> stops.
+
+**Why.** After #2834 a writer's result, journal begin and journal finish
+still wait for one whole observation inside the hold. On the native fixture
+about 97 ms of each observation was six fresh interpreter launches for the
+native manager's root identity checks, and 113 ms was the release of the
+previous checkpoint, which the observation no longer needs once its capture is
+recorded.
+
+**One identity inspector per manager.** The manager starts one
+`python3 -I -S` interpreter and sends it each inspection as one JSON line
+(`export function createNativeIdentityInspector`,
+`packages/ui-sdk/src/server/native-identity-inspector.ts:66-160`). The root
+and loop-device programs are byte-identical to the ones each fresh launch ran,
+which a test pins by hash. The interpreter compiles them once and runs one in
+fresh globals per request, with the path as its only argument, and answers
+with the program's output, its exit status and the traceback a fresh launch
+printed, without the loop's own frame. The manager turns a failure into the
+same refusal a failed launch produced (`async function inspection`,
+`packages/ui-sdk/src/server/native-brain-manager.ts:186-190`). Every
+`qualify` and `verifyOwned` still inspects the live path on every operation;
+nothing is cached between requests. An interrupted, timed-out, oversized or
+malformed exchange, or one with an interpreter that died, kills the
+interpreter and fails that request with the outcome a killed launch had; the
+next inspection starts a new interpreter. A refused startup and `close()`
+stop it.
+
+**Releasing the previous checkpoint.** `commit()` advances the observer's
+root and hands the previous checkpoint to the observer's release owner, which
+releases one checkpoint at a time in commit order. The release starts as the
+commit hands it over, and the hold no longer waits for it to complete. The
+observation's capture is already durable then, so the
+[native storage rule](native-brain-storage.md) still holds: a checkpoint is
+released only after its observations are durable. Each observed root, the
+brain and every managed worktree, has its own owner, and each owner keeps at
+most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
+queued or failed. An observation makes room before it takes its own
+checkpoint (`async function reserveRelease`,
+`packages/ui-server/src/brain/native-journal-observer.ts:329-335`): it waits
+inside the hold for the oldest queued release, or, when failed releases fill
+the bound, retries the oldest one inside the hold, as every release ran
+before. If that retry fails, the observation is refused before it takes a
+checkpoint, so the bound is never exceeded. Each retained checkpoint is charged with an upper bound of the file content
+it holds that the live root no longer has: the bytes of every file version
+replaced or removed since it was taken
+(`releases(): NativeJournalReleaseAccounting`,
+`packages/ui-server/src/brain/native-journal-observer.ts:478-482`).
+Directory and other metadata extents are not counted. The store's free space,
+which the `free_space_floor` scope limit reads, counts the actual extents until
+each release completes. Shutdown waits for every queued release, retries
+failed ones and the current root, and refuses with the identities of any
+checkpoint still retained; startup recovery releases those. A release that
+never settles is bounded by the manager client's transport deadline, not by
+the owner.
+
+**A failed release.** The checkpoint stays retained and charged until a
+retry, and the journal treats the failure as the hold did
+(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:149-157`):
+every active turn stops and its record is partial, a hold the failure
+overlaps kills its held workers instead of resuming them, and an admission
+requested before the failure, even one still queued behind other journal work,
+is refused. A turn that finished before the failure keeps its record:
+its terminal capture was recorded before the release began, and the failure
+concerns storage cleanup, not what the journal holds. A failure inside the
+hold, of a checkpoint, a delta, a capture, the retry of a failed release or the
+release of an aborted observation, is unchanged.
+
+**Tests.** A fresh launch and the shared interpreter answer each refused
+inspection with the same exit status, output and traceback; every request sees
+the path's current state; a dead interpreter is replaced
+(`packages/ui-sdk/tests/native-identity-inspector.test.ts`). On the native
+fixture, a writable checkpoint is refused by checkpoint, both sides of delta
+and release, which then deletes nothing; a read-only live brain, a nested
+subvolume and enabled qgroups are refused by checkpoint; one manager starts
+one interpreter; and the interpreter's answers for the live root and the loop
+device equal a fresh launch's (`scripts/native-proof/hosted-app.test.ts`, pi
+UID 0). The private-read and stage paths' `verifyOwned` and the UUID and
+transaction comparisons are not exercised there; they share the one
+inspection path. The observer and journal tests prove that the hold ends
+before the release completes, that queued and failed releases share the bound
+and no checkpoint is taken beyond it, that the charge grows with later
+replacements, that a late failure stops every active turn, refuses an
+overlapping or queued admission and fails an overlapping hold, and that
+shutdown drains and reports
+(`packages/ui-server/tests/native-journal-observer.test.ts`,
+`packages/ui-server/tests/turn-journal.test.ts`).
+
+**Measured.** `bun scripts/prove-native-host.ts --backend=pi --app-uid=1000
+--observation-timing` on the native fixture (pi, governed, UID 1000, 2,000
+notes), on 2026-10-25, with the host load recorded. Median added ms with its
+p95, and the median worker hold:
+
+| | Host load (1-min, start → end) | `write_file` | `edit_file` | Writing `bash` | Journal begin + finish | Interpreter launches |
+| --- | --- | --- | --- | --- | --- | --- |
+| Before, run 1 | 5.9 → 7.3 | 278 / 345, held 253 | 326 / 423, held 292 | 285 / 359, held 258 | 547 / 681 | 1,334 |
+| Before, run 2 | 5.7 → 7.9 | 308 / 396, held 277 | 335 / 385, held 302 | 293 / 347, held 267 | 630 / 684 | 1,334 |
+| After, first slice | 8.9 → 12.1 | 186 / 208, held 147 | 172 / 232, held 139 | 222 / 341, held 182 | 347 / 779 | 1 |
+| Paired before | 8.4 → 10.6 | 628 / 976, held 574 | 713 / 950, held 662 | 638 / 1,116, held 590 | 1,010 / 1,089 | 1,363 |
+| Paired after | 9.9 → 11.0 | 358 / 548, held 300 | 458 / 648, held 391 | 431 / 500, held 374 | 801 / 956 | 1 |
+
+The first slice was this change before review moved the backlog wait ahead of
+the checkpoint and added the failure generation; neither runs on a healthy
+path. The paired runs used the final change, back to back, after the host's
+storage had slowed: a native snapshot took 31 ms in both, against 11 to 15 ms
+in the earlier runs, and a proven read, which no observation touches, added
+74 and 72 ms against about 30 ms before. Compare rows within a pair or a quiet
+period, not across them.
+
+The identity inspections now cost one interpreter for the whole run, and the
+release no longer holds a writer's workers: a writer's added time fell by about
+40 % in both comparisons, and begin's by more than half. Finish did not get
+faster (236 to 251 ms before, 234 ms after in the quiet period; 525 to 610 ms
+in the slow pair); what it waits for is not attributed. Neither #2834 target
+is met: writers stay above 150 ms and begin plus finish above 300 ms. The
+manager's own commands inside the hold take about 20 ms of a writer's hold in
+the quiet period (snapshot 15 ms, the subvolume list, the qgroup check and the
+send 1 to 2 ms each); the rest of the hold is not attributed
+(#2915). The targets are
+reported as unmet, not relaxed.
 
 ## Monitoring
 
@@ -3519,7 +3648,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:266-330`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:284-348`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3542,7 +3671,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:511-546`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:539-574`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:110-120`.
 
 ### Concurrent edits
