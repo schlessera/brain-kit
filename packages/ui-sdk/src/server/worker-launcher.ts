@@ -1,7 +1,7 @@
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
-import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
+import { prepareWorkerIdentity, workerCleanupUnconfirmed, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
@@ -1003,8 +1003,20 @@ export interface WorkerStateHandle {
   readonly root: string;
   /** The tmpfs's size and the bytes still free in it, read now. */
   space(): { total: number; free: number };
-  /** Idempotent. The tmpfs is freed once the worker is gone and this is closed. */
+  /**
+   * Idempotent. The tmpfs is freed once the worker is gone and this is closed.
+   * A separate-UID worker's last handle also closes its identity broker, and
+   * waits for it; a cleanup it cannot confirm throws and can be retried.
+   */
   close(): void;
+  /**
+   * `close`, awaiting a separate-UID worker's broker cleanup through the
+   * asynchronous step driver instead of blocking the event loop (#2854). It
+   * resolves only once the cleanup is confirmed, and rejects, retryably,
+   * while it is not. Closing a handle that is not the worker's last does not
+   * wait for the others.
+   */
+  closeAsync(): Promise<void>;
 }
 
 export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["streams"]> & {
@@ -1138,20 +1150,30 @@ function* openPrivateTurnTempSteps(bwrap: number, pid: number, bytes: number, de
   }
 }
 
-/** A held private tmpfs, as `LaunchedWorker.state` and `.turnTemp` expose it. */
-function heldTmpfs(fd: number, onClose?: () => void): WorkerStateHandle {
+/**
+ * A held private tmpfs, as `LaunchedWorker.state` and `.turnTemp` expose it.
+ * `release` runs after its descriptor is closed, in the caller's form.
+ */
+function heldTmpfs(fd: number, release?: { sync(): void; async(): Promise<void> }): WorkerStateHandle {
   const root = `/proc/self/fd/${fd}`;
   let open = true;
   let released = false;
+  const closeDescriptor = () => { if (open) { closeSync(fd); open = false; } };
   return {
     root,
     space() { const fs = statfsSync(root); return { total: fs.blocks * fs.bsize, free: fs.bavail * fs.bsize }; },
     close() {
       if (released) return;
-      if (open) { closeSync(fd); open = false; }
       // A failed owned-tree cleanup can be retried, but only a new successful
       // cleanup receipt releases ownership/accounting. The FD closes once.
-      onClose?.();
+      closeDescriptor();
+      release?.sync();
+      released = true;
+    },
+    async closeAsync() {
+      if (released) return;
+      closeDescriptor();
+      await release?.async();
       released = true;
     },
   };
@@ -1314,11 +1336,26 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
   let failMaintenanceSetup: ((error: unknown) => void) | undefined;
   const identityHandles: WorkerStateHandle[] = [];
   const identityReaders: ReturnType<typeof registerIdentityReadRoot>[] = [];
+  // The broker closes once its worker has finished and its last handle is
+  // released. One close is in flight at a time, whoever asks: the last handle,
+  // the worker's exit with no handle held, or a failed supervision. A close
+  // that cannot confirm the cleanup retains the broker and its readers'
+  // accounting, and the next request tries again (#2854).
+  let identityClosing: Promise<void> | undefined;
+  const identityReleasable = () => identityBroker !== undefined && identityFinished && identityReferences === 0;
+  function* closeIdentitySteps(): WorkerSteps<void> {
+    try { yield* identityBroker!.closeSteps(); }
+    catch (error) { throw workerCleanupUnconfirmed(error) ? error : new WorkerIdentityCleanupError(`worker_identity_cleanup_unconfirmed: ${String(error)}`); }
+    for (const reader of identityReaders) reader.confirmCleanup();
+  }
   const releaseIdentity = () => {
-    if (identityFinished && identityReferences === 0) {
-      identityBroker?.close();
-      for (const reader of identityReaders) reader.confirmCleanup();
-    }
+    if (!identityReleasable()) return;
+    if (identityClosing) throw new WorkerIdentityCleanupError("worker_identity_cleanup_unconfirmed: an awaited close is still in flight");
+    runWorkerStepsSync(closeIdentitySteps());
+  };
+  const releaseIdentityAsync = (): Promise<void> => {
+    if (!identityReleasable()) return Promise.resolve();
+    return identityClosing ??= runWorkerStepsAsync(closeIdentitySteps()).finally(() => { identityClosing = undefined; });
   };
   try {
     startupView ??= input.sandbox?.profile === "governed" ? undefined : createWorkerStartupView(realpathSync(input.brainPath), { omitGit: Boolean(input.restricted) });
@@ -1386,8 +1423,10 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       identityReferences++;
       const reader = registerIdentityReadRoot(`/proc/self/fd/${fd}`, name, name === "state" ? input.stateBytes! : input.turnTempBytes!, identityBroker!.request, identityBroker!.requestAsync);
       identityReaders.push(reader);
-      let released = false;
-      const handle = heldTmpfs(fd, () => { if (!released) { released = true; reader.close(); identityReferences--; } releaseIdentity(); });
+      // The reference is dropped once, however often a failed close is retried.
+      let dropped = false;
+      const drop = () => { if (!dropped) { dropped = true; reader.close(); identityReferences--; } };
+      const handle = heldTmpfs(fd, { sync: () => { drop(); releaseIdentity(); }, async: () => { drop(); return releaseIdentityAsync(); } });
       identityHandles.push(handle);
       return handle;
     };
@@ -1441,10 +1480,22 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       return { hits, fatal };
     };
     const spawned = child;
+    // A separate-UID worker's exit settles once its broker is closed, when no
+    // handle holds it, and never waits for a held handle: a backend releases
+    // its handles only after the exit. A failed supervision is terminated
+    // before the close. Either close's refusal is the exit's (#2854).
     const workerExit = identityBroker ? identityWorkerExit(() => identityBroker!.requestSteps<IdentityWorkerStatus>("status"), spawned.exited, {
       finished: () => identityFinished,
       finish: () => { identityFinished = true; },
-      release: releaseIdentity,
+      release: releaseIdentityAsync,
+    }).catch(async (error: unknown) => {
+      if (workerCleanupUnconfirmed(error)) throw error;
+      // A failed supervisor/control path is never eligible for publication.
+      // Independently authorized termination precedes the broker close.
+      identityBroker!.terminate();
+      try { await releaseIdentityAsync(); }
+      catch (failure) { throw new WorkerIdentityCleanupError(`${(failure as Error).message}; original failure: ${String(error)}`); }
+      throw error;
     }) : spawned.exited;
     if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, workerExit);
     void workerExit.then(() => completeMaintenanceSetup?.(), error => failMaintenanceSetup?.(error));
@@ -1461,10 +1512,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       return code;
     }, async error => {
       clearInterval(memoryWatch);
-      // A failed supervisor/control path is never eligible for publication.
-      // Independently authorized termination precedes owned output cleanup.
-      identityBroker?.terminate();
-      releaseIdentity();
+      // A failed supervisor/control path is never eligible for publication; the
+      // worker's exit has already terminated it and closed its broker.
       cgroup?.remove();
       try { await areaOutput?.cleanup(); }
       finally { if (!input.preparedOutput) await startupView?.cleanup(); }
@@ -1522,9 +1571,13 @@ export interface IdentityWorkerStatus { exited: boolean; code: number | null; fa
  * broker request would hold the server's event loop for as long as a loaded
  * host takes to answer it, every time. One request is in flight at a time,
  * and the supervisor's own exit ends the polling as before.
+ *
+ * An ordinary exit settles once `release` has: its refusal to confirm the
+ * broker's cleanup is the exit's (#2854). A failed supervision is refused
+ * without it, so its owner can terminate the worker first.
  */
 export function identityWorkerExit(status: () => WorkerSteps<IdentityWorkerStatus>, supervisor: Promise<number>,
-  supervision: { finished(): boolean; finish(): void; release(): void }): Promise<number> {
+  supervision: { finished(): boolean; finish(): void; release(): Promise<void> }): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = () => {
@@ -1534,14 +1587,14 @@ export function identityWorkerExit(status: () => WorkerSteps<IdentityWorkerStatu
           if (supervision.finished()) return;
           if (!result.exited) { poll(); return; }
           supervision.finish();
-          if (result.failure) reject(new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`));
-          else resolve(result.code !== null && result.code < 0 ? 128 - result.code : result.code ?? 1);
-          supervision.release();
+          if (result.failure) { reject(new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`)); return; }
+          const code = result.code !== null && result.code < 0 ? 128 - result.code : result.code ?? 1;
+          return supervision.release().then(() => resolve(code));
         }, error => {
           if (supervision.finished()) return;
           supervision.finish(); reject(error);
         }).catch(error => {
-          // A release that cannot confirm cleanup, as when the poll caught it synchronously.
+          // A release that cannot confirm cleanup refuses the exit.
           supervision.finish(); reject(error);
         });
       }, 100);
