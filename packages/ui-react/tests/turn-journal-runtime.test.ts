@@ -72,7 +72,8 @@ beforeAll(() => hook.phase("setup", async () => {
   const temporary = resolve(root, "memory-worker"); await mkdir(temporary); memoryState.populate(temporary);
   await app.wsHost.journal!.begin(memoryId, metadata, error => { throw error; });
   await writeFile(resolve(temporary, project, "memory/voyage.md"), "Athena remembers the crossing.\r\n");
-  memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
+  // The Claude backend awaits copy-out before its turn ends (`releaseTerminal`); so does this fixture.
+  await memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
   await app.wsHost.journal!.finish(memoryId);
   const memorySeed = JSON.stringify({ turnId: memoryId, summary: app.wsHost.journal!.summary(memoryId) });
   const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
