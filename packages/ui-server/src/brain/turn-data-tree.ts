@@ -4,8 +4,8 @@
  * A strict worker runs configuration from the immutable startup view at the
  * brain path (#1649), so the host's applications in its own turn never reach
  * that view. Its brain tools read a separate data tree instead: a host copy of
- * the view's documents, with this turn's committed Markdown written into it as
- * each application commits, and the turn's own search index over its
+ * the view's documents, with this turn's committed Markdown and image masks
+ * written into it as each application commits, and the turn's own search index over its
  * `.brain-index/`. Both are read-only to the worker. At the next index read a
  * credential-free worker, configured from the same frozen view, brings the
  * index up to date with the tree; nothing a peer applied mid-turn enters it.
@@ -40,11 +40,14 @@ import { createPrivateIndexDirectory, PRIVATE_INDEX_BUILD_MS, removePrivateIndex
 import { MAINTENANCE_ENTRY } from "./host-boundary.js";
 
 /**
- * One committed Markdown effect of an application: its bytes, or null for a
- * removal, and the live base it transformed: the path's own, or for an
- * archive destination the base of the source it was moved `from`.
+ * One committed effect of an application: its bytes, or null for a removal,
+ * and the live base it transformed: the path's own, or for an archive
+ * destination the base of the source it was moved `from`. Markdown carries
+ * text; an image mask (#2892) carries the PNG's bytes.
  */
-export interface AppliedEffect { readonly path: string; readonly content: string | null; readonly base: string | null; readonly from?: string }
+export interface AppliedEffect {
+  readonly path: string; readonly content: string | Uint8Array | null; readonly base: string | Uint8Array | null; readonly from?: string;
+}
 
 /** The provider rules a masked turn's tree admits effects under. */
 export interface TurnTreeMasks {
@@ -187,18 +190,18 @@ function openParent(root: string, path: string): { fd: number; name: string } {
   } catch (error) { closeSync(fd); throw error; }
 }
 
-function readTree(root: string, path: string): string | null {
+function readTree(root: string, path: string): Buffer | null {
   let parent: { fd: number; name: string };
   try { parent = openParent(root, path); } catch (error) { if (["ENOENT", "ENOTDIR", "ELOOP"].includes(errno(error) ?? "")) return null; throw error; }
   try {
     let fd: number;
     try { fd = openSync(at(parent.fd, parent.name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
     catch (error) { if (["ENOENT", "ELOOP"].includes(errno(error) ?? "")) return null; throw error; }
-    try { return fstatSync(fd).isFile() ? readFileSync(fd, "utf8") : null; } finally { closeSync(fd); }
+    try { return fstatSync(fd).isFile() ? readFileSync(fd) : null; } finally { closeSync(fd); }
   } finally { closeSync(parent.fd); }
 }
 
-function writeTree(root: string, path: string, content: string | null): void {
+function writeTree(root: string, path: string, content: string | Uint8Array | null): void {
   const parent = openParent(root, path);
   try {
     const target = at(parent.fd, parent.name);
@@ -211,8 +214,9 @@ function writeTree(root: string, path: string, content: string | null): void {
   } finally { closeSync(parent.fd); }
 }
 
-const declaredType = (text: string | null): string | undefined => {
-  if (text === null) return undefined;
+const declaredType = (text: string | Uint8Array | null): string | undefined => {
+  // Only Markdown declares a type; an image's bytes never do.
+  if (typeof text !== "string") return undefined;
   try { const type = parseFrontmatter(text, { dataOnly: true }).data?.type; return type === undefined || type === null ? undefined : String(type); }
   catch { return undefined; }
 };
@@ -331,7 +335,9 @@ export function createTurnDataTree(options: {
     if ((resultType !== undefined && types.has(resultType)) || (baseType !== undefined && types.has(baseType))) return false;
     // The base the application transformed must be what this turn could
     // already see: the view's bytes or its own earlier effect, never a peer's.
-    return readTree(root, effect.from ?? effect.path) === effect.base;
+    const seen = readTree(root, effect.from ?? effect.path);
+    if (seen === null || effect.base === null) return seen === effect.base;
+    return typeof effect.base === "string" ? seen.toString("utf8") === effect.base : seen.equals(effect.base);
   };
   let closed: Promise<void> | undefined;
   return {

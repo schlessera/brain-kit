@@ -812,7 +812,8 @@ configuration still loads from the frozen view at the brain path.
   `0600` file) is left out too.
   It costs O(brain), 0.11-0.31 s on the 2,000-note fixture, besides the
   approved index copy. Applications write only non-hidden `.md` outside
-  `context/policies`, so every other byte in the tree equals the view.
+  `context/policies`, and the image-mask operation only its PNG and its
+  scratch prune's removals, so every other byte in the tree equals the view.
 - **Committed bytes enter the tree inside the commit boundary.** Each
   application hands the tree its committed effects with the live base each
   one replaced, partial staged failures included; an archive writes the
@@ -850,7 +851,14 @@ configuration still loads from the frozen view at the brain path.
   the tree must stay data that only the brain tools read. pi's `read_file`,
   `grep` and `brain_read` resolve against the tree, and pi's shell runs in it;
   pi loads its context files at startup from the frozen path. The sandbox note
-  names the data path. Image-mask PNGs are not copied into the tree mid-turn.
+  names the data path.
+- **Image masks reach the tree too (#2892).** The mask operation hands the
+  tree its committed PNG, with the mask bytes it replaced as the base, and the
+  scratch prune's removals, inside the same lock as the live write. A worker's
+  next read of the mask in the tree returns the applied bytes, a pruned
+  scratch file is gone from it, and a Claude `Read` of the mask at the brain
+  path is refused like any applied path. In a masked turn the PNG enters only
+  under the provenance rule below, compared byte for byte.
 
 **Provider-restricted turns (#2846, B1).** A masked turn's tree leaves out
 the masked folders, the operational-state folders `.brain` and `.brain-ui` and

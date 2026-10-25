@@ -3807,7 +3807,9 @@ to the brain path. Only a worker on an immutable startup view may receive one.
 now mounted read-only unless the host's own build sets it. The first-party pi
 backend reads its brain tools, `read_file`, `grep` and `brain_read` from the
 tree and runs its shell there. In `@schlessera/brain-ui-server`,
-`GovernedTurnHold` adds `dataTree?: TurnDataTree`.
+`GovernedTurnHold` adds `dataTree?: TurnDataTree`. `AppliedEffect`'s
+`content` and `base` also accept a `Uint8Array`: an image mask's PNG reaches
+the tree through the same `commit` (additive, #2892).
 
 ### Prompt-cache diagnostic events (additive, #2050)
 
