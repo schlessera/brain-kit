@@ -16,6 +16,15 @@ describe("classifyPostSyncDirt", () => {
 
   test("both derived sidecars are auto-committable", () => {
     const { caches, other } = classifyPostSyncDirt([
+      ".brain-cache/contexts.jsonl",
+      ".brain-cache/assets.jsonl",
+    ]);
+    expect(caches).toEqual([".brain-cache/contexts.jsonl", ".brain-cache/assets.jsonl"]);
+    expect(other).toEqual([]);
+  });
+
+  test("the legacy root-level sidecars stay auto-committable, so post-sync commits their move (#2725)", () => {
+    const { caches, other } = classifyPostSyncDirt([
       ".context-cache.jsonl",
       ".asset-cache.jsonl",
     ]);
@@ -46,8 +55,10 @@ describe("classifyPostSyncDirt", () => {
       "vendor/.context-cache.jsonl",
       ".context-cache.jsonl.bak",
       "asset-cache.jsonl",
+      "vendor/.brain-cache/contexts.jsonl",
+      ".brain-cache/notes.jsonl",
     ]);
     expect(caches).toEqual([]);
-    expect(other).toHaveLength(3);
+    expect(other).toHaveLength(5);
   });
 });

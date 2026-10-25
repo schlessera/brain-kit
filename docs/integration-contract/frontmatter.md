@@ -272,12 +272,20 @@ exported from `@schlessera/brain` — and that test fails when this document, th
   `relevance: primary`.
 - The configured inbox dir (default `notes/`) with `status: active` =
   unprocessed inbox (capture targets this).
-- Committed sidecars `.context-cache.jsonl` / `.asset-cache.jsonl`:
+- Committed sidecars `.brain-cache/contexts.jsonl` /
+  `.brain-cache/assets.jsonl` (breaking in 0.44.0, #2725; before it, the
+  root-level `.context-cache.jsonl` / `.asset-cache.jsonl`):
   content-hash-keyed `{k,v}` JSONL, appended from the db after embeddings
   runs — a committed value is never overwritten, a duplicated key resolves to
   its first line in sorted order, and a run with nothing new does not write
   the file. Machine-managed, union-merge on conflict, never hand-edit.
-  Templates ship them empty.
+  Templates ship them empty, with `merge=union` lines for the new paths in
+  `.gitattributes`. Readers union a root-level legacy file with the new one;
+  the first writing index run, or `brain doctor --fix` (check
+  `legacy-caches`), moves every distinct line of it into the new file, sorted,
+  and deletes it. The move is idempotent. `brain sync` treats both the new and
+  the legacy paths as derived caches, so a merge with a clone that still
+  writes the legacy names keeps both sides' lines.
 - Committed `.stats-history.jsonl` (additive in 0.40.0): one `brain stats`
   snapshot per day, written by `brain maintain` and `brain stats --record`
   (see "Stats history"). Machine-managed; a brain gains it on its first

@@ -119,7 +119,7 @@ test("a peer inherits retired provider folders from the active cross-process gat
   try {
     const first = await w.server.acquire("shared", "turn:odysseus");
     try {
-      expect(first.folderPaths).toEqual([".brain-index", "group/private"]);
+      expect(first.folderPaths).toEqual([".brain-cache", ".brain-index", "group/private"]);
       writeFileSync(policy, "---\nschema_version: 1\nproviders: []\n---\nAthena retires the restriction.\n");
       const second = await w.cron.acquire("shared", "turn:athena");
       try {
@@ -132,7 +132,7 @@ test("a peer inherits retired provider folders from the active cross-process gat
           printf Odysseus > group/public.md || exit 44
         `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
         expect(child.exitCode, `INHERITED_GATE_PLAN_REACHES_NATIVE_FOLDER_PINS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
-        expect(second.folderPaths, "ACTIVE_PEER_FOLDER_PLAN_SURVIVES_POLICY_REMOVAL").toEqual([".brain-index", "group/private"]);
+        expect(second.folderPaths, "ACTIVE_PEER_FOLDER_PLAN_SURVIVES_POLICY_REMOVAL").toEqual([".brain-cache", ".brain-index", "group/private"]);
       } finally { second.release(); }
     } finally { first.release(); }
     const after = await w.cron.acquire("shared", "turn:circe");
@@ -178,7 +178,7 @@ describe("a type selector's recorded translation across processes (#2836)", () =
   test("a new process plans the folders an exited process translated, under the same policy version", async () => {
     const w = typeWorld();
     await record(w.db, w.brain, ["me"]);
-    expect(await planInNewProcess(w.db, w.brain), "RESTARTED_PROCESS_PLANS_THE_RECORDED_TYPE_FOLDERS").toEqual([".brain-index", "me"]);
+    expect(await planInNewProcess(w.db, w.brain), "RESTARTED_PROCESS_PLANS_THE_RECORDED_TYPE_FOLDERS").toEqual([".brain-cache", ".brain-index", "me"]);
   });
 
   test("a translation recorded under another policy version is not planned", async () => {
@@ -196,7 +196,7 @@ describe("a type selector's recorded translation across processes (#2836)", () =
     typeBrain(other);
     await record(w.db, w.brain, ["me"]);
     expect(await planInNewProcess(w.db, realpathSync(other)), "OTHER_BRAIN_PLANS_NO_TYPE_FOLDER").toEqual([]);
-    expect(await planInNewProcess(w.db, w.brain), "RECORDING_BRAIN_STILL_PLANS_IT").toEqual([".brain-index", "me"]);
+    expect(await planInNewProcess(w.db, w.brain), "RECORDING_BRAIN_STILL_PLANS_IT").toEqual([".brain-cache", ".brain-index", "me"]);
   });
 
   test("a recorded folder that is no longer a directory is not planned", async () => {
@@ -204,7 +204,7 @@ describe("a type selector's recorded translation across processes (#2836)", () =
     // The taxonomy moved a type under the same policy: the old folder is gone or aliased.
     symlinkSync(join(w.brain, "me"), join(w.brain, "alias"));
     await record(w.db, w.brain, ["alias", "ithaca", "me"]);
-    expect(await planInNewProcess(w.db, w.brain), "ONLY_EXISTING_RECORDED_FOLDERS_PLANNED").toEqual([".brain-index", "me"]);
+    expect(await planInNewProcess(w.db, w.brain), "ONLY_EXISTING_RECORDED_FOLDERS_PLANNED").toEqual([".brain-cache", ".brain-index", "me"]);
   });
 
   test("only the brain's latest translation is kept, and an unreadable one plans nothing", async () => {
@@ -243,7 +243,7 @@ describe("provider folder admission beside earlier writers (#2832)", () => {
     mkdirSync(join(w.brain, "group/private"), { recursive: true });
     writeFileSync(join(w.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
     const turn = await w.server.acquire("shared", "turn:odysseus", { turn: true });
-    expect(turn.folderPaths).toEqual([".brain-index", "group/private"]);
+    expect(turn.folderPaths).toEqual([".brain-cache", ".brain-index", "group/private"]);
     return { w, peer, turn, close: () => { peer.release(); turn.release(); w.close(); } };
   }
 
@@ -258,7 +258,7 @@ describe("provider folder admission beside earlier writers (#2832)", () => {
       // A writer admitted meanwhile merges the held folders, so it never extends the wait.
       const later = await w.cron.acquire("shared", "index refresh");
       try {
-        expect(later.folderPaths, "A_LATER_WRITER_RETAINS_THE_HELD_FOLDERS").toEqual([".brain-index", "group/private"]);
+        expect(later.folderPaths, "A_LATER_WRITER_RETAINS_THE_HELD_FOLDERS").toEqual([".brain-cache", ".brain-index", "group/private"]);
         peer.release();
         await waiting;
         expect(settled, "ADMITTED_ONCE_THE_EARLIER_WRITER_FINISHED").toBe(true);
@@ -317,7 +317,7 @@ describe("unpinned host writer provenance", () => {
       // A folder policy written while the hosts run applies to later admissions.
       writePolicy(w, "providers: [{ paths: [group/private/**], allow: [anthropic] }]\n");
       const candidate = await w.server.acquire("shared", "turn:circe");
-      expect(candidate.folderPaths).toEqual([".brain-index", "group/private"]);
+      expect(candidate.folderPaths).toEqual([".brain-cache", ".brain-index", "group/private"]);
       expect(() => candidate.assertPeerFolderPlans!(["group/private"]), "UNPINNED_HOST_PEERS_NEVER_AUTHORIZE_GOVERNED_ADMISSION").toThrow("unpinned host writer");
       first.release(); second.release();
       expect(() => candidate.assertPeerFolderPlans!(["group/private"])).not.toThrow();
@@ -334,7 +334,7 @@ describe("unpinned host writer provenance", () => {
       expect(refusal, "FOLDER_POLICY_REFUSES_HOST_CLASSIFICATION").toBeInstanceOf(HostFallbackRefusedError);
       expect(String(refusal)).toContain("group/private");
       expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id), "REFUSED_HOST_KEEPS_ITS_PLAN")
-        .toEqual({ folder_topology: JSON.stringify([".brain-index", "group/private"]) });
+        .toEqual({ folder_topology: JSON.stringify([".brain-cache", ".brain-index", "group/private"]) });
       host.release();
       const turn = await w.cron.acquire("shared", "turn:circe");
       expect(() => turn.assertPeerFolderPlans!(["group/private"])).not.toThrow();
@@ -363,7 +363,7 @@ describe("unpinned host writer provenance", () => {
       native.assertPeerFolderPlans!(["group/private"]);
       rmSync(join(w.brain, "context/policies/governance.md"));
       const host = await w.cron.acquire("shared", "host:athena");
-      expect(host.folderPaths, "REMOVED_POLICY_INHERITS_PEER_ROOTS").toEqual([".brain-index", "group/private"]);
+      expect(host.folderPaths, "REMOVED_POLICY_INHERITS_PEER_ROOTS").toEqual([".brain-cache", ".brain-index", "group/private"]);
       expect(() => markUnpinnedHostWriter(host), "INHERITED_ROOTS_REFUSE_LATE_HOST").toThrow("active peer");
       host.release(); native.release();
       const after = await w.cron.acquire("shared", "host:circe");

@@ -272,9 +272,12 @@ test("a restricted autonomous worker reads the committed generated-text caches a
   const f = await fixture();
   writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
   writeFileSync(join(f.brain, ".asset-cache.jsonl"), `${JSON.stringify({ key: "avatar", description: `${SENTINEL} description of me/avatar.png` })}\n`);
+  mkdirSync(join(f.brain, ".brain-cache"));
+  writeFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), `${JSON.stringify({ k: "oath", v: `${SENTINEL} context of me/oath.md` })}\n`);
+  writeFileSync(join(f.brain, ".brain-cache/assets.jsonl"), `${JSON.stringify({ k: "avatar", v: `${SENTINEL} description of me/avatar.png` })}\n`);
   let shell = "";
   await runAutonomousTurn({ ...f.deps, backend: restrictedBackend(f.brain, async (_request, run) => {
-    shell = await run(`for cache in .context-cache.jsonl .asset-cache.jsonl; do test -c "$cache" && printf '%s=masked\\n' "$cache"; printf '%s\\n' "$(cat "$cache" | grep -c ${SENTINEL})"; done`);
+    shell = await run(`for cache in .context-cache.jsonl .asset-cache.jsonl; do test -c "$cache" && printf '%s=masked\\n' "$cache"; printf '%s\\n' "$(cat "$cache" | grep -c ${SENTINEL})"; done; printf 'dir=%s\\n' "$(ls -A .brain-cache | wc -l)"`);
   }) }, f.input);
-  expect(shell, "RESTRICTED_BASH_CANNOT_READ_CACHED_MASKED_TEXT").toBe(".context-cache.jsonl=masked\n0\n.asset-cache.jsonl=masked\n0\n");
+  expect(shell, "RESTRICTED_BASH_CANNOT_READ_CACHED_MASKED_TEXT").toBe(".context-cache.jsonl=masked\n0\n.asset-cache.jsonl=masked\n0\ndir=0\n");
 }, 120_000);

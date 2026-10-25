@@ -2,6 +2,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { CACHE_DIR } from "@schlessera/brain-common/internal/cache-location";
 import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernancePolicy, type GovernanceCommandRuleIndices } from "@schlessera/brain-common/internal/governance-policy";
 
 export interface TurnGovernancePolicy {
@@ -70,12 +71,13 @@ function selectorFolder(pattern: string): string | undefined {
 
 /**
  * A folder the worker launcher cannot mask: not a canonical literal
- * brain-relative path, or `.git` or the index directory, which a denied turn
- * already sees hidden and private (`providerMaskMounts`).
+ * brain-relative path, or `.git`, the index directory or the cache
+ * directory, which a denied turn already sees hidden, private and empty
+ * (`providerMaskMounts`).
  */
 const invalidFolder = (folder: string) => !folder || folder.startsWith("~") || /^[A-Za-z]:/u.test(folder)
   || /[\u0000-\u001f\u007f*?[\]{}()!\\]/u.test(folder) || folder.split("/").some(part => !part || part === "." || part === "..")
-  || [".git", INDEX_DIR].some(reserved => folder === reserved || folder.startsWith(`${reserved}/`));
+  || [".git", INDEX_DIR, CACHE_DIR].some(reserved => folder === reserved || folder.startsWith(`${reserved}/`));
 
 /**
  * `folders` without any folder nested inside another of them (#2718). The
@@ -107,14 +109,15 @@ export function providerTypeSelectors(policy: Pick<EffectiveGovernancePolicy, "p
 
 /**
  * The folders every governed writer retains while provider folders exist: the
- * provider roots, any folders a type selector translated to (#2694) and the
- * disposable index directory. A restricted turn's private filtered index is
- * mounted over `.brain-index/`, so no peer or publication may remove or
- * replace it either (#1668, option B).
+ * provider roots, any folders a type selector translated to (#2694), the
+ * disposable index directory and the generated-text cache directory. A
+ * restricted turn's private filtered index is mounted over `.brain-index/`
+ * (#1668, option B) and an empty tmpfs over `.brain-cache/` (#2725), so no
+ * peer or publication may remove or replace either.
  */
 export function retainedFolderRoots(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: readonly string[] = []): string[] {
   const roots = outermostFolders([...providerFolderRoots(policy), ...typeFolders]);
-  return roots.length ? [...new Set([...roots, INDEX_DIR])].sort() : [];
+  return roots.length ? [...new Set([...roots, INDEX_DIR, CACHE_DIR])].sort() : [];
 }
 
 /**

@@ -26,8 +26,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createGovernancePolicyReader, providerFolderRoots, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
-import { ensureIndexDirectory } from "./index-directory.js";
-import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { ensureRetainedDirectories } from "./index-directory.js";
 
 export type GateMode = "shared" | "exclusive";
 
@@ -212,9 +211,9 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
         const acquired = tryAcquire(mode, purpose, turn, waiter);
         if (acquired) {
           const { id } = acquired;
-          // A plan retaining the index directory needs it to exist; the
-          // protection resolver stays the authority when it cannot.
-          if (acquired.folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(brain); } catch { /* resolver refuses */ } }
+          // A plan retaining the index or cache directory needs it to exist;
+          // the protection resolver stays the authority when it cannot.
+          try { ensureRetainedDirectories(brain, acquired.folderPaths); } catch { /* resolver refuses */ }
           let folderPaths = acquired.folderPaths;
           let released = false, unpinnedHost = false;
           // Throws for a peer that is unsafe whatever it does next; returns

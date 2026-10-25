@@ -154,6 +154,12 @@ async function openRead(root: string): Promise<Database> {
   return db;
 }
 
+/** Write a file, creating its directory: a cache under `.brain-cache/` may not exist yet. */
+function writeCacheFile(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
+}
+
 function readJsonl(path: string): Array<{ k: string; v: string }> {
   if (!existsSync(path)) return [];
   return readFileSync(path, "utf-8")
@@ -163,11 +169,11 @@ function readJsonl(path: string): Array<{ k: string; v: string }> {
 }
 
 function readAssetCache(root: string): Array<{ k: string; v: string }> {
-  return readJsonl(join(root, ".asset-cache.jsonl"));
+  return readJsonl(join(root, ".brain-cache/assets.jsonl"));
 }
 
 function readContextCache(root: string): Array<{ k: string; v: string }> {
-  return readJsonl(join(root, ".context-cache.jsonl"));
+  return readJsonl(join(root, ".brain-cache/contexts.jsonl"));
 }
 
 /**
@@ -658,13 +664,13 @@ describe("asset cache non-poisoning", () => {
     const rows = seed.prepare("SELECT path, content_hash, title FROM documents ORDER BY path").all() as { path: string; content_hash: string; title: string }[];
     seed.close();
     const historic = rows.map((r) => ({ k: `${r.content_hash}:${r.title}`, v: r.title }));
-    writeFileSync(join(root, ".asset-cache.jsonl"), historic.map((e) => JSON.stringify(e)).sort().join("\n") + "\n");
-    const before = readFileSync(join(root, ".asset-cache.jsonl"), "utf8");
+    writeCacheFile(join(root, ".brain-cache/assets.jsonl"), historic.map((e) => JSON.stringify(e)).sort().join("\n") + "\n");
+    const before = readFileSync(join(root, ".brain-cache/assets.jsonl"), "utf8");
     const { enrichment, described } = countingEnrichment();
     const first = await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment });
     expect(first.embeddings).toBe(3);
     expect(described).toEqual([]); // Stored strings are not classified by title equality.
-    expect(readFileSync(join(root, ".asset-cache.jsonl"), "utf8")).toBe(before);
+    expect(readFileSync(join(root, ".brain-cache/assets.jsonl"), "utf8")).toBe(before);
 
     const db = await openRead(root);
     try {
@@ -693,7 +699,7 @@ describe("asset cache non-poisoning", () => {
     } finally { after.close(); }
   });
 
-  test("a no-enrichment --embeddings run leaves no placeholder in .asset-cache.jsonl", async () => {
+  test("a no-enrichment --embeddings run leaves no placeholder in .brain-cache/assets.jsonl", async () => {
     const root = makeCorpus({
       "notes/alpha.md": md("Alpha", "alpha content"),
       "assets/logo.png": FAKE_PNG,
@@ -1008,7 +1014,7 @@ describe("sidecar cache pruning", () => {
     });
     await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
 
-    const cachePath = join(root, ".asset-cache.jsonl");
+    const cachePath = join(root, ".brain-cache/assets.jsonl");
     const before = readFileSync(cachePath, "utf-8").split("\n").filter(Boolean);
     // Stands in for an asset deleted before this run: the key is unreachable,
     // which is the only property being tested.
@@ -1031,14 +1037,14 @@ describe("sidecar cache pruning", () => {
       "assets/logo.png": FAKE_PNG,
     });
     await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
-    expect(readFileSync(join(root, ".asset-cache.jsonl"), "utf-8").trim()).not.toBe("");
+    expect(readFileSync(join(root, ".brain-cache/assets.jsonl"), "utf-8").trim()).not.toBe("");
 
     unlinkSync(join(root, "assets/logo.png"));
     await runIndex(root);
 
     // The whole point: a deletion is a deletion, without needing an
     // --embeddings pass to notice.
-    expect(readFileSync(join(root, ".asset-cache.jsonl"), "utf-8").trim()).toBe("");
+    expect(readFileSync(join(root, ".brain-cache/assets.jsonl"), "utf-8").trim()).toBe("");
   });
 
   test("a run with nothing to prune leaves the file byte-identical", async () => {
@@ -1046,7 +1052,7 @@ describe("sidecar cache pruning", () => {
     const root = makeCorpus({ "note.md": mdSections("Note", ["zeppelin", "blimp"]) });
     await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: makeEnrichment() });
 
-    const cachePath = join(root, ".context-cache.jsonl");
+    const cachePath = join(root, ".brain-cache/contexts.jsonl");
     const before = readFileSync(cachePath, "utf-8");
     await runIndex(root);
     expect(readFileSync(cachePath, "utf-8")).toBe(before);
@@ -1055,8 +1061,8 @@ describe("sidecar cache pruning", () => {
   test("a malformed line is left alone rather than silently discarded", async () => {
     const root = makeCorpus({ "note.md": md("Note", "Body text.") });
     await runIndex(root);
-    const cachePath = join(root, ".asset-cache.jsonl");
-    writeFileSync(cachePath, "not json at all\n");
+    const cachePath = join(root, ".brain-cache/assets.jsonl");
+    writeCacheFile(cachePath, "not json at all\n");
     await runIndex(root);
     expect(readFileSync(cachePath, "utf-8")).toContain("not json at all");
   });
@@ -1073,8 +1079,8 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     // Another clone generated "A" for this key and committed it. This clone's
     // database still holds its own text for the same chunk.
     const committed = generated.map((e) => (e.k === key ? { k: key, v: "A" } : e));
-    writeFileSync(
-      join(root, ".context-cache.jsonl"),
+    writeCacheFile(
+      join(root, ".brain-cache/contexts.jsonl"),
       committed.map((e) => JSON.stringify(e)).join("\n") + "\n"
     );
     const db = await openRead(root);
@@ -1095,7 +1101,7 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     });
     await runIndex(root, withEnrichment());
 
-    const files = [".context-cache.jsonl", ".asset-cache.jsonl"].map((f) => join(root, f));
+    const files = [".brain-cache/contexts.jsonl", ".brain-cache/assets.jsonl"].map((f) => join(root, f));
     const past = new Date("2026-01-01T00:00:00Z");
     const before = files.map((f) => {
       utimesSync(f, past, past);
@@ -1121,14 +1127,14 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     const doc = mdSections("Railways", ["locomotive", "tender"]);
     const other = makeCorpus({ "notes/railways.md": doc });
     await runIndex(other, withEnrichment());
-    const theirs = sidecarLines(other, ".context-cache.jsonl");
+    const theirs = sidecarLines(other, ".brain-cache/contexts.jsonl");
     expect(theirs.length).toBe(2);
-    const ours = sidecarLines(root, ".context-cache.jsonl");
-    writeFileSync(join(root, ".context-cache.jsonl"), [...ours, ...theirs].sort().join("\n") + "\n");
+    const ours = sidecarLines(root, ".brain-cache/contexts.jsonl");
+    writeCacheFile(join(root, ".brain-cache/contexts.jsonl"), [...ours, ...theirs].sort().join("\n") + "\n");
     writeFileSync(join(root, "notes/railways.md"), doc);
     const before = {
-      contexts: sidecarLines(root, ".context-cache.jsonl"),
-      assets: sidecarLines(root, ".asset-cache.jsonl"),
+      contexts: sidecarLines(root, ".brain-cache/contexts.jsonl"),
+      assets: sidecarLines(root, ".brain-cache/assets.jsonl"),
     };
     expect(before.assets.length).toBe(1);
 
@@ -1139,8 +1145,8 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     });
     expect(refused.embeddings).toBe(0);
 
-    expect(sidecarLines(root, ".context-cache.jsonl")).toEqual(before.contexts);
-    expect(sidecarLines(root, ".asset-cache.jsonl")).toEqual(before.assets);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(before.contexts);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual(before.assets);
   });
 
   test("byte-identical assets under two titles in one run are described once", async () => {
@@ -1189,7 +1195,7 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
 
     // The same bytes, titled by another version's rule.
     const renamed = { k: `${hash}:Logo (old rule)`, v: "Described under the old rule" };
-    writeFileSync(join(root, ".asset-cache.jsonl"), JSON.stringify(renamed) + "\n");
+    writeCacheFile(join(root, ".brain-cache/assets.jsonl"), JSON.stringify(renamed) + "\n");
     await runIndex(root);
 
     expect(readAssetCache(root)).toEqual([renamed]);
@@ -1200,8 +1206,8 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     const contextKey = "0".repeat(64);
     const assetKey = `${"f".repeat(64)}:T`;
     const loaders = [
-      { file: ".context-cache.jsonl", key: contextKey, load: loadContextCache },
-      { file: ".asset-cache.jsonl", key: assetKey, load: loadAssetCache },
+      { file: ".brain-cache/contexts.jsonl", key: contextKey, load: loadContextCache },
+      { file: ".brain-cache/assets.jsonl", key: assetKey, load: loadAssetCache },
     ];
     const orders = [
       ["Z", "A"],
@@ -1210,15 +1216,15 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     const loaded: string[] = [];
     for (const { file, key, load } of loaders) {
       for (const order of orders) {
-        writeFileSync(join(root, file), order.map((v) => JSON.stringify({ k: key, v })).join("\n") + "\n");
+        writeCacheFile(join(root, file), order.map((v) => JSON.stringify({ k: key, v })).join("\n") + "\n");
         loaded.push(`${file} ${order.join("")}: ${load(root).get(key)}`);
       }
     }
     expect(loaded).toEqual([
-      ".context-cache.jsonl ZA: A",
-      ".context-cache.jsonl AZ: A",
-      ".asset-cache.jsonl ZA: A",
-      ".asset-cache.jsonl AZ: A",
+      ".brain-cache/contexts.jsonl ZA: A",
+      ".brain-cache/contexts.jsonl AZ: A",
+      ".brain-cache/assets.jsonl ZA: A",
+      ".brain-cache/assets.jsonl AZ: A",
     ]);
   });
 
@@ -1230,8 +1236,8 @@ describe("sidecar caches are appended, never rebuilt (#408)", () => {
     // A union merge left two lines for one key, "Z" before "A" in file order,
     // and lost the other key, so the next run has one to add and must write.
     const key = first.k;
-    writeFileSync(
-      join(root, ".context-cache.jsonl"),
+    writeCacheFile(
+      join(root, ".brain-cache/contexts.jsonl"),
       [JSON.stringify({ k: key, v: "Z" }), JSON.stringify({ k: key, v: "A" })].join("\n") + "\n"
     );
 
@@ -1325,7 +1331,7 @@ describe("brain index --forget-cache (#408)", () => {
       "assets/emblem.png": FAKE_PNG,
     });
     await runIndex(root, withEnrichment());
-    const contexts = sidecarLines(root, ".context-cache.jsonl");
+    const contexts = sidecarLines(root, ".brain-cache/contexts.jsonl");
     expect(readAssetCache(root).length).toBe(2);
 
     const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
@@ -1336,7 +1342,7 @@ describe("brain index --forget-cache (#408)", () => {
     db.close();
     expect(forgotten).toBe(2);
     expect(readAssetCache(root)).toEqual([]);
-    expect(sidecarLines(root, ".context-cache.jsonl")).toEqual(contexts);
+    expect(sidecarLines(root, ".brain-cache/contexts.jsonl")).toEqual(contexts);
     expect(rows).toEqual([
       { path: "assets/emblem.png", content: "[Image: assets/emblem.png]" },
       { path: "assets/logo.png", content: "[Image: assets/logo.png]" },

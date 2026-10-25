@@ -175,9 +175,11 @@ revalidate that; a legacy thread, an item a conversation added without a
 born-masked lineage that hid those folders (#2816), or a thread changed
 under a new policy is refused with `provider_masked` and the queued work
 stays stored (#2741). In
-every denied turn the committed generated-text caches (`.context-cache.jsonl`,
-`.asset-cache.jsonl`) read as empty (#2692), and so they do in every turn
-allowed some or all provider folders (below).
+every denied turn the committed generated-text caches read as empty:
+`.brain-cache/` is an empty read-only folder (#2725), and any root-level
+`.context-cache.jsonl` or `.asset-cache.jsonl` an earlier release left reads
+as empty (#2692). The same holds in every turn allowed only some provider
+folders; a turn allowed every one sees `.brain-cache/` (below).
 
 **Allowed recipients (additive in 0.44.0, #2695).** A turn's recipient is the
 provider that receives its inference, named only from the exact origin its
@@ -214,7 +216,8 @@ gateway names it with `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`
 another name, and a malformed entry refuses the server's boot.
 
 Matching rules intersect their allowlists. A turn allowed every provider
-folder sees them all, `.git` and the real `.brain-index/`. A turn allowed some
+folder sees them all, `.git`, the real `.brain-index/` and `.brain-cache/`;
+root-level caches from an earlier release still read as empty. A turn allowed some
 of them sees those, and the rest are masked as above; its private index is
 built from that partial view, so it lacks only the masked folders' documents.
 A folder that a denying rule selects inside a folder the recipient may see

@@ -14,6 +14,7 @@
 
 import { lstatSync, readFileSync, readlinkSync, type Stats } from "fs";
 import { resolve } from "path";
+import { GENERATED_CACHE_PATHS } from "@schlessera/brain-common/internal/cache-location";
 
 import { conflictMarkerLine } from "./assess.js";
 import { git, refExists, unmergedPaths } from "./git.js";
@@ -45,7 +46,7 @@ export interface StashReport {
 const AUTOSTASH = "autostash";
 
 /** The sidecars lib/sync/assess.ts treats as derived (`DERIVED_CACHES` there): merged by key, not by line. */
-const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
+const DERIVED_CACHES = new Set(GENERATED_CACHE_PATHS);
 
 /** One side of a path in a stash: its tree entry. */
 interface Blob {

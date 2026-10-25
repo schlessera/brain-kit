@@ -169,6 +169,8 @@ describe("strategyFor", () => {
   test("derived caches and non-markdown come first, whatever the taxonomy says", () => {
     expect(strategyFor(".context-cache.jsonl", taxonomy, sides("{}\n"))).toBe("cache-union");
     expect(strategyFor("health/.asset-cache.jsonl", taxonomy, sides("{}\n"))).toBe("cache-union");
+    expect(strategyFor(".brain-cache/contexts.jsonl", taxonomy, sides("{}\n"))).toBe("cache-union");
+    expect(strategyFor("projects/.brain-cache/assets.jsonl", taxonomy, sides("{}\n"))).toBe("cache-union");
     expect(strategyFor("notes/export.csv", taxonomy, sides("a,b\n"))).toBe("code-merge");
     expect(strategyFor("CLAUDE.md", taxonomy, sides(md("type: note\n")))).toBe("code-merge");
     expect(strategyFor("AGENTS.md", taxonomy, sides("# Agents\n"))).toBe("code-merge");

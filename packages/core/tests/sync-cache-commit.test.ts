@@ -12,13 +12,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { commitDerivedCaches } from "../src/cli/commands/sync.js";
 import { chunkContextKey } from "../src/lib/indexer.js";
 import { saveContextCache } from "../src/lib/indexer/caches.js";
 import { makeTempBrain, runCli } from "./cli-harness";
 
-const CACHE = ".context-cache.jsonl";
+const CACHE = ".brain-cache/contexts.jsonl";
 const dirs: string[] = [];
 
 afterEach(() => {
@@ -42,6 +42,7 @@ function fixture(): { root: string; remote: string } {
   git(root, "config", "user.name", "Odysseus");
   git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
+  mkdirSync(dirname(join(root, CACHE)), { recursive: true });
   writeFileSync(join(root, CACHE), "");
   writeFileSync(join(root, "notes.md"), "first\n");
   git(root, "add", CACHE, "notes.md");
@@ -139,6 +140,7 @@ function brainWithRemote(): { root: string; remote: string } {
   git(root, "config", "user.email", "odysseus@example.test");
   git(root, "config", "commit.gpgsign", "false");
   writeFileSync(join(root, ".git", "info", "exclude"), "node_modules\n");
+  mkdirSync(dirname(join(root, CACHE)), { recursive: true });
   writeFileSync(join(root, CACHE), "");
   git(root, "add", "-A");
   git(root, "commit", "-qm", "fixture");
@@ -261,7 +263,7 @@ describe("sync pull with a locally rewritten cache", () => {
   // `{"k":"key", "v":null}` sorts before the valid line (a space sorts before
   // a quote). If it competed for the key it would win, and every reader
   // rejects it, so the key would be lost.
-  for (const file of [".context-cache.jsonl", ".asset-cache.jsonl"]) {
+  for (const file of [".brain-cache/contexts.jsonl", ".brain-cache/assets.jsonl"]) {
     for (const invalidSide of ["committed", "local"] as const) {
       test(`a line no reader accepts never wins its key (${file}, invalid ${invalidSide})`, async () => {
         const { root, remote } = brainWithRemote();
