@@ -587,7 +587,7 @@ export function passkeyManagementRoutes(
     const credentialId = c.req.param("id");
     const result = await accountWrites(ctx.db).deletePasskey(credentialId, Date.now());
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
-    applyPrincipalRevocation(ctx.revoker, result.revokedIds);
+    await applyPrincipalRevocation(ctx.revoker, result.revokedIds);
     return c.json({ ok: true });
   });
 

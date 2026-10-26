@@ -746,21 +746,22 @@ export class WsHost {
    * Running turns are marked but deliberately not aborted.
    * @internal Host wiring (#1053).
    */
-  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void {
+  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void | Promise<void> {
     const revoked = new Set(principalIds);
     if (revoked.size === 0) return;
     const affectedRunning = this.coordinator.revokePrincipals(revoked);
+    const unbinding: Promise<number>[] = [];
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);
       this.activity?.stream.dropFor(principalId);
       this.inbox?.dropFor(principalId);
       const unbound = this.activity?.pushSender?.unbindPrincipal(principalId);
-      if (unbound instanceof Promise) void unbound.catch(error => this.log.emit({ severityText: "WARN",
-        body: "push principal unbind failed", attributes: { error: error instanceof Error ? error.message : String(error) } }));
+      if (unbound instanceof Promise) unbinding.push(unbound);
     }
     for (const turn of affectedRunning) {
       turn.recorder?.recordPrincipalRevocation(turn.principalId);
     }
+    if (unbinding.length) return Promise.all(unbinding).then(() => {});
   }
 
   /**
@@ -770,11 +771,13 @@ export class WsHost {
   expireAuthorizationContexts(now: number = Date.now()): void {
     const expired = new Set<string>();
     this.coordinator.collectExpiredPrincipalIds(now, expired);
-    this.revokePrincipals(
+    const revoked = this.revokePrincipals(
       [...expired],
       SESSION_EXPIRED_CLOSE_CODE,
       SESSION_EXPIRED_CLOSE_REASON
     );
+    if (revoked instanceof Promise) void revoked.catch(error => this.log.emit({ severityText: "WARN",
+      body: "expired principal push unbind failed", attributes: { error: error instanceof Error ? error.message : String(error) } }));
   }
 
   /** Stop host-owned timers during application/test teardown. */

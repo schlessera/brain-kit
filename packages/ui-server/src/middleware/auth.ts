@@ -433,8 +433,8 @@ export async function resolveCookiePrincipal(
 export function applyPrincipalRevocation(
   revoker: Pick<WsHost, "revokePrincipals">,
   principalIds: readonly string[]
-): void {
-  revoker.revokePrincipals(
+): void | Promise<void> {
+  return revoker.revokePrincipals(
     principalIds,
     SESSION_REVOKED_CLOSE_CODE,
     SESSION_REVOKED_CLOSE_REASON
@@ -449,7 +449,7 @@ export async function revokeAllSessions(
   revoker: Pick<WsHost, "revokePrincipals">
 ): Promise<void> {
   const revokedIds = await accountWrites(db).revokeAll(Date.now());
-  applyPrincipalRevocation(revoker, revokedIds);
+  await applyPrincipalRevocation(revoker, revokedIds);
 }
 
 // --- proxy mode helpers ---
@@ -803,7 +803,7 @@ export function authRoutes(
       if (principal.kind === "owner") {
         await revokeAllSessions(deps.db, deps.revoker);
       } else {
-        applyPrincipalRevocation(
+        await applyPrincipalRevocation(
           deps.revoker,
           await accountWrites(deps.db).revokePrincipal(principal.id, Date.now())
         );

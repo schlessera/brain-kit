@@ -198,7 +198,7 @@ export function principalManagementRoutes(
       return c.json({ error: "Unknown principal" }, 404);
     }
 
-    applyPrincipalRevocation(ctx.revoker, revokedIds);
+    await applyPrincipalRevocation(ctx.revoker, revokedIds);
     ctx.referenceAuthorityRevoked?.({ grantIds: [], principalIds: revokedIds });
     ctx.log?.emit({
       severityText: "INFO",

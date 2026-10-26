@@ -23,13 +23,14 @@ import { watchWriteSites } from "./helpers/write-sites.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 import { expectRejection } from "./helpers/expect-rejection.js";
 import type { ActivityNotifier } from "../src/activity/notify.js";
+import { WsHost } from "../src/ws/host.js";
 
 const config = resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "odysseus-password-hash",
   COOKIE_SECRET: "odysseus-cookie-secret-0123456789abcdef" });
 const auth: AuthRuntime = { ...config.auth, host: config.host };
 const revoker = { revokePrincipals() {} };
 
-function fixture() {
+function fixture(revokerOverride: Pick<WsHost, "revokePrincipals"> = revoker) {
   const root = mkdtempSync(join(tmpdir(), "account-writes-odysseus-"));
   const db = createUiDb(join(root, "ui.db")), writer = openSqliteWriter(db);
   const owner = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
@@ -38,7 +39,7 @@ function fixture() {
   registerAccountWrites(db, writer);
   const app = new Hono<AppEnv>().use("*", async (c, next) => { c.set("principal", owner); await next(); });
   app.onError((error, c) => c.json({ error: error.message }, 500));
-  app.route("/api", principalManagementRoutes("password", auth, { db, revoker, brain: "ithaca" }));
+  app.route("/api", principalManagementRoutes("password", auth, { db, revoker: revokerOverride, brain: "ithaca" }));
   return { root, db, writer, owner, agent, app,
     async close() { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
@@ -270,5 +271,34 @@ test("principal capacity refusal keeps its class and 503 across the account work
     await expectRejection(accountWrites(f.db).createPrincipal({ authMethod: "password", label: "Odysseus", ttlSeconds: 3600 }),
       PrincipalLimitError, "ACCOUNT_CAPACITY_REFUSAL_CLASS");
     expect((await f.app.request("/api/auth/principals", json("POST", { label: "Telemachus" }))).status, "ACCOUNT_CAPACITY_REFUSAL_HTTP_STATUS").toBe(503);
+  } finally { await f.close(); }
+});
+
+test("revocation disconnects immediately and HTTP awaits the host's push unbinding commit", async () => {
+  let submitted!: () => void, release!: () => void;
+  const submission = new Promise<void>(resolve => { submitted = resolve; });
+  const commit = new Promise<number>(resolve => { release = () => resolve(1); });
+  const closed: string[] = [];
+  const host = { coordinator: { revokePrincipals: () => [] }, clients: { closeFor: (id: string) => closed.push(id) },
+    activity: { stream: { dropFor() {} }, pushSender: { unbindPrincipal: () => { submitted(); return commit; } } } };
+  const f = fixture({ revokePrincipals: (ids, code, reason) => WsHost.prototype.revokePrincipals.call(host as unknown as WsHost, ids, code, reason) });
+  try {
+    let answered = false;
+    const response = Promise.resolve(f.app.request(`/api/auth/principals/${f.agent.id}`, json("DELETE"))).then(r => { answered = true; return r; });
+    await submission;
+    expect(closed, "ACCOUNT_REVOCATION_DISCONNECTS_BEFORE_UNBIND_COMMIT").toEqual([f.agent.id]);
+    expect(answered, "ACCOUNT_REVOCATION_HTTP_AWAITS_PUSH_UNBIND_COMMIT").toBe(false);
+    release();
+    expect((await response).status, "ACCOUNT_REVOCATION_HTTP_FOLLOWS_UNBIND_COMMIT").toBe(200);
+  } finally { release(); await f.close(); }
+});
+
+test("a failed push unbind still fails the revocation HTTP response after durable revocation", async () => {
+  const f = fixture({ revokePrincipals: async () => { throw new Error("Ithaca push unbind refused"); } });
+  try {
+    const response = await f.app.request(`/api/auth/principals/${f.agent.id}`, json("DELETE"));
+    expect(response.status, "ACCOUNT_UNBIND_REFUSAL_HTTP_STATUS").toBe(500);
+    expect(await response.json(), "ACCOUNT_UNBIND_REFUSAL_MESSAGE").toEqual({ error: "Ithaca push unbind refused" });
+    expect(resolvePrincipal(f.db, f.agent.id)?.revokedAt, "ACCOUNT_UNBIND_REFUSAL_KEEPS_DURABLE_REVOCATION").not.toBeNull();
   } finally { await f.close(); }
 });

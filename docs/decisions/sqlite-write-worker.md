@@ -190,9 +190,10 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   labels and deletion, reference grants and the account partition seed commit
   on the worker (`packages/ui-server/src/db/account-writes.ts`). The existing
   transaction bodies and modes stay together; passkey deletion still commits
-  before its credential's principal revocation. Every route awaits its writes
-  before answering or invalidating runtime authority, so every authentication
-  after a revocation response sees the committed revocation. Delegated minting
+  before its credential's principal revocation. Revocation routes await both
+  durable revocation and push unbinding before answering; client authority is
+  invalidated as soon as revocation commits. Every authentication after the
+  response sees the committed revocation. Delegated minting
   and reference grants recheck authority inside their original transactions;
   refusals keep their classes and HTTP statuses. Boot awaits the partition seed
   before constructing its synchronous key reader. Push subscription, removal
