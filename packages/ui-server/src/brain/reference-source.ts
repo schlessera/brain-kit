@@ -18,6 +18,8 @@
  * See docs/decisions/reference-source-acquisition.md.
  */
 import type { Database } from "bun:sqlite";
+import { referenceWrites } from "./reference-writes.js";
+import { sourceWrites } from "./reference-source-writes.js";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import type { createNativeBrainManagerClient, NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -100,6 +102,7 @@ export function createReferenceSources(options: {
   for (const key of ["validationMs", "refreshMs", "operations", "waiters"] as const)
     if (!Number.isSafeInteger(limits[key]) || limits[key] < 1) throw new ReferenceSourceError("invalid", `reference source ${key} must be a positive integer`);
   const { db, pool, transport } = options;
+  const write = referenceWrites(db);
   const now = options.now ?? Date.now;
   const operations = new Map<string, Operation>();
   const leases = new Map<string, number>();
@@ -174,33 +177,36 @@ export function createReferenceSources(options: {
 
   const row = (domain: string, repository: string, revision: string) =>
     db.query("SELECT * FROM reference_sources WHERE domain = ? AND repository = ? AND revision = ?").get(domain, repository, revision) as SourceRow | null;
-  function viewFor(domain: string): { id: string; hostPath: string | null } {
+  async function viewFor(domain: string): Promise<{ id: string; hostPath: string | null }> {
     const found = db.query("SELECT view_id, host_path FROM reference_views WHERE domain = ?").get(domain) as { view_id: string; host_path: string | null } | null;
     if (found) return { id: found.view_id, hostPath: found.host_path };
-    const id = randomUUID();
-    db.query("INSERT INTO reference_views (domain, view_id) VALUES (?, ?)").run(domain, id);
-    return { id, hostPath: null };
+    return write("sourceView", domain, randomUUID());
   }
   const usable = (source: SourceRow | null): source is SourceRow & { root_id: string; commit_id: string; refreshed_at: number; validated_at: number } =>
     Boolean(source?.root_id && source.commit_id && source.refreshed_at !== null && source.validated_at !== null);
   const validationLive = (source: SourceRow) => source.validated_at !== null && now() < source.validated_at + limits.validationMs;
 
-  function lease(source: SourceRow, stale: boolean, error: string | null): ReferenceSourceLease {
+  async function lease(source: SourceRow, stale: boolean, error: string | null): Promise<ReferenceSourceLease> {
     if (!usable(source)) throw new ReferenceSourceError("unavailable", "No usable authorized reference source exists.");
-    const key = sourceKey(source.domain, source.repository, source.revision), view = viewFor(source.domain);
+    const key = sourceKey(source.domain, source.repository, source.revision);
     leases.set(key, (leases.get(key) ?? 0) + 1);
-    db.query("UPDATE reference_sources SET last_used_at = ? WHERE domain = ? AND repository = ? AND revision = ?").run(now(), source.domain, source.repository, source.revision);
     let released = false;
-    return { domain: source.domain === PUBLIC ? "public" : "private", view: view.id, viewPath: view.hostPath!, name: source.name, repository: source.repository,
-      revision: source.revision, commit: source.commit_id, rootId: source.root_id, refreshedAt: source.refreshed_at, validatedAt: source.validated_at, stale, error,
-      release() {
-        if (released) return; released = true;
-        const left = (leases.get(key) ?? 1) - 1;
-        if (left > 0) { leases.set(key, left); return; }
-        leases.delete(key);
-        void settle(source.domain, source.repository, source.revision).catch(error => warn("reference source release failed", error));
-      } };
+    const release = () => {
+      if (released) return; released = true;
+      const left = (leases.get(key) ?? 1) - 1;
+      if (left > 0) { leases.set(key, left); return; }
+      leases.delete(key);
+      void settle(source.domain, source.repository, source.revision).catch(error => warn("reference source release failed", error));
+    };
+    try {
+      const view = await viewFor(source.domain);
+      await write("sourceTouch", now(), source.domain, source.repository, source.revision);
+      return { domain: source.domain === PUBLIC ? "public" : "private", view: view.id, viewPath: view.hostPath!, name: source.name, repository: source.repository,
+        revision: source.revision, commit: source.commit_id, rootId: source.root_id, refreshedAt: source.refreshed_at, validatedAt: source.validated_at, stale, error,
+        release };
+    } catch (error) { release(); throw error; }
   }
+
   function warn(body: string, error: unknown) {
     options.log?.emit({ severityText: "WARN", body: `${body}: ${error instanceof Error ? error.message : String(error)}` });
   }
@@ -213,7 +219,7 @@ export function createReferenceSources(options: {
       .all(domain, repository, revision) as { id: string }[];
     for (const root of roots) await releaseRoot(root.id);
     if (withdrawn.has(key) && !operations.has(key) && !withdrawals.has(key)) {
-      db.query("DELETE FROM reference_sources WHERE domain = ? AND repository = ? AND revision = ? AND root_id IS NULL").run(domain, repository, revision);
+      await write("sourceForget", domain, repository, revision);
       withdrawn.delete(key);
     }
   }
@@ -221,7 +227,7 @@ export function createReferenceSources(options: {
   async function releaseRoot(id: string) {
     if (options.dependents?.(id)) return;
     await pool.poolRelease(id);
-    db.query("DELETE FROM reference_roots WHERE id = ?").run(id);
+    await write("sourceReleaseRoot", id);
   }
 
   async function admit(signal: AbortSignal): Promise<() => void> {
@@ -311,8 +317,7 @@ export function createReferenceSources(options: {
     if (usable(existing) && existing.commit_id === check.commit) {
       // The exact published commit is confirmed under current authority: that is also a successful refresh.
       const at = now();
-      db.query("UPDATE reference_sources SET validated_at = ?, refreshed_at = ?, last_error = NULL, ref = ? WHERE domain = ? AND repository = ? AND revision = ?")
-        .run(at, at, check.ref, domain, repository.canonical, revision);
+      await write("sourceValidate", at, at, check.ref, domain, repository.canonical, revision);
       return { kind: "source", row: row(domain, repository.canonical, revision)!, stale: false, error: null };
     }
     try {
@@ -333,9 +338,8 @@ export function createReferenceSources(options: {
     }
   }
   /** Record a failed refresh without advancing its successful refresh time. */
-  function failed(existing: SourceRow, detail: string): Outcome {
-    db.query("UPDATE reference_sources SET last_error = ?, last_failed_at = ? WHERE domain = ? AND repository = ? AND revision = ?")
-      .run(detail, now(), existing.domain, existing.repository, existing.revision);
+  async function failed(existing: SourceRow, detail: string): Promise<Outcome> {
+    await write("sourceFailed", detail, now(), existing.domain, existing.repository, existing.revision);
     return { kind: "source", row: row(existing.domain, existing.repository, existing.revision)!, stale: true, error: detail };
   }
 
@@ -351,7 +355,7 @@ export function createReferenceSources(options: {
         await releaseRoot(staging.id).catch(cleanup => warn("refused reference reservation did not settle; startup recovery retries it", cleanup));
         if (!(await evictOne(protect))) throw new ReferenceSourceError("capacity", "Reference pool has no room and no unprotected source to evict.");
         staging.id = randomUUID();
-        db.query("INSERT INTO reference_roots (id, domain, repository, revision, state, created_at) VALUES (?, ?, ?, ?, 'staging', ?)").run(staging.id, ...splitKey(protect), now());
+        await write("sourceStage", staging.id, ...splitKey(protect), now());
       }
     }
   }
@@ -384,12 +388,11 @@ export function createReferenceSources(options: {
     // and only the roots it holds now are withdrawn, never a later acquisition's.
     withdrawn.add(key);
     suspended.delete(key); unsettled.delete(key);
-    db.query("UPDATE reference_sources SET root_id = NULL WHERE domain = ? AND repository = ? AND revision = ?").run(domain, repository, revision);
-    const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
-    db.query("UPDATE reference_roots SET state = 'superseded' WHERE domain = ? AND repository = ? AND revision = ? AND state = 'published'").run(domain, repository, revision);
-    const view = viewFor(domain);
+    const recorded = write<{ roots: { id: string }[]; view: { id: string } }>("sourceWithdraw", domain, repository, revision, randomUUID());
+    void recorded.catch(() => {});
     // After any publication in progress, so a restoration can never land after it.
     const work = exclusive(key, async () => {
+      const { roots, view } = await recorded;
       await pool.poolUnpublish(view.id, source.name);
       // Every root leaves the view at once, so no reader reaches it by identity; storage waits for readers.
       for (const root of roots) await hideRoot(root.id);
@@ -401,9 +404,9 @@ export function createReferenceSources(options: {
   async function acquire(signal: AbortSignal, input: { domain: string; principalId: string | null; repository: ReferenceRepository; revision: string; grant: ReferenceGrant | null;
     credential: string | null; ref: string; previous: SourceRow | null }) {
     const { domain, repository, revision } = input, key = sourceKey(domain, repository.canonical, revision);
-    const name = referenceSourceName(repository, revision), view = viewFor(domain);
+    const name = referenceSourceName(repository, revision), view = await viewFor(domain);
     const staging = { id: randomUUID() };
-    db.query("INSERT INTO reference_roots (id, domain, repository, revision, state, created_at) VALUES (?, ?, ?, ?, 'staging', ?)").run(staging.id, domain, repository.canonical, revision, now());
+    await write("sourceStage", staging.id, domain, repository.canonical, revision, now());
     const previousRoot = input.previous?.root_id ?? null;
     const recheck = () => { if (domain !== PUBLIC && (!input.grant || !isLiveReferenceGrant(db, input.grant.id, now()))) authorize(domain, input.principalId, repository); };
     let publishing = false;
@@ -423,16 +426,7 @@ export function createReferenceSources(options: {
       hiddenRoots.delete(staging.id);
       const published = await pool.poolPublish(staging.id, view.id, name, signal);
       const at = now(), grantId = domain === PUBLIC ? null : (input.grant && isLiveReferenceGrant(db, input.grant.id, at) ? input.grant.id : authorize(domain, input.principalId, repository)!.id);
-      db.transaction(() => {
-        db.query("UPDATE reference_views SET host_path = ? WHERE domain = ?").run(dirname(published.path!), domain);
-        db.query("UPDATE reference_roots SET state = 'superseded' WHERE domain = ? AND repository = ? AND revision = ? AND state = 'published'").run(domain, repository.canonical, revision);
-        db.query("UPDATE reference_roots SET state = 'published' WHERE id = ?").run(staging.id);
-        db.query(`INSERT INTO reference_sources (domain, repository, revision, url, name, root_id, commit_id, ref, grant_id, refreshed_at, validated_at, last_error, last_failed_at, last_used_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
-          ON CONFLICT (domain, repository, revision) DO UPDATE SET url = excluded.url, name = excluded.name, root_id = excluded.root_id, commit_id = excluded.commit_id,
-            ref = excluded.ref, grant_id = excluded.grant_id, refreshed_at = excluded.refreshed_at, validated_at = excluded.validated_at, last_error = NULL`)
-          .run(domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at, at, at);
-      }).immediate();
+      await write("sourcePublish", dirname(published.path!), domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at);
       withdrawn.delete(key);
       // A newly validated commit is exposed; the superseded roots leave the view at
       // once, so a later bind reaches only the commit this request validated.
@@ -474,7 +468,7 @@ export function createReferenceSources(options: {
       if (fresh(current) && !withdrawn.has(sourceKey(PUBLIC, repository.canonical, revision)) && !suspended.has(sourceKey(PUBLIC, repository.canonical, revision))) return lease(current!, false, null);
       const outcome = await join(sourceKey(PUBLIC, repository.canonical, revision), { domain: PUBLIC, principalId: null, grantId: null },
         signal => operate(signal, { domain: PUBLIC, principalId: null, repository, revision, grant: null }), input.signal);
-      if (outcome.kind === "source") return restored(lease(outcome.row, outcome.stale, outcome.error), outcome.row);
+      if (outcome.kind === "source") return restored(await lease(outcome.row, outcome.stale, outcome.error), outcome.row);
       // An unanswered public check proves nothing; only a covering grant may try the private path.
       if (outcome.reason === "unavailable" && !coveringReferenceGrant(db, { brain: options.brain, principalId: input.principalId, repository, now: now() }))
         throw new ReferenceSourceError("unavailable", `Reference check failed: ${outcome.detail}`);
@@ -482,13 +476,17 @@ export function createReferenceSources(options: {
     const domain = privateDomain(input.principalId);
     const grant = authorize(domain, input.principalId, repository);
     const current = row(domain, repository.canonical, revision);
-    if (fresh(current) && !withdrawn.has(sourceKey(domain, repository.canonical, revision)) && !suspended.has(sourceKey(domain, repository.canonical, revision))) return lease(current!, false, null);
+    if (fresh(current) && !withdrawn.has(sourceKey(domain, repository.canonical, revision)) && !suspended.has(sourceKey(domain, repository.canonical, revision))) {
+      const held = await lease(current!, false, null);
+      try { authorize(domain, input.principalId, repository); } catch (error) { held.release(); throw error; }
+      return held;
+    }
     const outcome = await join(sourceKey(domain, repository.canonical, revision), { domain, principalId: input.principalId, grantId: grant!.id },
       signal => operate(signal, { domain, principalId: input.principalId, repository, revision, grant }), input.signal);
     if (outcome.kind !== "source") throw new ReferenceSourceError("unavailable", outcome.detail);
     // Authority may have ended while the operation ran: a private lease is granted only under a live grant.
     authorize(domain, input.principalId, repository);
-    const held = await restored(lease(outcome.row, outcome.stale, outcome.error), outcome.row);
+    const held = await restored(await lease(outcome.row, outcome.stale, outcome.error), outcome.row);
     try { authorize(domain, input.principalId, repository); } catch (error) { held.release(); throw error; }
     return held;
   }
@@ -507,7 +505,7 @@ export function createReferenceSources(options: {
       if (!source?.root_id || withdrawn.has(key) || (suspended.has(key) && !unsettled.has(key))) return;
       suspended.add(key); unsettled.add(key);
       const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
-      await pool.poolUnpublish(viewFor(domain).id, source.name);
+      await pool.poolUnpublish((await viewFor(domain)).id, source.name);
       for (const root of roots) await hideRoot(root.id);
       unsettled.delete(key);
     });
@@ -541,8 +539,7 @@ export function createReferenceSources(options: {
         if (!usable(current) || current.root_id !== source.root_id || current.commit_id !== check.commit || withdrawn.has(key)) return false;
         if (principalId !== null && !coveringReferenceGrant(db, { brain: options.brain, principalId, repository, now: now() })) return false;
         const at = now();
-        db.query("UPDATE reference_sources SET validated_at = ?, refreshed_at = ?, last_error = NULL WHERE domain = ? AND repository = ? AND revision = ? AND root_id = ?")
-          .run(at, at, source.domain, source.repository, source.revision, source.root_id);
+        await write("sourceRevalidate", at, at, source.domain, source.repository, source.revision, source.root_id);
         return true;
       } catch (error) { warn("reference source revalidation failed; the source is withheld from this bind", error); return false; }
     })().finally(() => revalidations.delete(key));
@@ -642,7 +639,7 @@ export function createReferenceSources(options: {
       if (current.domain !== PUBLIC) authorize(current.domain, current.domain.slice("private:".length), referenceRepository(current.repository));
       // Until the pool confirms, the exposure is unknown: a failure leaves it for the next bind to take out again.
       unsettled.add(key); hiddenRoots.delete(current.root_id);
-      await pool.poolPublish(current.root_id, viewFor(current.domain).id, current.name);
+      await pool.poolPublish(current.root_id, (await viewFor(current.domain)).id, current.name);
       suspended.delete(key); unsettled.delete(key);
     });
   }
@@ -660,6 +657,9 @@ export function createReferenceSources(options: {
     for (const operation of operations.values())
       if (operation.domain !== PUBLIC && (principals.has(operation.principalId!) || input.grantIds.includes(operation.grantId!)))
         operation.controller.abort(new ReferenceSourceError("unauthorized", "Reference authority was revoked."));
+    // A publication submitted before revocation used to be visible here at once.
+    // Wait for its receipt so even a source's first publication is withdrawn.
+    await write.settled();
     for (const principalId of principals) {
       const sources = db.query("SELECT * FROM reference_sources WHERE domain = ?").all(privateDomain(principalId)) as SourceRow[];
       for (const source of sources) {
@@ -692,7 +692,7 @@ export function createReferenceSources(options: {
         catch { usableRoot = false; }
       }
       if (usableRoot) {
-        try { await pool.poolPublish(source.root_id!, viewFor(source.domain).id, source.name); keep.add(source.root_id!); continue; }
+        try { await pool.poolPublish(source.root_id!, sourceWrites(db).sourceView(source.domain, randomUUID()).id, source.name); keep.add(source.root_id!); continue; }
         catch (error) { warn("reference source publication could not be restored", error); }
       }
       db.query("UPDATE reference_sources SET root_id = NULL WHERE domain = ? AND repository = ? AND revision = ?").run(source.domain, source.repository, source.revision);
@@ -741,11 +741,11 @@ export function createReferenceSources(options: {
     async bindable(principalId: string, signal?: AbortSignal): Promise<{ public: string; private: string }> {
       if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
       const open = async (domain: string) => {
-        const view = viewFor(domain);
+        const view = await viewFor(domain);
         if (view.hostPath) return view.hostPath;
         const opened = await pool.poolView(view.id, signal);
-        db.query("UPDATE reference_views SET host_path = ? WHERE domain = ? AND host_path IS NULL").run(opened.path, domain);
-        return viewFor(domain).hostPath!;
+        await write("sourceOpenView", opened.path, domain);
+        return (await viewFor(domain)).hostPath!;
       };
       const domains = [PUBLIC, privateDomain(principalId)] as const;
       const paths = { public: await open(domains[0]), private: await open(domains[1]) };

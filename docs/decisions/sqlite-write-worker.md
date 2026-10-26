@@ -318,6 +318,29 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   commit before their dependent reads or replies. Without a writer, the same
   operations still run inline, including the cron digest job; the notifier's
   cursor and the unhosted detail-retention setter keep their existing paths.
+- **Reference sources and managed worktrees followed** (#2999, part of #2850).
+  Checkpoint ownership, worktree allocation, grants, renewal, release, generation
+  boundaries and cleanup receipts, reference-source publication and leases, and
+  hygiene findings commit on the same worker (`packages/ui-server/src/brain/reference-writes.ts`
+  and its three procedure modules). Each transaction keeps its SQL, statement
+  order and mode; no Git or filesystem read was split out of a transaction.
+  Pool, Git and filesystem operations stay on the app thread. The checkpoint
+  ledger also runs there: it awaits ownership before creating each observation
+  checkpoint, including the 15-second scope observation, and awaits forgetting
+  it after release. A lease or grant answers only after its commit; a generation
+  commits before workers bind it; release and close settle after their receipts.
+  Source leases protect against eviction before awaiting, and revocation waits
+  for earlier publication receipts before selecting the sources to withdraw.
+  `live()` and removal's `authorize()` stay inside the per-worktree serial queue,
+  immediately before submission; the queue stays held until the commit. Every
+  end effect on that worktree (release, generation close and removal) takes the
+  same serial queue and then the worker FIFO, so a renewal or release whose
+  check passed is ordered before the end's effects as it was inline. A failed
+  check still changes nothing. Generation close holds its worktrees' queues
+  through parking and its unchanged transaction; removal's authorization has
+  the same ordering relative to later work on that worktree. Callers without a
+  registered writer run the same procedures inline. Boot-only source recovery
+  retains its inline catalog writes.
 - **Other app-connection writers stay on the loop for now**: push
   subscriptions and VAPID keys, principal revocation and administration
   and passkeys. Each commits at
