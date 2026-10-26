@@ -9,6 +9,7 @@
  * revalidating the reviewed premise immediately before the effect.
  */
 import type { Database } from "bun:sqlite";
+import { referenceWrites } from "./reference-writes.js";
 import { createHash } from "node:crypto";
 import type { ReferenceWorktreeCleanup, ReferenceWorktreeRow, ReferenceWorktrees } from "./reference-worktrees.js";
 import type { HygieneWorktreeDetailsRead } from "@schlessera/brain-ui-sdk/protocol";
@@ -113,6 +114,7 @@ export function referenceWorktreeCandidate(item: Inventory, kind: Kind, fresh?: 
 
 export function createReferenceWorktreeHygiene(options: { db: Database; worktrees: ReferenceWorktrees; core: () => Promise<Core>; now?: () => number; brainPath: string }) {
   const { db, worktrees } = options;
+  const write = referenceWrites(db);
   const now = options.now ?? Date.now;
   const findingRow = (id: string) => db.query("SELECT * FROM reference_worktree_findings WHERE id = ?").get(id) as FindingRow | null;
 
@@ -137,29 +139,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
    */
   async function reconcile(): Promise<Map<string, Detected>> {
     const detected = await detect(), at = now();
-    db.transaction(() => {
-      for (const [id, { kind, finding, item }] of detected) {
-        const prior = findingRow(id), fields = JSON.stringify(finding.fingerprintFields);
-        if (!prior) {
-          db.query(`INSERT INTO reference_worktree_findings (id, worktree_id, kind, state, fingerprint, fields_json, first_seen, last_seen) VALUES (?, ?, ?, 'open', ?, ?, ?, ?)`)
-            .run(id, item.row.id, kind, finding.fingerprint, fields, at, at);
-          continue;
-        }
-        let state = prior.state, invalidation = prior.invalidation_json;
-        if ((state === "dismissed" || state === "snoozed") && prior.disposition_fingerprint !== finding.fingerprint) {
-          const before = JSON.parse(prior.disposition_fields_json ?? "{}") as Record<string, string>;
-          const changed = Object.keys(finding.fingerprintFields).filter(key => before[key] !== finding.fingerprintFields[key]);
-          invalidation = JSON.stringify({ on: isoDay(at), disposition: state, dispositionOn: prior.disposed_at === null ? null : isoDay(prior.disposed_at), changed, previousId: null });
-          state = "open";
-        } else if (state === "snoozed" && prior.due_at !== null && prior.due_at <= at) state = "open";
-        else if (state === "resolved") { state = "open"; invalidation = null; }
-        db.query(`UPDATE reference_worktree_findings SET kind = ?, state = ?, fingerprint = ?, fields_json = ?, last_seen = ?, invalidation_json = ?,
-          disposition_fingerprint = CASE WHEN ? = 'open' THEN NULL ELSE disposition_fingerprint END, due_at = CASE WHEN ? = 'open' THEN NULL ELSE due_at END WHERE id = ?`)
-          .run(kind, state, finding.fingerprint, fields, at, invalidation, state, state, id);
-      }
-      for (const row of db.query("SELECT id FROM reference_worktree_findings WHERE state != 'resolved'").all() as { id: string }[])
-        if (!detected.has(row.id)) db.query("UPDATE reference_worktree_findings SET state = 'resolved', resolved_by = 'detection', resolved_at = ? WHERE id = ?").run(at, row.id);
-    }).immediate();
+    await write("hygieneReconcile", detected, at);
     return detected;
   }
   function entry(row: FindingRow): Entry {
@@ -263,7 +243,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
       if (prior) await worktrees.reassess(prior.worktree_id, { remove: true });
       const detected = await reconcile();
       if (detected.has(id)) return { status: "still_detected", id };
-      db.query("UPDATE reference_worktree_findings SET resolved_by = 'check' WHERE id = ? AND state = 'resolved'").run(id);
+      await write("hygieneCheck", id);
       return { status: "not_detected", id };
     }
     const expected = flag("--expect-fingerprint"), stale = command === "resolve" ? "stale" : "refused";
@@ -274,8 +254,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
     if (command === "dismiss" || command === "snooze") {
       const until = flag("--until"), dueAt = until === undefined ? null : Date.parse(until), reason = flag("--reason") ?? null;
       if (command === "snooze" && (dueAt === null || !Number.isFinite(dueAt))) return { status: "refused", id, reason: "invalid-until" };
-      db.query(`UPDATE reference_worktree_findings SET state = ?, disposition_fingerprint = ?, disposition_fields_json = ?, disposed_at = ?, due_at = ?, reason = ?, invalidation_json = NULL WHERE id = ?`)
-        .run(command === "dismiss" ? "dismissed" : "snoozed", current.finding.fingerprint, JSON.stringify(current.finding.fingerprintFields), now(), dueAt, reason, id);
+      await write("hygieneDispose", command === "dismiss" ? "dismissed" : "snoozed", current.finding.fingerprint, JSON.stringify(current.finding.fingerprintFields), now(), dueAt, reason, id);
       return { status: command === "dismiss" ? "dismissed" : "snoozed", id, fingerprint: current.finding.fingerprint, until: until ?? null, reason, changedFiles: [] };
     }
     if (command !== "resolve") return { status: "refused", id, reason: `Managed worktree findings do not support ${command}.` };
@@ -301,7 +280,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
     // The pool's own error can name host paths; the replicated card gets a fixed reason, the receipt keeps the detail.
     if (outcome.status === "failed") { await reconcile(); return { status: "check_failed", id, reason: "The worktree could not be removed; it is kept for review.", code: "cleanup-failed" }; }
     if ((await reconcile()).has(id)) return { status: "check_failed", id, reason: "The finding is still detected after removal." };
-    db.query("UPDATE reference_worktree_findings SET resolved_by = ? WHERE id = ? AND state = 'resolved'").run(REFERENCE_WORKTREE_REMOVAL_HANDLER, id);
+    await write("hygieneResolve", REFERENCE_WORKTREE_REMOVAL_HANDLER, id);
     return { status: "fixed", id };
   }
   /**

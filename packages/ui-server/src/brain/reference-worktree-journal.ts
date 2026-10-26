@@ -16,19 +16,23 @@ export const referenceWorktreeJournalPath = (worktreeId: string, path: string) =
 /** Journal scope of every managed worktree change. */
 export const REFERENCE_WORKTREE_JOURNAL_SCOPE = "reference_worktree";
 
-/** Durable ownership of each observation checkpoint, recorded before it exists and forgotten after release. */
+/**
+ * Durable ownership of each observation checkpoint, recorded before it exists
+ * and forgotten after release. As with any void callback, implementations may
+ * return a promise; the manager awaits it before continuing.
+ */
 export interface ReferenceWorktreeCheckpointLedger { record(id: string, worktreeId: string): void; forget(id: string): void }
 
 export function referenceWorktreeJournalManager(pool: ReferenceWorktreeJournalPool, worktreeId: string, ledger?: ReferenceWorktreeCheckpointLedger): NativeJournalManager {
   return {
     async checkpoint(id, signal) {
-      ledger?.record(id, worktreeId);
+      await ledger?.record(id, worktreeId);
       const checkpoint = await pool.poolCheckpoint(id, worktreeId, signal);
       if (checkpoint.from !== worktreeId || !checkpoint.path || !checkpoint.root) throw new Error("Worktree checkpoint reply does not name its worktree.");
       return { id: checkpoint.id, path: checkpoint.path, uuid: checkpoint.root.uuid, transaction: checkpoint.transaction, readOnly: true };
     },
     delta: (from, to, signal) => pool.poolDelta(from, to, signal),
-    async release(id, signal) { const result = await pool.poolRelease(id, signal); ledger?.forget(id); return result; },
+    async release(id, signal) { const result = await pool.poolRelease(id, signal); await ledger?.forget(id); return result; },
     readCheckpoint: (id, path, maximum, workerUid, signal) => pool.poolReadCheckpoint(id, path, maximum, workerUid, signal),
     statCheckpoint: (id, path, workerUid, signal) => pool.poolStatCheckpoint(id, path, workerUid, signal),
     listCheckpoint: (id, path, workerUid, signal) => pool.poolListCheckpoint(id, path, workerUid, signal),

@@ -7,7 +7,7 @@ over the [reference pool](reference-pool-accounting.md). It uses the
 [owner-managed grants](reference-source-grants.md) as its only private
 authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
-(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:89-690`),
+(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:91-782`),
 created at host start when the native manager reports a reference pool, and
 closed with the app. The agent tool that requests source arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432)
@@ -45,7 +45,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:287-334`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:293-339`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -72,7 +72,7 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:401-461`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:404-456`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
@@ -102,9 +102,9 @@ reclamation is observed.
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
-(`admit`, `packages/ui-server/src/brain/reference-source.ts:227-242`). Requests
+(`admit`, `packages/ui-server/src/brain/reference-source.ts:233-248`). Requests
 for the same source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:245-270`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:251-276`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one
@@ -125,7 +125,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:359-375`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:363-379`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -138,7 +138,7 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:654-671`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:651-671`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be

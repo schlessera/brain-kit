@@ -20,6 +20,7 @@
  * See docs/decisions/managed-worktrees.md.
  */
 import type { Database } from "bun:sqlite";
+import { referenceWrites } from "./reference-writes.js";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -139,12 +140,11 @@ export function referenceWorktreeOwner(): { pid: number; start: string; boot: st
 
 type Owner = ReturnType<typeof referenceWorktreeOwner>;
 /** Record a checkpoint before the pool creates it, so recovery can tell whose it is. */
-export function recordReferenceWorktreeCheckpoint(db: Database, owner: Owner, id: string, worktreeId: string, at = Date.now()) {
-  db.query(`INSERT OR IGNORE INTO reference_worktree_checkpoints (id, worktree_id, owner_pid, owner_start, owner_boot, owner_pid_namespace, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, worktreeId, owner.pid, owner.start, owner.boot, owner.pidNamespace, at);
+export function recordReferenceWorktreeCheckpoint(db: Database, owner: Owner, id: string, worktreeId: string, at = Date.now()): Promise<void> {
+  return referenceWrites(db)("recordCheckpoint", id, worktreeId, owner.pid, owner.start, owner.boot, owner.pidNamespace, at);
 }
-export function forgetReferenceWorktreeCheckpoint(db: Database, id: string) {
-  db.query("DELETE FROM reference_worktree_checkpoints WHERE id = ?").run(id);
+export function forgetReferenceWorktreeCheckpoint(db: Database, id: string): Promise<void> {
+  return referenceWrites(db)("forgetCheckpoint", id);
 }
 
 export function createReferenceWorktrees(options: {
@@ -160,6 +160,7 @@ export function createReferenceWorktrees(options: {
   log?: Logger;
 }) {
   const { db, pool } = options;
+  const write = referenceWrites(db);
   const now = options.now ?? Date.now, inactivity = options.inactivityMs ?? REFERENCE_WORKTREE_INACTIVITY_MS;
   if (!Number.isSafeInteger(inactivity) || inactivity < 1) throw new ReferenceWorktreeError("invalid", "worktree inactivity must be a positive integer");
   const owner = options.owner ?? referenceWorktreeOwner();
@@ -244,7 +245,7 @@ export function createReferenceWorktrees(options: {
     let current: NativePoolCheckpoint | undefined, recorded = false;
     try {
       const baseline = await pool.poolCheckpoint(row.baseline, row.id, signal);
-      recordReferenceWorktreeCheckpoint(db, owner, id, row.id, now()); recorded = true;
+      await recordReferenceWorktreeCheckpoint(db, owner, id, row.id, now()); recorded = true;
       current = await pool.poolCheckpoint(id, row.id, signal);
       const delta = await pool.poolDelta(baseline.id, current.id, signal);
       void delta.completed.catch(() => {});
@@ -292,7 +293,7 @@ export function createReferenceWorktrees(options: {
     const work = ownerState === "none" ? await assessWork(row, signal)
       : { work: "unknown" as const, changedPaths: null, unverifiedPaths: null, sample: [], digest: null, error: null };
     const facts: ReferenceWorktreeCleanup = { reason, assessedAt: now(), owner: ownerState, ...work, eligible: ownerState === "none" && work.work === "none" };
-    db.query("UPDATE reference_worktrees SET cleanup = ? WHERE id = ?").run(JSON.stringify(facts), row.id);
+    await write("assess", JSON.stringify(facts), row.id);
     // A removal that cannot run now leaves a clean worktree for the next reconciliation; release and expiry still succeed.
     if (remove && facts.eligible) await removeClean(worktree(row.id)!, signal).catch(error => warn("automatic worktree removal did not run; reconciliation retries it", error));
     return facts;
@@ -348,10 +349,8 @@ export function createReferenceWorktrees(options: {
     const premise = input.expect({ row: current, work });
     if (premise) return refuse(premise);
     try { input.authorize?.(); } catch (error) { return refuse(error instanceof Error ? error.message : String(error)); }
-    // Nothing awaits between the checks above and this receipt.
-    db.query(`INSERT INTO reference_worktree_cleanups (worktree_id, trigger, state, premise, started_at) VALUES (?, ?, 'started', ?, ?)
-      ON CONFLICT (worktree_id) DO UPDATE SET trigger = excluded.trigger, state = 'started', premise = excluded.premise, started_at = excluded.started_at, finished_at = NULL, error = NULL`)
-      .run(row.id, input.trigger, input.premise, now());
+    // Submit immediately after the checks; keep the serial section until the receipt commits.
+    await write("startRemoval", row.id, input.trigger, input.premise, now());
     let receipt: NativePoolRecord;
     try { receipt = await pool.poolRelease(row.id, signal); }
     catch (error) {
@@ -360,12 +359,12 @@ export function createReferenceWorktrees(options: {
       const after = await poolRecord(row.id).catch(() => undefined);
       if (after === undefined) { warn("worktree removal outcome unknown; reconciliation reads it", error); return { status: "failed", reason }; }
       if (!after || after.state === "writable") {
-        db.query("UPDATE reference_worktree_cleanups SET state = 'failed', finished_at = ?, error = ? WHERE worktree_id = ?").run(now(), reason.slice(0, 1000), row.id);
+        await write("failRemoval", now(), reason.slice(0, 1000), row.id);
         return { status: "failed", reason };
       }
       receipt = after;
     }
-    db.query("UPDATE reference_worktree_cleanups SET state = ?, finished_at = ? WHERE worktree_id = ?").run(receipt.state === "reclaimed" ? "reclaimed" : "deleted", now(), row.id);
+    await write("finishRemoval", receipt.state === "reclaimed" ? "reclaimed" : "deleted", now(), row.id);
     await settle(row.id, signal, false);
     return { status: cleanupOf(row.id)!.state as "deleted" | "reclaimed" };
   }
@@ -382,35 +381,34 @@ export function createReferenceWorktrees(options: {
     if (record === undefined) return;
     if (cleanup.state === "started") {
       if (!record || record.state === "writable") {
-        db.query("UPDATE reference_worktree_cleanups SET state = 'interrupted', finished_at = ?, error = ? WHERE worktree_id = ? AND state = 'started'")
-          .run(now(), "The removal was interrupted before the pool deleted the worktree.", id);
+        await write("interruptRemoval", now(), "The removal was interrupted before the pool deleted the worktree.", id);
         return;
       }
-      db.query("UPDATE reference_worktree_cleanups SET state = 'deleted', finished_at = ? WHERE worktree_id = ? AND state = 'started'").run(now(), id);
+      await write("observeDeletion", now(), id);
     }
     // The pool committed this deletion; finishing it is the same effect, not a second one.
     if (record && record.state === "deleting") record = await pool.poolRelease(id, signal).catch(error => { warn("committed worktree deletion not yet finished", error); return record; });
     const row = worktree(id);
     if (row) for (const checkpoint of checkpointsOf(row)) {
       // Released once: a removed worktree never names its baseline again.
-      const forget = () => { forgetReferenceWorktreeCheckpoint(db, checkpoint); db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ? AND baseline = ?").run(id, checkpoint); };
+      const forget = () => write("forgetBaseline", id, checkpoint);
       try {
         // A retry first asks the pool. With the worktree deleted no checkpoint of it
         // can still be created, so an identity the pool no longer records is gone:
         // released before a crash, or reclaimed and forgotten. Releasing it again
         // would fail or leave a tombstone.
-        if (retry && await poolRecord(checkpoint, signal) === null) { forget(); continue; }
+        if (retry && await poolRecord(checkpoint, signal) === null) { await forget(); continue; }
         await pool.poolRelease(checkpoint, signal);
-        forget();
+        await forget();
       } catch (error) {
         const record = await poolRecord(checkpoint).catch(() => undefined);
-        if (record === null || (record && (record.state === "deleted" || record.state === "reclaimed"))) forget();
+        if (record === null || (record && (record.state === "deleted" || record.state === "reclaimed"))) await forget();
         else warn("removed worktree's checkpoint was not released; reconciliation retries it", error);
       }
     }
     // Releasing the checkpoints can complete the worktree's reclamation.
     const observed = await poolRecord(id, signal).catch(() => record);
-    if (observed?.state === "reclaimed") db.query("UPDATE reference_worktree_cleanups SET state = 'reclaimed' WHERE worktree_id = ? AND state = 'deleted'").run(id);
+    if (observed?.state === "reclaimed") await write("observeReclamation", id);
   }
   /** Settle every removal still open: unfinished, awaiting reclamation, or leaving a checkpoint behind. */
   async function settleAll(signal?: AbortSignal) {
@@ -422,7 +420,7 @@ export function createReferenceWorktrees(options: {
   /** Return a worktree whose holder is provably gone to the masked roots, then forget the holder. */
   async function recoverHolder(row: WorktreeRow, signal?: AbortSignal): Promise<WorktreeRow> {
     await pool.poolPark(row.id, signal);
-    db.query("UPDATE reference_worktrees SET holder = NULL WHERE id = ? AND holder = ?").run(row.id, row.holder);
+    await write("recoverHolder", row.id, row.holder);
     return worktree(row.id)!;
   }
 
@@ -438,14 +436,12 @@ export function createReferenceWorktrees(options: {
     try {
       const allowance = (await pool.poolStatus(input.signal)).limits.operationBytes;
       // Recorded before the pool sees it: recovery and eviction protection both start here.
-      db.query(`INSERT INTO reference_worktrees (id, principal_id, domain, repository, revision, base_commit, source_root, baseline, allowance, state, created_at, accessed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'creating', ?, ?)`)
-        .run(id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
+      await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
       try {
         const created = await pool.poolCreate(id, "worktree", lease.rootId, allowance, input.signal);
-        db.query("UPDATE reference_worktrees SET root_uuid = ? WHERE id = ?").run(created.root?.uuid ?? null, id);
+        await write("recordRoot", created.root?.uuid ?? null, id);
         const baseline = randomUUID();
-        db.query("UPDATE reference_worktrees SET baseline = ? WHERE id = ?").run(baseline, id);
+        await write("recordBaseline", baseline, id);
         await pool.poolCheckpoint(baseline, id, input.signal);
       } catch (error) {
         await discard(id).catch(cleanup => warn("unfinished worktree was not released; startup recovery retries it", cleanup));
@@ -453,7 +449,7 @@ export function createReferenceWorktrees(options: {
         throw new ReferenceWorktreeError(code === "capacity" ? "capacity" : "unavailable", `The worktree could not be created: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Allocation is an explicit access: the inactivity clock starts now.
-      db.query("UPDATE reference_worktrees SET state = 'active', accessed_at = ? WHERE id = ?").run(now(), id);
+      await write("activate", now(), id);
       return view(worktree(id)!);
     } finally { lease.release(); }
   }
@@ -463,7 +459,7 @@ export function createReferenceWorktrees(options: {
     if (!row) return;
     if (row.baseline) await pool.poolRelease(row.baseline);
     await pool.poolRelease(id);
-    db.query("DELETE FROM reference_worktrees WHERE id = ? AND state = 'creating'").run(id);
+    await write("discard", id);
   }
 
   /** Open one worker generation of a running turn: an empty directory its workers bind whole. */
@@ -472,8 +468,7 @@ export function createReferenceWorktrees(options: {
     if (input.profile !== "governed" && input.profile !== "strict") throw new ReferenceWorktreeError("invalid", "Only interactive worker profiles hold managed worktrees.");
     const id = randomUUID();
     const access = await pool.poolAccessOpen(id, input.signal);
-    db.query(`INSERT INTO reference_worktree_generations (id, principal_id, turn_id, profile, path, owner_pid, owner_start, owner_boot, owner_pid_namespace, opened_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.principalId, input.turnId, input.profile, access.path, owner.pid, owner.start, owner.boot, owner.pidNamespace, now());
+    await write("openGeneration", id, input.principalId, input.turnId, input.profile, access.path, owner.pid, owner.start, owner.boot, owner.pidNamespace, now());
     running.add(id); accepting.add(id); opened.add(id);
     return { id, path: access.path, principalId: input.principalId, turnId: input.turnId, profile: input.profile };
   }
@@ -497,16 +492,21 @@ export function createReferenceWorktrees(options: {
       const row = generation(id);
       if (!row) { running.delete(id); return; }
       const held = db.query("SELECT id FROM reference_worktrees WHERE holder = ?").all(id) as { id: string }[];
-      // Its turn is over either way: a failed close leaves a generation recovery can prove ended.
-      try { await pool.poolAccessClose(id, signal); } finally { running.delete(id); }
-      db.transaction(() => {
-        db.query("UPDATE reference_worktrees SET holder = NULL WHERE holder = ?").run(id);
-        db.query("UPDATE reference_worktree_generations SET closed_at = ? WHERE id = ? AND closed_at IS NULL").run(now(), id);
-      }).immediate();
-      for (const { id: worktreeId } of held) await serial(worktreeId, async () => {
-        const current = worktree(worktreeId);
-        if (current && (current.state === "released" || current.state === "expired")) await assess(current, current.state, signal);
-      });
+      // Hold each worktree's queue through parking and the one close transaction.
+      // A renewal/release already admitted there commits before the turn's end effects.
+      const keys = held.map(row => row.id).sort();
+      const closing = (index: number): Promise<void> => index < keys.length
+        ? serial(keys[index]!, () => closing(index + 1)) : finish();
+      async function finish() {
+        // Its turn is over either way: a failed close leaves a generation recovery can prove ended.
+        try { await pool.poolAccessClose(id, signal); } finally { running.delete(id); }
+        await write("closeGeneration", id, now());
+        for (const { id: worktreeId } of held) {
+          const current = worktree(worktreeId);
+          if (current && (current.state === "released" || current.state === "expired")) await assess(current, current.state, signal);
+        }
+      }
+      await closing(0);
     });
   }
 
@@ -552,7 +552,7 @@ export function createReferenceWorktrees(options: {
         }
       }
       // Explicit access or resumption: the only events, with renewal, that move the clock.
-      db.query("UPDATE reference_worktrees SET holder = ?, accessed_at = ?, state = 'active', cleanup = NULL WHERE id = ?").run(target.id, now(), row.id);
+      await write("grant", target.id, now(), row.id);
       return view(worktree(row.id)!);
     });
   }
@@ -564,7 +564,7 @@ export function createReferenceWorktrees(options: {
       if (cleanupOf(row.id)) throw new ReferenceWorktreeError("released", "This worktree was released.");
       if (row.state !== "active") throw new ReferenceWorktreeError(row.state === "released" ? "released" : "unavailable",
         row.state === "released" ? "This worktree was released." : "This worktree expired; access it again to resume it.");
-      db.query("UPDATE reference_worktrees SET accessed_at = ? WHERE id = ?").run(now(), row.id);
+      await write("renew", now(), row.id);
       return view(worktree(row.id)!);
     });
   }
@@ -573,7 +573,7 @@ export function createReferenceWorktrees(options: {
       if (input.live && !input.live()) throw new ReferenceWorktreeError("unavailable", "The turn that asked for this ended first; nothing changed.");
       let row = owned(input.worktreeId, input.principalId);
       if (row.state === "released") return view(row);
-      db.query("UPDATE reference_worktrees SET state = 'released', released_at = ? WHERE id = ?").run(now(), row.id);
+      await write("release", now(), row.id);
       row = worktree(row.id)!;
       // A live holder keeps it until its generation closes, after the final observation.
       if (holderState(row) === false && row.holder) row = await recoverHolder(row, input.signal);
@@ -600,7 +600,7 @@ export function createReferenceWorktrees(options: {
       if (holder === true) { result.retained.push(id); return; }
       if (holder === false && row.holder) { row = await recoverHolder(row, signal); result.recovered.push(id); }
       if (holder === null) result.retained.push(id);
-      if (expiring) { db.query("UPDATE reference_worktrees SET state = 'expired' WHERE id = ? AND state = 'active'").run(id); result.expired.push(id); row = worktree(id)!; }
+      if (expiring) { await write("expire", id); result.expired.push(id); row = worktree(id)!; }
       await assess(row, row.state === "released" ? "released" : "expired", signal);
     });
     // A positively clean worktree whose automatic removal did not run (a
@@ -626,7 +626,7 @@ export function createReferenceWorktrees(options: {
     for (const row of db.query("SELECT * FROM reference_worktrees WHERE root_uuid IS NULL AND state != 'creating'").all() as WorktreeRow[]) {
       const record = await poolRecord(row.id, signal).catch(() => null);
       if (record?.purpose === "worktree" && record.state === "writable" && record.from === row.source_root && record.root)
-        db.query("UPDATE reference_worktrees SET root_uuid = ? WHERE id = ? AND root_uuid IS NULL").run(record.root.uuid, row.id);
+        await write("adoptRoot", record.root.uuid, row.id);
     }
     for (const { id } of db.query("SELECT id FROM reference_worktrees WHERE state = 'creating'").all() as { id: string }[]) {
       try { await discard(id); result.discarded.push(id); } catch (error) { warn("unfinished worktree release failed", error); result.retained.push(id); }
@@ -643,7 +643,7 @@ export function createReferenceWorktrees(options: {
       const ended = row.owner_boot !== owner.boot ? true : row.owner_pid_namespace !== owner.pidNamespace ? null
         : row.owner_pid === owner.pid && row.owner_start === owner.start ? false : !processAlive(row.owner_pid, row.owner_start);
       if (ended !== true) { result.retained.push(row.id); continue; }
-      try { await pool.poolRelease(row.id, signal); forgetReferenceWorktreeCheckpoint(db, row.id); }
+      try { await pool.poolRelease(row.id, signal); await forgetReferenceWorktreeCheckpoint(db, row.id); }
       catch (error) { warn("stale worktree checkpoint was not released", error); result.retained.push(row.id); }
     }
     await reconcile(signal);
