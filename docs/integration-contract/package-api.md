@@ -242,7 +242,7 @@ uncertain, follow a maintainer ruling per item:
   `registry` and `close()`. Its connection, client-set, catalog, turn,
   activity, inbox, draft, label and classification members are `@internal`,
   as are `WsHostOptions.catalog`, `classifier`, `activity`, `inbox`,
-  `toolPermissions` and `drafts`. `SessionCatalog` and `createSessionCatalog`
+  `inboxTools`, `toolPermissions` and `drafts`. `SessionCatalog` and `createSessionCatalog`
   move to `@schlessera/brain-ui-server/internal`: a custom session catalog is
   no longer supported.
 - **ui-react's store hooks** (`useChatStore`, `useFileStore`, `useShareStore`,

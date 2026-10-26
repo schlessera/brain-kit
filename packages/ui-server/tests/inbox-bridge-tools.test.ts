@@ -188,7 +188,7 @@ for (const kind of ["claude", "pi"] as const) {
     const f = setup();
     const intake = await f.intake.share({ text: "Odysseus studies the harbor", files: [] }, f.principal);
     const shares = createInteractiveShares(f.db, f.root), sid = f.base.sessionId()!;
-    shares.start(f.principal.id, f.base.turnId, sid, intake.result.id, f.base.isCurrent);
+    await shares.start(f.principal.id, f.base.turnId, sid, intake.result.id, f.base.isCurrent);
     try {
       const input = { operation: "write" as const, path: "notes/harbor-share.md", expectedBaseHash: null,
         content: `Odysseus studies the harbor.\n<!-- share-source:${intake.result.id} -->\n` };
@@ -207,6 +207,6 @@ for (const kind of ["claude", "pi"] as const) {
       expect(repeated).toEqual({ ...first, replay: true });
       expect(f.store.getItem(intake.itemId)!.status).toBe("done");
       f.expire(); await expect(a.call("complete_share", request)).rejects.toThrow("no longer authorized");
-    } finally { shares.end(f.base.turnId); }
+    } finally { await shares.end(f.base.turnId); }
   });
 }
