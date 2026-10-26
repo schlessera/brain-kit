@@ -18,7 +18,7 @@ import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { resolveScratchMountSteps, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
-import { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
+import { WORKER_EMPTY_HOME, WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
@@ -89,6 +89,8 @@ export interface WorkerLaunch {
   command: readonly string[];
   /** The complete worker environment; nothing is inherited by default. */
   env: Readonly<Record<string, string>>;
+  /** Original host HOME when the backend selects another runtime HOME; retained for RTK exclusion. */
+  hostHome?: string;
   /**
    * The provider credentials a governed or strict turn worker keeps from
    * `env` (#1666): its own unrelayed inference credentials and the names an
@@ -594,7 +596,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
   const dataTree = !maintenance && !transport ? input.sandbox?.dataTree : undefined;
   if (input.sandbox?.dataTree && (maintenance || transport || workerProfile(input.sandbox) === "governed" || !input.startupView))
     throw new WorkerHostError("a turn data tree belongs only to a worker on an immutable startup view");
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
+  const emptyHome = !input.restricted && input.env.HOME === WORKER_EMPTY_HOME;
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
@@ -670,6 +673,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
   // and no other worker's namespace can see it (#1625). It lands on top of
   // the turn-temp /tmp and is not part of it.
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
+  // HOME writes must fail with EROFS without consuming transcript/state space (#2984).
+  if (emptyHome) argv.push("--tmpfs", WORKER_EMPTY_HOME, "--remount-ro", WORKER_EMPTY_HOME);
   // A governed or strict turn worker holds no provider credential its own
   // inference does not need (#1666); the CLI's providers name what is missing.
   const turnProfile = !maintenance && !transport && !input.restricted
@@ -811,10 +816,9 @@ const gated = (input: Pick<WorkerLaunch, "stateBytes" | "turnTempBytes">) => inp
 
 /**
  * The bubblewrap arguments for a resolved sandbox, re-checked against this
- * launch: the sandbox must be for this brain and envelope, each writable area
- * must still be a real directory at its own path in the brain, and the home it
- * was resolved for must still be the worker's `$HOME`. A mismatch refuses the
- * launch rather than binding something the agent's note does not describe.
+ * launch: the brain, envelope and writable directory identities must match.
+ * The backend chooses runtime HOME separately; the deprecated planning
+ * `home` input does not select or validate it.
  */
 function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, state: string | undefined) {
   const out = { binds: [] as string[], env: [] as string[] };
@@ -883,7 +887,7 @@ export interface PrepareWorkerSandboxOptions {
   maskPaths?: readonly string[];
   maintenance?: import("./maintenance-worker.js").MaintenanceHost;
   restricted?: boolean;
-  /** The `HOME` the worker will be given; scratch is checked with it. */
+  /** @deprecated XDG-only planning ignores this path; the backend selects runtime HOME. */
   home?: string;
   /** Which writable areas this worker gets. Default: all of them. */
   areas?: readonly WorkerAreaName[];

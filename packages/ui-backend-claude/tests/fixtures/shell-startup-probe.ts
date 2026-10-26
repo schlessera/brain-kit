@@ -142,5 +142,7 @@ try {
   }
 } catch (error) { console.error("Production worker failure:", spawner.startFailure() ?? error); throw error; }
 finally { clearTimeout(timer); abort.abort(); server.stop(true); try { await spawner.finish(); } finally { await startupView.cleanup(); } }
-console.log(JSON.stringify({ ...(result as object), ledgerLive: ledger.live, stateFailure: spawner.failure() ?? null,
+const project = join(saved, "projects", brain.replace(/[^a-zA-Z0-9]/g, "-"));
+const transcriptSaved = existsSync(project) && readdirSync(project).some(name => name.endsWith(".jsonl") && readFileSync(join(project, name), "utf8").includes("toolu_ithaca_shell"));
+console.log(JSON.stringify({ ...(result as object), ledgerLive: ledger.live, stateFailure: spawner.failure() ?? null, transcriptSaved,
   executableSha256: createHash("sha256").update(readFileSync(executable)).digest("hex"), namespace: readlinkSync("/proc/self/ns/net") }));

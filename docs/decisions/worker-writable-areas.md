@@ -81,7 +81,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:897-938`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:901-942`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:592-657`).
@@ -89,7 +89,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:819-849`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:823-853`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -147,11 +147,12 @@ turn.
 
 **`$HOME`.** #1703 supersedes the optional home overlay. Every interactive
 worker now uses the XDG directories under `/tmp/brain-worker-home`, inside
-its private, size-limited turn-temp tmpfs. Real HOME stays read-only: a tool
-that writes it directly receives `EROFS`, recorded through the roadblock
-path. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
+its private, size-limited turn-temp tmpfs. The original host home remains
+read-only at its original path: a direct write receives `EROFS`, recorded
+through the roadblock path. A backend may select a different runtime HOME
+as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:897-938`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:901-942`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -159,17 +160,26 @@ while direct reads of real HOME retain the read-only host view.
 > **2026-10-26 — Claude shell startup amendment (#2984, Option A).** The
 > maintainer selected suppression of operator shell startup configuration,
 > including the native CLI's login-shell fallback when a shell snapshot fails.
-> Claude's worker now sets `HOME` to its already prepared private runtime state,
-> after resolving host credentials/config and planning their existing copy-in
-> and persistence. No operator rc/profile is copied there. The original real
-> home path retains the existing read-only view and masks, and the bounded XDG
-> layout is unchanged. This is a Claude runtime HOME selection, not a restored
-> home overlay or a new writable bind of the host home. Non-envelope launches
-> discard `BASH_ENV`, `ENV` and `ZDOTDIR` startup redirects as well. Tools that previously
-> found operator configuration through `~` must use an explicit path. Restricted
-> workers keep their existing private-state HOME.
-> The shared sandbox note names the real host home as read-only, without
-> assuming every backend uses it as `$HOME`.
+> The measured CLI still sources rc files in a successful snapshot when
+> `CLAUDE_CODE_SHELL` names a `--noprofile --norc` wrapper. A shell prefix does
+> not prevent startup, and the launcher-script setting has no effect on Linux.
+> Non-envelope Claude workers use a fresh, empty, **read-only** HOME, mounted
+> separately from the writable runtime state named by `CLAUDE_CONFIG_DIR`.
+> Credentials/config are resolved from the original environment before the
+> override and retain their existing preparation and persistence. No operator
+> rc/profile is present in HOME. Writes to `~`, including tool and geo caches,
+> fail with `EROFS`; they cannot consume transcript/credential storage or be
+> misreported as runtime-state exhaustion. The original host-home path retains
+> its read-only view and profile masks. Bounded per-turn XDG storage is unchanged.
+> This deliberately removes implicit `~` reads of operator configuration; use
+> an explicit path for those reads. Core's default `~/.local/bin` and geo's
+> default cache/admission paths resolve under the empty read-only HOME. Geo
+> cannot create private per-worker admission state and refuses a cache miss
+> before sending a request. This is the accepted tradeoff for suppressing
+> startup imports, not the rejected writable tmpfs home or a restored overlay.
+> Non-envelope launches also discard `BASH_ENV`, `ENV` and `ZDOTDIR`; RTK still
+> excludes the original host home. The note describes both runtime HOME and the
+> original host home. Restricted workers keep their existing private-state HOME.
 
 **Restricted turns are unchanged.** The autonomous envelope gets no area, no
 home handling and the same argv as before; its note says so.
@@ -268,8 +278,11 @@ Measured 2026-10-11.
 - **Treating every multiply linked file as offending.** Git's local clones
   and package stores link within the area all the time, and would leave most
   real workspaces read-only.
-- **A plain tmpfs `$HOME`.** It loses the reads the overlay keeps, such as
-  `.gitconfig` and tool configuration.
+- **A writable plain tmpfs `$HOME`.** It adds writable tool/cache storage
+  and loses implicit reads such as `.gitconfig`. It remains rejected. The
+  #2984 amendment above deliberately accepts lost implicit reads for Claude
+  with an empty **read-only** HOME; the original host-home path remains
+  available subject to its profile masks, and HOME writes still fail `EROFS`.
 - **Binding scratch whether or not git ignores it.** Core never writes into an
   unignored scratch area; a writable mount would let any other tool do so and
   have the file committed later.

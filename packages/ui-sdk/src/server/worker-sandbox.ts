@@ -577,7 +577,7 @@ const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string) => s
 
 /** What this worker's turn temp covers. */
 function turnTempPlaces(): string {
-  return `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (the real host home is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`)`;
+  return `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` is read-only: Claude uses an empty home, pi the original host home; the real host home is read-only at its original path, subject to profile masks. Writes there fail with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`)`;
 }
 
 /**

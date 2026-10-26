@@ -22,6 +22,7 @@ interface Observation {
   xdgWritePrivate: boolean;
   ledgerLive: number;
   stateFailure: unknown;
+  transcriptSaved: boolean;
   namespace: string;
 }
 
@@ -67,6 +68,7 @@ for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false],
       expect(Object.values(home.errors), "HOME_WRITES_FAIL_WITH_EROFS").toEqual(Array(5).fill("EROFS"));
       expect(home, "HOME_IS_EMPTY_READ_ONLY_AND_SEPARATE_FROM_RUNTIME_STATE").toMatchObject({ readonly: true, empty: true, separateFromState: true });
       expect(result.stateFailure, "HOME_WRITES_DO_NOT_EXHAUST_RUNTIME_STATE").toBeNull();
+      expect(result.transcriptSaved, "TRANSCRIPT_SAVED_AFTER_HOME_WRITE_REFUSALS").toBe(true);
       if (profile === "unprofiled") {
         const consumers = JSON.parse(/^home-consumers=(.*)$/m.exec(tool!.stdout)![1]!);
         expect(consumers, "HOME_CONSUMERS_DO_NOT_CREATE_PRIVATE_GEO_ADMISSION").toMatchObject({
@@ -75,7 +77,7 @@ for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false],
         });
       }
       expect(result.xdgWritePrivate, "XDG_WRITES_USE_PRIVATE_TURN_TEMP").toBe(true);
-      expect(result.nativeEnv, "TURN_XDG_PATHS_UNCHANGED").toMatchObject({ HOME: "/tmp/brain-worker-state", CLAUDE_CONFIG_DIR: "/tmp/brain-worker-state",
+      expect(result.nativeEnv, "TURN_XDG_PATHS_UNCHANGED").toMatchObject({ HOME: "/tmp/brain-worker-empty-home", CLAUDE_CONFIG_DIR: "/tmp/brain-worker-state",
         XDG_CONFIG_HOME: "/tmp/brain-worker-home/config", XDG_CACHE_HOME: "/tmp/brain-worker-home/cache", XDG_DATA_HOME: "/tmp/brain-worker-home/data" });
       if (startupEnv) for (const name of ["BASH_ENV", "ENV", "ZDOTDIR"]) expect(result.nativeEnv[name], "EXPLICIT_STARTUP_INPUT_WITHHELD").toBeUndefined();
       expect(result.ledgerLive, "SHELL_FIXTURE_RELEASES_ALL_RESERVATIONS").toBe(0);

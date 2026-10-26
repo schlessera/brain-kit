@@ -240,11 +240,12 @@ Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-do
 
 ## Worker shell startup
 
-The Claude CLI receives `HOME=$CLAUDE_CONFIG_DIR` on its private runtime-state
-tmpfs. The host's configured Claude directory is resolved and its existing
+Non-envelope Claude workers give the CLI a fresh, empty, read-only `HOME`,
+separate from the writable runtime-state tmpfs at `CLAUDE_CONFIG_DIR`. The host's configured Claude directory is resolved and its existing
 credentials, settings, account file and resumed transcript are prepared before
 that override, so their source and persistence are unchanged. No operator
-shell startup file is copied into that HOME. This also covers the CLI's
+shell startup file is present in that HOME. Writes to `~` fail with `EROFS`
+and cannot consume transcript or credential storage. This also covers the CLI's
 login-shell fallback when it cannot create a shell snapshot.
 Non-envelope workers also discard `BASH_ENV`, `ENV` and `ZDOTDIR` startup
 redirects, including when explicitly admitted through the environment extras.
@@ -254,6 +255,10 @@ masks at its original path. The per-turn XDG directories remain in bounded turn
 temp. Commands that depended on `~` naming the operator's home must use an
 explicit configuration path; tools and variables previously supplied by a shell
 profile must come from the server's configured PATH and admitted environment.
+Core's default `~/.local/bin` and geo's default cache/admission paths now resolve
+under the empty read-only HOME. Geo cache misses fail before any request;
+these workers cannot create private per-worker geo admission state. Restricted
+workers retain their existing private-state HOME.
 
 ## Asynchronous runtime probe
 

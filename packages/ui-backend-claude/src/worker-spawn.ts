@@ -6,8 +6,9 @@ import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { homedir } from "node:os";
 import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter, launchAgentWorkerAsync, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHostAsync, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
-  WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
+  WORKER_SCRATCH, WORKER_STATE, WORKER_EMPTY_HOME, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -157,9 +158,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
         // Resolve host credentials and config above, before changing HOME.
-        // The CLI snapshots shell startup files and falls back to a login shell
-        // without a snapshot. Neither may read the operator's rc/profile (#2984).
-        childEnv.HOME = WORKER_STATE;
+        // Non-envelope HOME is separately empty and read-only: shell startup
+        // cannot import operator rc/profile or consume runtime state (#2984).
+        childEnv.HOME = restricted ? WORKER_STATE : WORKER_EMPTY_HOME;
         if (!restricted) {
           // Explicitly admitted startup redirects must not restore operator rc
           // files around the isolated HOME, including in descendant shells.
@@ -179,7 +180,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = await launchAgentWorkerAsync({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, hostHome: env.HOME || homedir(), credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }

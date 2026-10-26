@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:550-565`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:552-567`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -190,9 +190,10 @@ Governed turns use the verified scratch and workspace areas at their canonical
 paths. Strict turns write private area copies through `/tmp/brain-worker-areas/`
 aliases, with validated publication after exit. Host home remains read-only
 and may be hidden by the resolved profile masks; per-turn XDG directories are
-in turn temp. Claude's `HOME` names its prepared private runtime state, so the
-CLI's shell snapshot and login-shell fallback cannot import operator rc/profile
-files. The host's Claude config and credentials are resolved before that HOME
+in turn temp. Non-envelope Claude's `HOME` is a fresh empty read-only mount,
+separate from its writable runtime state at `CLAUDE_CONFIG_DIR`. The shell
+snapshot and login-shell fallback cannot import operator rc/profile files,
+and writes to `~` fail with `EROFS` without consuming transcript storage. The host's Claude config and credentials are resolved before that HOME
 override, with the same projection and persistence as before.
 `BASH_ENV`, `ENV` and `ZDOTDIR` are withheld from non-envelope Claude workers
 even when admitted as environment extras. See
@@ -440,10 +441,13 @@ write verified scratch/workspace copies through the aliases below.
   `/tmp/brain-worker-home`, which is what headless Chromium needs to start,
   and the agent's note says to point a tool there. There is no per-turn home
   overlay: bubblewrap keeps an overlay's writes in a host directory, which no
-  size-limited mount can hold. Claude selects `HOME=$CLAUDE_CONFIG_DIR` on its
-  existing runtime-state tmpfs to exclude operator shell startup files; the
-  real home retains its original read-only path and masks. A tool that needs
-  configuration there must name its path explicitly.
+  size-limited mount can hold. Non-envelope Claude uses a separate empty
+  read-only `HOME` to exclude operator shell startup files; its prepared
+  writable `CLAUDE_CONFIG_DIR` is unchanged. The real home retains its original
+  read-only path and masks. A tool that needs configuration there must name
+  its path explicitly. HOME-derived defaults such as core's `~/.local/bin`
+  and geo cache/admission see the empty read-only home; a geo cache miss
+  refuses before a request instead of creating private per-worker admission.
 - **Turn temp** is the worker's own size-limited `/tmp`
   ([above](#turn-temp-allowance-and-the-turn_temp-tool)). When the worker
   exits, files its answer linked there are copied into
