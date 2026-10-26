@@ -14,7 +14,6 @@ import type { BackendBridge, ServerMessage } from "@schlessera/brain-ui-sdk/serv
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { createClaudeBackend } from "../src/backend";
 import { defineProfiles } from "../src/profiles";
-import { turnEnv } from "../src/sdk-options";
 import { createWorkerSpawn } from "../src/worker-spawn";
 
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -164,8 +163,8 @@ test.skipIf(!native)("a turn without a host sandbox awaits its own scratch check
     expect(prepare.seen.calls, "CLAUDE_FALLBACK_SANDBOX_AWAITED").toBe(1);
     expect(blocking, "CLAUDE_FALLBACK_SANDBOX_NEVER_BLOCKS").not.toHaveBeenCalled();
     expect(prepare.seen.ticks, "CLAUDE_FALLBACK_SANDBOX_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
-    // The inputs its options used: the turn environment's home and the backend's maintenance host.
-    const inputs = { home: turnEnv(profiles[0]!).HOME, maintenance };
+    // XDG planning uses the maintenance host; runtime HOME belongs to the backend.
+    const inputs = { maintenance };
     expect(prepare.seen.args, "CLAUDE_FALLBACK_SANDBOX_SAME_INPUTS").toEqual([f.brain, inputs]);
     blocking.mockRestore();
     expect(prepare.seen.result, "CLAUDE_FALLBACK_SANDBOX_SAME_AREAS").toEqual(prepareWorkerSandbox(f.brain, inputs));
@@ -200,7 +199,7 @@ test("a refused fallback sandbox fails the turn by its named refusal and never p
   } finally { blocking.mockRestore(); prepare.mockRestore(); probe.mockRestore(); f.cleanup(); }
 });
 
-test("Claude's own sandbox and its options share one resolved environment, for an ordinary and an unrestricted autonomous turn", async () => {
+test("Claude resolves one SDK environment per turn while XDG planning receives no runtime HOME, including unrestricted autonomous turns", async () => {
   const f = fixture();
   let builds = 0;
   // A profile whose environment differs on every resolution: a second one would show.
@@ -221,7 +220,8 @@ test("Claude's own sandbox and its options share one resolved environment, for a
     await backend.startTurn({ prompt: "Summarize the voyage", signal: new AbortController().signal, enforceAllowedTools: true, noGrantSurface: true,
       bridge: { ...bridge(), checkpointPermission: () => {} },
       autonomous: { origin: "autonomous", persistence: "none", allowedTools: [], systemPromptAppend: "Summarize the voyage." } });
-    expect(homes, "OWN_SANDBOX_SAME_ENVIRONMENT_AS_OPTIONS").toEqual([
-      { prepared: "/odysseus/home-1", sdk: "/odysseus/home-1" }, { prepared: "/odysseus/home-2", sdk: "/odysseus/home-2" }]);
+    expect(homes, "XDG_PLANNING_OMITS_HOME_AND_SDK_USES_RESOLVED_ENVIRONMENT").toEqual([
+      { prepared: undefined, sdk: "/odysseus/home-1" }, { prepared: undefined, sdk: "/odysseus/home-2" }]);
+    expect(builds, "TURN_ENVIRONMENT_RESOLVED_ONCE_PER_TURN").toBe(2);
   } finally { prepare.mockRestore(); probe.mockRestore(); f.cleanup(); }
 });
