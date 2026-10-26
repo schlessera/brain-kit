@@ -150,7 +150,7 @@ export interface ActivityStream {
   pump(): void;
   /** Whether any connection currently watches the given session's activity. */
   isWatched(scope: { sessionId?: string; runId?: string }): boolean;
-  /** What `isWatched` answers from, as data: the notifier ticks on the write worker (#2850). */
+  /** @internal What `isWatched` answers from, as data: the notifier ticks on the write worker (#2850). */
   watched(): import("./notify-writes.js").WatchedScopes;
   /** Number of live subscriptions (all connections). */
   subscriptionCount(): number;
