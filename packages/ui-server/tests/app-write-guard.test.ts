@@ -14,6 +14,7 @@ test("the hosted-app guard names a server-code write on the app connection once 
   await new Promise<void>(done => { setTimeout(setSetting, 0, t.app.db, "odysseus.guard.probe", { harbor: "Ithaca" }); setTimeout(done, 20); });
   expect(getSetting<unknown>(t.app.db, "odysseus.guard.probe", null), "APP_WRITE_GUARD_PROBE_WRITE_LANDED").toEqual({ harbor: "Ithaca" });
   const failure = await closing(t);
+  expect(failure, "APP_WRITE_GUARD_REFUSES_SERVING_WRITE").not.toBeNull();
   expect(failure, "APP_WRITE_GUARD_NAMES_SERVING_WRITE").toContain("APP_CONNECTION_WRITE_WHILE_SERVING");
   expect(failure, "APP_WRITE_GUARD_NAMES_THE_SITE").toContain("packages/ui-server/src/db/settings.ts");
 });
