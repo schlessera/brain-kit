@@ -19,6 +19,7 @@ import {
   type SubscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 
+import type { SettingsWrites } from "../db/settings-writes.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { SubscriptionConfig } from "../config/env.js";
 import { getSetting, setSetting } from "../db/settings.js";
@@ -96,6 +97,7 @@ export interface SubscriptionMonitorOptions {
   log: Logger;
   /** The app's database, where turns are recorded. */
   db: Database;
+  settingsWrites?: SettingsWrites;
   /** The last auth failure of a turn that ran on the subscription. */
   lastTurnFailure: () => ReturnType<RuntimeStatus["subscriptionAuthFailure"]>;
   /** The Claude backend's model discovery, when it runs. */
@@ -157,7 +159,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
    * may escape and take the server down.
    */
   function hourly(): void {
-    guarded(() => lastSubscriptionTurnAt(options.db));
+    guarded(() => options.settingsWrites ? options.settingsWrites.lastSubscriptionTurnAt() : lastSubscriptionTurnAt(options.db));
     // Needs only the configuration and the clock: a database that fails
     // above must not also silence the warning.
     guarded(checkExpiry);
@@ -165,14 +167,17 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
 
   function guarded(step: () => unknown): void {
     try {
-      step();
-    } catch (error) {
-      log.emit({
-        severityText: "WARN",
-        body: "subscription check failed",
-        attributes: { error: error instanceof Error ? error.message : String(error) },
-      });
-    }
+      const done = step();
+      if (done instanceof Promise) void done.catch(report);
+    } catch (error) { report(error); }
+  }
+
+  function report(error: unknown): void {
+    log.emit({
+      severityText: "WARN",
+      body: "subscription check failed",
+      attributes: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 
   function checkExpiry(): void {
@@ -224,7 +229,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
         .modelSource()
         .then((source) => source?.state() ?? null)
         .catch(() => null);
-      const turnAt = lastSubscriptionTurnAt(options.db);
+      const turnAt = await (options.settingsWrites ? options.settingsWrites.lastSubscriptionTurnAt() : lastSubscriptionTurnAt(options.db));
       const discoveredAt = discovery?.subscriptionProvenAt ?? null;
       const proven =
         turnAt === null && discoveredAt === null

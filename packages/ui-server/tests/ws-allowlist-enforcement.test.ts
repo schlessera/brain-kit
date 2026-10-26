@@ -105,7 +105,7 @@ function memoryGrants(initial: string[] = []) {
   const set = new Set(initial);
   const tp: ToolPermissions = {
     isAutoAllowed: (name) => set.has(name),
-    add: (name) => set.add(name),
+    add: (name) => { set.add(name); },
   };
   return { tp, set };
 }
@@ -353,7 +353,7 @@ describe("a refused always-allow is recorded", () => {
         ? {
             toolPermissions: {
               isAutoAllowed: (name: string) => grants.has(name),
-              add: (name: string) => grants.add(name),
+              add: (name: string) => { grants.add(name); },
             },
           }
         : {}),

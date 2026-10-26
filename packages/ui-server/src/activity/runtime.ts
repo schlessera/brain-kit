@@ -23,7 +23,7 @@ import { createPushSender, type PushSender } from "./push-sender.js";
 import { createActionNotifier, type ActionNotifier } from "../inbox/notify.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
-import { keepSubscriptionProof } from "../agent/subscription.js";
+import { createSettingsWrites, type SettingsWrites } from "../db/settings-writes.js";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
@@ -78,10 +78,12 @@ export function createActivityRuntime(
      * `pricingConfig`'s table.
      */
     writer?: SqliteWriter;
+    settingsWrites?: SettingsWrites;
     pricingConfig?: ActivityPricingConfig;
   }
 ): ActivityRuntime {
   const { log } = deps;
+  const settingsWrites = deps.settingsWrites ?? createSettingsWrites(db, deps.writer);
   const store: AwaitableActivityStore = deps.writer
     ? createOffloopActivityStore(db, deps.writer, { ...(deps.pricing ? { pricing: deps.pricing } : {}), ...(deps.pricingConfig ? { pricingConfig: deps.pricingConfig } : {}) })
     : createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
@@ -214,7 +216,7 @@ export function createActivityRuntime(
     notifier,
     pushSender,
     actionNotices,
-    runtime: createRuntimeStatus(undefined, log, (at) => keepSubscriptionProof(db, at)),
+    runtime: createRuntimeStatus(undefined, log, (at) => settingsWrites.keepSubscriptionProof(at)),
     query: (query) => runActivityQuery(db, store, query, notifier),
     governance: (input) => governanceWrites.record(input).then(() => {}, (err: unknown) => {
       log.emit({ severityText: "WARN", body: `governance event not recorded: ${err instanceof Error ? err.message : String(err)}` });

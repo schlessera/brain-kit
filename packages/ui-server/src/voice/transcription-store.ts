@@ -4,8 +4,10 @@ import type { RecordingTranscription, TranscriptionErrorResponse, TranscriptionF
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 
 export class TranscriptionError extends Error {
+  readonly bodyJson: string;
   constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 410 | 413 | 415 | 501, readonly body: TranscriptionErrorResponse) {
     super(body.message);
+    this.bodyJson = JSON.stringify(body);
   }
 }
 export const refuse = (status: TranscriptionError["status"], error: string, message: string, receipt?: RecordingTranscription): never => {
@@ -32,6 +34,11 @@ export function createTranscriptionStore(db: Database, accountKey: (principal: P
     db.query("UPDATE recording_transcriptions SET status = 'outcome_unknown', failure = ?, failures = ? WHERE recording_id = ? AND status = 'transcribing'")
       .run(JSON.stringify(unknown), JSON.stringify([...JSON.parse(row.failures), { ...unknown, attemptId: row.attempt_id }]), row.recording_id);
   }
+  return transcriptionOperations(db, accountKey);
+}
+
+/** The same operations on either connection; startup recovery only runs at boot. */
+export function transcriptionOperations(db: Database, accountKey: (principal: Principal | undefined) => string | null) {
   const read = (id: string) => db.query("SELECT * FROM recording_transcriptions WHERE recording_id = ?").get(id) as Row | null;
   const authorize = (principalId: string) => {
     const current = resolvePrincipal(db, principalId);

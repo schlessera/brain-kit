@@ -18,6 +18,9 @@ import {
   type SessionDraftLimits,
 } from "@schlessera/brain-ui-sdk/protocol";
 
+import { createDraftWrites } from "./writes.js";
+import type { SqliteWriter } from "../db/write-worker.js";
+
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 
 /**
@@ -40,9 +43,11 @@ export type DraftImageType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
 
 /** A refusal with its HTTP status and typed body. */
 export class DraftError extends Error {
+  readonly bodyJson: string;
   constructor(readonly status: 400 | 404 | 409 | 410 | 413 | 428 | 507, readonly body: DraftErrorResponse) {
     super(body.message);
     this.name = "DraftError";
+    this.bodyJson = JSON.stringify(body);
   }
 }
 
@@ -177,10 +182,20 @@ function deleted(row: DraftRow): DraftError {
   });
 }
 
+type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept";
+export type AwaitableDraftStore = Omit<DraftStore, DraftWrite> & {
+  [K in DraftWrite]: (...args: Parameters<DraftStore[K]>) => ReturnType<DraftStore[K]> | Promise<ReturnType<DraftStore[K]>>;
+} & { settled?(): Promise<void> };
+export interface DraftStoreOptions { now?: () => number; limits?: Partial<SessionDraftLimits> }
+
+export function createDraftStore(db: Database, options?: DraftStoreOptions): DraftStore;
+export function createDraftStore(db: Database, options: DraftStoreOptions, writer: SqliteWriter): AwaitableDraftStore;
 export function createDraftStore(
   db: Database,
-  options: { now?: () => number; limits?: Partial<SessionDraftLimits> } = {}
-): DraftStore {
+  options: DraftStoreOptions = {},
+  writer?: SqliteWriter
+): AwaitableDraftStore {
+  if (writer) return createDraftWrites(db, options, writer);
   const now = options.now ?? Date.now;
   const limits: Readonly<SessionDraftLimits> = Object.freeze({ ...SESSION_DRAFT_LIMITS, ...options.limits });
 
