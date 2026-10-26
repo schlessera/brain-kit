@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
@@ -487,6 +488,81 @@ describe("curated tools execute without in-tool gating", () => {
     } finally {
       brain.cleanup();
     }
+  });
+
+  /**
+   * Runs `command` through the real bash tool with a fixture HOME (#2960):
+   * `files` are written under it, `env` is set on the host for the call and
+   * `{HOME}` in either is replaced by the fixture's path.
+   */
+  async function bashWithHome(command: string, files: Record<string, string>, env: Record<string, string> = {}) {
+    const brain = makeEmptyBrain();
+    const home = mkdtempSync(join(tmpdir(), "pi-bash-home-"));
+    const names = ["HOME", ...Object.keys(env)];
+    const saved = new Map(names.map((name) => [name, process.env[name]]));
+    try {
+      for (const [rel, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(home, rel)), { recursive: true });
+        writeFileSync(join(home, rel), content.replaceAll("{HOME}", home), { mode: 0o755 });
+      }
+      process.env.HOME = home;
+      for (const [name, value] of Object.entries(env)) process.env[name] = value.replaceAll("{HOME}", home);
+      const tools = toolMap(createBrainTools({
+        brain: createBrainAccess(brain.root),
+        turn: createTurnContext(),
+        lock: toolLockFromKeyed(createKeyedLock()),
+      }));
+      return await tools.bash!.execute("bash-home", { command }, undefined, undefined, CTX);
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(home, { recursive: true, force: true });
+      brain.cleanup();
+    }
+  }
+
+  const NOISY = "echo profile-stdout\necho profile-stderr >&2\n";
+  const NOISY_HOME = { ".bash_profile": NOISY, ".bash_login": NOISY, ".profile": NOISY, ".bashrc": NOISY };
+
+  test.each([
+    ["echo hi", "hi"],
+    ["true", "(no output)"],
+  ])("bash output carries nothing a profile in HOME prints: %s", async (command, output) => {
+    const res = await bashWithHome(command, NOISY_HOME);
+    expect(resultText(res)).toBe(output);
+    expect(res.details).toEqual({ exitCode: 0 });
+  });
+
+  test("a profile in HOME sets no variable and no PATH entry the command sees", async () => {
+    const leak = [
+      "export GH_TOKEN=from-profile",
+      "export BRAIN_TEST_PROFILE_LEAK=1",
+      'export PATH="{HOME}/planted-bin:$PATH"',
+      "",
+    ].join("\n");
+    const res = await bashWithHome(
+      'printf "tok=[%s] leak=[%s] probe=[%s] path=[%s]" "${GH_TOKEN:-unset}" "${BRAIN_TEST_PROFILE_LEAK:-unset}" '
+        + '"$(command -v brain-profile-probe || echo absent)" "$(case ":$PATH:" in *planted-bin*) echo planted;; *) echo clean;; esac)"',
+      {
+        ".bash_profile": leak, ".bash_login": leak, ".profile": leak, ".bashrc": leak,
+        "planted-bin/brain-profile-probe": "#!/bin/sh\necho planted-probe\n",
+      },
+      // Not on the agent allowlist: the allowlist removes the host value.
+      { GH_TOKEN: "host-value" },
+    );
+    expect(resultText(res)).toBe("tok=[unset] leak=[unset] probe=[absent] path=[clean]");
+  });
+
+  test("an operator-admitted BASH_ENV or ENV names no startup file the command or its shells source", async () => {
+    const startup = "echo startup-file-ran\nexport BRAIN_TEST_PROFILE_LEAK=1\n";
+    const res = await bashWithHome(
+      `printf "env=[%s] bash_env=[%s] " "\${ENV:-unset}" "\${BASH_ENV:-unset}"; bash -c 'printf "nested=[%s]" "\${BRAIN_TEST_PROFILE_LEAK:-unset}"'`,
+      { "startup.sh": startup },
+      { BRAIN_UI_SUBPROCESS_ENV_EXTRA: "BASH_ENV,ENV", BASH_ENV: "{HOME}/startup.sh", ENV: "{HOME}/startup.sh" },
+    );
+    expect(resultText(res)).toBe("env=[unset] bash_env=[unset] nested=[unset]");
   });
 
   test("ask_user degrades to an error when the host lacks askUser", async () => {
