@@ -196,8 +196,9 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   waiting, and never overlaps one still committing. A delivery's begin takes
   the process's buffered history state from where it was submitted and reads
   the durable history under its own transaction, so a newer observation
-  another process committed meanwhile counts. Push transport awaits begin
-  and finish; shutdown awaits the final flush. Operational restore still
+  another process committed meanwhile counts. The storage history and
+  guidance views read once every flush submitted before them has committed.
+  Push transport awaits begin and finish; shutdown awaits the final flush. Operational restore still
   writes inside its caller's transaction.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
