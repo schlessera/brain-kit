@@ -238,6 +238,23 @@ Reads whose variable *name* is configuration rather than code:
 Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
 
+## Worker shell startup
+
+The Claude CLI receives `HOME=$CLAUDE_CONFIG_DIR` on its private runtime-state
+tmpfs. The host's configured Claude directory is resolved and its existing
+credentials, settings, account file and resumed transcript are prepared before
+that override, so their source and persistence are unchanged. No operator
+shell startup file is copied into that HOME. This also covers the CLI's
+login-shell fallback when it cannot create a shell snapshot.
+Non-envelope workers also discard `BASH_ENV`, `ENV` and `ZDOTDIR` startup
+redirects, including when explicitly admitted through the environment extras.
+
+The original host home keeps the launcher's existing read-only view and profile
+masks at its original path. The per-turn XDG directories remain in bounded turn
+temp. Commands that depended on `~` naming the operator's home must use an
+explicit configuration path; tools and variables previously supplied by a shell
+profile must come from the server's configured PATH and admitted environment.
+
 ## Asynchronous runtime probe
 
 The module's `probeRuntime(context): Promise<BackendRuntimeReport>`

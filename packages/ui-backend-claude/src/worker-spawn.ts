@@ -156,10 +156,18 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
         if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
+        // Resolve host credentials and config above, before changing HOME.
+        // The CLI snapshots shell startup files and falls back to a login shell
+        // without a snapshot. Neither may read the operator's rc/profile (#2984).
+        childEnv.HOME = WORKER_STATE;
+        if (!restricted) {
+          // Explicitly admitted startup redirects must not restore operator rc
+          // files around the isolated HOME, including in descendant shells.
+          delete childEnv.BASH_ENV; delete childEnv.ENV; delete childEnv.ZDOTDIR;
+        }
         const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {
           // No host home exists in the envelope; runtime state is the fresh tmpfs.
-          childEnv.HOME = WORKER_STATE;
           // The executable and any script it is handed, and nothing else of the
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];

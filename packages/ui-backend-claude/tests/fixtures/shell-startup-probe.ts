@@ -8,20 +8,24 @@ import type { LaunchedWorker } from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../../src/worker-spawn.js";
 import { createStateLedger } from "../../src/worker-state-budget.js";
 import { nativeModelReply } from "../helpers/native-model-reply.js";
+import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 
 const root = process.argv[2]!;
 const fallback = process.argv[3] === "fallback";
+const profile = process.argv[4] === "governed" ? "governed" : process.argv[4] === "strict" ? "strict" : undefined;
+const startupEnv = process.argv[5] === "startup-env";
+const shell = process.argv[6] === "zsh" ? "/usr/bin/zsh" : "/bin/bash";
 const brain = join(root, "ithaca"), home = join(root, "home"), saved = join(home, ".claude"), planted = join(home, "planted-bin");
 for (const path of [brain, home, saved, planted]) mkdirSync(path, { recursive: true });
 writeFileSync(join(home, "voyage.txt"), "Odysseus returns to Ithaca.\n");
 writeFileSync(join(planted, "ithaca-profile-probe"), "#!/bin/sh\necho planted\n", { mode: 0o755 });
-for (const name of [".bashrc", ".bash_profile"]) writeFileSync(join(home, name), [
+for (const name of [".bashrc", ".bash_profile", ".zshenv", ".zprofile", ".zshrc", ".zlogin"]) writeFileSync(join(home, name), [
   `echo ithaca-${name}-stdout`,
   `echo ithaca-${name}-stderr >&2`,
   "export BRAIN_TEST_PROFILE_LEAK=1",
   `export PATH='${planted}':"$PATH"`,
   "git() { echo planted; }",
-  `printf 'file=${name} HOME=%s login=%s command=%s\\n' "$HOME" "$(shopt -q login_shell && echo yes || echo no)" "$BASH_EXECUTION_STRING" >> "$BRAIN_WORKER_SCRATCH/startup.log"`,
+  `printf 'file=${name} HOME=%s login=%s command=%s\\n' "$HOME" "$(if [ -n "\${ZSH_VERSION:-}" ]; then [[ -o login ]]; else shopt -q login_shell; fi && echo yes || echo no)" "\${BASH_EXECUTION_STRING:-\${ZSH_EXECUTION_STRING:-}}" >> "$BRAIN_WORKER_SCRATCH/startup.log"`,
 ].join("\n") + "\n");
 // Only fictional authentication is available, to the loopback fixture below.
 const credential = JSON.stringify({ claudeAiOauth: { accessToken: "odysseus-offline-oauth", refreshToken: "odysseus-offline-refresh",
@@ -35,22 +39,28 @@ const command = 'echo hi; type git; echo "${BRAIN_TEST_PROFILE_LEAK:-unset}"; '
   + 'printf "config=%s\\n" "$ITHACA_CONFIG_RETAINED"; '
   + 'command -v ithaca-profile-probe || true; '
   + 'printf "home=%s xdg=%s\\n" "$HOME" "$XDG_CONFIG_HOME"; '
+  + 'printf "Athena charts.\\n" > "$XDG_CONFIG_HOME/voyage.txt"; '
   + 'cat "' + home + '/voyage.txt"; '
   + '(echo changed > "' + home + '/voyage.txt") 2>/dev/null || echo real-home-read-only';
 let worker: LaunchedWorker | undefined;
 let sent = false, selected: { command: string; args: string[] } | undefined;
-const messages: unknown[] = [], requests: unknown[] = [];
+const messages: unknown[] = [], requests: unknown[] = [], stderr: string[] = [];
 const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 25_000);
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (!new URL(request.url).pathname.endsWith("/messages")) return Response.json({});
-  const body = await request.json() as { messages: unknown[] };
+  const body = await request.json() as { messages: unknown[]; tools?: { name: string }[] };
+  // Native startup helpers can make their own Messages requests. Only the
+  // actual agent roster receives the scripted Bash call.
+  if (!body.tools?.some(tool => tool.name === "Bash")) return nativeModelReply();
   requests.push({ authorization: request.headers.get("authorization"), apiKey: request.headers.get("x-api-key"), messages: body.messages });
   if (!sent) { sent = true; return nativeModelReply({ name: "Bash", input: { command, description: "Inspect the Ithaca shell." }, id: "toolu_ithaca_shell" }); }
   return nativeModelReply();
 } });
 const ledger = createStateLedger();
-const spawner = createWorkerSpawn(brain, { wrapper }, abort.signal, undefined, undefined, undefined, undefined, { ledger }, undefined,
-  live => { worker = live as LaunchedWorker; });
+const startupView = createFixtureWorkerStartupView(brain);
+const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile, areas: [] });
+const spawner = createWorkerSpawn(brain, { wrapper }, abort.signal, undefined, sandbox, undefined, undefined, { ledger }, undefined,
+  live => { worker = live as LaunchedWorker; }, startupView);
 const requireSdk = createRequire(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"));
 const executable = requireSdk.resolve("@anthropic-ai/claude-agent-sdk-linux-x64/claude");
 let nativeMatches = false, nativeEnv: Record<string, string> = {}, runtimeVersion: string | undefined;
@@ -65,7 +75,7 @@ function observeNative() {
         const values = Object.fromEntries(readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").filter(Boolean).map(pair => {
           const position = pair.indexOf("="); return [pair.slice(0, position), pair.slice(position + 1)];
         }));
-        nativeEnv = Object.fromEntries(["HOME", "CLAUDE_CONFIG_DIR", "SHELL", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"].map(name => [name, values[name]]));
+        nativeEnv = Object.fromEntries(["HOME", "CLAUDE_CONFIG_DIR", "SHELL", "BASH_ENV", "ENV", "ZDOTDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"].map(name => [name, values[name]]));
         return;
       }
       pending.push(...readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number));
@@ -73,30 +83,46 @@ function observeNative() {
   }
 }
 let result: unknown;
+function capture() {
+  if (!worker) return;
+  const state = worker.state!.root, temp = worker.turnTemp!.root;
+  const read = (path: string) => existsSync(path) ? readFileSync(path, "utf8") : "";
+  const snapshotDir = join(state, "shell-snapshots");
+  const snapshots = fallback ? [] : existsSync(snapshotDir) ? readdirSync(snapshotDir).map(name => ({ name, content: read(join(snapshotDir, name)) })) : [];
+  result = { fallback, profile: profile ?? "unprofiled", command, runtimeVersion, selected, nativeMatches, nativeEnv, snapshots,
+    startup: read(join(temp, "brain-worker-scratch/startup.log")), debug: read(join(state, "shell-debug.log")), messages, requests,
+    credentialsProjected: read(join(state, ".credentials.json")) === credential,
+    xdgWritePrivate: read(join(temp, "brain-worker-home/config/voyage.txt")) === "Athena charts.\n" && !existsSync(join(home, ".config/voyage.txt")),
+    hostHomeUnchanged: readFileSync(join(home, "voyage.txt"), "utf8") === "Odysseus returns to Ithaca.\n" };
+}
+async function captureTool() {
+  // The native debug sink flushes asynchronously. Keep the live worker's
+  // descriptors held until the branch receipt has reached the actual file.
+  const path = join(worker!.state!.root, "shell-debug.log"), deadline = Date.now() + 5_000;
+  while (!(existsSync(path) && readFileSync(path, "utf8").includes(fallback ? "EEXIST" : "Spawning shell without login (-l flag skipped)"))) {
+    if (Date.now() >= deadline) throw new Error("Native shell branch diagnostic did not flush.");
+    await Bun.sleep(10);
+  }
+  capture();
+}
 try {
   for await (const message of query({ prompt: "Inspect the Ithaca shell.", options: {
-    cwd: brain, env: { HOME: home, CLAUDE_CONFIG_DIR: saved, PATH: "/usr/bin:/bin", SHELL: "/bin/bash", LANG: "C.UTF-8",
+    cwd: brain, env: { HOME: home, ...(profile ? { CLAUDE_CONFIG_DIR: saved } : {}), PATH: "/usr/bin:/bin", SHELL: shell, LANG: "C.UTF-8",
+      ...(startupEnv ? { BASH_ENV: join(home, ".bashrc"), ENV: join(home, ".bashrc"), ZDOTDIR: home } : {}),
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" },
-    settingSources: ["user"], allowedTools: ["Bash"], maxTurns: 3, model: "claude-sonnet-4-6", abortController: abort,
+    settingSources: ["user"], permissionMode: "default", maxTurns: 3, model: "claude-sonnet-4-6", abortController: abort,
     extraArgs: { "debug-file": "/tmp/brain-worker-state/shell-debug.log" },
+    stderr: text => { stderr.push(text); writeFileSync(join(root, "native-stderr.log"), stderr.join("")); },
     spawnClaudeCodeProcess: options => { selected = { command: options.command, args: options.args }; return spawner.spawn(options); },
     canUseTool: async (_name, input) => ({ behavior: "allow", updatedInput: input }),
-    hooks: { PostToolUse: [{ hooks: [async input => { messages.push(input); observeNative(); return {}; }] }] },
+    hooks: { PostToolUse: [{ hooks: [async input => { messages.push(input); observeNative(); await captureTool(); return {}; }] }] },
   } })) {
     if (message.type === "system" && message.subtype === "init") { runtimeVersion = message.claude_code_version; observeNative(); }
     if (message.type === "user") messages.push(message);
     if (message.type === "result" && message.is_error) throw new Error(JSON.stringify(message));
-    if (worker && message.type === "assistant") {
-      const state = worker.state!.root, temp = worker.turnTemp!.root;
-      const read = (path: string) => existsSync(path) ? readFileSync(path, "utf8") : "";
-      const snapshotDir = join(state, "shell-snapshots");
-      const snapshots = fallback ? [] : existsSync(snapshotDir) ? readdirSync(snapshotDir).map(name => ({ name, content: read(join(snapshotDir, name)) })) : [];
-      result = { fallback, command, runtimeVersion, selected, nativeMatches, nativeEnv, snapshots, startup: read(join(temp, "brain-worker-scratch/startup.log")),
-        debug: read(join(state, "shell-debug.log")), messages, requests,
-        credentialsProjected: read(join(state, ".credentials.json")) === credential,
-        hostHomeUnchanged: readFileSync(join(home, "voyage.txt"), "utf8") === "Odysseus returns to Ithaca.\n" };
-    }
+    if (result === undefined && message.type === "assistant") capture();
   }
-} finally { clearTimeout(timer); abort.abort(); server.stop(true); await spawner.finish(); }
+} catch (error) { console.error("Production worker failure:", spawner.startFailure() ?? error); throw error; }
+finally { clearTimeout(timer); abort.abort(); server.stop(true); try { await spawner.finish(); } finally { await startupView.cleanup(); } }
 console.log(JSON.stringify({ ...(result as object), ledgerLive: ledger.live,
   executableSha256: createHash("sha256").update(readFileSync(executable)).digest("hex"), namespace: readlinkSync("/proc/self/ns/net") }));

@@ -190,7 +190,12 @@ Governed turns use the verified scratch and workspace areas at their canonical
 paths. Strict turns write private area copies through `/tmp/brain-worker-areas/`
 aliases, with validated publication after exit. Host home remains read-only
 and may be hidden by the resolved profile masks; per-turn XDG directories are
-in turn temp. See
+in turn temp. Claude's `HOME` names its prepared private runtime state, so the
+CLI's shell snapshot and login-shell fallback cannot import operator rc/profile
+files. The host's Claude config and credentials are resolved before that HOME
+override, with the same projection and persistence as before.
+`BASH_ENV`, `ENV` and `ZDOTDIR` are withheld from non-envelope Claude workers
+even when admitted as environment extras. See
 [what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
 worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
 Turn temp is sized with bubblewrap's `--size`, so every worker needs
@@ -427,7 +432,7 @@ write verified scratch/workspace copies through the aliases below.
   entries, or holds a directory the server cannot read (scratch too); the
   agent's note and the server log name the reason. Links wholly
   inside it, such as local clones between workspace repositories, are fine.
-- **`$HOME`** is not a writable host escape. The resolved profile may mask its
+- **The real host home** is not a writable host escape. The resolved profile may mask its
   contents; only the selected runtime inputs restored by that layout are
   available. A write into a read-only home fails and is retained as a roadblock.
   `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
@@ -435,7 +440,10 @@ write verified scratch/workspace copies through the aliases below.
   `/tmp/brain-worker-home`, which is what headless Chromium needs to start,
   and the agent's note says to point a tool there. There is no per-turn home
   overlay: bubblewrap keeps an overlay's writes in a host directory, which no
-  size-limited mount can hold.
+  size-limited mount can hold. Claude selects `HOME=$CLAUDE_CONFIG_DIR` on its
+  existing runtime-state tmpfs to exclude operator shell startup files; the
+  real home retains its original read-only path and masks. A tool that needs
+  configuration there must name its path explicitly.
 - **Turn temp** is the worker's own size-limited `/tmp`
   ([above](#turn-temp-allowance-and-the-turn_temp-tool)). When the worker
   exits, files its answer linked there are copied into

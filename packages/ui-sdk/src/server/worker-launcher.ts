@@ -839,8 +839,8 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
     out.binds.push("--bind", input.areaOutput ? join(input.areaOutput.source, rel) : path,
       input.sandbox?.profile === "governed" ? path : `${WORKER_AREA_ROOT}/${name}`);
   }
-  // `$HOME` stays the host's, read-only; what tools write there goes to the
-  // per-turn XDG directories in turn temp instead (#1703).
+  // The host home stays read-only; each backend selects its runtime HOME.
+  // Temporary tool writes use the per-turn XDG directories (#1703).
   if (sandbox.home?.mode === "xdg") {
     out.binds.push(...Object.values(WORKER_XDG_DIRS).flatMap(dir => ["--dir", dir]));
     out.env.push(...Object.entries(WORKER_XDG_DIRS).flatMap(([key, dir]) => ["--setenv", key, dir]));

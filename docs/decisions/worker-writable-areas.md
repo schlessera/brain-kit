@@ -156,6 +156,19 @@ uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
 
+> **2026-10-26 — Claude shell startup amendment (#2984, Option A).** The
+> maintainer selected suppression of operator shell startup configuration,
+> including the native CLI's login-shell fallback when a shell snapshot fails.
+> Claude's worker now sets `HOME` to its already prepared private runtime state,
+> after resolving host credentials/config and planning their existing copy-in
+> and persistence. No operator rc/profile is copied there. The original real
+> home path retains the existing read-only view and masks, and the bounded XDG
+> layout is unchanged. This is a Claude runtime HOME selection, not a restored
+> home overlay or a new writable bind of the host home. Non-envelope launches
+> discard `BASH_ENV`, `ENV` and `ZDOTDIR` startup redirects as well. Tools that previously
+> found operator configuration through `~` must use an explicit path. Restricted
+> workers keep their existing private-state HOME.
+
 **Restricted turns are unchanged.** The autonomous envelope gets no area, no
 home handling and the same argv as before; its note says so.
 

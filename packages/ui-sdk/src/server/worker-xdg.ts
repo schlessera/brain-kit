@@ -1,7 +1,7 @@
 /** Leaf policy values: safe during sandbox/maintenance/launcher initialization. */
 /**
- * Per-turn XDG directories on the worker's private `/tmp` (#1703). `$HOME`
- * itself stays the host's, read-only.
+ * Per-turn XDG directories on the worker's private `/tmp` (#1703). The real
+ * host home stays read-only; a backend may select a private runtime HOME.
  */
 export const WORKER_XDG_HOME = "/tmp/brain-worker-home";
 export const WORKER_XDG_DIRS = {
