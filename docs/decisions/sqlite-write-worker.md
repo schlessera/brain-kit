@@ -62,7 +62,10 @@ thread waits for it.
   procedures still reach `governance_events` in the UI database.
 - **A turn waits for its Activity writes.** The recorder keeps a turn's writes
   in call order and exposes `settled()`. The session slot awaits it before it
-  ends, and an autonomous turn awaits it before the transaction that releases
+  ends or sends its final recovery notification, after releasing turn authority.
+  Otherwise a client can read before the terminal rollup commits, retain a
+  completion without its host times, and never learn that the commit finished
+  (#2900). An autonomous turn awaits it before the transaction that releases
   its lifetime and commits its terminal, so that terminal still commits inside
   the transaction.
 - **Refusals keep their class.** `JournalCapacityError`,
