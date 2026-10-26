@@ -1,0 +1,102 @@
+/** Real SDK-selected CLI in the production worker; caller supplies an offline namespace. */
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import type { LaunchedWorker } from "@schlessera/brain-ui-sdk/internal";
+import { createWorkerSpawn } from "../../src/worker-spawn.js";
+import { createStateLedger } from "../../src/worker-state-budget.js";
+import { nativeModelReply } from "../helpers/native-model-reply.js";
+
+const root = process.argv[2]!;
+const fallback = process.argv[3] === "fallback";
+const brain = join(root, "ithaca"), home = join(root, "home"), saved = join(home, ".claude"), planted = join(home, "planted-bin");
+for (const path of [brain, home, saved, planted]) mkdirSync(path, { recursive: true });
+writeFileSync(join(home, "voyage.txt"), "Odysseus returns to Ithaca.\n");
+writeFileSync(join(planted, "ithaca-profile-probe"), "#!/bin/sh\necho planted\n", { mode: 0o755 });
+for (const name of [".bashrc", ".bash_profile"]) writeFileSync(join(home, name), [
+  `echo ithaca-${name}-stdout`,
+  `echo ithaca-${name}-stderr >&2`,
+  "export BRAIN_TEST_PROFILE_LEAK=1",
+  `export PATH='${planted}':"$PATH"`,
+  "git() { echo planted; }",
+  `printf 'file=${name} HOME=%s login=%s command=%s\\n' "$HOME" "$(shopt -q login_shell && echo yes || echo no)" "$BASH_EXECUTION_STRING" >> "$BRAIN_WORKER_SCRATCH/startup.log"`,
+].join("\n") + "\n");
+// Only fictional authentication is available, to the loopback fixture below.
+const credential = JSON.stringify({ claudeAiOauth: { accessToken: "odysseus-offline-oauth", refreshToken: "odysseus-offline-refresh",
+  expiresAt: Date.now() + 3_600_000, scopes: ["user:inference", "user:profile"], subscriptionType: "max" } });
+writeFileSync(join(saved, ".credentials.json"), credential);
+writeFileSync(join(saved, "settings.json"), JSON.stringify({ env: { ITHACA_CONFIG_RETAINED: "yes" } }));
+const wrapper = join(root, "worker-wrapper.sh");
+writeFileSync(wrapper, "#!/bin/sh\n" + (fallback
+  ? 'printf "snapshot intentionally unavailable\\n" > "$CLAUDE_CONFIG_DIR/shell-snapshots"\n' : "") + 'exec "$@"\n', { mode: 0o755 });
+const command = 'echo hi; type git; echo "${BRAIN_TEST_PROFILE_LEAK:-unset}"; '
+  + 'printf "config=%s\\n" "$ITHACA_CONFIG_RETAINED"; '
+  + 'command -v ithaca-profile-probe || true; '
+  + 'printf "home=%s xdg=%s\\n" "$HOME" "$XDG_CONFIG_HOME"; '
+  + 'cat "' + home + '/voyage.txt"; '
+  + '(echo changed > "' + home + '/voyage.txt") 2>/dev/null || echo real-home-read-only';
+let worker: LaunchedWorker | undefined;
+let sent = false, selected: { command: string; args: string[] } | undefined;
+const messages: unknown[] = [], requests: unknown[] = [];
+const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 25_000);
+const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  if (!new URL(request.url).pathname.endsWith("/messages")) return Response.json({});
+  const body = await request.json() as { messages: unknown[] };
+  requests.push({ authorization: request.headers.get("authorization"), apiKey: request.headers.get("x-api-key"), messages: body.messages });
+  if (!sent) { sent = true; return nativeModelReply({ name: "Bash", input: { command, description: "Inspect the Ithaca shell." }, id: "toolu_ithaca_shell" }); }
+  return nativeModelReply();
+} });
+const ledger = createStateLedger();
+const spawner = createWorkerSpawn(brain, { wrapper }, abort.signal, undefined, undefined, undefined, undefined, { ledger }, undefined,
+  live => { worker = live as LaunchedWorker; });
+const requireSdk = createRequire(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"));
+const executable = requireSdk.resolve("@anthropic-ai/claude-agent-sdk-linux-x64/claude");
+let nativeMatches = false, nativeEnv: Record<string, string> = {}, runtimeVersion: string | undefined;
+function observeNative() {
+  if (!worker) return;
+  const pending = [worker.pid];
+  while (pending.length) {
+    const pid = pending.shift()!;
+    try {
+      if (readlinkSync(`/proc/${pid}/exe`) === executable) {
+        nativeMatches = true;
+        const values = Object.fromEntries(readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").filter(Boolean).map(pair => {
+          const position = pair.indexOf("="); return [pair.slice(0, position), pair.slice(position + 1)];
+        }));
+        nativeEnv = Object.fromEntries(["HOME", "CLAUDE_CONFIG_DIR", "SHELL", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"].map(name => [name, values[name]]));
+        return;
+      }
+      pending.push(...readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number));
+    } catch { /* An exited launcher is not the selected native process. */ }
+  }
+}
+let result: unknown;
+try {
+  for await (const message of query({ prompt: "Inspect the Ithaca shell.", options: {
+    cwd: brain, env: { HOME: home, CLAUDE_CONFIG_DIR: saved, PATH: "/usr/bin:/bin", SHELL: "/bin/bash", LANG: "C.UTF-8",
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" },
+    settingSources: ["user"], allowedTools: ["Bash"], maxTurns: 3, model: "claude-sonnet-4-6", abortController: abort,
+    extraArgs: { "debug-file": "/tmp/brain-worker-state/shell-debug.log" },
+    spawnClaudeCodeProcess: options => { selected = { command: options.command, args: options.args }; return spawner.spawn(options); },
+    canUseTool: async (_name, input) => ({ behavior: "allow", updatedInput: input }),
+    hooks: { PostToolUse: [{ hooks: [async input => { messages.push(input); observeNative(); return {}; }] }] },
+  } })) {
+    if (message.type === "system" && message.subtype === "init") { runtimeVersion = message.claude_code_version; observeNative(); }
+    if (message.type === "user") messages.push(message);
+    if (message.type === "result" && message.is_error) throw new Error(JSON.stringify(message));
+    if (worker && message.type === "assistant") {
+      const state = worker.state!.root, temp = worker.turnTemp!.root;
+      const read = (path: string) => existsSync(path) ? readFileSync(path, "utf8") : "";
+      const snapshotDir = join(state, "shell-snapshots");
+      const snapshots = fallback ? [] : existsSync(snapshotDir) ? readdirSync(snapshotDir).map(name => ({ name, content: read(join(snapshotDir, name)) })) : [];
+      result = { fallback, command, runtimeVersion, selected, nativeMatches, nativeEnv, snapshots, startup: read(join(temp, "brain-worker-scratch/startup.log")),
+        debug: read(join(state, "shell-debug.log")), messages, requests,
+        credentialsProjected: read(join(state, ".credentials.json")) === credential,
+        hostHomeUnchanged: readFileSync(join(home, "voyage.txt"), "utf8") === "Odysseus returns to Ithaca.\n" };
+    }
+  }
+} finally { clearTimeout(timer); abort.abort(); server.stop(true); await spawner.finish(); }
+console.log(JSON.stringify({ ...(result as object), ledgerLive: ledger.live,
+  executableSha256: createHash("sha256").update(readFileSync(executable)).digest("hex"), namespace: readlinkSync("/proc/self/ns/net") }));
