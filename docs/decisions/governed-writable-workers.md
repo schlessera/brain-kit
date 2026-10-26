@@ -123,7 +123,7 @@ What a turn can do is the intersection of the two.
 | | `governed` (default for interactive and voice) | `strict` (opt-in) | `restricted` (autonomous, fixed) |
 | --- | --- | --- | --- |
 | Brain | Read-write bind, with protected paths read-only | Read-only (the 0.41 view) | Read-only, `.git` masked |
-| Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp, `$HOME` overlay) | Turn temp only |
+| Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp and per-turn XDG directories; HOME stays read-only) | Turn temp only |
 | Host root | Read-only, with runtime and home directories masked | Same as `governed` | An explicit read envelope |
 | Network | Host namespace until the egress monitor lands, then a private namespace with the egress proxy | Same as `governed` | Loopback plus the inference relay |
 | Claude native `Write`/`Edit`/`NotebookEdit` | Auto-allowed on typed turns; voice calls refuse | Registered but refused at call time. The server tools are used instead. | Not in the roster |

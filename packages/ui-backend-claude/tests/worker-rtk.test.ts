@@ -84,7 +84,16 @@ console.log(JSON.stringify(results));
       "--", process.execPath, "--preload", join(root, "scripts/test-network-child-preload.ts"), probe], { env: {}, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(code, stderr).toBe(0);
-    const results = JSON.parse(stdout.trim());
+    const results: Array<{
+      mode: string;
+      command: string;
+      code: number;
+      output: string;
+      errors: string;
+      afterExit: string;
+      hostExecuted: boolean;
+      granted?: string;
+    }> = JSON.parse(stdout.trim());
     for (const result of results) {
       expect(result.code, `${result.mode}: ${result.errors}`).toBe(0);
       expect(result.output).toContain("Odysseus sails");
