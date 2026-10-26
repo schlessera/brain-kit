@@ -128,6 +128,7 @@ test("a failed worker clear stays invalidated and reports its failure", async ()
 test("dispatch waits for the reservation receipt and duplicate frames never dispatch twice", async () => {
   const f = fixture();
   let host: WsHost | undefined;
+  const dispatched: Promise<unknown>[] = [];
   const calls: string[] = [], receipts: string[] = [], early: string[] = [];
   try {
     await watchWriteSites(f.db, f.writer, ["retry_requests", "retry_receipts"]);
@@ -152,18 +153,18 @@ test("dispatch waits for the reservation receipt and duplicate frames never disp
     const held = f.writer.channel(probe, { table: "odysseus_log" }); await held.ready;
     let slow: Promise<unknown> | undefined;
     f.catalog.reserveRetry = (...args) => { slow ??= held.call("slow", "Calypso", 300); return reserve(...args); };
-    const first = handleClientMessage(host, ws, frame, connection);
+    const first = handleClientMessage(host, ws, frame, connection); dispatched.push(first);
     await Bun.sleep(30);
     expect(calls, "RETRY_PENDING_RESERVATION_NO_DISPATCH").toEqual([]);
     expect(receipts, "RETRY_PENDING_RESERVATION_NO_ACK").toEqual([]);
-    const duplicate = handleClientMessage(host, ws, frame, connection);
+    const duplicate = handleClientMessage(host, ws, frame, connection); dispatched.push(duplicate);
     await Promise.all([first, duplicate]); await slow;
     expect(early, "RETRY_COMMITTED_BEFORE_RECEIPT_AND_DISPATCH").toEqual([]);
     for (let i = 0; i < 200 && (host.coordinator.activeRuns() || host.coordinator.startingSessions); i++) await Bun.sleep(5);
     expect(calls, "RETRY_DUPLICATE_DISPATCHES_ONCE").toEqual([request.text]);
     expect(receipts, "RETRY_DUPLICATE_REPLAYS_COMMITTED_RECEIPT").toEqual(["accepted", "accepted"]);
     expect(f.failures).toEqual([]);
-  } finally { host?.close(); await f.close(); }
+  } finally { await Promise.allSettled(dispatched); host?.close(); await f.close(); }
 });
 
 test("proposal insertion and writing save commit before approval and policy publication", async () => {
