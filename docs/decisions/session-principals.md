@@ -66,7 +66,7 @@ incident; neither should be the standing answer.
 - **Scopes / least privilege per route.** The one exception is R9's kind check on
   the principal-management routes — a single check on a single route family, the
   same shape as the existing password-disabled guard (`deps.passwordDisabled`,
-  `packages/ui-server/src/middleware/auth.ts:707`), not a scope system.
+  `packages/ui-server/src/middleware/auth.ts:698`), not a scope system.
 - **Multi-user.** One owner, several principals.
 - **Bearer tokens.** Additive later and cheap (see Q5); not in this plan.
 - **Containment of a compromised principal.** See the Summary.
@@ -96,14 +96,14 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:871` | mounted **before** the guard at `authGuard(authMode`, `app.ts:886`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:808`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:896` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:1076-1093` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:874` | mounted **before** the guard at `authGuard(authMode`, `app.ts:889`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:899` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:1079-1096` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:136-144` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
 | Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:1121` | queued entries re-mint `turnId` in the same slot and may come from another socket |
-| Password login | `acquirePasswordVerification(key)`, `auth.ts:749` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
+| Password login | `acquirePasswordVerification(key)`, `auth.ts:740` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:448` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:547` | inserts a credential; calls **neither** helper |
 | Passkey delete | `passkeys.ts:578-586` | deletes the credential, then a **global** bump |
@@ -163,7 +163,7 @@ edited without breaking the signature.
 must not be able to drive database reads with arbitrary ids. The corrupt-row
 throw sits after signature verification and outside the cookie-parser catch,
 exactly as today's code does (`Deliberately after signature`,
-`auth.ts:426-428`) — so a corrupt row 500s only that principal's requests
+`auth.ts:416-418`) — so a corrupt row 500s only that principal's requests
 instead of everyone's.
 
 **4. Principals carry their lineage, and passkey deletion uses it.**
@@ -216,7 +216,7 @@ nothing is backfilled.
 > example does not describe the current root span.
 
 **8. Ambient modes keep the identity they already have.** `proxy` mode reads an
-upstream user header (`auth.proxyAuthHeader`, `auth.ts:485`) — that becomes the
+upstream user header (`auth.proxyAuthHeader`, `auth.ts:476`) — that becomes the
 ambient principal's label, bounded like `sanitizeLabel`, `passkeys.ts:273-275`.
 `tailscale` carries the client IP; `none` is fixed. Minting and revocation are
 disabled in these modes. Cron is attributed to an explicit system principal, never to the owner.
