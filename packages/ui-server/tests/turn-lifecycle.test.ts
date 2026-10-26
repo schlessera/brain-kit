@@ -88,7 +88,7 @@ test("real dispatch records delayed governed admission and first frame, and link
     now=1900;request.bridge.emit({type:"result",sessionId:"ithaca",durationMs:200,numTurns:1,isError:false,costUsd:0});
   }});
   const host=new WsHost({registry:createStaticBackendRegistry([backend],"pi"),catalog:createSessionCatalog(()=>db),activity:{store,stream},
-    governedTurns:{async begin(){now=1400;return {sandbox:{profile:"strict",noteFacts:{}},policy,async end(){now=2000;return null;}};},refresh(){},async close(){},bindSession(){},exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
+    governedTurns:{async begin(){now=1400;return {sandbox:{profile:"strict",noteFacts:{}},policy,async end(){now=2000;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
   try {
     await runSession(host,{authorization:testAuthorization("odysseus"),text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
@@ -119,7 +119,7 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
   const host=new WsHost({registry:createStaticBackendRegistry([backend],"pi"),catalog:createSessionCatalog(()=>db),activity:{store,stream},
     ...(mode === "budget refusal" ? {budgets:{...createTurnBudgets(db,{resolve:()=>null}),begin(){now=1500;throw new BudgetExceeded(observation,"admission");}}} : {}),
     governedTurns:{async begin(){now=1400;if(mode === "governed refusal")throw Error("Governed admission refused");if(mode === "revoked")authorization.valid=false;
-      return {sandbox:{profile:"strict",noteFacts:{}},policy,async end(){return null;}};},refresh(){},async close(){},bindSession(){},exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
+      return {sandbox:{profile:"strict",noteFacts:{}},policy,async end(){return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
   try{
     await runSession(host,{authorization,text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
