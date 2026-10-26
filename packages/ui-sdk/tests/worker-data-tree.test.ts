@@ -42,6 +42,15 @@ test("a tree under provider rules repeats the masks: folders read empty and the 
   expect(dataTreeMounts(brain, WORKER_DATA_ROOT, { root: tree, index }).length, "NO_PROVIDER_RULES_NO_MASKS").toBe(6);
 });
 
+test("a tree's .brain-cache/ reads empty while a folder is masked, and stays for a turn allowed every folder (#2725)", () => {
+  const { brain, tree, index } = layout();
+  mkdirSync(join(tree, ".brain-cache")); writeFileSync(join(tree, ".brain-cache/contexts.jsonl"), "{}\n");
+  expect(dataTreeMounts(brain, WORKER_DATA_ROOT, { root: tree, index, masked: ["me"] }).slice(6), "CACHE_DIRECTORY_MASKED_ON_THE_TREE").toEqual([
+    "--tmpfs", join(WORKER_DATA_ROOT, ".brain-cache"), "--remount-ro", join(WORKER_DATA_ROOT, ".brain-cache"),
+  ]);
+  expect(dataTreeMounts(brain, WORKER_DATA_ROOT, { root: tree, index, masked: [] }).length, "ALLOWED_TREE_KEEPS_THE_CACHES").toBe(6);
+});
+
 test("a tree must be an unaliased directory outside the brain, holding the index mount point", () => {
   const { root, brain, tree, index } = layout();
   const inside = join(brain, "tree"); mkdirSync(join(inside, ".brain-index"), { recursive: true });

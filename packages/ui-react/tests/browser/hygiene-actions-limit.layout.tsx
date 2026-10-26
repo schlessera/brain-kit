@@ -12,12 +12,17 @@ import { ActivityPage } from "../../src/components/activity/activity-page.js";
 let fixture: { id: string; url: string } | undefined;
 let renderer: Root | undefined, ui: BrainUiRoot | undefined, host: HTMLDivElement | undefined, socket: WebSocket | undefined;
 let styles: HTMLStyleElement;
-let release: (() => void) | undefined;
-let holdResume = false, failResume = false, sameReceipt = false, resumeRequests = 0;
+function createResumeState() {
+  return {
+    release: undefined as (() => void) | undefined,
+    holdResume: false, failResume: false, sameReceipt: false, resumeRequests: 0,
+    requests: new Set<Promise<Response>>(),
+  };
+}
+let resume = createResumeState();
 const originalTheme = document.documentElement.dataset.theme;
 const viewport = { width: innerWidth, height: innerHeight };
 let outer: { width: number; height: number } | undefined;
-const requests = new Set<Promise<Response>>();
 const resumeName = "Resume hygiene review: bring back the set-aside finding";
 const panel = () => host!.querySelector<HTMLElement>("[data-hygiene-limit]");
 const set = (patch: Record<string, unknown>) => commands.hygieneServer({ op: "set", id: fixture!.id, patch }) as Promise<{ read: HygieneReviewRead }>;
@@ -28,17 +33,21 @@ beforeAll(async () => {
   document.head.append(styles);
 });
 afterAll(() => styles.remove());
+async function disposeScene() {
+  const sceneRenderer = renderer, sceneUi = ui, sceneSocket = socket, sceneHost = host, sceneFixture = fixture;
+  const sceneResume = resume;
+  renderer = undefined; ui = undefined; socket = undefined; host = undefined; fixture = undefined;
+  resume = createResumeState();
+  sceneResume.release?.(); sceneResume.release = undefined;
+  if (sceneRenderer) flushSync(() => sceneRenderer.unmount());
+  sceneUi?.dispose();
+  sceneSocket?.close();
+  sceneHost?.remove();
+  await Promise.allSettled([...sceneResume.requests]);
+  if (sceneFixture) await commands.hygieneServer({ op: "stop", id: sceneFixture.id });
+}
 afterEach(async () => {
-  release?.(); release = undefined;
-  if (renderer) flushSync(() => renderer!.unmount());
-  renderer = undefined;
-  ui?.dispose(); ui = undefined;
-  socket?.close(); socket = undefined;
-  host?.remove(); host = undefined;
-  await Promise.allSettled([...requests]);
-  if (fixture) await commands.hygieneServer({ op: "stop", id: fixture.id });
-  fixture = undefined;
-  holdResume = false; failResume = false; sameReceipt = false; resumeRequests = 0;
+  await disposeScene();
   if (originalTheme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = originalTheme;
   await page.viewport(viewport.width, viewport.height);
@@ -49,47 +58,49 @@ async function scene(width = 320, theme = "dark") {
   outer = await commands.formViewport(width, 1000);
   await page.viewport(width, 1000);
   document.documentElement.dataset.theme = theme;
-  fixture = await commands.hygieneServer({ op: "start" }) as typeof fixture;
-  await set({ start: true });
-  ui = createBrainUiRoot({ storage: null, request: (url, init) => {
+  const sceneFixture = fixture = await commands.hygieneServer({ op: "start" }) as NonNullable<typeof fixture>;
+  await commands.hygieneServer({ op: "set", id: sceneFixture.id, patch: { start: true } });
+  const sceneResume = resume = createResumeState();
+  const sceneUi = ui = createBrainUiRoot({ storage: null, request: (url, init) => {
     const request = (async () => {
     const path = new URL(url, location.origin).pathname;
     if (path.endsWith("/hygiene/review") && init?.method === "POST" && JSON.parse(String(init?.body)).operation === "resume") {
-      resumeRequests++;
-      if (holdResume) await new Promise<void>(resolve => { release = resolve; });
-      if (failResume) throw new Error("fixture connection unavailable");
+      sceneResume.resumeRequests++;
+      if (sceneResume.holdResume) await new Promise<void>(resolve => { sceneResume.release = resolve; });
+      if (sceneResume.failResume) throw new Error("fixture connection unavailable");
       // A real authoritative read with the same receipt models a server that
       // cannot re-admit yet; no client selection or fabricated Action is used.
-      if (sameReceipt) return fetch(url);
+      if (sceneResume.sameReceipt) return fetch(url);
     }
     if (path.includes("/hygiene/")) return fetch(url, init);
     if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
     if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
     return new Response("{}", { status: 404 });
     })();
-    requests.add(request);
-    void request.finally(() => requests.delete(request)).catch(() => {});
+    sceneResume.requests.add(request);
+    void request.finally(() => sceneResume.requests.delete(request)).catch(() => {});
     return request;
   } });
-  socket = new WebSocket(fixture!.url.replace("http:", "ws:") + "/ws");
-  ui.connection.send = msg => {
-    if (socket?.readyState !== WebSocket.OPEN) return false;
-    socket.send(JSON.stringify(msg)); return true;
+  const sceneSocket = socket = new WebSocket(sceneFixture.url.replace("http:", "ws:") + "/ws");
+  sceneUi.connection.send = msg => {
+    if (sceneSocket.readyState !== WebSocket.OPEN) return false;
+    sceneSocket.send(JSON.stringify(msg)); return true;
   };
-  socket.onmessage = event => {
+  sceneSocket.onmessage = event => {
     const parsed = parseServerMessage(event.data);
     if (!parsed.ok) throw new Error(parsed.error);
-    ui!.connection.handleServerMessage(parsed.message);
+    sceneUi.connection.handleServerMessage(parsed.message);
   };
-  socket.onclose = () => ui?.stores.inbox.getState().connectionLost();
-  await expect.poll(() => ui!.stores.inbox.getState().online).toBe(true);
-  host = document.createElement("div");
-  host.style.cssText = "height:1000px;display:flex";
-  host.className = "bg-background text-foreground";
-  document.body.append(host);
-  renderer = createRoot(host);
-  flushSync(() => renderer!.render(<BrainUiProvider root={ui!}><ActivityPage /></BrainUiProvider>));
-  await expect.poll(() => host!.querySelector("[data-hygiene-id]")).not.toBeNull();
+  // Late close only marks the disposed owner offline; its connection ignores late frames.
+  sceneSocket.onclose = () => sceneUi.stores.inbox.getState().connectionLost();
+  await expect.poll(() => sceneUi.stores.inbox.getState().online).toBe(true);
+  const sceneHost = host = document.createElement("div");
+  sceneHost.style.cssText = "height:1000px;display:flex";
+  sceneHost.className = "bg-background text-foreground";
+  document.body.append(sceneHost);
+  const sceneRenderer = renderer = createRoot(sceneHost);
+  flushSync(() => sceneRenderer.render(<BrainUiProvider root={sceneUi}><ActivityPage /></BrainUiProvider>));
+  await expect.poll(() => sceneHost.querySelector("[data-hygiene-id]")).not.toBeNull();
 }
 async function fill(longFinding = false) {
   const result = await set({ longFinding, fillActions: true });
@@ -114,6 +125,74 @@ function noIds(reason: NonNullable<HygieneReviewRead["review"]["pauseReason"]>) 
   expect(panel()!.textContent, "the panel is number-free").not.toContain("60");
 }
 
+test("a disposed Actions-limit scene's held real close cannot take its replacement offline", async () => {
+  await scene();
+  const previousSocket = socket!;
+  const close = previousSocket.onclose!;
+  let heldClose: CloseEvent | undefined;
+  previousSocket.onclose = event => { heldClose = event; };
+  await disposeScene();
+  await expect.poll(() => heldClose, { message: "the previous Actions-limit socket's real close is held" }).toBeDefined();
+  expect(heldClose!.target).toBe(previousSocket);
+  expect(previousSocket.readyState).toBe(WebSocket.CLOSED);
+  await scene();
+  const nextUi = ui!, nextSocket = socket!;
+  await Promise.resolve().then(() => close.call(previousSocket, heldClose!));
+  expect(nextSocket.readyState, "the replacement Actions-limit socket stays open").toBe(WebSocket.OPEN);
+  await expect.poll(() => nextUi.stores.inbox.getState().online, {
+    message: "the replacement Actions-limit scene stays online after the old real close",
+  }).toBe(true);
+});
+
+test("a disposed Actions-limit scene's held real snapshot cannot change its replacement inbox", async () => {
+  await scene();
+  const previousSocket = socket!, previousUi = ui!;
+  const receive = previousSocket.onmessage!;
+  let heldSnapshot: MessageEvent | undefined;
+  previousSocket.onmessage = event => {
+    const parsed = parseServerMessage(event.data);
+    if (parsed.ok && parsed.message.type === "inbox_snapshot" && parsed.message.items.length > 0) heldSnapshot = event;
+    else receive.call(previousSocket, event);
+  };
+  previousUi.connection.send({ type: "inbox_subscribe", view: "actions" });
+  await expect.poll(() => heldSnapshot, { message: "the previous Actions-limit socket's real snapshot is held" }).toBeDefined();
+  expect(heldSnapshot!.target).toBe(previousSocket);
+  await disposeScene();
+  await scene();
+  const nextUi = ui!;
+  const before = nextUi.stores.inbox.getState().items;
+  await Promise.resolve().then(() => receive.call(previousSocket, heldSnapshot!));
+  expect(nextUi.stores.inbox.getState().items, "the old real snapshot leaves the replacement Actions-limit inbox untouched").toBe(before);
+});
+
+test("a disposed Actions-limit scene's sender cannot use its replacement socket", async () => {
+  await scene();
+  const send = ui!.connection.send;
+  await disposeScene();
+  await scene();
+  expect(socket!.readyState).toBe(WebSocket.OPEN);
+  expect(send({ type: "inbox_subscribe", view: "actions" }), "the old Actions-limit sender refuses its closed socket").toBe(false);
+});
+
+test("a disposed Actions-limit request retains its original controls and tracking", async () => {
+  await scene();
+  const request = ui!.request, previousResume = resume;
+  await disposeScene();
+  await scene();
+  previousResume.holdResume = true; previousResume.failResume = true;
+  const result = request("/api/hygiene/review", { method: "POST", body: JSON.stringify({ operation: "resume" }) });
+  try {
+    expect(resume.resumeRequests, "the old request cannot increment the replacement Resume counter").toBe(0);
+    expect(resume.requests.size, "the old request cannot join replacement request tracking").toBe(0);
+    expect(resume.release, "the old request cannot borrow the replacement Resume resolver").toBeUndefined();
+    expect(previousResume.release).toBeTypeOf("function");
+    previousResume.release!();
+    await expect(result).rejects.toThrow("fixture connection unavailable");
+    expect(previousResume.resumeRequests).toBe(1);
+    await expect.poll(() => previousResume.requests.size, { message: "old request settlement clears only its own tracking" }).toBe(0);
+  } finally { previousResume.release?.(); resume.release?.(); await Promise.allSettled([result]); }
+});
+
 for (const theme of ["dark", "light"])
   for (const width of [320, 1280]) {
     test(`${theme} ${width}: Actions-limit P0 L1 L3`, async () => {
@@ -137,11 +216,11 @@ for (const theme of ["dark", "light"])
       expect(ax.nodes.some(n => n.role?.value === "button" && n.name?.value === resumeName)).toBe(true);
       expect(getComputedStyle(panel()!).animationName, "reduced-motion panel has no animation").toBe("none");
 
-      sameReceipt = true;
+      resume.sameReceipt = true;
       await button.click();
       await expect.poll(() => (button.element() as HTMLButtonElement).disabled).toBe(false);
       expect(panel()!.dataset.hygieneLimit, "unchanged receipt must remain L1").toBe("L1");
-      sameReceipt = false;
+      resume.sameReceipt = false;
       await button.click();
       await expect.poll(() => panel()?.dataset.hygieneLimit).toBe("L3");
       expect(panel()!.textContent).toContain("Still paused · Actions is still full");
@@ -160,16 +239,16 @@ for (const theme of ["dark", "light"])
       await fill();
       await set({ makeRoom: true });
       const button = page.getByRole("button", { name: resumeName, exact: true });
-      holdResume = true;
+      resume.holdResume = true;
       // Tab away and back using the browser's keyboard, then activate with Enter.
       (button.element() as HTMLElement).focus();
       await userEvent.keyboard("{Tab}{Shift>}{Tab}{/Shift}{Enter}");
-      await expect.poll(() => !!release).toBe(true);
+      await expect.poll(() => !!resume.release).toBe(true);
       expect(panel()?.dataset.hygieneLimit, "click cannot advance before the read").toBe("L1");
       expect(button.element().textContent).toBe("Resuming…");
       expect((button.element() as HTMLButtonElement).disabled).toBe(true);
       noCard();
-      holdResume = false; release!(); release = undefined;
+      resume.holdResume = false; resume.release!(); resume.release = undefined;
       await expect.poll(() => panel()).toBeNull();
       await expect.poll(() => document.activeElement?.hasAttribute("data-hygiene-title"), { message: "server-confirmed Resume focuses the finding title" }).toBe(true);
       expect((await set({})).read.review.status).toBe("active");
@@ -184,7 +263,7 @@ test("Resume request failure retains L1 and Try again above it; long metadata wr
   expect(p.textContent).toContain("Broken link to [[Aeolus]]");
   expect(p.scrollWidth, "long title/path does not overflow").toBeLessThanOrEqual(p.clientWidth);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
-  failResume = true;
+  resume.failResume = true;
   await page.getByRole("button", { name: resumeName, exact: true }).click();
   await expect.poll(() => host!.textContent).toContain("Couldn't load the review. Check the connection and try again.");
   expect(panel()).toBe(p); expect(panel()!.dataset.hygieneLimit).toBe("L1"); noCard();
@@ -192,7 +271,7 @@ test("Resume request failure retains L1 and Try again above it; long metadata wr
   expect(retry.element().compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(document.activeElement).toBe(page.getByRole("button", { name: resumeName, exact: true }).element());
   await retry.click();
-  expect(resumeRequests, "Try again does not automatically resume").toBe(1);
+  expect(resume.resumeRequests, "Try again does not automatically resume").toBe(1);
 });
 
 for (const width of [320, 1280]) test(`${width}: confirmed Resume never steals editable focus and missing retired metadata is omitted`, async () => {
@@ -204,16 +283,16 @@ for (const width of [320, 1280]) test(`${width}: confirmed Resume never steals e
   expect(host!.querySelector(`[data-decision-receipt="${CSS.escape(reason.retiredActionId)}"]`),
     "paused retirement has no duplicate row even without its cached Action").toBeNull();
   await set({ makeRoom: true });
-  holdResume = true;
+  resume.holdResume = true;
   await page.getByRole("button", { name: resumeName, exact: true }).click();
-  await expect.poll(() => !!release).toBe(true);
+  await expect.poll(() => !!resume.release).toBe(true);
   const input = document.createElement("input"); host!.append(input); input.focus();
-  holdResume = false; release!(); release = undefined;
+  resume.holdResume = false; resume.release!(); resume.release = undefined;
   await expect.poll(() => panel()).toBeNull();
   await expect.poll(() => host!.querySelector("[data-hygiene-id]")).not.toBeNull();
   const admitted = (await set({})).read.action!;
   await expect.poll(() => ui!.stores.inbox.getState().items[admitted.id]?.status).toBe("pending");
-  await expect.poll(() => requests.size).toBe(0);
+  await expect.poll(() => resume.requests.size).toBe(0);
   // Observe focus after the confirmed replicated render and its passive effects,
   // rather than accepting the input's focus before the handoff has run.
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -225,22 +304,23 @@ test("desktop Resume focus waits for the current Action stream", async () => {
   await scene(1280);
   await fill();
   await set({ makeRoom: true });
-  const receive = socket!.onmessage!;
+  const sceneSocket = socket!;
+  const receive = sceneSocket.onmessage!;
   const held: MessageEvent[] = [];
-  socket!.onmessage = event => { held.push(event); };
+  sceneSocket.onmessage = event => { held.push(event); };
   try {
     await page.getByRole("button", { name: resumeName, exact: true }).click();
     await expect.poll(() => panel()).toBeNull();
     await expect.poll(() => held.length).toBeGreaterThan(0);
     expect(document.activeElement?.hasAttribute("data-hygiene-title"), "REST-only admission cannot focus absent replicated detail").toBe(false);
     expect(host!.querySelector("[data-hygiene-detail] [data-hygiene-id]")).toBeNull();
-    socket!.onmessage = receive;
-    for (const event of held.splice(0)) receive.call(socket!, event);
+    sceneSocket.onmessage = receive;
+    for (const event of held.splice(0)) receive.call(sceneSocket, event);
     await expect.poll(() => document.activeElement?.hasAttribute("data-hygiene-title"), { message: "replicated Resume delivers exactly one focus handoff" }).toBe(true);
     expect(host!.querySelectorAll("[data-hygiene-detail] [data-hygiene-id]")).toHaveLength(1);
   } finally {
-    socket!.onmessage = receive;
-    for (const event of held) receive.call(socket!, event);
+    sceneSocket.onmessage = receive;
+    for (const event of held) receive.call(sceneSocket, event);
   }
 });
 

@@ -87,11 +87,13 @@ thread waits for it.
 
 ## The exceptions
 
-- **A write inside the caller's transaction runs there.** The session catalog
-  writes title and unstreamed-usage spans inside its own transaction on the app
-  connection. The off-loop Activity store sees `db.inTransaction` and runs that
-  write synchronously on the caller's connection, so it stays atomic with the
-  caller's rows. That commit is the caller's, on the event loop, as before.
+- **A write inside the caller's transaction runs there.** The off-loop
+  Activity store sees `db.inTransaction` and runs such a write synchronously on
+  the caller's connection, so it stays atomic with the caller's rows. Claude
+  usage accounting, which writes title and unstreamed-usage spans inside its
+  own transaction, now runs that whole transaction on the worker, with a store
+  on the worker's connection (`workerActivity`,
+  `packages/ui-server/src/activity/store-writes.ts`).
 - **The in-memory database has no file** for a second connection. Its writer
   runs the same procedures inline, in the same order, behind the same promises.
 - **Rollup pricing in the worker** reads the same on-disk table and bundled
@@ -121,9 +123,51 @@ thread waits for it.
   at once; its warnings and any block follow the commit. A relayed provider
   request is admitted only after every budget write submitted before it has
   committed, and a turn's outcome waits for its budget writes.
-- **Other app-connection writers stay on the loop for now**: the writer gate,
-  the session catalog and message sources, the Activity
-  notifier and push ticks, auth sessions, inbox and settings. Each commits at
+- **The session catalog followed** (#2850). The session row, accepted work,
+  turn boundaries, message sources, turn failures, the state room, Claude
+  usage accounting, handoff links, labels and session costs commit on the
+  worker (`packages/ui-server/src/ws/session-catalog-writes.ts`), and so do
+  the two writes `session_info` makes that reference the new row: binding a
+  draft's worker profile and recording the admitted one
+  (`packages/ui-server/src/ws/session-profile-writes.ts`), and binding the
+  turn's policy proposals (`packages/ui-server/src/brain/policy-proposal-writes.ts`).
+  The worker's order puts each after the row it references. Readers see the
+  catalog's writes in two ways. A synchronous read on the turn path (whether
+  a session exists, its backend, provider and label, its latest accepted
+  work, a session's worker profile and whether a draft is still unconsumed)
+  answers from the committed row with every pending write's own effect
+  applied, so a write counts from its submission, as it did when it
+  committed inline. Each effect stops counting when its write settles, so a
+  failed one stops at once. A reader that joins committed rows onto history
+  (`publishHistory`, the session list and history routes, handoff sources,
+  the policy proposal route) or reads retained retries first awaits
+  `settled()` (`historySettled`, `packages/ui-server/src/ws/host.ts`). An
+  acceptance's revision is assigned where it is accepted, one above the
+  highest the catalog has issued or seen committed, so it is known at once
+  and a failed write's revision is never issued again; only the newest
+  acceptance's outcome orders or unorders the session. Retained retries and
+  local exchanges still commit on the app connection, so a failed retry
+  invalidation still refuses the input that needed it; a failure retained
+  before its session's row has committed is stored once it has, unless an
+  input invalidated it meanwhile.
+- **The writer gate followed** (#2850). Acquisition, the turn-waiter queue,
+  release, folder retention, peer-plan checks, the unpinned-host downgrade,
+  the ungated host check and recorded type folders run their transactions on
+  the worker (`gateProcedures`, `packages/ui-server/src/brain/writer-gate.ts`),
+  each still `BEGIN IMMEDIATE`, so they stay serialized against the cron
+  runner's gate, which commits on its own connection. One policy reader on
+  the worker serves every observation the gate makes. A release is submitted
+  at once, so every later gate write of the process sees it, and settles once
+  it has committed; whatever promises the hold is gone (`withGate`, a turn's
+  release, a launch's `settled`, shutdown) waits for it. A host process
+  spawns only after its downgrade has committed, and only if the boundary is
+  still the host fallback afterwards. A type folder translation that cannot
+  be recorded refuses the turn. `holders()`, a diagnostic, still reads on
+  the gate's own connection.
+- **Other app-connection writers stay on the loop for now**: retained
+  retries and local exchanges, saved worker profiles, policy
+  proposals, the Activity notifier and push ticks, auth sessions, inbox and
+  settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

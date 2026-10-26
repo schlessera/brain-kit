@@ -37,7 +37,7 @@ test("real isolated credentialed maintenance admits its writer before waiting, e
   let entered!: () => void;
   const admitted = new Promise<void>(resolve => { entered = resolve; });
   let writerHeld = false;
-  const gate = { async acquire() { writerHeld = true; entered(); return { id: "odysseus", mode: "exclusive" as const, release() { writerHeld = false; } }; }, holders: () => [], assertUngatedHostFallback() {}, rememberTypeFolders() {} };
+  const gate = { async acquire() { writerHeld = true; entered(); return { id: "odysseus", mode: "exclusive" as const, async release() { writerHeld = false; } }; }, holders: () => [], async assertUngatedHostFallback() {}, async rememberTypeFolders() {}, async settled() {} };
   const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: createNativeBrainManagerClient(native.nativeBrain),
     dbPath: join(f.root, "state/ui.db"), home: f.home, credentialDomain: f.domain, gate: () => gate });
   const held = await acquireHostCredentialExclusion({ domain: f.domain }); cleanup.push(() => held.release());
@@ -78,7 +78,7 @@ test("cancelled credential admission releases writer admission without releasing
   const native = createNativeAppFixture(f.brain); cleanup.push(native.close);
   let entered!: () => void; const admitted = new Promise<void>(resolve => { entered = resolve; });
   let writerHeld = false;
-  const gate = { async acquire() { writerHeld = true; entered(); return { id: "odysseus", mode: "exclusive" as const, release() { writerHeld = false; } }; }, holders: () => [], assertUngatedHostFallback() {}, rememberTypeFolders() {} };
+  const gate = { async acquire() { writerHeld = true; entered(); return { id: "odysseus", mode: "exclusive" as const, async release() { writerHeld = false; } }; }, holders: () => [], async assertUngatedHostFallback() {}, async rememberTypeFolders() {}, async settled() {} };
   const boundary = createHostBoundary({ brainPath: f.brain, dbPath: join(f.root, "state/ui.db"), nativeManager: createNativeBrainManagerClient(native.nativeBrain), credentialDomain: f.domain, gate: () => gate });
   const hold = await acquireHostCredentialExclusion({ domain: f.domain }); cleanup.push(() => hold.release());
   const abort = new AbortController();

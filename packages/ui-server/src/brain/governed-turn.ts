@@ -14,8 +14,7 @@ import { createPrivateIndexCache, privateIndexBuildFolders, type PrivateIndexAdv
 import { privateIndexArgv } from "./client.js";
 import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
-import { ensureIndexDirectory } from "./index-directory.js";
-import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { ensureRetainedDirectories } from "./index-directory.js";
 import type { IndexBatch } from "./index-batch.js";
 import { createTurnDataTree, type TurnDataTree } from "./turn-data-tree.js";
 
@@ -153,7 +152,7 @@ export function createGovernedTurns(options: {
       const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
       const release = async () => {
         try { await dataTree?.close(); } finally {
-          try { await startupView?.cleanup(); } finally { try { await indexView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { hold.release(); } } }
+          try { await startupView?.cleanup(); } finally { try { await indexView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { await hold.release(); } } }
         }
       };
       // Marked before the checkpoint: its index may lack what is queued (#2848).
@@ -186,7 +185,7 @@ export function createGovernedTurns(options: {
         const typeFolderList = [...new Set(Object.values(typeFolders).flat())].sort();
         // Writers admitted later, by any process and after a restart, plan
         // these folders while the policy is unchanged (#2836).
-        if (types.length) gate.rememberTypeFolders(policy.hash, typeFolderList);
+        if (types.length) await gate.rememberTypeFolders(policy.hash, typeFolderList);
         const providerFolders = providerMaskedFolders(policy.policy, typeFolders);
         const maskedFolders = providerDeniedFolders(policy.policy, typeFolders, recipient);
         // A conversation's provider history keeps what its earlier turns, or a
@@ -210,12 +209,13 @@ export function createGovernedTurns(options: {
         // what its source kept masked.
         const lineage = !continued.length ? (maskedFolders.length ? maskedFolders : undefined)
           : lineages.every(always => always !== undefined) ? lineages.reduce<string[]>((kept, always) => maskedInBoth(kept, always!), maskedFolders) : undefined;
-        const folderPaths = hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList))
+        const folderPaths = await hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList))
           ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
         // Retention needs the directory to exist; the host creates the index
-        // directory (never a provider folder) before the layout is resolved.
-        // An alias or file under the name stays for the resolver to refuse.
-        if (folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(options.brainPath); } catch { /* resolver refuses */ } }
+        // and cache directories (never a provider folder) before the layout
+        // is resolved. An alias or file under a name stays for the resolver
+        // to refuse.
+        try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
         const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,
@@ -250,7 +250,7 @@ export function createGovernedTurns(options: {
           // one started with the server before any turn had translated a type
           // selector, finishes rather than refusing the turn (#2832).
           if (hold.waitForPeerFolderPlans) await hold.waitForPeerFolderPlans(folderPaths, { signal, ...(options.peerFolderPlanWaitMs !== undefined ? { timeoutMs: options.peerFolderPlanWaitMs } : {}) });
-          else hold.assertPeerFolderPlans(folderPaths);
+          else await hold.assertPeerFolderPlans(folderPaths);
         }
         const commandPolicy = Object.freeze({ hash: policy.hash,
           outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),
@@ -287,7 +287,7 @@ export function createGovernedTurns(options: {
         // this turn's own applications (#2848); a masked one keeps its private
         // index current from it (#2846). Built from this final checkpoint.
         if (workerProfile(resolved) !== "governed" || privateIndex) {
-          dataTree = createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed",
+          dataTree = await createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed", signal,
             ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
               types: providerDeniedTypes(policy.policy, recipient) } } : {}),
             // A recipient allowed every folder still never sees the generated-text caches.

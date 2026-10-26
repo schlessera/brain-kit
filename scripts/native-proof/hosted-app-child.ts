@@ -37,8 +37,8 @@ if (APPLY_TIMING) {
   // #2848: how long admission takes to copy the turn's data tree and seed its index.
   const trees = await import(join(source!, "packages/ui-server/src/brain/turn-data-tree.ts"));
   const createTurnDataTree = trees.createTurnDataTree;
-  spyOn(trees, "createTurnDataTree").mockImplementation((...args: Parameters<typeof createTurnDataTree>) => {
-    const start = performance.now(); const tree = createTurnDataTree(...args);
+  spyOn(trees, "createTurnDataTree").mockImplementation(async (...args: Parameters<typeof createTurnDataTree>) => {
+    const start = performance.now(); const tree = await createTurnDataTree(...args);
     event("turn_tree_seed", { ms: performance.now() - start, masked: Boolean((args[0] as { masks?: unknown }).masks), mounted: Boolean(tree.mount) });
     return tree;
   });

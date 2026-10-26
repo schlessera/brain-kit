@@ -28,7 +28,7 @@ export function createSessionProfileRoutes(profiles: SessionProfiles) {
         catch { throw new SessionProfileError(400, "Invalid JSON."); }
         if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "preference")
           || !["governed", "strict"].includes((body as { preference: string }).preference)) throw new SessionProfileError(400, "Choose governed or strict.");
-        return c.json(profiles.save(principal.id, kind, id, (body as { preference: "governed" | "strict" }).preference));
+        return c.json(await profiles.save(principal.id, kind, id, (body as { preference: "governed" | "strict" }).preference));
       } catch (error) {
         if (error instanceof SessionProfileError) return c.json({ error: error.message, ...(error.status === 401 ? { authRequired: true } : {}) }, error.status);
         throw error;

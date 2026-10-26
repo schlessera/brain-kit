@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { BRAIN_LOCK_KEY, BRAIN_MASK_MAX_BYTES, type BrainMaskInput, type BrainApplicationResult, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertScratchMaskAsync, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
-import { isProtectedTarget } from "./protected-target.js";
+import { createProtectedTargetCheck, protectedPlaces } from "./protected-target.js";
 import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
+import type { AppliedEffect, TurnDataTree } from "./turn-data-tree.js";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -14,7 +15,7 @@ class MaskRefusal extends Error {
 }
 const refuse = (code: string, message: string): never => { throw new MaskRefusal(code, message); };
 interface Dir { fd: number; path: string; dev: number; ino: number }
-interface File { at: string; chain: Dir[]; hash: string | null; mode?: number }
+interface File { at: string; chain: Dir[]; hash: string | null; mode?: number; bytes?: Buffer }
 export interface MaskBase { imageHash: string; maskHash: string | null }
 
 function validatePath(path: string): void {
@@ -27,7 +28,7 @@ function validatePath(path: string): void {
   if (parts.some((p, i) => p.startsWith(".") && !(i === 0 && p === ".brain" && parts[1] === "scratch")))
     refuse("invalid_target", "Masks cannot change configuration or repository metadata.");
 }
-function read(path: string): { hash: string | null; mode?: number } {
+function read(path: string): { hash: string | null; mode?: number; bytes?: Buffer } {
   let fd: number;
   try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch (error) {
@@ -42,7 +43,7 @@ function read(path: string): { hash: string | null; mode?: number } {
     if (info.size > BRAIN_MASK_MAX_BYTES) refuse("payload_too_large", "Image or mask exceeds the PNG application byte cap.");
     const bytes = readFileSync(fd);
     if (bytes.length > BRAIN_MASK_MAX_BYTES) refuse("payload_too_large", "Image or mask exceeds the PNG application byte cap.");
-    return { hash: digest(bytes), mode: info.mode & 0o7777 };
+    return { hash: digest(bytes), mode: info.mode & 0o7777, bytes };
   } finally { closeSync(fd); }
 }
 function close(file: File) { for (const dir of file.chain.reverse()) closeSync(dir.fd); }
@@ -108,14 +109,21 @@ export function createMaskApplication(options: {
   hold?: AuthorityHold;
   isAvailable(): boolean;
   record(result: BrainApplicationResult): void;
+  /**
+   * The turn's data tree (#2848): it receives the committed PNG and the
+   * prune's removals inside the commit boundary, so the turn's next read sees
+   * them (#2892).
+   */
+  turnTree?: Pick<TurnDataTree, "commit">;
   /** Internal race fixture only. */
   beforeCommit?(): void;
 }) {
   const root = realpathSync(options.root);
   const protectedPaths = [...(options.protectedPaths ?? [])];
+  const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
-    if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
+    if (isProtected?.(path)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
   };
   const authority = (principalId: string, turnId: string) => {
     if (principalId !== options.principalId || turnId !== options.turnId) refuse("authority_revoked", "This mask no longer has current turn authority.");
@@ -169,6 +177,7 @@ export function createMaskApplication(options: {
         let mask: File;
         try { mask = open(root, input.maskPath); } catch (error) { close(image); throw error; }
         let temp: string | undefined;
+        const effects: AppliedEffect[] = [];
         try {
           if (scratch && !hostedQuery) await assertScratchMaskAsync(root, input.maskPath, join(root, input.maskPath), options.maintenance, options.signal);
           temp = `/proc/self/fd/${mask.chain.at(-1)!.fd}/.brain-mask-${crypto.randomUUID()}`;
@@ -177,7 +186,9 @@ export function createMaskApplication(options: {
           options.beforeCommit?.();
           authority(request.principalId, request.turnId); validateTarget(input.maskPath); verify(image, base.imageHash); verify(mask, base.maskHash);
           renameSync(temp, mask.at); temp = undefined;
-          changes.push({ path: input.maskPath, contentHash: digest(png) }); fsyncSync(mask.chain.at(-1)!.fd);
+          changes.push({ path: input.maskPath, contentHash: digest(png) });
+          effects.push({ path: input.maskPath, content: png, base: mask.bytes ?? null });
+          fsyncSync(mask.chain.at(-1)!.fd);
           let pruneError: string | undefined;
           if (scratch) {
             try {
@@ -187,13 +198,22 @@ export function createMaskApplication(options: {
               // same lock/authority. Its actual removals join the history.
               // The mask this operation just wrote is protected from its
               // own cleanup (#1691); later passes apply the usual policy.
-              const pruned = core.pruneScratch(root, Date.now(), { pinnedPaths: new Set([input.maskPath]), protectedPaths });
-              for (const removal of pruned.removed) changes.push({ path: removal.path, contentHash: null });
+              // Prune retains what protection covers now, where links lead included (#2876).
+              const pruned = core.pruneScratch(root, Date.now(), { pinnedPaths: new Set([input.maskPath]),
+                protectedPaths: options.protectedPaths ? protectedPlaces(root, protectedPaths) : protectedPaths });
+              for (const removal of pruned.removed) {
+                changes.push({ path: removal.path, contentHash: null });
+                effects.push({ path: removal.path, content: null, base: null });
+              }
               if (pruned.failed.length) pruneError = "Some scratch files could not be pruned.";
             } catch (error) { pruneError = error instanceof Error ? error.message : String(error); }
           }
           return { ok: true, message: "Applied the PNG mask.", changes, outcome: { maskPath: input.maskPath, ...(pruneError ? { pruneError } : {}) } };
-        } finally { if (temp) unlinkSync(temp); close(image); close(mask); }
+        } finally {
+          // Partial failures included: the tree follows exactly what committed.
+          options.turnTree?.commit(effects);
+          if (temp) unlinkSync(temp); close(image); close(mask);
+        }
       }, { signal: options.signal }));
     } catch (error) {
       result = { ok: false, code: error instanceof MaskRefusal ? error.code : options.signal.aborted ? "cancelled" : "application_failed", message: error instanceof Error ? error.message : String(error), changes };

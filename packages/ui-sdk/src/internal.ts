@@ -56,7 +56,7 @@ export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROT
 export { createStateLedger, processStateLedger, WorkerStateError } from "./server/worker-state-budget.js";
 export type { Reservation, StateLedger, WorkerStateErrorClass } from "./server/worker-state-budget.js";
 
-export { envMaskedPaths, PROVIDER_CACHE_FILES, resolveWorkerProtection } from "./server/worker-protection.js";
+export { envMaskedPaths, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, resolveWorkerProtection } from "./server/worker-protection.js";
 
 export { prepareWorkerOutput } from "./server/worker-output.js";
 

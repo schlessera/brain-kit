@@ -100,7 +100,7 @@ export function createPiTurnRunner(
       yielded = true;
       try { req.autonomous!.onYield!(key); }
       catch { emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
-      finally { cancelled = true; toolController.abort(); void session.abort(); }
+      finally { cancelled = true; toolController.abort(); void session.abort().catch(() => {}); }
     } : undefined } : undefined;
     // Everything from here on runs inside the try: a throw from subscribe() or
     // the first emit() would otherwise leave entry.running stuck true, bricking
@@ -112,7 +112,8 @@ export function createPiTurnRunner(
     const onAbort = () => {
       cancelled = true;
       toolController.abort();
-      void session.abort();
+      // The awaited prompt/abort path owns any teardown refusal.
+      void session.abort().catch(() => {});
     };
     const costBefore = snapshotCost(session);
     const usage = createUsageAccumulator();

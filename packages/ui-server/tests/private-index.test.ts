@@ -6,6 +6,7 @@
  */
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -54,7 +55,7 @@ function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile
   const argv = typeof command === "function" ? command(brain) : command;
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
     profile, maskPaths: [], index: async () => {}, report: message => reports.push(message), ...(argv ? { privateIndexCommand: argv } : {}) });
-  return { root, brain, turns, reports, execution };
+  return { root, brain, db, turns, reports, execution };
 }
 
 function search(brain: string, sandbox: Parameters<typeof workerCommand>[0]["sandbox"], query: string): string[] {
@@ -139,7 +140,7 @@ test.each([
   try {
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
     expect(hold.sandbox.providerMasks?.folders, "SELECTOR_TRANSLATED_TO_ITS_FOLDER").toEqual(["me"]);
-    expect(hold.sandbox.retainedFolders, "TRANSLATED_FOLDER_RETAINED").toEqual([".brain-index", "me"]);
+    expect(hold.sandbox.retainedFolders, "TRANSLATED_FOLDER_RETAINED").toEqual([".brain-cache", ".brain-index", "me"]);
     const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c", `
       printf 'me=%s\\n' "$(ls -A me | wc -l)"
       cat me/identity.md 2>/dev/null && printf 'READ_IDENTITY\\n'
@@ -183,7 +184,7 @@ test("the first type-selector turn after server start waits for a writer started
     expect(refusal, "FIRST_PROVIDER_POLICY_TURN_AFTER_START_ADMITTED").toBeUndefined();
     expect(releasedAt !== undefined && admittedAt >= releasedAt, "ADMITTED_ONLY_ONCE_THE_SERVER_START_WRITER_FINISHED").toBe(true);
     expect(hold!.sandbox.profile, hold!.sandbox.fallbackReason).toBe("governed");
-    expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-index", "me"]);
+    expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-cache", ".brain-index", "me"]);
   } finally { hook.mockRestore(); boot.release(); await hold?.end(); }
 });
 
@@ -202,13 +203,13 @@ test("a writer in another process, such as the cron runner, plans the type folde
       reader.releaseLock();
       return text;
     })();
-    expect(JSON.parse(line), "CRON_WRITER_PLANS_THE_TRANSLATED_TYPE_FOLDER").toEqual([".brain-index", "me"]);
+    expect(JSON.parse(line), "CRON_WRITER_PLANS_THE_TRANSLATED_TYPE_FOLDER").toEqual([".brain-cache", ".brain-index", "me"]);
     // The production bound: a cron writer lacking the folder would hold this turn for it, then refuse.
     const started = performance.now();
     try { hold = await f.turns.begin("beside-cron", new AbortController().signal); } catch (error) { refusal = error; }
     expect(refusal, `TYPE_RULE_TURN_ADMITTED_BESIDE_THE_CRON_WRITER after ${Math.round(performance.now() - started)} ms`).toBeUndefined();
     expect(hold!.sandbox.profile, hold!.sandbox.fallbackReason).toBe("governed");
-    expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-index", "me"]);
+    expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-cache", ".brain-index", "me"]);
   } finally {
     await hold?.end();
     cron.stdin.end();
@@ -216,6 +217,15 @@ test("a writer in another process, such as the cron runner, plans the type folde
     expect(code, `CRON_WRITER_EXITED: ${stderr}`).toBe(0);
   }
 }, 90_000);
+
+test("a type selector's translation that cannot be recorded refuses the turn (#2850)", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  // Later writers, in any process, plan only what is recorded: an unrecorded
+  // translation is not admitted beside them.
+  f.db.exec("DROP TABLE provider_type_folders");
+  await expectRejection(f.turns.begin("unrecorded", new AbortController().signal), /provider_type_folders/, "TYPE_FOLDER_RECORD_FAILURE_REFUSES_ADMISSION");
+  expect(f.execution.gate()!.holders(), "TYPE_FOLDER_REFUSAL_RELEASES_ITS_HOLD").toEqual([]);
+});
 
 test("a folder nested inside another masked folder launches under the outer mask alone", async () => {
   // Bubblewrap cannot create me/sub inside the empty read-only tmpfs over me,
@@ -241,7 +251,7 @@ test("a folder nested inside another masked folder launches under the outer mask
     const worker = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/true"] });
     expect(await worker.exited, "NESTED_MASK_QUALIFIED_BEFORE_PAYLOAD").toBe(0);
     expect(hold.sandbox.providerMasks?.folders, "NESTED_FOLDER_COVERED_BY_ITS_ANCESTOR").toEqual(["me"]);
-    expect(hold.sandbox.retainedFolders, "NESTED_FOLDER_NOT_RETAINED_SEPARATELY").toEqual([".brain-index", "me"]);
+    expect(hold.sandbox.retainedFolders, "NESTED_FOLDER_NOT_RETAINED_SEPARATELY").toEqual([".brain-cache", ".brain-index", "me"]);
     expect(search(f.brain, hold.sandbox, SENTINEL).filter(path => path.startsWith("me/")), "PRIVATE_INDEX_LACKS_NESTED_DOCUMENTS").toEqual([]);
   } finally { await hold.end(); }
 });
@@ -391,33 +401,44 @@ test("a checkpoint refreshed during admission is judged again before the turn ru
   expect(String((refusal as Error).message)).toContain("type identity (notes/retyped.md declares it outside me)");
 });
 
+/** Cached generated text of a masked document, as an `--embeddings` run commits it: in `.brain-cache/` (#2725) and, from an earlier release, at the root (#2692). */
+function cacheMaskedText(brain: string): void {
+  mkdirSync(join(brain, ".brain-cache"), { recursive: true });
+  writeFileSync(join(brain, ".brain-cache/contexts.jsonl"), `${JSON.stringify({ k: "oath", v: `${SENTINEL} context of me/oath.md` })}\n`);
+  writeFileSync(join(brain, ".brain-cache/assets.jsonl"), `${JSON.stringify({ k: "avatar", v: `${SENTINEL} description of me/avatar.png` })}\n`);
+  writeFileSync(join(brain, ".context-cache.jsonl"), `${JSON.stringify({ k: "oath", v: `${SENTINEL} context of me/oath.md` })}\n`);
+  writeFileSync(join(brain, ".asset-cache.jsonl"), `${JSON.stringify({ k: "avatar", v: `${SENTINEL} description of me/avatar.png` })}\n`);
+}
+const CACHE_SHELL = `for cache in .context-cache.jsonl .asset-cache.jsonl; do test -c "$cache" && printf '%s=masked\\n' "$cache"; printf '%s\\n' "$(cat "$cache" | grep -c ${SENTINEL})"; done
+  printf 'dir=%s\\n' "$(ls -A .brain-cache | wc -l)"`;
+const CACHES_EMPTY = ".context-cache.jsonl=masked\n0\n.asset-cache.jsonl=masked\n0\ndir=0\n";
+
 test.each(["governed", "strict"] as const)("a denied %s turn reads the committed generated-text caches as empty", async profile => {
   const f = fixture(undefined, profile);
-  // Cached generated text of a masked document, as an `--embeddings` run commits it (#2692).
-  writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
-  writeFileSync(join(f.brain, ".asset-cache.jsonl"), `${JSON.stringify({ key: "avatar", description: `${SENTINEL} description of me/avatar.png` })}\n`);
+  cacheMaskedText(f.brain);
   const hold = await f.turns.begin(`caches-${profile}`, new AbortController().signal);
   try {
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe(profile);
     const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: hold.startupView, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c",
-      `for cache in .context-cache.jsonl .asset-cache.jsonl; do test -c "$cache" && printf '%s=masked\\n' "$cache"; printf '%s\\n' "$(cat "$cache" | grep -c ${SENTINEL})"; done`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+      CACHE_SHELL] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(shell.exitCode, shell.stderr.toString()).toBe(0);
-    expect(shell.stdout.toString(), "BASH_CANNOT_READ_CACHED_MASKED_TEXT").toBe(".context-cache.jsonl=masked\n0\n.asset-cache.jsonl=masked\n0\n");
+    expect(shell.stdout.toString(), "BASH_CANNOT_READ_CACHED_MASKED_TEXT").toBe(CACHES_EMPTY);
   } finally { await hold.end(); }
-  expect(readFileSync(join(f.brain, ".context-cache.jsonl"), "utf8"), "REAL_CACHE_UNCHANGED").toContain(SENTINEL);
+  expect(readFileSync(join(f.brain, ".brain-cache/contexts.jsonl"), "utf8"), "REAL_CACHE_UNCHANGED").toContain(SENTINEL);
+  expect(readFileSync(join(f.brain, ".context-cache.jsonl"), "utf8"), "REAL_LEGACY_CACHE_UNCHANGED").toContain(SENTINEL);
 });
 
 test("a live governed launch qualifies the cache masks before its payload starts", async () => {
   const f = fixture();
-  writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
+  cacheMaskedText(f.brain);
   const hold = await f.turns.begin("caches-live", new AbortController().signal);
   try {
-    const worker = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH },
-      command: ["/bin/sh", "-c", `printf '%s\\n' "$(cat .context-cache.jsonl | grep -c ${SENTINEL})"`] });
+    expect(hold.sandbox.retainedFolders, "CACHE_DIRECTORY_RETAINED").toContain(".brain-cache");
+    const worker = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c", CACHE_SHELL] });
     let text = ""; for await (const chunk of worker.stdout as unknown as AsyncIterable<Uint8Array>) text += new TextDecoder().decode(chunk);
     let stderr = ""; for await (const chunk of worker.stderr as unknown as AsyncIterable<Uint8Array>) stderr += new TextDecoder().decode(chunk);
     expect(await worker.exited, stderr).toBe(0);
-    expect(text, "LIVE_CACHE_MASK_QUALIFIED").toBe("0\n");
+    expect(text, "LIVE_CACHE_MASK_QUALIFIED").toBe(CACHES_EMPTY);
   } finally { await hold.end(); }
 });
 

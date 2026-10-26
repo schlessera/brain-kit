@@ -7,7 +7,7 @@ import { runCli } from "./cli-harness";
 import { brainWithRemote, cleanupFixtures, commitAndPush, git, gitMayFail, otherClone, write, type Brain } from "./sync-fixture";
 
 afterEach(cleanupFixtures);
-const CACHE = ".context-cache.jsonl";
+const CACHE = ".brain-cache/contexts.jsonl";
 const head = (root: string) => git(root, "rev-parse", "HEAD");
 
 function commit(root: string, files: Record<string, string>, message = "local content"): void {

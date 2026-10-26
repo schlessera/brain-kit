@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -265,6 +265,26 @@ test("the independent census retains an unresolved relative cross-workspace edge
     resolved: false, workspace: "source", declared: false, unitOwners: [consumer], runnerOwners: [],
   });
   expect(unitFiles(planChecks([changed], workspaces(f.root), f.root), f.root), "UNRESOLVED_CENSUS_EDGE_RETAINS_UNIT_OWNER").toContain(consumer);
+});
+
+test("the census avoids impossible native resolutions while retaining directory, symlink, extension and basename helper owners", () => {
+  const f = fixture();
+  f.write(consumer, 'console.log("arbitrary_quoted_word", "./fixtures", "/fixtures", "./alias", "./fixtures/probe.js", "fallback");');
+  const helpers = ["index", "probe", "fallback"].map(name => `packages/consumer/tests/fixtures/${name}.ts`);
+  for (const helper of helpers) f.write(helper, 'import "../../../source/src/index.ts";');
+  symlinkSync("fixtures/probe.ts", join(f.root, "packages/consumer/tests/alias"));
+  for (const args of [["init", "-q"], ["add", "."]]) expect(Bun.spawnSync(["git", ...args], { cwd: f.root }).exitCode).toBe(0);
+  const resolve = Bun.resolveSync, calls: string[] = [];
+  const spy = spyOn(Bun, "resolveSync").mockImplementation((name, parent) => {
+    calls.push(name); return resolve(name, parent);
+  });
+  try {
+    const records = auditUnitConsumers(f.root, []);
+    for (const helper of helpers) expect(records.find(record => record.importer === helper)?.unitOwners,
+      `LEXICAL_HELPER_OWNER_RETAINED: ${helper}`).toContain(consumer);
+    for (const name of ["./fixtures", ".//fixtures", "./alias", "./fixtures/probe.js", "./fallback"]) expect(calls).toContain(name);
+    expect(calls, "IMPOSSIBLE_WORDS_MUST_NOT_FILL_NATIVE_RESOLVER_CACHE").not.toContain("./arbitrary_quoted_word");
+  } finally { spy.mockRestore(); }
 });
 
 test("the whole cross-workspace source class retains every independently discovered unit owner", async () => {

@@ -100,7 +100,8 @@ test("a turn's tools reach reference source and its own worktree through the bou
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Read the Ithaca charts", requestId: "reference-request" }) } as MessageEvent, ws);
     const until = Date.now() + 10_000;
-    while (calls.length < 2 || app.wsHost.referenceWorktreeGenerations.size) { if (Date.now() > until) throw new Error(JSON.stringify({ calls, sent })); await Bun.sleep(5); }
+    // The turn ends once its gate release has committed (#2850), after its generation retires.
+    while (calls.length < 2 || app.wsHost.referenceWorktreeGenerations.size || app.wsHost.coordinator.isTurnActive()) { if (Date.now() > until) throw new Error(JSON.stringify({ calls, sent })); await Bun.sleep(5); }
     expect(sandbox?.references, "REFERENCE_TOOLS_SANDBOX_BINDS_VIEWS").toEqual(sources.views(principal.id) as { public: string; private: string });
     const [read, requested] = calls as [Extract<ReferenceToolResult, { source: unknown }>, Extract<ReferenceToolResult, { worktree: unknown }>];
     expect(read.source.path, "REFERENCE_TOOLS_HOST_TURN_SOURCE_PATH").toMatch(/^\/tmp\/brain-reference\/public\//);

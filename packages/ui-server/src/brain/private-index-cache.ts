@@ -39,6 +39,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { isManagedWorkerStartupView, nativeWorkerStartupInput, parseNativeBrainDelta, retainWorkerStartupView, workerIdentityHelper,
   type NativeBrainDeltaCandidate, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { CACHE_DIR } from "@schlessera/brain-common/internal/cache-location";
 
 /** Distinct reusable bases kept at once; each holds one index copy and one retained checkpoint. */
 export const PRIVATE_INDEX_CACHE_ENTRIES = 2;
@@ -124,9 +125,9 @@ export function privateIndexBuildFolders(masked: readonly string[], root: string
 }
 
 /**
- * Paths whose changes cannot change the masked build: the masked folders it
- * sees as empty, the index directory it replaces, `.git`, which it never
- * sees, and, given both roots, what is under an operational-state folder
+ * Paths whose changes cannot change the masked build: the masked folders and
+ * the cache directory (#2725) it sees as empty, the index directory it
+ * replaces, `.git`, which it never sees, and, given both roots, what is under an operational-state folder
  * that is a directory in both (`privateIndexBuildFolders`). Prefix-closed, so
  * a descendant of an inert path is inert.
  */
@@ -134,7 +135,7 @@ export function privateIndexInert(folders: readonly string[], roots?: { before: 
   const state = PRIVATE_INDEX_STATE_FOLDERS.filter(name => roots && [roots.before, roots.after].every(root => {
     try { return lstatSync(join(root, name)).isDirectory(); } catch { return false; }
   }));
-  return path => within(path, ".git") || within(path, INDEX_DIR) || folders.some(folder => within(path, folder))
+  return path => within(path, ".git") || within(path, INDEX_DIR) || within(path, CACHE_DIR) || folders.some(folder => within(path, folder))
     || state.some(folder => path.startsWith(`${folder}/`));
 }
 

@@ -623,6 +623,20 @@ proof `--workers=1` diagnostic for a serial measurement, preserving the actual
 source identity; performance qualification and remaining evidence live in
 [#2121](https://github.com/schlessera/brain-kit/issues/2121).
 
+Every unit partition also uploads `tmp/unit-memory.jsonl`. A separate sampler
+appends a snapshot at startup, every ten seconds and on shutdown, retaining
+completed samples if the proof coordinator is killed. Each snapshot records
+`/proc/meminfo` in KiB, available cgroup current/peak/limit and OOM counters
+(including ancestor limits), and the twenty largest RSS processes with PID,
+parent, command and working directory. Correlate timestamps and worker paths
+with test logs; process RSS includes shared pages and is not an additive
+cgroup total. Kernel cgroup peaks and OOM counter changes complement the
+existing sampled VM receipt; neither alone identifies a test failure.
+Compact `BRAIN_UNIT_MEMORY` receipts also reach the live job log, since a
+runner shutdown can prevent artifact upload. The
+[local OOM/control evidence](evidence/unit-memory-2945.json) identifies why
+the independent consumer census avoids impossible native resolver lookups.
+
 Screenshot evidence includes kit, consumer and repository-root attachment
 directories. Hygiene commands keep their local scratch captures and retain the
 same bytes in separate `tmp/hygiene-proof/capture-*` directories for the layout

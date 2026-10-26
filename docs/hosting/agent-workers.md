@@ -392,16 +392,18 @@ write verified scratch/workspace copies through the aliases below.
   fail. Autonomous turns retain their restricted permissions.
 - **The turn's data tree** (`/tmp/brain-worker-data`, read-only) is what a
   strict, voice or autonomous worker's brain tools read: the documents as the
-  turn started plus every change the turn's own applications committed, with
-  a search index the server brings up to date before the next search. The
+  turn started plus every change the turn's own applications and image masks
+  committed, with a search index the server brings up to date before the next
+  search. The
   `brain` CLI in a shell, Claude's `brain` MCP server and pi's brain tools use
   it as their data root (`BRAIN_ROOT`); configuration still loads from the
   frozen view at the brain path. Claude's `Read`, `Grep` and `Glob` and shell
   commands that name the brain path see the turn-start bytes; a Claude `Read`
   of a path the turn changed is refused and points to `mcp__brain__brain_read`, and
   Claude's file tools do not read the tree itself.
-  Admission copies the startup view's documents into it (O(brain): 0.1-0.3 s
-  for 2,000 notes) and seeds its index, on the server's temporary directory.
+  Admission copies the startup view's documents into it (O(brain): about
+  0.05 s for 2,000 notes and 0.25 s for 10,000 on the native fixture) and
+  seeds its index, on the server's temporary directory.
   Under a provider rule the tree leaves out the masked folders, and only
   changes that pass the provenance rule enter it; the turn's private index is
   read-only to the agent.
@@ -968,7 +970,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:70-92`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:50-72`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the

@@ -2,6 +2,7 @@
 import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { CACHE_DIR, LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
 import { hasNativeBrainBoundary } from "./worker-startup-view.js";
 import { runWorkerStepsSync, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
@@ -170,11 +171,21 @@ const invalidFolder = (rel: string) => !rel || rel.startsWith("/") || rel.starts
   || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..");
 
 /**
- * The committed sidecar caches of generated text at the brain root (core's
- * `SIDECAR_CACHES`): chunk contexts and asset descriptions, keyed by content,
- * including masked documents' (#2692).
+ * The root-level names releases before 0.44.0 committed the generated-text
+ * caches under (core's legacy sidecars): chunk contexts and asset
+ * descriptions, keyed by content, including masked documents' (#2692). A
+ * clone can still hold one until an index run moves it into
+ * {@link PROVIDER_CACHE_DIR}, so every turn under a provider rule keeps
+ * reading each present one as empty (#2725).
  */
-export const PROVIDER_CACHE_FILES = [".context-cache.jsonl", ".asset-cache.jsonl"] as const;
+export const PROVIDER_CACHE_FILES: readonly string[] = Object.freeze(LEGACY_SIDECAR_CACHES.map(pair => pair.legacy));
+
+/**
+ * The directory the generated-text caches live in since 0.44.0 (#2725).
+ * Every governed writer retains it beside `.brain-index/`, and a turn that
+ * masks any provider folder sees it as an empty read-only tmpfs.
+ */
+export const PROVIDER_CACHE_DIR = CACHE_DIR;
 
 /**
  * Provider data masks, applied after every pin and protected bind so nothing
@@ -183,11 +194,12 @@ export const PROVIDER_CACHE_FILES = [".context-cache.jsonl", ".asset-cache.jsonl
  * absent from it has nothing to hide; a present one becomes an empty
  * read-only tmpfs. While any folder is masked, `.git` is hidden as in
  * restricted turns and the private filtered index is bound over
- * `.brain-index/`, which must exist in the view. A turn whose proven recipient
- * is allowed every provider folder has no folder to mask (#2695). Each present
- * committed cache of generated text reads as empty in every such turn (#2692).
- * With `visible`, the brain path starts as an empty tmpfs and only those paths
- * of the view are bound back, read-only (#2699).
+ * `.brain-index/`, which must exist in the view, and `.brain-cache/` reads as
+ * an empty read-only tmpfs (#2725). A turn whose proven recipient is allowed
+ * every provider folder has no folder to mask (#2695) and keeps all three.
+ * Each present legacy root-level cache of generated text reads as empty in
+ * every such turn (#2692). With `visible`, the brain path starts as an empty
+ * tmpfs and only those paths of the view are bound back, read-only (#2699).
  */
 export function providerMaskMounts(brain: string, view: string, masks: WorkerProviderMasks): string[] {
   const argv: string[] = [];
@@ -213,12 +225,13 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
       argv.push("--ro-bind", join(view, rel), join(brain, rel));
     }
   }
-  // A loose file mask detaches if another namespace renames or unlinks the
-  // path. Only exclusive credentialed `--embeddings` runs write these caches,
-  // and every concurrent turn under a provider rule hides them alike, allowed
-  // recipients included (2026-10-23 rulings on #2692 and #2695), so a detached
-  // mask exposes nothing such a turn could already see. A link is refused
-  // rather than followed.
+  // The legacy root-level caches, during the move into `.brain-cache/`. A
+  // loose file mask detaches if another namespace renames or unlinks the path,
+  // but no index run from 0.44.0 on writes these names and a sync pull moves
+  // one it merges in: only a move removes one, which detaches the mask from a
+  // file that is gone. Every turn under a provider rule hides them alike,
+  // allowed recipients included (2026-10-23 rulings on #2692 and #2695), and
+  // cannot rename its own mount point. A link is refused rather than followed.
   for (const name of PROVIDER_CACHE_FILES) {
     const info = lstatSync(join(view, name), { throwIfNoEntry: false });
     if (!info) continue;
@@ -233,8 +246,16 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`provider mask folder ${rel} is not a directory`);
     argv.push("--tmpfs", join(brain, rel), "--remount-ro", join(brain, rel));
   }
-  // A turn allowed every provider folder keeps `.git` and the real index (#2695).
+  // A turn allowed every provider folder keeps `.git`, the real index and the
+  // caches (#2695, #2725).
   if (masks.index) {
+    // The caches hold text generated from every document, masked ones
+    // included. Retained like `.brain-index/`, the directory cannot be renamed
+    // or replaced under this mask; renaming or recreating a cache inside it
+    // detaches nothing.
+    const caches = lstatSync(join(view, CACHE_DIR), { throwIfNoEntry: false });
+    if (caches && (!caches.isDirectory() || caches.isSymbolicLink())) throw new Error(`${CACHE_DIR} must be a directory to be masked`);
+    if (caches) argv.push("--tmpfs", join(brain, CACHE_DIR), "--remount-ro", join(brain, CACHE_DIR));
     const git = lstatSync(join(view, ".git"), { throwIfNoEntry: false });
     if (git?.isDirectory() && !git.isSymbolicLink()) argv.push("--tmpfs", join(brain, ".git"), "--remount-ro", join(brain, ".git"));
     else if (git?.isFile()) argv.push("--ro-bind", "/dev/null", join(brain, ".git"));
@@ -272,7 +293,8 @@ const outsideOf = (dir: string, path: string) => path !== dir && !path.startsWit
  * turn's index over `.brain-index/`, writable only to the host's updater, and
  * the same provider masks as the brain path. The host leaves masked folders
  * and the generated-text caches out of the tree; a name that is there anyway
- * reads as empty.
+ * reads as empty: the legacy root-level caches under any provider rule, and
+ * `.brain-cache/` while any folder is masked (#2725).
  */
 export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTree): string[] {
   for (const dir of [tree.root, tree.index]) {
@@ -288,6 +310,9 @@ export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTr
     const info = lstatSync(join(tree.root, name), { throwIfNoEntry: false });
     if (info && tree.masked) argv.push("--ro-bind", "/dev/null", join(target, name));
   }
+  const caches = lstatSync(join(tree.root, CACHE_DIR), { throwIfNoEntry: false });
+  if (caches && tree.masked?.length) argv.push(...(caches.isDirectory() && !caches.isSymbolicLink()
+    ? ["--tmpfs", join(target, CACHE_DIR), "--remount-ro", join(target, CACHE_DIR)] : ["--ro-bind", "/dev/null", join(target, CACHE_DIR)]));
   for (const rel of [...new Set(tree.masked ?? [])].sort()) {
     if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`)) throw new Error("invalid provider mask folder");
     const info = lstatSync(join(tree.root, rel), { throwIfNoEntry: false });
@@ -379,7 +404,8 @@ function verifyMountedFolders(view: string, qualified: NonNullable<ReturnType<ty
   if (!root.isDirectory() || String(root.dev) !== qualified.device || String(root.ino) !== qualified.inode)
     throw new Error("mounted brain identity changed");
   // A masked root shows its mask, not the retained directory beneath it:
-  // the private index for `.brain-index`, an empty tmpfs for a folder.
+  // the private index for `.brain-index`, an empty tmpfs for a folder and,
+  // while any folder is masked, for `.brain-cache`.
   const privateIndex = masks?.index ? statSync(masks.index, { bigint: true }) : undefined;
   for (const pin of qualified.pins) {
     // A retained root inside a masked folder is hidden by that mask.
@@ -388,12 +414,12 @@ function verifyMountedFolders(view: string, qualified: NonNullable<ReturnType<ty
     if (!mounted.isDirectory()) throw new Error(`mounted folder identity changed: ${pin.rel}`);
     if (privateIndex && pin.rel === INDEX_DIR) {
       if (mounted.dev !== privateIndex.dev || mounted.ino !== privateIndex.ino) throw new Error("the private index is not mounted over the index directory");
-    } else if (masks?.folders.includes(pin.rel)) {
+    } else if (masks?.folders.includes(pin.rel) || (masks?.index && pin.rel === CACHE_DIR)) {
       if (String(mounted.dev) === pin.device || readdirSync(join(view, pin.rel)).length) throw new Error(`provider folder mask is not in place: ${pin.rel}`);
     } else if (String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
       throw new Error(`mounted folder identity changed: ${pin.rel}`);
   }
-  // A present generated-text cache shows its `/dev/null` mask.
+  // A present legacy generated-text cache shows its `/dev/null` mask.
   if (masks) for (const name of PROVIDER_CACHE_FILES) {
     const cache = lstatSync(join(view, name), { throwIfNoEntry: false });
     if (cache && !cache.isCharacterDevice()) throw new Error(`generated-text cache mask is not in place: ${name}`);

@@ -25,7 +25,7 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
@@ -38,7 +38,7 @@ import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
-import { createNativeBrainManagerClient, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
@@ -435,6 +435,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).
   const legacyIndex = retireLegacyIndex(config.brainPath);
+  const legacyCaches = PROVIDER_CACHE_FILES.filter(name => lstatSync(join(config.brainPath, name), { throwIfNoEntry: false })?.isFile());
   // The server, not a worker identity under its own umask in a staged view,
   // creates the index directory, with the brain root's mode, so every later
   // maintenance or turn worker can create SQLite sidecars in it.
@@ -452,7 +453,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // It owns the journal's own file too (#2789), attached as it is here.
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
   bootCleanup.push(() => writer.close());
-  reconciled(hostExecution.attach(db));
+  reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
   const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentialValues(),
@@ -523,8 +524,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const keyedReindex = coalesced(() => brain.index().catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
     body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
   bootCleanup.push(() => keyedReindex.idle());
-  // A migrating brain rebuilds its index in the new directory once, at boot.
-  if (legacyIndex.removed.length) keyedReindex();
+  // A migrating brain rebuilds its index in the new directory once, at boot,
+  // and that run moves root-level generated-text caches into `.brain-cache/`
+  // (#2725): it keeps their lines, so the index run does the move, not the host.
+  if (legacyIndex.removed.length || legacyCaches.length) keyedReindex();
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   // Applications return after their Markdown commits; the paths they changed
   // are indexed together before the next read that needs them (#2835).
@@ -611,7 +614,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Budget writes commit on the write worker (#2850).
   const budgets = createTurnBudgets(db, pricing, Date.now, writer);
   relayBudgets = budgets;
-  const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
+  // Catalog rows, and the profile rows and proposal binds that reference
+  // them, commit on the write worker (#2850).
+  const catalog = createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites, writer,
+    pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs } });
+  const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
@@ -621,7 +628,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => journal.close());
   // Startup recovery commits, or refuses boot, before any turn can run.
   await journal.ready;
-  const policyProposals = createPolicyProposals({ root: config.brainPath, db,
+  const policyProposals = createPolicyProposals({ root: config.brainPath, db, writer,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,
@@ -648,7 +655,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     brainPath: config.brainPath,
     registry,
     observability,
-    catalog: createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites }),
+    catalog,
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
     inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver, config.brainPath),
@@ -935,7 +942,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
-  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));
+  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
+    settled: () => host.historySettled() }));
   app.route("/api", createJournalRoutes({ journal }));
   const storageHistory = createStorageHistory(db, config.brainPath);
   bootCleanup.push(() => storageHistory.close());
@@ -1209,6 +1217,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(async () => { await referenceSources?.close(); });
       await attempt(() => nativeLeases.close());
       if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
+      // Gate releases commit off the event loop (#2850): every one lands first.
+      await attempt(async () => { await hostExecution.gate()?.settled(); });
       await attempt(() => activity.close());
       await attempt(() => hostExecution.release());
       await attempt(() => db.close());

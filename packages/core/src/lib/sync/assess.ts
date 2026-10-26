@@ -6,6 +6,7 @@
 
 import { lstatSync, readFileSync } from "fs";
 import { resolve } from "path";
+import { GENERATED_CACHE_PATHS } from "@schlessera/brain-common/internal/cache-location";
 
 import { isMediaPath, mediaPolicyClass, type MediaPolicy } from "../media.js";
 import type { Taxonomy } from "../taxonomy.js";
@@ -52,9 +53,11 @@ const CONFIG_FILES = new Set([
  * `saveAssetCache` in lib/indexer). They are derived from brain.db but are
  * committed so fresh clones and rebuilds skip regeneration — which means the
  * reindex at the end of a sync routinely dirties the tree *after* the push.
- * post-sync owns that dirt and commits it itself.
+ * post-sync owns that dirt and commits it itself. The legacy root-level names
+ * are among them (#2725): an index run moves an older clone's file into
+ * `.brain-cache/`, and post-sync commits the removal with the new file.
  */
-export const DERIVED_CACHES = new Set([".context-cache.jsonl", ".asset-cache.jsonl"]);
+export const DERIVED_CACHES = new Set(GENERATED_CACHE_PATHS);
 
 /**
  * One record per `git status` entry: the two-character code and the path.
@@ -75,7 +78,13 @@ function porcelainRecords(root: string): { xy: string; file: string }[] {
     if (!line) continue;
     const xy = line.slice(0, 2);
     entries.push({ xy, file: line.slice(3) });
-    if (xy.includes("R") || xy.includes("C")) i++;
+    if (xy.includes("R") || xy.includes("C")) {
+      i++;
+      // A staged cache move (#2725) is a rename git pairs from the legacy
+      // root-level name; post-sync must commit that name's removal too.
+      const original = records[i];
+      if (xy.includes("R") && original && DERIVED_CACHES.has(original)) entries.push({ xy: "D ", file: original });
+    }
   }
   return entries;
 }

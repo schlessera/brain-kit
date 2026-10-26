@@ -1,11 +1,17 @@
 import { globalAgent } from "node:http";
 import type { HttpContractApp } from "./http-contract-app";
 
+/** ClientRequest includes HTTP's default port in its Unix-socket pool key. */
+export function httpMountAgentKey(fixture: HttpContractApp) {
+  return globalAgent.getName({ socketPath: fixture.app.config.nativeBrain!.socketPath, port: 80 });
+}
+
 /** Join only this fixture's native HTTP sockets; never destroy the global agent. */
 export async function closeHttpMountFixture(fixture: HttpContractApp) {
-  const key = globalAgent.getName({ socketPath: fixture.app.config.nativeBrain!.socketPath });
+  const key = httpMountAgentKey(fixture);
   const sockets = [...(globalAgent.sockets[key] ?? []), ...(globalAgent.freeSockets[key] ?? [])];
-  const stopped = sockets.filter(socket => !socket.destroyed).map(socket => new Promise<void>(resolve => socket.once("close", () => resolve())));
+  // Destruction can still be waiting for its native close acknowledgement.
+  const stopped = sockets.filter(socket => !socket.closed).map(socket => new Promise<void>(resolve => socket.once("close", () => resolve())));
   const failures: unknown[] = [];
   try { await fixture.close(); } catch (error) { failures.push(error); }
   try {
