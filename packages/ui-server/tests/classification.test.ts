@@ -15,6 +15,9 @@ import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-
 import { CONFIDENCE, questionsFor } from "../../ui-sdk/src/classification/catalogue.js";
 import { planClassification } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client";
+import { openSqliteWriter } from "../src/db/write-worker";
+import * as probe from "./fixtures/write-worker-probe";
+import { watchWriteSites } from "./helpers/write-sites";
 import {
   JEV_ENDPOINT,
   JEV_TIMEOUT_MS,
@@ -470,6 +473,23 @@ describe("the confidence record", () => {
       { sessionId: "s-swap", candidateId: "p0c0", candidateKind: "table", question: "recommended", answerType: "choice", choice: "none", confidence: 0.9, threshold: CONFIDENCE.tone, cleared: 1, outcome: "swapped" },
       { sessionId: "s-swap", candidateId: "p0c0", candidateKind: "table", question: "criteria_first", answerType: "noul", choice: null, confidence: 0.95, threshold: CONFIDENCE.noul, cleared: 1, outcome: "swapped" },
     ]);
+  });
+
+  test("with a write worker, a pass commits its blocks and confidence there, and settles once its blocks have (#2850)", async () => {
+    const writer = openSqliteWriter(db);
+    try {
+      const sites = await watchWriteSites(db, writer, ["message_blocks", "classification_confidence"]);
+      const c = createTurnClassifier({ jev: { breaker: () => ({ open: false, consecutiveFailures: 0, retryAt: null }), ...answering(GOOD_ANSWERS) },
+        db: () => db, log: silentLog, writer });
+      const held = writer.channel(probe, { table: "odysseus_log" }); await held.ready;
+      const slow = held.call("slow", "Calypso", 300);
+      const blocks = await c.run("s-worker", [TEXT]);
+      expect(blocks, "CLASSIFY_WORKER_PASS_SWAPS").toHaveLength(1);
+      expect(db.query("SELECT COUNT(*) AS n FROM message_blocks WHERE session_id = 's-worker'").get(), "CLASSIFY_BLOCKS_COMMITTED_BEFORE_RUN_SETTLES").toEqual({ n: 1 });
+      await slow; await c.settled!();
+      expect(rows("s-worker"), "CLASSIFY_CONFIDENCE_COMMITTED_ON_WORKER").toHaveLength(3);
+      expect(new Set(await sites.log()), "CLASSIFY_TABLES_WRITTEN_ON_WORKER").toEqual(new Set(["message_blocks", "classification_confidence"]));
+    } finally { await writer.close(); }
   });
 
   test("a candidate kept because its answer was under the line records the number", async () => {

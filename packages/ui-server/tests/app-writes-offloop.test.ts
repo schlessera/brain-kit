@@ -18,7 +18,8 @@ import { watchWriteSites } from "./helpers/write-sites.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { createPrincipal } from "../src/db/principals.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
-import { createSessionProfiles } from "../src/ws/session-profiles.js";
+import { createSessionProfiles, SessionProfileError } from "../src/ws/session-profiles.js";
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { createPolicyProposals } from "../src/brain/policy-proposal.js";
 import { createSessionRoutes } from "../src/routes/sessions.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
@@ -296,4 +297,42 @@ test("only a session's newest acceptance orders or unorders it", () => {
   expect(acceptRequest(host, "troy", "req-2", null), "WORK_UNASSIGNED_ACCEPTANCE").toBeUndefined();
   settle[0]!(true);
   expect(host.coordinator.unorderedSessions.has("troy"), "WORK_OLDER_ACCEPTANCE_DOES_NOT_REORDER").toBe(true);
+});
+
+test("a local exchange commits on the write worker; still pending, the next prompt takes it once and marks it carried after its record (#2850)", async () => {
+  const f = fixture();
+  try {
+    const catalog = createSessionCatalog(() => f.db, quietLog, undefined, { pricing: { resolve: () => null }, store: createActivityStore(f.db, { writer: "odysseus" }), writer: f.writer });
+    const sites = await watchWriteSites(f.db, f.writer, ["local_exchanges"]);
+    const exchange = { id: "stats-ithaca", command: "stats", prompt: "Stats", context: "Documents: 3", answer: [] } as never;
+    const held = f.writer.channel(probe, { table: "odysseus_log" }); await held.ready;
+    const slow = held.call("slow", "Calypso", 300);
+    const recorded = catalog.recordLocalExchange!("ithaca", exchange, false);
+    expect(f.db.query("SELECT COUNT(*) AS n FROM local_exchanges").get(), "EXCHANGE_NOT_COMMITTED_ON_LOOP").toEqual({ n: 0 });
+    expect(catalog.takePendingLocalExchanges!("ithaca").map(item => item.id), "EXCHANGE_PENDING_TAKEN_BY_NEXT_PROMPT").toEqual(["stats-ithaca"]);
+    expect(catalog.takePendingLocalExchanges!("ithaca"), "EXCHANGE_TAKEN_ONCE").toEqual([]);
+    await slow;
+    expect(await recorded, "EXCHANGE_RECORD_SETTLES_STORED").toBe(true);
+    await catalog.settled!();
+    expect(f.db.query("SELECT delivered_at IS NOT NULL AS carried FROM local_exchanges WHERE exchange_id = 'stats-ithaca'").get(), "EXCHANGE_MARKED_CARRIED_AFTER_ITS_RECORD").toEqual({ carried: 1 });
+    expect(catalog.takePendingLocalExchanges!("ithaca"), "EXCHANGE_CARRIED_NOT_TAKEN_AGAIN").toEqual([]);
+    expect(new Set(await sites.log()), "EXCHANGE_WRITTEN_ON_WORKER").toEqual(new Set(["local_exchanges"]));
+  } finally { await f.close(); }
+});
+
+test("a saved worker preference commits on the write worker, and its refusals keep their class and status (#2850)", async () => {
+  const f = fixture();
+  try {
+    const athena = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+    f.db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by, origin) VALUES ('ithaca', 'governed', 0, 'host', 'voice')").run();
+    f.db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('troy','Troy',0,0)").run();
+    const sites = await watchWriteSites(f.db, f.writer, ["session_worker_profiles", "draft_worker_profiles"]);
+    const catalog = createSessionCatalog(() => f.db, quietLog, undefined, { pricing: { resolve: () => null }, store: createActivityStore(f.db, { writer: "odysseus" }), writer: f.writer });
+    const profiles = createSessionProfiles(f.db, profileFacts, undefined, undefined, { writer: f.writer, catalog });
+    expect((await profiles.save(athena.id, "session", "troy", "strict")).preference, "PROFILE_SAVE_ANSWERS_COMMITTED_ROW").toBe("strict");
+    expect((await profiles.save(athena.id, "draft", "troy-draft", "strict")).preference, "PROFILE_DRAFT_SAVE_COMMITS").toBe("strict");
+    const refusal = await expectRejection(profiles.save(athena.id, "session", "ithaca", "strict"), SessionProfileError, "PROFILE_REFUSAL_CLASS_KEPT") as SessionProfileError;
+    expect(refusal.status, "PROFILE_REFUSAL_STATUS_KEPT").toBe(409);
+    expect(new Set(await sites.log()), "PROFILE_SAVES_WRITTEN_ON_WORKER").toEqual(new Set(["session_worker_profiles", "draft_worker_profiles"]));
+  } finally { await f.close(); }
 });
