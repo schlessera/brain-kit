@@ -221,10 +221,6 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   retries, drafts, policy proposals, action and storage notices, push
   subscriptions and VAPID keys, principal revocation and administration,
   passkeys, inbox and settings. Each commits at
-- **Other app-connection writers stay on the loop for now**: retained
-  retries, drafts, policy proposals, action and storage notices, push
-  subscriptions and VAPID keys, principal revocation and administration,
-  passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's
