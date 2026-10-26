@@ -222,11 +222,11 @@ Stated before the requirements because five of them derive from it.
 ### Execution
 
 - R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:11-14`) owns only manual triggers and
-  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:66-236`) already runs an interval tick with a boot sweep —
+  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:66-238`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:893`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:896`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode

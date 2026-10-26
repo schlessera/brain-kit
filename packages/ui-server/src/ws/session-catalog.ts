@@ -78,8 +78,8 @@ export interface SessionCatalog {
   clearRetryRequest?(sessionId: string): void;
   /** Required to advertise Retry for file-backed requests; reads precede reservation. */
   peekRetry?(sessionId: string): retries.RetainedRetry | null;
-  reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): { receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string };
-  refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): ServerRetryReceipt;
+  reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): Promise<{ receipt: ServerRetryReceipt; request?: ClientChatMessage; prompt?: string }>;
+  refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): Promise<ServerRetryReceipt>;
   retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
   attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /** The backend that owns a stored session, or null for legacy/unknown rows. */
@@ -250,11 +250,10 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     for (const effect of pendingWork.get(sessionId) ?? []) row = effect(row);
     return row;
   };
-  // Retained retries stay on this connection, and so stay fail-closed: a
-  // failed invalidation still refuses the input that needed it. A failure
-  // retained before its session's row has committed is stored once that row
-  // has, unless an input has invalidated it meanwhile.
+  // Invalidation counts at submission, even if its worker DELETE fails.
+  // Only a new successfully retained request in this generation can reset it.
   const retryGenerations = new Map<string, number>();
+  const invalidatedRetries = new Set<string>();
   return {
     async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {
@@ -295,31 +294,32 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       }
     },
     saveRetryRequest(sessionId, turnId, principalId, request, prompt, failure) {
-      const save = () => retries.saveRetryRequest(db(), sessionId, turnId, principalId, request, prompt, failure);
-      try {
-        if (!pendingRow(sessionId)) { save(); return true; }
-        // Its row references the session's, still pending: it is stored once
-        // that has committed, and the answer advertises Retry now, since a
-        // frame cannot wait. If it is not kept, reserving it refuses.
-        const generation = retryGenerations.get(sessionId) ?? 0;
-        const stored = tail.then(() => { if ((retryGenerations.get(sessionId) ?? 0) === generation) save(); });
-        settle(stored);
-        stored.catch(err => reportWriteFailure(sessionId, err));
-        return true;
-      } catch (err) { reportWriteFailure(sessionId, err); return false; }
+      const generation = retryGenerations.get(sessionId) ?? 0;
+      const save = () => submit<void>("saveRetryRequest", sessionId, turnId, principalId, request, prompt, failure).then(() => {
+        if ((retryGenerations.get(sessionId) ?? 0) === generation) invalidatedRetries.delete(sessionId);
+      });
+      // Keep the pending session row ahead of its retry, and do not retain a
+      // deferred failure if an accepted input invalidated it meanwhile.
+      const stored = pendingRow(sessionId)
+        ? tail.then(() => { if ((retryGenerations.get(sessionId) ?? 0) === generation) return save(); })
+        : save();
+      settle(stored);
+      stored.catch(err => reportWriteFailure(sessionId, err));
+      return true;
     },
-    // Retry reads/consumption must fail closed: unlike accounting, an
-    // unsuccessful invalidation cannot permit an obsolete prompt to run.
     clearRetryRequest(sessionId) {
       retryGenerations.set(sessionId, (retryGenerations.get(sessionId) ?? 0) + 1);
-      retries.clearRetryRequest(db(), sessionId);
+      invalidatedRetries.add(sessionId);
+      submit("clearRetryRequest", sessionId).catch(err => reportWriteFailure(sessionId, err));
     },
-    peekRetry(sessionId) { return retries.retained(db(), sessionId); },
-    reserveRetry(sessionId, turnId, requestId, principalId, expectedPrompt) { return retries.reserveRetry(db(), sessionId, turnId, requestId, principalId, expectedPrompt); },
-    refuseRetry(sessionId, requestId, principalId, message) { return retries.refuseRetry(db(), sessionId, requestId, principalId, message); },
+    peekRetry(sessionId) { return invalidatedRetries.has(sessionId) ? null : retries.retained(db(), sessionId); },
+    reserveRetry(sessionId, turnId, requestId, principalId, expectedPrompt) {
+      return submit("reserveRetry", sessionId, turnId, requestId, principalId, expectedPrompt);
+    },
+    refuseRetry(sessionId, requestId, principalId, message) { return submit("refuseRetry", sessionId, requestId, principalId, message); },
     retryReceipt(sessionId, requestId, principalId) { return retries.retryReceipt(db(), sessionId, requestId, principalId); },
     attachRetryRequest(sessionId, messages) {
-      try { return retries.attachRetryRequest(db(), sessionId, messages); }
+      try { return invalidatedRetries.has(sessionId) ? messages : retries.attachRetryRequest(db(), sessionId, messages); }
       catch (err) { reportWriteFailure(sessionId, err); return messages; }
     },
     acceptWork(sessionId, requestId, backendId, settled) {

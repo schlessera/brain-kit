@@ -159,10 +159,9 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   highest the catalog has issued or seen committed, so it is known at once
   and a failed write's revision is never issued again; only the newest
   acceptance's outcome orders or unorders the session. Retained retries
-  still commit on the app connection, so a failed retry
-  invalidation still refuses the input that needed it; a failure retained
-  before its session's row has committed is stored once it has, unless an
-  input invalidated it meanwhile.
+  followed on the worker as described below; a failure retained before its
+  session's row has committed is stored once it has, unless an input
+  invalidated it meanwhile.
 - **The writer gate followed** (#2850). Acquisition, the turn-waiter queue,
   release, folder retention, peer-plan checks, the unpinned-host downgrade,
   the ungated host check and recorded type folders run their transactions on
@@ -276,9 +275,52 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   guidance views read once every flush submitted before them has committed.
   Push transport awaits begin and finish; shutdown awaits the final flush. Operational restore still
   writes inside its caller's transaction.
-- **Other app-connection writers stay on the loop for now**: retained
-  retries, drafts, policy proposals, push subscriptions and VAPID keys,
-  principal revocation and administration, passkeys and settings. Each commits at
+- **Retained retries and policy proposals followed** (#2850). Retry saves,
+  invalidations, refusal receipts and reservations commit on the worker
+  (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation
+  hides the retry from synchronous reads as soon as it is submitted and
+  stays in force even if its delete fails; the worker refuses any later
+  reservation of that obsolete request. The failure is reported, and only a
+  successfully retained new request resets the invalidation. That memory does
+  not survive a restart, so a reservation also refuses once the session's
+  accepted work (`session_work`) names a later request than the retained
+  turn (`reserveRetry`, `packages/ui-server/src/ws/retry-requests.ts`). A reservation
+  keeps its receipt and eligibility consumption in one immediate transaction,
+  awaited before its receipt is sent or its prompt dispatched; a duplicate
+  receives the receipt without dispatching again. A pending session row still
+  precedes the retry that references it, while Retry is advertised at once.
+  Proposal inserts and review saves commit on the same worker
+  (`packages/ui-server/src/brain/policy-proposal-writes.ts`). Approval waits
+  for insertion, and policy publication waits for the writing review's
+  commit, so a crash leaves an unknown receipt and never repeats the write.
+  Reviews are emitted after their saves commit; history and receipt readers
+  await `settled()`, which includes inserts, saves and binds. Without a
+  writer, the same procedures run inline on the caller's connection.
+- **Drafts, voice transcription claims and settings followed** (#2850).
+  Composer save, upload, remove, bind and accept run their unchanged
+  transactions on one worker channel (`packages/ui-server/src/drafts/writes.ts`).
+  The routes answer committed revisions. Accepted messages submit their
+  draft tombstone without waiting or blocking the turn; failures log identity
+  only. Later draft mutations follow that acceptance in FIFO order, and the
+  list/get routes await every previously submitted draft write before reading
+  on the app connection. Draft refusals keep their class, status and body.
+  Transcription claims, completions and removals commit on the worker
+  (`packages/ui-server/src/voice/transcription-writes.ts`); a provider is
+  dispatched only after its claim commits, so duplicate claims cannot dispatch
+  twice. Authorization runs there too, including any lazy account-partition
+  seed insert, and refusals keep their class and receipt. Startup recovery
+  remains inline. One settings writer (`packages/ui-server/src/db/settings-writes.ts`)
+  owns hosted model preferences, remembered tool grants, digest visits,
+  dismissals and generation, and subscription proof retention (the hourly
+  check, status reads and successful-turn recording). A turn's `settled()`
+  also waits for its submitted subscription proof. Digest generation
+  keeps its whole immediate transaction, and settings consumers await the
+  commit before their dependent reads or replies. Without a writer, the same
+  operations still run inline, including the cron digest job; the notifier's
+  cursor and the unhosted detail-retention setter keep their existing paths.
+- **Other app-connection writers stay on the loop for now**: push
+  subscriptions and VAPID keys, principal revocation and administration
+  and passkeys. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

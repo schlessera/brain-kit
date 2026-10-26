@@ -16,12 +16,11 @@ import { noticeClientId } from "../inbox/notify.js";
 import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import type { AppEnv } from "../app-env.js";
 import {
-  dismissActivityDigest,
   digestDismissedAt,
-  generateActivityDigest,
   latestActivityDigest,
 } from "../activity/digest.js";
-import { getSetting, setSetting } from "../db/settings.js";
+import { createSettingsWrites, type SettingsWrites } from "../db/settings-writes.js";
+import { getSetting } from "../db/settings.js";
 import {
   computeRuntimeStats,
   RUNTIME_STATS_DEFAULT_DAYS,
@@ -40,19 +39,21 @@ import {
  */
 export function createActivityRoutes(deps: {
   db: Database;
+  settingsWrites?: SettingsWrites;
   store: AwaitableActivityStore;
   notifier?: ActivityNotifier;
   /** Durable Action notices; their digest contribution is per client context. */
   actionNotices?: AwaitableActionNotifier;
 }): Hono<AppEnv> {
   const { db, store, notifier, actionNotices } = deps;
+  const writes = deps.settingsWrites ?? createSettingsWrites(db);
 
   return new Hono<AppEnv>()
     .get("/activity/digest", async (c) => {
       try {
         // An authenticated fetch IS the app opening — the marker the next
         // digest window's framing leans on.
-        setSetting(db, "activity.lastVisitAt", Date.now());
+        await writes.setSetting("activity.lastVisitAt", Date.now());
         // A client return is also a generation opportunity for this context's
         // Actions/FYI summary: one current catch-up, never a replay of slots.
         // `?client=` names this browser's own context; an invalid one is ignored.
@@ -75,7 +76,7 @@ export function createActivityRoutes(deps: {
 
     .post("/activity/digest/dismiss", async (c) => {
       try {
-        dismissActivityDigest(db);
+        await writes.dismissActivityDigest(Date.now());
         // The Actions contribution is per client context: dismissing here
         // never hides another browser's unseen summary.
         const principal = c.get("principal");
@@ -93,11 +94,11 @@ export function createActivityRoutes(deps: {
       }
     })
 
-    .post("/activity/digest/generate", (c) => {
+    .post("/activity/digest/generate", async (c) => {
       // Manual trigger (the cron job calls generateActivityDigest directly
       // through the script; this exists for dev and for a pull-to-refresh).
       try {
-        return c.json({ digest: generateActivityDigest(db) });
+        return c.json({ digest: await writes.generateActivityDigest(Date.now()) });
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Failed to generate" },

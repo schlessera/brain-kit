@@ -677,7 +677,7 @@ describe("activity stream over the ws path", () => {
       {
         toolPermissions: {
           isAutoAllowed: (name) => granted.has(name),
-          add: (name) => granted.add(name),
+          add: (name) => { granted.add(name); },
         },
       }
     );

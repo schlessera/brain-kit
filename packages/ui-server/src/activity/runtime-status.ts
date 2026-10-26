@@ -81,7 +81,7 @@ export interface RuntimeStatus {
   /** The last auth failure of a turn that ran on the subscription. */
   subscriptionAuthFailure(): (RecordedAuthFailure & { action: SubscriptionAuthAction }) | undefined;
   /** A turn that ran on the subscription succeeded, and ended at `at`. */
-  subscriptionProven(at: number): void;
+  subscriptionProven(at: number): void | Promise<void>;
   /**
    * Records a real worker host probe's outcome (#1632). Logs the first
    * outcome per mode and each change after it, never a repeat.
@@ -127,7 +127,7 @@ export function redactCredentials(text: string): string {
 export function createRuntimeStatus(
   now: () => Date = () => new Date(),
   log?: Logger,
-  keepProof?: (at: number) => void
+  keepProof?: (at: number) => void | Promise<void>
 ): RuntimeStatus {
   let boot: RuntimeStatusSnapshot["boot"] = [];
   let lastObserved: RuntimeStatusSnapshot["lastObserved"];
@@ -172,7 +172,7 @@ export function createRuntimeStatus(
     },
     subscriptionAuthFailure: () => lastSubscriptionFailure,
     subscriptionProven(at) {
-      keepProof?.(at);
+      return keepProof?.(at);
     },
     recordWorkerHost(mode, probe, trigger) {
       const previous = workerHost[mode];
