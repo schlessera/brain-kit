@@ -42,9 +42,9 @@ export function saveLocalExchange(
   db: Database,
   sessionId: string,
   exchange: LocalExchange,
-  delivered: boolean
+  delivered: boolean,
+  now = Date.now()
 ): void {
-  const now = Date.now();
   db.prepare(
     `INSERT INTO local_exchanges
        (session_id, exchange_id, command, prompt, answer, context, created_at, delivered_at)
@@ -84,6 +84,19 @@ export function takePendingLocalExchanges(db: Database, sessionId: string): Loca
       return record ? [record] : [];
     });
   }).immediate();
+}
+
+/**
+ * Mark exactly these exchanges carried (#2850): the catalog takes pending
+ * exchanges where the prompt is handed over and records the hand-over here,
+ * on the write worker, after the records it names.
+ */
+export function markLocalExchangesDelivered(db: Database, sessionId: string, exchangeIds: readonly string[], at: number): void {
+  if (!exchangeIds.length) return;
+  db.prepare(
+    `UPDATE local_exchanges SET delivered_at = ? WHERE session_id = ? AND delivered_at IS NULL
+       AND exchange_id IN (${exchangeIds.map(() => "?").join(", ")})`
+  ).run(at, sessionId, ...exchangeIds);
 }
 
 /** Every exchange recorded for a session, in order. */

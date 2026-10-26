@@ -158,8 +158,8 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   acceptance's revision is assigned where it is accepted, one above the
   highest the catalog has issued or seen committed, so it is known at once
   and a failed write's revision is never issued again; only the newest
-  acceptance's outcome orders or unorders the session. Retained retries and
-  local exchanges still commit on the app connection, so a failed retry
+  acceptance's outcome orders or unorders the session. Retained retries
+  still commit on the app connection, so a failed retry
   invalidation still refuses the input that needed it; a failure retained
   before its session's row has committed is stored once it has, unless an
   input invalidated it meanwhile.
@@ -206,6 +206,28 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   A read of a session's exposures (admission's continuation checks, a
   handoff's history check) first waits for every exposure write submitted
   before it. Boot reconciliation still closes abandoned manifests inline.
+- **Local exchanges, classified blocks and saved worker preferences
+  followed** (#2850). A local exchange commits on the worker with the
+  catalog's other writes. Until it has, the next prompt handed over still
+  takes it, exactly once, and the hand-over is recorded on the worker after
+  the exchange's own record; the client is answered once it is stored. A
+  turn's classified blocks, the blocks that follow a promoted link and the
+  classifier's confidence commit on the worker
+  (`packages/ui-server/src/classification/classification-writes.ts`), and a
+  replayed history waits for every one submitted before it. A saved worker
+  preference (`PUT …/profile`) is checked and stored in one immediate
+  transaction on the worker, and its refusals keep their class and status.
+- **Action notices followed** (#3000, part of #2850). Enrollment, digest
+  generation and coverage, delivery attempts, zone reports and dismissals run
+  the unchanged notifier on the write connection
+  (`packages/ui-server/src/inbox/notify-writes.ts`). Each original transaction
+  keeps its boundary and contents. A tick submits enrollment and generation
+  together, in that order, and a tick still committing is not submitted
+  again. The routes answer after their writes commit; push transport starts
+  after its attempt and components commit, and the delivery pass settles
+  after every attempt outcome commits. Clocks are taken at submission.
+  `recordActionEpisode` remains inside the inbox store transaction that
+  changes the Action; that transaction moves with the inbox lifecycle (#3001).
 - **The inbox lifecycle followed** (#3001). Recovery and budget reconciliation,
   the lifecycle sweep, cleanup claims and acknowledgements, heartbeat, intake
   receipts and replay, interactive-share start/bind/end and application/completion
@@ -224,9 +246,9 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   run the same procedures inline. Dispatcher-fixture-only claims, boot/restore
   helpers and the cron runner retain their synchronous connections.
 - **Other app-connection writers stay on the loop for now**: retained
-  retries and local exchanges, saved worker profiles, policy
-  proposals, action and storage notices, push subscriptions and VAPID keys,
-  principal revocation and administration, passkeys and settings. Each commits at
+  retries, drafts, policy proposals, storage notices, push
+  subscriptions and VAPID keys, principal revocation and administration,
+  passkeys and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

@@ -602,7 +602,7 @@ export class WsHost {
    * @internal Host wiring.
    */
   async historySettled(): Promise<void> {
-    await Promise.all([this.catalog.settled?.(), this.policyProposals?.settled()]);
+    await Promise.all([this.catalog.settled?.(), this.policyProposals?.settled(), this.classifier?.settled?.()]);
   }
 
   /**
