@@ -3,7 +3,7 @@
  * profile row references its catalog row, which commits on the `ui.db` write
  * worker once `session_info` names the session; binding a draft's preference
  * and recording the admitted profile commit there too, after it, at
- * `synchronous=FULL`. A saved preference stays an app-connection write.
+ * `synchronous=FULL`, and so does a saved preference.
  */
 import type { Database } from "bun:sqlite";
 
