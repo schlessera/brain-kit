@@ -479,14 +479,19 @@ describe("the confidence record", () => {
     const writer = openSqliteWriter(db);
     try {
       const sites = await watchWriteSites(db, writer, ["message_blocks", "classification_confidence"]);
+      // A failed write is only a log line: record them so it surfaces with its reason.
+      const warnings: unknown[] = [];
+      const log = { emit: (record: { attributes?: Record<string, unknown> }) => { warnings.push(record.attributes?.["error.message"]); } } as unknown as typeof silentLog;
       const c = createTurnClassifier({ jev: { breaker: () => ({ open: false, consecutiveFailures: 0, retryAt: null }), ...answering(GOOD_ANSWERS) },
-        db: () => db, log: silentLog, writer });
+        db: () => db, log, writer });
       const held = writer.channel(probe, { table: "odysseus_log" }); await held.ready;
       const slow = held.call("slow", "Calypso", 300);
       const blocks = await c.run("s-worker", [TEXT]);
+      expect(warnings, "CLASSIFY_WORKER_WRITES_DID_NOT_FAIL").toEqual([]);
       expect(blocks, "CLASSIFY_WORKER_PASS_SWAPS").toHaveLength(1);
       expect(db.query("SELECT COUNT(*) AS n FROM message_blocks WHERE session_id = 's-worker'").get(), "CLASSIFY_BLOCKS_COMMITTED_BEFORE_RUN_SETTLES").toEqual({ n: 1 });
       await slow; await c.settled!();
+      expect(warnings, "CLASSIFY_WORKER_WRITES_DID_NOT_FAIL").toEqual([]);
       expect(rows("s-worker"), "CLASSIFY_CONFIDENCE_COMMITTED_ON_WORKER").toHaveLength(3);
       expect(new Set(await sites.log()), "CLASSIFY_TABLES_WRITTEN_ON_WORKER").toEqual(new Set(["message_blocks", "classification_confidence"]));
     } finally { await writer.close(); }
