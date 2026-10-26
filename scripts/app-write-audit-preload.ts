@@ -13,5 +13,5 @@ if (!file) throw new Error("app-write-audit-preload: set BRAIN_UI_APP_WRITE_AUDI
 observeAppWrites("every", write => {
   const site = write.stack.split("\n").slice(1).map(line => line.trim().replace(/^at /, ""))
     .filter(line => !line.includes("/db/write-worker.ts") && !line.includes("bun:sqlite") && !line.includes("node_modules"));
-  appendFileSync(file, JSON.stringify({ phase: write.phase, rows: write.rows, site: site.slice(0, 6), pid: process.pid }) + "\n");
+  appendFileSync(file, JSON.stringify({ phase: write.phase, rows: write.rows, site: site.slice(0, 24), pid: process.pid }) + "\n");
 });

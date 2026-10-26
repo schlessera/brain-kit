@@ -288,7 +288,12 @@ function appWriteAudit(db: Database): { observed(): boolean; changes(): number; 
     observed: () => appObservers.has(db) || everyAppObserver !== undefined,
     changes: () => (total.get() as { n: number }).n,
     report(rows) {
-      const write = { phase: appPhases.get(db) ?? "standalone", rows, stack: new Error().stack ?? "" } as const;
+      // Deep enough to reach a test's own frame below a product call (#3004).
+      const limit = Error.stackTraceLimit;
+      Error.stackTraceLimit = 64;
+      const stack = new Error().stack ?? "";
+      Error.stackTraceLimit = limit;
+      const write = { phase: appPhases.get(db) ?? "standalone", rows, stack } as const;
       everyAppObserver?.(write);
       appObservers.get(db)?.(write);
     },

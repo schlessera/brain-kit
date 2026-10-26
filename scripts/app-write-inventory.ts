@@ -24,9 +24,10 @@ for (const file of process.argv.slice(2)) {
     if (!line.trim()) continue;
     const entry = JSON.parse(line) as Entry;
     const frames = entry.site.map(frame).filter(f => f.startsWith("packages/"));
-    // A write a test fixture makes directly is not a hosted-path writer.
+    // A write a test makes, or a product call a test makes directly on the
+    // app's database, is a fixture, not a hosted-path writer.
     const product = frames.find(f => /^packages\/[^/]+\/src\//.test(f));
-    const phase = product ? entry.phase : "fixture";
+    const phase = product && !frames.some(f => f.includes("/tests/")) ? entry.phase : "fixture";
     const site = product ?? frames[0] ?? "(no package frame)";
     const key = `${phase}\t${site}`;
     const group = groups.get(key) ?? { phase, count: 0, rows: 0, callers: new Set<string>() };
