@@ -125,7 +125,8 @@ test("push HTTP routes await subscription commits and key creation", async () =>
 });
 
 function passkeys(f: ReturnType<typeof fixture>) {
-  const ctx: PasskeyContext = { db: f.db, auth, revoker, rateLimiter: createLoginRateLimiter(), challenges: createPasskeyChallenges(),
+  const failures: string[] = [];
+  const ctx: PasskeyContext = { log: { emit: record => { failures.push(String(record.attributes?.error ?? record.body)); } }, db: f.db, auth, revoker, rateLimiter: createLoginRateLimiter(), challenges: createPasskeyChallenges(),
     webauthn: config.webauthn, allowedOrigins: ["http://localhost"] };
   const deps: PasskeyDeps = {
     verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: {
@@ -146,7 +147,7 @@ function passkeys(f: ReturnType<typeof fixture>) {
   const request = (path: string, method: string, body?: unknown) => f.app.request(path, { ...json(method, body),
     headers: { "content-type": "application/json", host: "localhost", origin: "http://localhost" } });
   const register = () => request("/api/auth/passkey/register-verify", "POST", { response: ceremony("registration"), label: "Odysseus' bow" });
-  return { ceremony, request, register };
+  return { ceremony, request, register, failures };
 }
 
 for (const operation of ["register", "counter", "label", "delete"] as const) {
@@ -162,7 +163,7 @@ for (const operation of ["register", "counter", "label", "delete"] as const) {
         ? await keys.request("/api/auth/passkey/login-verify", "POST", keys.ceremony("authentication"))
         : await keys.request("/api/auth/passkey/odysseus-bow", operation === "delete" ? "DELETE" : "PUT", { label: "Ithaca" });
       const body = await response.json();
-      expect({ status: response.status, body }, `PASSKEY_${operation.toUpperCase()}_HTTP_AWAITS_COMMIT`).toMatchObject({ status: 200 });
+      expect({ status: response.status, body, failures: keys.failures }, `PASSKEY_${operation.toUpperCase()}_HTTP_AWAITS_COMMIT`).toMatchObject({ status: 200 });
       const row = f.db.query("SELECT counter, label FROM passkey_credentials WHERE id = 'odysseus-bow'").get();
       expect(row, `PASSKEY_${operation.toUpperCase()}_READ_SEES_COMMIT`).toEqual(operation === "delete" ? null : {
         counter: operation === "counter" ? 7 : 0, label: operation === "label" ? "Ithaca" : "Odysseus' bow",
@@ -185,7 +186,7 @@ for (const who of ["owner", "agent"] as const) {
       const sites = await watchWriteSites(f.db, f.writer, ["principals"]);
       const cookie = await serializeSigned("brain_ui_session", f[who].id, auth.cookieSecret!);
       const response = await f.app.request("/api/auth/logout", { method: "POST", headers: { cookie } });
-      expect(response.status, `ACCOUNT_LOGOUT_${who.toUpperCase()}_HTTP_AWAITS_COMMIT`).toBe(200);
+      expect({ status: response.status, body: await response.json() }, `ACCOUNT_LOGOUT_${who.toUpperCase()}_HTTP_AWAITS_COMMIT`).toMatchObject({ status: 200 });
       expect(resolvePrincipal(f.db, f[who].id)?.revokedAt, "ACCOUNT_LOGOUT_DURABLE_REVOCATION").not.toBeNull();
       expect(await sites.log(), "ACCOUNT_LOGOUT_WRITES_ON_WORKER").toContain("principals");
       if (who === "owner") expect(resolvePrincipal(f.db, f.agent.id)?.revokedAt, "ACCOUNT_OWNER_LOGOUT_REVOKES_ALL").not.toBeNull();
