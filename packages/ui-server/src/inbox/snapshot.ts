@@ -8,7 +8,7 @@ import { z } from "zod";
 import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
 import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
 import { invalidateRestoredStorage, parseStoredHistory } from "../storage/history-store.js";
@@ -49,7 +49,7 @@ function image(db: Database): Buffer {
   const normalized = (bytes: Buffer) => { bytes[18] = bytes[19] = 1; return bytes; };
   return db.transaction(() => {
     const bytes = normalized(db.serialize());
-    const journal = journalAttached(db) ? db.query(`SELECT type, name, sql FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE name GLOB 'turn_journal_*' AND sql IS NOT NULL ORDER BY rowid`).all() as { type: string; name: string; sql: string }[] : [];
+    const journal = journalAttached(db) ? (db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE name GLOB 'turn_journal_*' AND sql IS NOT NULL ORDER BY rowid`).all() as (SchemaRow & { sql: string })[]).filter(row => !derivedObjectIndex(row)) : [];
     if (!journal.length) return bytes;
     // The whole UI database includes the journal's own file (#2789). It
     // travels in the image's UI database, where releases before the split
@@ -71,6 +71,9 @@ function image(db: Database): Buffer {
   })();
 }
 type SchemaRow = { type: string; name: string; tbl_name: string; sql: string | null };
+/** Only this exact derived index; a reused name cannot hide altered schema or a trigger. */
+const derivedObjectIndex = (row: SchemaRow) => row.type === "index" && row.name === JOURNAL_OBJECT_REFS_INDEX.name
+  && row.tbl_name === "turn_journal_object_refs" && row.sql === JOURNAL_OBJECT_REFS_INDEX.sql;
 const journalAttached = (db: Database) => (db.query("PRAGMA database_list").all() as { name: string }[]).some(row => row.name === JOURNAL_SCHEMA);
 /** Recovery commands open the UI file directly; its journal file, once it exists, belongs to it. */
 function attachJournalFile(db: Database): void {
@@ -81,7 +84,7 @@ function attachJournalFile(db: Database): void {
 /** The live layout keeps the journal in its own file; an image keeps it with the UI database. */
 function schema(db: Database, journal = false): unknown[] {
   const rows = db.query("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as SchemaRow[];
-  if (journal && journalAttached(db)) rows.push(...db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE name GLOB 'turn_journal_*'`).all() as SchemaRow[]);
+  if (journal && journalAttached(db)) rows.push(...(db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE name GLOB 'turn_journal_*'`).all() as SchemaRow[]).filter(row => !derivedObjectIndex(row)));
   return rows.sort((a, b) => a.type === b.type ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.type < b.type ? -1 : 1);
 }
 function logicalState(db: Database): unknown[] {
