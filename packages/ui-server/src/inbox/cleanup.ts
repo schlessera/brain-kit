@@ -11,7 +11,7 @@ import { reapInboxThreadLifetimes } from "./lifetime.js";
 
 export interface CleanupItemOutcome { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
 export interface CleanupReport { cleaned: number; failed: number; deferred: number; cancelled: boolean; truncated: boolean; items: CleanupItemOutcome[] }
-export interface CleanupRequest { signal?: AbortSignal; assertAuthorized?: () => void; onItem?: (item: CleanupItemOutcome) => void }
+export interface CleanupRequest { signal?: AbortSignal; assertAuthorized?: () => void; onItem?: (item: CleanupItemOutcome) => void | Promise<void> }
 
 /** Recoverable compensation, never called from a SQLite transaction. Each
  * directory removal is idempotent; its durable lease is acknowledged afterwards. */
@@ -46,7 +46,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
       const item = await write<InboxQueueItem | null>("claimCleanup", id, now());
       if (!item || item.type !== "cleanup_pending") { report.deferred++; continue; }
       request?.assertAuthorized?.(); request?.signal?.throwIfAborted();
-      request?.onItem?.({ id, state: "running", reason: null });
+      await request?.onItem?.({ id, state: "running", reason: null });
       let outcome: CleanupItemOutcome;
       try {
         await remove(item.payload.stagingId);
@@ -64,7 +64,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
         report.failed++;
         outcome = { id, state: "failed", reason: "cleanup_incomplete" };
       }
-      if (request) report.items.push(outcome); request?.onItem?.(outcome);
+      if (request) report.items.push(outcome); await request?.onItem?.(outcome);
     }
     return report;
   }

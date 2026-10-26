@@ -1,5 +1,5 @@
 import { hashScope, type Source } from "./history-model.js";
-import type { SharedStorageScan, SharedScan } from "./shared-scan.js";
+import type { SharedStorageScan, SharedScan, InlineSharedScan } from "./shared-scan.js";
 import type { StorageWriteReport } from "./history-store.js";
 import { projectStorageTree, sortStorageRows } from "./tree.js";
 import { storageReferences } from "./process.js";
@@ -9,7 +9,7 @@ import { collectStorage, storageTotals, STORAGE_SERVER_LIMITS, type StorageColle
 export class StorageUnavailable extends Error {
   constructor(readonly status: 400 | 403 | 404 | 409 | 429 | 503, message: string) { super(message); }
 }
-export function createStorageCoordinator(options: Omit<StorageCollectOptions, "salt"> & {
+function storageCoordinator(options: Omit<StorageCollectOptions, "salt"> & {
   authorized(principalId: string): boolean;
   salt?: string;
   shared?: SharedStorageScan;
@@ -23,6 +23,7 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
   let current: StorageCollection | null = null, previous: StorageCollection | null = null;
   let active: { id: string; principal: string; controller: AbortController; promise: Promise<void>; lease?: SharedScan } | null = null;
   let lastAttempt = 0, closed = false;
+  let starting: Promise<StorageStatus> | null = null;
   let referenceJob: { controller: AbortController; promise: Promise<StorageReferenceEvidence> } | null = null;
   let lastFailure: { scanId: string; at: number; reason: string } | null = null;
   const authorized = (principal: string) => { if (!options.authorized(principal)) throw new StorageUnavailable(403, "Storage requires current human-owner access."); };
@@ -48,74 +49,79 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
       const report: StorageWriteReport = { identity: capacity?.id ?? key(`unresolved:${rootIdentity}`), rootScope: hashScope(capacity ? [...capacity.rootIds].sort() : [root]), target: key(`write:${rootIdentity}:${target}`), resource, outcome, at: Date.now() };
       try { options.onWrite?.(report); } catch { /* Telemetry cannot alter the owning operation's result. */ }
     },
-    start(principal: string, fresh = false, source: Source = 1): StorageStatus {
+    start(principal: string, fresh = false, source: Source = 1): StorageStatus | Promise<StorageStatus> {
       authorized(principal);
       if (closed) throw new StorageUnavailable(503, "Storage is shutting down.");
+      if (starting) return starting.then(() => status(principal));
       if (active) return status(principal);
       if (!fresh && Date.now() - lastAttempt < 5_000) throw new StorageUnavailable(429, "Wait before refreshing Storage again.");
       const dynamic = options.storesNow?.() ?? { stores: [], unavailable: [] };
       const scope = hashScope({ brain: options.brainPath, stores: [...options.stores, ...dynamic.stores], git: options.gitRoots ?? [], unavailable: [...options.unavailable ?? [], ...dynamic.unavailable] });
-      let lease: SharedScan | undefined;
       const requestId = randomUUID();
-      if (options.shared) {
-        try {
-          const acquired = options.shared.acquire(principal, requestId, scope, source, fresh);
-          if (!acquired) return status(principal);
-          lease = acquired;
-        } catch (error) {
-          authorized(principal);
-          const message = error instanceof Error ? error.message : "storage-lease-unavailable";
-          throw new StorageUnavailable(message === "storage-scan-cooldown" ? 429 : message === "storage-scan-other-scope-busy" ? 409 : 503, message);
-        }
-      }
-      lastAttempt = Date.now();
-      const id = lease?.id ?? requestId, controller = new AbortController();
-      const job = { id, principal, controller, promise: Promise.resolve(), lease };
-      active = job;
-      const timeout = setTimeout(() => controller.abort(), STORAGE_SERVER_LIMITS.milliseconds);
-      const revocation = setInterval(() => {
-        if (!options.authorized(principal)) controller.abort();
-        if (lease?.owner) { try { options.shared!.check(lease); } catch { controller.abort(); } }
-      }, 250);
-      job.promise = (async () => {
-        try {
-          controller.signal.throwIfAborted();
-          if (lease?.owner) await options.shared!.reap(lease);
-          const result = lease && !lease.owner ? await options.shared!.wait(lease, controller.signal)
-            : await collectStorage({ ...options, stores: [...options.stores, ...dynamic.stores], unavailable: [...options.unavailable ?? [], ...dynamic.unavailable], salt,
-              ...(lease ? { workerLease: { register: (pid: number) => options.shared!.register(lease!, pid), unregister: (pid: number) => options.shared!.unregister(lease!, pid) } } : {}) }, id, controller.signal);
-          authorized(principal); controller.signal.throwIfAborted();
-          if (lease?.owner) {
-            let cached = await options.shared!.publish(lease, result);
+      const refused = (error: unknown): never => {
+        authorized(principal);
+        const message = error instanceof Error ? error.message : "storage-lease-unavailable";
+        throw new StorageUnavailable(message === "storage-scan-cooldown" ? 429 : message === "storage-scan-other-scope-busy" ? 409 : 503, message);
+      };
+      let acquired: SharedScan | null | undefined | Promise<SharedScan | null>;
+      try { acquired = options.shared?.acquire(principal, requestId, scope, source, fresh); }
+      catch (error) { return refused(error); }
+      const begin = (lease: SharedScan | null | undefined) => {
+        if (lease === null) return status(principal);
+        lastAttempt = Date.now();
+        const id = lease?.id ?? requestId, controller = new AbortController();
+        const job = { id, principal, controller, promise: Promise.resolve(), lease: lease ?? undefined };
+        if (closed) controller.abort();
+        active = job;
+        const timeout = setTimeout(() => controller.abort(), STORAGE_SERVER_LIMITS.milliseconds);
+        const revocation = setInterval(() => {
+          if (!options.authorized(principal)) controller.abort();
+          if (lease?.owner) { try { options.shared!.check(lease); } catch { controller.abort(); } }
+        }, 250);
+        job.promise = (async () => {
+          try {
+            controller.signal.throwIfAborted();
+            if (lease?.owner) await options.shared!.reap(lease);
+            const result = lease && !lease.owner ? await options.shared!.wait(lease, controller.signal)
+              : await collectStorage({ ...options, stores: [...options.stores, ...dynamic.stores], unavailable: [...options.unavailable ?? [], ...dynamic.unavailable], salt,
+                ...(lease ? { workerLease: { register: (pid: number) => options.shared!.register(lease!, pid), unregister: (pid: number) => options.shared!.unregister(lease!, pid) } } : {}) }, id, controller.signal);
             authorized(principal); controller.signal.throwIfAborted();
-            if (!options.shared!.finish(lease, cached, false, result.summary.observedAt)) {
-              cached = await options.shared!.publish(lease, result);
+            if (lease?.owner) {
+              let cached = await options.shared!.publish(lease, result);
               authorized(principal); controller.signal.throwIfAborted();
-              if (!options.shared!.finish(lease, cached, false, result.summary.observedAt)) throw Error("storage-scan-authority-lost");
+              if (!await options.shared!.finish(lease, cached, false, result.summary.observedAt)) {
+                cached = await options.shared!.publish(lease, result);
+                authorized(principal); controller.signal.throwIfAborted();
+                if (!await options.shared!.finish(lease, cached, false, result.summary.observedAt)) throw Error("storage-scan-authority-lost");
+              }
+            }
+            if (!lease || lease.owner) { try { options.onCollection?.(result, source); } catch { /* History failure cannot remove an inventory result. */ } }
+            if (result.summary.coverage === "complete" || !current || current.summary.coverage !== "complete") { previous = current; current = result; }
+            else previous = result; // A partial refresh never erases the last complete observation.
+            if (current && previous && current.bytes + previous.bytes > STORAGE_SERVER_LIMITS.cacheBytes) previous = null;
+            lastFailure = null;
+          } catch {
+            lastFailure = { scanId: id, at: Date.now(), reason: controller.signal.aborted || !options.authorized(principal) ? "cancelled-or-revoked" : "collection-unavailable" };
+            if (!lease || lease.owner) {
+              try { options.onFailure?.(lastFailure.at); } catch { /* Last valid history stays intact. */ }
+              if (lease) { try { await options.shared!.finish(lease, false, true, lastFailure.at); } catch { /* Preserve unresolved lease authority for recovery. */ } }
             }
           }
-          if (!lease || lease.owner) { try { options.onCollection?.(result, source); } catch { /* History failure cannot remove an inventory result. */ } }
-          if (result.summary.coverage === "complete" || !current || current.summary.coverage !== "complete") { previous = current; current = result; }
-          else previous = result; // A partial refresh never erases the last complete observation.
-          if (current && previous && current.bytes + previous.bytes > STORAGE_SERVER_LIMITS.cacheBytes) previous = null;
-          lastFailure = null;
-        } catch {
-          lastFailure = { scanId: id, at: Date.now(), reason: controller.signal.aborted || !options.authorized(principal) ? "cancelled-or-revoked" : "collection-unavailable" };
-          if (!lease || lease.owner) {
-            try { options.onFailure?.(lastFailure.at); } catch { /* Last valid history stays intact. */ }
-            if (lease) { try { options.shared!.finish(lease, false, true, lastFailure.at); } catch { /* Preserve unresolved lease authority for recovery. */ } }
-          }
-        }
-        finally { clearTimeout(timeout); clearInterval(revocation); if (active === job) active = null; }
-      })();
-      return status(principal);
+          finally { clearTimeout(timeout); clearInterval(revocation); if (active === job) active = null; }
+        })();
+        return status(principal);
+      };
+      if (!(acquired instanceof Promise)) return begin(acquired);
+      starting = acquired.then(begin, refused).finally(() => { starting = null; });
+      return starting;
     },
-    cancel(principal: string, id: string): StorageStatus {
+    cancel(principal: string, id: string): StorageStatus | Promise<StorageStatus> {
       authorized(principal);
       if (active?.id !== id) throw new StorageUnavailable(409, "That scan is no longer active.");
-      active.controller.abort();
-      if (active.lease) options.shared!.cancel({ ...active.lease, principal });
-      return status(principal);
+      const job = active;
+      const cancelled = job.lease ? options.shared!.cancel({ ...job.lease, principal }) : undefined;
+      const done = () => { job.controller.abort(); return status(principal); };
+      return cancelled instanceof Promise ? cancelled.then(done) : done();
     },
     page(principal: string, id: string, filter: StorageFilter): StoragePage {
       const value = collection(principal, id);
@@ -195,7 +201,7 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
     async measure(principal: string, signal: AbortSignal): Promise<StorageSnapshot | null> {
       signal.throwIfAborted(); authorized(principal);
       const joined = active !== null;
-      const id = active?.id ?? api.start(principal, true, 2).activeScanId;
+      const id = active?.id ?? (await api.start(principal, true, 2)).activeScanId;
       const job = active;
       if (!job || !id) return null;
       let rejectAbort: (reason: unknown) => void = () => {};
@@ -205,9 +211,21 @@ export function createStorageCoordinator(options: Omit<StorageCollectOptions, "s
       try { await Promise.race([job.promise, cancelled]); signal.throwIfAborted(); authorized(principal); return [current, previous].find(value => value?.summary.id === id)?.summary ?? null; }
       finally { signal.removeEventListener("abort", abort); }
     },
-    async idle() { await active?.promise; },
-    async close() { closed = true; active?.controller.abort(); referenceJob?.controller.abort(); await Promise.allSettled([active?.promise, referenceJob?.promise]); current = null; previous = null; },
+    async idle() { if (starting) await starting; await active?.promise; },
+    async close() {
+      closed = true; active?.controller.abort(); referenceJob?.controller.abort();
+      if (starting) await starting.catch(() => {});
+      active?.controller.abort();
+      await Promise.allSettled([active?.promise, referenceJob?.promise]); current = null; previous = null;
+    },
   };
   return api;
 }
-export type StorageCoordinator = ReturnType<typeof createStorageCoordinator>;
+type CoordinatorOptions = Parameters<typeof storageCoordinator>[0];
+export type StorageCoordinator = ReturnType<typeof storageCoordinator>;
+type InlineCoordinator = Omit<StorageCoordinator, "start" | "cancel"> & {
+  [K in "start" | "cancel"]: (...args: Parameters<StorageCoordinator[K]>) => StorageStatus;
+};
+export function createStorageCoordinator(options: CoordinatorOptions & { shared?: InlineSharedScan }): InlineCoordinator;
+export function createStorageCoordinator(options: CoordinatorOptions): StorageCoordinator;
+export function createStorageCoordinator(options: CoordinatorOptions): StorageCoordinator { return storageCoordinator(options); }

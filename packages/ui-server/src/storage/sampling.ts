@@ -26,7 +26,7 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
       try {
         const candidates = db.query("SELECT id FROM principals WHERE kind IN ('owner', 'ambient') AND revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 100").all(now) as Array<{ id: string }>;
         const owner = candidates.find(({ id }) => { const principal = resolvePrincipal(db, id); return principal && isUsablePrincipal(principal, now); });
-        if (owner) { lastBucket = current; storage.start(owner.id, true, 0); }
+        if (owner) { lastBucket = current; const result = storage.start(owner.id, true, 0); if (result instanceof Promise) void result.catch(() => history.failure(now)); }
       } catch { lastBucket = current; history.failure(now); }
     }
     if (!sweeping) try {
