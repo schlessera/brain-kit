@@ -128,20 +128,20 @@ test("a failed worker clear stays invalidated and reports its failure", async ()
 test("dispatch waits for the reservation receipt and duplicate frames never dispatch twice", async () => {
   const f = fixture();
   let host: WsHost | undefined;
-  const calls: string[] = [], receipts: string[] = [];
+  const calls: string[] = [], receipts: string[] = [], early: string[] = [];
   try {
     await watchWriteSites(f.db, f.writer, ["retry_requests", "retry_receipts"]);
     f.save(); await f.catalog.settled!();
     const backend = makeFakeBackend({ id: "claude", async startTurn(turn) {
       calls.push(turn.prompt);
-      expect(f.catalog.retryReceipt!("ithaca", "retry-voyage", "athena").state, "RETRY_COMMITTED_BEFORE_BACKEND_DISPATCH").toBe("accepted");
+      if (f.catalog.retryReceipt!("ithaca", "retry-voyage", "athena").state !== "accepted") early.push("dispatched before its receipt committed");
       turn.bridge.emit({ type: "result", sessionId: "ithaca", numTurns: 1, durationMs: 1, isError: false });
     } });
     host = new WsHost({ catalog: f.catalog, registry: createStaticBackendRegistry([backend], "claude"), brainPath: f.brain });
     const ws = { send(raw: string) {
       const frame = JSON.parse(raw);
       if (frame.type === "retry_receipt") {
-        expect(f.catalog.retryReceipt!("ithaca", "retry-voyage", "athena").state, "RETRY_COMMITTED_BEFORE_RECEIPT_SENT").toBe("accepted");
+        if (f.catalog.retryReceipt!("ithaca", "retry-voyage", "athena").state !== "accepted") early.push("receipt sent before it committed");
         receipts.push(frame.state);
       }
     } };
@@ -158,6 +158,7 @@ test("dispatch waits for the reservation receipt and duplicate frames never disp
     expect(receipts, "RETRY_PENDING_RESERVATION_NO_ACK").toEqual([]);
     const duplicate = handleClientMessage(host, ws, frame, connection);
     await Promise.all([first, duplicate]); await slow;
+    expect(early, "RETRY_COMMITTED_BEFORE_RECEIPT_AND_DISPATCH").toEqual([]);
     for (let i = 0; i < 200 && (host.coordinator.activeRuns() || host.coordinator.startingSessions); i++) await Bun.sleep(5);
     expect(calls, "RETRY_DUPLICATE_DISPATCHES_ONCE").toEqual([request.text]);
     expect(receipts, "RETRY_DUPLICATE_REPLAYS_COMMITTED_RECEIPT").toEqual(["accepted", "accepted"]);
