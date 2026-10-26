@@ -32,6 +32,6 @@ test("an uncompleted maintenance probe reports busy without throwing or selectin
   } finally { held.release(); }
   await boundary.prepare();
   expect(boundary.status(), "BUSY_PROBE_RECOVERS_WITHOUT_A_MINUTE_CACHE").toMatchObject({ available: true, hostExecution: "worker" });
-  const result = boundary.runSync({ argv: ["/bin/sh", "-c", "printf READMITTED"], env: {}, credentials: false, purpose: "admission after release", timeoutMs: 5000, startupView: maintenance.startupView });
+  const result = await boundary.runSync({ argv: ["/bin/sh", "-c", "printf READMITTED"], env: {}, credentials: false, purpose: "admission after release", timeoutMs: 5000, startupView: maintenance.startupView });
   expect(result.exitCode, result.stderr).toBe(0); expect(result.stdout).toBe("READMITTED");
 });

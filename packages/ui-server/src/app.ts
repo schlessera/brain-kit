@@ -453,7 +453,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // It owns the journal's own file too (#2789), attached as it is here.
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
   bootCleanup.push(() => writer.close());
-  reconciled(hostExecution.attach(db));
+  reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
   const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentialValues(),
@@ -1217,6 +1217,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(async () => { await referenceSources?.close(); });
       await attempt(() => nativeLeases.close());
       if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
+      // Gate releases commit off the event loop (#2850): every one lands first.
+      await attempt(async () => { await hostExecution.gate()?.settled(); });
       await attempt(() => activity.close());
       await attempt(() => hostExecution.release());
       await attempt(() => db.close());

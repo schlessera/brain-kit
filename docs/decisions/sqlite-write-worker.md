@@ -150,8 +150,22 @@ thread waits for it.
   invalidation still refuses the input that needed it; a failure retained
   before its session's row has committed is stored once it has, unless an
   input invalidated it meanwhile.
-- **Other app-connection writers stay on the loop for now**: the writer gate,
-  retained retries and local exchanges, saved worker profiles, policy
+- **The writer gate followed** (#2850). Acquisition, the turn-waiter queue,
+  release, folder retention, peer-plan checks, the unpinned-host downgrade,
+  the ungated host check and recorded type folders run their transactions on
+  the worker (`gateProcedures`, `packages/ui-server/src/brain/writer-gate.ts`),
+  each still `BEGIN IMMEDIATE`, so they stay serialized against the cron
+  runner's gate, which commits on its own connection. One policy reader on
+  the worker serves every observation the gate makes. A release is submitted
+  at once, so every later gate write of the process sees it, and settles once
+  it has committed; whatever promises the hold is gone (`withGate`, a turn's
+  release, a launch's `settled`, shutdown) waits for it. A host process
+  spawns only after its downgrade has committed, and only if the boundary is
+  still the host fallback afterwards. A type folder translation that cannot
+  be recorded refuses the turn. `holders()`, a diagnostic, still reads on
+  the gate's own connection.
+- **Other app-connection writers stay on the loop for now**: retained
+  retries and local exchanges, saved worker profiles, policy
   proposals, the Activity notifier and push ticks, auth sessions, inbox and
   settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write

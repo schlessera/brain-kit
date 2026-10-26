@@ -29,7 +29,7 @@ test("sync readers require an explicitly prepared owner and never borrow a boot 
     expect(() => boundary.runSync({ ...f.execution, timeoutMs: 1000 }), "NO_SYNC_PREPARATION_OR_BOOT_REUSE").toThrow("caller's prepared immutable startupView");
     const view = await prepareNativeWorkerStartupView(f.brain, f.manager);
     fs.writeFileSync(join(f.brain, "helper.txt"), "Penelope later live input");
-    const result = boundary.runSync({ ...f.execution, startupView: view, timeoutMs: 1000 });
+    const result = await boundary.runSync({ ...f.execution, startupView: view, timeoutMs: 1000 });
     expect(result.exitCode, result.stderr).toBe(0); expect(result.stdout.trim()).toBe("Odysseus initial input");
     expect(f.released.length).toBe(0); await view.cleanup(); expect(f.released).toEqual(f.checkpoints);
   } finally { f.cleanup(); }

@@ -17,6 +17,7 @@ import { createUiDb } from "../db/client.js";
 import { createHostBoundary, type HostBoundary } from "./host-boundary.js";
 import { assertReconciled, createGovernedManifests, type GovernedManifests, type Reconciliation } from "./governed-manifest.js";
 import { createWriterGate, type WriterGate } from "./writer-gate.js";
+import type { SqliteWriter } from "../db/write-worker.js";
 
 /**
  * Where quarantined files go: a host-private directory beside the UI
@@ -62,7 +63,7 @@ export interface HostExecution {
    */
   reconcileExisting(): Reconciliation[];
   /** Reconciles every abandoned governed turn on `db` (refusing if any path stayed), then opens the gate and manifests on it. */
-  attach(db: Database): Reconciliation[];
+  attach(db: Database, writer?: SqliteWriter): Reconciliation[];
   /** Closes the early handle `reconcileExisting` kept, when a boot refuses before `attach`. */
   release(): void;
 }
@@ -111,7 +112,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
         return results;
       } catch (error) { db.close(); throw error; }
     },
-    attach(db) {
+    attach(db, writer) {
       // Reconciled first: a failure refuses before the gate exists, so no
       // gated maintenance can start on a brain still holding such a path.
       const opened = open(db);
@@ -119,7 +120,8 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
       history = opened.hasHistory();
       assertReconciled(results);
       manifests = opened;
-      gate = createWriterGate(db, options.brainPath);
+      // Its transactions commit on the app's write worker (#2850).
+      gate = createWriterGate(db, options.brainPath, writer ? { writer } : {});
       early?.close();
       early = undefined;
       return results;

@@ -151,7 +151,7 @@ export function createTurnReverts(db: Database, options: {
       const reason = (error as {reason?:string}).reason === "journal_capacity" ? "journal_capacity" : (error as {reason?:string}).reason === "journal_storage_unavailable" ? "journal_unavailable" : error instanceof RevertUnavailable ? "authorization_changed" : "operation_unavailable";
       try { if (observed) await journal.finish(row.journal_turn_id); else await journal.finishReserved(row.journal_turn_id); } catch { /* An interrupted journal remains partial, never undoable by assumption. */ }
       try { await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=? WHERE id=?", observed ? "unknown" : "failed", Date.now(), reason, row.id)]); } catch { /* Readback will retain the original pending identity. */ }
-    } finally { hold?.release(); if (selected.some(path => path.state === "restored" || path.state === "failed")) { try { options.refresh(); } catch { /* The ordinary index refresh may be retried; file effects remain recorded. */ } } }
+    } finally { await hold?.release(); if (selected.some(path => path.state === "restored" || path.state === "failed")) { try { options.refresh(); } catch { /* The ordinary index refresh may be retried; file effects remain recorded. */ } } }
   }
   let starting: Promise<unknown> = Promise.resolve();
   async function begin(principalId: string, sessionId: string, sourceTurnId: string, request: TurnRevertRequest): Promise<TurnRevertReceipt> {

@@ -208,8 +208,11 @@ export interface HostBoundary {
   }): Promise<ExecutionResult>;
   /** The same, with live output, for a streamed sync or a cron job. */
   launch(execution: BrainExecution): Promise<StreamingExecution>;
-  /** A short synchronous query (git `check-ignore`). Takes no gate. */
-  runSync(execution: Omit<BrainExecution, "gate" | "signal" | "stdin"> & { timeoutMs: number; startupView?: WorkerStartupView }): ExecutionResult;
+  /**
+   * A short query run with a synchronous spawn (git `check-ignore`). Takes no
+   * gate; settles after the host fallback check commits off the event loop (#2850).
+   */
+  runSync(execution: Omit<BrainExecution, "gate" | "signal" | "stdin"> & { timeoutMs: number; startupView?: WorkerStartupView }): Promise<ExecutionResult>;
   /** Runs `fn` while holding the gate, when there is one. */
   withGate<T>(mode: GateMode, purpose: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T>;
 }
@@ -311,7 +314,7 @@ function credentialOutput(stream: ReadableStream<Uint8Array>, kill: () => void) 
 
 /** Process exit alone need not mean its descendants released inherited output descriptors. */
 function retainExecutionAdmission(execution: StreamingExecution,
-  hold: { release(): void } | undefined): StreamingExecution {
+  hold: { release(): void | Promise<void> } | undefined): StreamingExecution {
   if (!hold) return execution;
   const kill = () => execution.kill("SIGKILL");
   const stdout = credentialOutput(execution.stdout, kill), stderr = credentialOutput(execution.stderr, kill);
@@ -474,7 +477,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   }
   async function withGate<T>(mode: GateMode, purpose: string, fn: (hold: GateHold | null) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const hold = await holdGate(mode, purpose, signal);
-    try { return await fn(hold); } finally { hold?.release(); }
+    try { return await fn(hold); } finally { await hold?.release(); }
   }
   const gated = <T>(execution: BrainExecution, fn: (hold: GateHold | null) => Promise<T>) =>
     execution.gate === "none" ? fn(null) : withGate(execution.gate, execution.purpose, fn, execution.signal);
@@ -492,10 +495,16 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // one (`gate: none`, runSync) still checks every active writer's retained
   // plan when a gate exists; with no gate at all, only the policy is known.
   const policyReader = createGovernancePolicyReader(brain);
-  const admitHost = (hold: GateHold | null) => {
+  // Each settles once its check has committed (#2850); nothing spawns before.
+  const admitHost = async (hold: GateHold | null) => {
     if (hold) return markUnpinnedHostWriter(hold);
     const gate = options.gate?.();
-    if (gate) gate.assertUngatedHostFallback(); else refuseHostFallback(policyReader.load());
+    if (gate) await gate.assertUngatedHostFallback(); else refuseHostFallback(policyReader.load());
+  };
+  /** After a host writer's admission commits: what was checked before it still holds, or nothing spawns. */
+  const stillHostFallback = (signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    if (isolated()) throw new Error("The brain's worker boundary changed while this host writer was being admitted; nothing ran. Retry.");
   };
 
   /** The pre-boundary path: a host process with the brain as its working directory. */
@@ -587,7 +596,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             if (isolated()) return undefined;
             if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
             execution.assertAuthorized?.();
-            admitHost(hold);
+            await admitHost(hold);
+            stillHostFallback(admissionSignal);
+            execution.assertAuthorized?.();
             execution.onExecute?.();
             const proc = hostSpawn(execution);
             const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
@@ -652,11 +663,13 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           if (isolated()) { credential?.release(); credential = undefined; }
           else {
             if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
-            admitHost(hold);
+            await admitHost(hold);
+            stillHostFallback(execution.signal);
             const proc = hostSpawn(execution);
+            const admitted = credential;
             return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
               get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") },
-              credential || hold ? { release() { try { credential?.release(); } finally { hold?.release(); } } } : undefined);
+              admitted || hold ? { async release() { try { admitted?.release(); } finally { await hold?.release(); } } } : undefined);
           }
         } catch (error) { try { credential?.release(); } finally { hold?.release(); } throw error; }
       }
@@ -684,10 +697,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
-            .finally(() => {
+            .finally(async () => {
               try { stdout.close(); } finally {
                 try { stderr.close(); } finally {
-                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { try { releaseOutput(); } finally { hold?.release(); } }
+                  try { execution.signal?.removeEventListener("abort", onAbort); } finally { try { releaseOutput(); } finally { await hold?.release(); } }
                 }
               }
             });
@@ -729,7 +742,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       // included (#2863). That waits behind `exited`, never inside it: a caller
       // that drains the streams only after the exit still can, and the wait is bounded.
       const settled = exited.then(() => worker.released(), () => worker.released())
-        .finally(() => { try { releaseOutput(); } finally { hold?.release(); } })
+        .finally(async () => { try { releaseOutput(); } finally { await hold?.release(); } })
         .catch(error => { try { options.log?.emit({ severityText: "WARN", body: "maintenance launch release refused", attributes: { error: String(error) } }); } catch { /* Logging cannot fail the settlement. */ } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
@@ -737,11 +750,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (execution.signal?.aborted) kill("SIGKILL");
       return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
     },
-    runSync(execution) {
+    async runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
-        admitHost(null);
+        await admitHost(null);
+        stillHostFallback();
         const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: { ...execution.env }, stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
         return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode ?? 1 };
       }
