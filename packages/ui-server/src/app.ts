@@ -91,7 +91,7 @@ import {
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
-import { openSqliteWriter, procedureCaller } from "./db/write-worker.js";
+import { markAppPhase, openSqliteWriter, procedureCaller } from "./db/write-worker.js";
 import * as governedTurnWrites from "./brain/governed-turn-writes.js";
 import { accountWrites, registerAccountWrites } from "./db/account-writes.js";
 import { registerPrincipalWrites } from "./db/principal-writes.js";
@@ -457,6 +457,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Journal and Activity commits run on this worker's connection, off the event loop (#2814).
   // It owns the journal's own file too (#2789), attached as it is here.
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
+  markAppPhase(db, "boot");
   // Authentication's per-request principal writes commit on it too (#2850).
   registerPrincipalWrites(db, writer);
   registerAccountWrites(db, writer);
@@ -1186,6 +1187,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     catch (error) { complete(); throw error; }
   };
   let closing: Promise<void> | undefined;
+  markAppPhase(db, "serving");
   return {
     fetch,
     websocket,
