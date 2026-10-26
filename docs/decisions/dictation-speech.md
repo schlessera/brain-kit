@@ -158,7 +158,7 @@ transaction winning a claim dispatches; a concurrent/plain repeat reuses the
 result or reports the existing state. Accept/discard erases receipt text but
 leaves a tombstone; startup converts an unfinished dispatch to terminal
 `outcome_unknown` (`createTranscriptionStore`,
-`packages/ui-server/src/voice/transcription-store.ts:28-104`). A receipt TTL was
+`packages/ui-server/src/voice/transcription-store.ts:30-111`). A receipt TTL was
 rejected because expiry could make an old upload call the provider again. The
 guarantee depends on retaining the host's operational database, not `brain.db`.
 
@@ -168,13 +168,13 @@ transient/capacity rejection: provider errors, rate limits and definitive
 provider timeouts. Unknown outcomes stay terminal. Audio/media, parameter,
 validation and authentication failures do not offer Retry. Classification and
 attempt counts belong to the receipt, not an automatic client retry loop
-(`transcriptionFailure`, `packages/ui-server/src/routes/transcriptions.ts:19-34`).
+(`transcriptionFailure`, `packages/ui-server/src/routes/transcriptions.ts:21-36`).
 This qualified rule supersedes an unqualified promise of one call even after
 an explicit retry. Plain repeats and uncertain outcomes never redispatch.
 
 The upload budget is **10,041,155 bytes**, a derived policy value rather than a
 duration check (`MAX_TRANSCRIPTION_BYTES`,
-`packages/ui-server/src/routes/transcriptions.ts:12-16`). The
+`packages/ui-server/src/routes/transcriptions.ts:14-18`). The
 [October 8 bitrate finding](https://github.com/schlessera/brain-kit/issues/1021#issuecomment-6055498109)
 reran the V1 probe's track-ended case three times per desktop engine, with
 Chromium 153.0.8010.12 and Firefox 155.0 in Playwright 1.63.0's Ubuntu 24.04.4

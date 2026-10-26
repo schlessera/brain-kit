@@ -2,17 +2,16 @@
  * Session catalog writes off the event loop (#2850). The hosted server's app
  * connection no longer commits the session row, accepted work, turn
  * boundaries, message sources, turn failures, the state room, Claude usage
- * accounting, handoff links, labels, local exchanges or session costs itself: they commit on
+ * accounting, handoff links, labels, local exchanges, retained retries or session costs itself: they commit on
  * the `ui.db` write worker at `synchronous=FULL`, in submission order with the
  * journal's, Activity's, governance, scope and budget writes. Each procedure
  * runs the statement or transaction that ran inline before. The catalog
  * (`session-catalog.ts`) answers its own synchronous reads from what it has
  * submitted until each write settles, and `settled()` holds the readers that
- * join history onto the committed rows. Retained retries still commit on the
- * app connection.
+ * join history onto the committed rows.
  */
 import type { Database } from "bun:sqlite";
-import type { BillingMode, LocalExchange, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import type { BillingMode, ClientChatMessage, LocalExchange, TurnFailure, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WriteProcedures } from "../db/write-worker.js";
 import { createActivityStore, priceUsage, type ActivityStore, type RollupPricing } from "../activity/store.js";
@@ -22,6 +21,7 @@ import { resolveStandalonePricingConfig } from "../config/env.js";
 import { allocateClaudeTitleUsage, reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
 import { saveMessageSource, saveEffectiveThinkingLevel } from "./message-sources.js";
 import { markLocalExchangesDelivered, saveLocalExchange } from "./local-exchanges.js";
+import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
@@ -130,7 +130,24 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     const activity = workerActivity(db, options.activity);
     return { store: activity.store, pricing: activity.pricing ?? fallback };
   })();
+  // Keep an invalidation even if its DELETE fails: later reservations must
+  // never dispatch the obsolete row left behind. A successful new save resets it.
+  const invalidatedRetries = new Set<string>();
   return {
+    saveRetryRequest(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure) {
+      retries.saveRetryRequest(db, sessionId, turnId, principalId, request, prompt, failure);
+      invalidatedRetries.delete(sessionId);
+    },
+    clearRetryRequest(sessionId: string) {
+      invalidatedRetries.add(sessionId);
+      retries.clearRetryRequest(db, sessionId);
+    },
+    refuseRetry: (sessionId: string, requestId: string, principalId: string, message: string) => retries.refuseRetry(db, sessionId, requestId, principalId, message),
+    reserveRetry(sessionId: string, turnId: string, requestId: string, principalId: string, expectedPrompt?: string) {
+      if (invalidatedRetries.has(sessionId)) return { receipt: retries.refuseRetry(db, sessionId, requestId, principalId,
+        "The original request is unavailable or is no longer the latest turn.") };
+      return retries.reserveRetry(db, sessionId, turnId, requestId, principalId, expectedPrompt);
+    },
     upsertSession(row: SessionRow) {
       db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
     },

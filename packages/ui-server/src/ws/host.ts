@@ -17,7 +17,7 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import type { Principal } from "../db/principals.js";
 import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
-import type { DraftStore } from "../drafts/store.js";
+import type { AwaitableDraftStore } from "../drafts/store.js";
 import { stripLegacyBudgetNotes } from "./legacy-budget-notes.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
@@ -206,7 +206,7 @@ export interface WsHostOptions {
    * revision. Absent: drafts are neither advertised nor touched.
    * @internal Supplied by createApp (#1053).
    */
-  drafts?: DraftStore;
+  drafts?: AwaitableDraftStore;
 }
 
 /** The remembered per-tool auto-allow store the ws layer consults. */
@@ -214,7 +214,7 @@ export interface ToolPermissions {
   /** Whether requests for this tool are answered "allow" without a card. */
   isAutoAllowed(toolName: string): boolean;
   /** Remember this tool as always allowed. */
-  add(toolName: string): void;
+  add(toolName: string): void | Promise<void>;
 }
 
 /** Identity of one turn, as it appears on a log record. */
@@ -313,7 +313,7 @@ export class WsHost {
   /** @internal Host wiring (#1053). */
   readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
   /** @internal Host wiring (#1053). */
-  readonly drafts: DraftStore | null;
+  readonly drafts: AwaitableDraftStore | null;
   /** @internal Host wiring (#1053). */
   readonly toolPermissions: ToolPermissions | null;
   /**

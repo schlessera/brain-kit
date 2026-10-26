@@ -26,22 +26,21 @@ import {
   getDefaultModelId,
   getHiddenModelIds,
   getThinkingOverrides,
-  setBillingOverrides,
-  setCustomOpenRouterModels,
-  setDefaultModelId,
-  setHiddenModelIds,
-  setThinkingOverrides,
 } from "../db/settings.js";
+
+import { createSettingsWrites, type SettingsWrites } from "../db/settings-writes.js";
 
 export function createModelRoutes(deps: {
   registry: BackendRegistry;
   db: Database;
+  settingsWrites?: SettingsWrites;
   /** The shared pricing instance — its state drives the client's staleness indicator. */
   pricing?: { state(): ModelPricingState; ensureFresh(): Promise<void> };
   /** Where refresh failures are reported. */
   log?: Logger;
 }): Hono {
   const { registry, db, pricing } = deps;
+  const writes = deps.settingsWrites ?? createSettingsWrites(db);
 
   async function buildCatalog(): Promise<ModelCatalogResponse> {
   const source = await registry.getModelSource();
@@ -110,7 +109,7 @@ export function createModelRoutes(deps: {
       return c.json({ error: "hidden must be an array of profile ids" }, 400);
     }
 
-    setHiddenModelIds(db, hidden as string[]);
+    await writes.setHiddenModelIds(hidden as string[]);
     // The picker reads through a memo — drop it so the change is immediate.
     registry.invalidateProfiles();
     return c.json(await buildCatalog());
@@ -130,7 +129,7 @@ export function createModelRoutes(deps: {
       }
     }
 
-    setDefaultModelId(db, defaultId);
+    await writes.setDefaultModelId(defaultId);
     registry.invalidateProfiles();
     return c.json(await buildCatalog());
   })
@@ -173,7 +172,7 @@ export function createModelRoutes(deps: {
       );
     }
 
-    setCustomOpenRouterModels(db, models as string[]);
+    await writes.setCustomOpenRouterModels(models as string[]);
     registry.invalidateProfiles();
 
     // A removal that takes the stored default's profile off the roster would
@@ -184,7 +183,7 @@ export function createModelRoutes(deps: {
     if (currentDefault) {
       const roster = await registry.listAllProviders({ includeHidden: true });
       if (!roster.some((profile) => profile.id === currentDefault)) {
-        setDefaultModelId(db, null);
+        await writes.setDefaultModelId(null);
       }
     }
     return c.json(await buildCatalog());
@@ -219,7 +218,7 @@ export function createModelRoutes(deps: {
       );
     }
 
-    setThinkingOverrides(db, thinking as Record<string, ThinkingLevel>);
+    await writes.setThinkingOverrides(thinking as Record<string, ThinkingLevel>);
     registry.invalidateProfiles();
     return c.json(await buildCatalog());
   })
@@ -240,7 +239,7 @@ export function createModelRoutes(deps: {
       );
     }
 
-    setBillingOverrides(db, billing as Record<string, BillingMode>);
+    await writes.setBillingOverrides(billing as Record<string, BillingMode>);
     // Same memo discipline as the hidden set: the next roster read (and the
     // next run's classification) must see the override immediately.
     registry.invalidateProfiles();

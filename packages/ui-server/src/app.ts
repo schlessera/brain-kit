@@ -51,7 +51,8 @@ import { createDraftStore } from "./drafts/store.js";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createGovernanceRoutes } from "./routes/governance.js";
 import { createTranscriptionRoutes } from "./routes/transcriptions.js";
-import { createTranscriptionStore } from "./voice/transcription-store.js";
+import { createTranscriptionWrites } from "./voice/transcription-writes.js";
+import { createSettingsWrites } from "./db/settings-writes.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
@@ -108,7 +109,6 @@ import {
   getDefaultModelId,
   getHiddenModelIds,
   getThinkingOverrides,
-  setAutoAllowedTools,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
@@ -552,7 +552,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
 
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
+  const settingsWrites = createSettingsWrites(db, writer, dbLog);
   const activity = createActivityRuntime(db, {
+    settingsWrites,
     log: observability.logger("activity"),
     pricing,
     writer,
@@ -588,6 +590,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // The subscription token (#254): boot warnings now, the expiry check daily,
   // and what /api/status says about it.
   const subscription = createSubscriptionMonitor({
+    settingsWrites,
     config: config.subscription,
     log: observability.logger("agent"),
     db,
@@ -609,7 +612,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.
-  const drafts = createDraftStore(db);
+  const drafts = createDraftStore(db, {}, writer);
   const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
   const governedRecords = procedureCaller(db, governedTurnWrites, undefined, writer);
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
@@ -700,7 +703,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     toolPermissions: {
       isAutoAllowed: (toolName) => getAutoAllowedTools(db, dbLog).includes(toolName),
       add: (toolName) =>
-        setAutoAllowedTools(db, [...getAutoAllowedTools(db, dbLog), toolName]),
+        settingsWrites.addAutoAllowedTool(toolName),
     },
     activity: {
       store: activity.store,
@@ -955,11 +958,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
     settled: () => host.historySettled() }));
   app.route("/api", createJournalRoutes({ journal }));
-  const storageHistory = createStorageHistory(db, config.brainPath);
+  const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
   const storageAuthorized = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   const storageShared = createSharedStorageScan(db, config.brainPath, storageCacheRoot, storageAuthorized);
-  const storageNotices = createStorageNotifier(db, storageHistory);
+  const storageNotices = createStorageNotifier(db, storageHistory, writer);
   const storageStores: StorageStore[] = [
     { path: journalRoot, label: "Retained file history", category: "journal", owner: "app", recursive: true },
     { path: storageCacheRoot, label: "Storage shared scan cache", category: "temporary", owner: "app", recursive: true, optional: true },
@@ -1028,10 +1031,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createDraftRoutes(drafts));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
-  app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
+  app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProvider: options.speechProvider }));
-  const transcriptions = createTranscriptionStore(db, accountKeys);
+  const transcriptions = createTranscriptionWrites(db, { brainPath: config.brainPath, authMode }, writer);
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",
@@ -1054,11 +1057,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createProviderRoutes({ registry }));
   app.route(
     "/api",
-    createModelRoutes({ registry, db, pricing, log: observability.logger("models") })
+    createModelRoutes({ registry, db, settingsWrites, pricing, log: observability.logger("models") })
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
-  app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
+  app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));
   app.route("/api", createModuleRoutes(brain));
   app.route("/api", createGovernanceRoutes({ db }));
   app.route(
@@ -1216,7 +1219,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
       await attempt(() => storage.close());
-      await attempt(() => { storageHistory.flush(); storageHistory.close(); });
+      await attempt(async () => { await storageHistory.flush(); storageHistory.close(); });
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
       await attempt(() => reverts.close());

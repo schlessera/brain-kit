@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { AppEnv } from "../app-env.js";
-import { DraftAuthError, DraftError, type DraftImageType, type DraftStore } from "../drafts/store.js";
+import { DraftAuthError, DraftError, type DraftImageType, type AwaitableDraftStore } from "../drafts/store.js";
 
 /**
  * Session draft routes (#979, D52 §6). Mounted behind the auth guard; each
@@ -93,7 +93,7 @@ function reference(value: unknown, label: string): string {
   return value;
 }
 
-export function createDraftRoutes(store: DraftStore): Hono<AppEnv> {
+export function createDraftRoutes(store: AwaitableDraftStore): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const run = (handler: (c: Context<AppEnv>, principalId: string) => Promise<Response>) => async (c: Context<AppEnv>) => {
     const principal = c.get("principal");
@@ -119,9 +119,9 @@ export function createDraftRoutes(store: DraftStore): Hono<AppEnv> {
     return response;
   };
 
-  app.get("/drafts", run(async (c, principalId) => c.json(store.list(principalId))));
+  app.get("/drafts", run(async (c, principalId) => { await store.settled?.(); return c.json(store.list(principalId)); }));
 
-  app.get("/drafts/:draftId", run(async (c, principalId) => c.json(store.get(principalId, draftIdOf(c)))));
+  app.get("/drafts/:draftId", run(async (c, principalId) => { await store.settled?.(); return c.json(store.get(principalId, draftIdOf(c))); }));
 
   app.put("/drafts/:draftId", run(async (c, principalId) => {
     const draftId = draftIdOf(c);
@@ -134,7 +134,7 @@ export function createDraftRoutes(store: DraftStore): Hono<AppEnv> {
     if (!Array.isArray(attachmentIds) || attachmentIds.some((id) => typeof id !== "string" || !DRAFT_ID.test(id))) {
       throw invalid("attachmentIds must be an array of attachment ids.");
     }
-    return c.json(store.save(principalId, draftId, {
+    return c.json(await store.save(principalId, draftId, {
       ifMatch, idempotencyKey,
       sessionId: sessionId as string | null,
       text,
@@ -152,11 +152,11 @@ export function createDraftRoutes(store: DraftStore): Hono<AppEnv> {
       throw invalid(`name must be 1–${MAX_NAME_CHARS} printable characters.`);
     }
     const bytes = await readCapped(c, MAX_IMAGE_BYTES);
-    return c.json(store.upload(principalId, draftId, { idempotencyKey, mime: mime as DraftImageType, name, bytes }));
+    return c.json(await store.upload(principalId, draftId, { idempotencyKey, mime: mime as DraftImageType, name, bytes }));
   }));
 
   app.delete("/drafts/:draftId", run(async (c, principalId) => {
-    store.remove(principalId, draftIdOf(c), ifMatchOf(c));
+    await store.remove(principalId, draftIdOf(c), ifMatchOf(c));
     return c.body(null, 204);
   }));
 
@@ -165,7 +165,7 @@ export function createDraftRoutes(store: DraftStore): Hono<AppEnv> {
     let body: Record<string, unknown>;
     try { body = await readJson(c, MAX_BIND_BODY_BYTES); }
     catch (error) { if (error instanceof BodyTooLarge) throw invalid("The body is too large."); throw error; }
-    return c.json(store.bind(principalId, draftId, {
+    return c.json(await store.bind(principalId, draftId, {
       sessionId: reference(body.sessionId, "sessionId"),
       requestId: reference(body.requestId, "requestId"),
     }));

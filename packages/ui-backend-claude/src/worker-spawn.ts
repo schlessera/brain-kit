@@ -6,8 +6,9 @@ import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { homedir } from "node:os";
 import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter, launchAgentWorkerAsync, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHostAsync, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
-  WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
+  WORKER_SCRATCH, WORKER_STATE, WORKER_EMPTY_HOME, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -156,10 +157,21 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
         if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
+        // Resolve host credentials and config above, before changing HOME.
+        // Non-envelope HOME is separately empty and read-only: shell startup
+        // cannot import operator rc/profile or consume runtime state (#2984).
+        childEnv.HOME = restricted ? WORKER_STATE : WORKER_EMPTY_HOME;
+        if (!restricted) {
+          // Withhold startup redirects, functions and shell options even when
+          // explicitly admitted, including in descendant shells.
+          for (const name of Object.keys(childEnv)) {
+            if (["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS"].includes(name)
+              || (name.startsWith("BASH_FUNC_") && name.endsWith("%%"))) delete childEnv[name];
+          }
+        }
         const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {
           // No host home exists in the envelope; runtime state is the fresh tmpfs.
-          childEnv.HOME = WORKER_STATE;
           // The executable and any script it is handed, and nothing else of the
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
@@ -171,7 +183,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = await launchAgentWorkerAsync({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, hostHome: env.HOME || homedir(), credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }
