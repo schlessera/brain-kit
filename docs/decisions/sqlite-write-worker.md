@@ -177,6 +177,14 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   still the host fallback afterwards. A type folder translation that cannot
   be recorded refuses the turn. `holders()`, a diagnostic, still reads on
   the gate's own connection.
+- **Authentication's per-request writes followed** (#2850). A principal's
+  `last_seen_at` touch, terminal-principal pruning, ambient principal
+  resolution and a login's new principal commit on the worker
+  (`packages/ui-server/src/db/principal-writes.ts`). A touch is never waited
+  for and one pending is not submitted again; an ambient principal that is
+  current is read at once; a login answers once its row has committed, and
+  its refusals keep their classes. Revocations and administrative principal
+  writes still commit on the app connection.
 - **A governed turn's admission records followed** (#2850). The policy a
   turn was admitted under, what its provider was shown, its masked lineage
   and its protected-path manifest commit on the worker
@@ -189,8 +197,8 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   before it. Boot reconciliation still closes abandoned manifests inline.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
-  proposals, the Activity notifier and push ticks, auth sessions, inbox and
-  settings. Each commits at
+  proposals, the Activity notifier and push ticks, principal revocation and
+  administration, passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

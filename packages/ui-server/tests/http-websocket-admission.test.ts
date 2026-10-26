@@ -45,10 +45,12 @@ for (const [name, trustProxy, scheme, forwarded] of [
     const t = await httpContractApp({ env: { TRUST_PROXY: trustProxy ? "1" : "0" } });
     const running = await listener(t);
     try {
-      await expect(hello(running.ws, {
+      // A plain await: admission resolves its principal on the write worker
+      // (#2850), whose reply `.resolves`' nested loop never delivers.
+      expect(await hello(running.ws, {
         origin: `${scheme}://${running.host}`,
         ...(forwarded ? { "x-forwarded-proto": forwarded } : {}),
-      })).resolves.toMatchObject({ type: "server_hello", protocolRev: PROTOCOL_REV });
+      })).toMatchObject({ type: "server_hello", protocolRev: PROTOCOL_REV });
     } finally { running.server.stop(true); await t.close(); }
   });
 }
