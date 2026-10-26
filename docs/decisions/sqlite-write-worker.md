@@ -217,8 +217,19 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   replayed history waits for every one submitted before it. A saved worker
   preference (`PUT …/profile`) is checked and stored in one immediate
   transaction on the worker, and its refusals keep their class and status.
+- **Action notices followed** (#3000, part of #2850). Enrollment, digest
+  generation and coverage, delivery attempts, zone reports and dismissals run
+  the unchanged notifier on the write connection
+  (`packages/ui-server/src/inbox/notify-writes.ts`). Each original transaction
+  keeps its boundary and contents. A tick submits enrollment and generation
+  together, in that order, and a tick still committing is not submitted
+  again. The routes answer after their writes commit; push transport starts
+  after its attempt and components commit, and the delivery pass settles
+  after every attempt outcome commits. Clocks are taken at submission.
+  `recordActionEpisode` remains inside the inbox store transaction that
+  changes the Action; that transaction moves with the inbox lifecycle (#3001).
 - **Other app-connection writers stay on the loop for now**: retained
-  retries, drafts, policy proposals, action and storage notices, push
+  retries, drafts, policy proposals, storage notices, push
   subscriptions and VAPID keys, principal revocation and administration,
   passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
