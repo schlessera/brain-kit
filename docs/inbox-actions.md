@@ -27,7 +27,7 @@ charges through the existing budget recovery path.
 
 ## Resolution and snooze
 
-The resolver (`createInboxResolver`, `packages/ui-server/src/inbox/resolve.ts:35-132`)
+The resolver (`createInboxResolver`, `packages/ui-server/src/inbox/resolve.ts:36-141`)
 rechecks the durable principal and derives the current operation
 envelope from server code. It validates raw persisted options against the
 strict v1 schemas, rather than trusting the permissive display projection.
@@ -95,7 +95,7 @@ Dismissing that Action terminates its source and journals cleanup. Cleanup failu
 retains the failed compensation record for inspection/recovery.
 
 `cleanup_pending` is server-owned work, not a model effect. Its compensation
-(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-89`) counts no model
+(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-69`) counts no model
 operation and takes no spend reservation. Compensation claims it before I/O,
 removes the server-selected staging directory and partial directory
 idempotently, then acknowledges `done` in a separate transaction. A crash

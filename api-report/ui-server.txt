@@ -646,27 +646,6 @@ signatures (every public export and the types it is made of)
   InMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export interface InMemoryMeterProvider extends MeterProvider, MetricsReader {
     }
-  InboxBridgeContext (packages/ui-server/src/inbox/bridge-tools.ts)
-    export interface InboxBridgeContext {
-        principalId: string;
-        origin: "interactive" | {
-            threadId: string;
-        };
-        turnId: string;
-        isCurrent: () => boolean;
-        sessionId: () => string | undefined;
-        membership: "interactive" | "voice" | "restricted";
-        allowedReads?: readonly ("inbox_list" | "inbox_get")[];
-        qualifyOrigin?: () => void;
-        protectedPaths?: readonly string[];
-        approvedAction?: {
-            sessionId: string;
-            itemId: string;
-            optionId: string;
-            expectedVersion: number;
-            effect: V1ResolutionEffect;
-        };
-    }
   InboxBudgetConfig (packages/ui-server/src/inbox/budget.ts)
     export interface InboxBudgetConfig {
         spendUsd: number;
@@ -676,8 +655,6 @@ signatures (every public export and the types it is made of)
         timeZone: string;
         unpricedUsdPerToken: number;
     }
-  InboxIntake (packages/ui-server/src/inbox/intake.ts)
-    export type InboxIntake = ReturnType<typeof createInboxIntake>;
   JournalStatement (packages/ui-server/src/brain/journal-store.ts)
     export type JournalStatement = {
         sql: string;
@@ -1201,15 +1178,6 @@ signatures (every public export and the types it is made of)
     }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
-  ShareInput (packages/ui-server/src/share/staging.ts)
-    export interface ShareInput {
-        tracksOnly?: boolean;
-        signal?: AbortSignal;
-        title?: string | undefined;
-        text?: string | undefined;
-        url?: string | undefined;
-        files: File[];
-    }
   SpanEventRow (packages/ui-server/src/activity/store.ts)
     export interface SpanEventRow {
         spanId: string;
@@ -1255,8 +1223,6 @@ signatures (every public export and the types it is made of)
         costUsd?: number;
         model?: string;
     }
-  StagingGuard (packages/ui-server/src/inbox/intake.ts)
-    type StagingGuard = (path: string) => void;
   StartSpanInput (packages/ui-server/src/activity/store.ts)
     export interface StartSpanInput {
         spanId: string;
@@ -1447,7 +1413,6 @@ signatures (every public export and the types it is made of)
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
         readonly isPrincipalAuthorized: (principalId: string) => boolean;
-        readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
         constructor(options: WsHostOptions);
         close(): void;
     }
@@ -1471,7 +1436,6 @@ signatures (every public export and the types it is made of)
         wsMaxConnections?: number;
         isPrincipalValid?: (principal: Principal) => boolean;
         isPrincipalAuthorized?: (principalId: string) => boolean;
-        inboxTools?: ReturnType<typeof createInboxBridgeTools>;
         conversationProvider?: LiveConversationProvider;
     }
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
@@ -1488,137 +1452,6 @@ signatures (every public export and the types it is made of)
     export function createGptLiveConversationProvider(apiKey: string): LiveConversationProvider;
   createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export function createInMemoryMeterProvider(): InMemoryMeterProvider;
-  createInboxBridgeTools (packages/ui-server/src/inbox/bridge-tools.ts)
-    export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolver: ReturnType<typeof createInboxResolver>, brainRoot?: string): {
-        forTurn(context: InboxBridgeContext): Pick<BackendBridge, "inboxAdd" | "inboxGet" | "inboxList" | "resolveAction">;
-        shares: undefined | {
-            apply(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, input: import("@schlessera/brain-ui-sdk/server").BrainApplicationInput, apply: () => Promise<import("@schlessera/brain-ui-sdk/server").BrainApplicationResult>): Promise<import("@schlessera/brain-ui-sdk/server").BrainApplicationResult>;
-            bind(runId: string, sessionId: string): void;
-            complete(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, raw: import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareInput, approve: () => Promise<boolean>, lock: import("@schlessera/brain-ui-sdk/server").BrainApplicationPolicy["lock"], assertVisible?: (paths: string[]) => void): Promise<import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareResult>;
-            end(runId: string): void;
-            resolveSession(principalId: string, stagingId: string, requested: string | undefined, current: () => boolean): string | undefined;
-            start: (principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined, current: () => boolean) => void;
-        };
-    };
-  createInboxIntake (packages/ui-server/src/inbox/intake.ts)
-    export function createInboxIntake(db: Database, brainRoot: string, log?: Logger): {
-        cli: (input: ShareInput, key: string, principal: Principal, isCurrent?: () => boolean) => Promise<{
-            created: boolean;
-            itemId: string;
-            result: ShareIntakeResult;
-            threadId: string;
-        }>;
-        close: () => Promise<void>;
-        conversation: (input: ShareInput, key: string, principal: Principal, turnId: string, isCurrent: () => boolean, protectedPaths?: readonly string[]) => Promise<{
-            created: boolean;
-            itemId: string;
-            result: ShareIntakeResult;
-            threadId: string;
-        }>;
-        person: (input: ShareInput, key: string, principal: Principal) => Promise<{
-            created: boolean;
-            itemId: string;
-            result: ShareIntakeResult;
-            threadId: string;
-        }>;
-        protectedIds: () => Set<string>;
-        reconcile: (guard?: StagingGuard) => Promise<void>;
-        share: (input: ShareInput, principal: Principal) => Promise<{
-            created: boolean;
-            itemId: string;
-            result: ShareIntakeResult;
-            threadId: string;
-        }>;
-    };
-  createInboxResolver (packages/ui-server/src/inbox/resolve.ts)
-    export function createInboxResolver(db: Database, deps: {
-        allowedOperations: (principalId: string, thread: InboxThread) => readonly InboxOperation[];
-        now?: () => number;
-        timeZone?: string;
-        applyHygiene?: (principalId: string, request: ClientInboxResolve) => Promise<{
-            replay: boolean;
-            followUpId: string | undefined;
-        }>;
-    }): {
-        inspect: (principalId: string, msg: ClientInboxResolve) => {
-            action: InboxActionItem;
-            context: null | {
-                options_json: string;
-                source_item_id: null | string;
-            };
-            effect: import("@schlessera/brain-ui-sdk").V1ResolutionEffect;
-            option: {
-                effect: {
-                    findingId: string;
-                    fingerprint: string;
-                    handler?: string | undefined;
-                    input?: null | string | string[] | undefined;
-                    kind: "hygiene";
-                    operation: "check" | "dismiss" | "resolve" | "snooze" | "undo";
-                    previewToken?: string | undefined;
-                    undoToken?: string | undefined;
-                } | {
-                    kind: "cancel_blocked";
-                } | {
-                    kind: "dismiss";
-                    reason?: "dont_ask_again" | "need_more_info" | "no_longer_relevant" | "wrong_call" | undefined;
-                } | {
-                    kind: "enqueue";
-                    payload: {
-                        instruction: string;
-                        operation?: undefined | {
-                            input: Record<string, unknown>;
-                            targetPath: string;
-                            toolName: string;
-                        };
-                    };
-                } | {
-                    kind: "open_session";
-                    seed: {
-                        prompt: string;
-                    };
-                } | {
-                    kind: "snooze";
-                } | {
-                    kind: "write_policy";
-                    policy: {
-                        content: string;
-                        slug: string;
-                    };
-                };
-                id: string;
-                input?: undefined | {
-                    example?: string | undefined;
-                    type: "date" | "enum" | "none" | "path" | "string" | "strings";
-                    values?: string[] | undefined;
-                };
-                label: string;
-                preview?: undefined | {
-                    after: string;
-                    before: string;
-                    changes: {
-                        after: string;
-                        before: string;
-                        line: number;
-                    }[];
-                    path: string;
-                };
-            };
-            thread: InboxThread;
-        };
-        resolve(principalId: string, request: ClientInboxResolve, expectedVersion?: number): {
-            followUpId: string | undefined;
-            replay: boolean;
-        };
-        resolveAsync(principalId: string, request: ClientInboxResolve, expectedVersion?: number): Promise<{
-            followUpId: string | undefined;
-            replay: boolean;
-        }>;
-        snooze(principalId: string, itemId: string, expectedVersion?: number): {
-            followUpId: undefined;
-            replay: boolean;
-        };
-    };
   createLabeller (packages/ui-server/src/labels/labeller.ts)
     export function createLabeller(deps: CreateLabellerDeps): Labeller;
   createNativeBrainManagerClient (packages/ui-sdk/src/server/native-brain-manager-client.ts)
@@ -1773,79 +1606,10 @@ signatures (every public export and the types it is made of)
         worktrees(turnId: string): string[];
         writeOperation(statements: readonly JournalStatement[]): Promise<number[]>;
     };
-  inspect (packages/ui-server/src/inbox/resolve.ts)
-    function inspect(principalId: string, msg: ClientInboxResolve): {
-        action: InboxActionItem;
-        context: null | {
-            options_json: string;
-            source_item_id: null | string;
-        };
-        effect: import("@schlessera/brain-ui-sdk").V1ResolutionEffect;
-        option: {
-            effect: {
-                findingId: string;
-                fingerprint: string;
-                handler?: string | undefined;
-                input?: null | string | string[] | undefined;
-                kind: "hygiene";
-                operation: "check" | "dismiss" | "resolve" | "snooze" | "undo";
-                previewToken?: string | undefined;
-                undoToken?: string | undefined;
-            } | {
-                kind: "cancel_blocked";
-            } | {
-                kind: "dismiss";
-                reason?: "dont_ask_again" | "need_more_info" | "no_longer_relevant" | "wrong_call" | undefined;
-            } | {
-                kind: "enqueue";
-                payload: {
-                    instruction: string;
-                    operation?: undefined | {
-                        input: Record<string, unknown>;
-                        targetPath: string;
-                        toolName: string;
-                    };
-                };
-            } | {
-                kind: "open_session";
-                seed: {
-                    prompt: string;
-                };
-            } | {
-                kind: "snooze";
-            } | {
-                kind: "write_policy";
-                policy: {
-                    content: string;
-                    slug: string;
-                };
-            };
-            id: string;
-            input?: undefined | {
-                example?: string | undefined;
-                type: "date" | "enum" | "none" | "path" | "string" | "strings";
-                values?: string[] | undefined;
-            };
-            label: string;
-            preview?: undefined | {
-                after: string;
-                before: string;
-                changes: {
-                    after: string;
-                    before: string;
-                    line: number;
-                }[];
-                path: string;
-            };
-        };
-        thread: InboxThread;
-    };
   normaliseLabel (packages/ui-server/src/labels/normalise.ts)
     export function normaliseLabel(raw: string): string | null;
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
-  reconcile (packages/ui-server/src/inbox/intake.ts)
-    function reconcile(guard?: StagingGuard): Promise<void>;
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
         budgets: {
@@ -1917,8 +1681,6 @@ signatures (every public export and the types it is made of)
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
-  start (packages/ui-server/src/inbox/interactive-share.ts)
-    function start(principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined, current: () => boolean): void;
   summary (packages/ui-server/src/brain/turn-journal.ts)
     function summary(turnId: string): TurnJournalSummary;
   websocket re-exported from hono

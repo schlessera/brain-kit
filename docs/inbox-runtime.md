@@ -11,6 +11,11 @@ A pending [operational restore](inbox-recovery.md) refuses app boot and drain
 startup. Restore completes staging and reconciles the lost workers' reservations
 and claims atomically before allowing normal lifecycle work.
 
+The hosted app submits recovery, maintenance and heartbeat writes to its shared
+SQLite write worker at FULL durability. Startup awaits the initial pass, and a
+tick or poke awaits its commits before replying. Cleanup stages its claim and
+acknowledgement on that queue around filesystem I/O.
+
 Boot and each drain pass reconcile reserved cost before releasing expired
 leases into bounded retry backoff. Exhausted attempts remain `failed` and
 produce one stable dead-letter Action. A persisted `inbox-drain` scheduler

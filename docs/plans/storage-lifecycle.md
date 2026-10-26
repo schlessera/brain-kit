@@ -74,7 +74,7 @@ Source foundations for the matrix:
   The upstream [maintenance manual](https://git-scm.com/docs/git-maintenance)
   explains these tasks; broad `gc` has different expiry behavior.
 - Staging eligibility, removal and acknowledgment are separate
-  (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-102`).
+  (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-82`).
 - Scratch pin loading and per-entry revalidation sit inside pruning
   (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626-707`);
   explicit clean is different
