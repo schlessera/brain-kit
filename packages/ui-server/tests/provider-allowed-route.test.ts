@@ -161,7 +161,7 @@ test("a conversation that showed a folder to one recipient refuses a later turn,
   // A new conversation is named after admission; its rows bind then.
   await (await f.begin("first", { inferenceOrigin: ANTHROPIC })).end();
   f.turns.bindSession("first", "voyage");
-  expect(f.turns.exposures(["voyage"]), "EXPOSURE_RECORDED_FOR_THE_SESSION").toEqual([{ recipient: "anthropic", visible: ["health", "me"], hidden: ["health"] }]);
+  expect(await f.turns.exposures(["voyage"]), "EXPOSURE_RECORDED_FOR_THE_SESSION").toEqual([{ recipient: "anthropic", visible: ["health", "me"], hidden: ["health"] }]);
 
   await (await f.begin("same recipient", { inferenceOrigin: ANTHROPIC, sessionId: "voyage" })).end();
   for (const [label, route, named] of [

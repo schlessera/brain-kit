@@ -196,6 +196,16 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   committed, so the next pass never sends an intent again or retries a gone
   device. The inbox and the pending queue are still read on the app
   connection.
+- **A governed turn's admission records followed** (#2850). The policy a
+  turn was admitted under, what its provider was shown, its masked lineage
+  and its protected-path manifest commit on the worker
+  (`packages/ui-server/src/brain/governed-turn-writes.ts`). Admission awaits
+  each before the turn goes on, so every record is still durable before
+  anything it describes can happen; a manifest's quarantine moves files on
+  the app thread and its close commits on the worker before `end()` settles.
+  A read of a session's exposures (admission's continuation checks, a
+  handoff's history check) first waits for every exposure write submitted
+  before it. Boot reconciliation still closes abandoned manifests inline.
 - **Local exchanges, classified blocks and saved worker preferences
   followed** (#2850). A local exchange commits on the worker with the
   catalog's other writes. Until it has, the next prompt handed over still
@@ -207,6 +217,10 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   replayed history waits for every one submitted before it. A saved worker
   preference (`PUT …/profile`) is checked and stored in one immediate
   transaction on the worker, and its refusals keep their class and status.
+- **Other app-connection writers stay on the loop for now**: retained
+  retries, drafts, policy proposals, action and storage notices, push
+  subscriptions and VAPID keys, principal revocation and administration,
+  passkeys, inbox and settings. Each commits at
 - **Other app-connection writers stay on the loop for now**: retained
   retries, drafts, policy proposals, action and storage notices, push
   subscriptions and VAPID keys, principal revocation and administration,
