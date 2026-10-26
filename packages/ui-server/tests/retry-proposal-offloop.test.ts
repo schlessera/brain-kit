@@ -231,3 +231,27 @@ test("a refused writing save never publishes policy bytes", async () => {
     expect(readFileSync(f.path, "utf8")).toBe(original);
   } finally { await f.close(); }
 });
+
+test("after a restart, a retry whose clear failed still refuses once a later input was accepted", async () => {
+  const f = fixture();
+  try {
+    const at = Date.parse("2026-07-12T00:00:00Z");
+    // The failed turn was the session's latest dispatched work.
+    f.db.query("INSERT INTO session_work (session_id, revision, request_id, turn_id, backend_id, accepted_at, started_at) VALUES ('ithaca', 1, 'first', 'voyage', 'claude', ?, ?)").run(at, at);
+    f.save(); await f.catalog.settled!();
+    f.db.exec("CREATE TRIGGER refuse_retry_clear BEFORE DELETE ON retry_requests BEGIN SELECT RAISE(ABORT, 'Poseidon refuses clear'); END");
+    f.catalog.clearRetryRequest!("ithaca");
+    f.catalog.acceptWork!("ithaca", "later", "claude", () => {});
+    await f.catalog.settled!();
+    expect(f.db.query("SELECT turn_id FROM retry_requests").get(), "RETRY_RESTART_OBSOLETE_ROW_LEFT").toEqual({ turn_id: "voyage" });
+    // A restart forgets every in-process invalidation.
+    const writer = openSqliteWriter(f.db);
+    const log = { emit() {} } as unknown as Logger;
+    const restarted = createSessionCatalog(() => f.db, log, undefined, { pricing: { resolve: () => null }, store: createActivityStore(f.db, { writer: "odysseus" }), writer });
+    try {
+      const reserved = await restarted.reserveRetry!("ithaca", "voyage", "after-restart", "athena");
+      expect(reserved.receipt.state, "RETRY_RESTART_SUPERSEDED_FAILS_CLOSED").toBe("refused");
+      expect(reserved.request).toBeUndefined();
+    } finally { await restarted.settled!(); await writer.close(); }
+  } finally { await f.close(); }
+});
