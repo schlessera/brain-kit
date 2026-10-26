@@ -206,14 +206,32 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   A read of a session's exposures (admission's continuation checks, a
   handoff's history check) first waits for every exposure write submitted
   before it. Boot reconciliation still closes abandoned manifests inline.
+- **Drafts, voice transcription claims and settings followed** (#2850).
+  Composer save, upload, remove, bind and accept run their unchanged
+  transactions on one worker channel (`packages/ui-server/src/drafts/writes.ts`).
+  The routes answer committed revisions. Accepted messages submit their
+  draft tombstone without waiting or blocking the turn; failures log identity
+  only. Later draft mutations follow that acceptance in FIFO order, and the
+  list/get routes await every previously submitted draft write before reading
+  on the app connection. Draft refusals keep their class, status and body.
+  Transcription claims, completions and removals commit on the worker
+  (`packages/ui-server/src/voice/transcription-writes.ts`); a provider is
+  dispatched only after its claim commits, so duplicate claims cannot dispatch
+  twice. Authorization runs there too, including any lazy account-partition
+  seed insert, and refusals keep their class and receipt. Startup recovery
+  remains inline. One settings writer (`packages/ui-server/src/db/settings-writes.ts`)
+  owns hosted model preferences, remembered tool grants, digest visits,
+  dismissals and generation, and subscription proof retention (the hourly
+  check, status reads and successful-turn recording). A turn's `settled()`
+  also waits for its submitted subscription proof. Digest generation
+  keeps its whole immediate transaction, and settings consumers await the
+  commit before their dependent reads or replies. Without a writer, the same
+  operations still run inline, including the cron digest job; the notifier's
+  cursor and the unhosted detail-retention setter keep their existing paths.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
   proposals, action and storage notices, push subscriptions and VAPID keys,
-  principal revocation and administration, passkeys, inbox and settings. Each commits at
-- **Other app-connection writers stay on the loop for now**: retained
-  retries and local exchanges, saved worker profiles, policy
-  proposals, action and storage notices, push subscriptions and VAPID keys,
-  principal revocation and administration, passkeys, inbox and settings. Each commits at
+  principal revocation and administration, passkeys and inbox. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

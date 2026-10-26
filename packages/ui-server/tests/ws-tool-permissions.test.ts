@@ -100,7 +100,7 @@ function memoryGrants(initial: string[] = []) {
   const set = new Set(initial);
   const tp: ToolPermissions = {
     isAutoAllowed: (name) => set.has(name),
-    add: (name) => set.add(name),
+    add: (name) => { set.add(name); },
   };
   return { tp, set };
 }

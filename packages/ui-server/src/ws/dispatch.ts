@@ -448,7 +448,7 @@ export async function handleClientMessage(
           pending.request.kind !== "command" && pending.request.kind !== "policy" &&
           !pending.request.outsideEnforcedAllowlist;
         if (msg.always && remembers) {
-          store.add(pending.request.toolName);
+          await store.add(pending.request.toolName);
         } else if (msg.always) {
           // The user asked for something the host will not do. Recorded for
           // the same reason the bridge records a grant it declines to apply:

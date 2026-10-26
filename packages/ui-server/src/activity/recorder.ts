@@ -745,7 +745,10 @@ export function createTurnRecorder(
         store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
         store.rollupRun(runId);
         // Kept now, not only when the status is next read (#254).
-        if (outcome === "success" && observedBilling === "subscription") runtime?.subscriptionProven?.(endedAt);
+        if (outcome === "success" && observedBilling === "subscription") {
+          const committed = runtime?.subscriptionProven?.(endedAt);
+          if (committed instanceof Promise) writes.after(() => committed);
+        }
         onWrite?.();
       });
       // Separately guarded: a classification or storage failure loses the
