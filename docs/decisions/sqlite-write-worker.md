@@ -158,8 +158,8 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   acceptance's revision is assigned where it is accepted, one above the
   highest the catalog has issued or seen committed, so it is known at once
   and a failed write's revision is never issued again; only the newest
-  acceptance's outcome orders or unorders the session. Retained retries and
-  local exchanges still commit on the app connection, so a failed retry
+  acceptance's outcome orders or unorders the session. Retained retries
+  still commit on the app connection, so a failed retry
   invalidation still refuses the input that needed it; a failure retained
   before its session's row has committed is stored once it has, unless an
   input invalidated it meanwhile.
@@ -177,8 +177,19 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   still the host fallback afterwards. A type folder translation that cannot
   be recorded refuses the turn. `holders()`, a diagnostic, still reads on
   the gate's own connection.
+- **Local exchanges, classified blocks and saved worker preferences
+  followed** (#2850). A local exchange commits on the worker with the
+  catalog's other writes. Until it has, the next prompt handed over still
+  takes it, exactly once, and the hand-over is recorded on the worker after
+  the exchange's own record; the client is answered once it is stored. A
+  turn's classified blocks, the blocks that follow a promoted link and the
+  classifier's confidence commit on the worker
+  (`packages/ui-server/src/classification/classification-writes.ts`), and a
+  replayed history waits for every one submitted before it. A saved worker
+  preference (`PUT …/profile`) is checked and stored in one immediate
+  transaction on the worker, and its refusals keep their class and status.
 - **Other app-connection writers stay on the loop for now**: retained
-  retries and local exchanges, saved worker profiles, policy
+  retries, drafts, policy
   proposals, the Activity notifier and push ticks, auth sessions, inbox and
   settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write

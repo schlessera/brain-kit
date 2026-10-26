@@ -150,7 +150,7 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-132`;
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
 `begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
