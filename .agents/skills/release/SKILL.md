@@ -206,6 +206,18 @@ green. The earlier Node v22.18.0 occurrence during 0.35.0 passed once on
 retry, with `check-dist-types` clean afterwards; its cause was not established.
 See #756 for the distinct retained native failures and matched-source controls.
 
+## A mount cleanup check reports pending timers
+
+A global set/clear observer can retain cancelled handles when a caller uses an
+imported native clear function, numeric timer ID or the handle's own `close()`.
+Inspect the retained handle's identity, creation origin and actual runtime
+liveness before calling the count a leak. The mount observer uses Bun's native
+`_destroyed` getter and includes live keepalive timers; its regressions prove
+native cancellation, unref'ed liveness, firing and refresh. Keep the real
+six-socket close barrier and zero-live-timer assertions. A focused passing
+control does not attribute an earlier complete-run failure or replace the
+release's complete required proof (#3020).
+
 ## The version is wrong — usually a surprise major
 
 A release of minor changesets that lands on `1.0.0` instead of `0.10.0` means
