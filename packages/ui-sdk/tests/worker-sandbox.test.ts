@@ -318,7 +318,7 @@ describe("worker sandbox writable areas (#1626)", () => {
         expect(note.includes("`/tmp/brain-worker-areas/scratch/` is writable"), "NOTE_SCRATCH").toBe(mounts.binds.includes(join(f.brain, ".brain/scratch")));
         expect(note.includes("`/tmp/brain-worker-areas/workspaces/` is writable"), "NOTE_WORKSPACES").toBe(mounts.binds.includes(join(f.brain, "workspaces")));
         expect(mounts.overlay, "NOTE_HOME").toBe(false);
-        expect(note).toContain("`$HOME` itself is read-only");
+        expect(note, "REAL_HOME_NOTE_DOES_NOT_ASSUME_RUNTIME_HOME").toContain("the real host home is read-only");
         expect(note.includes("XDG_CONFIG_HOME"), "NOTE_XDG").toBe(mounts.xdg);
         expect(note.includes("There is no `workspaces/` directory")).toBe(sandbox.areas.some(a => a.name === "workspaces" && !a.mount.writable && a.mount.missing));
         // The three places a file can be, with the link rule the reader depends on.
@@ -397,7 +397,7 @@ describe("the sandbox note's wording (#1654)", () => {
       **Profile: \`strict\`.** The brain is read-only here: change it through \`write_file\`, \`edit_file\` and the curated brain tools. Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.
       The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.
 
-      1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`/tmp/brain-worker-home\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`). It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
+      1. **Turn temp:** \`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`/tmp/brain-worker-home\` (the real host home is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`). It is deleted when the turn ends: use it for intermediate work only, and never link to a file there.
       2. **Persistent areas: kept across turns.**
          - \`/tmp/brain-worker-areas/scratch/\` is writable. Write the file there, then link its repo-relative destination, such as \`.brain/scratch/<name>.pdf\`.
          - \`/tmp/brain-worker-areas/workspaces/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.

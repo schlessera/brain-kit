@@ -168,6 +168,8 @@ while direct reads of real HOME retain the read-only host view.
 > discard `BASH_ENV`, `ENV` and `ZDOTDIR` startup redirects as well. Tools that previously
 > found operator configuration through `~` must use an explicit path. Restricted
 > workers keep their existing private-state HOME.
+> The shared sandbox note names the real host home as read-only, without
+> assuming every backend uses it as `$HOME`.
 
 **Restricted turns are unchanged.** The autonomous envelope gets no area, no
 home handling and the same argv as before; its note says so.
