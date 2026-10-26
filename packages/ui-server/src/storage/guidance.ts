@@ -13,6 +13,8 @@ export function createStorageGuidance(db: Database, history: StorageHistory, sto
     return { inventory, ...status };
   }
   return {
+    /** The views read the history once the flushes submitted before them have committed (#2850). */
+    settled: () => history.settled(),
     history(principal: string): StorageHistoryResponse {
       const status = state(principal), payload = status.history;
       return { version: 1, state: payload ? "available" : "unavailable", paused: status.paused, pending: status.pending,

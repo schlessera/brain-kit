@@ -17,8 +17,8 @@ export function createStorageRoutes(storage: StorageCoordinator, guidance?: Stor
     catch (error) { return c.json({ error: error instanceof StorageUnavailable ? error.message : "Storage temporarily unavailable." }, error instanceof StorageUnavailable ? error.status : 503); }
   });
   if (guidance) {
-    routes.get("/storage/history", c => c.json(guidance.history(c.get("principal")!.id)));
-    routes.get("/storage/guidance", c => c.json(guidance.guidance(c.get("principal")!.id)));
+    routes.get("/storage/history", async c => { await guidance.settled(); return c.json(guidance.history(c.get("principal")!.id)); });
+    routes.get("/storage/guidance", async c => { await guidance.settled(); return c.json(guidance.guidance(c.get("principal")!.id)); });
   }
   routes.get("/storage", c => c.json(storage.status(c.get("principal")!.id)));
   routes.post("/storage/scans", requireJson(), async c => {
