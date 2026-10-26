@@ -8,7 +8,6 @@ export const PRINCIPAL_PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
 export const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
 const MAX_LABEL_LENGTH = 64;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/u;
-const lastPrincipalPruneByDb = new WeakMap<Database, number>();
 
 export type PrincipalKind = "owner" | "agent" | "ambient" | "system";
 export type PrincipalAuthMethod =
@@ -420,24 +419,6 @@ export function prunePrincipals(db: Database, now: number): void {
           OR expires_at < ?
         ))`
   ).run(cutoff, cutoff, cutoff);
-}
-
-/**
- * Run principal retention at most once per database per process interval.
- * Authentication paths call this cheaply; only the due call reaches SQLite.
- */
-export function prunePrincipalsIfDue(db: Database, now: number): boolean {
-  const lastPrunedAt = lastPrincipalPruneByDb.get(db);
-  if (
-    lastPrunedAt !== undefined &&
-    now >= lastPrunedAt &&
-    now - lastPrunedAt < PRINCIPAL_PRUNE_INTERVAL_MS
-  ) {
-    return false;
-  }
-  prunePrincipals(db, now);
-  lastPrincipalPruneByDb.set(db, now);
-  return true;
 }
 
 export function countLivePrincipals(db: Database, now: number): number {
