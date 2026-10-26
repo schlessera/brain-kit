@@ -1,3 +1,4 @@
+import { accountWrites } from "../db/account-writes.js";
 import type { Counter } from "@opentelemetry/api";
 import type { Logger } from "@opentelemetry/api-logs";
 import { Hono } from "hono";
@@ -14,8 +15,6 @@ import {
   PrincipalCredentialNotFoundError,
   PrincipalLimitError,
   resolvePrincipal,
-  revokePrincipal,
-  revokeAllPrincipals,
   type Principal,
 } from "../db/principals.js";
 import { principalWrites } from "../db/principal-writes.js";
@@ -445,11 +444,11 @@ export function applyPrincipalRevocation(
 /**
  * Revoke every cookie-bearing principal and disconnect its attached clients.
  */
-export function revokeAllSessions(
+export async function revokeAllSessions(
   db: Database,
   revoker: Pick<WsHost, "revokePrincipals">
-): void {
-  const revokedIds = revokeAllPrincipals(db, Date.now());
+): Promise<void> {
+  const revokedIds = await accountWrites(db).revokeAll(Date.now());
   applyPrincipalRevocation(revoker, revokedIds);
 }
 
@@ -802,11 +801,11 @@ export function authRoutes(
       }
       c.set("principal", principal);
       if (principal.kind === "owner") {
-        revokeAllSessions(deps.db, deps.revoker);
+        await revokeAllSessions(deps.db, deps.revoker);
       } else {
         applyPrincipalRevocation(
           deps.revoker,
-          revokePrincipal(deps.db, principal.id, Date.now())
+          await accountWrites(deps.db).revokePrincipal(principal.id, Date.now())
         );
       }
     }

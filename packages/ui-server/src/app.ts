@@ -92,6 +92,7 @@ import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
 import { openSqliteWriter, procedureCaller } from "./db/write-worker.js";
 import * as governedTurnWrites from "./brain/governed-turn-writes.js";
+import { accountWrites, registerAccountWrites } from "./db/account-writes.js";
 import { registerPrincipalWrites } from "./db/principal-writes.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
@@ -457,6 +458,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
   // Authentication's per-request principal writes commit on it too (#2850).
   registerPrincipalWrites(db, writer);
+  registerAccountWrites(db, writer);
   registerInboxWrites(db, writer);
   bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db, writer));
@@ -893,7 +895,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.use("/api/*", authGuard(authMode, auth, db));
   // The account partition key rides on the probe every client already makes
   // before it mounts anything (#1014): an agent principal gets none.
-  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode);
+  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, await accountWrites(db).partitionSeed());
   app.get("/api/vpn-check", (c) => {
     const accountKey = accountKeys(c.get("principal"));
     return c.json(accountKey ? { vpn: true, accountKey } : { vpn: true });

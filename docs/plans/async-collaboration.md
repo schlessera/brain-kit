@@ -131,8 +131,8 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:27-44`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:893`) follows public routes;
-  (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:185-245`) binds principals in each auth mode.
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:895`) follows public routes;
+  (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:184-244`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:361-455`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:393-399`). Durable escalation must checkpoint
@@ -151,7 +151,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`) and
-  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:208-255`) are run-bound and do not
+  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:172-219`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:101`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2348`) bounds text, not binary uploads;

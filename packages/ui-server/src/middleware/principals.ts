@@ -6,25 +6,22 @@ import { generateSignedCookie } from "hono/cookie";
 
 import type { AppEnv } from "../app-env.js";
 import {
-  createPrincipal,
   isCookieBearingPrincipal,
   isUsablePrincipal,
   listLivePrincipals,
   PrincipalCreatorNotUsableError,
   PrincipalLimitError,
   resolvePrincipal,
-  revokePrincipal,
 } from "../db/principals.js";
 import {
-  createReferenceGrant,
   listReferenceGrants,
   ReferenceGrantDuplicateError,
   ReferenceGrantLimitError,
   ReferenceGrantPrincipalError,
   ReferenceRepositoryError,
-  revokeReferenceGrant,
   type ReferenceGrant,
 } from "../db/reference-grants.js";
+import { accountWrites } from "../db/account-writes.js";
 import { readJsonBody } from "./body-limit.js";
 import {
   applyPrincipalRevocation,
@@ -152,7 +149,7 @@ export function principalManagementRoutes(
     const caller = c.get("principal")!;
     let principal;
     try {
-      principal = createPrincipal(ctx.db, {
+      principal = await accountWrites(ctx.db).createPrincipal({
         authMethod: "delegated",
         label,
         createdBy: caller.id,
@@ -193,10 +190,10 @@ export function principalManagementRoutes(
     });
   });
 
-  app.delete("/auth/principals/:id", (c) => {
+  app.delete("/auth/principals/:id", async (c) => {
     const caller = c.get("principal")!;
     const targetId = c.req.param("id");
-    const revokedIds = revokePrincipal(ctx.db, targetId, Date.now());
+    const revokedIds = await accountWrites(ctx.db).revokePrincipal(targetId, Date.now());
     if (revokedIds.length === 0) {
       return c.json({ error: "Unknown principal" }, 404);
     }
@@ -243,7 +240,7 @@ export function principalManagementRoutes(
     const principalId = c.req.param("id");
     let grant: ReferenceGrant;
     try {
-      grant = createReferenceGrant(ctx.db, {
+      grant = await accountWrites(ctx.db).createGrant({
         brain: ctx.brain,
         principalId,
         repositoryPrefix: body.repositoryPrefix,
@@ -272,10 +269,10 @@ export function principalManagementRoutes(
     return c.json(grantJson(grant), 201);
   });
 
-  app.delete("/auth/principals/:id/reference-grants/:grantId", (c) => {
+  app.delete("/auth/principals/:id/reference-grants/:grantId", async (c) => {
     const caller = c.get("principal")!;
     const principalId = c.req.param("id");
-    const revoked = revokeReferenceGrant(ctx.db, {
+    const revoked = await accountWrites(ctx.db).revokeGrant({
       brain: ctx.brain,
       principalId,
       id: c.req.param("grantId"),

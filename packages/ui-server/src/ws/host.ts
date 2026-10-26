@@ -11,7 +11,7 @@ import { createSilentObservability, type Observability } from "../observability/
 import { FrameRateLimiter } from "./rate-limit.js";
 import type { AwaitableActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
-import type { PushSender } from "../activity/push-sender.js";
+import type { AwaitablePushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import type { Principal } from "../db/principals.js";
@@ -34,7 +34,7 @@ export interface ActivityRuntime {
   store: AwaitableActivityStore;
   stream: ActivityStream;
   /** Push bindings invalidated through the same principal-revocation boundary. */
-  pushSender?: Pick<PushSender, "unbindPrincipal">;
+  pushSender?: Pick<AwaitablePushSender, "unbindPrincipal">;
   /** Read seam for the agent-facing query tool (bridge.queryActivity). */
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
   /** Where each turn's runtime report and auth failures are kept for /api/status. */
@@ -754,7 +754,9 @@ export class WsHost {
       this.clients.closeFor(principalId, code, reason);
       this.activity?.stream.dropFor(principalId);
       this.inbox?.dropFor(principalId);
-      this.activity?.pushSender?.unbindPrincipal(principalId);
+      const unbound = this.activity?.pushSender?.unbindPrincipal(principalId);
+      if (unbound instanceof Promise) void unbound.catch(error => this.log.emit({ severityText: "WARN",
+        body: "push principal unbind failed", attributes: { error: error instanceof Error ? error.message : String(error) } }));
     }
     for (const turn of affectedRunning) {
       turn.recorder?.recordPrincipalRevocation(turn.principalId);

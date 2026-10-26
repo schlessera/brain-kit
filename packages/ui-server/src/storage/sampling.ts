@@ -7,7 +7,7 @@ import type { StorageNotifier } from "./notify.js";
 import type { SharedStorageScan } from "./shared-scan.js";
 import { bucket } from "./history-model.js";
 /** Background work starts at the next UTC six-hour boundary, never at boot or on a read. */
-export function createStorageSampling(db: Database, storage: StorageCoordinator, history: StorageHistory, shared: SharedStorageScan, notices: StorageNotifier, sender: PushSender, bootAt = Date.now()) {
+export function createStorageSampling(db: Database, storage: StorageCoordinator, history: StorageHistory, shared: SharedStorageScan, notices: StorageNotifier, sender: Pick<PushSender, "deliverStorage">, bootAt = Date.now()) {
   let lastBucket = bucket(0, bootAt), lastClock = bootAt, lastCleanup = bootAt;
   let delivering: Promise<unknown> | null = null, cleaning: Promise<unknown> | null = null;
   const controller = new AbortController();

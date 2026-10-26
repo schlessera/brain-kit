@@ -81,9 +81,9 @@ export function deriveAccountPartitionKey(seed: string, root: string, scope: str
 }
 
 /** The key for each request's principal, on one host: the seed is read once. */
-export function createAccountPartitionKeys(db: Database, brainPath: string, authMode: AuthMode) {
+export function createAccountPartitionKeys(db: Database, brainPath: string, authMode: AuthMode, hostSeed?: string) {
   let root: string | null = null;
-  let seed: string | null = null;
+  let seed: string | null = hostSeed ?? null;
   return (principal: Principal | undefined): string | null => {
     if (!principal) return null;
     const scope = accountScope(principal, authMode);
