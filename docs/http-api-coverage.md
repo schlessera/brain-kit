@@ -26,7 +26,7 @@ The four named positive tests are `real WebSocket admission: untrusted proxy
 accepts a matching HTTPS Origin`, `real WebSocket admission: trusted proxy
 accepts forwarded HTTPS`, `real WebSocket admission: trusted proxy maps WSS to
 HTTPS` and `real WebSocket admission: trusted proxy maps WS to HTTP`
-(`real WebSocket admission:`, `packages/ui-server/tests/http-websocket-admission.test.ts:44-53`).
+(`real WebSocket admission:`, `packages/ui-server/tests/http-websocket-admission.test.ts:44-55`).
 An HTTP response other than 403 is insufficient evidence of admission.
 
 The final column names detailed behavior checks below. Some existing checks
@@ -390,7 +390,7 @@ the additive `query_activity` scope carries the supported agent contract.
 
 **W — WebSocket admission.**
 
-- `real WebSocket admission rejects origin, authentication and capacity before upgrading` ([source](../packages/ui-server/tests/http-websocket-admission.test.ts)), (`real WebSocket admission rejects origin, authentication and capacity before upgrading`, `packages/ui-server/tests/http-websocket-admission.test.ts:56-87`)
+- `real WebSocket admission rejects origin, authentication and capacity before upgrading` ([source](../packages/ui-server/tests/http-websocket-admission.test.ts)), (`real WebSocket admission rejects origin, authentication and capacity before upgrading`, `packages/ui-server/tests/http-websocket-admission.test.ts:58-89`)
 
 **Z — Object-only validation and retained defaults.**
 
