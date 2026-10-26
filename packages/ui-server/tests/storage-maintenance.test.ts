@@ -16,7 +16,7 @@ function fixture() {
   const db = createUiDb(dbPath); let allowed = true, calls = 0;
   const storage = createStorageCoordinator({ brainPath: brain, stores: [], authorized: () => allowed });
   const cleanup = createInboxCleanup(db, brain);
-  const options: Parameters<typeof createStorageMaintenance>[1] = {
+  const options: Parameters<typeof createStorageMaintenance>[1] & { writer?: undefined } = {
     brainPath: brain, storage, authorized: () => allowed,
     boundary: { status: () => ({ hostExecution: "worker", available: true, profile: "strict", protectedPaths: [], identity: "shared_uid", configurationView: "startup" }) },
     brain: { async storagePack(request) { request?.assertAuthorized?.(); calls++; return { schema_version: 1, action: "pack", state: "complete", packed: 2, reason: null }; } },

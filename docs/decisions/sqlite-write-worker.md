@@ -293,6 +293,20 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   guidance views read once every flush submitted before them has committed.
   Push transport awaits begin and finish; shutdown awaits the final flush. Operational restore still
   writes inside its caller's transaction.
+- **Storage scans and maintenance followed** (#3028, part of #2850).
+  Shared scan acquisition, reaping, collector registration and unregistration,
+  cancellation and completion commit on the worker
+  (`setup`, `packages/ui-server/src/storage/shared-scan-writes.ts:30-107`). The lease commits
+  before collection starts; collector bookkeeping settles before the process
+  wrapper returns, and completion commits before the coordinator serves its
+  result. Maintenance insertion, receipt updates and cancellation use the same
+  worker (`setup`, `packages/ui-server/src/storage/maintenance-writes.ts:8-39`). Routes await
+  their durable receipts; staging cleanup awaits each item's intent before
+  removal, and cancellation commits before aborting its owner. Receipt readers
+  wait for submitted writes, and refusals retain their class and status. Without
+  a writer, the same procedures still run synchronously on the caller's
+  connection. Storage removal already commits through the journal worker;
+  operational restore still writes inside its caller's transaction.
 - **Retained retries and policy proposals followed** (#2850). Retry saves,
   invalidations, refusal receipts and reservations commit on the worker
   (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation

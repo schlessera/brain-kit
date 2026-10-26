@@ -1,46 +1,25 @@
 import type { Database } from "bun:sqlite";
-import { constants, readFileSync } from "node:fs";
+import { constants } from "node:fs";
 import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { processAlive, processStart, SELF } from "../brain/writer-gate.js";
-import { bucket, type Source } from "./history-model.js";
+import { processStart, SELF } from "../brain/writer-gate.js";
+import type { Source } from "./history-model.js";
 import { storageBrainKey } from "./history-store.js";
 import { STORAGE_SERVER_LIMITS, type StorageCollection } from "./collect.js";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import * as scanWrites from "./shared-scan-writes.js";
+import { alive, results, type Row, type SharedScan } from "./shared-scan-writes.js";
+export type { SharedScan } from "./shared-scan-writes.js";
 const CACHE_LIFETIME = 120_000;
-const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-type Worker = { pid: number; start: string };
-type Result = { id: string; scope: string; at: number; cached: boolean; failed: boolean };
-interface Row { brain: string; job_id: string | null; pid: number | null; process_start: string | null; principal_id: string | null; started_at: number | null; scope: string | null; source: Source | null; workers_json: string; shared: number; results_json: string; cancel_requested: number; last_request_at: number | null; last_attempt_bucket: number | null }
-export interface SharedScan {
-  id: string; principal: string; scope: string; source: Source; owner: boolean; inherited: Worker[];
-}
 const sleep = (milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds));
-function alive(worker: Worker) {
-  if (!processAlive(worker.pid, worker.start)) return false;
-  try { const text = readFileSync(`/proc/${worker.pid}/stat`, "utf8"); return text.slice(text.lastIndexOf(")") + 2).split(" ")[0] !== "Z"; }
-  catch { return true; }
-}
-function workers(row: Row): Worker[] {
-  const value = JSON.parse(row.workers_json) as Worker[];
-  if (!Array.isArray(value) || value.length > 2 || value.some(item => !Number.isSafeInteger(item.pid) || item.pid <= 0 || !/^\d+$/.test(item.start))) throw Error("storage-lease-workers-unavailable");
-  return value;
-}
-function results(row: Row): Result[] {
-  const value = JSON.parse(row.results_json) as Result[];
-  if (!Array.isArray(value) || value.length > 2 || value.some(item => !UUID.test(item.id) || !/^[a-f0-9]{32}$/.test(item.scope) || !Number.isSafeInteger(item.at) || typeof item.cached !== "boolean" || typeof item.failed !== "boolean")) throw Error("storage-lease-results-unavailable");
-  return value;
-}
 /** One operational lease for the brain. Only actual cross-process/instance joiners need a disposable file transfer. */
-export function createSharedStorageScan(db: Database, brainPath: string, cacheRoot: string, authorized: (principal: string) => boolean) {
+function sharedStorageScan(db: Database, brainPath: string, cacheRoot: string, authorized: (principal: string) => boolean, writer?: SqliteWriter) {
   const brain = storageBrainKey(brainPath);
   const row = () => db.query("SELECT * FROM storage_scan_leases WHERE brain = ?").get(brain) as Row | null;
   function authorize(principal: string) { if (!authorized(principal)) throw Error("storage-scan-owner-revoked"); }
-  function owned(scan: SharedScan): Row {
-    authorize(scan.principal);
-    const value = row();
-    if (!scan.owner || value?.job_id !== scan.id || value.pid !== SELF.pid || value.process_start !== SELF.start || value.scope !== scan.scope || value.cancel_requested) throw Error("storage-scan-authority-lost");
-    return value;
-  }
+  const procedures = scanWrites.setup(db, { brain, self: SELF }, authorized);
+  const call = writer ? procedureCaller(db, scanWrites, { brain, self: SELF }, writer) : null;
+  const owned = procedures.check;
   async function cleanupCache(reserveSlot: boolean, now = Date.now()) {
     if (reserveSlot) await mkdir(cacheRoot, { recursive: true, mode: 0o700 });
     const directory = await open(cacheRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW).catch(error => { if (!reserveSlot && error.code === "ENOENT") return null; throw error; });
@@ -57,28 +36,10 @@ export function createSharedStorageScan(db: Database, brainPath: string, cacheRo
   }
   return {
     cacheRoot,
-    acquire(principal: string, id: string, scope: string, source: Source, fresh: boolean, now = Date.now()): SharedScan | null {
+    acquire(principal: string, id: string, scope: string, source: Source, fresh: boolean, now = Date.now()) {
+      if (!call) return procedures.acquire(principal, id, scope, source, fresh, now);
       authorize(principal);
-      if (!UUID.test(id) || !/^[a-f0-9]{32}$/.test(scope)) throw Error("storage-scan-identity-invalid");
-      return db.transaction(() => {
-        const current = row();
-        if (current?.job_id && current.pid && current.process_start !== null && alive({ pid: current.pid, start: current.process_start })) {
-          if (current.scope !== scope) throw Error("storage-scan-other-scope-busy");
-          db.query("UPDATE storage_scan_leases SET shared = 1 WHERE brain = ? AND job_id = ?").run(brain, current.job_id);
-          return { id: current.job_id, principal, scope, source: current.source!, owner: false, inherited: [] };
-        }
-        if (current?.last_request_at !== null && current?.last_request_at !== undefined && now < current.last_request_at) throw Error("storage-scan-clock-reversal");
-        if (source === 0 && current?.last_attempt_bucket !== null && current?.last_attempt_bucket !== undefined && current.last_attempt_bucket >= bucket(0, now)) return null;
-        if (!fresh && current?.last_request_at !== null && current?.last_request_at !== undefined && now - current.last_request_at < 5000) throw Error("storage-scan-cooldown");
-        const inherited = current ? workers(current) : [];
-        db.query(`INSERT INTO storage_scan_leases (brain, job_id, pid, process_start, principal_id, started_at, scope, source, last_request_at, last_attempt_bucket)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(brain) DO UPDATE SET job_id = excluded.job_id, pid = excluded.pid, process_start = excluded.process_start,
-            principal_id = excluded.principal_id, started_at = excluded.started_at, scope = excluded.scope, source = excluded.source,
-            cancel_requested = 0, shared = 0, last_request_at = excluded.last_request_at, last_attempt_bucket = excluded.last_attempt_bucket`)
-          .run(brain, id, SELF.pid, SELF.start, principal, now, scope, source, now, bucket(0, now));
-        return { id, principal, scope, source, owner: true, inherited };
-      }).immediate();
+      return call<SharedScan | null>("acquire", principal, id, scope, source, fresh, now);
     },
     check: owned,
     async reap(scan: SharedScan) {
@@ -94,28 +55,20 @@ export function createSharedStorageScan(db: Database, brainPath: string, cacheRo
       const forceDeadline = Date.now() + 1500;
       while (scan.inherited.some(alive) && Date.now() < forceDeadline) await sleep(20);
       if (scan.inherited.some(alive)) throw Error("storage-scan-worker-reap-unavailable");
-      db.transaction(() => { owned(scan); db.query("UPDATE storage_scan_leases SET workers_json = '[]' WHERE brain = ? AND job_id = ?").run(brain, scan.id); }).immediate();
+      if (call) await call("reap", scan); else procedures.reap(scan);
     },
     register(scan: SharedScan, pid: number) {
+      // Capture the spawned child's identity before queueing: a delayed worker
+      // lookup could otherwise record a reused PID as this collector.
       const start = processStart(pid);
       if (!start) return; // a child which already exited needs no reap authority
-      db.transaction(() => {
-        const value = workers(owned(scan));
-        if (value.length >= 2) throw Error("storage-scan-worker-budget");
-        value.push({ pid, start });
-        db.query("UPDATE storage_scan_leases SET workers_json = ? WHERE brain = ? AND job_id = ?").run(JSON.stringify(value), brain, scan.id);
-      }).immediate();
+      return call ? call<void>("register", scan, pid, start) : procedures.register(scan, pid, start);
     },
-    unregister(scan: SharedScan, pid: number) {
-      db.transaction(() => {
-        const value = row();
-        if (value?.job_id !== scan.id || value.pid !== SELF.pid || value.process_start !== SELF.start) return;
-        db.query("UPDATE storage_scan_leases SET workers_json = ? WHERE brain = ? AND job_id = ?").run(JSON.stringify(workers(value).filter(worker => worker.pid !== pid)), brain, scan.id);
-      }).immediate();
-    },
+    unregister(scan: SharedScan, pid: number) { return call ? call<void>("unregister", scan, pid) : procedures.unregister(scan, pid); },
     cancel(scan: SharedScan) {
+      if (!call) return procedures.cancel(scan);
       authorize(scan.principal);
-      db.query("UPDATE storage_scan_leases SET cancel_requested = 1 WHERE brain = ? AND job_id = ? AND scope = ?").run(brain, scan.id, scan.scope);
+      return call<void>("cancel", scan);
     },
     async publish(scan: SharedScan, collection: StorageCollection) {
       // An uncontended scan stays in the original bounded memory cache: it does
@@ -133,22 +86,8 @@ export function createSharedStorageScan(db: Database, brainPath: string, cacheRo
       finally { await file.close(); }
       return true;
     },
-    finish(scan: SharedScan, cached: boolean, failed: boolean, at = Date.now()): boolean {
-      return db.transaction(() => {
-        const current = row();
-        if (current?.job_id !== scan.id || current.pid !== SELF.pid || current.process_start !== SELF.start) return false;
-        if (!failed) owned(scan);
-        if (workers(current).some(alive)) return false;
-        // A joiner may arrive just after publish() checked the flag. Keep the
-        // lease until its full result has been published, then retry finish.
-        if (!failed && current.shared && !cached) return false;
-        const completed = [...results(current), { id: scan.id, scope: scan.scope, at, cached, failed }].slice(-2);
-        db.query(`UPDATE storage_scan_leases SET job_id = NULL, pid = NULL, process_start = NULL, principal_id = NULL,
-          started_at = NULL, scope = NULL, source = NULL, workers_json = '[]', cancel_requested = 0, shared = 0,
-          results_json = ?, result_id = ?, result_at = ?, failure = ? WHERE brain = ? AND job_id = ?`)
-          .run(JSON.stringify(completed), scan.id, at, failed ? "collection-unavailable" : null, brain, scan.id);
-        return true;
-      }).immediate();
+    finish(scan: SharedScan, cached: boolean, failed: boolean, at = Date.now()) {
+      return call ? call<boolean>("finish", scan, cached, failed, at) : procedures.finish(scan, cached, failed, at);
     },
     async wait(scan: SharedScan, signal: AbortSignal): Promise<StorageCollection> {
       const deadline = Date.now() + STORAGE_SERVER_LIMITS.milliseconds;
@@ -174,4 +113,12 @@ export function createSharedStorageScan(db: Database, brainPath: string, cacheRo
     cleanupCache() { return cleanupCache(false); },
   };
 }
-export type SharedStorageScan = ReturnType<typeof createSharedStorageScan>;
+export type SharedStorageScan = ReturnType<typeof sharedStorageScan>;
+export type InlineSharedScan = Omit<SharedStorageScan, "acquire" | "register" | "unregister" | "cancel" | "finish"> & {
+  [K in "acquire" | "register" | "unregister" | "cancel" | "finish"]: (...args: Parameters<SharedStorageScan[K]>) => Awaited<ReturnType<SharedStorageScan[K]>>;
+};
+export function createSharedStorageScan(db: Database, brainPath: string, cacheRoot: string, authorized: (principal: string) => boolean): InlineSharedScan;
+export function createSharedStorageScan(db: Database, brainPath: string, cacheRoot: string, authorized: (principal: string) => boolean, writer?: SqliteWriter): SharedStorageScan;
+export function createSharedStorageScan(db: Database, brainPath: string, cacheRoot: string, authorized: (principal: string) => boolean, writer?: SqliteWriter): SharedStorageScan {
+  return sharedStorageScan(db, brainPath, cacheRoot, authorized, writer);
+}

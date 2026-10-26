@@ -963,7 +963,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
   const storageAuthorized = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
-  const storageShared = createSharedStorageScan(db, config.brainPath, storageCacheRoot, storageAuthorized);
+  const storageShared = createSharedStorageScan(db, config.brainPath, storageCacheRoot, storageAuthorized, writer);
   const storageNotices = createStorageNotifier(db, storageHistory, writer);
   const storageStores: StorageStore[] = [
     { path: journalRoot, label: "Retained file history", category: "journal", owner: "app", recursive: true },
@@ -1006,7 +1006,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const storageSampling = createStorageSampling(db, storage, storageHistory, storageShared, storageNotices, activity.pushSender);
   bootCleanup.push(() => storageSampling.close());
   app.route("/api", createStorageRoutes(storage, storageGuidance));
-  const storageMaintenance = createStorageMaintenance(db, { brainPath: config.brainPath, storage, brain, scratch: scratchPrune, inbox, boundary,
+  const storageMaintenance = createStorageMaintenance(db, { writer, brainPath: config.brainPath, storage, brain, scratch: scratchPrune, inbox, boundary,
     authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
   });
   bootCleanup.push(() => storageMaintenance.close());
