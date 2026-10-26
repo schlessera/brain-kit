@@ -276,15 +276,18 @@ test("a dirty failed mount discards its resources before the next independent ca
       const freshKey = httpMountAgentKey(fresh.t);
       const sockets = [...(globalAgent.sockets[freshKey] ?? []), ...(globalAgent.freeSockets[freshKey] ?? [])];
       expect(sockets).toHaveLength(6);
-      // Re-arm the existing idle deadlines outside the keepalive observer's
-      // exclusion. Native server shutdown precedes client socket close; all
-      // six real one-shot timers must be cancelled before the zero check.
-      const beforeSocketTimers = timers.pending.size;
+      // Re-arm the existing idle deadlines. The observer includes keepalive
+      // timers too, so replacing six deadlines keeps the live count stable.
+      // Native shutdown must cancel all six before the final zero check.
+      const beforeSocketTimers = timers.pending;
       for (const socket of sockets) {
         expect(socket.timeout).toBeGreaterThan(0);
         socket.setTimeout(socket.timeout!);
       }
-      expect(timers.pending.size).toBe(beforeSocketTimers + 6);
+      const afterSocketTimers = timers.pending;
+      expect(afterSocketTimers.size).toBe(beforeSocketTimers.size);
+      expect([...beforeSocketTimers].filter(handle => !afterSocketTimers.has(handle))).toHaveLength(6);
+      expect([...afterSocketTimers].filter(handle => !beforeSocketTimers.has(handle))).toHaveLength(6);
       await checkHandler("GET /api/auth/principals", checks["GET /api/auth/principals"]!, fresh.t, fresh.cookie);
     } finally { await closeHttpMountFixture(fresh.t); }
     expect(timers.pending.size).toBe(0);
