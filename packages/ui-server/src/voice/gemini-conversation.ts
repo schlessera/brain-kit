@@ -18,6 +18,13 @@ const id = z.string().min(1).max(256);
 const transcript = z.object({ text: z.string().max(CONVERSATION_LIMITS.maxFragmentChars).optional(), finished: z.boolean().optional() });
 const messageSchema = z.object({
   setupComplete: z.object({}).optional(),
+  // Provider bookkeeping only; never input identity or finalization evidence.
+  // https://ai.google.dev/api/live.md#VoiceActivity (checked 2026-10-27).
+  // Protobuf defaults may be absent; Duration uses seconds with up to 9 decimals.
+  voiceActivity: z.object({
+    type: z.enum(["TYPE_UNSPECIFIED", "ACTIVITY_START", "ACTIVITY_END"]).optional(),
+    audioOffset: z.string().max(64).regex(/^-?\d+(?:\.\d{1,9})?s$/).optional(),
+  }).optional(),
   serverContent: z.object({
     inputTranscription: transcript.optional(), outputTranscription: transcript.optional(),
     interrupted: z.boolean().optional(), turnComplete: z.boolean().optional(),
