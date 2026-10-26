@@ -202,3 +202,26 @@ test("owner-evidence overflow during a flush remains pending until its marker co
     expect(history.status().pending).toBe(false);
   } finally { await f.close(); }
 });
+
+test("a queued begin decides on the durable history at its commit, not the one at submission", async () => {
+  const f = fixture();
+  try {
+    const owner = createPrincipal(f.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 365 * 24 * 3600 });
+    const endpoint = "https://push.example.test/Ithaca";
+    f.db.query("INSERT INTO push_subscriptions (endpoint, p256dh, auth, principal_id, time_zone, created_at) VALUES (?, 'opaque-key', 'opaque-auth', ?, 'UTC', ?)").run(endpoint, owner.id, start);
+    const history = createStorageHistory(f.db, f.root, { now: f.now, writer: f.writer });
+    history.offer(observation(start));
+    expect(await history.flush()).toBe(true);
+    const notices = createStorageNotifier(f.db, history, f.writer);
+    // Another process (the cron runner) persists a newer observation while the attempt waits.
+    const later = start + HISTORY_LIMITS.writeInterval + 1;
+    const other = createStorageHistory(f.db, f.root, { now: () => later });
+    const held = f.writer.channel(probe, { table: "odysseus_log" }); await held.ready;
+    const slow = held.call("slow", "Calypso", 300);
+    const queued = notices.begin(endpoint, start);
+    other.offer(observation(later));
+    await slow;
+    expect(history.read()!.metadata.state.lastPersistedAt).toBe(later);
+    expect(await queued, "STORAGE_QUEUED_BEGIN_READS_DURABLE_HISTORY_AT_COMMIT").toBeNull();
+  } finally { await f.close(); }
+});

@@ -42,7 +42,10 @@ export function setup(db: Database, { brain, self: SELF }: { brain: string; self
       return db.transaction((): StorageNoticeAttempt | null => {
         if (db.query("SELECT 1 FROM inbox_recovery_state WHERE status = 'pending'").get()) return null;
         maintain(now);
-        const status = typeof statusInput === "function" ? statusInput() : statusInput, payload = status.history;
+        // The process's buffered state comes from where the attempt was
+        // submitted; the durable history is read here, under this transaction.
+        const status = typeof statusInput === "function" ? statusInput() : statusInput;
+        const payload = typeof statusInput === "function" ? status.history : read();
         if (!payload) return null;
         const state = payload.metadata.state;
         // Another process may have a newer observation waiting for the bounded
