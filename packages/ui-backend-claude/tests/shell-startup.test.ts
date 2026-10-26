@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { MEASURED_RUNTIME } from "../src/measured-runtime.js";
 
 const native = process.platform === "linux" && Boolean(Bun.which("bwrap"));
+// zsh is optional on hosts (CI runners ship without it); its cases need it installed.
+const zshAvailable = Boolean(Bun.which("zsh"));
 
 interface Observation {
   fallback: boolean;
@@ -29,7 +31,7 @@ interface Observation {
 }
 
 for (const shell of ["bash", "zsh"] as const) for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false], ["strict", false], ["governed", true]] as const) for (const branch of ["snapshot", "fallback"]) {
-  test.skipIf(!native)(`real Claude ${shell} ${profile} ${branch}${startupEnv ? " with admitted startup variables" : ""} imports no operator shell startup configuration`, async () => {
+  test.skipIf(!native || (shell === "zsh" && !zshAvailable))(`real Claude ${shell} ${profile} ${branch}${startupEnv ? " with admitted startup variables" : ""} imports no operator shell startup configuration`, async () => {
     const scratch = mkdtempSync(join(tmpdir(), "odysseus-shell-startup-"));
     const fixture = new URL("./fixtures/shell-startup-probe.ts", import.meta.url).pathname;
     try {
