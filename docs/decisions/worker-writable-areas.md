@@ -192,6 +192,8 @@ first, with the empty read-only HOME permitted only if masking cannot close
 both branches. The real SDK-selected native CLI was measured under the
 production launcher with an experimental bind plan, fictional files and
 loopback-only fake inference. No CLI byte or subprocess allowlist changed.
+The [runtime measurements on #2984](https://github.com/schlessera/brain-kit/issues/2984#issuecomment-6419188928)
+record the successful fixed-file controls and the failures below.
 
 The candidate binds `/dev/null` read-only over existing `.bashrc`,
 `.bash_profile`, `.bash_login`, `.profile`, `.bash_logout`, `.zshenv`,
