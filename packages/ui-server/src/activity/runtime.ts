@@ -17,6 +17,7 @@ import { createActivityStore, type AwaitableActivityStore, type RollupPricing } 
 import { afterWrite, createOffloopActivityStore, observeWrite, type ActivityPricingConfig } from "./store-writes.js";
 import type { SqliteWriter } from "../db/write-worker.js";
 import { createActivityStream, type ActivityStream } from "./stream.js";
+import { createOffloopNotifier } from "./notify-writes.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
 import { createActionNotifier, type ActionNotifier } from "../inbox/notify.js";
@@ -89,13 +90,16 @@ export function createActivityRuntime(
 
   // The notifier resumes its persisted cursor, including terminal changes
   // committed while this server was down and interruptions from the boot sweep.
-  const notifier = createActivityNotifier({
+  // With a write worker, every notifier and push bookkeeping write commits
+  // there (#2850); who is watching is taken where each tick is submitted.
+  const offloop = deps.writer ? createOffloopNotifier(db, deps.writer, { watched: () => stream.watched(), log }) : undefined;
+  const notifier = offloop?.notifier ?? createActivityNotifier({
     db,
     store,
     isWatched: (scope) => stream.isWatched(scope),
     log,
   });
-  const pushSender = createPushSender(db, { log });
+  const pushSender = createPushSender(db, { log, ...(offloop ? { writes: offloop.push } : {}) });
   const actionNotices = createActionNotifier(db);
 
   // Boot sweep: close this server's orphans from a previous life (interrupted).
@@ -141,7 +145,7 @@ export function createActivityRuntime(
           stream.pump();
         }
       }, tickFailed);
-      notifier.tick();
+      observeWrite(notifier.tick(), tickFailed);
       // Action notices: join newly eligible decisions to their fixed window
       // and store any due client-local digest. Isolated so a failure here
       // never stalls activity delivery.
@@ -195,7 +199,7 @@ export function createActivityRuntime(
           detailRetentionMs: getDetailRetentionDays(db, log) * 24 * 60 * 60 * 1000,
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
         }), tickFailed);
-        notifier.pruneAcknowledged(INTENT_RETENTION_MS);
+        observeWrite(notifier.pruneAcknowledged(INTENT_RETENTION_MS), tickFailed);
       }
     } catch (err) {
       tickFailed(err);

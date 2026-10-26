@@ -40,8 +40,8 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   are available precedents; their existing tests cannot prove new schedule relations.
 - Notification kinds are already failure/completion/stuck
   (`IntentKind`, `packages/ui-server/src/activity/notify.ts:30`), with bounded
-  suppression/retry (`MAX_INTENTS_PER_HOUR`, `packages/ui-server/src/activity/notify.ts:68-74`).
-  Job-name success opt-in (`if (span.outcome === "success"`, `packages/ui-server/src/activity/notify.ts:171-184`)
+  suppression/retry (`MAX_INTENTS_PER_HOUR`, `packages/ui-server/src/activity/notify.ts:71-77`).
+  Job-name success opt-in (`if (span.outcome === "success"`, `packages/ui-server/src/activity/notify.ts:174-187`)
   does not implement schedule/occurrence preferences or correlation.
 
 Production execution requires [#689](https://github.com/schlessera/brain-kit/issues/689)
