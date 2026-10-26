@@ -185,6 +185,17 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   current is read at once; a login answers once its row has committed, and
   its refusals keep their classes. Revocations and administrative principal
   writes still commit on the app connection.
+- **The Activity notifier followed** (#2850). Its tick (intent detection
+  under its cursor and the stuck-run watchdog), delivery status,
+  acknowledgement and retention, and push delivery's subscription
+  bookkeeping commit on the worker (`packages/ui-server/src/activity/notify-writes.ts`).
+  The tick runs the same notifier on the write connection, with who is
+  watching taken where the tick was submitted, and its log records come back
+  to the app's log; a tick still committing is not submitted again. A push
+  delivery pass settles only once its bookkeeping and delivery status have
+  committed, so the next pass never sends an intent again or retries a gone
+  device. The inbox and the pending queue are still read on the app
+  connection.
 - **Local exchanges, classified blocks and saved worker preferences
   followed** (#2850). A local exchange commits on the worker with the
   catalog's other writes. Until it has, the next prompt handed over still
@@ -197,9 +208,9 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   preference (`PUT …/profile`) is checked and stored in one immediate
   transaction on the worker, and its refusals keep their class and status.
 - **Other app-connection writers stay on the loop for now**: retained
-  retries, drafts, policy
-  proposals, the Activity notifier and push ticks, principal revocation and
-  administration, passkeys, inbox and settings. Each commits at
+  retries, drafts, policy proposals, action and storage notices, push
+  subscriptions and VAPID keys, principal revocation and administration,
+  passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

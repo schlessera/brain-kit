@@ -30,7 +30,7 @@ decision is meaningless: Queue items acquire leases; Actions stay pending or
 snoozed until a validated disposition. Every mutation emits its change row in
 the same transaction. Reuse the activity cursor algorithm and transactional
 snapshot discipline, rather than importing its activity-specific stream
-(`createActivityStream`, `packages/ui-server/src/activity/stream.ts:158-174`).
+(`createActivityStream`, `packages/ui-server/src/activity/stream.ts:160-176`).
 
 ## Authority and containment
 

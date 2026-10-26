@@ -116,9 +116,9 @@ export function createActivityRoutes(deps: {
       }
     })
 
-    .post("/activity/inbox/ack-all", (c) => {
+    .post("/activity/inbox/ack-all", async (c) => {
       try {
-        return c.json({ acknowledged: notifier?.acknowledgeAll() ?? 0 });
+        return c.json({ acknowledged: (await notifier?.acknowledgeAll()) ?? 0 });
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Failed to acknowledge" },
@@ -127,11 +127,11 @@ export function createActivityRoutes(deps: {
       }
     })
 
-    .post("/activity/inbox/:id/ack", (c) => {
+    .post("/activity/inbox/:id/ack", async (c) => {
       const id = Number(c.req.param("id"));
       if (!Number.isInteger(id) || id < 1) return c.json({ error: "Bad intent id" }, 400);
       try {
-        const ok = notifier?.acknowledge(id) ?? false;
+        const ok = (await notifier?.acknowledge(id)) ?? false;
         return ok ? c.json({ ok: true }) : c.json({ error: "Unknown intent" }, 404);
       } catch (err) {
         return c.json(
