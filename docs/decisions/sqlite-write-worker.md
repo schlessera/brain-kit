@@ -394,7 +394,15 @@ observer is registered.
 write while a suite runs, and `scripts/app-write-inventory.ts` groups the
 records by the nearest server frame. A write whose stack holds a test frame
 counts as a fixture: a test's own write, or a product call a test made
-directly on the app's database to seed it. INVENTORY_RESULT
+directly on the app's database to seed it. Over the ui-server suite and `./tests` on 2026-10-26 (2,452
+observed writes), the serving phase held only three kinds of site:
+- the inbox dispatch fixture's triage and autonomous-turn path;
+- turn budgets that `ws-turn-budgets.test.ts` builds on the app's database without its writer;
+- the guard test's own probe.
+
+The boot phase held only the schedule root's first insert. Standalone
+components (the writer gate, turn scope and reverts that tests build without
+`createApp`) take the writer the app passes them when hosted.
 
 **Named exceptions.** These are the only writes left on an app connection:
 - **Boot.** Migrations (`createUiDb`), boot reconciliations and sweeps, and the
