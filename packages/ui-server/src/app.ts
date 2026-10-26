@@ -755,7 +755,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         : (await registry.getBackendForProfile(profileId))?.id;
       return backendId ? { backendId, profileId, inferenceOrigins: scheduleOrigins } : null;
     },
-  });
+  }, writer);
   try { await schedules.ready; }
   catch { observability.logger("schedules").emit({ severityText: "WARN", body: "schedule journal reconciliation failed; journals retained" }); }
   const wsUpgrade = createWsUpgrade(host);

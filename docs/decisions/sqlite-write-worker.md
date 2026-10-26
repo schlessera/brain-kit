@@ -245,6 +245,22 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   again on the write connection. Standalone callers without a registered writer
   run the same procedures inline. Dispatcher-fixture-only claims, boot/restore
   helpers and the cron runner retain their synchronous connections.
+- **Schedule route writes followed** (#3003, within #2850). Proposals,
+  approvals, pending publication, activation or quarantine, cancellation and
+  reconciliation commit on the worker
+  (`packages/ui-server/src/schedules/service-writes.ts`). Each transaction
+  keeps its reads and `BEGIN IMMEDIATE`; cancellation still invalidates
+  unstarted occurrences and drops their Queue items and change records in the
+  same transaction. Publication awaits its pending receipt, then checks Git
+  and publishes the approved file, then awaits activation or quarantine.
+  Cancellation awaits its ledger change before retiring the file, and marks
+  retirement complete only after that file operation. A late publisher of a
+  cancelled task journals and completes retirement again. Reopening awaits
+  restored-root adoption and journal reconciliation before its own transaction.
+  Every route reads its result after the relevant commits; schedule refusals
+  keep their class, code and HTTP status across the worker. `rootInfo` still
+  creates the root identity on the app connection during boot, before serving;
+  the unwired admission service and cron execution retain their own writes.
 - **Storage history and notices followed** (#2850). The storage history's
   first row and its bounded flush, and the notice sweep, a delivery's begin
   and its finish, commit on the worker
