@@ -252,7 +252,7 @@ function assembleClaudeSdkTurn(
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
     ...(req.workerProviderMasks ? { providerMasks: req.workerProviderMasks } : {}), ...(req.workerDataTree ? { dataTree: req.workerDataTree } : {}) }
-    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: childEnv.HOME, maintenance: backend.maintenance });
+    : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { maintenance: backend.maintenance });
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).
   const limits = launchLimits({});
@@ -587,5 +587,5 @@ export async function prepareClaudeTurnSandbox(options: Pick<ClaudeSdkTurnOption
   const { backend, req } = options;
   if (req.workerSandbox || options.hostInference || req.autonomous?.containment === "restricted") return undefined;
   const turnEnvironment = options.turnEnvironment ?? turnEnv(options.profile);
-  return { turnEnvironment, workerSandbox: await prepareWorkerSandboxAsync(backend.brainPath, { home: turnEnvironment.HOME, maintenance: backend.maintenance }) };
+  return { turnEnvironment, workerSandbox: await prepareWorkerSandboxAsync(backend.brainPath, { maintenance: backend.maintenance }) };
 }

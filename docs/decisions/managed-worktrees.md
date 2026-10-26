@@ -98,7 +98,7 @@ Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
 (`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:567-579`;
-`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:848-859`).
+`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:852-863`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
 restricted worker never binds a generation. Nothing returns a host path to the
@@ -212,7 +212,7 @@ nothing.
 **Shared source is read through views.** Each such turn's workers bind the
 public view and their principal's private view whole and read-only at
 `/tmp/brain-reference/public` and `/tmp/brain-reference/private`
-(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:860-871`).
+(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:864-875`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
 (`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:741-753`).
