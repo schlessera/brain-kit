@@ -28,7 +28,7 @@ that no pre-charge covers. The evidence is on the issue.
   `DB_PATH` names one journal.
   Every page in it is the journal's, so the measurement is the file's page
   count and the journal's own WAL, read without walking
-  (`function measure()`, `packages/ui-server/src/brain/journal-accounting.ts:61-74`).
+  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:67-81`).
   Other components' pages and WAL frames are no longer the journal's charge.
 - **The tables move on start.** Migrations up to `063` create journal tables
   in the UI database. Before any later migration, and again after the last,
@@ -49,6 +49,11 @@ that no pre-charge covers. The evidence is on the issue.
   `journal.<name>`; the runner refuses one that changes the UI database's
   schema. Any other migration touches no journal table. A test holds every
   migration after `063` to this.
+  The conditional object-pin index upgrade (#2913) instead runs through the
+  journal's capacity ledger on its write worker; its committed schema entry
+  is the atomic receipt. It cannot allocate pages before admission and cannot
+  make expiry depend on installing the index. See
+  [the admitted-index rule](governed-writable-workers.md#admitted-object-pin-index-and-near-cap-recovery--2026-10-26-2913).
 - **Released pages return to the file system on restart.** The file uses
   incremental auto-vacuum, and a ledger runs it once as it starts. Within a run,
   released pages stay charged, as before.

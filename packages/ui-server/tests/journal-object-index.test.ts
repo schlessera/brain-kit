@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -17,6 +17,10 @@ const CANDIDATES = "SELECT hash,bytes FROM turn_journal_objects WHERE state='pre
 const indexed = (db: Database) => Boolean(db.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_object_refs_hash' AND type='index'").get());
 const size = (path: string) => existsSync(path) ? statSync(path).size : 0;
 const extent = (path: string) => [size(journalDatabasePath(path)), size(`${journalDatabasePath(path)}-wal`)];
+function plan(db: Database, sql: string, ...params: string[]) {
+  const query = db.prepare(`EXPLAIN QUERY PLAN ${sql}`);
+  try { return query.all(...params); } finally { query.finalize(); }
+}
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "journal-index-cap-odysseus-")), path = join(root, "ui.db"), objects = join(root, "objects");
@@ -47,8 +51,8 @@ test("ordinary collection uses indexed foreign-key checks, independently of pin 
     try {
       seed(db, pins, 2_000);
       store = journalStore.setup(db, { dbPath: ":memory:", objectsRoot: join(root, "objects") });
-      const candidatePlan = db.query(`EXPLAIN QUERY PLAN ${CANDIDATES}`).all();
-      const deletePlan = db.query("EXPLAIN QUERY PLAN DELETE FROM turn_journal_objects WHERE hash=?").all(sha("Ithaca unused 0"));
+      const candidatePlan = plan(db, CANDIDATES);
+      const deletePlan = plan(db, "DELETE FROM turn_journal_objects WHERE hash=?", sha("Ithaca unused 0"));
       const started = performance.now();
       expect(db.query(CANDIDATES).all()).toHaveLength(2_000);
       const selected = performance.now();
@@ -181,7 +185,7 @@ test("ordinary collection and its index preserve pinned, read-reserved and copy-
       f.db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',1,'recording')").run();
       f.db.query("INSERT INTO turn_journal_object_refs VALUES ('voyage',?)").run(pinned);
     });
-    const read = ledger.openRead(reading), copy = ledger.reserve(Buffer.byteLength(contents[2]!), copying);
+    const read = ledger.openRead(reading), copy = await ledger.reserve(Buffer.byteLength(contents[2]!), copying);
     store = journalStore.setup(f.db, { dbPath: f.path, objectsRoot: f.objects });
     let failure: unknown;
     try { store.collectObjects!(); } catch (error) { failure = error; }
@@ -201,9 +205,25 @@ test("ordinary collection and its index preserve pinned, read-reserved and copy-
 test("a failed or killed index build rolls back and restarts without losing pins or enforcement (#2913)", () => {
   for (const killed of [false, true]) {
     const f = fixture();
+    let objects: ReturnType<typeof createJournalObjects> | undefined;
     try {
       seed(f.db, 1_000, 0);
+      const ledger = createJournalAccounting(f.db, f.path);
+      objects = createJournalObjects(f.objects, ledger);
+      // Keep both an active reservation and a real pinned file through the
+      // failed build, in addition to the large pin set.
+      const content = Buffer.from("Odysseus keeps these bytes during the upgrade."), hash = sha(content.toString());
+      const object = join(f.objects, hash);
+      // This test is synchronous so the crash can happen immediately after
+      // CREATE INDEX; seed the same admitted object/reservation rows directly.
+      ledger.write(() => {
+        f.db.query("INSERT INTO turn_journal_objects VALUES (?,?,'present')").run(hash, content.length);
+        f.db.query("INSERT INTO turn_journal_object_refs VALUES ('voyage-0',?)").run(hash);
+      });
+      writeFileSync(object, content, { mode: 0o600 });
+      ledger.reserve(content.length, hash);
       const before = f.db.query("SELECT * FROM turn_journal_object_refs ORDER BY turn_id,hash").all();
+      const reservations = f.db.query("SELECT * FROM turn_journal_reservations ORDER BY id").all();
       if (killed) {
         const client = new URL("../src/db/client.ts", import.meta.url).pathname;
         const accounting = new URL("../src/brain/journal-accounting.ts", import.meta.url).pathname;
@@ -214,7 +234,7 @@ test("a failed or killed index build rolls back and restarts without losing pins
         const result = Bun.spawnSync([process.execPath, "--no-env-file", "-e", child, f.path], { stdout: "pipe", stderr: "pipe" });
         expect(result.signalCode, result.stderr.toString()).toBe("SIGKILL");
       } else {
-        const ledger = createJournalAccounting(f.db, f.path), exec = f.db.exec.bind(f.db);
+        const exec = f.db.exec.bind(f.db);
         const interrupt = spyOn(f.db, "exec").mockImplementation(sql => {
           const result = exec(sql);
           if (sql.startsWith("CREATE INDEX journal.turn_journal_object_refs_hash")) throw Error("interrupted reference index build");
@@ -225,14 +245,16 @@ test("a failed or killed index build rolls back and restarts without losing pins
       }
       expect(indexed(f.db), "INTERRUPTED_INDEX_NOT_RECORDED").toBe(false);
       expect(f.db.query("PRAGMA foreign_keys").get(), "FAILED_INDEX_KEEPS_FOREIGN_KEYS").toEqual({ foreign_keys: 1 });
+      expect(readFileSync(object), "INTERRUPTED_INDEX_KEEPS_PINNED_RESERVED_BYTES").toEqual(content);
       const restarted = createUiDb(f.path);
       try {
         expect(restarted.query("SELECT * FROM turn_journal_object_refs ORDER BY turn_id,hash").all(), "INTERRUPTED_INDEX_KEEPS_EVERY_PIN").toEqual(before);
+        expect(restarted.query("SELECT * FROM turn_journal_reservations ORDER BY id").all(), "INTERRUPTED_INDEX_KEEPS_EVERY_RESERVATION").toEqual(reservations);
         expect(createJournalAccounting(restarted, f.path).ensureObjectRefIndex(), "INTERRUPTED_INDEX_RESTART_RETRIES").toBe(true);
         expect(restarted.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
         expect(restarted.query("PRAGMA journal.foreign_key_check").all()).toEqual([]);
       } finally { restarted.close(); }
-    } finally { f.close(); }
+    } finally { objects?.close(); f.close(); }
   }
 });
 

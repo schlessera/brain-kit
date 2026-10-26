@@ -87,6 +87,16 @@ thread waits for it.
 
 ## The exceptions
 
+**Journal object-pin index (#2913).** The journal worker builds the hash index
+through an admitted runtime upgrade rather than an unconditional startup SQL
+migration. The write lock covers its storage allowance, in-memory build,
+measured page/WAL checks and FULL commit. A refused build leaves the existing
+foreign-key-checked collection path available; collection retries after freeing
+bytes. An index's schema entry commits atomically as its completion receipt, so
+restart and competing openers are idempotent. The cap, retention and ordinary
+foreign-key enforcement remain unchanged. The full rationale and near-cap rule
+are in [the governed-workers decision](governed-writable-workers.md#admitted-object-pin-index-and-near-cap-recovery--2026-10-26-2913).
+
 - **A write inside the caller's transaction runs there.** The off-loop
   Activity store sees `db.inTransaction` and runs such a write synchronously on
   the caller's connection, so it stays atomic with the caller's rows. Claude
