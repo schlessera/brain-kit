@@ -127,7 +127,7 @@ test("push HTTP routes await subscription commits and key creation", async () =>
 
 function passkeys(f: ReturnType<typeof fixture>) {
   const failures: string[] = [];
-  const ctx: PasskeyContext = { log: { emit: record => { failures.push(String(record.attributes?.error ?? record.body)); } }, db: f.db, auth, revoker, rateLimiter: createLoginRateLimiter(), challenges: createPasskeyChallenges(),
+  const ctx: PasskeyContext = { log: { enabled: () => true, emit: record => { failures.push(String(record.attributes?.error ?? record.body)); } }, db: f.db, auth, revoker, rateLimiter: createLoginRateLimiter(), challenges: createPasskeyChallenges(),
     webauthn: config.webauthn, allowedOrigins: ["http://localhost"] };
   const deps: PasskeyDeps = {
     verifyRegistrationResponse: (async () => ({ verified: true, registrationInfo: {
@@ -286,6 +286,7 @@ test("revocation disconnects immediately and HTTP awaits the host's push unbindi
     let answered = false;
     const response = Promise.resolve(f.app.request(`/api/auth/principals/${f.agent.id}`, json("DELETE"))).then(r => { answered = true; return r; });
     await submission;
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(closed, "ACCOUNT_REVOCATION_DISCONNECTS_BEFORE_UNBIND_COMMIT").toEqual([f.agent.id]);
     expect(answered, "ACCOUNT_REVOCATION_HTTP_AWAITS_PUSH_UNBIND_COMMIT").toBe(false);
     release();
