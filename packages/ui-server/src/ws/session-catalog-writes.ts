@@ -12,7 +12,7 @@
  * still commit on the app connection.
  */
 import type { Database } from "bun:sqlite";
-import type { BillingMode, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import type { BillingMode, LocalExchange, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WriteProcedures } from "../db/write-worker.js";
 import { createActivityStore, priceUsage, type ActivityStore, type RollupPricing } from "../activity/store.js";
@@ -21,6 +21,7 @@ import { createModelPricing } from "../pricing/model-pricing.js";
 import { resolveStandalonePricingConfig } from "../config/env.js";
 import { allocateClaudeTitleUsage, reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
 import { saveMessageSource, saveEffectiveThinkingLevel } from "./message-sources.js";
+import { markLocalExchangesDelivered, saveLocalExchange } from "./local-exchanges.js";
 import * as work from "./session-work.js";
 import { saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
@@ -158,6 +159,8 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     label(sessionId: string, label: string, source: string) {
       db.prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
     },
+    localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => saveLocalExchange(db, sessionId, exchange, delivered, at),
+    exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => markLocalExchangesDelivered(db, sessionId, exchangeIds, at),
     addCost(sessionId: string, costUsd: number) {
       db.prepare("UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + ? WHERE id = ?").run(costUsd, sessionId);
     },
