@@ -122,7 +122,8 @@ test("staging followed by a database failure rolls back work and compensates fil
   expect((await share("https://example.org/odysseus-compensation-baseline")).status).toBe(201);
   const before = createInboxStore(db).snapshot();
   const dirs = await readdir(join(fixture.brainPath, ".brain-ui/inbox"));
-  db.exec("CREATE TEMP TRIGGER intake_fail BEFORE INSERT ON inbox_threads BEGIN SELECT RAISE(ABORT, 'fixture DB failure'); END");
+  // The fault must reach the worker's write connection as well as this reader.
+  db.exec("CREATE TRIGGER intake_fail BEFORE INSERT ON inbox_threads BEGIN SELECT RAISE(ABORT, 'fixture DB failure'); END");
   try {
     const failed = await share("https://example.org/odysseus-retry");
     expect(failed.status).toBe(500);
