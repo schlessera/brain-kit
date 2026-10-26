@@ -12,7 +12,8 @@ import {
 import { rowToRunRollup, type AwaitableActivityStore } from "../activity/store.js";
 import { toWireEvent, toWireRollup, toWireSpan } from "../activity/stream.js";
 import type { ActivityNotifier } from "../activity/notify.js";
-import { noticeClientId, type ActionNotifier } from "../inbox/notify.js";
+import { noticeClientId } from "../inbox/notify.js";
+import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import type { AppEnv } from "../app-env.js";
 import {
   digestDismissedAt,
@@ -42,7 +43,7 @@ export function createActivityRoutes(deps: {
   store: AwaitableActivityStore;
   notifier?: ActivityNotifier;
   /** Durable Action notices; their digest contribution is per client context. */
-  actionNotices?: ActionNotifier;
+  actionNotices?: AwaitableActionNotifier;
 }): Hono<AppEnv> {
   const { db, store, notifier, actionNotices } = deps;
   const writes = deps.settingsWrites ?? createSettingsWrites(db);
@@ -62,7 +63,7 @@ export function createActivityRoutes(deps: {
           digest: latestActivityDigest(db),
           dismissedAt: digestDismissedAt(db),
           ...(actionNotices && principal && clientId !== null
-            ? { actions: actionNotices.digest({ principalId: principal.id, clientId }) }
+            ? { actions: await actionNotices.digest({ principalId: principal.id, clientId }) }
             : {}),
         });
       } catch (err) {
@@ -82,7 +83,7 @@ export function createActivityRoutes(deps: {
         const clientId = noticeClientId(c.req.query("client"));
         const through = c.req.query("through");
         if (actionNotices && principal && clientId !== null) {
-          actionNotices.dismiss({ principalId: principal.id, clientId }, through === undefined ? undefined : Number(through));
+          await actionNotices.dismiss({ principalId: principal.id, clientId }, through === undefined ? undefined : Number(through));
         }
         return c.json({ ok: true });
       } catch (err) {
