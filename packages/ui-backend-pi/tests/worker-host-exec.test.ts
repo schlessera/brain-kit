@@ -63,7 +63,7 @@ for (const profile of ["governed", "strict", "restricted"] as const) {
       expect(report.grep).toContain("voyage.md:1:The wine-dark sea");
       expect(report.bash).toBe("Ithaca");
       const wrapped = report.wrapperLog.split("\n");
-      expect(wrapped, "WORKER_TOOLS_USED_HOST_WRAPPER").toEqual(expect.arrayContaining(["-rInE", "wine-dark", "-lc", "echo Ithaca", "sleep 30"]));
+      expect(wrapped, "WORKER_TOOLS_USED_HOST_WRAPPER").toEqual(expect.arrayContaining(["-rInE", "wine-dark", "--noprofile", "--norc", "-c", "echo Ithaca", "sleep 30"]));
       expect(report.cancel).toBe("AbortError");
       expect(report.killerLog, "WORKER_KILLER_CANCELLED_GROUP").toMatch(/^\d+ TERM\n$/);
       expect(report.cancelMs).toBeLessThan(10_000);
