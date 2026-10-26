@@ -9,20 +9,16 @@ import type { AuthConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
 import {
-  createPrincipal,
   isCookieBearingPrincipal,
   isUsablePrincipal,
   PrincipalCredentialNotFoundError,
   PrincipalLimitError,
-  prunePrincipals,
-  prunePrincipalsIfDue,
-  resolveAmbientPrincipal,
   resolvePrincipal,
   revokePrincipal,
   revokeAllPrincipals,
-  touchLastSeen,
   type Principal,
 } from "../db/principals.js";
+import { principalWrites } from "../db/principal-writes.js";
 import type { AppEnv } from "../app-env.js";
 import type { WsHost } from "../ws/host.js";
 
@@ -194,12 +190,12 @@ export function authGuard(
   switch (mode) {
     case "tailscale":
       return async (c, next) => {
-        prunePrincipalsIfDue(db, Date.now());
+        principalWrites(db).pruneIfDue(Date.now());
         if (isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) {
           const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
           c.set(
             "principal",
-            resolveAmbientPrincipal(db, "tailscale", ip, sanitizeAmbientLabel(ip))
+            await principalWrites(db).ambient("tailscale", ip, sanitizeAmbientLabel(ip))
           );
           await next();
         } else {
@@ -208,13 +204,12 @@ export function authGuard(
       };
     case "proxy":
       return async (c, next) => {
-        prunePrincipalsIfDue(db, Date.now());
+        principalWrites(db).pruneIfDue(Date.now());
         const proxyIdentity = resolveProxyIdentity(c, auth);
         if (proxyIdentity) {
           c.set(
             "principal",
-            resolveAmbientPrincipal(
-              db,
+            await principalWrites(db).ambient(
               "proxy",
               proxyIdentity.identity,
               proxyIdentity.label
@@ -230,7 +225,7 @@ export function authGuard(
       };
     case "password":
       return async (c, next) => {
-        prunePrincipalsIfDue(db, Date.now());
+        principalWrites(db).pruneIfDue(Date.now());
         const principal = await resolveCookiePrincipal(c, auth, db);
         if (principal) {
           c.set("principal", principal);
@@ -244,11 +239,10 @@ export function authGuard(
       };
     case "none":
       return async (c, next) => {
-        prunePrincipalsIfDue(db, Date.now());
+        principalWrites(db).pruneIfDue(Date.now());
         c.set(
           "principal",
-          resolveAmbientPrincipal(
-            db,
+          await principalWrites(db).ambient(
             "none",
             "No authentication",
             "No authentication"
@@ -274,11 +268,10 @@ export async function isWsAuthorized(
   auth: AuthRuntime,
   db: Database
 ): Promise<Principal | null> {
-  prunePrincipalsIfDue(db, Date.now());
+  principalWrites(db).pruneIfDue(Date.now());
   switch (mode) {
     case "none":
-      return resolveAmbientPrincipal(
-        db,
+      return await principalWrites(db).ambient(
         "none",
         "No authentication",
         "No authentication"
@@ -286,8 +279,7 @@ export async function isWsAuthorized(
     case "tailscale": {
       if (!isTailscaleAllowed(c, auth.trustProxy, auth.trustProxyHops)) return null;
       const ip = clientIp(c, auth.trustProxy, auth.trustProxyHops);
-      return resolveAmbientPrincipal(
-        db,
+      return await principalWrites(db).ambient(
         "tailscale",
         ip,
         sanitizeAmbientLabel(ip)
@@ -296,8 +288,7 @@ export async function isWsAuthorized(
     case "proxy": {
       const proxyIdentity = resolveProxyIdentity(c, auth);
       return proxyIdentity
-        ? resolveAmbientPrincipal(
-            db,
+        ? await principalWrites(db).ambient(
             "proxy",
             proxyIdentity.identity,
             proxyIdentity.label
@@ -374,10 +365,9 @@ export async function issueLoginSession(
   db: Database,
   lineage: LoginPrincipalLineage
 ): Promise<Response | null> {
-  prunePrincipals(db, Date.now());
-
   try {
-    const principal = createPrincipal(db, {
+    // Pruned first, then created, on the write worker (#2850).
+    const principal = await principalWrites(db).login({
       authMethod: lineage.authMethod,
       label: sanitizeLoginLabel(c.req.header("user-agent")),
       credentialId:
@@ -435,7 +425,8 @@ export async function resolveCookiePrincipal(
   ) {
     return null;
   }
-  touchLastSeen(db, principal.id, now);
+  // Advisory, throttled, and never waited for (#2850).
+  principalWrites(db).touch(principal, now);
   return principal;
 }
 

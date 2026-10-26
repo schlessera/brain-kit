@@ -122,7 +122,7 @@ function generatePrincipalId(): string {
   return randomBytes(16).toString("base64url");
 }
 
-function ambientPrincipalId(
+export function ambientPrincipalId(
   source: AmbientPrincipalSource,
   identity: string
 ): string {
