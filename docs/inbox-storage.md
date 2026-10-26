@@ -22,7 +22,12 @@ promote an untrusted arrival or recreate removed work.
 `commit()` composes guarded mutations in one immediate SQLite transaction.
 Callers compose the claim, reservation, checkpoint, blocking Action or
 resolution follow-up needed for their operation; a late failure rolls back
-all of them. Queue and Action transitions have separate closed tables.
+all of them. In the hosted app, intake, lifecycle, share and review procedures
+run these complete transactions on the SQLite write worker at `synchronous=FULL`.
+Change IDs and per-thread sequences are assigned there in submission/commit order;
+rolled-back work leaves no committed gap. Callers await the commit before reporting
+an intake receipt, decision or completed cleanup. Standalone store callers retain
+the synchronous transaction API. Queue and Action transitions have separate closed tables.
 Actions never acquire leases. Queue claims increment attempts and require a
 future lease within the item's attempt limit. Selecting due work, validating
 lease expiry and deciding retry backoff belong to the drain loop.

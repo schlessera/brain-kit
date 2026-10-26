@@ -1,8 +1,10 @@
 /** Inbox lifecycle commits share the hosted write worker (#3001). */
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { createBrainApplication } from "../src/brain/application.js";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
@@ -14,6 +16,8 @@ import { inboxLifecycleWrites } from "../src/inbox/lifecycle-writes.js";
 import { createInboxResolver } from "../src/inbox/resolve.js";
 import { createInboxAction } from "../src/inbox/actions.js";
 import { createInboxCleanup } from "../src/inbox/cleanup.js";
+import { createInboxBudget } from "../src/inbox/budget.js";
+import { createOffloopActivityStore } from "../src/activity/store-writes.js";
 import { createHygieneReview } from "../src/inbox/hygiene-review.js";
 import type { BrainClient } from "../src/brain/client.js";
 import * as probe from "./fixtures/write-worker-probe.js";
@@ -57,6 +61,33 @@ test("interactive share start bind and end commit on the write worker at FULL", 
   } finally { await shares.end("odysseus-turn"); await intake.close(); await f.close(); }
 });
 
+test("share application and completion receipts commit on the write worker at FULL", async () => {
+  const f = fixture(), intake = createInboxIntake(f.db, f.root), shares = createInteractiveShares(f.db, f.root);
+  try {
+    mkdirSync(join(f.root, "notes"));
+    const arrival = await intake.share({ text: "Odysseus returns to Ithaca.", files: [] }, f.principal);
+    await shares.start(f.principal.id, "odysseus-turn", "odysseus-session", arrival.result.id, () => true);
+    const sites = await watchWriteSites(f.db, f.writer, ["inbox_share_applications", "inbox_interactive_shares", "inbox_items", "inbox_changes", "inbox_thread_sequences"]);
+    const input = { operation: "write" as const, path: "notes/ithaca.md", expectedBaseHash: null, content: `Odysseus returns.\n<!-- share-source:${arrival.result.id} -->\n` };
+    const lock = createKeyedLock();
+    const application = createBrainApplication({ root: f.root, principalId: f.principal.id, turnId: "odysseus-turn", signal: new AbortController().signal,
+      isAuthorized: () => true, approve: async () => false, record() {}, policy: { lock, available: ["write"], autoAllowed: ["write"] },
+      planner: { planAdd: async () => { throw new Error("No capture in this fixture"); }, index: async () => {} } });
+    let applied = 0;
+    const apply = () => { applied++; return application({ principalId: f.principal.id, turnId: "odysseus-turn", input }); };
+    const result = await shares.apply(f.principal.id, "odysseus-turn", "odysseus-session", () => true, input, apply);
+    expect(result.ok, "INBOX_SHARE_APPLICATION_SUCCEEDED").toBe(true);
+    expect(result.shareReceiptId, "INBOX_SHARE_APPLICATION_RECEIPT_COMMITTED").toBeDefined();
+    expect(await shares.apply(f.principal.id, "odysseus-turn", "odysseus-session", () => true, input, apply), "INBOX_SHARE_APPLICATION_REPLAY").toEqual(result);
+    expect(applied, "INBOX_SHARE_APPLICATION_APPLIED_ONCE").toBe(1);
+    const request = { receiptIds: [result.shareReceiptId!], files: [] };
+    const complete = () => shares.complete(f.principal.id, "odysseus-turn", "odysseus-session", () => true, request, async () => false, lock);
+    expect(await complete(), "INBOX_SHARE_COMPLETION_COMMITTED_BEFORE_REPLY").toEqual({ itemId: arrival.itemId, status: "done", replay: false });
+    expect(await complete(), "INBOX_SHARE_COMPLETION_REPLAY").toEqual({ itemId: arrival.itemId, status: "done", replay: true });
+    expect(await sites.log(), "INBOX_SHARE_RECEIPTS_ON_WORKER_AT_FULL").toContain("inbox_share_applications");
+  } finally { await shares.end("odysseus-turn"); await intake.close(); await f.close(); }
+});
+
 test("recovery lifecycle and heartbeat commit on the write worker at FULL", async () => {
   const f = fixture();
   let runtime: ReturnType<typeof createInboxRuntime> | undefined;
@@ -66,6 +97,24 @@ test("recovery lifecycle and heartbeat commit on the write worker at FULL", asyn
     await runtime.ready;
     expect(await runtime.tick(), "INBOX_TICK_COMMITTED_BEFORE_REPLY").not.toHaveProperty("failed");
     expect(await sites.log(), "INBOX_HEARTBEAT_WRITES_ON_WORKER_AT_FULL").toEqual(["inbox_scheduler_heartbeats", "inbox_scheduler_heartbeats"]);
+  } finally { await runtime?.close(); await f.close(); }
+});
+
+test("expired leases reconcile their budget and recover on the write worker at FULL", async () => {
+  const f = fixture(), store = createInboxStore(f.db);
+  let runtime: ReturnType<typeof createInboxRuntime> | undefined;
+  try {
+    let at = Date.now();
+    store.ingest({ threadId: "odysseus", itemId: "arrival", source: "share", dedupKey: "arrival", stagingId: "odysseus", expiresAt: at + 86_400_000, stakes: 1 });
+    const budget = createInboxBudget(f.db, { now: () => at, config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => null } });
+    expect(budget.claim("arrival", { runId: "odysseus-turn", principalId: f.principal.id, model: "fixture", billingMode: "subscription", purpose: "triage" }, at + 5)).not.toBeNull();
+    const sites = await watchWriteSites(f.db, f.writer, ["inbox_budget_reservations", "inbox_items", "inbox_changes", "inbox_thread_sequences", "inbox_scheduler_heartbeats"]);
+    at += 10;
+    runtime = createInboxRuntime(f.db, { now: () => at, log: { emit() {}, enabled: () => false } });
+    await runtime.ready;
+    expect(store.getItem("arrival"), "INBOX_EXPIRED_LEASE_RECOVERED_ON_WORKER").toMatchObject({ status: "ready", attempts: 1 });
+    expect(f.db.query("SELECT status FROM inbox_budget_reservations").get(), "INBOX_BUDGET_RECONCILED_BEFORE_RECOVERY_REPLY").toEqual({ status: "released" });
+    expect((await sites.log())[0], "INBOX_BUDGET_COMMIT_PRECEDES_LEASE_RECOVERY").toBe("inbox_budget_reservations");
   } finally { await runtime?.close(); await f.close(); }
 });
 
@@ -146,5 +195,22 @@ test("share submission does not wait on the app loop and settles after earlier w
     await Bun.sleep(20);
     expect(settled, "INBOX_SHARE_WAITS_FOR_EARLIER_COMMITS").toBe(false);
     await slow; await started;
+  } finally { await f.close(); }
+});
+
+test("inbox and Activity commits keep their shared submission order", async () => {
+  const f = fixture();
+  try {
+    const at = Date.now(), store = createInboxStore(f.db);
+    store.ingest({ threadId: "odysseus", itemId: "arrival", source: "share", dedupKey: "arrival", stagingId: "odysseus", expiresAt: at + 86_400_000, stakes: 1 });
+    const sites = await watchWriteSites(f.db, f.writer, ["inbox_checkpoints", "activity_spans"]);
+    const write = inboxLifecycleWrites(f.db), activity = createOffloopActivityStore(f.db, f.writer, { writer: "odysseus", pricingConfig: { brainPath: f.root, enabled: false } });
+    const commits: unknown[] = [];
+    for (let i = 0; i < 4; i++) {
+      commits.push(write("commit", [{ kind: "checkpoint", id: `voyage-${i}`, threadId: "odysseus", stateMd: `Port ${i}`, facts: { decisions: [], operations: [], capabilities: [], paths: [], questions: [] } }], at));
+      commits.push(activity.startSpan({ spanId: `voyage-${i}`, runId: `voyage-${i}`, name: "invoke_agent", kind: "turn", origin: "session" }));
+    }
+    await Promise.all(commits);
+    expect(await sites.log(), "INBOX_ACTIVITY_SHARED_COMMIT_ORDER").toEqual(Array.from({ length: 4 }, () => ["inbox_checkpoints", "activity_spans"]).flat());
   } finally { await f.close(); }
 });
