@@ -19,13 +19,23 @@ import { createGovernancePolicyReader } from "../src/brain/governance-policy";
 import { WsHost } from "../src/ws/host";
 import { runSession } from "../src/ws/run-session";
 import { createSessionCatalog } from "../src/ws/session-catalog";
+import { openSqliteWriter, procedureCaller } from "../src/db/write-worker";
+import * as governedTurnWrites from "../src/brain/governed-turn-writes";
+import { createProviderExposures } from "../src/brain/provider-exposure";
+import * as probe from "./fixtures/write-worker-probe";
+import { watchWriteSites } from "./helpers/write-sites";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 
 const cleanup: Array<() => void> = [];
+/** A worker commit held for `ms`, queued at once, as a slow fsync would. */
+function slowCommit(writer: import("../src/db/write-worker").SqliteWriter, ms: number) {
+  const channel = writer.channel(probe, { table: "odysseus_log" });
+  return channel.call("slow", "Calypso", ms);
+}
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
-function fixture() {
+function fixture(options: { writer?: boolean; slowPolicyRecord?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-policy-"));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const brain = join(root, "brain"); mkdirSync(join(brain, "context/policies"), { recursive: true });
@@ -34,14 +44,22 @@ function fixture() {
   const dbPath = join(root, "state/ui.db");
   mkdirSync(join(root, "state"));
   const db = createUiDb(dbPath); cleanup.push(() => db.close());
-  const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
+  // With a writer, admission records commit on it, as in the app (#2850).
+  const writer = options.writer ? openSqliteWriter(db) : undefined;
+  if (writer) cleanup.push(() => { void writer.close(); });
+  const records = writer ? procedureCaller(db, governedTurnWrites, undefined, writer) : undefined;
+  const exposures = writer ? createProviderExposures(db, writer) : undefined;
+  const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db, writer);
   const notices: string[] = [];
   // Peers here stay active until the test releases them; refuse at a short bound.
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: message => notices.push(message),
     peerFolderPlanWaitMs: 300,
-    recordPolicy: (turnId, origin, profile, policy) => db.query("INSERT INTO turn_governance_policy (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1) });
-  return { brain, path, write, db, execution, notices, turns };
+    ...(exposures ? { exposures } : {}),
+    recordPolicy: (turnId, origin, profile, policy) => records
+      ? (options.slowPolicyRecord ? void slowCommit(writer!, 300) : undefined, records("recordPolicy", turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1))
+      : void db.query("INSERT INTO turn_governance_policy (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1) });
+  return { brain, path, write, db, execution, notices, turns, writer, exposures };
 }
 
 test.each(["interactive", "voice"] as const)("%s policy selection enters an actual strict worker and records its immutable policy identity", async origin => {
@@ -441,4 +459,60 @@ test("a missing folder preserves strict fallback beside an unaccounted peer", as
     const [exit, out, err] = await Promise.all([child.exited, collect(child.stdout), collect(child.stderr)]);
     expect(exit, out + err).toBe(0);
   } finally { try { await hold?.end(); } finally { prior.release(); } }
+});
+
+test("a governed turn's admission records have committed when admission settles, and its manifest close when it ends (#2850)", async () => {
+  const f = fixture({ writer: true });
+  f.write("profiles: { interactive: governed }");
+  const hold = await f.turns.begin("ithaca-records", new AbortController().signal);
+  const policy = f.db.query("SELECT profile FROM turn_governance_policy WHERE turn_id = 'ithaca-records'").get() as { profile: string } | null;
+  expect(policy, "ADMISSION_POLICY_RECORD_COMMITTED_BEFORE_ADMISSION_SETTLES").not.toBeNull();
+  const governed = policy!.profile === "governed";
+  const manifest = () => f.db.query("SELECT ended_at FROM governed_turn_manifests WHERE turn_id = 'ithaca-records'").get() as { ended_at: number | null } | null;
+  if (governed) expect(manifest(), "ADMISSION_MANIFEST_COMMITTED_BEFORE_ADMISSION_SETTLES").toEqual({ ended_at: null });
+  await hold.end();
+  if (governed) expect(manifest()?.ended_at, "ADMISSION_MANIFEST_CLOSE_COMMITTED_BEFORE_END_SETTLES").not.toBeNull();
+  expect(governed, "ADMISSION_FIXTURE_IS_GOVERNED").toBe(true);
+});
+
+test("an exposure read waits for every exposure write submitted before it (#2850)", async () => {
+  const f = fixture({ writer: true });
+  const shown = { recipient: "anthropic", visible: ["me"], hidden: [] };
+  await f.exposures!.record("ithaca-bind", null, shown);
+  const held = f.writer!.channel(probe, { table: "odysseus_log" }); await held.ready;
+  const slow = held.call("slow", "Calypso", 300);
+  const bound = f.turns.bindSession("ithaca-bind", "ithaca-session");
+  expect(f.exposures!.forSessions(["ithaca-session"]), "EXPOSURE_BIND_NOT_COMMITTED_ON_LOOP").toEqual([]);
+  expect(await f.turns.exposures(["ithaca-session"]), "EXPOSURE_READ_WAITS_FOR_PENDING_BIND").toEqual([shown]);
+  await bound; await slow;
+});
+
+test("a governed turn's admission records commit on the write worker at FULL, never on the app connection (#2850)", async () => {
+  const f = fixture({ writer: true });
+  f.write("profiles: { interactive: governed }");
+  const sites = await watchWriteSites(f.db, f.writer!, ["turn_governance_policy", "governed_turn_manifests", "session_provider_exposure", "session_masked_lineage"]);
+  const hold = await f.turns.begin("ithaca-sites", new AbortController().signal);
+  await hold.end();
+  await f.exposures!.record("ithaca-sites", null, { recipient: "anthropic", visible: ["me"], hidden: [] });
+  await f.exposures!.startMasked("ithaca-sites", ["me"]);
+  await f.turns.bindSession("ithaca-sites", "ithaca-sites-session");
+  await f.exposures!.narrowMasked("ithaca-sites-2", "ithaca-sites-session", ["me"]);
+  expect(new Set(await sites.log()), "ADMISSION_RECORDS_WRITTEN_ON_WORKER").toEqual(new Set(["turn_governance_policy", "governed_turn_manifests", "session_provider_exposure", "session_masked_lineage"]));
+});
+
+test("a strict turn's policy record has committed when admission settles, and a manifest close when it settles (#2850)", async () => {
+  // A slow commit is queued just ahead of the policy record.
+  const f = fixture({ writer: true, slowPolicyRecord: true });
+  f.write("profiles: { interactive: strict }");
+  const hold = await f.turns.begin("ithaca-strict", new AbortController().signal);
+  expect(f.db.query("SELECT profile FROM turn_governance_policy WHERE turn_id = 'ithaca-strict'").get(), "ADMISSION_STRICT_POLICY_RECORD_COMMITTED").toEqual({ profile: "strict" });
+  await hold.end();
+  // A manifest's close settles once its record commits, behind a slow commit.
+  const manifests = f.execution.manifests()!;
+  await manifests.begin("ithaca-close");
+  const held = f.writer!.channel(probe, { table: "odysseus_log" }); await held.ready;
+  const slow = held.call("slow", "Calypso", 300);
+  await manifests.end("ithaca-close");
+  expect((f.db.query("SELECT ended_at FROM governed_turn_manifests WHERE turn_id = 'ithaca-close'").get() as { ended_at: number | null }).ended_at, "MANIFEST_CLOSE_SETTLES_AFTER_ITS_RECORD").not.toBeNull();
+  await slow;
 });
