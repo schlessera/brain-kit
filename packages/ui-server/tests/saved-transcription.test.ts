@@ -15,6 +15,11 @@ function fake(call: NonNullable<SpeechProvider["transcribeRecording"]>): SpeechP
   return { id: "fixture-speech", capabilities: { streaming: false, interimResults: false, endpointing: false, keyterms: false }, createSession: async () => { throw new Error("No session may be minted"); }, transcribeRecording: call };
 }
 
+/** Waits for the provider's first call: the claim that dispatches it commits on the write worker first. */
+async function providerCalled(calls: () => number, deadline = Date.now() + 5_000) {
+  while (calls() === 0 && Date.now() < deadline) await Bun.sleep(5);
+}
+
 test("concurrent real route requests dispatch exactly once and repeated done reuses one transcript", async () => {
   let calls = 0, release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -26,7 +31,7 @@ test("concurrent real route requests dispatch exactly once and repeated done reu
     const first = t.fetch(path(id), put());
     await Bun.sleep(20);
     const pending = Array.from({ length: 8 }, () => t.fetch(path(id), put()));
-    await Bun.sleep(50);
+    await providerCalled(() => calls); await Bun.sleep(50);
     expect(calls, "only one provider call under concurrent PUTs").toBe(1);
     const repeats = await Promise.all(pending);
     expect(repeats.map(r => r.status)).toEqual(Array(8).fill(409));
@@ -164,7 +169,9 @@ test("deletion during dispatch leaves a tombstone that stale completion cannot r
   const gate = new Promise<void>(r => { release = r; });
   const t = await httpContractApp({ env: { VOICE_PROVIDER: "fixture-speech" }, speechProvider: fake(async () => { calls++; await gate; return { text: "Penelope's private loom order." }; }) });
   try {
-    const id = randomUUID(); const pending = t.fetch(path(id), put()); await Bun.sleep(20);
+    const id = randomUUID(); const pending = t.fetch(path(id), put());
+    // The claim commits on the write worker before the provider is called (#2850).
+    await providerCalled(() => calls);
     expect(calls).toBe(1);
     expect((await (await t.fetch(`${path(id)}?disposition=accepted`, { method: "DELETE" })).json()).status).toBe("consumed");
     release(); const result = await (await pending).json();
