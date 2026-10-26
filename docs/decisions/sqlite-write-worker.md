@@ -196,6 +196,22 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   committed, so the next pass never sends an intent again or retries a gone
   device. The inbox and the pending queue are still read on the app
   connection.
+- **Schedule route writes followed** (#3003, within #2850). Proposals,
+  approvals, pending publication, activation or quarantine, cancellation and
+  reconciliation commit on the worker
+  (`packages/ui-server/src/schedules/service-writes.ts`). Each transaction
+  keeps its reads and `BEGIN IMMEDIATE`; cancellation still invalidates
+  unstarted occurrences and drops their Queue items and change records in the
+  same transaction. Publication awaits its pending receipt, then checks Git
+  and publishes the approved file, then awaits activation or quarantine.
+  Cancellation awaits its ledger change before retiring the file, and marks
+  retirement complete only after that file operation. A late publisher of a
+  cancelled task journals and completes retirement again. Reopening awaits
+  restored-root adoption and journal reconciliation before its own transaction.
+  Every route reads its result after the relevant commits; schedule refusals
+  keep their class, code and HTTP status across the worker. `rootInfo` still
+  creates the root identity on the app connection during boot, before serving;
+  the unwired admission service and cron execution retain their own writes.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
   proposals, action and storage notices, push subscriptions and VAPID keys,
