@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -33,6 +33,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
 } = {}): JournalObjectAccounting & {
   write<T>(operation: () => T): T;
   usage(): number;
+  /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
+  ensureObjectRefIndex(): boolean;
   openRead(hash: string, assertOwner?: () => void): string;
   releaseRead(id: string): void;
   reserveTemporary(bytes: number): { id: string; release(): void };
@@ -46,6 +48,10 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   if (db.inTransaction) throw new JournalStorageUnavailable("the journal ledger cannot start inside another transaction");
   attachJournalDatabase(db, dbPath);
   db.exec("PRAGMA foreign_keys = ON");
+  // CREATE INDEX may sort on disk even with cache spill disabled. Choose
+  // memory before installing TEMP guards: changing temp_store deletes the
+  // entire TEMP schema. Never discard a caller's existing TEMP objects.
+  if (!db.query("SELECT 1 FROM sqlite_temp_schema LIMIT 1").get()) db.exec("PRAGMA temp_store = MEMORY");
   // SQLite keeps the WAL beside the file a link resolves to.
   const real = (path: string) => memory ? path : realpathSync(path);
   const file = real(journalDatabasePath(dbPath)), uiWal = memory ? "" : `${real(resolve(dbPath))}-wal`;
@@ -58,10 +64,10 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
    * pages it released and page 1. So the measurement is the file's extent,
    * read without walking anything.
    */
-  function measure() {
+  function measure(additionalPages = 0) {
     const logicalPages = (db.query(`PRAGMA ${JOURNAL_SCHEMA}.page_count`).get() as { page_count: number }).page_count;
     const free = (db.query(`PRAGMA ${JOURNAL_SCHEMA}.freelist_count`).get() as { freelist_count: number }).freelist_count;
-    const pages = memory ? logicalPages : Math.max(logicalPages, Math.ceil(size(file) / pageSize));
+    const pages = (memory ? logicalPages : Math.max(logicalPages, Math.ceil(size(file) / pageSize))) + additionalPages;
     // One spill-disabled commit writes each page of the file at most once,
     // free-list trunk pages included. Keep this temporary capacity reserved
     // even after checkpoint so a crash cannot lose the accounting before
@@ -70,7 +76,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     const physical = memory ? 0 : pages * pageSize;
     const objects = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_objects WHERE state='present'").get() as { bytes: number }).bytes;
     const pending = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_reservations").get() as { bytes: number }).bytes;
-    return { free, walCapacity, bytes: physical + walCapacity + objects + pending };
+    return { pages, free, walCapacity, bytes: physical + walCapacity + objects + pending };
   }
   class CheckpointRace extends Error {}
   class WalDebt extends Error {}
@@ -144,6 +150,47 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     // The standing charge keeps at least one commit of WAL headroom reserved.
     return measured.bytes - measured.walCapacity + Math.max(measured.walCapacity, wal());
   };
+  /**
+   * Runtime migration (#2913), deliberately outside the unconditional SQL
+   * migrations. The existing schema entry is its atomic completion receipt.
+   * Admission reserves an allowance for new b-tree/schema/pointer-map pages
+   * and their FULL commit's WAL before CREATE INDEX. No freelist credit is
+   * assumed. The measured build must fit that allowance as well as the cap.
+   *
+   * Sorter data stays in memory; write() disables cache spill, so an aborted
+   * or underestimated build allocates no persistent pages or WAL frames.
+   * Both checks run under the same write lock as the build and commit.
+   */
+  function ensureObjectRefIndex(): boolean {
+    const exists = () => Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='index' AND name=?`).get(JOURNAL_OBJECT_REFS_INDEX.name));
+    if (exists()) return true;
+    // A SQLite build forcing file-backed temps, or a caller owning TEMP
+    // state with another setting, keeps the slower path without changing it.
+    if ((db.query("PRAGMA temp_store").get() as { temp_store: number }).temp_store !== 2
+      || db.query("SELECT 1 FROM pragma_compile_options WHERE compile_options='TEMP_STORE=0'").get()) return false;
+    try {
+      write(() => {
+        if (exists()) return; // Another process may have installed it before this lock.
+        // Hash payload plus record, rowid and cell overhead; double the
+        // allowance for b-tree fill and interior pages, plus fixed overhead.
+        // This is an allowance, not trusted size prediction: check the actual
+        // extent before commit, while all newly built pages are still cached.
+        const payload = (db.query("SELECT coalesce(sum(length(CAST(hash AS BLOB))+32),0) AS bytes FROM turn_journal_object_refs").get() as { bytes: number }).bytes;
+        const pages = 8 + 2 * Math.ceil(payload / (pageSize - 128));
+        const before = measure(), projected = measure(pages), debt = wal();
+        if (projected.bytes + debt > cap) {
+          if (debt > 0) throw new WalDebt();
+          throw new JournalCapacityError();
+        }
+        db.exec(JOURNAL_OBJECT_REFS_INDEX.sql.replace("CREATE INDEX ", `CREATE INDEX ${JOURNAL_SCHEMA}.`));
+        if (measure().pages > before.pages + pages) throw new JournalCapacityError("The journal reference index exceeded its admitted page allowance.");
+      });
+      return true;
+    } catch (error) {
+      if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error;
+      return false;
+    }
+  }
   // While the server starts, truncate and return the pages released before
   // the last stop to the file system, as one admitted FULL write. A pinned
   // WAL or an over-cap store leaves this to the first write, which refuses
@@ -154,7 +201,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     if (!memory) db.query(`PRAGMA ${JOURNAL_SCHEMA}.wal_checkpoint(TRUNCATE)`).get();
   } catch (error) { if (!(error instanceof JournalStorageUnavailable || error instanceof JournalCapacityError)) throw error; }
   return {
-    write, usage,
+    write, usage, ensureObjectRefIndex,
     openRead(hash, assertOwner) {
       const id = crypto.randomUUID();
       write(() => {

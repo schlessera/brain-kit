@@ -169,6 +169,7 @@ test("the operational backup carries the journal file, from the app or the recov
   const source = join(f.root, "source"), target = join(f.root, "target"); mkdirSync(source); mkdirSync(target);
   const path = join(source, "ui.sqlite"), db = createUiDb(path), ledger = createJournalAccounting(db, path);
   ledger.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state,summary) VALUES ('voyage','interactive','governed',1,'complete','Ithaca')").run());
+  expect(ledger.ensureObjectRefIndex(), "BACKUP_SOURCE_HAS_ADMITTED_INDEX").toBe(true);
   const at = Date.now();
   const snapshot = await exportInboxSnapshot(db, source, at);
   // The recovery command opens the UI file directly and read-only.
@@ -176,15 +177,39 @@ test("the operational backup carries the journal file, from the app or the recov
   try {
     expect(await exportInboxSnapshot(command, source, at), "JOURNAL_BACKUP_SAME_FROM_RECOVERY_COMMAND").toEqual(snapshot);
     const image = Database.deserialize(Buffer.from(snapshot.database.data, "base64"));
-    try { expect(image.query("SELECT turn_id, summary FROM turn_journal_turns").all(), "JOURNAL_BACKUP_CARRIES_JOURNAL").toEqual([{ turn_id: "voyage", summary: "Ithaca" }]); }
+    try {
+      expect(image.query("SELECT turn_id, summary FROM turn_journal_turns").all(), "JOURNAL_BACKUP_CARRIES_JOURNAL").toEqual([{ turn_id: "voyage", summary: "Ithaca" }]);
+      expect(image.query("SELECT 1 FROM sqlite_schema WHERE name='turn_journal_object_refs_hash'").get(), "BACKUP_OMITS_DERIVED_INDEX").toBeNull();
+    }
     finally { image.close(); }
+    expect(db.query("SELECT 1 AS present FROM journal.sqlite_schema WHERE name='turn_journal_object_refs_hash'").get(), "BACKUP_KEEPS_LIVE_ADMITTED_INDEX").toEqual({ present: 1 });
     expect(await restoreInboxSnapshot(snapshot, join(target, "ui.sqlite"), target, at + 1)).toMatchObject({ resumed: false });
     const restored = createUiDb(join(target, "ui.sqlite"));
     try {
       expect(journalTables(restored, "main")).toEqual([]);
       expect(restored.query("SELECT turn_id, summary FROM journal.turn_journal_turns").all(), "JOURNAL_RESTORE_MOVES_JOURNAL_BACK").toEqual([{ turn_id: "voyage", summary: "Ithaca" }]);
+      expect(restored.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_object_refs_hash'").get(), "RESTORE_DOES_NOT_ALLOCATE_UNADMITTED_INDEX").toBeNull();
+      const restoredLedger = createJournalAccounting(restored, join(target, "ui.sqlite"));
+      const bounded = createJournalAccounting(restored, join(target, "ui.sqlite"), { capBytes: restoredLedger.usage() + 8_192 });
+      expect(bounded.ensureObjectRefIndex(), "RESTORED_INDEX_STILL_NEEDS_ADMISSION").toBe(false);
+      expect(restoredLedger.ensureObjectRefIndex(), "RESTORED_INDEX_REBUILDS_WHEN_ADMITTED").toBe(true);
     } finally { restored.close(); }
   } finally { command.close(); f.close(db); }
+});
+
+test("the derived journal index name cannot hide an incompatible backup schema", async () => {
+  for (const sql of [
+    "CREATE INDEX journal.turn_journal_object_refs_hash ON turn_journal_object_refs(turn_id)",
+    "CREATE TRIGGER journal.turn_journal_object_refs_hash BEFORE INSERT ON turn_journal_object_refs BEGIN SELECT RAISE(ABORT, 'unexpected trigger'); END",
+  ]) {
+    const f = fixture("backup-schema"), db = createUiDb(f.path);
+    try {
+      db.exec(sql);
+      let error: unknown;
+      try { await exportInboxSnapshot(db, f.root); } catch (failure) { error = failure; }
+      expect(error instanceof Error ? error.message : error, "DERIVED_INDEX_NAME_IS_NOT_SCHEMA_BYPASS").toBe("inbox_snapshot_schema");
+    } finally { f.close(db); }
+  }
 });
 
 test("migrations after the split keep the journal file and the UI database apart", () => {

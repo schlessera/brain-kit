@@ -1605,7 +1605,7 @@ opens, after interrupted turns have been ended
 in at most two accounted commits whose progress is recorded in
 `turn_journal_allocation.index_purge`
 (`purgeIndexVersions(): IndexPurgeResult`,
-`packages/ui-server/src/brain/journal-store.ts:163-202`):
+`packages/ui-server/src/brain/journal-store.ts:171-210`):
 
 1. Every recorded index-family version, in history and in revert records, is
    rewritten to the metadata-only form a new one has: kind, mode, size and the
@@ -1645,6 +1645,74 @@ it, but its pages are added to the journal's file before any admission and
 could push a journal near its cap over it, where even ordinary expiry can no
 longer commit. The per-object foreign-key check still costs the collection
 after every turn on a large journal (#2913).
+
+**2026-10-26 implementation context:** the paragraph above describes collection
+before the admitted index below. The purge-only enforcement exception remains
+scoped to its second commit; ordinary collection keeps enforcement enabled.
+
+### Admitted object-pin index and near-cap recovery — 2026-10-26 (#2913)
+
+> **Maintainer ruling (2026-10-25), option A.** Index pins by hash through an
+> explicitly admitted and accounted upgrade. Ordinary collection keeps SQLite
+> foreign-key enforcement enabled. Refusing the index must preserve the slower
+> expiry/recovery path that can free room for it; no cap increase is allowed.
+
+**Why an index.** The non-correlated candidate query reads pins once, but each
+object-row delete still makes SQLite check the child foreign key. Its primary
+key starts with `turn_id`, so that check scans every pin for each freed object.
+`turn_journal_object_refs_hash(hash)` makes the foreign-key check an indexed
+lookup without changing the candidate set, pin rules or deletion ownership.
+Extending the purge's enforcement exception to ordinary collection was rejected
+by the ruling, as was creating index pages in the unconditional startup SQL
+migrations before accounting can admit them.
+
+**Admission before storage.** The upgrade runs on the journal write worker,
+through the same `BEGIN IMMEDIATE`, `synchronous=FULL` accounting as its data
+writes (`function ensureObjectRefIndex`,
+`packages/ui-server/src/brain/journal-accounting.ts:164-193`). Under that lock,
+it reserves a conservative allowance for index records, b-tree fill/interior
+pages and schema/pointer-map overhead, plus the WAL capacity over the enlarged
+file and all existing WAL debt, objects and reservations. It assumes no reuse
+or reclamation of charged pages. If this cannot fit, it refuses before
+`CREATE INDEX`. Existing WAL debt can first be checkpointed and admission
+retried through the usual ledger path.
+
+The build's sorter stays in memory and cache spill stays off, so new index
+pages remain cached until the final admission. Actual page growth must fit the
+reserved allowance; the normal measured page/WAL cap check then runs before
+commit. An underestimate, SQL failure or interruption cannot write an
+unadmitted index or temporary sort file. The connection chooses memory-backed
+TEMP storage before installing its accounting triggers, only when it has no
+existing TEMP objects: SQLite deletes those objects when changing `temp_store`.
+A caller already owning file-backed TEMP state, or a SQLite build forcing
+file-backed temps, defers the upgrade and keeps collection usable. This avoids
+discarding a guard to enable an optimization. SQLite's
+[temporary-file rules](https://www.sqlite.org/tempfiles.html) and
+[`temp_store` behavior](https://www.sqlite.org/pragma.html#pragma_temp_store)
+bind this choice.
+
+**Refusal and retry.** The index's committed schema entry is its completion
+receipt; creating it and recording its existence are one atomic transaction.
+A failed or killed build rolls back, and another process or restart rechecks
+existence under the write lock. A successful build is idempotent. Journal setup
+attempts it without making recovery depend on success. Ordinary collection
+tries before deleting, runs the existing integrity-checked path if it was
+refused, and retries after the freed object bytes make room
+(`collectObjects(): void`,
+`packages/ui-server/src/brain/journal-store.ts:144-150`). Freeing rows alone
+does not credit persistent pages: they remain charged until reclamation is
+observed. Every pin and reservation keeps its object throughout success,
+refusal, failure and restart, and foreign keys remain enabled on every ordinary
+path. The cap and retention policy stay unchanged.
+
+**Operational backup.** The index is derived performance state. Export omits
+its exact known definition from the copied journal schema, preserving the
+canonical backup schema and all journal rows. It neither drops the live index
+nor relaxes validation of the image's schema. A same-named index with different
+columns, or a same-named trigger, still fails validation. Restore therefore
+allocates no optional index pages before journal accounting can admit them;
+the restored journal builds the index through the same capacity-gated upgrade.
+The backup format, migration set and public result envelopes are unchanged.
 
 ### Observation cost — 2026-10-25 (#2872)
 
