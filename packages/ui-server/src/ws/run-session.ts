@@ -937,13 +937,6 @@ async function runRetainedSession(
         turn.startedAt = undefined;
         turn.backendStarted = false;
         await failureRecording.finish(turn.sessionId);
-        // No backend existed to publish its usual cancelled status. Send it
-        // only after native preparation and host cleanup have settled.
-        if (cancelledAdmission) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
-          detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
-        // A backend result can precede asynchronous journal finalization.
-        // Recovery now reads the committed terminal, before a successor starts.
-        else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle" }, turn));
         lifecycle?.finish(lifecycleOutcome, workReason ?? null);
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
@@ -952,8 +945,15 @@ async function runRetainedSession(
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
         // The recorder's writes, terminal included, commit off the event loop
-        // (#2814); the slot waits for them before the next turn or its end.
+        // (#2814); recovery must see them before the final idle notification.
         await recorder?.settled();
+        // No backend existed to publish its usual cancelled status. Send it
+        // only after native preparation and host cleanup have settled.
+        if (cancelledAdmission) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
+          detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
+        // A backend result can precede asynchronous journal finalization.
+        // Recovery now reads the committed terminal, before a successor starts.
+        else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle" }, turn));
       }
 
       // Subsequent (queued) turns resume the now-known session and keep its
