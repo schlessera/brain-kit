@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { PushSender } from "../activity/push-sender.js";
-import { noticeClientId, type ActionNotifier } from "../inbox/notify.js";
+import { noticeClientId } from "../inbox/notify.js";
+import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
@@ -38,7 +39,7 @@ const zoneSchema = z.object({
   clientId: z.string().max(64).optional(),
 });
 
-export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNotifier }) {
+export function createPushRoutes(deps: { sender: PushSender; notices?: AwaitableActionNotifier }) {
   const { sender, notices } = deps;
 
   return new Hono<AppEnv>()
@@ -86,7 +87,7 @@ export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNot
         }
         // Omitted: an older client keeps the device's last reported zone.
         if (body.timeZone !== undefined) {
-          notices?.reportDeviceZone(principal.id, body.subscription.endpoint, body.timeZone);
+          await notices?.reportDeviceZone(principal.id, body.subscription.endpoint, body.timeZone);
         }
         return c.json({ ok: true });
       } catch (err) {
@@ -108,7 +109,7 @@ export function createPushRoutes(deps: { sender: PushSender; notices?: ActionNot
       if (!notices) return c.json({ error: "Action notices unavailable" }, 503);
       try {
         const client = { principalId: c.get("principal")!.id, clientId };
-        const { timeZone } = notices.reportZone(client, parsed.data.timeZone, parsed.data.endpoint);
+        const { timeZone } = await notices.reportZone(client, parsed.data.timeZone, parsed.data.endpoint);
         return c.json({ ok: true, timeZone });
       } catch {
         return c.json({ error: "Authentication required" }, 401);

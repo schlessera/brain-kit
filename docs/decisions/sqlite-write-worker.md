@@ -206,13 +206,24 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   A read of a session's exposures (admission's continuation checks, a
   handoff's history check) first waits for every exposure write submitted
   before it. Boot reconciliation still closes abandoned manifests inline.
+- **Action notices followed** (#3000, part of #2850). Enrollment, digest
+  generation and coverage, delivery attempts, zone reports and dismissals run
+  the unchanged notifier on the write connection
+  (`packages/ui-server/src/inbox/notify-writes.ts`). Each original transaction
+  keeps its boundary and contents. A tick submits enrollment and generation
+  together, in that order, and a tick still committing is not submitted
+  again. The routes answer after their writes commit; push transport starts
+  after its attempt and components commit, and the delivery pass settles
+  after every attempt outcome commits. Clocks are taken at submission.
+  `recordActionEpisode` remains inside the inbox store transaction that
+  changes the Action; that transaction moves with the inbox lifecycle (#3001).
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
-  proposals, action and storage notices, push subscriptions and VAPID keys,
+  proposals, storage notices, push subscriptions and VAPID keys,
   principal revocation and administration, passkeys, inbox and settings. Each commits at
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
-  proposals, action and storage notices, push subscriptions and VAPID keys,
+  proposals, storage notices, push subscriptions and VAPID keys,
   principal revocation and administration, passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
