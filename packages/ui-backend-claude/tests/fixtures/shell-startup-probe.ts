@@ -33,8 +33,10 @@ const credential = JSON.stringify({ claudeAiOauth: { accessToken: "odysseus-offl
 writeFileSync(join(saved, ".credentials.json"), credential);
 writeFileSync(join(saved, "settings.json"), JSON.stringify({ env: { ITHACA_CONFIG_RETAINED: "yes" } }));
 const wrapper = join(root, "worker-wrapper.sh");
-writeFileSync(wrapper, "#!/bin/sh\n" + (fallback
-  ? 'printf "snapshot intentionally unavailable\\n" > "$CLAUDE_CONFIG_DIR/shell-snapshots"\n' : "") + 'exec "$@"\n', { mode: 0o755 });
+// A shell wrapper would discard exported function variables before the CLI.
+writeFileSync(wrapper, "#!/usr/bin/python3\nimport os, sys\n" + (fallback
+  ? 'with open(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "shell-snapshots"), "w") as file: file.write("snapshot intentionally unavailable\\n")\n' : "")
+  + 'os.execv(sys.argv[1], sys.argv[1:])\n', { mode: 0o755 });
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const homeProbe = [
   "import errno, json, os",
