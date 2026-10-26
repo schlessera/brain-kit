@@ -40,7 +40,7 @@ a roadblock when it fails.
 | Class | What it prevents | How this record enforces it |
 | --- | --- | --- |
 | **G1 — system integrity, including resource exhaustion** | Breaking the host, the server, the policy, git internals or the kernel interface. Starving the host of CPU, memory, disk or processes. | Worker namespaces and the read-only host, with `/proc/sys` covered read-only in #1629. [The host execution boundary](#the-host-execution-boundary): no host process runs repository code, git or the `brain` CLI against a governed brain. Tier A protected paths with self-bound ancestors. Durable quarantine of unexpected protected files. [Per-worker resource limits](#resource-limits-g1). |
-| **G2 — data exfiltration** | Secrets or brain content leaving the host unseen, or reaching an inference provider the user did not allow | `.env*` is masked, not only read-only. The host `$HOME` is replaced by #1626's per-turn overlay. Egress is recorded, then allow-listed and byte-capped by the policy. Host Unix sockets are masked. Inference and paid providers go through server relays, so a `governed` worker holds no provider credential. [Data-to-provider routing](#data-to-provider-routing-g2). Where the host provides an identity helper, [the worker runs under its own uid](#worker-identity-g2), so the server's own state is denied by ownership. |
+| **G2 — data exfiltration** | Secrets or brain content leaving the host unseen, or reaching an inference provider the user did not allow | `.env*` is masked, not only read-only. The host home stays read-only under the profile masks; temporary tool writes use per-turn XDG directories. Claude uses an empty read-only runtime HOME (#2984). Egress is recorded, then allow-listed and byte-capped by the policy. Host Unix sockets are masked. Inference and paid providers go through server relays, so a `governed` worker holds no provider credential. [Data-to-provider routing](#data-to-provider-routing-g2). Where the host provides an identity helper, [the worker runs under its own uid](#worker-identity-g2), so the server's own state is denied by ownership. |
 | **G3 — budget runaway** | Cost growing without a stop | Turn, session and day limits that **block**, not only warn. Refusal at admission, an abort mid-turn, and Claude's `maxBudgetUsd` as a backstop. CLI provider spend is counted through metered relays. |
 | **G4 — scope runaway** | A turn that goes on and on: too many files changed, too much time, too many tool calls | Per-turn caps on all three. Reaching a cap **escalates to the user** rather than failing silently. |
 | **G5 — outward actions as the user** | An effect outside the brain in the user's name: git push, GitHub posts, email or messages, bookings, payments | [Approval, or a policy allow-list](#outward-actions-g5). Everything inside the brain stays free. |
@@ -966,7 +966,7 @@ the capabilities note states all three and says which one to link:
 
 | Area | Where | Lifetime | Linkable | Indexed or journaled |
 | --- | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, the per-turn `$HOME` overlay, `/tmp` | Deleted at turn end | Never | No |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, per-turn XDG directories, `/tmp` | Deleted at turn end | Never | No |
 | Persistent scratch | `.brain/scratch/`, which is gitignored and served by the file routes | Survives turns. Pruned by age and size, but never while a retained conversation links the file. | Yes | Not indexed. Listed in the journal by name and size only. |
 | Canonical brain | Everything else that is not ignored | Versioned in git | Yes | Indexed and journaled with content |
 
@@ -3237,7 +3237,7 @@ authority over the read-only host root. That includes the server's database,
 its Claude and pi credentials, and its environment files. The masks in this
 record cover only the paths they name:
 
-- #1626's `$HOME` overlay;
+- the runtime HOME choice (Claude's empty read-only home, pi's read-only host home);
 - the runtime and home-directory masks;
 - the `.env*` mask.
 

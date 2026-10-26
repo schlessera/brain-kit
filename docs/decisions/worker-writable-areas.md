@@ -68,7 +68,7 @@ Two clarifications followed during implementation:
   agent context, for both backends, so the agent does not keep hitting
   `EROFS` and improvising with `/tmp` clones.
 - **Three places a file can be.** Turn temp (`$BRAIN_WORKER_SCRATCH`, `/tmp`,
-  `$HOME` writes) is deleted at turn end and must never be linked in a
+  per-turn XDG writes) is deleted at turn end and must never be linked in a
   response. Persistent scratch (`.brain/scratch/`, plus `workspaces/` for
   clones) survives turns and is where every file the reader should open or
   download goes; it is the only non-brain place to link. The brain is
@@ -80,14 +80,14 @@ on the transcript persist path and is not part of this record.
 ## How it is built
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
-areas and the home mode once per worker
+areas and per-turn XDG layout once per worker
 (`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:901-942`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:592-657`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
-own path in the brain, and `$HOME` still the home the overlay was probed for.
+own path in the brain. The backend selects runtime HOME separately.
 A mismatch refuses the launch instead of binding something the note does not
 describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:823-853`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn

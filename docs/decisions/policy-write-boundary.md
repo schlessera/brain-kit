@@ -320,12 +320,14 @@ integrated escape matrix; #676's credential, configuration and egress proof is
 The maintainer's rulings on [#1626](https://github.com/schlessera/brain-kit/issues/1626)
 add designed writable areas to the read-only worker for interactive and voice
 turns: the brain's `.brain/scratch/` and its existing `workspaces/` directory
-as writable binds, and a per-turn overlay over `$HOME` with an XDG fallback.
+as writable binds. #1703 later confines temporary writes to bounded `/tmp`
+and XDG directories; the original host-home path stays read-only. #2984
+gives non-envelope Claude an empty read-only runtime HOME.
 Every refusal from inside those areas still meets the boundary: the integrated
 proof above attacks from inside both and passes. The earlier sentence "writable
 overlays and copied scratch brains are declined" still holds for the brain;
-the home overlay never covers it and is optional, so bubblewrap 0.9 stays
-eligible. Restricted autonomous turns are unchanged.
+temporary writes never cover it, and no home overlay is required, so
+bubblewrap 0.9 stays eligible. Restricted autonomous turns are unchanged.
 [The writable-areas decision](worker-writable-areas.md) records the rulings,
 checks and measurements. A "governed writable" default for interactive and
 voice turns is being designed separately and will revise this section and
