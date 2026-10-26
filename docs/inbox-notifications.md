@@ -42,7 +42,7 @@ deadline opens the next window. Thread identity is kept on each constituent,
 not in the grouping key. Unmarked below-cutoff decisions and FYIs never join a window.
 
 Delivery runs after activity intents on the same reentrancy guard
-(`deliverActions`, `packages/ui-server/src/activity/push-sender.ts:326-377`).
+(`deliverActions`, `packages/ui-server/src/activity/push-sender.ts:327-378`).
 Each destination is evaluated on its own. `beginAttempt()` rechecks, in one
 transaction, that the subscription is still bound to the principal and the
 principal is usable, that the device reported a usable zone and is outside
@@ -60,6 +60,14 @@ the request may have arrived) or `gone` (404/410, which also prunes the
 subscription). An attempt left `in_flight` by a crash counts as ambiguous.
 History stores a SHA-256 of the endpoint, never the endpoint or keys, and
 cannot be edited.
+
+On the hosted server, enrollment, digest generation and coverage, delivery
+attempts, zone reports and dismissal commit at `synchronous=FULL` on the
+shared SQLite write worker. The same notifier runs each original transaction
+there. The attempt and components commit before push transport starts; every
+outcome commits before the delivery pass settles. Zone and digest routes
+likewise answer after their writes commit. Episodes stay in the inbox store's
+transition transaction. See [the write-worker decision](decisions/sqlite-write-worker.md).
 
 ## Client zones
 

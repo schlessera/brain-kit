@@ -244,7 +244,7 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     const first: TurnFailure = { errorClass: "invalid_request", status: 400, message: "API Error: 400 Request refused." };
     const second: TurnFailure = { ...first, errorClass: "model_not_found" };
     await h.send(first);
-    expect(testHost().catalog.recordLocalExchange?.("s1", {
+    expect(await testHost().catalog.recordLocalExchange?.("s1", {
       id: "local-stats", command: "stats", prompt: "Stats", context: "Documents: 3",
       answer: [{ kind: "tiles", source: "corpus", tiles: [{ label: "Documents", value: "3" }] }],
     }, false)).toBe(true);

@@ -20,7 +20,8 @@ import { createActivityStream, type ActivityStream } from "./stream.js";
 import { createOffloopNotifier } from "./notify-writes.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
-import { createActionNotifier, type ActionNotifier } from "../inbox/notify.js";
+import { createActionNotifier } from "../inbox/notify.js";
+import { createOffloopActionNotifier, type AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
 import { keepSubscriptionProof } from "../agent/subscription.js";
@@ -46,7 +47,7 @@ export interface ActivityRuntime {
   notifier: ActivityNotifier;
   pushSender: PushSender;
   /** Durable Action notices: windows, per-destination attempts, digest coverage. */
-  actionNotices: ActionNotifier;
+  actionNotices: AwaitableActionNotifier;
   /** What the server knows about the agent runtime (boot probe, last turn, last auth failure). */
   runtime: RuntimeStatus;
   /** The agent-facing read seam (bridge.queryActivity). */
@@ -100,7 +101,8 @@ export function createActivityRuntime(
     log,
   });
   const pushSender = createPushSender(db, { log, ...(offloop ? { writes: offloop.push } : {}) });
-  const actionNotices = createActionNotifier(db);
+  const offloopActions = deps.writer ? createOffloopActionNotifier(db, deps.writer) : undefined;
+  const actionNotices = offloopActions?.notices ?? createActionNotifier(db);
 
   // Boot sweep: close this server's orphans from a previous life (interrupted).
   const sweepFailed = (err: unknown) => {
@@ -149,15 +151,21 @@ export function createActivityRuntime(
       // Action notices: join newly eligible decisions to their fixed window
       // and store any due client-local digest. Isolated so a failure here
       // never stalls activity delivery.
-      try {
-        actionNotices.enroll();
-        actionNotices.generateDue();
-      } catch (err) {
+      const actionTickFailed = (err: unknown) => {
         log.emit({
           severityText: "WARN",
           body: "action notice tick failed",
           attributes: { error: err instanceof Error ? err.message : String(err) },
         });
+      };
+      try {
+        if (offloopActions) observeWrite(offloopActions.tick(), actionTickFailed);
+        else {
+          actionNotices.enroll();
+          actionNotices.generateDue();
+        }
+      } catch (err) {
+        actionTickFailed(err);
       }
       // Async delivery, reentrancy-guarded: a slow push service must not
       // stack passes; the next tick simply retries what stayed pending.
