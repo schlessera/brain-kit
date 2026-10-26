@@ -945,11 +945,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
     settled: () => host.historySettled() }));
   app.route("/api", createJournalRoutes({ journal }));
-  const storageHistory = createStorageHistory(db, config.brainPath);
+  const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
   const storageAuthorized = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   const storageShared = createSharedStorageScan(db, config.brainPath, storageCacheRoot, storageAuthorized);
-  const storageNotices = createStorageNotifier(db, storageHistory);
+  const storageNotices = createStorageNotifier(db, storageHistory, writer);
   const storageStores: StorageStore[] = [
     { path: journalRoot, label: "Retained file history", category: "journal", owner: "app", recursive: true },
     { path: storageCacheRoot, label: "Storage shared scan cache", category: "temporary", owner: "app", recursive: true, optional: true },
@@ -1206,7 +1206,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
       await attempt(() => storage.close());
-      await attempt(() => { storageHistory.flush(); storageHistory.close(); });
+      await attempt(async () => { await storageHistory.flush(); storageHistory.close(); });
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
       await attempt(() => reverts.close());

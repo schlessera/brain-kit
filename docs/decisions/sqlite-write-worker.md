@@ -177,6 +177,17 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   still the host fallback afterwards. A type folder translation that cannot
   be recorded refuses the turn. `holders()`, a diagnostic, still reads on
   the gate's own connection.
+- **Storage history and notice ticks followed** (#2850). History initialization
+  and the bounded history flush, plus notice sweep, begin and finish, commit
+  on the worker (`packages/ui-server/src/storage/history-writes.ts`,
+  `packages/ui-server/src/storage/notify-writes.ts`). Observations and owner
+  reports stay buffered in the app; a flush requested during a commit runs
+  once after it, and pending status includes that commit. The twenty-second
+  sampling tick submits flush and sweep without waiting or overlapping them.
+  Push transport awaits its durable notice intent and completion; shutdown
+  awaits the final history flush. Callers without a writer run the same
+  transactions inline. Operational restore still writes inside its caller's
+  transaction.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
   proposals, the Activity notifier and push ticks, auth sessions, inbox and

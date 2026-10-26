@@ -1,61 +1,24 @@
-import { z } from "zod";
 import type { Database } from "bun:sqlite";
-import { randomBytes } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { capacityEvidence } from "./history-evidence.js";
-import { newPressure, observePressure, ownerWrite, type Pressure, type Refusal } from "./pressure.js";
-import { HISTORY_LIMITS, bucket, hashScope, jsonBytes, retainAggregate, validateHistory, type Aggregate, type HistoryPayload } from "./history-model.js";
-export interface HistoryState {
-  version: 1; salt: string;
-  lastPersistedAt: number; lastObservedAt: number; lastAttemptBucket: number | null;
-  paused: "collection-unavailable" | "clock-reversal" | "history-owner-evidence-budget" | null;
-  pressures: Pressure[];
-  /** Restoring an old backup cannot revive authority to send its old episodes. */
-  suppressedEpisodes: string[];
-  scopeLimit: boolean;
-}
-export type StoredHistory = HistoryPayload<HistoryState>;
-type Pending = { kind: "aggregate"; value: Aggregate } | { kind: "failure"; at: number };
-export interface StorageWriteReport { identity: string; rootScope: string; target: string; resource: Refusal["resource"]; at: number; outcome: "no-space" | "success" }
-export const storageBrainKey = (brainPath: string) => hashScope(realpathSync(brainPath));
-export function emptyHistory(): StoredHistory {
-  return { metadata: { samples: {}, capacities: {}, state: { version: 1, salt: randomBytes(32).toString("hex"), lastPersistedAt: 0, lastObservedAt: 0, lastAttemptBucket: null, paused: null, pressures: [], suppressedEpisodes: [], scopeLimit: false } }, samples: [] };
-}
-const instant = z.number().int().nonnegative().safe();
-const digest = z.string().regex(/^[a-f0-9]{32}$/);
-const pressureSchema = z.object({
-  identity: digest, rootScope: digest, severity: z.enum(["observed", "low", "critical"]),
-  capacity: z.boolean(), forecast: z.boolean(), refusals: z.array(z.object({
-    target: digest, resource: z.enum(["bytes", "quota", "inodes", "unknown"]), at: instant, successAt: instant.nullable(),
-  }).strict()), at: instant, recoveryAt: instant.nullable(), episode: z.string().uuid().nullable(),
-  resolvedEpisode: z.string().uuid().nullable(), supportAt: instant.nullable(), scopeChanged: z.boolean(),
-}).strict().refine(value => (value.severity === "critical") === (value.episode !== null)
-  && (value.severity !== "observed" || !value.capacity && !value.forecast && !value.refusals.length)
-  && new Set(value.refusals.map(row => row.target + ":" + row.resource)).size === value.refusals.length);
-const stateSchema = z.object({
-  version: z.literal(1), salt: z.string().regex(/^[a-f0-9]{64}$/), lastPersistedAt: instant,
-  lastObservedAt: instant, lastAttemptBucket: instant.nullable(), paused: z.enum(["collection-unavailable", "clock-reversal", "history-owner-evidence-budget"]).nullable(),
-  pressures: z.array(pressureSchema).max(4), suppressedEpisodes: z.array(z.string().uuid()).max(8), scopeLimit: z.boolean(),
-}).strict().refine(value => new Set(value.pressures.map(row => row.identity)).size === value.pressures.length);
-export function parseStoredHistory(value: string): StoredHistory {
-  const result = JSON.parse(value) as StoredHistory;
-  validateHistory(result);
-  stateSchema.parse(result.metadata.state);
-  return result;
-}
-export function readStoredHistory(db: Database, brain: string): StoredHistory | null {
-  const row = db.query("SELECT payload_json FROM storage_history WHERE brain = ?").get(brain) as { payload_json: string } | null;
-  return row ? parseStoredHistory(row.payload_json) : null;
-}
-export function createStorageHistory(db: Database, brainPath: string, options: { now?: () => number } = {}) {
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import * as historyWrites from "./history-writes.js";
+import { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type Pending, type StorageWriteReport } from "./history-data.js";
+import { HISTORY_LIMITS, jsonBytes, validateHistory, type Aggregate } from "./history-model.js";
+export { emptyHistory, storageBrainKey, readStoredHistory, parseStoredHistory, type HistoryState, type StoredHistory, type StorageWriteReport } from "./history-data.js";
+
+export function createStorageHistory(db: Database, brainPath: string, options: { now?: () => number; writer?: SqliteWriter } = {}) {
   const brain = storageBrainKey(brainPath), now = options.now ?? Date.now;
   const initial = emptyHistory();
   let pending: Pending | null = null, unavailable: string | null = null, closed = false;
   let pendingWrites: StorageWriteReport[] = [], interrupted = false, ownerOverflow = false;
+  let inFlight: Promise<boolean> | null = null, flushAgain = false;
+  // New failures arriving during a commit must survive that commit's result.
+  let interruptionVersion = 0, overflowVersion = 0;
+  const procedures = options.writer ? null : historyWrites.setup(db, { brain, initial });
+  const call = options.writer ? procedureCaller(db, historyWrites, { brain, initial }, options.writer) : null;
   // Constructing the store never collects filesystem inventory. Failure here is
   // a capability result; it cannot prevent existing recovery operations booting.
-  const initialize = () => db.query("INSERT OR IGNORE INTO storage_history (brain, payload_json) VALUES (?, ?)").run(brain, JSON.stringify(initial));
-  try { initialize(); }
+  if (call) void call("initialize").catch(() => { unavailable = "history-write-unavailable"; });
+  else try { procedures!.initialize(); }
   catch { unavailable = "history-write-unavailable"; }
   const read = () => {
     try { return readStoredHistory(db, brain); }
@@ -67,7 +30,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     const stored = read();
     if (stored && at < stored.metadata.state.lastObservedAt) {
       unavailable = "history-clock-reversal";
-      interrupted = true;
+      interrupted = true; interruptionVersion++;
       // Do not overwrite a newer pending observation after a clock reversal.
       return;
     }
@@ -75,92 +38,51 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
     if (prior === null || prior <= at) pending = value;
     flush();
   }
-  function flush(): boolean {
-    if (closed || !pending && !pendingWrites.length) return false;
+  function flush(): boolean | Promise<boolean> {
+    if (inFlight) { flushAgain = true; return inFlight; }
+    if (closed || !pending && !pendingWrites.length) return call ? Promise.resolve(false) : false;
     const candidate = pending, writes = pendingWrites, time = now();
     const at = Math.max(candidate ? candidate.kind === "aggregate" ? candidate.value.at : candidate.at : 0, ...writes.map(row => row.at));
-    try {
-      const changed = db.transaction(() => {
-        initialize();
-        const previous = readStoredHistory(db, brain);
-        if (!previous) throw Error("history-unavailable");
-        const state = previous.metadata.state;
-        const ownerEvidenceLost = ownerOverflow || state.paused === "history-owner-evidence-budget";
-        if (time < state.lastPersistedAt || at < state.lastObservedAt || at > time) throw Error("history-clock-reversal");
-        if (time - state.lastPersistedAt < HISTORY_LIMITS.writeInterval) return false;
-        let next: StoredHistory;
-        if (interrupted || ownerEvidenceLost) state.pressures = state.pressures.map(value => ({ ...value, recoveryAt: null, supportAt: null }));
-        if (candidate?.kind === "aggregate") {
-          next = retainAggregate(previous, candidate.value);
-          if (interrupted || state.paused) for (const sample of next.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
-          // A partial refresh may preserve the complete stored endpoint. Evaluate
-          // the actual new capacity observation, never give the old total a new time.
-          const evaluation = retainAggregate({ ...structuredClone(next), samples: next.samples.filter(row => row[1] !== 0 || bucket(0, row[3]) !== bucket(0, at)) }, candidate.value);
-          if (interrupted || state.paused) for (const sample of evaluation.samples) if (sample[3] === candidate.value.at) sample[2] = 1;
-          const incoming = candidate.value.capacities.map(row => row.descriptor);
-          const pressures = state.pressures.filter(value => value.severity !== "observed" || incoming.some(([identity]) => identity === value.identity))
-            .map(value => value.severity === "observed" ? newPressure(value.identity, incoming.find(([identity]) => identity === value.identity)![1]) : value);
-          for (const [identity, rootScope] of incoming) if (!pressures.some(value => value.identity === identity) && pressures.length < 4) pressures.push(newPressure(identity, rootScope));
-          next.metadata.state.pressures = pressures.map(value => {
-            const observed = observePressure(value, capacityEvidence(evaluation, value.identity, time), time);
-            // Fresh direct observations can escalate pressure, but cannot prove
-            // recovery of an owner refusal whose identity was not retained.
-            if (ownerEvidenceLost) observed.recoveryAt = null;
-            return observed;
-          });
-          next.metadata.state.scopeLimit = candidate.value.reason === 3 || incoming.some(([identity]) => !pressures.some(value => value.identity === identity));
-          next.metadata.state.paused = null;
-        } else if (candidate) {
-          next = structuredClone(previous);
-          for (const row of next.samples) if (bucket(row[1], row[3]) === bucket(row[1], at)) row[2] = 1;
-          next.metadata.state.pressures = state.pressures.map(value => observePressure(value, null, time));
-          next.metadata.state.paused = "collection-unavailable";
-        } else next = structuredClone(previous);
-        for (const report of writes) {
-          let pressure = next.metadata.state.pressures.find(value => value.identity === report.identity);
-          if (!pressure && report.outcome === "success") continue;
-          if (!pressure) {
-            if (next.metadata.state.pressures.length >= 4) throw Error("history-pressure-capacity-budget");
-            pressure = newPressure(report.identity, report.rootScope); next.metadata.state.pressures.push(pressure);
-          }
-          const index = next.metadata.state.pressures.indexOf(pressure);
-          // Buffered reports were checked when received. A newer capacity sample
-          // from this or another process cannot erase an intervening refusal.
-          if (pressure.refusals.some(value => value.target === report.target && value.resource === report.resource && value.at > report.at)) continue;
-          const changed = ownerWrite({ ...pressure, at: Math.min(pressure.at, report.at) }, report, time);
-          changed.at = Math.max(changed.at, pressure.at);
-          next.metadata.state.pressures[index] = changed;
-        }
-        if (ownerEvidenceLost) next.metadata.state.paused = "history-owner-evidence-budget";
-        next.metadata.state.lastPersistedAt = time;
-        if (candidate) {
-          const observedAt = candidate.kind === "aggregate" ? candidate.value.at : candidate.at;
-          next.metadata.state.lastObservedAt = observedAt;
-          next.metadata.state.lastAttemptBucket = bucket(0, observedAt);
-        }
-        const episodes = new Set(next.metadata.state.pressures.flatMap(value => [value.episode, value.resolvedEpisode].filter((id): id is string => id !== null)));
-        next.metadata.state.suppressedEpisodes = next.metadata.state.suppressedEpisodes.filter(value => episodes.has(value));
-        validateHistory(next); stateSchema.parse(next.metadata.state);
-        db.query("UPDATE storage_history SET payload_json = ?, revision = revision + 1 WHERE brain = ?").run(JSON.stringify(next), brain);
-        return true;
-      }).immediate();
-      if (changed) { if (pending === candidate) pending = null; if (pendingWrites === writes) pendingWrites = []; interrupted = false; ownerOverflow = false; unavailable = null; }
+    const interruption = interruptionVersion, overflow = overflowVersion;
+    const input = { candidate, writes, time, at, interrupted, ownerOverflow };
+    const apply = (changed: boolean) => {
+      if (changed) {
+        if (pending === candidate) pending = null;
+        // Overflow raised during this commit still needs these buffered reports
+        // to carry its evidence-loss marker into the next bounded write.
+        if (pendingWrites === writes && overflowVersion === overflow) pendingWrites = [];
+        if (interruptionVersion === interruption) interrupted = false;
+        if (overflowVersion === overflow) ownerOverflow = false;
+        if (interruptionVersion === interruption && overflowVersion === overflow) unavailable = null;
+      }
       return changed;
-    } catch (error) {
-      interrupted = true;
+    };
+    const failed = (error: unknown) => {
+      interrupted = true; interruptionVersion++;
       unavailable = error instanceof Error && error.message.startsWith("history-") ? error.message : "history-write-unavailable";
       return false;
+    };
+    if (!call) {
+      try { return apply(procedures!.flush(input)); } catch (error) { return failed(error); }
     }
+    // Post synchronously, in submission order. Every caller awaits the same
+    // drain, including the one follow-up requested during the current commit.
+    inFlight = call<boolean>("flush", input).then(apply, failed).then(async changed => {
+      inFlight = null;
+      if (flushAgain) { flushAgain = false; return await flush() || changed; }
+      return changed;
+    });
+    return inFlight;
   }
   return {
     brain, read, flush, salt: read()?.metadata.state.salt ?? initial.metadata.state.salt,
     offer(value: Aggregate) { offer({ kind: "aggregate", value }); },
-    failure(at = now()) { interrupted = true; offer({ kind: "failure", at }); },
+    failure(at = now()) { interrupted = true; interruptionVersion++; offer({ kind: "failure", at }); },
     ownerWrite(report: StorageWriteReport) {
       if (closed) return;
       if (![report.identity, report.rootScope, report.target].every(value => /^[a-f0-9]{32}$/.test(value)) || !Number.isSafeInteger(report.at) || report.at < 0 || report.at > now()) throw Error("history-write-report-invalid");
       const stored = read();
-      if (report.at < (stored?.metadata.state.lastPersistedAt ?? 0)) { interrupted = true; unavailable = "history-clock-reversal"; return; }
+      if (report.at < (stored?.metadata.state.lastPersistedAt ?? 0)) { interrupted = true; interruptionVersion++; unavailable = "history-clock-reversal"; return; }
       const same = (value: StorageWriteReport) => value.identity === report.identity && value.rootScope === report.rootScope && value.target === report.target && value.resource === report.resource;
       // Success is evidence only for an existing matching refusal. Repeated
       // successes must not consume the bounded space reserved for failures.
@@ -170,7 +92,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       const next = [...pendingWrites.filter(value => !same(value) || value.at > report.at
         || report.outcome === "success" && value.outcome === "no-space"), report];
       if (jsonBytes(next) > HISTORY_LIMITS.metadataBytes) {
-        ownerOverflow = true; interrupted = true; unavailable = "history-owner-evidence-budget"; return;
+        ownerOverflow = true; overflowVersion++; interrupted = true; interruptionVersion++; unavailable = "history-owner-evidence-budget"; return;
       }
       pendingWrites = next; flush();
     },
@@ -178,7 +100,7 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       const history = read();
       const scan = db.query("SELECT result_at FROM storage_scan_leases WHERE brain = ?").get(brain) as { result_at: number | null } | null;
       const waiting = scan?.result_at !== null && scan?.result_at !== undefined && scan.result_at > (history?.metadata.state.lastObservedAt ?? 0);
-      return { history, pending: pending !== null || pendingWrites.length > 0 || waiting, paused: unavailable ?? (history && now() < history.metadata.state.lastPersistedAt ? "history-clock-reversal" : history?.metadata.state.paused ?? null), payloadBytes: history ? jsonBytes(history) : null };
+      return { history, pending: inFlight !== null || pending !== null || pendingWrites.length > 0 || waiting, paused: unavailable ?? (history && now() < history.metadata.state.lastPersistedAt ? "history-clock-reversal" : history?.metadata.state.paused ?? null), payloadBytes: history ? jsonBytes(history) : null };
     },
     close() { closed = true; pending = null; pendingWrites = []; },
   };
