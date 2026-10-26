@@ -7,7 +7,7 @@ commit. It builds on the [acquisition service](reference-source-acquisition.md)
 and the pool's [checkpoints and access generations](reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
-(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:150-691`),
+(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:150-694`),
 created with the acquisition service. The agent tools that call it arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432) ([agent tools](#agent-tools)). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:429-459`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:427-455`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -77,7 +77,7 @@ own generation and its turn no longer runs; that record is process-wide, so
 every service instance in the process reads the same evidence. Closing a
 service ends the registration of the generations it opened. Any other case,
 such as an owner in another PID namespace, is **unknown**
-(`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:204-210`).
+(`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:205-211`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
 (`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:590-617`).
@@ -165,7 +165,7 @@ arrive only in the results that grant access.
 ## Cleanup eligibility facts
 
 Release and expiry record durable facts for hygiene review
-(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:240-283`):
+(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:241-284`):
 the reason, the holder (`none`, `live` or `unknown`) and whether work remains
 (`none`, `unpreserved` or `unknown`). Work is read from a fresh read-only
 checkpoint and a metadata delta against the baseline. Nothing of the worktree
@@ -255,7 +255,7 @@ check before a new mount) applies to the bind itself. The maintainer ruled on
 before a turn's workers bind a view, every source in it whose validation lapsed
 is validated again, including sources a running turn reads; one that fails is
 withheld from the new bind, and a running reader keeps its existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:568-606`):
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:565-603`):
 
 - a source with less than the bind margin of validation left counts as
   lapsed: a minute, or half of a shorter configured lifetime, so it does not
@@ -269,7 +269,7 @@ withheld from the new bind, and a running reader keeps its existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:503-514`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:501-512`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -288,7 +288,7 @@ withheld rather than checked again; withholding takes only short pool calls,
 so the bind converges whatever the cache size. A bind that still cannot be
 admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:612-621`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:609-618`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a
@@ -322,7 +322,7 @@ lost host database loses these dispositions together with the worktrees'
 ownership records; no brain content is lost.
 
 **Detection.** A worktree is one finding at most
-(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:79-86`):
+(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:80-87`):
 
 - `retained`: released or expired, held by no generation, with unpreserved work;
 - `unknown`: its holder's liveness, its owner or its work cannot be established,
@@ -339,7 +339,7 @@ liveness, the work (state, counts and a digest of every changed path's type,
 mode, size, link target and file bytes, or its absence; times are left out
 because a worker can set them), any removal failure, and the state and last
 explicit activity
-(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:96-112`).
+(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:97-113`).
 The time of an assessment is not in it, so a fresh assessment of unchanged work
 is the same evidence. One assessment hashes at most 64 MiB of changed files,
 read without blocking the server; a larger or sparse file is named instead by its
@@ -358,7 +358,7 @@ consent to remove anything, and nothing reads it as such.
 **Privacy and authority.** Inbox Actions replicate to every usable principal,
 so the card of a private worktree carries only its opaque identity, state and
 counts: no repository, revision, commit, changed path or principal
-(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:181-199`).
+(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:161-179`).
 A public worktree's card names its source and up to 16 changed paths. The owner
 principal is an authorized reader and reviewer of a delegated agent's worktree
 findings, as of any other finding; review authority stays with owner and ambient
@@ -420,8 +420,8 @@ atomically with grants
 [pool accounting](reference-pool-accounting.md)), so a grant that lands between
 the last check and the release fails the removal instead of losing the grant. The worktree
 service is the only executor, through one effect
-(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:332-371`).
-Immediately before it, with no await between the last check and the receipt:
+(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:333-370`).
+Immediately before it, with no await between the last check and submission of the receipt:
 
 1. the worktree is released or expired, and no removal of it was already
    admitted;
@@ -456,13 +456,13 @@ without another release, which would fail or leave a tombstone identity. The
 lease owner holds a release's lease again when the pool never committed it (the
 root is still writable or sealed), so a failed removal stays assessable; it never
 does so over a newer release of the same identity
-(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:378-414`).
+(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:377-412`).
 Capacity is credited only when the pool reports the worktree `reclaimed`:
 until then its source root stays protected from eviction.
 
 **Automatic removal.** Release, expiry and the close of a holding generation
 remove a worktree only when its fresh assessment shows no holder and no work
-(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:301-304`).
+(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:302-305`).
 Reconciliation retries a clean worktree whose removal could not run. Nothing is
 archived or purged speculatively, and a worktree whose work or owner is
 unknown is never removed automatically. Arbitrary repositories and shared

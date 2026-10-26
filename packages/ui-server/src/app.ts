@@ -153,6 +153,7 @@ import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 import type { AppEnv } from "./app-env.js";
 
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
+import { registerReferenceWrites } from "./brain/reference-writes.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTools } from "./brain/reference-tools.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
@@ -460,6 +461,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   registerPrincipalWrites(db, writer);
   registerAccountWrites(db, writer);
   registerInboxWrites(db, writer);
+  registerReferenceWrites(db, writer);
   bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
