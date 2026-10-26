@@ -1,7 +1,7 @@
 /** Authenticated preferences only; admission independently enforces its frozen policy. */
 import { scopeLimits } from "../brain/turn-scope.js";
 import type { Database } from "bun:sqlite";
-import { SESSION_DRAFT_LIMITS, type SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
+import type { SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
 import type { GovernedTurns } from "../brain/governed-turn.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as writes from "./session-profile-writes.js";
