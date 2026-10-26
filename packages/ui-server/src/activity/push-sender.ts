@@ -15,6 +15,7 @@
  * re-enable prompt when its subscription check disagrees with the server.
  */
 import type { Database } from "bun:sqlite";
+import type { PushWrites } from "./notify-writes.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import webpush from "web-push";
 
@@ -70,6 +71,8 @@ export interface CreatePushSenderOptions {
   /** `mailto:` or https contact required by the VAPID spec. */
   subject?: string;
   log?: Logger;
+  /** Where subscription bookkeeping commits: the write worker (#2850). Absent: on `db`, at once. */
+  writes?: PushWrites;
 }
 
 /** Per-send cap: a hung push service rejects instead of wedging the
@@ -81,6 +84,13 @@ export function createPushSender(
   options: CreatePushSenderOptions = {}
 ): PushSender {
   const log = options.log;
+  const writes: PushWrites = options.writes ?? {
+    async touch(endpoint, at, principalId) {
+      if (principalId === undefined) db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?").run(at, endpoint);
+      else db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ? AND principal_id = ?").run(at, endpoint, principalId);
+    },
+    async drop(endpoint) { db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint); },
+  };
   const subject = options.subject ?? "mailto:admin@localhost";
   const send =
     options.send ??
@@ -264,16 +274,11 @@ export function createPushSender(
             });
           }
         });
-        for (const endpoint of touched) {
-          db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?").run(
-            Date.now(),
-            endpoint
-          );
-        }
-        for (const endpoint of dead) {
-          db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
-        }
-        notifier.markDelivered(intent.id, delivered > 0 ? "sent" : "send_failed");
+        // Committed before the next intent re-reads its devices, and before
+        // the next pass re-reads what is still pending.
+        const at = Date.now();
+        await Promise.all([...touched.map(endpoint => writes.touch(endpoint, at)), ...dead.map(endpoint => writes.drop(endpoint))]);
+        await notifier.markDelivered(intent.id, delivered > 0 ? "sent" : "send_failed");
         if (delivered === 0) {
           // Every device failed — the all-devices signal (invalid VAPID after
           // a restore, typically). Loud, because it is silent on every phone.
@@ -312,8 +317,8 @@ export function createPushSender(
         // A database failure after transport leaves the durable sending intent;
         // recovery makes it unknown and never retries a possible acceptance.
         await notices.finish(attempt.id, outcome, at ?? Date.now());
-        if (outcome === "gone") db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(sub.endpoint);
-        else if (outcome === "accepted") db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ? AND principal_id = ?").run(at ?? Date.now(), sub.endpoint, attempt.principalId);
+        if (outcome === "gone") await writes.drop(sub.endpoint);
+        else if (outcome === "accepted") await writes.touch(sub.endpoint, at ?? Date.now(), attempt.principalId);
       }
       return attempts;
     },
@@ -341,18 +346,19 @@ export function createPushSender(
           )
         )
       );
+      const bookkeeping: Promise<void>[] = [];
       results.forEach((result, i) => {
         const { sub, attempt } = planned[i]!;
         let outcome: ActionAttemptOutcome;
         if (result.status === "fulfilled") {
           // Provider acceptance: a submission receipt, not display or reading.
           outcome = "success";
-          db.query("UPDATE push_subscriptions SET last_used_at = ? WHERE endpoint = ?").run(Date.now(), sub.endpoint);
+          bookkeeping.push(writes.touch(sub.endpoint, Date.now()));
         } else {
           const status = (result.reason as { statusCode?: number } | null)?.statusCode;
           if (status === 404 || status === 410) {
             outcome = "gone";
-            db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(sub.endpoint);
+            bookkeeping.push(writes.drop(sub.endpoint));
           } else {
             // A provider status is a known refusal. Without one (timeout,
             // dropped connection) the request may have arrived: ambiguous.
@@ -366,6 +372,7 @@ export function createPushSender(
         }
         notices.finishAttempt(attempt.attemptId, outcome);
       });
+      await Promise.all(bookkeeping);
       return planned.length;
     },
   };

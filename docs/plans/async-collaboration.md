@@ -127,7 +127,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Cursors and transactional snapshots:** (`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`)
   and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:894-923`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
-- **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:64-203`). Cron's scheduler
+- **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:65-207`). Cron's scheduler
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:27-44`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
@@ -150,8 +150,8 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
-  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:91-127`) and
-  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:197-244`) are run-bound and do not
+  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`) and
+  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:207-254`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:121`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2348`) bounds text, not binary uploads;
@@ -632,7 +632,7 @@ write-once outcome discipline, cursor emission); migration comment style of `007
 - Test: `packages/ui-server/tests/inbox-runtime.test.ts`
 
 **Approach:**
-- 60s interval with a `close()` lifecycle, modeled on (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:64-203`), including
+- 60s interval with a `close()` lifecycle, modeled on (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:65-207`), including
   its boot sweep
 - **Gate first**: a SQL count of ready items; zero means return immediately — no model call and
   **no Activity run** (AE2)
@@ -937,7 +937,7 @@ produces exactly one executable item
 - Reuse the **algorithm** from `activity/stream.ts`, not the module — it is bound to
   activity store methods and frames (R2)
 
-**Patterns to follow:** (`export function createActivityStream(`, `packages/ui-server/src/activity/stream.ts:158-318`) poll/pump structure and chunking caps
+**Patterns to follow:** (`export function createActivityStream(`, `packages/ui-server/src/activity/stream.ts:160-320`) poll/pump structure and chunking caps
 
 **Test scenarios:**
 - Happy path: snapshot then deltas equals a fresh snapshot
