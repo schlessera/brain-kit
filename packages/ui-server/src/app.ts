@@ -90,7 +90,8 @@ import {
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
-import { openSqliteWriter } from "./db/write-worker.js";
+import { openSqliteWriter, procedureCaller } from "./db/write-worker.js";
+import * as governedTurnWrites from "./brain/governed-turn-writes.js";
 import { registerPrincipalWrites } from "./db/principal-writes.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
@@ -607,14 +608,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // namespace for this host, shared by its principals.
   const drafts = createDraftStore(db);
   const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
+  const governedRecords = procedureCaller(db, governedTurnWrites, undefined, writer);
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
-      recordPolicy: (turnId, origin, profile, policy) => db.query(`INSERT INTO turn_governance_policy
-        (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
+      // Admission records commit on the write worker before the turn goes on (#2850).
+      recordPolicy: (turnId, origin, profile, policy) => governedRecords("recordPolicy", turnId, origin, profile, policy.hash, policy.source,
+        JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
       index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
-      exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
+      exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   // Budget writes commit on the write worker (#2850).
   const budgets = createTurnBudgets(db, pricing, Date.now, writer);

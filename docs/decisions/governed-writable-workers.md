@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-132`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:145-311`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -2767,10 +2767,10 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:203-212`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:207-216`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
-    `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
+    `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
     only for a genuinely fresh conversation whose first turn masked folders,
     or for a handoff from a conversation that has one, which starts from what
     its source kept masked. Every later admitted turn of it, on an allowed
@@ -3026,7 +3026,7 @@ cut. A protected name that does not exist is not mounted in a governed worker,
 so a turn can create it, and its end quarantines it; until then it is no proof
 of the owner, so the view is compared with the start manifest of every
 governed turn open or ended since admission began (`appearedInView`,
-`packages/ui-server/src/brain/governed-manifest.ts:160-168`). A brain path
+`packages/ui-server/src/brain/governed-manifest.ts:162-170`). A brain path
 whose canonical path differs (a link; a trailing slash is not a difference)
 refuses, because the worker's runtime read paths can restore the live brain
 under its real name, outside the empty brain path.
@@ -3161,7 +3161,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:171-172`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:175-176`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
