@@ -158,10 +158,10 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   acceptance's revision is assigned where it is accepted, one above the
   highest the catalog has issued or seen committed, so it is known at once
   and a failed write's revision is never issued again; only the newest
-  acceptance's outcome orders or unorders the session. Local exchanges
-  still commit on the app connection. Retained retries followed on the
-  worker as described below; a failure retained before its session's row
-  has committed is stored once it has, unless an input invalidated it meanwhile.
+  acceptance's outcome orders or unorders the session. Retained retries
+  followed on the worker as described below; a failure retained before its
+  session's row has committed is stored once it has, unless an input
+  invalidated it meanwhile.
 - **The writer gate followed** (#2850). Acquisition, the turn-waiter queue,
   release, folder retention, peer-plan checks, the unpinned-host downgrade,
   the ungated host check and recorded type folders run their transactions on
@@ -205,6 +205,17 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   A read of a session's exposures (admission's continuation checks, a
   handoff's history check) first waits for every exposure write submitted
   before it. Boot reconciliation still closes abandoned manifests inline.
+- **Local exchanges, classified blocks and saved worker preferences
+  followed** (#2850). A local exchange commits on the worker with the
+  catalog's other writes. Until it has, the next prompt handed over still
+  takes it, exactly once, and the hand-over is recorded on the worker after
+  the exchange's own record; the client is answered once it is stored. A
+  turn's classified blocks, the blocks that follow a promoted link and the
+  classifier's confidence commit on the worker
+  (`packages/ui-server/src/classification/classification-writes.ts`), and a
+  replayed history waits for every one submitted before it. A saved worker
+  preference (`PUT …/profile`) is checked and stored in one immediate
+  transaction on the worker, and its refusals keep their class and status.
 - **Retained retries and policy proposals followed** (#2850). Retry saves,
   invalidations, refusal receipts and reservations commit on the worker
   (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation
@@ -248,9 +259,9 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   commit before their dependent reads or replies. Without a writer, the same
   operations still run inline, including the cron digest job; the notifier's
   cursor and the unhosted detail-retention setter keep their existing paths.
-- **Other app-connection writers stay on the loop for now**: local exchanges,
-  saved worker profiles, action and storage notices, push subscriptions and
-  VAPID keys, principal revocation and administration, passkeys and inbox. Each commits at
+- **Other app-connection writers stay on the loop for now**: action and
+  storage notices, push subscriptions and VAPID keys, principal revocation
+  and administration, passkeys and inbox. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

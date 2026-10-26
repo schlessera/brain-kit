@@ -604,6 +604,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     db: () => db,
     log: observability.logger("classification"),
     meter: observability.meter("classification"),
+    writer,
   });
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.

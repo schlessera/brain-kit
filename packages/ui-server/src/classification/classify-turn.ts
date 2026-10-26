@@ -29,8 +29,9 @@ import {
   type ClassificationPlan,
 } from "@schlessera/brain-ui-sdk/internal";
 
-import { attachMessageBlocks, rewriteMessageBlockLinks, saveMessageBlocks } from "./blocks-store.js";
-import { recordQuestionConfidence } from "./confidence-store.js";
+import { attachMessageBlocks } from "./blocks-store.js";
+import * as classificationWrites from "./classification-writes.js";
+import { procedureCaller, type ProcedureCall, type SqliteWriter } from "../db/write-worker.js";
 import type { JevClient, JevOutcome } from "./jev-client.js";
 
 type PartKind = "text" | "thinking" | "tool";
@@ -74,6 +75,8 @@ export interface ClassificationPassDeps {
   db: () => Database;
   log: Logger;
   meter?: Meter;
+  /** Where blocks and confidence commit: the app's write worker (#2850). Absent: on `db`, at once. */
+  writer?: SqliteWriter;
 }
 
 export interface ClassificationPassRecord {
@@ -99,9 +102,20 @@ export interface TurnClassifier {
    * removed.
    */
   attach(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+  /** Settles once every write submitted before it has settled: replay joins blocks after it (#2850). */
+  settled?(): Promise<void>;
 }
 
 export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifier {
+  let caller: ProcedureCall | undefined;
+  let tail: Promise<void> = Promise.resolve();
+  const submit = (name: string, ...args: unknown[]): Promise<void> => {
+    let done: Promise<void>;
+    try { caller ??= procedureCaller(deps.db(), classificationWrites, undefined, deps.writer); done = caller<void>(name, ...args); }
+    catch (error) { done = Promise.reject(error); }
+    tail = done.then(() => {}, () => {});
+    return done;
+  };
   const passes = deps.meter?.createCounter("classification.passes", {
     description: "Classification passes by outcome",
   });
@@ -121,8 +135,12 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
     blocks: MessageBlock[]
   ): void {
     try {
-      recordQuestionConfidence(deps.db(), sessionId, observeClassification(plan, answers, blocks));
+      submit("confidence", sessionId, observeClassification(plan, answers, blocks), Date.now()).catch(confidenceFailed(sessionId));
     } catch (err) {
+      confidenceFailed(sessionId)(err);
+    }
+  }
+  const confidenceFailed = (sessionId: string) => (err: unknown) => {
       deps.log.emit({
         severityText: "WARN",
         body: "classifier confidence could not be recorded",
@@ -131,8 +149,7 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
           "error.message": err instanceof Error ? err.message : String(err),
         },
       });
-    }
-  }
+  };
 
   function record(sessionId: string, entry: ClassificationPassRecord): void {
     passes?.add(1, { outcome: entry.outcome });
@@ -159,16 +176,16 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
   return {
     enabled: deps.jev.enabled,
     rewriteLinks(sessionId, textParts, links) {
-      try {
-        rewriteMessageBlockLinks(deps.db(), sessionId, textParts, links);
-      } catch (err) {
+      if (links.size === 0) return;
+      submit("rewriteLinks", sessionId, [...textParts], [...links]).catch((err: unknown) => {
         deps.log.emit({
           severityText: "WARN",
           body: "classified blocks could not follow promoted links",
           attributes: { "session.id": sessionId, "error.message": err instanceof Error ? err.message : String(err) },
         });
-      }
+      });
     },
+    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     attach(sessionId, messages) {
       try {
         return attachMessageBlocks(deps.db(), sessionId, messages);
@@ -220,7 +237,8 @@ export function createTurnClassifier(deps: ClassificationPassDeps): TurnClassifi
         }
         for (const [partIndex, list] of byPart) {
           const text = textParts[partIndex];
-          if (text !== undefined) saveMessageBlocks(deps.db(), sessionId, text, list);
+          // Committed off the event loop (#2850); replay waits for it.
+          if (text !== undefined) await submit("saveBlocks", sessionId, text, list, Date.now());
         }
         return blocks;
       } catch (err) {

@@ -22,8 +22,6 @@ import { stateRoomObservationSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { attachMessageSources } from "./message-sources.js";
 import {
   loadLocalExchanges,
-  saveLocalExchange,
-  takePendingLocalExchanges,
   type LocalExchangeRecord,
 } from "./local-exchanges.js";
 
@@ -121,7 +119,7 @@ export interface SessionCatalog {
    * handed over now. Returns whether it is stored. Optional like the source
    * seam: without it the exchange stays on the client that ran it.
    */
-  recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): boolean;
+  recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): Promise<boolean>;
   /** The exchanges no prompt has carried yet, marked as carried by the one being handed over. */
   takePendingLocalExchanges?(sessionId: string): LocalExchange[];
   /** Every exchange recorded for the session, for replay. */
@@ -213,6 +211,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   // own write settles: a failed one stops counting at once.
   type RowEffect = { upsert: { providerId: string | null; backendId: string | null } } | { label: { label: string; source: string } };
   const rowEffects = new Map<string, RowEffect[]>();
+  const pendingExchanges = new Map<string, LocalExchange[]>();
+  const takenExchanges = new Map<string, Set<string>>();
   const pendingWork = new Map<string, Array<(row: work.AcceptedWork | null) => work.AcceptedWork | null>>();
   const track = <E, T>(effects: Map<string, E[]>, sessionId: string, effect: E, done: Promise<T>): Promise<T> => {
     const list = effects.get(sessionId) ?? [];
@@ -384,19 +384,43 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       submit("effectiveThinkingLevel", sessionId, turnId, level).catch(err => reportWriteFailure(sessionId, err));
     },
 
+    // Settles once stored (#2850). Until then a pending exchange is still
+    // taken by the next prompt handed over, as when it committed inline.
     recordLocalExchange(sessionId, exchange, delivered) {
-      try {
-        saveLocalExchange(db(), sessionId, exchange, delivered);
-        return true;
-      } catch (err) {
-        reportWriteFailure(sessionId, err);
-        return false;
-      }
+      const done = submit<void>("localExchange", sessionId, exchange, delivered, Date.now());
+      if (!delivered) track(pendingExchanges, sessionId, exchange, done);
+      return done.then(() => true, (err: unknown) => { reportWriteFailure(sessionId, err); return false; });
     },
 
+    // Taken where the prompt is handed over, at once: the committed pending
+    // exchanges and those still committing, less any another prompt has
+    // already taken. Exactly these are then marked carried, after their
+    // records, on the write worker.
     takePendingLocalExchanges(sessionId) {
       try {
-        return takePendingLocalExchanges(db(), sessionId);
+        const claimed = takenExchanges.get(sessionId) ?? new Set<string>();
+        const seen = new Set<string>();
+        const taken: LocalExchange[] = [];
+        for (const record of loadLocalExchanges(db(), sessionId)) {
+          if (record.delivered || claimed.has(record.id) || seen.has(record.id)) continue;
+          seen.add(record.id);
+          const { seq: _seq, delivered: _delivered, ...exchange } = record;
+          taken.push(exchange);
+        }
+        for (const exchange of pendingExchanges.get(sessionId) ?? []) {
+          if (claimed.has(exchange.id) || seen.has(exchange.id)) continue;
+          seen.add(exchange.id);
+          taken.push(exchange);
+        }
+        if (!taken.length) return [];
+        const ids = taken.map(exchange => exchange.id);
+        for (const id of ids) claimed.add(id);
+        takenExchanges.set(sessionId, claimed);
+        void submit("exchangesDelivered", sessionId, ids, Date.now()).catch(err => reportWriteFailure(sessionId, err)).finally(() => {
+          for (const id of ids) claimed.delete(id);
+          if (!claimed.size && takenExchanges.get(sessionId) === claimed) takenExchanges.delete(sessionId);
+        });
+        return taken;
       } catch (err) {
         // The prompt still goes out, without the figures: losing the turn
         // over them would be worse than the agent not seeing them.
