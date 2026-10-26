@@ -26,13 +26,14 @@ export function saveMessageBlocks(
   db: Database,
   sessionId: string,
   partText: string,
-  blocks: MessageBlock[]
+  blocks: MessageBlock[],
+  at = Date.now()
 ): void {
   db.prepare(
     `INSERT INTO message_blocks (session_id, part_hash, blocks, created_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(session_id, part_hash) DO UPDATE SET blocks = excluded.blocks, created_at = excluded.created_at`
-  ).run(sessionId, partHash(partText), JSON.stringify(blocks), Date.now());
+  ).run(sessionId, partHash(partText), JSON.stringify(blocks), at);
 }
 
 export function loadMessageBlocks(db: Database, sessionId: string, partText: string): MessageBlock[] {
