@@ -164,6 +164,16 @@ thread waits for it.
   still the host fallback afterwards. A type folder translation that cannot
   be recorded refuses the turn. `holders()`, a diagnostic, still reads on
   the gate's own connection.
+- **A governed turn's admission records followed** (#2850). The policy a
+  turn was admitted under, what its provider was shown, its masked lineage
+  and its protected-path manifest commit on the worker
+  (`packages/ui-server/src/brain/governed-turn-writes.ts`). Admission awaits
+  each before the turn goes on, so every record is still durable before
+  anything it describes can happen; a manifest's quarantine moves files on
+  the app thread and its close commits on the worker before `end()` settles.
+  A read of a session's exposures (admission's continuation checks, a
+  handoff's history check) first waits for every exposure write submitted
+  before it. Boot reconciliation still closes abandoned manifests inline.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
   proposals, the Activity notifier and push ticks, auth sessions, inbox and

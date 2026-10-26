@@ -663,7 +663,7 @@ async function runRetainedSession(
                 if (revision !== undefined && turn.startedAt !== undefined) {
                   host.catalog.dispatchWork?.(sid, revision, turn.turnId, backend.id, turn.startedAt);
                 }
-                host.governedTurns?.bindSession(turn.turnId, sid);
+                void host.governedTurns?.bindSession(turn.turnId, sid).catch(() => { /* Its exposures stay unbound: a later turn treats the session as unrecorded. */ });
                 recordSource(sid);
                 recordDraftExchanges(host, sid, drafted);
                 initial.handoffHooks?.onNamed(sid);
