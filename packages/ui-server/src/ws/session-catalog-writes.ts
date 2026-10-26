@@ -2,14 +2,14 @@
  * Session catalog writes off the event loop (#2850). The hosted server's app
  * connection no longer commits the session row, accepted work, turn
  * boundaries, message sources, turn failures, the state room, Claude usage
- * accounting, handoff links, labels or session costs itself: they commit on
+ * accounting, handoff links, labels, local exchanges or session costs itself: they commit on
  * the `ui.db` write worker at `synchronous=FULL`, in submission order with the
  * journal's, Activity's, governance, scope and budget writes. Each procedure
  * runs the statement or transaction that ran inline before. The catalog
  * (`session-catalog.ts`) answers its own synchronous reads from what it has
  * submitted until each write settles, and `settled()` holds the readers that
- * join history onto the committed rows. Retained retries and local exchanges
- * still commit on the app connection.
+ * join history onto the committed rows. Retained retries still commit on the
+ * app connection.
  */
 import type { Database } from "bun:sqlite";
 import type { BillingMode, LocalExchange, MessageSource, PricingRoute, SharedFileMeta, StateRoomObservation, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
