@@ -82,7 +82,9 @@ The behaviour is recorded in the
 ### Metadata-only index history (breaking, 0.44.0, #2873)
 
 The brain root's disposable index family is journaled by metadata only:
-`.brain-index/brain.db`, its `-wal`, `-shm` and `-journal` sidecars, and a
+`.brain-index/brain.db`, its `-wal`, `-shm` and `-journal` sidecars, the
+embeddings lock database `.brain-index/brain.db.embedding-lock.db` and its
+`-journal`, `-wal` and `-shm` sidecars (#2903), and a
 `.brain-index/.maintenance-<uuid>` index publication copy, matched by exact
 journal-relative path. Each of their versions keeps `kind`, `mode`, `bytes` and
 `ignored`, and adds `metadataOnly: true` and an opaque change `stamp`
@@ -105,12 +107,18 @@ bytes, including other names inside `.brain-index/`, another root's
 
 This is breaking: index versions were byte-retained, readable and restorable
 before, and the maintainer approved narrowing them on #2873 (2026-10-25,
-option B). History recorded by earlier releases is not erased: its index
-rows and objects stay until ordinary retention expires them, but history
-presents those versions as metadata-only too, without `hash` or `stamp`, and
-never reads or restores them. The decision is
-recorded in
-[the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873).
+option B). History recorded by earlier releases keeps its index rows, which
+present as metadata-only too, without `hash` or `stamp`. Their retained bytes
+are purged (#2903): the first journal open after the upgrade (or a later one,
+if a capacity or storage refusal defers it) rewrites each such
+stored version to that metadata-only form, in turn history and in revert
+records, drops the pins only those versions explained, and collects the
+objects left unpinned. An object that any other record also names (a
+version of another path, a memory note or an attachment removal's retained
+original) is kept, and so is any pin of a turn that has not ended. The purge runs once, resumes after a crash, and returns
+the bytes to the journal's capacity. The decision is recorded in
+[the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873)
+and [its purge](../decisions/governed-writable-workers.md#purging-earlier-index-versions-and-the-embeddings-lock--2026-10-25-2903).
 
 ### User history restoration (additive, #1653)
 

@@ -1395,7 +1395,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:207-228`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:214-235`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
@@ -1407,7 +1407,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:455-462`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:462-469`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1515,10 +1515,12 @@ one strict turn. The index is disposable: `brain index --force` regenerates it
 from Markdown, and restoring an old copy over a newer one only makes it stale.
 
 **The family.** Exactly `.brain-index/brain.db`, its `-wal`, `-shm` and
-`-journal` sidecars, and a `.brain-index/.maintenance-<uuid>` publication copy,
+`-journal` sidecars, the embeddings lock database
+`.brain-index/brain.db.embedding-lock.db` and its sidecars (added by #2903,
+below), and a `.brain-index/.maintenance-<uuid>` publication copy,
 by journal-relative path in the brain root's own capture, named from the shared
-index location constant (`export function journalMetadataOnlyPath`,
-`packages/ui-server/src/brain/native-journal-policy.ts:25-27`). Another name
+index location constants (`export function journalMetadataOnlyPath`,
+`packages/ui-server/src/brain/native-journal-policy.ts:31-33`). Another name
 inside `.brain-index/`, another root's `.brain-index/` (a workspace or a
 managed worktree) and a similarly named file elsewhere stay ordinary content
 with retained bytes.
@@ -1530,7 +1532,7 @@ these versions as metadata-only and never open them for retention
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
-(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:61`),
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:62`),
 so every observed refresh remains a recorded change. A metadata-only version is an intentional
 observation state: it adds no `missing` entry and does not make the turn
 partial. Removal coverage never treats the family as eligible, and history
@@ -1540,9 +1542,9 @@ once per path (#2831); the one difference is that a publication copy that
 stays now counts its largest size once too, rather than each version.
 
 **History.** History presents every index-family version as metadata-only
-however it was recorded, so a version an earlier release retained keeps its
-stored row and object until ordinary retention but is no longer read
-(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:54-59`).
+however it was recorded, so a version an earlier release retained is no
+longer read
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:55-60`).
 The reader groups these entries as the search index, recorded by size and
 timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
@@ -1551,8 +1553,9 @@ by an earlier release is not restored either
 (`reason = "metadata_only"`, `packages/ui-server/src/brain/turn-revert.ts:46`).
 The operation's ordinary index refresh rebuilds it, so that exclusion alone
 does not make the operation partial
-(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:148`). Existing
-retained history is not erased; ordinary bounded retention expires it.
+(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:148`). The bytes
+earlier releases retained for these versions are purged at the journal's next
+open (#2903, below).
 
 **Measured.** `scripts/prove-native-host.ts --backend=pi --app-uid=1000
 --observation-timing` on the native fixture (pi, governed, UID 1000, 2,000
@@ -1569,6 +1572,79 @@ observation's native checkpoint and release (#2872), not index bytes. Per-call
 added time is unchanged within noise. Both runs then stopped on the same
 unrelated index publication refusal of a changed sidecar stamp (#2878), after
 the measurement was written.
+
+### Purging earlier index versions, and the embeddings lock — 2026-10-25 (#2903)
+
+> **Maintainer confirmation of #2890 (2026-10-25), two choices overridden.**
+> Index versions retained before #2890 are **purged now** rather than left to
+> normal retention expiry, and `brain.db.embedding-lock.db*` **joins the
+> metadata-only index family**. The other implementation choices stand: a
+> revert that skips only index-family entries reports `complete`, and
+> metadata-only entries carry the opaque change `stamp`.
+
+**Why.** A full index copy is about 120 MB per version, and history already
+presented those versions as metadata-only, so their bytes could never be read
+or restored again: keeping them for up to 30 days only held capacity. The
+embeddings lock database is a cross-process lock `brain index --embeddings`
+keeps beside the index; it carries no authoritative content either.
+
+**The embeddings lock.** `EMBEDDING_LOCK_FAMILY` in
+`@schlessera/brain-common/internal/index-location` names the lock database and
+the sidecars SQLite may create beside it, and the journal's family is
+`INDEX_FAMILY` plus that list under `.brain-index/`
+(`export const INDEX_FAMILY_PATHS`,
+`packages/ui-server/src/brain/native-journal-policy.ts:9`). Observation,
+before-version capture, removal coverage, history, preview, download and
+revert therefore treat it exactly as the index. A similarly named file,
+`.brain-index/brain.db.embedding-lock.db.bak` or `notes/brain.db.embedding-lock.db`,
+keeps its bytes.
+
+**The purge.** It runs once, on the journal's write worker, when the journal
+opens, after interrupted turns have been ended
+(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:100`),
+in at most two accounted commits whose progress is recorded in
+`turn_journal_allocation.index_purge`
+(`purgeIndexVersions(): IndexPurgeResult`,
+`packages/ui-server/src/brain/journal-store.ts:163-202`):
+
+1. Every recorded index-family version, in history and in revert records, is
+   rewritten to the metadata-only form a new one has: kind, mode, size and the
+   ignored flag stay, `metadataOnly: true` is added, and the hash and any
+   symlink target go. That is exactly what history already presented, so no
+   reader sees a change. Legacy rows carry no stamp, and none is invented.
+   The same commit then drops, for each ended turn, its pin on an object its
+   own index version named. A hash that any other record still names keeps
+   every pin: a version of any path in any turn's history or revert record,
+   an external memory note, or an attachment removal's retained original,
+   which Undo restores through the removal turn's pin. Its object is
+   authoritative content too. A turn that has not ended keeps its pins,
+   because its process may still be recording, and a pin a turn holds
+   without such an index version is never dropped.
+2. Objects left without a pin or a reservation are then collected, as any
+   ordinary collection does, and their bytes leave the journal's accounting.
+   When the first step dropped no pin, it completes the purge itself.
+
+A crash inside either commit rolls it back whole; a crash between them leaves
+rows that name no object and objects nothing pins, and the next open runs the
+second step. A collection that removed a file before its commit was lost
+leaves only an unreferenced row, which the resumed step removes. A capacity or
+storage refusal leaves the purge to the next open; meanwhile history presents
+the versions as metadata-only, as before. Like the rest of startup recovery,
+the purge cannot commit in a journal that is already over its cap. Turn scope summaries of ended turns
+are history and stay as recorded.
+
+**Bounded at open.** Pins are keyed by turn first, and two costs of a
+collection searched them per object: asking whether any pin names an
+object, and the pins' foreign-key check when an object row is removed. On a
+journal of 2,000 turns, 120,000 changes and 4,000 objects that made the purge
+take about 27 s. Collection now reads the pinned hashes once, and the purge's
+collection commit runs without foreign-key enforcement, since it removes only
+objects it found unpinned under the same write lock; that open takes under a
+second (0.8–0.9 s measured). An index of pins by object would also have done
+it, but its pages are added to the journal's file before any admission and
+could push a journal near its cap over it, where even ordinary expiry can no
+longer commit. The per-object foreign-key check still costs the collection
+after every turn on a large journal (#2913).
 
 ### Observation cost — 2026-10-25 (#2872)
 
@@ -1636,7 +1712,7 @@ the owner.
 
 **A failed release.** The checkpoint stays retained and charged until a
 retry, and the journal treats the failure as the hold did
-(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:149-157`):
+(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:156-164`):
 every active turn stops and its record is partial, a hold the failure
 overlaps kills its held workers instead of resuming them, and an admission
 requested before the failure, even one still queued behind other journal work,
@@ -3773,7 +3849,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:295-359`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:302-366`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3796,7 +3872,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:552-582`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:559-589`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits

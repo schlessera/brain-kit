@@ -7,16 +7,15 @@ import { installEscapeGuard, JournalStorageUnavailable } from "./journal-account
 import { createGovernanceWrites } from "../governance/event-writes.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
 import * as journalStore from "./journal-store.js";
-import { reviveJournalError, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
+import { reviveJournalError, type IndexPurgeResult, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
-import { INDEX_PUBLICATION_COPY, journalMetadataOnlyPath } from "./native-journal-policy.js";
+import { INDEX_FAMILY_PATHS, INDEX_PUBLICATION_COPY, journalMetadataOnlyPath } from "./native-journal-policy.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
 import { toolObservation, type ToolExecutionPath } from "./tool-observation.js";
 import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeCheckpointLedger,
   type ReferenceWorktreeJournalPool } from "./reference-worktree-journal.js";
-import { INDEX_DIR, INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -25,15 +24,16 @@ import { queryGovernanceEvents } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /**
- * The brain root's index database and its sidecars. Every host index refresh
- * rewrites them whole, so summing each observed version would charge a turn
- * the index's full size per refresh (#2831). Inside the index directory a
+ * The brain root's index database, its sidecars and the embeddings lock
+ * database beside it (#2903). Every host index refresh rewrites the index
+ * whole, so summing each observed version would charge a turn the index's
+ * full size per refresh (#2831). Inside the index directory a
  * publication copy (`INDEX_PUBLICATION_COPY`) is that refresh itself, already
  * counted at its target. Only a copy a later observation saw removed is
  * excluded: one that stays, whoever wrote it, counts like any other
  * metadata-only file.
  */
-const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY.map(name => `${INDEX_DIR}/${name}`));
+const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY_PATHS);
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
@@ -46,10 +46,11 @@ const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null
 } : null;
 /**
  * A recorded version as history presents it. The index family is metadata
- * only however it was recorded: a version an earlier release retained keeps
- * its stored row and object until ordinary retention, but is neither read nor
- * restored, and no conflict is offered between versions history does not keep
- * (#2873). Journal paths of other roots are logical, never canonical.
+ * only however it was recorded: a version an earlier release retained is
+ * neither read nor restored, and no conflict is offered between versions
+ * history does not keep (#2873). The purge at open rewrites such a stored
+ * version to this same form and removes its object (#2903). Journal paths of
+ * other roots are logical, never canonical.
  */
 const presented = (path: string, json: string | null): JournalVersion | null => {
   if (!json) return null;
@@ -92,6 +93,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const interrupted = (db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
     for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
+    // Index bytes earlier releases retained are purged once, a step per
+    // commit, after interrupted turns have ended (#2903). A refused step is
+    // left for the next open; until then history already presents them as
+    // metadata-only.
+    try { while (await ledger.call<IndexPurgeResult | null>("purgeIndexVersions")); }
+    catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
   })();
   ready.catch(() => {});
   // Every later call passes through `ready` the same way, so calls reach the

@@ -953,7 +953,9 @@ describe("activity store: effective cost (migration 010)", () => {
          (span_id, run_id, name, kind, origin, started_at, writer)
        VALUES ('pre-root', 'pre', 'invoke_agent', 'turn', 'session', 1, 'old-server')`
     ).run();
-    const tenAndLater = files.filter((f) => !(f < "010"));
+    // A `*.journal.sql` migration changes only the attached journal file
+    // (#2789), which this UI-database replay does not open.
+    const tenAndLater = files.filter((f) => !(f < "010") && !f.endsWith(".journal.sql"));
     expect(tenAndLater[0]).toBe("010_effective_cost.sql");
     for (const file of tenAndLater) {
       db.exec(readFileSync(join(migrationsDir, file), "utf-8"));
