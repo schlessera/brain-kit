@@ -217,7 +217,7 @@ test("a controlled dispatcher cannot acquire interactive ownership or replay par
 test("another authenticated principal cannot claim an intake by quoting its staging identity", async () => {
   const f = await fixture(), share = await f.upload(false);
   const other = createPrincipal(f.app.db, { authMethod: "password", label: "Athena", ttlSeconds: 3600 });
-  expect(() => f.app.wsHost.inboxTools!.shares!.start(other.id, "foreign-turn", undefined, share.id, () => true), "INTAKE_PRINCIPAL_OWNS_BINDING").toThrow("authenticated share intake");
+  await expectRejection(f.app.wsHost.inboxTools!.shares!.start(other.id, "foreign-turn", undefined, share.id, () => true), "authenticated share intake", "INTAKE_PRINCIPAL_OWNS_BINDING");
   expect(f.item(share)).toMatchObject({ status: "ready", attempts: 0 });
   expect(f.app.db.query("SELECT COUNT(*) AS n FROM inbox_interactive_shares").get()).toEqual({ n: 0 });
 });
@@ -225,7 +225,7 @@ test("another authenticated principal cannot claim an intake by quoting its stag
 test("a dispatcher that wins the Queue claim cannot be displaced by interactive intake binding", async () => {
   const f = await fixture(), share = await f.upload(false), original = f.item(share);
   f.store.commit([{ kind: "transition", itemId: original.id, expectedVersion: original.version, to: "claimed", runId: "dispatcher-first", leaseUntil: Date.now() + 60_000 }]);
-  expect(() => f.app.wsHost.inboxTools!.shares!.start(f.principal.id, "interactive-contender", undefined, share.id, () => true), "EXISTING_QUEUE_OWNER_IS_NOT_DISPLACED").toThrow("live owner");
+  await expectRejection(f.app.wsHost.inboxTools!.shares!.start(f.principal.id, "interactive-contender", undefined, share.id, () => true), "live owner", "EXISTING_QUEUE_OWNER_IS_NOT_DISPLACED");
   expect(f.item(share)).toMatchObject({ status: "claimed", runId: "dispatcher-first", attempts: 1 });
   expect(f.app.db.query("SELECT COUNT(*) AS n FROM inbox_interactive_shares").get()).toEqual({ n: 0 });
   expect(existsSync(join(f.brainPath, share.dir))).toBe(true);

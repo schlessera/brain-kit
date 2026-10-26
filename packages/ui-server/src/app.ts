@@ -96,6 +96,7 @@ import { registerPrincipalWrites } from "./db/principal-writes.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
+import { registerInboxWrites } from "./inbox/write-runtime.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
 import { createHygieneReviewRoutes } from "./routes/hygiene-review.js";
 import { createInboxStream } from "./inbox/stream.js";
@@ -456,6 +457,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
   // Authentication's per-request principal writes commit on it too (#2850).
   registerPrincipalWrites(db, writer);
+  registerInboxWrites(db, writer);
   bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
@@ -601,6 +603,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     db: () => db,
     log: observability.logger("classification"),
     meter: observability.meter("classification"),
+    writer,
   });
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.

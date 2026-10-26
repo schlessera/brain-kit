@@ -1,7 +1,7 @@
 /** Authenticated preferences only; admission independently enforces its frozen policy. */
 import { scopeLimits } from "../brain/turn-scope.js";
 import type { Database } from "bun:sqlite";
-import { SESSION_DRAFT_LIMITS, type SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
+import type { SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
 import type { GovernedTurns } from "../brain/governed-turn.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as writes from "./session-profile-writes.js";
@@ -22,7 +22,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
    */
   options: { writer?: SqliteWriter; catalog?: { hasSession?(sessionId: string): boolean; settled?(): Promise<void> } } = {}) {
   const authorize = (principalId: string) => authorizeProfile(db, principalId, Date.now());
-  const submit = procedureCaller(db, writes, undefined, options.writer);
+  const submit = procedureCaller(db, writes, undefined, options.writer, writes.reviveProfileError);
   // Each session's submitted, unsettled bind and record, in order. Both are
   // idempotent over the row they produce, so a read applies them to the
   // committed row whether or not they have landed yet.
@@ -85,26 +85,13 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   return {
     read,
     settled,
-    // A saved preference still commits here, after what it reads has settled.
+    // A saved preference commits on the write worker too (#2850), after
+    // what it reads has settled; the answer is read once it has.
     async save(principalId: string, kind: "session" | "draft", id: string, preference: Profile) {
       await settled();
-      return db.transaction(() => {
-        const current = read(principalId, kind, id);
-        if (current.origin === "voice") throw new SessionProfileError(409, "Voice uses this brain's policy.");
-        if (preference === "governed" && current.policyProfile === "strict") throw new SessionProfileError(409, "Set by this brain's policy.");
-        if (kind === "session") {
-          db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET preference = excluded.preference, updated_at = excluded.updated_at, updated_by = excluded.updated_by")
-            .run(id, preference, Date.now(), principalId);
-        } else {
-          // Expired principals cannot use their old preferences; bounded cleanup does not evict a live confirmed choice.
-          db.query("DELETE FROM draft_worker_profiles WHERE principal_id NOT IN (SELECT id FROM principals WHERE revoked_at IS NULL AND expires_at > ?)").run(Date.now());
-          if (!draft(principalId, id) && (db.query("SELECT COUNT(*) AS n FROM draft_worker_profiles").get() as { n: number }).n >= SESSION_DRAFT_LIMITS.maxDrafts)
-            throw new SessionProfileError(507, "The host cannot keep another draft preference yet.");
-          db.query("INSERT INTO draft_worker_profiles (principal_id, draft_id, preference, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(principal_id, draft_id) DO UPDATE SET preference = excluded.preference, updated_at = excluded.updated_at")
-            .run(principalId, id, preference, Date.now());
-        }
-        return read(principalId, kind, id);
-      }).immediate();
+      const policyProfiles = { interactive: turns.facts("interactive").policyProfile, voice: turns.facts("voice").policyProfile };
+      await submit("save", principalId, kind, id, preference, policyProfiles, Date.now());
+      return read(principalId, kind, id);
     },
     preference(principalId: string, sessionId?: string, draftId?: string): Profile | undefined {
       authorize(principalId);

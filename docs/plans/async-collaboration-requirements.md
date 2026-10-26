@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:358-452`), so autonomous work is confined to
+   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:361-455`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -95,7 +95,7 @@ Stated before the requirements because five of them derive from it.
   that arrived from outside, including every v1 share). It is never present in any
   model-authored payload schema, and no model output can change it. The share manifest
   has its source selected server-side
-  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:121`); this generalizes that.
+  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:101`); this generalizes that.
 - **T2. Model output is data, never authority.** `state_md`, T1 classifications, and
   follow-up payloads are authored by a model that has read attacker-controllable text. They
   may describe, request, and summarize. They may not select a tool profile, widen a
@@ -222,11 +222,11 @@ Stated before the requirements because five of them derive from it.
 ### Execution
 
 - R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:11-14`) owns only manual triggers and
-  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:65-207`) already runs an interval tick with a boot sweep —
+  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:66-236`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:890`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:893`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -263,7 +263,7 @@ Stated before the requirements because five of them derive from it.
   threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
   holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:402-460`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:405-463`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
   path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:393-399`). Aborting does **not** undo completed tool side
@@ -387,7 +387,7 @@ Stated before the requirements because five of them derive from it.
   to `failure|completion|stuck`, requires an activity `run_id`, coalesces only by dropping a
   later same-tag intent without updating a count
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`), and the sender emits one push per
-  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:207-254`). Reuse subscriptions, retry budget, and delivery
+  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:208-255`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
   eligibility, and an Actions deep link. The
   [2026-10-02 Action notification decision](../decisions/action-notifications.md)

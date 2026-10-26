@@ -5,23 +5,24 @@ import { realpathSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { relative } from "node:path";
 import type { ShareIntakeResult } from "@schlessera/brain-ui-sdk/protocol";
-import { SHARE_STAGING_DIR, SHARE_STAGING_TTL_MS } from "@schlessera/brain-ui-sdk/protocol";
+import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import { safeResolve } from "../files/walker.js";
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
-import { createInboxStore } from "./store.js";
+
 import { shareContentHash, stageShareAt, type ShareInput } from "../share/staging.js";
 import { publishedArrival, stagedArrivalDigest } from "./arrival.js";
-import { recordInboxProvenance } from "./provenance.js";
+import { inboxIntakeWrites, IntakeAuthorizationError } from "./intake-writes.js";
+export { IntakeAuthorizationError, IntakeKeyConflictError } from "./intake-writes.js";
 import { createProtectedTargetCheck, ProtectedTargetRefusedError } from "../brain/protected-target.js";
 
-export class IntakeAuthorizationError extends Error {}
-export class IntakeKeyConflictError extends Error {}
 
 /**
  * Refuses a staging directory in a turn's admitted protection set (#2876),
  * named relative to the brain. Absent outside a turn that has one.
  */
 type StagingGuard = (path: string) => void;
+
+interface IntakeOutcome { result: ShareIntakeResult; created: boolean; threadId: string; itemId: string }
 
 interface Receipt {
   staging_id: string;
@@ -35,7 +36,7 @@ interface Receipt {
 
 /** Concrete intake for this UI store. It stages bytes and never dispatches work. */
 export function createInboxIntake(db: Database, brainRoot: string, log?: Logger) {
-  const store = createInboxStore(db);
+  const write = inboxIntakeWrites(db);
   const active = new Set<string>();
   const pending = new Set<Promise<unknown>>();
   let closed = false;
@@ -56,35 +57,18 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
       guard?.(relative(realpathSync(brainRoot), path));
       await rm(path, { recursive: true, force: true });
     }
-    db.query("DELETE FROM inbox_intake_receipts WHERE staging_id = ? AND state = 'cleanup'").run(id);
+    await write("clean", id);
   }
   async function reconcile(guard?: StagingGuard): Promise<void> {
     const rows = db.query("SELECT staging_id FROM inbox_intake_receipts WHERE state = 'cleanup' OR (state = 'preparing' AND reconcile_after <= ?)").all(Date.now()) as { staging_id: string }[];
     for (const { staging_id: id } of rows) {
       if (active.has(id)) continue;
-      db.query("UPDATE inbox_intake_receipts SET state = 'cleanup' WHERE staging_id = ? AND state = 'preparing' AND reconcile_after <= ?").run(id, Date.now());
+      await write("reconcile", id, Date.now());
       // Another process may have committed a later row while this sweep awaited
       // cleanup of an earlier one. Never compensate a newly committed receipt.
       const row = db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(id) as { state: string } | null;
       if (row?.state === "cleanup") await clean(id, guard);
     }
-  }
-  function replay(row: Receipt, hash: string, principal: Principal) {
-    return db.transaction(() => {
-      authorize(principal);
-      if (row.content_hash !== hash) throw new IntakeKeyConflictError("Intake key was already used for different content");
-      const result = JSON.parse(row.result_json!) as ShareIntakeResult;
-      // Only the intake owner may recover its durable interactive session.
-      // Re-upload after a lost admission reply is a read, never another turn.
-      if (row.source === "share" && row.principal_id === principal.id) {
-        const binding = db.query("SELECT session_id FROM inbox_interactive_shares WHERE staging_id = ? AND principal_id = ?")
-          .get(row.staging_id, principal.id) as { session_id: string | null } | null;
-        if (binding?.session_id) result.filingSessionId = binding.session_id;
-      }
-      const work = store.ingest({ threadId: crypto.randomUUID(), itemId: crypto.randomUUID(), source: row.source,
-        dedupKey: row.dedup_key, stagingId: row.staging_id, expiresAt: Date.now() + SHARE_STAGING_TTL_MS, stakes: 1 });
-      return { result, created: work.created, threadId: work.thread.id, itemId: work.item.id };
-    }).immediate();
   }
   /**
    * `person` marks an arrival a person made through an authenticated route,
@@ -103,17 +87,13 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     const hash = await shareContentHash(input);
     const key = source === "share" ? `share:${hash}` : `cli:${explicitKey}`;
     const existing = committed(key);
-    if (existing) { authorize(principal, isCurrent); return replay(existing, hash, principal); }
+    if (existing) { authorize(principal, isCurrent); return write<IntakeOutcome>("replay", existing, hash, principal); }
     const id = crypto.randomUUID();
     // A refused target leaves no receipt to compensate.
     for (const name of [id, `.${id}.partial`]) guard?.(`${SHARE_STAGING_DIR}/${name}`);
     // Journal BEFORE any file write. A killed writer leaves bounded compensation,
     // never a Queue claim. Other live writers get an hour before reconciliation.
-    db.transaction(() => {
-      authorize(principal);
-      db.query("INSERT INTO inbox_intake_receipts (staging_id, source, principal_id, dedup_key, content_hash, created_at, reconcile_after, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'preparing')")
-        .run(id, source, principal.id, key, hash, Date.now(), Date.now() + 60 * 60 * 1000);
-    }).immediate();
+    await write("prepare", id, source, principal, key, hash);
     active.add(id);
     let accepted = false;
     try {
@@ -123,32 +103,15 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
       // Evidence of the bytes this process wrote, never a re-read of the
       // published directory; unreadable staging records none.
       const evidence = author && published ? await publishedArrival(id, published).then(stagedArrivalDigest, () => null) : null;
-      const outcome = db.transaction(() => {
-        authorize(principal, isCurrent); // revocation may occur during decoding or staging
-        const owned = db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(id) as { state: string } | null;
-        if (owned?.state !== "preparing") throw new Error("Intake preparation was reconciled");
-        const winner = committed(key);
-        if (winner) {
-          const replayed = replay(winner, hash, principal);
-          db.query("UPDATE inbox_intake_receipts SET state = 'cleanup' WHERE staging_id = ?").run(id);
-          return replayed;
-        }
-        const work = store.ingest({ threadId: crypto.randomUUID(), itemId: crypto.randomUUID(), source,
-          dedupKey: key, stagingId: id, expiresAt: Date.now() + SHARE_STAGING_TTL_MS, stakes: 1 });
-        if (!work.created) throw new Error("Intake receipt is missing for an existing item");
-        db.query("UPDATE inbox_intake_receipts SET state = 'committed', item_id = ?, result_json = ?, binary_hashes_json = ? WHERE staging_id = ?")
-          .run(work.item.id, JSON.stringify(result), JSON.stringify(binaryHashes), id);
-        if (evidence) recordInboxProvenance(db, { item: work.item.id }, author === "person" ? { origin: "person", evidence }
-          : { origin: "conversation", turnId: author!.conversationTurn, evidence });
-        return { result, created: true, threadId: work.thread.id, itemId: work.item.id };
-      }).immediate();
+      authorize(principal, isCurrent); // The turn must still own intake at submission.
+      const outcome = await write<IntakeOutcome>("accept", id, source, principal, key, hash, result, binaryHashes, evidence, author);
       accepted = outcome.result.id === id;
       if (!accepted) await clean(id, guard);
       return outcome;
     } catch (error) {
       // A committed receipt is never compensated, even if reporting/cleanup fails.
       if (!accepted && committed(key)?.staging_id !== id) {
-        db.query("UPDATE inbox_intake_receipts SET state = 'cleanup' WHERE staging_id = ? AND state = 'preparing'").run(id);
+        await write("compensate", id);
         await clean(id, guard).catch(() => {});
       }
       throw error;

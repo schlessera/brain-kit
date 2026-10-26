@@ -264,12 +264,8 @@ export function createInboxStream(store: InboxStore, db: Database, log?: Logger,
     const entry: Connection = connections.get(key(ws)) ?? { ws, authorization, release: () => {}, subscriptions: new Map() };
     if (!authorized(entry)) return;
     try {
-      if (msg.type === "inbox_resolve") {
-        const { effect } = resolver.inspect(authorization.principalId, msg);
-        if (effect.kind === "hygiene") await resolver.resolveAsync(authorization.principalId, msg);
-        else resolver.resolve(authorization.principalId, msg);
-      }
-      else resolver.snooze(authorization.principalId, msg.itemId);
+      if (msg.type === "inbox_resolve") await resolver.resolveAsync(authorization.principalId, msg);
+      else await resolver.snoozeAsync(authorization.principalId, msg.itemId);
       pump();
     } catch {
       error(entry, "INBOX_DECISION_REFUSED", "The decision could not be applied. Refresh the Action and check its current authority.");

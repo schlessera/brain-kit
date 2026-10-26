@@ -50,7 +50,7 @@ export function settleTurnIndex(bridge: BackendBridge): Promise<void> {
 }
 
 /** Build the per-turn bridge the backend drives. */
-export function makeBridge(
+export async function makeBridge(
   host: WsHost,
   turn: RunningTurn,
   promptText: string,
@@ -79,7 +79,7 @@ export function makeBridge(
    * startup view, that view's root: where its `Read` of a brain path resolves.
    */
   turnData?: { tree: TurnDataTree; view?: string }
-): BackendBridge {
+): Promise<BackendBridge> {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
@@ -157,7 +157,7 @@ export function makeBridge(
   const current = () => !signal.aborted && principalIsAuthorized();
   const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}) });
-  if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
+  if (work?.posture !== "voice") await host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   // Host bridge tools run outside the worker's mounts, so they refuse the
   // folders the worker masks, with one governance event per refused call (#2690).
@@ -242,7 +242,10 @@ export function makeBridge(
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
-        host.inboxTools?.shares?.bind(turnId, msg.sessionId);
+        // Submitted after the catalog row; every share read/effect joins this queue.
+        void host.inboxTools?.shares?.bind(turnId, msg.sessionId).catch(error => {
+          turn.abortController.abort(error); emitTurnError(host, turn, error);
+        });
         if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
           // Both commit after the row above (#2850); the frame reads them as submitted.
           const named = msg.sessionId;
