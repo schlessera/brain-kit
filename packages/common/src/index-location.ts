@@ -27,6 +27,15 @@ export const INDEX_DB = "brain.db";
 /** The database and every sidecar SQLite may create beside it, database first. */
 export const INDEX_FAMILY = ["brain.db", "brain.db-wal", "brain.db-shm", "brain.db-journal"] as const;
 
+/**
+ * `index --embeddings`' cross-process lock database and the sidecars SQLite
+ * may create beside it, kept next to {@link INDEX_DB} (the lock is opened at
+ * the index database's path plus `.embedding-lock.db`).
+ */
+export const EMBEDDING_LOCK_FAMILY = [
+  "brain.db.embedding-lock.db", "brain.db.embedding-lock.db-journal", "brain.db.embedding-lock.db-wal", "brain.db.embedding-lock.db-shm",
+] as const;
+
 /** Repo-relative path of the index database. */
 export const INDEX_DB_PATH = `${INDEX_DIR}/${INDEX_DB}`;
 
@@ -40,8 +49,4 @@ export function indexDbPath(root: string): string {
  * reads or writes them any more: a brain migrates by rebuilding its index in
  * {@link INDEX_DIR}, and these copies are removed rather than moved.
  */
-export const LEGACY_INDEX_FAMILY = [
-  ...INDEX_FAMILY,
-  // `index --embeddings`' cross-process lock database, kept beside brain.db.
-  "brain.db.embedding-lock.db", "brain.db.embedding-lock.db-journal", "brain.db.embedding-lock.db-wal", "brain.db.embedding-lock.db-shm",
-] as const;
+export const LEGACY_INDEX_FAMILY = [...INDEX_FAMILY, ...EMBEDDING_LOCK_FAMILY] as const;

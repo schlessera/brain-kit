@@ -12,6 +12,7 @@ import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError, type JournalObjectReservation } from "./journal-objects.js";
+import { INDEX_FAMILY_PATHS, INDEX_PUBLICATION_COPY } from "./native-journal-policy.js";
 
 export const url = import.meta.url;
 
@@ -38,6 +39,37 @@ export function reviveJournalError(wire: WireError): Error | undefined {
   if (error) error.message = wire.message;
   return error;
 }
+
+/** What one open's index purge step did (#2903); `null` when it had nothing left to do. */
+export interface IndexPurgeResult { step: "versions" | "objects"; versions: number; pins: number; objects: number; bytes: number }
+
+/**
+ * A recorded change of the brain root's index family, as SQL over
+ * `turn_journal_changes` or `turn_journal_revert_paths`, bound to the exact
+ * family paths (`?1`, JSON) and the publication-copy GLOB (`?2`): the same
+ * set `journalMetadataOnlyPath` names.
+ */
+const INDEX_PATH = "(path IN (SELECT value FROM json_each(?1)) OR path GLOB ?2)";
+/** A version recorded before #2873 with its content facts, as SQL over one JSON column. */
+const legacy = (column: string) => `(${column} IS NOT NULL AND json_extract(${column},'$.metadataOnly') IS NOT 1)`;
+/** That version without its hash or symlink target, marked metadata-only like a new one. */
+const metadataOnly = (column: string) => `CASE WHEN ${legacy(column)} THEN json_set(json_remove(${column},'$.hash','$.target'),'$.metadataOnly',json('true')) ELSE ${column} END`;
+const hashes = (table: string, where = "1") => ["before_json", "after_json"]
+  .map(column => `SELECT json_extract(${column},'$.hash') AS hash FROM ${table} WHERE ${where} AND json_extract(${column},'$.hash') IS NOT NULL`).join(" UNION ALL ");
+/** Each turn that recorded an index-family version with a hash, with that hash. */
+const indexPins = ["before_json", "after_json"].flatMap(column => [
+  `SELECT turn_id,json_extract(${column},'$.hash') FROM turn_journal_changes WHERE ${INDEX_PATH} AND json_extract(${column},'$.hash') IS NOT NULL`,
+  `SELECT o.journal_turn_id,json_extract(p.${column},'$.hash') FROM turn_journal_revert_paths p JOIN turn_journal_revert_operations o ON o.id=p.operation_id
+    WHERE ${INDEX_PATH.replaceAll("path", "p.path")} AND json_extract(p.${column},'$.hash') IS NOT NULL`,
+]).join(" UNION ALL ");
+/**
+ * Every hash a record other than an index-family version still names once
+ * those are rewritten: any path's version in history, a revert record or an
+ * external memory note, and an attachment removal's retained original, which
+ * its Undo restores through the removal turn's pin.
+ */
+const namedHashes = `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
+  UNION ALL SELECT json_extract(file.value,'$.retained.hash') FROM turn_journal_storage_operations s, json_each(s.private_versions) file`;
 
 type TurnRow = { session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; model: string | null; profile: "strict" | "governed"; steering_inventory_missing: string; missing: string };
 
@@ -68,6 +100,20 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const pin = (turnId: string, entry: JournalVersion | null) => {
     if (entry?.hash) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
   };
+  /**
+   * Removes every present object nothing pins or reserves; what it freed.
+   * Each list is read once: pins are keyed by turn, so searching them per
+   * object scanned every pin for every object.
+   */
+  const collect = () => {
+    const unused = db.query("SELECT hash,bytes FROM turn_journal_objects WHERE state='present' AND hash NOT IN (SELECT hash FROM turn_journal_object_refs) AND hash NOT IN (SELECT hash FROM turn_journal_reservations WHERE hash IS NOT NULL)").all() as { hash: string; bytes: number }[];
+    for (const row of unused) {
+      if (objects.has(row.hash)) objects.remove(row.hash);
+      db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
+    }
+    return { objects: unused.length, bytes: unused.reduce((sum, row) => sum + row.bytes, 0) };
+  };
+  const purgeState = () => (db.query("SELECT index_purge FROM turn_journal_allocation WHERE id=1").get() as { index_purge: number }).index_purge;
   const turnContext = (turnId: string) => {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
     const taint = db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1")
@@ -93,14 +139,66 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         return true;
       });
     },
-    collectObjects(): void {
-      accounting.write(() => {
-        const unused = db.query("SELECT hash FROM turn_journal_objects WHERE state='present' AND NOT EXISTS(SELECT 1 FROM turn_journal_object_refs r WHERE r.hash=turn_journal_objects.hash) AND NOT EXISTS(SELECT 1 FROM turn_journal_reservations r WHERE r.hash=turn_journal_objects.hash)").all() as { hash: string }[];
-        for (const row of unused) {
-          if (objects.has(row.hash)) objects.remove(row.hash);
-          db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
-        }
-      });
+    collectObjects(): void { accounting.write(collect); },
+    /**
+     * One step of the one-time purge of index-family bytes that releases
+     * before #2873 retained (#2903), run at each open until it is done. Each
+     * step is one accounted commit, so a crash leaves the previous step's
+     * state and the next open resumes from it.
+     *
+     * The first step rewrites every recorded index-family version, in history
+     * and in revert records, to the metadata-only form a new one has, without
+     * its hash or symlink target, so no row names an object any more. It then
+     * drops the pin each ended turn holds on an object its own index version
+     * named. A hash any other record still names (`namedHashes`), at any path
+     * or in any turn, keeps every pin: its object holds authoritative content
+     * too. A turn that has not ended keeps its pins, since its process may
+     * still be recording, and so does any other turn's pin.
+     *
+     * The second step collects the objects that left unreferenced, as an
+     * ordinary collection does: a crash between removing a file and
+     * committing leaves only an unreferenced row, which the step removes on
+     * resume.
+     */
+    purgeIndexVersions(): IndexPurgeResult | null {
+      if (purgeState() === 0) {
+        const result = accounting.write(() => {
+          // Under the write lock: another process opening the same journal may have run it.
+          if (purgeState() !== 0) return null;
+          const family = JSON.stringify(INDEX_FAMILY_PATHS);
+          db.exec("CREATE TEMP TABLE IF NOT EXISTS journal_index_purge (turn_id TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY (turn_id, hash)) WITHOUT ROWID");
+          db.exec("DELETE FROM temp.journal_index_purge");
+          db.query(`INSERT OR IGNORE INTO temp.journal_index_purge ${indexPins}`).run(family, INDEX_PUBLICATION_COPY);
+          let versions = 0;
+          for (const table of ["turn_journal_changes", "turn_journal_revert_paths"]) versions += db.query(`UPDATE ${table} SET before_json=${metadataOnly("before_json")},after_json=${metadataOnly("after_json")}
+            WHERE ${INDEX_PATH} AND (${legacy("before_json")} OR ${legacy("after_json")})`).run(family, INDEX_PUBLICATION_COPY).changes;
+          // Index versions name no hash any more: whatever still does is another record's content.
+          db.exec(`DELETE FROM temp.journal_index_purge WHERE hash IN (${namedHashes})`);
+          // Only the pin of the turn that recorded the index version: a pin
+          // any other turn holds, for whatever reason, keeps its object.
+          const pins = db.query(`DELETE FROM turn_journal_object_refs WHERE (turn_id,hash) IN (SELECT turn_id,hash FROM temp.journal_index_purge)
+            AND EXISTS (SELECT 1 FROM turn_journal_turns t WHERE t.turn_id=turn_journal_object_refs.turn_id AND t.ended_at IS NOT NULL)`).run().changes;
+          db.exec("DROP TABLE temp.journal_index_purge");
+          db.query("UPDATE turn_journal_allocation SET index_purge=? WHERE id=1").run(pins ? 1 : 2);
+          return { step: "versions" as const, versions, pins, objects: 0, bytes: 0 };
+        });
+        if (result) return result;
+      }
+      if (purgeState() !== 1) return null;
+      // Removing an object row checks the pins' foreign key, which also
+      // scans every pin per object. This commit removes only objects it found
+      // unpinned under the same write lock, so it runs without enforcement,
+      // a connection setting that changes only outside a transaction.
+      const enforced = (db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys;
+      db.exec("PRAGMA foreign_keys = OFF");
+      try {
+        return accounting.write(() => {
+          if (purgeState() !== 1) return null;
+          const freed = collect();
+          db.query("UPDATE turn_journal_allocation SET index_purge=2 WHERE id=1").run();
+          return { step: "objects" as const, versions: 0, pins: 0, ...freed };
+        });
+      } finally { db.exec(`PRAGMA foreign_keys = ${enforced ? "ON" : "OFF"}`); }
     },
     /** The changes of one turn's observation window; the turn's last sequence after them. */
     recordObservation(record: ObservationRecord): number {

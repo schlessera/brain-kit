@@ -1,0 +1,7 @@
+---
+"@schlessera/brain-ui-server": minor
+---
+
+The turn journal purges the search-index bytes earlier releases retained (#2903). The first journal open after the upgrade (or a later one, if a capacity or storage refusal defers it) rewrites every stored `.brain-index/` family version, in turn history and in revert records, to the metadata-only entry history already showed, without its hash or symlink target, drops the pins only those versions explained and collects the objects left unpinned; a full index copy was about 120 MB per version. An object that any other record also names (another path's version, a memory note or an attachment removal's retained original) is kept, as is any pin of a turn that has not ended. The purge is one-time, runs in at most two commits on the journal's write worker, resumes after a crash, and returns the freed bytes to the journal's capacity. Object collection reads the pinned hashes once instead of searching every pin per object, so the purge stays under a second on a large journal.
+
+Breaking before 1.0, under the #2873 ruling as confirmed on #2903: retained index bytes are now removed instead of expiring with ordinary retention, and the embeddings lock database `.brain-index/brain.db.embedding-lock.db` and its `-journal`, `-wal` and `-shm` sidecars join the metadata-only index family, so their versions are no longer retained, previewed, downloaded or restored. A similarly named file elsewhere keeps its bytes.

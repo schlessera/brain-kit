@@ -274,7 +274,9 @@ test("migration 038 applies over a populated catalog and cascades from it", () =
   d.exec("PRAGMA foreign_keys = ON");
   for (const file of files.filter((f) => f < "038")) d.exec(readFileSync(join(dir, file), "utf8"));
   session(d, "sess-ithaca");
-  const rest = files.filter((f) => f >= "038");
+  // A `*.journal.sql` migration changes only the attached journal file
+  // (#2789), which this UI-database replay does not open.
+  const rest = files.filter((f) => f >= "038" && !f.endsWith(".journal.sql"));
   expect(rest[0]).toBe("038_governance_events.sql");
   for (const file of rest) d.exec(readFileSync(join(dir, file), "utf8"));
   recordGovernanceEvent(d, event("taint"));
