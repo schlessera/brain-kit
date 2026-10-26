@@ -336,3 +336,21 @@ test("a saved worker preference commits on the write worker, and its refusals ke
     expect(new Set(await sites.log()), "PROFILE_SAVES_WRITTEN_ON_WORKER").toEqual(new Set(["session_worker_profiles", "draft_worker_profiles"]));
   } finally { await f.close(); }
 });
+
+test("a replayed history waits for the classified blocks submitted before it (#2850)", async () => {
+  const f = fixture();
+  try {
+    const catalog = createSessionCatalog(() => f.db, quietLog, undefined, { pricing: { resolve: () => null }, store: createActivityStore(f.db, { writer: "odysseus" }), writer: f.writer });
+    let release!: () => void;
+    const pending = new Promise<void>(done => { release = done; });
+    const classifier = { enabled: true, settled: () => pending, attach: (_sessionId: string, messages: never[]) => messages } as never;
+    const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "claude" })], "claude"), catalog, classifier, maxConcurrentSessions: () => 3 });
+    let settled = false;
+    const waiting = host.historySettled().then(() => { settled = true; });
+    await Bun.sleep(50);
+    expect(settled, "HISTORY_WAITS_FOR_PENDING_CLASSIFIED_BLOCKS").toBe(false);
+    release();
+    await waiting;
+    expect(settled).toBe(true);
+  } finally { await f.close(); }
+});
