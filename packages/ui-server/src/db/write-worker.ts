@@ -128,11 +128,11 @@ function takeTurns(db: Database, turn: Int32Array) {
     try { while (Atomics.compareExchange(turn, 0, FREE, APP) !== FREE) Atomics.wait(turn, 0, WORKER_TURN, 50); }
     finally { Atomics.sub(turn, 1, 1); }
     depth++;
-    const observer = audit.observer(), before = observer ? audit.changes() : 0;
+    const observed = audit.observed(), before = observed ? audit.changes() : 0;
     try { return work(...args); }
     finally {
       depth--; Atomics.store(turn, 0, FREE); Atomics.notify(turn, 0);
-      if (observer) { const rows = audit.changes() - before; if (rows > 0) audit.report(observer, rows); }
+      if (observed) { const rows = audit.changes() - before; if (rows > 0) audit.report(rows); }
     }
   };
   const transaction = db.transaction.bind(db);
@@ -282,11 +282,15 @@ export function observeAppWrites(target: Database | "every", observer: AppWriteO
   else if (observer) appObservers.set(target, observer);
   else appObservers.delete(target);
 }
-function appWriteAudit(db: Database): { observer(): AppWriteObserver | undefined; changes(): number; report(observer: AppWriteObserver, rows: number): void } {
+function appWriteAudit(db: Database): { observed(): boolean; changes(): number; report(rows: number): void } {
   const total = db.query("SELECT total_changes() AS n");
   return {
-    observer: () => appObservers.get(db) ?? everyAppObserver,
+    observed: () => appObservers.has(db) || everyAppObserver !== undefined,
     changes: () => (total.get() as { n: number }).n,
-    report(observer, rows) { observer({ phase: appPhases.get(db) ?? "standalone", rows, stack: new Error().stack ?? "" }); },
+    report(rows) {
+      const write = { phase: appPhases.get(db) ?? "standalone", rows, stack: new Error().stack ?? "" } as const;
+      everyAppObserver?.(write);
+      appObservers.get(db)?.(write);
+    },
   };
 }

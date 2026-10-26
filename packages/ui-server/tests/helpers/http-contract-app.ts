@@ -1,4 +1,5 @@
 import { createNativeAppFixture } from "./native-app-fixture.js";
+import { guardAppWrites } from "./app-write-guard.js";
 import { spyOn } from "bun:test";
 import { Hono } from "hono";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -104,12 +105,15 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
     throw new Error("createApp did not mount any real routers");
   }
   const routes = mounted.routes.map(({ method, path }) => ({ method, path: path === "*" ? "/*" : path }));
+  // Once serving, no hosted path writes `ui.db` on the app connection (#3004).
+  const writes = guardAppWrites(app.db);
   return {
     app, root, brainPath, staticRoot, routes, observability,
     fetch: (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, "http://localhost"), init)),
     async close() {
       try { await app.close(); }
       finally { await native.close(); rmSync(root, { recursive: true, force: true }); }
+      writes.assertClean();
     },
   };
 }
