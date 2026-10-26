@@ -106,3 +106,9 @@ export function moveJournalTables(db: Database): number {
     return tables.length;
   } finally { db.exec(`PRAGMA foreign_keys = ${enforced ? "ON" : "OFF"}`); }
 }
+
+/** Derived performance state: admitted at runtime, omitted from canonical backup images. */
+export const JOURNAL_OBJECT_REFS_INDEX = {
+  name: "turn_journal_object_refs_hash",
+  sql: "CREATE INDEX turn_journal_object_refs_hash ON turn_journal_object_refs(hash)",
+} as const;

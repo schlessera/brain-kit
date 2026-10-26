@@ -1705,6 +1705,15 @@ observed. Every pin and reservation keeps its object throughout success,
 refusal, failure and restart, and foreign keys remain enabled on every ordinary
 path. The cap and retention policy stay unchanged.
 
+**Operational backup.** The index is derived performance state. Export omits
+its exact known definition from the copied journal schema, preserving the
+canonical backup schema and all journal rows. It neither drops the live index
+nor relaxes validation of the image's schema. A same-named index with different
+columns, or a same-named trigger, still fails validation. Restore therefore
+allocates no optional index pages before journal accounting can admit them;
+the restored journal builds the index through the same capacity-gated upgrade.
+The backup format, migration set and public result envelopes are unchanged.
+
 ### Observation cost — 2026-10-25 (#2872)
 
 > **Maintainer ruling (2026-10-25), option 2.** (a) Replace the six fresh

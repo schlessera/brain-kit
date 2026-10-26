@@ -72,6 +72,9 @@ that no pre-charge covers. The evidence is on the issue.
   before the split kept them, and refuses the journal file as a destination.
   A restore needs no journal file at the target and moves the tables out on
   the first start. The backup's format is unchanged.
+  The optional object-pin index (#2913) is omitted from the copied schema:
+  it holds no authoritative rows and must be admitted again on the restored
+  store. The live index stays in place; unknown schema is still rejected.
 - **The journal file is operational state.** It is masked from workers, refused
   inside the brain like the UI database, and inventoried as retained file
   history. A ledger on any connection attaches it and enforces its references.

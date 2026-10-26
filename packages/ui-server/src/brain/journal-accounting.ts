@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -162,7 +162,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
    * Both checks run under the same write lock as the build and commit.
    */
   function ensureObjectRefIndex(): boolean {
-    const exists = () => Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='index' AND name='turn_journal_object_refs_hash'`).get());
+    const exists = () => Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='index' AND name=?`).get(JOURNAL_OBJECT_REFS_INDEX.name));
     if (exists()) return true;
     // A SQLite build forcing file-backed temps, or a caller owning TEMP
     // state with another setting, keeps the slower path without changing it.
@@ -182,7 +182,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           if (debt > 0) throw new WalDebt();
           throw new JournalCapacityError();
         }
-        db.exec(`CREATE INDEX ${JOURNAL_SCHEMA}.turn_journal_object_refs_hash ON turn_journal_object_refs(hash)`);
+        db.exec(JOURNAL_OBJECT_REFS_INDEX.sql.replace("CREATE INDEX ", `CREATE INDEX ${JOURNAL_SCHEMA}.`));
         if (measure().pages > before.pages + pages) throw new JournalCapacityError("The journal reference index exceeded its admitted page allowance.");
       });
       return true;
