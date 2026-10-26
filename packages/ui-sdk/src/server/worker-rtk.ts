@@ -77,7 +77,7 @@ export async function rewriteWorkerRtk(worker: LaunchedWorker | undefined, comma
     if (JSON.stringify(groups) !== JSON.stringify(process.getgroups!().sort((a,b)=>a-b))) return command;
     const env = Object.fromEntries(readFileSync(`${proc}/environ`, "utf8").split("\0").filter(Boolean).map(entry => { const at = entry.indexOf("="); return [entry.slice(0, at), entry.slice(at + 1)]; }));
     if (!env.PATH || env.PATH !== view.input.env.PATH) return command;
-    const excluded = [view.input.brainPath, view.input.env.HOME, "/tmp", "/run", "/var/run", "/var/lib", "/home", "/root", "/mnt", "/media", "/srv", ...(view.input.sandbox?.maskPaths ?? []), ...(view.input.sandbox?.areas.flatMap(area => area.mount.writable ? [area.mount.path] : []) ?? [])].filter((path): path is string => Boolean(path));
+    const excluded = [view.input.brainPath, view.input.hostHome, view.input.env.HOME, "/tmp", "/run", "/var/run", "/var/lib", "/home", "/root", "/mnt", "/media", "/srv", ...(view.input.sandbox?.maskPaths ?? []), ...(view.input.sandbox?.areas.flatMap(area => area.mount.writable ? [area.mount.path] : []) ?? [])].filter((path): path is string => Boolean(path));
     for (const directory of env.PATH.split(":")) {
       // A relative/empty preceding PATH entry makes resolution cwd-dependent.
       if (!isAbsolute(directory)) return command;

@@ -302,7 +302,7 @@ export function createPushSender(
       const keys = vapid();
       for (const sub of subs) {
         if (signal?.aborted) break;
-        const attempt = notices.begin(sub.endpoint, at ?? Date.now());
+        const attempt = await notices.begin(sub.endpoint, at ?? Date.now());
         if (!attempt) continue;
         let outcome: StorageNoticeOutcome;
         attempts++;
@@ -317,7 +317,7 @@ export function createPushSender(
         }
         // A database failure after transport leaves the durable sending intent;
         // recovery makes it unknown and never retries a possible acceptance.
-        notices.finish(attempt.id, outcome, at ?? Date.now());
+        await notices.finish(attempt.id, outcome, at ?? Date.now());
         if (outcome === "gone") await writes.drop(sub.endpoint);
         else if (outcome === "accepted") await writes.touch(sub.endpoint, at ?? Date.now(), attempt.principalId);
       }

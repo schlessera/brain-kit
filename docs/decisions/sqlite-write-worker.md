@@ -260,6 +260,21 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   keep their class, code and HTTP status across the worker. `rootInfo` still
   creates the root identity on the app connection during boot, before serving;
   the unwired admission service and cron execution retain their own writes.
+- **Storage history and notices followed** (#2850). The storage history's
+  first row and its bounded flush, and the notice sweep, a delivery's begin
+  and its finish, commit on the worker
+  (`packages/ui-server/src/storage/history-writes.ts`,
+  `packages/ui-server/src/storage/notify-writes.ts`), each the transaction
+  that ran inline. Observations and owner reports stay buffered in the app
+  until a flush commits them; a flush requested while one commits runs once
+  after it. The 20-second sampling tick submits its flush and sweep without
+  waiting, and never overlaps one still committing. A delivery's begin takes
+  the process's buffered history state from where it was submitted and reads
+  the durable history under its own transaction, so a newer observation
+  another process committed meanwhile counts. The storage history and
+  guidance views read once every flush submitted before them has committed.
+  Push transport awaits begin and finish; shutdown awaits the final flush. Operational restore still
+  writes inside its caller's transaction.
 - **Retained retries and policy proposals followed** (#2850). Retry saves,
   invalidations, refusal receipts and reservations commit on the worker
   (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation
@@ -303,9 +318,9 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   commit before their dependent reads or replies. Without a writer, the same
   operations still run inline, including the cron digest job; the notifier's
   cursor and the unhosted detail-retention setter keep their existing paths.
-- **Other app-connection writers stay on the loop for now**: storage
-  notices, push subscriptions and VAPID keys, principal revocation and
-  administration and passkeys. Each commits at
+- **Other app-connection writers stay on the loop for now**: push
+  subscriptions and VAPID keys, principal revocation and administration
+  and passkeys. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

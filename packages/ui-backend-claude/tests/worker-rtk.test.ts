@@ -56,9 +56,9 @@ const results=[];
 const repoBin=join(brain,"node_modules/.bin");mkdirSync(repoBin,{recursive:true});
 const marker=join(brain,"host-oracle-executed");
 writeFileSync(join(repoBin,"rtk"),"#!/bin/sh\\n: > "+JSON.stringify(marker)+"\\nexit 1\\n",{mode:0o755});
-for(const mode of ["host-only","visible","host-only-after-visible","repo-first","unknown"]){
+for(const mode of ["host-only","visible","host-only-after-visible","repo-first","host-home","unknown"]){
 const workerEnv=mode==="repo-first"?{...env,PATH:repoBin+":"+env.PATH}:env;
-const worker=launchFixtureAgentWorker({brainPath:brain,command:["/bin/bash","--noprofile","--norc","-c",'printf "READY\\\\n"; IFS= read -r command; /bin/bash --noprofile --norc -c "$command"'],env:workerEnv,
+const worker=launchFixtureAgentWorker({brainPath:brain,command:["/bin/bash","--noprofile","--norc","-c",'printf "READY\\\\n"; IFS= read -r command; /bin/bash --noprofile --norc -c "$command"'],env:workerEnv,...(mode==="host-home"?{hostHome:"/usr/local/bin"}:{}),
 sandbox:{brain,profile:"governed",restricted:false,areas:[],scratchAliasesRemoved:[],maskPaths:mode.startsWith("host-only")?["/usr/local/bin"]:[]}});
 let output="",errors="";let ready;const readyPromise=new Promise(resolve=>ready=resolve);
 worker.stdout.on("data",chunk=>{output+=chunk; if(output.includes("READY\\n"))ready();});worker.stderr.on("data",chunk=>errors+=chunk);
@@ -84,14 +84,23 @@ console.log(JSON.stringify(results));
       "--", process.execPath, "--preload", join(root, "scripts/test-network-child-preload.ts"), probe], { env: {}, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(code, stderr).toBe(0);
-    const results = JSON.parse(stdout.trim());
+    const results: Array<{
+      mode: string;
+      command: string;
+      code: number;
+      output: string;
+      errors: string;
+      afterExit: string;
+      hostExecuted: boolean;
+      granted?: string;
+    }> = JSON.parse(stdout.trim());
     for (const result of results) {
       expect(result.code, `${result.mode}: ${result.errors}`).toBe(0);
       expect(result.output).toContain("Odysseus sails");
       expect(result.granted).toBeUndefined();
       expect(result.afterExit).toBe("cat witness");
       expect(result.hostExecuted).toBe(false);
-      expect(result.command).toBe(result.mode === "visible" ? "rtk cat witness" : "cat witness");
+      expect(result.command, result.mode === "host-home" ? "ORIGINAL_HOST_HOME_RTK_IS_EXCLUDED" : result.mode).toBe(result.mode === "visible" ? "rtk cat witness" : "cat witness");
     }
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });
