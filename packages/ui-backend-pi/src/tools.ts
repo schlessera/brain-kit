@@ -563,7 +563,11 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // by now (and may have edited the command via updatedInput). The rtk
       // rewrite runs AFTER the gate, so confirm patterns see the command as
       // the model wrote it; when rtk is absent or declines, it is untouched.
-      const childEnv = { ...subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]), ...RTK_WORKER_ENV };
+      const childEnv: NodeJS.ProcessEnv = { ...subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]), ...RTK_WORKER_ENV };
+      // A non-interactive bash sources the file BASH_ENV names (sh reads ENV),
+      // here and in every shell the command starts (#2960).
+      delete childEnv.BASH_ENV;
+      delete childEnv.ENV;
       const cmd = await rtkRewriteCommand(params.command, childEnv);
       if (signal?.aborted) throw new DOMException("Tool cancelled before lock admission", "AbortError");
       // Only commands that touch git staging/history or the brain CLI's
@@ -573,7 +577,12 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       return lock.withKey(bashLockKey(params.command), async () => {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         const exec = deps.exec ?? ambientExecConfig();
-        const proc = spawn(wrapCommand(["bash", "-lc", cmd], exec.wrapper), {
+        // Not a login shell (#2960): `-l` sourced /etc/profile and the first
+        // profile under HOME before every command, so their output reached
+        // the result and anything they exported, PATH included, overrode the
+        // allowlisted childEnv. --noprofile --norc reads no startup file; the
+        // command sees exactly childEnv.
+        const proc = spawn(wrapCommand(["bash", "--noprofile", "--norc", "-c", cmd], exec.wrapper), {
           cwd: deps.shellCwd ?? brain.root,
           env: childEnv,
           stdout: "pipe",
