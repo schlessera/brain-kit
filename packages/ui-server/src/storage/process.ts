@@ -14,7 +14,7 @@ export function coreReader(brainPath: string, subpath: "storage" | "queries"): s
   return entry;
 }
 /** Concrete lease bookkeeping for the two fixed metadata readers. */
-export interface StorageWorkerLease { register(pid: number): void; unregister(pid: number): void }
+export interface StorageWorkerLease { register(pid: number): void | Promise<void>; unregister(pid: number): void | Promise<void> }
 export function storageReaderSource(source: string): string {
   const parent = { pid: process.pid, start: processStart(process.pid) };
   return `import {readFileSync as storageReadParent} from "node:fs";
@@ -53,7 +53,7 @@ export async function storageProcess(argv: string[], options: { signal: AbortSig
     return Buffer.concat(chunks).toString("utf8");
   };
   try {
-    options.lease?.register(child.pid);
+    await options.lease?.register(child.pid);
     const [out, , code] = await Promise.all([read(child.stdout), read(child.stderr), child.exited]);
     if (reason || code !== 0) throw Error(reason ?? "collector-unavailable");
     return JSON.parse(out);
@@ -62,7 +62,7 @@ export async function storageProcess(argv: string[], options: { signal: AbortSig
     options.signal.removeEventListener("abort", abort);
     signal("SIGKILL");
     await child.exited;
-    options.lease?.unregister(child.pid);
+    await options.lease?.unregister(child.pid);
   }
 }
 export async function serverMetadata(roots: MetadataRoot[], signal: AbortSignal, entries: number, lease?: StorageWorkerLease): Promise<MetadataResult> {

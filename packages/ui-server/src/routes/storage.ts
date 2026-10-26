@@ -24,9 +24,9 @@ export function createStorageRoutes(storage: StorageCoordinator, guidance?: Stor
   routes.post("/storage/scans", requireJson(), async c => {
     let body: unknown; try { body = await c.req.json(); } catch { return c.json({ error: "Expected an empty JSON object." }, 400); }
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return c.json({ error: "Storage roots and options are host configured." }, 400);
-    return c.json(storage.start(c.get("principal")!.id), 202);
+    return c.json(await storage.start(c.get("principal")!.id), 202);
   });
-  routes.delete("/storage/scans/:id", c => c.json(storage.cancel(c.get("principal")!.id, c.req.param("id")), 202));
+  routes.delete("/storage/scans/:id", async c => c.json(await storage.cancel(c.get("principal")!.id, c.req.param("id")), 202));
   routes.get("/storage/scans/:id/entries", c => {
     const raw = c.req.query(), keys = ["rootId", "parentId", "owner", "type", "largerThan", "cursor", "search", "sort", "metric", "direction"];
     if (Object.keys(raw).some(key => !keys.includes(key)) || !validPresentation(raw) || raw.owner !== undefined && !["all", "brain", "app", "operator"].includes(raw.owner)

@@ -121,14 +121,19 @@ export const WORKER_TURN = 2;
 function takeTurns(db: Database, turn: Int32Array) {
   // The app thread holds its turn once, however deeply its SQLite calls nest.
   let depth = 0;
+  const audit = appWriteAudit(db);
   const taking = <A extends unknown[], R>(work: (...args: A) => R) => (...args: A): R => {
     if (depth > 0 || db.inTransaction) return work(...args);
     Atomics.add(turn, 1, 1);
     try { while (Atomics.compareExchange(turn, 0, FREE, APP) !== FREE) Atomics.wait(turn, 0, WORKER_TURN, 50); }
     finally { Atomics.sub(turn, 1, 1); }
     depth++;
+    const observed = audit.observed(), before = observed ? audit.changes() : 0;
     try { return work(...args); }
-    finally { depth--; Atomics.store(turn, 0, FREE); Atomics.notify(turn, 0); }
+    finally {
+      depth--; Atomics.store(turn, 0, FREE); Atomics.notify(turn, 0);
+      if (observed) { const rows = audit.changes() - before; if (rows > 0) audit.report(rows); }
+    }
   };
   const transaction = db.transaction.bind(db);
   db.transaction = ((run: (...args: never[]) => unknown) => {
@@ -252,6 +257,45 @@ function workerWriter(path: string, attach: readonly AttachedDatabase[], turn: I
       await send({ kind: "close" }).catch(() => {});
       stop(new SqliteWriterClosed());
       worker.terminate();
+    },
+  };
+}
+
+/**
+ * App-connection write observation (#3004). Every hosted-path `ui.db` write
+ * commits on the write worker; an outermost app-connection turn that still
+ * changes rows is reported, with its calling stack and the app's phase, to the
+ * observer registered for its database (or for every database). The guard in
+ * the hosted test helpers refuses a serving-phase write; the inventory script
+ * records them all. Nothing is observed unless an observer is registered.
+ */
+export interface AppWrite { phase: "boot" | "serving" | "standalone"; rows: number; stack: string }
+export type AppWriteObserver = (write: AppWrite) => void;
+const appPhases = new WeakMap<Database, "boot" | "serving">();
+const appObservers = new WeakMap<Database, AppWriteObserver>();
+let everyAppObserver: AppWriteObserver | undefined;
+/** `createApp` marks its database while it boots, then once it serves. */
+export function markAppPhase(db: Database, phase: "boot" | "serving"): void { appPhases.set(db, phase); }
+/** Observes `db`'s app-connection writes, or every database's with `"every"`; `undefined` stops. */
+export function observeAppWrites(target: Database | "every", observer: AppWriteObserver | undefined): void {
+  if (target === "every") everyAppObserver = observer;
+  else if (observer) appObservers.set(target, observer);
+  else appObservers.delete(target);
+}
+function appWriteAudit(db: Database): { observed(): boolean; changes(): number; report(rows: number): void } {
+  const total = db.query("SELECT total_changes() AS n");
+  return {
+    observed: () => appObservers.has(db) || everyAppObserver !== undefined,
+    changes: () => (total.get() as { n: number }).n,
+    report(rows) {
+      // Deep enough to reach a test's own frame below a product call (#3004).
+      const limit = Error.stackTraceLimit;
+      Error.stackTraceLimit = 64;
+      const stack = new Error().stack ?? "";
+      Error.stackTraceLimit = limit;
+      const write = { phase: appPhases.get(db) ?? "standalone", rows, stack } as const;
+      everyAppObserver?.(write);
+      appObservers.get(db)?.(write);
     },
   };
 }

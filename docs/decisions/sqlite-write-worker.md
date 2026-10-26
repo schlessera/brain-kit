@@ -293,6 +293,20 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   guidance views read once every flush submitted before them has committed.
   Push transport awaits begin and finish; shutdown awaits the final flush. Operational restore still
   writes inside its caller's transaction.
+- **Storage scans and maintenance followed** (#3028, part of #2850).
+  Shared scan acquisition, reaping, collector registration and unregistration,
+  cancellation and completion commit on the worker
+  (`setup`, `packages/ui-server/src/storage/shared-scan-writes.ts:30-107`). The lease commits
+  before collection starts; collector bookkeeping settles before the process
+  wrapper returns, and completion commits before the coordinator serves its
+  result. Maintenance insertion, receipt updates and cancellation use the same
+  worker (`setup`, `packages/ui-server/src/storage/maintenance-writes.ts:8-39`). Routes await
+  their durable receipts; staging cleanup awaits each item's intent before
+  removal, and cancellation commits before aborting its owner. Receipt readers
+  wait for submitted writes, and refusals retain their class and status. Without
+  a writer, the same procedures still run synchronously on the caller's
+  connection. Storage removal already commits through the journal worker;
+  operational restore still writes inside its caller's transaction.
 - **Retained retries and policy proposals followed** (#2850). Retry saves,
   invalidations, refusal receipts and reservations commit on the worker
   (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation
@@ -359,6 +373,56 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   the same ordering relative to later work on that worktree. Callers without a
   registered writer run the same procedures inline. Boot-only source recovery
   retains its inline catalog writes.
+
+## The inventory and its guard (#3004)
+
+Every hosted-path `ui.db` write commits on the write worker. That was verified by
+watching the app connection itself, not by reading code.
+`takeTurns`, which wraps every outermost app-connection transaction and
+autocommit write, compares SQLite's `total_changes()` before and after each one.
+An observer registered for a database (or for every database) receives each
+turn that changed rows, with its stack and the app's phase:
+- `boot`, while `createApp` builds the app;
+- `serving`, once it returns;
+- `standalone`, for a component built outside `createApp`.
+
+The code is `observeAppWrites` and `markAppPhase`
+(`packages/ui-server/src/db/write-worker.ts`). Nothing is observed unless an
+observer is registered.
+
+**The inventory.** `scripts/app-write-audit-preload.ts` records every observed
+write while a suite runs, and `scripts/app-write-inventory.ts` groups the
+records by the nearest server frame. A write whose stack holds a test frame
+counts as a fixture: a test's own write, or a product call a test made
+directly on the app's database to seed it. Over the ui-server suite and `./tests` on 2026-10-26 (2,452
+observed writes), the serving phase held only three kinds of site:
+- the inbox dispatch fixture's triage and autonomous-turn path;
+- turn budgets that `ws-turn-budgets.test.ts` builds on the app's database without its writer;
+- the guard test's own probe.
+
+The boot phase held only the schedule root's first insert. Standalone
+components (the writer gate, turn scope and reverts that tests build without
+`createApp`) take the writer the app passes them when hosted.
+
+**Named exceptions.** These are the only writes left on an app connection:
+- **Boot.** Migrations (`createUiDb`), boot reconciliations and sweeps, and the
+  schedule root identity's first insert (`rootInfo`,
+  `packages/ui-server/src/schedules/service.ts`), all before the app serves.
+- **Operational restore.** It writes inside its caller's transaction.
+- **The cron runner** writes on its own connection, through the same
+  procedures inline.
+- **The inbox dispatch fixture** (`INBOX_DISPATCH_FIXTURE`), which only the
+  repository's fixture host can pass, so no consumer reaches it.
+- **Components a test builds** without the app's writer.
+
+**The guard.** `httpContractApp`
+(`packages/ui-server/tests/helpers/http-contract-app.ts`) registers
+`guardAppWrites` (`packages/ui-server/tests/helpers/app-write-guard.ts`) on
+every hosted test app once it serves. The guard records each app-connection
+write reached from server code alone, and `close()` fails the test with
+`APP_CONNECTION_WRITE_WHILE_SERVING`, naming the site. So a new route or tick
+that writes on the app connection fails the hosted route and mount suites
+that already exercise it.
 
 ## Rejected
 

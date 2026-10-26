@@ -1,5 +1,7 @@
 /** Explicit host-owned housekeeping; durable identities never imply exactly-once filesystem effects. */
 import type { Database } from "bun:sqlite";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import * as maintenanceWrites from "./maintenance-writes.js";
 import { realpathSync } from "node:fs";
 import type { StorageMaintenanceKind, StorageMaintenanceItem, StorageMaintenanceObservation, StorageMaintenanceReceipt, StorageMaintenanceRequest, StorageMaintenanceRow, StorageSnapshot } from "@schlessera/brain-ui-sdk/protocol";
 import { BrainMaintenanceError, BrainMaintenanceUnavailable, type BrainClient } from "../brain/client.js";
@@ -10,7 +12,7 @@ import type { createInboxRuntime } from "../inbox/runtime.js";
 import { StorageUnavailable, type StorageCoordinator } from "./coordinator.js";
 
 export const STORAGE_MAINTENANCE_LIMITS = Object.freeze({ receipts: 1024, receiptBytes: 65_536, items: 200, milliseconds: 300_000 });
-const runningHere = new Set<string>();
+const runningHere = new Map<string, number>();
 const descriptors = [
   { id: "pack-git", label: "Pack Git objects", owner: "core", scope: ["git"], effect: "Pack local objects and refs; history and reflogs remain." },
   { id: "prune-scratch", label: "Prune eligible scratch", owner: "core", scope: ["scratch"], effect: "Apply existing age/size policy; retained answer pins remain." },
@@ -35,29 +37,44 @@ export function storageObservation(snapshot: StorageSnapshot | null, scope: read
   return { observedAt: snapshot.observedAt, coverage: stores.length ? stores.every(root => root.coverage === "complete") ? "complete" : "partial" : "unknown", basis: snapshot.basis,
     stores, capacities: snapshot.capacities.filter(capacity => capacity.rootIds.some(id => ids.has(id))).map(capacity => ({ ...capacity, reason: capacity.reason?.slice(0, 160) ?? null })), attribution: "concurrent-writers-possible" };
 }
-export function createStorageMaintenance(db: Database, options: {
+function storageMaintenance(db: Database, options: {
+  writer?: SqliteWriter;
   brainPath: string; storage: StorageCoordinator; brain: Pick<BrainClient, "storagePack">; scratch: ScratchPruner;
   inbox: Pick<ReturnType<typeof createInboxRuntime>, "cleanup">; boundary: Pick<HostBoundary, "status">;
   authorized(principal: string): boolean;
 }) {
   const brain = realpathSync(options.brainPath), active = new Map<string, { controller: AbortController; promise: Promise<void> }>();
   let closed = false;
+  function retainRunning(id: string) {
+    const key = `${brain}:${id}`;
+    runningHere.set(key, (runningHere.get(key) ?? 0) + 1);
+    return () => {
+      const count = runningHere.get(key)!;
+      if (count === 1) runningHere.delete(key); else runningHere.set(key, count - 1);
+    };
+  }
   const authorize = (principal: string) => { if (!options.authorized(principal)) throw new StorageUnavailable(403, "Storage maintenance requires current human-owner access."); };
   const available = (kind: StorageMaintenanceKind) => kind === "cleanup-staging" ? !!options.inbox.cleanup : options.boundary.status().hostExecution === "worker" && options.boundary.status().available && (kind !== "pack-git" || !!options.brain.storagePack);
   const headroom = (kind: StorageMaintenanceKind): StorageMaintenanceReceipt["headroom"] => ({ requiredBytes: null, reservation: false,
     note: kind === "cleanup-staging" ? "Cleanup receipts and the operational database need writable capacity. Recovery is never discarded to make room." : "Temporary worker/output space is admitted by its existing owner. Packing may hold old and new packs together; required bytes depend on the workload and are not reserved." });
   const select = (id: string) => db.query("SELECT * FROM storage_maintenance_operations WHERE id=? AND brain=?").get(id, brain) as Row | null;
-  function encoded(receipt: StorageMaintenanceReceipt, strict = false) {
-    let text = JSON.stringify(receipt);
-    if (strict && Buffer.byteLength(text) > STORAGE_MAINTENANCE_LIMITS.receiptBytes) throw Error("receipt_item_budget");
-    while (Buffer.byteLength(text) > STORAGE_MAINTENANCE_LIMITS.receiptBytes && receipt.outcome?.items.length) { receipt.outcome.items.pop(); receipt.outcome.truncated = true; text = JSON.stringify(receipt); }
-    if (Buffer.byteLength(text) > STORAGE_MAINTENANCE_LIMITS.receiptBytes) throw Error("receipt_budget");
-    return text + " ".repeat(STORAGE_MAINTENANCE_LIMITS.receiptBytes - Buffer.byteLength(text));
+  const procedures = maintenanceWrites.setup(db, { brain, self: SELF }, options.authorized);
+  const call = options.writer ? procedureCaller(db, maintenanceWrites, { brain, self: SELF }, options.writer,
+    error => error.name === "StorageUnavailable" ? new StorageUnavailable(error.fields.status as StorageUnavailable["status"], error.message) : undefined) : null;
+  // Inline callers keep synchronous returns and throws; hosted callers continue
+  // only after each receipt commits.
+  function after<T, R>(value: T | Promise<T>, next: (value: T) => R): R | Promise<Awaited<R>> {
+    return value instanceof Promise ? value.then(next) as Promise<Awaited<R>> : next(value);
   }
   function write(receipt: StorageMaintenanceReceipt, strict = false) {
-    db.query("UPDATE storage_maintenance_operations SET state=?,receipt=? WHERE id=? AND brain=?").run(receipt.state, encoded(receipt, strict), receipt.id, brain);
+    if (!call) { procedures.write(receipt, strict); return; }
+    return call<StorageMaintenanceReceipt["outcome"]>("write", receipt, strict).then(outcome => {
+      // encoded() trims the same in-memory outcome as inline writes did,
+      // including the shallow copy used for the intermediate running receipt.
+      if (receipt.outcome && outcome) Object.assign(receipt.outcome, outcome);
+    });
   }
-  function reconciled(row: Row): StorageMaintenanceReceipt {
+  function reconciled(row: Row): StorageMaintenanceReceipt | Promise<StorageMaintenanceReceipt> {
     const receipt = JSON.parse(row.receipt) as StorageMaintenanceReceipt;
     if (["waiting", "running"].includes(row.state) && (!processAlive(row.pid, row.pid_start) || row.pid === SELF.pid && row.pid_start === SELF.start && !runningHere.has(`${brain}:${row.id}`))) {
       receipt.state = row.state === "waiting" ? "refused" : "unknown";
@@ -67,11 +84,14 @@ export function createStorageMaintenance(db: Database, options: {
         const owner = db.query("SELECT status FROM inbox_items WHERE id=?").get(item.id) as {status: string} | null;
         if (item.state === "running" && owner?.status === "done") item.state = "cleaned";
       }
-      try { write(receipt); } catch { /* Existing durable intent remains; readback still describes uncertainty. */ }
+      try { const pending = write(receipt); if (pending instanceof Promise) return pending.then(() => receipt, () => receipt); } catch { /* Existing durable intent remains; readback still describes uncertainty. */ }
     }
     return receipt;
   }
-  function recover() { for (const row of db.query("SELECT * FROM storage_maintenance_operations WHERE brain=? AND state IN ('waiting','running')").all(brain) as Row[]) reconciled(row); }
+  function recover() {
+    const pending = (db.query("SELECT * FROM storage_maintenance_operations WHERE brain=? AND state IN ('waiting','running')").all(brain) as Row[]).map(reconciled);
+    if (call) return Promise.all(pending).then(() => {});
+  }
   function receipt(principal: string, id: string) {
     authorize(principal); const row = select(id);
     if (!row || row.principal_id !== principal) throw new StorageUnavailable(404, "Maintenance receipt unavailable.");
@@ -88,7 +108,9 @@ export function createStorageMaintenance(db: Database, options: {
       result.before = storageObservation(await options.storage.measure(principal, controller.signal), result.scope);
       assertAuthorized();
       if (result.operation === "pack-git" && result.before?.capacities.some(value => value.available === 0)) { result.state = "refused"; result.reason = "no_space"; return; }
-      result.state = "running"; result.startedAt = Date.now(); result.outcome = emptyOutcome(); write(result);
+      result.state = "running"; result.startedAt = Date.now(); result.outcome = emptyOutcome();
+      const intent = write(result);
+      if (intent instanceof Promise) { await intent; assertAuthorized(); }
       ownerStarted = true;
       if (result.operation === "pack-git") {
         const value = await options.brain.storagePack!({ signal: controller.signal, assertAuthorized, bounded: true }) as { schema_version?: number; action?: string; state?: string; packed?: unknown; reason?: string };
@@ -109,7 +131,7 @@ export function createStorageMaintenance(db: Database, options: {
         const value = await options.inbox.cleanup!({ signal: controller.signal, assertAuthorized, onItem(item) {
           const previous = result.outcome!.items.find(value => value.id === item.id);
           if (previous) Object.assign(previous, item); else result.outcome!.items.push(item);
-          write(result, true); // Item intent is durable before the owner removes its staging.
+          return write(result, true); // Item intent is durable before the owner removes its staging.
         } });
         result.outcome = { ...emptyOutcome(), items: value.items, removed: value.cleaned, failed: value.failed, deferred: value.deferred, truncated: value.truncated };
         result.state = value.cancelled ? value.cleaned ? "partial" : "cancelled" : value.failed ? "partial" : "complete";
@@ -121,7 +143,7 @@ export function createStorageMaintenance(db: Database, options: {
       if (error instanceof ScratchPruneSuspended && result.outcome) result.outcome.suspended = true;
     } finally {
       clearTimeout(timer); clearInterval(revocation);
-      try { write(ownerStarted ? { ...result, state: "running" } : result); } catch { /* Retain the previously committed intent. */ }
+      try { await write(ownerStarted ? { ...result, state: "running" } : result); } catch { /* Retain the previously committed intent. */ }
       // A cancelled write can still have committed effects. Its fresh observation is independent.
       if (result.startedAt && options.authorized(principal) && !closed) {
         const after = new AbortController(), deadline = setTimeout(() => after.abort(), 36_000);
@@ -129,45 +151,76 @@ export function createStorageMaintenance(db: Database, options: {
         finally { clearTimeout(deadline); }
       }
       result.completedAt = Date.now();
-      try { write(result); } catch { /* Preserve running intent; readback reconciles to unknown, never retries. */ }
+      try { await write(result); } catch { /* Preserve running intent; readback reconciles to unknown, never retries. */ }
     }
   }
-  return {
-    list(principal: string): { operations: StorageMaintenanceRow[]; limits: typeof STORAGE_MAINTENANCE_LIMITS } {
-      authorize(principal); recover();
-      return { limits: STORAGE_MAINTENANCE_LIMITS, operations: descriptors.map(value => {
-        const latest = db.query("SELECT * FROM storage_maintenance_operations WHERE brain=? AND principal_id=? AND operation=? ORDER BY requested_at DESC,rowid DESC LIMIT 1").get(brain, principal, value.id) as Row | null;
-        return { ...value, scope: [...value.scope], available: available(value.id), reason: available(value.id) ? null : "owner_unavailable", headroom: headroom(value.id), latest: latest ? reconciled(latest) : null };
-      }) };
+  const api = {
+    list(principal: string) {
+      authorize(principal);
+      return after(recover(), () => {
+        const operations = descriptors.map(value => {
+          const latest = db.query("SELECT * FROM storage_maintenance_operations WHERE brain=? AND principal_id=? AND operation=? ORDER BY requested_at DESC,rowid DESC LIMIT 1").get(brain, principal, value.id) as Row | null;
+          return after(latest ? reconciled(latest) : null, latest => ({ ...value, scope: [...value.scope], available: available(value.id), reason: available(value.id) ? null : "owner_unavailable", headroom: headroom(value.id), latest }));
+        });
+        return after(call ? Promise.all(operations) : operations as StorageMaintenanceRow[], operations => ({ limits: STORAGE_MAINTENANCE_LIMITS, operations }));
+      });
     },
-    start(principal: string, request: StorageMaintenanceRequest): StorageMaintenanceReceipt {
+    start(principal: string, request: StorageMaintenanceRequest) {
       authorize(principal);
       if (closed) throw new StorageUnavailable(503, "Maintenance is shutting down.");
       if (!/^[a-zA-Z0-9_-]{16,96}$/.test(request.id) || !descriptors.some(value => value.id === request.operation)) throw new StorageUnavailable(400, "Invalid maintenance operation.");
-      recover();
-      const existing = select(request.id);
-      if (existing) {
-        if (existing.principal_id !== principal || existing.operation !== request.operation) throw new StorageUnavailable(409, "Operation identity belongs to another request.");
-        return reconciled(existing);
-      }
-      const descriptor = descriptors.find(value => value.id === request.operation)!;
-      const result: StorageMaintenanceReceipt = { id: request.id, operation: request.operation, owner: descriptor.owner, scope: [...descriptor.scope], requestedAt: Date.now(), startedAt: null, completedAt: null, state: "waiting", reason: null, headroom: headroom(request.operation), before: null, after: null, outcome: null };
-      db.transaction(() => {
-        authorize(principal);
-        if (db.query("SELECT 1 FROM storage_maintenance_operations WHERE brain=? AND state IN ('waiting','running')").get(brain)) throw new StorageUnavailable(409, "Another Storage operation is active; read its receipt.");
-        const { total } = db.query("SELECT count(*) AS total FROM storage_maintenance_operations WHERE brain=?").get(brain) as {total: number};
-        if (total >= STORAGE_MAINTENANCE_LIMITS.receipts) throw new StorageUnavailable(503, "Maintenance receipt capacity reached; existing receipts are retained.");
-        db.query("INSERT INTO storage_maintenance_operations (id,brain,principal_id,operation,state,pid,pid_start,requested_at,receipt) VALUES (?,?,?,?,?,?,?,?,?)").run(result.id, brain, principal, result.operation, result.state, SELF.pid, SELF.start, result.requestedAt, encoded(result));
-      }).immediate();
-      const controller = new AbortController(); runningHere.add(`${brain}:${result.id}`);
-      const pending = Promise.resolve().then(() => execute(principal, result, controller)).finally(() => { active.delete(result.id); runningHere.delete(`${brain}:${result.id}`); });
-      active.set(result.id, { controller, promise: pending });
-      return receipt(principal, result.id);
+      return after(recover(), () => {
+        const existing = select(request.id);
+        if (existing) {
+          if (existing.principal_id !== principal || existing.operation !== request.operation) throw new StorageUnavailable(409, "Operation identity belongs to another request.");
+          return reconciled(existing);
+        }
+        const descriptor = descriptors.find(value => value.id === request.operation)!;
+        const result: StorageMaintenanceReceipt = { id: request.id, operation: request.operation, owner: descriptor.owner, scope: [...descriptor.scope], requestedAt: Date.now(), startedAt: null, completedAt: null, state: "waiting", reason: null, headroom: headroom(request.operation), before: null, after: null, outcome: null };
+        // A reader on this process must not reconcile an insert awaiting its reply
+        // as an interrupted operation. Remove this marker if admission fails.
+        const releaseRunning = retainRunning(result.id);
+        let inserted: void | Promise<void>;
+        try { inserted = call ? call<void>("start", principal, result) : procedures.start(principal, result); }
+        catch (error) { releaseRunning(); throw error; }
+        if (inserted instanceof Promise) inserted = inserted.catch(error => { releaseRunning(); throw error; });
+        return after(inserted, () => {
+          const controller = new AbortController();
+          if (closed) controller.abort();
+          const pending = Promise.resolve().then(() => execute(principal, result, controller)).finally(() => { active.delete(result.id); releaseRunning(); });
+          active.set(result.id, { controller, promise: pending });
+          return receipt(principal, result.id);
+        });
+      });
     },
     receipt,
-    cancel(principal: string, id: string) { const result = receipt(principal, id); if (["waiting", "running"].includes(result.state)) db.query("UPDATE storage_maintenance_operations SET cancel_requested=1 WHERE id=? AND brain=? AND principal_id=?").run(id, brain, principal); active.get(id)?.controller.abort(); return result; },
+    cancel(principal: string, id: string) {
+      return after(receipt(principal, id), result => {
+        const pending = ["waiting", "running"].includes(result.state) ? call ? call<void>("cancel", principal, id) : procedures.cancel(principal, id) : undefined;
+        return after(pending, () => { active.get(id)?.controller.abort(); return result; });
+      });
+    },
     async idle() { await Promise.allSettled([...active.values()].map(value => value.promise)); },
     async close() { closed = true; for (const value of active.values()) value.controller.abort(); await Promise.allSettled([...active.values()].map(value => value.promise)); },
   };
+  // Serialize route admission/readback across asynchronous commits. The owner
+  // itself runs outside this queue, and every read waits for submitted writes.
+  let pending = Promise.resolve();
+  const ordered = <A extends unknown[], R>(work: (...args: A) => R) => (...args: A): R | Promise<Awaited<R>> => {
+    if (!call) return work(...args);
+    const result = pending.then(async () => { await options.writer!.idle(); return work(...args); });
+    pending = result.then(() => {}, () => {});
+    return result as Promise<Awaited<R>>;
+  };
+  return { ...api, list: ordered(api.list), start: ordered(api.start), receipt: ordered(api.receipt), cancel: ordered(api.cancel),
+    async idle() { if (call) await pending; await api.idle(); },
+    async close() { closed = true; if (call) await pending; await api.close(); } };
 }
-export type StorageMaintenance = ReturnType<typeof createStorageMaintenance>;
+type MaintenanceOptions = Parameters<typeof storageMaintenance>[1];
+export type StorageMaintenance = ReturnType<typeof storageMaintenance>;
+type InlineMaintenance = Omit<StorageMaintenance, "list" | "start" | "receipt" | "cancel"> & {
+  [K in "list" | "start" | "receipt" | "cancel"]: (...args: Parameters<StorageMaintenance[K]>) => Awaited<ReturnType<StorageMaintenance[K]>>;
+};
+export function createStorageMaintenance(db: Database, options: MaintenanceOptions & { writer?: undefined }): InlineMaintenance;
+export function createStorageMaintenance(db: Database, options: MaintenanceOptions): StorageMaintenance;
+export function createStorageMaintenance(db: Database, options: MaintenanceOptions): StorageMaintenance { return storageMaintenance(db, options); }
