@@ -399,12 +399,22 @@ a real `SessionManager` session file).
 ## The exec wrapper, and what it does not cover
 
 `BRAIN_UI_EXEC_WRAPPER` (below) is an absolute path to an executable that the
-`bash` and `grep` tools are launched through: `<wrapper> bash -lc <cmd>`. It is
-an argv[0], never a command line — no shell parses it — so a host can run the
+`bash` and `grep` tools are launched through:
+`<wrapper> bash --noprofile --norc -c <cmd>` and `<wrapper> grep …`. It is an
+argv[0], never a command line — no shell parses it — so a host can run the
 agent's children as another user without this package knowing how. Unset,
 spawns are exactly what they were. When it is set, the child leads its own
 process group and an abort signals the group, because a uid drop otherwise
 makes `kill(2)` fail with EPERM and leaves an aborted turn running.
+
+The `bash` tool's shell is not a login shell and reads no startup file: not
+`/etc/profile`, not a profile or `.bashrc` under `HOME`, and not the file
+`BASH_ENV` or `ENV` names, which are removed from the command's environment
+even when an operator admits them. A command's `PATH` and variables are exactly
+the filtered environment ([Environment](#environment)). A tool that only a login
+profile put on `PATH` belongs on the server's own `PATH`; a variable a profile
+exported is set in the server's environment and admitted through
+`BRAIN_UI_SUBPROCESS_ENV_EXTRA`.
 
 **It does not cover `brain.config.ts`.** `createBrainAccess` calls
 `initContext`, which `await import`s the repository's config — executable

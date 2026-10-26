@@ -87,7 +87,7 @@ Source anchors, checked against the reviewed commit:
   measurements do not include the separate runtime-state tmpfs.
 - J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:35-50`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
-- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:289-306`)
+- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:292-309`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its
   [generated-host counterpart](https://github.com/schlessera/brain-hosting-template/issues/9).
 
