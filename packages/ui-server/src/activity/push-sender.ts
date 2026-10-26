@@ -20,7 +20,8 @@ import type { Logger } from "@opentelemetry/api-logs";
 import webpush from "web-push";
 
 import type { ActivityNotifier } from "./notify.js";
-import type { ActionAttemptOutcome, ActionNotifier } from "../inbox/notify.js";
+import type { ActionAttempt, ActionAttemptOutcome } from "../inbox/notify.js";
+import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import type { StorageNotifier, StorageNoticeOutcome } from "../storage/notify.js";
 
 export interface PushSubscriptionRow {
@@ -53,7 +54,7 @@ export interface PushSender {
    * Deliver due Action notices: one current-count attempt per destination,
    * frozen by the notifier before sending. Returns sends attempted.
    */
-  deliverActions(notices: ActionNotifier, now?: number): Promise<number>;
+  deliverActions(notices: AwaitableActionNotifier, now?: number): Promise<number>;
   /** One durable Critical Storage submission per episode and subscription. */
   deliverStorage(notices: StorageNotifier, now?: number, signal?: AbortSignal): Promise<number>;
 }
@@ -328,10 +329,11 @@ export function createPushSender(
       // Each destination is evaluated on its own: its zone, quiet hours,
       // current binding and known receipts. The notifier freezes the payload
       // and components in the same transaction that rechecks them.
-      const planned = deliverableRows(now).flatMap((sub) => {
-        const attempt = notices.beginAttempt({ endpoint: sub.endpoint, principalId: sub.principalId! }, now);
-        return attempt ? [{ sub, attempt }] : [];
-      });
+      const planned: Array<{ sub: PushSubscriptionRow; attempt: ActionAttempt }> = [];
+      for (const sub of deliverableRows(now)) {
+        const attempt = await notices.beginAttempt({ endpoint: sub.endpoint, principalId: sub.principalId! }, now);
+        if (attempt) planned.push({ sub, attempt });
+      }
       if (planned.length === 0) return 0;
       const keys = vapid();
       const results = await Promise.allSettled(
@@ -370,7 +372,7 @@ export function createPushSender(
             attributes: { outcome, ...(status ? { status } : {}) },
           });
         }
-        notices.finishAttempt(attempt.attemptId, outcome);
+        bookkeeping.push(Promise.resolve(notices.finishAttempt(attempt.attemptId, outcome)));
       });
       await Promise.all(bookkeeping);
       return planned.length;
