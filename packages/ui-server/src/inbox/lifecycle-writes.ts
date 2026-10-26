@@ -61,6 +61,8 @@ export function setup(db: Database): WriteProcedures {
     }).immediate();
   }
   return {
+    // Preserve the original boot order, including stopping at its first failure.
+    startup(time: number) { at = time; recoverLeases(); sweepInboxLifecycle(db, time); heartbeat(); },
     recover(time: number) { at = time; return recoverLeases(); },
     sweep(time: number) { return sweepInboxLifecycle(db, time); },
     heartbeat(time: number) { at = time; return heartbeat(); },

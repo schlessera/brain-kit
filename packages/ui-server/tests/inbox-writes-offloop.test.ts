@@ -118,6 +118,24 @@ test("expired leases reconcile their budget and recover on the write worker at F
   } finally { await runtime?.close(); await f.close(); }
 });
 
+test("failed inbox boot recovery submits no later sweep or heartbeat", async () => {
+  const f = fixture();
+  let runtime: ReturnType<typeof createInboxRuntime> | undefined;
+  try {
+    let at = Date.now();
+    const store = createInboxStore(f.db);
+    store.ingest({ threadId: "odysseus", itemId: "arrival", source: "share", dedupKey: "arrival", stagingId: "odysseus", expiresAt: at + 86_400_000, stakes: 1 });
+    const budget = createInboxBudget(f.db, { now: () => at, config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => null } });
+    budget.claim("arrival", { runId: "odysseus-turn", principalId: f.principal.id, model: "fixture", billingMode: "subscription", purpose: "triage" }, at + 5);
+    f.db.exec("CREATE TRIGGER refuse_recovery BEFORE UPDATE ON inbox_budget_reservations BEGIN SELECT RAISE(ABORT, 'fixture recovery failure'); END");
+    const sites = await watchWriteSites(f.db, f.writer, ["inbox_scheduler_heartbeats"]);
+    at += 10;
+    runtime = createInboxRuntime(f.db, { now: () => at, log: { emit() {}, enabled: () => false } });
+    await expectRejection(runtime.ready, "fixture recovery failure");
+    expect(await sites.log(), "INBOX_FAILED_RECOVERY_SUBMITS_NO_LATER_WRITES").toEqual([]);
+  } finally { await runtime?.close(); await f.close(); }
+});
+
 test("decisions and cleanup commit on the write worker at FULL before their reply", async () => {
   const f = fixture(), store = createInboxStore(f.db), cleanup = createInboxCleanup(f.db, f.root);
   try {

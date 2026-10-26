@@ -144,10 +144,7 @@ export function createInboxRuntime(db: Database, deps: {
   }
 
   // Boot recovery is deterministic and creates no Activity/model work.
-  const recovering = write("recover", now());
-  const swept = write("sweep", now());
-  const beat = write("heartbeat", now());
-  const ready = Promise.all([recovering, swept, beat]).then(() => cleanup?.sweep() ?? 0);
+  const ready = write("startup", now()).then(() => cleanup?.sweep() ?? 0);
   void ready.catch(() => deps.log.emit({ severityText: "WARN", body: "inbox cleanup recovery failed; journal retained" }));
   arm();
   return {

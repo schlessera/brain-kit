@@ -94,6 +94,8 @@ export function setup(db: Database, { root }: { root: string }): WriteProcedures
     if (!row.result_json) throw new Error("Filing outcome is uncertain; inspect existing content and preserve originals, never repeat the write");
     return JSON.parse(row.result_json) as BrainApplicationResult;
   }
+  // The app checks the turn's JS authority before submission. Once submitted,
+  // the write keeps that order; these procedures recheck the durable principal.
   const current = () => true;
   return {
     start: (principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined) => start(principalId, runId, sessionId, stagingId, current),
