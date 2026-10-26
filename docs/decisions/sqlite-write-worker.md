@@ -227,6 +227,23 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   after every attempt outcome commits. Clocks are taken at submission.
   `recordActionEpisode` remains inside the inbox store transaction that
   changes the Action; that transaction moves with the inbox lifecycle (#3001).
+- **The inbox lifecycle followed** (#3001). Recovery and budget reconciliation,
+  the lifecycle sweep, cleanup claims and acknowledgements, heartbeat, intake
+  receipts and replay, interactive-share start/bind/end and application/completion
+  receipts, and human hygiene review commit on the same worker. Their procedure
+  modules live under `packages/ui-server/src/inbox/*-writes.ts`; each keeps its
+  transaction's reads and mutations together. Concurrent store submissions assign
+  change IDs and thread sequences on the write connection, so a rollback consumes
+  no committed sequence. Intake answers after its receipt commits, a WebSocket
+  decision pumps changes after its commit, and share tools queue behind their
+  session bind. Share start settles before the backend starts; end settles before
+  the turn releases its slot. The worker holds the share's disposable lifetime
+  lock until end, so cleanup cannot remove its originals during unwind. File
+  staging and application stay with the caller; share completion still verifies
+  receipt-backed bytes under the application lock. Principal authority is checked
+  again on the write connection. Standalone callers without a registered writer
+  run the same procedures inline. Dispatcher-fixture-only claims, boot/restore
+  helpers and the cron runner retain their synchronous connections.
 - **Retained retries and policy proposals followed** (#2850). Retry saves,
   invalidations, refusal receipts and reservations commit on the worker
   (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation
@@ -272,7 +289,7 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   cursor and the unhosted detail-retention setter keep their existing paths.
 - **Other app-connection writers stay on the loop for now**: storage
   notices, push subscriptions and VAPID keys, principal revocation and
-  administration, passkeys and inbox. Each commits at
+  administration and passkeys. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

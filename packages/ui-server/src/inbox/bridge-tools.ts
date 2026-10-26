@@ -98,12 +98,12 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
             parsed.itemId !== approved.itemId || parsed.optionId !== approved.optionId || parsed.expectedVersion !== approved.expectedVersion)
             throw new Error("No matching approved session/Action binding; discuss is unavailable in v1");
           const request = { type: "inbox_resolve" as const, itemId: parsed.itemId, optionId: parsed.optionId };
-          return db.transaction(() => {
+          {
             const { effect, action } = resolver.inspect(principalId, request);
             scope(action.threadId);
             if (JSON.stringify(effect) !== JSON.stringify(approved.effect)) throw new Error("Action effect no longer matches the exact approved binding");
-            return resolver.resolve(principalId, request, parsed.expectedVersion);
-          }).immediate();
+            return resolver.resolveAsync(principalId, request, parsed.expectedVersion);
+          }
         },
       };
     },

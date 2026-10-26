@@ -185,6 +185,7 @@ export interface WsHostOptions {
    * @internal Supplied by createApp (#1053).
    */
   inbox?: InboxStream;
+  /** @internal Supplied by createApp (#1053). */
   inboxTools?: ReturnType<typeof createInboxBridgeTools>;
   /**
    * The user's remembered "always allow" tool grants. Optional: a host
@@ -309,6 +310,7 @@ export class WsHost {
   readonly activity: ActivityRuntime | null;
   /** @internal Host wiring (#1053). */
   readonly inbox: InboxStream | null;
+  /** @internal Host wiring (#1053). */
   readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
   /** @internal Host wiring (#1053). */
   readonly drafts: AwaitableDraftStore | null;

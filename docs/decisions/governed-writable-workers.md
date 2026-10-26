@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:662-667`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:665-670`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -342,7 +342,7 @@ the same places, where links lead included. Inbox staging is judged at each dire
 it publishes, and before every compensation removes anything: its own
 partial or published arrival, and an earlier arrival that the call
 reconciles (`conversation: (input`,
-`packages/ui-server/src/inbox/intake.ts:174-177`). A call refused before
+`packages/ui-server/src/inbox/intake.ts:137-140`). A call refused before
 staging leaves no receipt and no item. Links are read at each change, so a
 link a governed worker swaps in between two changes stops the next one; one
 swapped in between a check and its own system call is not covered, because
@@ -2873,7 +2873,7 @@ every turn without a proven recipient:
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = author`,
-  `packages/ui-server/src/inbox/intake.ts:125`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:105`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); text an autonomous run wrote (escalations, yields)
   whose admitted masks hid every folder now masked; and, since #2816, an

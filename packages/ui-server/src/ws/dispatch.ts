@@ -156,7 +156,7 @@ export async function handleClientMessage(
       if (msg.shareId) {
         try {
           if (!host.inboxTools?.shares) throw new Error("This host does not support bound share filing");
-          shareSessionId = host.inboxTools.shares.resolveSession(connection.authorization.principalId, msg.shareId, msg.sessionId,
+          shareSessionId = await host.inboxTools.shares.resolveSession(connection.authorization.principalId, msg.shareId, msg.sessionId,
             () => !connection.closed && connection.authorization.valid);
           // A repeated intake without an explicit continuation only recovers
           // the binding. Admission may have succeeded before its reply was lost.

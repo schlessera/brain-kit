@@ -297,9 +297,9 @@ checks both nonempty priced and mixed-knownness fixtures
 
 **Q — Authenticated intake.**
 
-- `real CLI queues trusted work, survives a lost response and rejects wrong, revoked or mismatched credentials` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`real CLI queues trusted work, survives a lost response and rejects wrong, revoked or mismatched credentials`, `packages/ui-server/tests/inbox-intake.test.ts:206-267`)
-- `authority overrides are rejected by both mounted endpoints` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`authority overrides are rejected by both mounted endpoints`, `packages/ui-server/tests/inbox-intake.test.ts:157-165`)
-- `revocation while the mounted route awaits its body prevents intake` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`revocation while the mounted route awaits its body prevents intake`, `packages/ui-server/tests/inbox-intake.test.ts:177-195`)
+- `real CLI queues trusted work, survives a lost response and rejects wrong, revoked or mismatched credentials` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`real CLI queues trusted work, survives a lost response and rejects wrong, revoked or mismatched credentials`, `packages/ui-server/tests/inbox-intake.test.ts:207-268`)
+- `authority overrides are rejected by both mounted endpoints` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`authority overrides are rejected by both mounted endpoints`, `packages/ui-server/tests/inbox-intake.test.ts:158-166`)
+- `revocation while the mounted route awaits its body prevents intake` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`revocation while the mounted route awaits its body prevents intake`, `packages/ui-server/tests/inbox-intake.test.ts:178-196`)
 
 **K — Scheduled tasks.**
 
