@@ -146,7 +146,8 @@ test("a transcription claim commits at FULL before provider dispatch; duplicates
       return result;
     };
     const first = put();
-    await queued;
+    // A route that answers before submitting its claim fails here, with its answer, rather than hanging.
+    await Promise.race([queued, first.then(async response => { throw new Error(`TRANSCRIPTION_ROUTE_ANSWERED_BEFORE_CLAIM: ${response.status} ${await response.clone().text()}`); })]);
     await Bun.sleep(30);
     expect(calls, "TRANSCRIPTION_NO_DISPATCH_BEFORE_CLAIM_COMMIT").toBe(0);
     await held;
