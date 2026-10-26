@@ -25,6 +25,8 @@ import { dirname, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isEnvName, protectedPaths } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { url as GOVERNED_TURN_WRITES, setup as governedTurnWriteSetup } from "./governed-turn-writes.js";
 
 /** One protected path as it stood. `blocked`: an ancestor was not a real directory, named here. */
 export interface ManifestEntry {
@@ -198,10 +200,10 @@ export function assertReconciled(results: readonly Reconciliation[]): void {
 }
 
 export interface GovernedManifests {
-  /** Records the manifest durably. Call before the turn's worker launches. */
-  begin(turnId: string, paths?: readonly string[]): TurnManifest;
-  /** Quarantines what the turn left and closes its record. */
-  end(turnId: string): Reconciliation;
+  /** Records the manifest durably; settles once it has committed (#2850). Await it before the turn's worker launches. */
+  begin(turnId: string, paths?: readonly string[]): Promise<TurnManifest>;
+  /** Quarantines what the turn left and closes its record; settles once the record has committed. */
+  end(turnId: string): Promise<Reconciliation>;
   /** At boot: every turn with a manifest, no end record and no live server is reconciled. */
   reconcileAbandoned(): Reconciliation[];
   /** Whether a governed turn has ever started on this brain. */
@@ -212,7 +214,10 @@ export interface GovernedManifests {
   appearedIn(root: string, since: number): string[];
 }
 
-export function createGovernedManifests(db: Database, options: { brainPath: string; quarantineDir: string; log?: Logger; now?: () => number }): GovernedManifests {
+export function createGovernedManifests(db: Database, options: { brainPath: string; quarantineDir: string; log?: Logger; now?: () => number;
+  /** Where a turn's manifest records commit: the app's write worker (#2850). Absent: on `db`, at once. */
+  writer?: SqliteWriter }): GovernedManifests {
+  const call = procedureCaller(db, { url: GOVERNED_TURN_WRITES, setup: governedTurnWriteSetup }, undefined, options.writer);
   let root: string;
   try { root = realpathSync(options.brainPath); } catch { root = resolve(options.brainPath); }
   const now = options.now ?? Date.now;
@@ -259,17 +264,19 @@ export function createGovernedManifests(db: Database, options: { brainPath: stri
     return result;
   };
   return {
-    begin(turnId, paths) {
+    async begin(turnId, paths) {
       const manifest = takeManifest(root, paths);
-      db.query("INSERT INTO governed_turn_manifests (turn_id, brain, pid, pid_start, manifest, started_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(turnId, root, SELF.pid, SELF.start, JSON.stringify(manifest), now());
+      await call("manifestBegin", turnId, root, SELF.pid, SELF.start, JSON.stringify(manifest), now());
       return manifest;
     },
-    end(turnId) {
+    async end(turnId) {
       const row = db.query("SELECT manifest FROM governed_turn_manifests WHERE turn_id = ? AND brain = ? AND ended_at IS NULL")
         .get(turnId, root) as { manifest: string } | null;
       if (!row) throw new Error(`no open governed manifest for turn ${turnId}`);
-      return close(turnId, row.manifest);
+      // Quarantine moves files here; only its record commits on the worker.
+      const result = quarantine(turnId, JSON.parse(row.manifest) as TurnManifest);
+      await call("manifestClose", turnId, result.failed.length ? null : now(), JSON.stringify(result));
+      return result;
     },
     reconcileAbandoned() {
       const rows = db.query("SELECT turn_id, pid, pid_start, manifest, reconciliation FROM governed_turn_manifests WHERE brain = ? AND ended_at IS NULL ORDER BY started_at")
