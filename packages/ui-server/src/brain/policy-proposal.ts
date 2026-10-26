@@ -110,15 +110,20 @@ export function createPolicyProposals(options: {
   observeUserPolicy(turnId: string, approvedWrite: () => void): void | Promise<void>;
   /** A returned promise is the event's commit (#2850); its failure is the receipt's. */
   recordEvent(review: PolicyChangeReview, turn: PolicyProposalTurn): unknown;
-  /** Where a proposal's session bind commits: the app's write worker (#2850). Absent: on `db`, at once. */
+  /** Where a proposal's writes commit: the app's write worker (#2850). Absent: on `db`, at once. */
   writer?: SqliteWriter;
   /** Deterministic race/revalidation fixtures, never wired to a worker. */
   beforeCommit?(): void;
   validate?: typeof parseGovernancePolicy;
 }) {
   const db = options.db;
-  const bind = procedureCaller(db, proposalWrites, undefined, options.writer);
-  let bound: Promise<void> = Promise.resolve();
+  const call = procedureCaller(db, proposalWrites, undefined, options.writer);
+  let tail: Promise<void> = Promise.resolve();
+  const submit = (name: string, ...args: unknown[]) => {
+    const done = call(name, ...args);
+    tail = done.then(() => {}, () => {});
+    return done;
+  };
   // App startup also serves hosts whose brain has not been provisioned yet.
   // Keep existing roots canonical; a missing root is resolved at the operation,
   // never created by policy publication.
@@ -126,6 +131,7 @@ export function createPolicyProposals(options: {
   try { resolvedRoot = realpathSync(options.root); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   const active = new Map<string, Promise<PolicyChangeReview>>();
+  const pendingInputs = new Map<string, { hash: string; principalId: string }>();
   const readReview = (principalId: string, turnId: string, requestId: string, sessionId?: string): PolicyChangeReview | null => {
     const row = db.query("SELECT review, session_id FROM policy_proposals WHERE principal_id = ? AND turn_id = ? AND request_id = ?")
       .get(principalId, turnId, requestId) as { review: string; session_id: string | null } | null;
@@ -135,9 +141,8 @@ export function createPolicyProposals(options: {
     return !active.has(`${turnId}:${requestId}`) && ["pending", "writing"].includes(review.state)
       ? { ...review, state: "unknown", message: "The host lost this request's completion receipt. Check again only reads this request; it cannot repeat the write." } : review;
   };
-  const save = (review: PolicyChangeReview, turn: PolicyProposalTurn) => {
-    db.query("UPDATE policy_proposals SET review = ?, session_id = (SELECT id FROM sessions WHERE id = ?) WHERE turn_id = ? AND request_id = ?")
-      .run(JSON.stringify(review), turn.sessionId(), review.turnId, review.requestId);
+  const save = async (review: PolicyChangeReview, turn: PolicyProposalTurn) => {
+    await submit("save", review, turn.sessionId());
     turn.emit(review);
   };
   return {
@@ -153,12 +158,10 @@ export function createPolicyProposals(options: {
       }) }));
     },
     bind(turnId: string, sessionId: string): Promise<unknown> {
-      const done = bind("bind", turnId, sessionId);
-      bound = done.then(() => {}, () => {});
-      return done;
+      return submit("bind", turnId, sessionId);
     },
-    /** Settles once every bind submitted before it has settled: history joins proposals by session. */
-    async settled() { let waiting: Promise<void>; do { waiting = bound; await waiting; } while (waiting !== bound); },
+    /** Settles once every write submitted before it has settled: history joins proposals by session. */
+    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     async propose(turn: PolicyProposalTurn, requestId: string, raw: PolicyChangeInput): Promise<PolicyChangeReview> {
       const authority = (waits = true) => {
         if (!turn.signal.aborted && !turn.isAuthorized() && waits && turn.hold?.active()) throw new AuthorityHeld();
@@ -174,6 +177,11 @@ export function createPolicyProposals(options: {
       if (process.platform !== "linux") throw new Error("Policy publication requires descriptor-anchored Linux support.");
       const input = PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(raw);
       const inputHash = hash(JSON.stringify(input)), key = `${turn.turnId}:${requestId}`;
+      const pending = pendingInputs.get(key);
+      if (pending) {
+        if (pending.hash !== inputHash || pending.principalId !== turn.principalId) throw new Error("Policy proposal id already belongs to another request.");
+        return active.get(key)!;
+      }
       const row = db.query("SELECT input_hash FROM policy_proposals WHERE turn_id = ? AND request_id = ?").get(turn.turnId, requestId) as { input_hash: string } | null;
       if (row) {
         if (row.input_hash !== inputHash || !readReview(turn.principalId, turn.turnId, requestId)) throw new Error("Policy proposal id already belongs to another request.");
@@ -188,15 +196,14 @@ export function createPolicyProposals(options: {
         state: "pending", rationale: input.rationale, baseHash: before === null ? null : hash(before), proposedHash: hash(bytes),
         frontmatterDiff: diff(a.frontmatter, b.frontmatter), bodyChanged: a.body !== b.body, bodyDiff: diff(a.body, b.body),
         sections: sections(beforeText, input.content), warnings: checked.warnings, message: "Policy change proposed. Review before approving." };
-      db.query(`INSERT INTO policy_proposals (request_id, turn_id, principal_id, session_id, input_hash, review, created_at)
-        VALUES (?, ?, ?, (SELECT id FROM sessions WHERE id = ?), ?, ?, ?)`)
-        .run(requestId, turn.turnId, turn.principalId, turn.sessionId(), inputHash, JSON.stringify(review), Date.now());
+      pendingInputs.set(key, { hash: inputHash, principalId: turn.principalId });
       const work = (async () => {
+        await submit("insert", requestId, turn.turnId, turn.principalId, turn.sessionId(), inputHash, review, Date.now());
         let committed = false;
         try {
           if (!await turn.approve(review)) { review.state = "declined"; review.message = "Policy change declined. Nothing was written."; }
           else {
-            review.state = "writing"; review.message = "Writing the policy…"; save(review, turn);
+            review.state = "writing"; review.message = "Writing the policy…"; await save(review, turn);
             await afterHolds(() => options.lock.withLock(BRAIN_LOCK_KEY, async () => {
               authority();
               const currentValidation = validate(bytes);
@@ -249,10 +256,10 @@ export function createPolicyProposals(options: {
           review.message = committed ? "Policy bytes were published, but the host could not retain the complete recording receipt. Check again reads this request; it never repeats the write."
             : error instanceof Refusal ? error.message : "The host refused this proposal. Nothing was written. A fresh proposal is required.";
         }
-        save(review, turn); return structuredClone(review);
+        await save(review, turn); return structuredClone(review);
       })();
       active.set(key, work);
-      try { return await work; } finally { active.delete(key); }
+      try { return await work; } finally { active.delete(key); pendingInputs.delete(key); }
     },
   };
 }

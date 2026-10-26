@@ -158,11 +158,10 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   acceptance's revision is assigned where it is accepted, one above the
   highest the catalog has issued or seen committed, so it is known at once
   and a failed write's revision is never issued again; only the newest
-  acceptance's outcome orders or unorders the session. Retained retries and
-  local exchanges still commit on the app connection, so a failed retry
-  invalidation still refuses the input that needed it; a failure retained
-  before its session's row has committed is stored once it has, unless an
-  input invalidated it meanwhile.
+  acceptance's outcome orders or unorders the session. Local exchanges
+  still commit on the app connection. Retained retries followed on the
+  worker as described below; a failure retained before its session's row
+  has committed is stored once it has, unless an input invalidated it meanwhile.
 - **The writer gate followed** (#2850). Acquisition, the turn-waiter queue,
   release, folder retention, peer-plan checks, the unpinned-host downgrade,
   the ungated host check and recorded type folders run their transactions on
@@ -206,14 +205,28 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   A read of a session's exposures (admission's continuation checks, a
   handoff's history check) first waits for every exposure write submitted
   before it. Boot reconciliation still closes abandoned manifests inline.
-- **Other app-connection writers stay on the loop for now**: retained
-  retries and local exchanges, saved worker profiles, policy
-  proposals, action and storage notices, push subscriptions and VAPID keys,
-  principal revocation and administration, passkeys, inbox and settings. Each commits at
-- **Other app-connection writers stay on the loop for now**: retained
-  retries and local exchanges, saved worker profiles, policy
-  proposals, action and storage notices, push subscriptions and VAPID keys,
-  principal revocation and administration, passkeys, inbox and settings. Each commits at
+- **Retained retries and policy proposals followed** (#2850). Retry saves,
+  invalidations, refusal receipts and reservations commit on the worker
+  (`packages/ui-server/src/ws/session-catalog-writes.ts`). An invalidation
+  hides the retry from synchronous reads as soon as it is submitted and
+  stays in force even if its delete fails; the worker refuses any later
+  reservation of that obsolete request. The failure is reported, and only a
+  successfully retained new request resets the invalidation. A reservation
+  keeps its receipt and eligibility consumption in one immediate transaction,
+  awaited before its receipt is sent or its prompt dispatched; a duplicate
+  receives the receipt without dispatching again. A pending session row still
+  precedes the retry that references it, while Retry is advertised at once.
+  Proposal inserts and review saves commit on the same worker
+  (`packages/ui-server/src/brain/policy-proposal-writes.ts`). Approval waits
+  for insertion, and policy publication waits for the writing review's
+  commit, so a crash leaves an unknown receipt and never repeats the write.
+  Reviews are emitted after their saves commit; history and receipt readers
+  await `settled()`, which includes inserts, saves and binds. Without a
+  writer, the same procedures run inline on the caller's connection.
+- **Other app-connection writers stay on the loop for now**: local exchanges,
+  saved worker profiles, action and storage notices, push subscriptions and
+  VAPID keys, principal revocation and administration, passkeys, inbox,
+  drafts, voice transcription and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

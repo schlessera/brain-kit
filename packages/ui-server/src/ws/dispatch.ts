@@ -221,9 +221,9 @@ export async function handleClientMessage(
     }
 
     case "retry_turn": {
-      const refuse = (message: string) => {
+      const refuse = async (message: string) => {
         const receipt = { type: "retry_receipt" as const, sessionId: msg.sessionId, requestId: msg.requestId, state: "refused" as const, message };
-        try { host.sendMessage(ws, catalog.refuseRetry?.(msg.sessionId, msg.requestId, connection.authorization.principalId, message) ?? receipt); }
+        try { host.sendMessage(ws, (await catalog.refuseRetry?.(msg.sessionId, msg.requestId, connection.authorization.principalId, message)) ?? receipt); }
         catch { host.sendMessage(ws, receipt); }
       };
       try {
@@ -237,26 +237,26 @@ export async function handleClientMessage(
         const prior = catalog.retryReceipt?.(msg.sessionId, msg.requestId, connection.authorization.principalId);
         if (prior && prior.state !== "unknown") { host.sendMessage(ws, prior); return; }
         if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId)) {
-          refuse("This session is busy. Wait for the current turn to finish."); return;
+          await refuse("This session is busy. Wait for the current turn to finish."); return;
         }
         if (coordinator.activeRuns() >= host.maxConcurrentSessions()) {
-          refuse("The server is busy. Wait for a turn to finish and try again."); return;
+          await refuse("The server is busy. Wait for a turn to finish and try again."); return;
         }
         const original = catalog.peekRetry?.(msg.sessionId);
         let files: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] | undefined;
         if (original?.request.files?.length && original.turnId === msg.failedTurnId && original.principalId === connection.authorization.principalId) {
           try {
             files = await resolveChatFiles(host.brainPath, original.request.files);
-            if (!original.prompt.includes(withTrackFiles("", files))) { refuse("An original track changed. Start a new message with the current file instead."); return; }
-          } catch { refuse("An original track is unavailable. Attach it again in a new message."); return; }
+            if (!original.prompt.includes(withTrackFiles("", files))) { await refuse("An original track changed. Start a new message with the current file instead."); return; }
+          } catch { await refuse("An original track is unavailable. Attach it again in a new message."); return; }
           if (!connection.authorization.valid) return;
           // File reads yield; repeat admission before consuming eligibility.
           if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId) || coordinator.activeRuns() >= host.maxConcurrentSessions()) {
-            refuse("The session or server became busy. Try again when it is free."); return;
+            await refuse("The session or server became busy. Try again when it is free."); return;
           }
         }
-        const reserved = catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files ? original!.prompt : undefined);
-        if (!reserved) { refuse("This server cannot retain the original request for Retry."); return; }
+        const reserved = await catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files ? original!.prompt : undefined);
+        if (!reserved) { await refuse("This server cannot retain the original request for Retry."); return; }
         host.sendMessage(ws, { ...reserved.receipt, ...(reserved.request ? {
           ...(files?.length ? { files } : {}),
           text: reserved.request.text, attachmentCount: reserved.request.attachments?.length ?? 0,
@@ -273,7 +273,7 @@ export async function handleClientMessage(
         }
       } catch {
         // A failed database write must not execute an unacknowledged retry.
-        refuse("The server could not confirm this retry. Check delivery before trying again.");
+        await refuse("The server could not confirm this retry. Check delivery before trying again.");
       }
       return;
     }
