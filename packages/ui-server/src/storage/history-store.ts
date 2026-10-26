@@ -102,6 +102,8 @@ export function createStorageHistory(db: Database, brainPath: string, options: {
       const waiting = scan?.result_at !== null && scan?.result_at !== undefined && scan.result_at > (history?.metadata.state.lastObservedAt ?? 0);
       return { history, pending: pending !== null || pendingWrites.length > 0 || waiting, paused: unavailable ?? (history && now() < history.metadata.state.lastPersistedAt ? "history-clock-reversal" : history?.metadata.state.paused ?? null), payloadBytes: history ? jsonBytes(history) : null };
     },
+    /** Settles once no flush is committing: a read of the history then sees every one submitted before it. */
+    async settled() { while (inFlight) await inFlight; },
     close() { closed = true; pending = null; pendingWrites = []; },
   };
 }
