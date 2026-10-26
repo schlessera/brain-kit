@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:550-565`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:552-567`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -190,7 +190,21 @@ Governed turns use the verified scratch and workspace areas at their canonical
 paths. Strict turns write private area copies through `/tmp/brain-worker-areas/`
 aliases, with validated publication after exit. Host home remains read-only
 and may be hidden by the resolved profile masks; per-turn XDG directories are
-in turn temp. See
+in turn temp. Non-envelope Claude's `HOME` is a fresh empty read-only mount,
+separate from its writable runtime state at `CLAUDE_CONFIG_DIR`. The shell
+snapshot and login-shell fallback cannot import operator rc/profile files,
+and writes to `~` fail with `EROFS` without consuming transcript storage. The host's Claude config and credentials are resolved before that HOME
+override, with the same projection and persistence as before.
+`BASH_ENV`, `ENV`, `ZDOTDIR`, `SHELLOPTS`, `BASHOPTS` and exported
+`BASH_FUNC_*%%` functions are withheld from non-envelope Claude workers even
+when admitted as environment extras. Existing-file rc masks were tried first:
+a host-side profile creation after enumeration still reaches the CLI through
+the live read-only home, while an absent mask mount point cannot be created
+there. The [measured decision](../decisions/worker-writable-areas.md#home-startup-masking)
+therefore keeps the approved empty-HOME fallback. Startup symlinks are not
+followed in that empty home; the original home and its profile masks are
+unchanged. The login shell still reads the image's `/etc/profile`, which may
+source `/etc/bash.bashrc`; image startup configuration remains out of scope. See
 [what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
 worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
 Turn temp is sized with bubblewrap's `--size`, so every worker needs
@@ -427,7 +441,7 @@ write verified scratch/workspace copies through the aliases below.
   entries, or holds a directory the server cannot read (scratch too); the
   agent's note and the server log name the reason. Links wholly
   inside it, such as local clones between workspace repositories, are fine.
-- **`$HOME`** is not a writable host escape. The resolved profile may mask its
+- **The real host home** is not a writable host escape. The resolved profile may mask its
   contents; only the selected runtime inputs restored by that layout are
   available. A write into a read-only home fails and is retained as a roadblock.
   `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and
@@ -435,7 +449,14 @@ write verified scratch/workspace copies through the aliases below.
   `/tmp/brain-worker-home`, which is what headless Chromium needs to start,
   and the agent's note says to point a tool there. There is no per-turn home
   overlay: bubblewrap keeps an overlay's writes in a host directory, which no
-  size-limited mount can hold.
+  size-limited mount can hold. Non-envelope Claude uses a separate empty
+  read-only `HOME` to exclude operator shell startup files; its prepared
+  writable `CLAUDE_CONFIG_DIR` is unchanged. The real home retains its original
+  read-only path and masks. A tool that needs configuration there must name
+  its path explicitly where the profile exposes it, including configuration
+  previously read as `~/.gitconfig`, `~/.npmrc` or `~/.netrc`. HOME-derived defaults such as core's `~/.local/bin`
+  and geo cache/admission see the empty read-only home; a geo cache miss
+  refuses before a request instead of creating private per-worker admission.
 - **Turn temp** is the worker's own size-limited `/tmp`
   ([above](#turn-temp-allowance-and-the-turn_temp-tool)). When the worker
   exits, files its answer linked there are copied into

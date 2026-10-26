@@ -6,7 +6,9 @@ import type { AppEnv } from "../app-env.js";
 import type { VoiceConfig } from "../config/env.js";
 import { getKeyterms, type KeytermSettings } from "../voice/keyterm-builder.js";
 import { pickSpeechProvider, speechCapabilities } from "../voice/speech-providers.js";
-import { refuse, TranscriptionError, type TranscriptionStore } from "../voice/transcription-store.js";
+import { refuse, TranscriptionError } from "../voice/transcription-store.js";
+
+import type { AwaitableTranscriptionStore } from "../voice/transcription-writes.js";
 
 // V1-derived byte budget for ten minutes; documented with the measurement receipt.
 export const MAX_TRANSCRIPTION_BYTES = 10_041_155;
@@ -52,7 +54,7 @@ async function readAudio(c: Context<AppEnv>): Promise<Uint8Array> {
   return new Uint8Array(Buffer.concat(chunks, bytes));
 }
 export function createTranscriptionRoutes(deps: {
-  store: TranscriptionStore; voice: VoiceConfig; keyterms: KeytermSettings; speechProvider?: SpeechProvider;
+  store: AwaitableTranscriptionStore; voice: VoiceConfig; keyterms: KeytermSettings; speechProvider?: SpeechProvider;
 }): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const run = (handler: (c: Context<AppEnv>, principalId: string, id: string) => Promise<Response>) => async (c: Context<AppEnv>) => {
@@ -60,7 +62,7 @@ export function createTranscriptionRoutes(deps: {
     try {
       const principal = c.get("principal");
       if (!principal) return refuse(401, "authentication_required", "Sign in again.");
-      deps.store.authorize(principal.id);
+      await deps.store.authorize(principal.id);
       const id = (c.req.param("recordingId") ?? "").toLowerCase();
       if (!ID.test(id)) return refuse(400, "recording_id_invalid", "Use a recording UUID.");
       return await handler(c, principal.id, id);
@@ -71,11 +73,11 @@ export function createTranscriptionRoutes(deps: {
     }
   };
   const path = "/voice/recordings/:recordingId/transcription";
-  app.get(path, run(async (c, principalId, id) => c.json(deps.store.get(principalId, id))));
+  app.get(path, run(async (c, principalId, id) => c.json(await deps.store.get(principalId, id))));
   app.delete(path, run(async (c, principalId, id) => {
     const disposition = c.req.query("disposition");
     if (disposition !== "accepted" && disposition !== "discarded") return refuse(400, "transcription_disposition_invalid", "Choose accepted or discarded.");
-    return c.json(deps.store.remove(principalId, id, disposition));
+    return c.json(await deps.store.remove(principalId, id, disposition));
   }));
   app.put(path, run(async (c, principalId, id) => {
     const provider = pickSpeechProvider(deps.voice, deps.speechProvider);
@@ -89,7 +91,7 @@ export function createTranscriptionRoutes(deps: {
     if (suppliedHash !== hash) return refuse(400, "recording_hash_invalid", "The hash does not match the uploaded bytes.");
     // Build before the claim: a local builder failure must not strand dispatch.
     const keyterms = provider.capabilities.keyterms ? getKeyterms(deps.keyterms, false).keyterms : [];
-    const claim = deps.store.claim(principalId, id, hash, provider.id, c.req.query("retry"));
+    const claim = await deps.store.claim(principalId, id, hash, provider.id, c.req.query("retry"));
     if (!claim.dispatch) return c.json(claim.receipt);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -101,10 +103,10 @@ export function createTranscriptionRoutes(deps: {
       result = { text: answer.text };
     } catch (error) { result = { failure: transcriptionFailure(error) }; }
     finally { clearTimeout(timer); }
-    const stored = deps.store.complete(id, claim.receipt.attemptId, result);
+    const stored = await deps.store.complete(id, claim.receipt.attemptId, result);
     // Authentication can expire while the provider works. Keep the receipt,
     // but never expose its private result through an expired credential.
-    deps.store.authorize(principalId);
+    await deps.store.authorize(principalId);
     return c.json(stored);
   }));
   return app;

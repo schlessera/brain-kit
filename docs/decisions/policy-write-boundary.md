@@ -320,12 +320,14 @@ integrated escape matrix; #676's credential, configuration and egress proof is
 The maintainer's rulings on [#1626](https://github.com/schlessera/brain-kit/issues/1626)
 add designed writable areas to the read-only worker for interactive and voice
 turns: the brain's `.brain/scratch/` and its existing `workspaces/` directory
-as writable binds, and a per-turn overlay over `$HOME` with an XDG fallback.
+as writable binds. #1703 later confines temporary writes to bounded `/tmp`
+and XDG directories; the original host-home path stays read-only. #2984
+gives non-envelope Claude an empty read-only runtime HOME.
 Every refusal from inside those areas still meets the boundary: the integrated
 proof above attacks from inside both and passes. The earlier sentence "writable
 overlays and copied scratch brains are declined" still holds for the brain;
-the home overlay never covers it and is optional, so bubblewrap 0.9 stays
-eligible. Restricted autonomous turns are unchanged.
+temporary writes never cover it, and no home overlay is required, so
+bubblewrap 0.9 stays eligible. Restricted autonomous turns are unchanged.
 [The writable-areas decision](worker-writable-areas.md) records the rulings,
 checks and measurements. A "governed writable" default for interactive and
 voice turns is being designed separately and will revise this section and
@@ -495,13 +497,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1321-1576`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1325-1580`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:1095-1119`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:1099-1123`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's

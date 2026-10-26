@@ -83,7 +83,7 @@ function setup() {
     catalog: createSessionCatalog(() => db),
     observability,
     activity: { store, stream },
-    toolPermissions: { isAutoAllowed: (n) => granted.has(n), add: (n) => granted.add(n) },
+    toolPermissions: { isAutoAllowed: (n) => granted.has(n), add: (n) => { granted.add(n); } },
   });
   const handlers = createWsHandlers(host, testPrincipal());
   const ws = fakeSocket();

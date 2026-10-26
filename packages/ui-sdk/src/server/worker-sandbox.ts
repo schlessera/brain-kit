@@ -32,7 +32,7 @@ export { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 export const WORKER_MOUNT_SCAN_LIMIT = 200_000;
 
 /**
- * `$HOME` stays read-only; the XDG variables point at per-turn directories in
+ * The real host home stays read-only; XDG variables name private directories in
  * turn temp. There is no per-turn home overlay: bubblewrap keeps an overlay's
  * writes on the host side, outside the worker's size-limited `/tmp` (#1703).
  */
@@ -577,7 +577,7 @@ const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string) => s
 
 /** What this worker's turn temp covers. */
 function turnTempPlaces(): string {
-  return `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` itself is read-only: a write there fails with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`)`;
+  return `\`$BRAIN_WORKER_SCRATCH\`, \`/tmp\` and the per-turn \`XDG_CONFIG_HOME\`, \`XDG_CACHE_HOME\` and \`XDG_DATA_HOME\` under \`${WORKER_XDG_HOME}\` (\`$HOME\` is read-only: Claude uses an empty home, pi the original host home; the real host home is read-only at its original path, subject to profile masks. Writes there fail with \`EROFS\`, so point the tool at an XDG directory or \`/tmp\`)`;
 }
 
 /**

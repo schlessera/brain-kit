@@ -40,7 +40,7 @@ a roadblock when it fails.
 | Class | What it prevents | How this record enforces it |
 | --- | --- | --- |
 | **G1 — system integrity, including resource exhaustion** | Breaking the host, the server, the policy, git internals or the kernel interface. Starving the host of CPU, memory, disk or processes. | Worker namespaces and the read-only host, with `/proc/sys` covered read-only in #1629. [The host execution boundary](#the-host-execution-boundary): no host process runs repository code, git or the `brain` CLI against a governed brain. Tier A protected paths with self-bound ancestors. Durable quarantine of unexpected protected files. [Per-worker resource limits](#resource-limits-g1). |
-| **G2 — data exfiltration** | Secrets or brain content leaving the host unseen, or reaching an inference provider the user did not allow | `.env*` is masked, not only read-only. The host `$HOME` is replaced by #1626's per-turn overlay. Egress is recorded, then allow-listed and byte-capped by the policy. Host Unix sockets are masked. Inference and paid providers go through server relays, so a `governed` worker holds no provider credential. [Data-to-provider routing](#data-to-provider-routing-g2). Where the host provides an identity helper, [the worker runs under its own uid](#worker-identity-g2), so the server's own state is denied by ownership. |
+| **G2 — data exfiltration** | Secrets or brain content leaving the host unseen, or reaching an inference provider the user did not allow | `.env*` is masked, not only read-only. The host home stays read-only under the profile masks; temporary tool writes use per-turn XDG directories. Claude uses an empty read-only runtime HOME (#2984). Egress is recorded, then allow-listed and byte-capped by the policy. Host Unix sockets are masked. Inference and paid providers go through server relays, so a `governed` worker holds no provider credential. [Data-to-provider routing](#data-to-provider-routing-g2). Where the host provides an identity helper, [the worker runs under its own uid](#worker-identity-g2), so the server's own state is denied by ownership. |
 | **G3 — budget runaway** | Cost growing without a stop | Turn, session and day limits that **block**, not only warn. Refusal at admission, an abort mid-turn, and Claude's `maxBudgetUsd` as a backstop. CLI provider spend is counted through metered relays. |
 | **G4 — scope runaway** | A turn that goes on and on: too many files changed, too much time, too many tool calls | Per-turn caps on all three. Reaching a cap **escalates to the user** rather than failing silently. |
 | **G5 — outward actions as the user** | An effect outside the brain in the user's name: git push, GitHub posts, email or messages, bookings, payments | [Approval, or a policy allow-list](#outward-actions-g5). Everything inside the brain stays free. |
@@ -123,7 +123,7 @@ What a turn can do is the intersection of the two.
 | | `governed` (default for interactive and voice) | `strict` (opt-in) | `restricted` (autonomous, fixed) |
 | --- | --- | --- | --- |
 | Brain | Read-write bind, with protected paths read-only | Read-only (the 0.41 view) | Read-only, `.git` masked |
-| Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp, `$HOME` overlay) | Turn temp only |
+| Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp and per-turn XDG directories; HOME stays read-only) | Turn temp only |
 | Host root | Read-only, with runtime and home directories masked | Same as `governed` | An explicit read envelope |
 | Network | Host namespace until the egress monitor lands, then a private namespace with the egress proxy | Same as `governed` | Loopback plus the inference relay |
 | Claude native `Write`/`Edit`/`NotebookEdit` | Auto-allowed on typed turns; voice calls refuse | Registered but refused at call time. The server tools are used instead. | Not in the roster |
@@ -583,7 +583,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:675-685`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:680-690`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -966,7 +966,7 @@ the capabilities note states all three and says which one to link:
 
 | Area | Where | Lifetime | Linkable | Indexed or journaled |
 | --- | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, the per-turn `$HOME` overlay, `/tmp` | Deleted at turn end | Never | No |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, per-turn XDG directories, `/tmp` | Deleted at turn end | Never | No |
 | Persistent scratch | `.brain/scratch/`, which is gitignored and served by the file routes | Survives turns. Pruned by age and size, but never while a retained conversation links the file. | Yes | Not indexed. Listed in the journal by name and size only. |
 | Canonical brain | Everything else that is not ignored | Versioned in git | Yes | Indexed and journaled with content |
 
@@ -1014,7 +1014,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1132-1160`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1136-1164`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1136,7 +1136,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:210-237`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:217-244`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -2155,7 +2155,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:224`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:226`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2173,7 +2173,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1906`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1910`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2197,7 +2197,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:383-442`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:385-444`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2273,9 +2273,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:606-612`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:633-672`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:786-804`).
+`packages/ui-sdk/src/server/worker-launcher.ts:609-615`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:636-675`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:791-809`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3237,7 +3237,7 @@ authority over the read-only host root. That includes the server's database,
 its Claude and pi credentials, and its environment files. The masks in this
 record cover only the paths they name:
 
-- #1626's `$HOME` overlay;
+- the runtime HOME choice (Claude's empty read-only home, pi's read-only host home);
 - the runtime and home-directory masks;
 - the `.env*` mask.
 
@@ -3246,7 +3246,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:93`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:94`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3306,7 +3306,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:248-282`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:250-284`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -3444,11 +3444,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1095-1123`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1099-1127`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1132-1158`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1136-1162`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1321-1409`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1325-1413`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker

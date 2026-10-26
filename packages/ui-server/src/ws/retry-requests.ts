@@ -58,7 +58,10 @@ export function reserveRetry(db: Database, sessionId: string, failedTurnId: stri
       return { receipt: { ...existing, state: "refused" as const, message: "This retry request cannot be used." } };
     }
     const original = retained(db, sessionId);
-    if (!original || original.turnId !== failedTurnId || original.principalId !== principalId) {
+    // Durable fail-closed (#2850): an input accepted after the failure moved the
+    // session's work on, even if its invalidation of this row did not commit.
+    const work = db.query("SELECT turn_id FROM session_work WHERE session_id = ?").get(sessionId) as { turn_id: string | null } | null;
+    if (!original || original.turnId !== failedTurnId || original.principalId !== principalId || (work && work.turn_id !== original.turnId)) {
       return { receipt: refuseRetry(db, sessionId, requestId, principalId, "The original request is unavailable or is no longer the latest turn.") };
     }
     if (expectedPrompt !== undefined && original.prompt !== expectedPrompt) return { receipt: refuseRetry(db, sessionId, requestId, principalId, "The retained request changed while its attachments were checked.") };

@@ -3,6 +3,7 @@ export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles 
 export { workerCleanupUnconfirmed, workerIdentityHelper } from "./server/worker-identity.js";
 export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerHost, requireWorkerHostAsync, WorkerResourceLimitError, probeWorkerHost, probeWorkerHostAsync, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
+export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";
 export { ARCHIVING_UPDATE_REASON, archivesDocument, bashCommand } from "./server/confirm-patterns.js";
 export { SUBPROCESS_ENV, HOST_GIT_CREDENTIAL_ENV, AGENT_INFERENCE_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./server/subprocess-env.js";

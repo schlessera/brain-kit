@@ -13,20 +13,23 @@ export function acceptDraft(
 ): void {
   const { draftRef } = input;
   if (!host.drafts || !draftRef) return;
-  try {
-    host.drafts.accept({
-      draftRef,
-      sessionId: input.sessionId,
-      resumed: input.resumed,
-      ...(input.requestId ? { requestId: input.requestId } : {}),
-      principalId: input.principalId,
-    });
-  } catch {
+  const failed = () => {
     // Identity only: draft text and images never reach a log.
     host.log.emit({
       severityText: "WARN",
       body: "accepted message's draft could not be settled; it stays",
       attributes: { "session.id": input.sessionId },
     });
-  }
+  };
+  try {
+    const done = host.drafts.accept({
+      draftRef,
+      sessionId: input.sessionId,
+      resumed: input.resumed,
+      ...(input.requestId ? { requestId: input.requestId } : {}),
+      principalId: input.principalId,
+    });
+
+    if (done instanceof Promise) void done.catch(failed);
+  } catch { failed(); }
 }

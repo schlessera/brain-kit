@@ -238,6 +238,44 @@ Reads whose variable *name* is configuration rather than code:
 Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->
 
+## Worker shell startup
+
+Non-envelope Claude workers give the CLI a fresh, empty, read-only `HOME`,
+separate from the writable runtime-state tmpfs at `CLAUDE_CONFIG_DIR`. The host's configured Claude directory is resolved and its existing
+credentials, settings, account file and resumed transcript are prepared before
+that override, so their source and persistence are unchanged. No operator
+shell startup file is present in that HOME. Writes to `~` fail with `EROFS`
+and cannot consume transcript or credential storage. This also covers the CLI's
+login-shell fallback when it cannot create a shell snapshot.
+Non-envelope workers also discard `BASH_ENV`, `ENV`, `ZDOTDIR`, `SHELLOPTS`,
+`BASHOPTS` and exported `BASH_FUNC_*%%` functions, including when explicitly
+admitted through the environment extras.
+
+The maintainer requested rc-file masking first. The real-CLI experiment masks
+all ten existing Bash/zsh startup files and preserves implicit Git config reads
+in both branches. It also demonstrates why the fallback is needed: read-only
+HOME is a live view, so a profile created by the host after enumeration can
+still be imported. Covering an absent name with a bind fails with `EROFS`;
+binding onto a startup symlink masks its resolved target, which may be another
+config file. The [decision record](../../docs/decisions/worker-writable-areas.md#home-startup-masking)
+records these controls and the retained empty-HOME fallback. An existing masked
+home stays masked; it is never restored to apply a file mask.
+
+The original host home keeps the launcher's existing read-only view and profile
+masks at its original path. The per-turn XDG directories remain in bounded turn
+temp. Commands that depended on `~` naming the operator's home must use an
+explicit configuration path where the profile exposes it. This includes
+`~/.gitconfig`, `~/.npmrc` and `~/.netrc`. Tools and variables previously supplied by a shell
+profile must come from the server's configured PATH and admitted environment.
+Core's default `~/.local/bin` and geo's default cache/admission paths now resolve
+under the empty read-only HOME. Geo cache misses fail before any request;
+these workers cannot create private per-worker geo admission state. Restricted
+workers retain their existing private-state HOME.
+
+The CLI's login shell still reads image-owned `/etc/profile`.
+`/etc/bash.bashrc` can also run through the image's startup configuration or the
+CLI's shell probes. These system files are outside the operator-HOME boundary.
+
 ## Asynchronous runtime probe
 
 The module's `probeRuntime(context): Promise<BackendRuntimeReport>`

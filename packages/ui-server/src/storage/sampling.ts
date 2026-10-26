@@ -10,13 +10,17 @@ import { bucket } from "./history-model.js";
 export function createStorageSampling(db: Database, storage: StorageCoordinator, history: StorageHistory, shared: SharedStorageScan, notices: StorageNotifier, sender: Pick<PushSender, "deliverStorage">, bootAt = Date.now()) {
   let lastBucket = bucket(0, bootAt), lastClock = bootAt, lastCleanup = bootAt;
   let delivering: Promise<unknown> | null = null, cleaning: Promise<unknown> | null = null;
+  let flushing: Promise<unknown> | null = null, sweeping: Promise<unknown> | null = null;
   const controller = new AbortController();
   function tick(now = Date.now()) {
     if (controller.signal.aborted) return;
     // Reversed clocks cannot re-enter a past bucket or renew stale evidence.
     if (now < lastClock) return;
     lastClock = now;
-    try { history.flush(); } catch { /* Existing evidence remains readable. */ }
+    if (!flushing) try {
+      const result = history.flush();
+      if (result instanceof Promise) flushing = result.catch(() => {}).finally(() => { flushing = null; });
+    } catch { /* Existing evidence remains readable. */ }
     const current = bucket(0, now);
     if (current > lastBucket) {
       try {
@@ -25,7 +29,10 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
         if (owner) { lastBucket = current; storage.start(owner.id, true, 0); }
       } catch { lastBucket = current; history.failure(now); }
     }
-    try { notices.sweep(now); } catch { /* A failed receipt write cannot authorize transport. */ }
+    if (!sweeping) try {
+      const result = notices.sweep(now);
+      if (result instanceof Promise) sweeping = result.catch(() => {}).finally(() => { sweeping = null; });
+    } catch { /* A failed receipt write cannot authorize transport. */ }
     if (!delivering) delivering = sender.deliverStorage(notices, undefined, controller.signal).catch(() => {}).finally(() => { delivering = null; });
     if (!cleaning && now - lastCleanup >= 60_000) {
       lastCleanup = now;
@@ -35,6 +42,6 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
   const timer = setInterval(tick, 20_000); timer.unref();
   return {
     tick,
-    async close() { controller.abort(); clearInterval(timer); await Promise.allSettled([delivering, cleaning]); history.flush(); },
+    async close() { controller.abort(); clearInterval(timer); await Promise.allSettled([delivering, cleaning, flushing, sweeping]); await history.flush(); },
   };
 }
