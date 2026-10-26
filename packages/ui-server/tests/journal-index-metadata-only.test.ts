@@ -7,7 +7,7 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -19,11 +19,14 @@ import type { JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
 import { createTurnReverts } from "../src/brain/turn-revert.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 
-const INDEX = [".brain-index/brain.db", ".brain-index/brain.db-wal", ".brain-index/brain.db-shm", ".brain-index/brain.db-journal"];
+/** The embeddings lock database beside the index and its sidecars joined the family in #2903. */
+const LOCK = [".brain-index/brain.db.embedding-lock.db", ".brain-index/brain.db.embedding-lock.db-journal", ".brain-index/brain.db.embedding-lock.db-wal", ".brain-index/brain.db.embedding-lock.db-shm"];
+const INDEX = [".brain-index/brain.db", ".brain-index/brain.db-wal", ".brain-index/brain.db-shm", ".brain-index/brain.db-journal", ...LOCK];
 const COPY = ".brain-index/.maintenance-41b2dd7f-9913-4151-b5bf-53aad064cd96";
 /** Authoritative controls: similar names inside and outside the index directory and another root's index. */
 const CONTROLS = ["notes/odysseus.md", ".brain-index/notes.md", ".brain-index/brain.db.bak", ".brain-index/.maintenance-raft",
-  "workspaces/raft/.brain-index/brain.db", "brain-index/brain.db", "notes/brain.db"];
+  "workspaces/raft/.brain-index/brain.db", "brain-index/brain.db", "notes/brain.db",
+  ".brain-index/brain.db.embedding-lock.db.bak", ".brain-index/brain.db.embedding-lock", "notes/brain.db.embedding-lock.db", "workspaces/raft/.brain-index/brain.db.embedding-lock.db"];
 const sha = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 
 function fixture() {
@@ -57,7 +60,7 @@ test("observed index refreshes keep path, size and change evidence without retai
     await f.begin("refresh"); await f.begin("peer");
     for (let refresh = 0; refresh < 3; refresh++) {
       // The database changes size; the WAL keeps an equal size and only its stamp tells the versions apart.
-      const sizes = [4096 + refresh, 8, 32, 16];
+      const sizes = [4096 + refresh, 8, 32, 16, 8192 + refresh, 512, 24, 40];
       INDEX.forEach((path, i) => { const bytes = Buffer.alloc(sizes[i]!, refresh + i + 1); written.add(sha(bytes)); f.write(path, bytes); });
       await f.journal.observe();
       const kept = f.retained();
@@ -114,11 +117,12 @@ test("before-version capture and removal coverage never retain the index family,
   try {
     f.write(".brain-index/notes.md", "Athena's note beside the index\n"); f.write(COPY, "staged index");
     await f.begin("removal");
-    expect(await f.journal.removalCoverage([".brain-index/brain.db", COPY, "notes/odysseus.md", ".brain-index/notes.md"]), "INDEX_FAMILY_NOT_REMOVAL_ELIGIBLE")
-      .toEqual([false, false, true, true]);
+    expect(await f.journal.removalCoverage([".brain-index/brain.db", COPY, "notes/odysseus.md", ".brain-index/notes.md", LOCK[0]!]), "INDEX_FAMILY_NOT_REMOVAL_ELIGIBLE")
+      .toEqual([false, false, true, true, false]);
     expect(await f.journal.removalCoverage([".brain-index/brain.db-wal", "notes/odysseus.md"], undefined, true), "INDEX_FAMILY_NOT_RESTORE_ALLOWED").toEqual([false, true]);
     expect(await f.journal.retainBefore("removal", ".brain-index/brain.db"), "INDEX_BEFORE_VERSION_NOT_RETAINED").toBeNull();
     expect(await f.journal.retainBefore("removal", COPY), "INDEX_COPY_BEFORE_VERSION_NOT_RETAINED").toBeNull();
+    for (const path of LOCK) expect(await f.journal.retainBefore("removal", path), `LOCK_BEFORE_VERSION_NOT_RETAINED ${path}`).toBeNull();
     expect(f.retained().has(sha("initial index")) || f.retained().has(sha("staged index")), "INDEX_BEFORE_BYTES_NEVER_RETAINED").toBe(false);
     let original: JournalVersion | undefined;
     for (const [path, bytes] of [["notes/odysseus.md", "# Ithaca\n"], [".brain-index/notes.md", "Athena's note beside the index\n"]] as const) {
@@ -139,6 +143,7 @@ test("history revert excludes the index family as metadata-only, including earli
   try {
     await f.begin("return");
     f.write(".brain-index/brain.db", "refreshed index"); f.write(".brain-index/notes.md", "Telemachus\n"); f.write("notes/odysseus.md", "# Ithaca\nHome.\n");
+    f.write(LOCK[0]!, "embedding lock taken"); f.write(".brain-index/brain.db.embedding-lock.db.bak", "Eumaeus\n");
     f.write("notes/harbour.md", "wal");
     await f.journal.finish("return");
     // A version retained before the ruling, whose object this turn still holds:
@@ -155,11 +160,15 @@ test("history revert excludes the index family as metadata-only, including earli
     expect(reason(".brain-index/brain.db"), "INDEX_REVERT_EXCLUDED_AS_METADATA_ONLY").toMatchObject({ state: "excluded", reason: "metadata_only" });
     expect(reason(".brain-index/brain.db-wal"), "LEGACY_RETAINED_INDEX_NEVER_RESTORED").toMatchObject({ state: "excluded", reason: "metadata_only" });
     expect(reason(".brain-index/notes.md"), "SIMILAR_PATH_REMAINS_REVERTIBLE").toMatchObject({ state: "eligible", reason: null });
+    expect(reason(LOCK[0]!), "LOCK_REVERT_EXCLUDED_AS_METADATA_ONLY").toMatchObject({ state: "excluded", reason: "metadata_only" });
+    expect(reason(".brain-index/brain.db.embedding-lock.db.bak"), "SIMILAR_LOCK_NAME_REMAINS_REVERTIBLE").toMatchObject({ state: "eligible", reason: null });
     expect(reason("notes/odysseus.md"), "CONTENT_REMAINS_REVERTIBLE").toMatchObject({ state: "eligible", reason: null });
     const receipt = await f.reverts.start("odysseus", "ithaca", "return", { id: "odysseus_index_revert_01" }); await f.reverts.idle(receipt.id);
     expect(f.reverts.receipt(receipt.id, "odysseus", "ithaca", "return")?.state, "REVERT_COMPLETES_WITHOUT_INDEX").toBe("complete");
     expect(readFileSync(join(f.brain, "notes/odysseus.md"), "utf8"), "CONTENT_RESTORED_EXACTLY").toBe("# Ithaca\n");
     expect(readFileSync(join(f.brain, ".brain-index/brain.db"), "utf8"), "INDEX_LEFT_FOR_REBUILD").toBe("refreshed index");
+    expect(readFileSync(join(f.brain, LOCK[0]!), "utf8"), "LOCK_LEFT_IN_PLACE").toBe("embedding lock taken");
+    expect(existsSync(join(f.brain, ".brain-index/brain.db.embedding-lock.db.bak")), "SIMILAR_LOCK_NAME_REVERTED").toBe(false);
     await expect(f.reverts.start("odysseus", "ithaca", "return", { id: "odysseus_index_revert_02", path: ".brain-index/brain.db" }), "INDEX_SINGLE_PATH_REVERT_REFUSED").rejects.toThrow();
   } finally { await f.close(); }
 });

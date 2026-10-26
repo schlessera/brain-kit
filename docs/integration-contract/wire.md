@@ -126,7 +126,8 @@ regular files have no content hash and contribute their largest observed after-s
 once per turn per path, rather than their full size on every observation (#2027).
 This corrects repeated metadata observations inflating the existing observed-write
 counter; field shapes and scope decisions are unchanged. The brain root's
-disposable index (`.brain-index/brain.db` and its SQLite sidecars) is counted
+disposable index (`.brain-index/brain.db` and its SQLite sidecars, and since
+0.44.0 the embeddings lock database beside it, #2903) is counted
 the same way, ignored or not, and a `.brain-index/.maintenance-<uuid>` publication
 copy that a later observation saw removed is neither a changed path nor bytes;
 one that stays counts like any other file (#2831). Since 0.44.0 every one of

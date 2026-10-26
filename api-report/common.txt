@@ -38,6 +38,7 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   resolveGovernancePolicy
 
 export "./internal/index-location" (./src/index-location.ts)
+  EMBEDDING_LOCK_FAMILY
   INDEX_DB
   INDEX_DB_PATH
   INDEX_DIR
