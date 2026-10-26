@@ -148,8 +148,9 @@ turn.
 **`$HOME`.** #1703 supersedes the optional home overlay. Every interactive
 worker now uses the XDG directories under `/tmp/brain-worker-home`, inside
 its private, size-limited turn-temp tmpfs. The original host home remains
-read-only at its original path: a direct write receives `EROFS`, recorded
-through the roadblock path. A backend may select a different runtime HOME
+read-only at its original path: a worker's direct write receives `EROFS`, recorded
+through the roadblock path. This is a worker write boundary, not an immutable
+view: host-side changes to that directory remain visible. A backend may select a different runtime HOME
 as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
 `packages/ui-sdk/src/server/worker-launcher.ts:901-942`). Host-backed overlay
@@ -171,15 +172,62 @@ while direct reads of real HOME retain the read-only host view.
 > fail with `EROFS`; they cannot consume transcript/credential storage or be
 > misreported as runtime-state exhaustion. The original host-home path retains
 > its read-only view and profile masks. Bounded per-turn XDG storage is unchanged.
-> This deliberately removes implicit `~` reads of operator configuration; use
-> an explicit path for those reads. Core's default `~/.local/bin` and geo's
+> This deliberately removes implicit `~` reads of operator configuration,
+> including `~/.gitconfig`, `~/.npmrc` and `~/.netrc`; use an explicit path for
+> those reads where the profile exposes it. Core's default `~/.local/bin` and geo's
 > default cache/admission paths resolve under the empty read-only HOME. Geo
 > cannot create private per-worker admission state and refuses a cache miss
 > before sending a request. This is the accepted tradeoff for suppressing
 > startup imports, not the rejected writable tmpfs home or a restored overlay.
-> Non-envelope launches also discard `BASH_ENV`, `ENV` and `ZDOTDIR`; RTK still
+> Non-envelope launches also discard `BASH_ENV`, `ENV`, `ZDOTDIR`, `SHELLOPTS`,
+> `BASHOPTS` and exported `BASH_FUNC_*%%` functions; RTK still
 > excludes the original host home. The note describes both runtime HOME and the
 > original host home. Restricted workers keep their existing private-state HOME.
+
+<a id="home-startup-masking"></a>
+
+**2026-10-26 — Rc-file masking first, then the approved fallback (#2984).**
+The maintainer asked to retain the real read-only HOME using startup-file masks
+first, with the empty read-only HOME permitted only if masking cannot close
+both branches. The real SDK-selected native CLI was measured under the
+production launcher with an experimental bind plan, fictional files and
+loopback-only fake inference. No CLI byte or subprocess allowlist changed.
+
+The candidate binds `/dev/null` read-only over existing `.bashrc`,
+`.bash_profile`, `.bash_login`, `.profile`, `.bash_logout`, `.zshenv`,
+`.zprofile`, `.zshrc`, `.zlogin` and `.zlogout`. The installed snapshot selects
+`.bashrc`, `.zshrc` or `.profile`; the other names cover Bash's login alternatives
+and the zsh home startup sequence. Fixed regular-file fixtures import no planted
+values and retain Git's implicit `~/.gitconfig` lookup in both snapshot and
+fallback branches, with actual Bash and zsh commands. Bash emits permission
+diagnostics for the null-bound rc/profile paths in this fixture.
+
+The candidate fails the complete boundary. After the bind plan is enumerated,
+the host side creates a previously absent `.bash_profile`. The worker's HOME
+still reports read-only and its own file creations fail with `EROFS`, but the
+new host file is visible. The successful snapshot imports its planted function;
+the login fallback imports its function, export, PATH and output. Masking every
+name, including that absent path, instead refuses before payload start because
+bubblewrap cannot create the mount point on the read-only filesystem. A
+read-only bind does not freeze directory entries, so enumerating existing files
+once cannot establish that no startup file can appear during the turn.
+
+**Symlinks and masked parents.** The bind destination follows a startup
+symlink: `.bashrc -> .gitconfig` hides the resolved `.gitconfig` as well, and
+the implicit Git lookup returns no value. The candidate does not restore a
+home below an existing opaque profile mask to apply file masks; that home and
+its config remain unavailable as before. No per-file masking policy is shipped:
+the approved empty-HOME fallback avoids enumerating or following original-home
+startup links, and leaves the original host-home path and masks unchanged.
+The loss of implicit real-HOME config/cache reads is the explicit cost of this
+fallback. Reconstructing a separate view of the whole home is not introduced.
+
+**System startup stays with the image.** Bash's `-l` path still reads
+`/etc/profile`. `/etc/bash.bashrc` can also run through image startup configuration
+or the CLI's shell probes. A fixture image profile explicitly sources it, and
+both system markers remain observable in both branches despite the home-file
+masks. These image-owned files remain out of scope, including for the retained
+empty-HOME fallback.
 
 **Restricted turns are unchanged.** The autonomous envelope gets no area, no
 home handling and the same argv as before; its note says so.

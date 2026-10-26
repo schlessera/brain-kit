@@ -162,9 +162,12 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         // cannot import operator rc/profile or consume runtime state (#2984).
         childEnv.HOME = restricted ? WORKER_STATE : WORKER_EMPTY_HOME;
         if (!restricted) {
-          // Explicitly admitted startup redirects must not restore operator rc
-          // files around the isolated HOME, including in descendant shells.
-          delete childEnv.BASH_ENV; delete childEnv.ENV; delete childEnv.ZDOTDIR;
+          // Withhold startup redirects, functions and shell options even when
+          // explicitly admitted, including in descendant shells.
+          for (const name of Object.keys(childEnv)) {
+            if (["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS"].includes(name)
+              || (name.startsWith("BASH_FUNC_") && name.endsWith("%%"))) delete childEnv[name];
+          }
         }
         const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {

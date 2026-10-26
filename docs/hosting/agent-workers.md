@@ -195,8 +195,16 @@ separate from its writable runtime state at `CLAUDE_CONFIG_DIR`. The shell
 snapshot and login-shell fallback cannot import operator rc/profile files,
 and writes to `~` fail with `EROFS` without consuming transcript storage. The host's Claude config and credentials are resolved before that HOME
 override, with the same projection and persistence as before.
-`BASH_ENV`, `ENV` and `ZDOTDIR` are withheld from non-envelope Claude workers
-even when admitted as environment extras. See
+`BASH_ENV`, `ENV`, `ZDOTDIR`, `SHELLOPTS`, `BASHOPTS` and exported
+`BASH_FUNC_*%%` functions are withheld from non-envelope Claude workers even
+when admitted as environment extras. Existing-file rc masks were tried first:
+a host-side profile creation after enumeration still reaches the CLI through
+the live read-only home, while an absent mask mount point cannot be created
+there. The [measured decision](../decisions/worker-writable-areas.md#home-startup-masking)
+therefore keeps the approved empty-HOME fallback. Startup symlinks are not
+followed in that empty home; the original home and its profile masks are
+unchanged. The login shell still reads the image's `/etc/profile`, which may
+source `/etc/bash.bashrc`; image startup configuration remains out of scope. See
 [what a turn can write](#what-a-turn-can-write-and-where-outputs-go). The
 worker receives only explicit environment entries and `BRAIN_WORKER_SCRATCH`.
 Turn temp is sized with bubblewrap's `--size`, so every worker needs
@@ -445,7 +453,8 @@ write verified scratch/workspace copies through the aliases below.
   read-only `HOME` to exclude operator shell startup files; its prepared
   writable `CLAUDE_CONFIG_DIR` is unchanged. The real home retains its original
   read-only path and masks. A tool that needs configuration there must name
-  its path explicitly. HOME-derived defaults such as core's `~/.local/bin`
+  its path explicitly where the profile exposes it, including configuration
+  previously read as `~/.gitconfig`, `~/.npmrc` or `~/.netrc`. HOME-derived defaults such as core's `~/.local/bin`
   and geo cache/admission see the empty read-only home; a geo cache miss
   refuses before a request instead of creating private per-worker admission.
 - **Turn temp** is the worker's own size-limited `/tmp`
