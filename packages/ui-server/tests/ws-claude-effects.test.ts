@@ -13,7 +13,7 @@ import { makeBridge } from "../src/ws/bridge.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import type { RunningTurn } from "../src/ws/turns.js";
 
-function fixture(voice = false, backendId = "claude") {
+async function fixture(voice = false, backendId = "claude") {
   const root = mkdtempSync(join(tmpdir(), "claude-parent-effects-")); const db = createUiDb(":memory:");
   let authorized = true, sends = 0;
   const store = createActivityStore(db, { writer: "claude-parent-test" });
@@ -29,13 +29,13 @@ function fixture(voice = false, backendId = "claude") {
   const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
   const turn = { turnId: "raft-turn", principalId: "odysseus", authorization, startedAt: 1, abortController: new AbortController(),
     ...(voice ? { work: { posture: "voice" } } : {}) } as RunningTurn;
-  const bridge = makeBridge(host, turn, "Odysseus", backendId, undefined, undefined, undefined, undefined,
+  const bridge = await makeBridge(host, turn, "Odysseus", backendId, undefined, undefined, undefined, undefined,
     { lock: createKeyedLock(), available: ["write"], autoAllowed: ["write"] });
   return { bridge, turn, revoke: () => { authorized = false; }, sent: () => sends,
     cleanup() { authorization.release(); host.close(); stream.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 test.each(["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask"] as const)("parent %s rechecks server authority even when the worker skipped permission hooks", async name => {
-  const f = fixture();
+  const f = await fixture();
   try {
     f.revoke();
     const args = name === "requestPermission" ? [{ toolUseId: "raft", toolName: "Write", input: {} }] : name === "requestMask" ? ["assets/raft.png"] : ["raft", []];
@@ -44,7 +44,7 @@ test.each(["requestPermission", "askUser", "askUserList", "askUserRank", "askUse
   } finally { f.cleanup(); }
 });
 test("voice parent executors refuse visual cards and masks without widening membership", async () => {
-  const f = fixture(true);
+  const f = await fixture(true);
   try {
     for (const name of ["askUserList", "askUserRank", "askUserForm", "requestMask"] as const)
       await expect((f.bridge[name] as (...args: unknown[]) => Promise<unknown>)("raft", [])).rejects.toThrow("outside the voice membership");
@@ -53,7 +53,7 @@ test("voice parent executors refuse visual cards and masks without widening memb
   } finally { f.cleanup(); }
 });
 test("a mask application needs the exact browser submission from this live turn", async () => {
-  const f = fixture();
+  const f = await fixture();
   try {
     expect((await f.bridge.applyImageMask!({ imagePath: "assets/raft.png", maskPath: "assets/raft-mask.png", png: Buffer.from([137,80,78,71,13,10,26,10]) })).code).toBe("permission_denied");
     expect(f.sent()).toBe(0);
@@ -62,7 +62,7 @@ test("a mask application needs the exact browser submission from this live turn"
 
 // Pi shares these parent handlers, even when a forged worker skips tool hooks.
 test.each(["askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask"] as const)("pi parent %s independently rechecks current principal authority", async name => {
-  const f = fixture(false, "pi");
+  const f = await fixture(false, "pi");
   try {
     f.revoke();
     await expect((f.bridge[name] as (...args: unknown[]) => Promise<unknown>)("assets/raft.png", [])).rejects.toThrow("current principal authority");
@@ -70,7 +70,7 @@ test.each(["askUserList", "askUserRank", "askUserForm", "getLocation", "queryAct
   } finally { f.cleanup(); }
 });
 test("pi PNG application requires a matching browser submission", async () => {
-  const f = fixture(false, "pi");
+  const f = await fixture(false, "pi");
   try {
     expect(f.bridge.applyImageMask, "the host installs Pi's shared PNG route").toBeDefined();
     expect((await f.bridge.applyImageMask!({ imagePath: "assets/raft.png", maskPath: "assets/raft.mask.png", png: Buffer.from([137,80,78,71,13,10,26,10]) })).code).toBe("permission_denied");

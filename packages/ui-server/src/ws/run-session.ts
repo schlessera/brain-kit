@@ -647,7 +647,7 @@ async function runRetainedSession(
           const pending = work.catch(() => { if (!budgetFailure) budgetUnavailable(); }).finally(() => budgetWrites.delete(pending));
           budgetWrites.add(pending);
         };
-        const bridge = makeBridge(
+        const bridge = await makeBridge(
           host,
           turn,
           text,
@@ -930,7 +930,7 @@ async function runRetainedSession(
         if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
         // The recorder has written the terminal: from here on the Activity
         // record, not this slot, answers for the request (#964).
-        host.inboxTools?.shares?.end(turn.turnId);
+        await host.inboxTools?.shares?.end(turn.turnId);
         turn.shareId = undefined;
         host.budgets?.end(turn.turnId);
         turn.revision = undefined;

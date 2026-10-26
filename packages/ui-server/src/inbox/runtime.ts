@@ -3,10 +3,10 @@ import type { Logger } from "@opentelemetry/api-logs";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
 import { createInboxBudget, reconcileInboxBudgets, type InboxBudgetOperation } from "./budget.js";
-import { failInboxWork, sweepInboxLifecycle } from "./actions.js";
+import { failInboxWork } from "./actions.js";
 import { createInboxCleanup } from "./cleanup.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
-import { inboxRunIsLive } from "./lifetime.js";
+import { inboxLifecycleWrites } from "./lifecycle-writes.js";
 
 export const INBOX_TICK_MS = 60_000;
 export const INBOX_STALE_MS = 180_000;
@@ -46,6 +46,7 @@ export function createInboxRuntime(db: Database, deps: {
 }) {
   assertInboxRecoveryReady(db);
   const now = deps.now ?? Date.now;
+  const write = inboxLifecycleWrites(db);
   const timers: Timers = deps.timers ?? {
     setInterval: (callback, ms) => setInterval(callback, ms) as Timer,
     clearInterval: (timer) => clearInterval(timer),
@@ -61,31 +62,6 @@ export function createInboxRuntime(db: Database, deps: {
   const result = (): DrainResult => ({
     busy: false, claimed: 0, recovered: 0, dispatchEnabled,
   });
-
-  function recoverLeases(): number {
-    return db.transaction(() => {
-      reconcileInboxBudgets(db, now());
-      const rows = db.query(
-        "SELECT id, run_id FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND status = 'claimed' AND lease_until <= ? ORDER BY id"
-      ).all(now()) as { id: string; run_id: string | null }[];
-      let recovered = 0;
-      for (const { id, run_id } of rows) {
-        if (run_id && inboxRunIsLive(db, run_id)) continue;
-        failInboxWork(db, id, store.getItem(id)!.version, now());
-        recovered++;
-      }
-      return recovered;
-    }).immediate();
-  }
-
-  function heartbeat(): void {
-    db.transaction(() => {
-      const { cursor } = db.query(
-        "SELECT COALESCE(MAX(change_id), 0) AS cursor FROM inbox_changes"
-      ).get() as { cursor: number };
-      store.commit([{ kind: "heartbeat", name: HEARTBEAT_NAME, tickAt: now(), changeCursor: cursor }]);
-    }).immediate();
-  }
 
   function eligible(item: InboxQueueItem, at: number): boolean {
     return item.type !== "cleanup_pending" && item.status === "ready" && item.expiresAt > at &&
@@ -113,10 +89,10 @@ export function createInboxRuntime(db: Database, deps: {
     try {
       assertInboxRecoveryReady(db);
       await ready;
-      pass.recovered = recoverLeases();
-      sweepInboxLifecycle(db, now());
+      pass.recovered = await write<number>("recover", now());
+      await write("sweep", now());
       await cleanup?.sweep();
-      heartbeat();
+      await write("heartbeat", now());
       // Routing owns its own admission and leases; it runs only when the
       // whole engine is wired, never for the recovery-only app.
       if (dispatchEnabled && deps.route) await deps.route(controller.signal);
@@ -168,10 +144,10 @@ export function createInboxRuntime(db: Database, deps: {
   }
 
   // Boot recovery is deterministic and creates no Activity/model work.
-  recoverLeases();
-  sweepInboxLifecycle(db, now());
-  heartbeat();
-  const ready = cleanup?.sweep() ?? Promise.resolve(0);
+  const recovering = write("recover", now());
+  const swept = write("sweep", now());
+  const beat = write("heartbeat", now());
+  const ready = Promise.all([recovering, swept, beat]).then(() => cleanup?.sweep() ?? 0);
   void ready.catch(() => deps.log.emit({ severityText: "WARN", body: "inbox cleanup recovery failed; journal retained" }));
   arm();
   return {
