@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MEASURED_RUNTIME } from "../src/measured-runtime.js";
 
+const native = process.platform === "linux" && Boolean(Bun.which("bwrap"));
+
 interface Observation {
   fallback: boolean;
   profile: string;
@@ -26,15 +28,15 @@ interface Observation {
   namespace: string;
 }
 
-for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false], ["strict", false], ["governed", true]] as const) for (const branch of ["snapshot", "fallback"]) {
-  test(`real Claude ${profile} ${branch}${startupEnv ? " with admitted startup variables" : ""} imports no operator shell startup configuration`, async () => {
+for (const shell of ["bash", "zsh"] as const) for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false], ["strict", false], ["governed", true]] as const) for (const branch of ["snapshot", "fallback"]) {
+  test.skipIf(!native)(`real Claude ${shell} ${profile} ${branch}${startupEnv ? " with admitted startup variables" : ""} imports no operator shell startup configuration`, async () => {
     const scratch = mkdtempSync(join(tmpdir(), "odysseus-shell-startup-"));
     const fixture = new URL("./fixtures/shell-startup-probe.ts", import.meta.url).pathname;
     try {
       const child = Bun.spawn(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/opt/odysseus-shell-fixture/home",
         "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/opt",
         "--bind", scratch, "/opt/odysseus-shell-fixture", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev",
-        process.execPath, fixture, "/opt/odysseus-shell-fixture", branch, profile, startupEnv ? "startup-env" : "clean-env"], {
+        process.execPath, fixture, "/opt/odysseus-shell-fixture", branch, profile, startupEnv ? "startup-env" : "clean-env", shell], {
         env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 30_000,
       });
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -54,6 +56,10 @@ for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false],
       }
       const tool = result.messages.find(message => message.hook_event_name === "PostToolUse")?.tool_response;
       expect(tool, "NATIVE_BASH_COMMAND_EXECUTED").toBeDefined();
+      expect(result.nativeEnv.SHELL, "NATIVE_SELECTED_SHELL_INPUT").toBe(shell === "zsh" ? "/usr/bin/zsh" : "/bin/bash");
+      expect(tool!.stdout, "NATIVE_COMMAND_USES_SELECTED_SHELL").toContain(`actual-shell=${shell}\n`);
+      if (startupEnv) for (const name of ["BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "BASH_FUNC_git%%"])
+        expect(result.nativeEnv[name], "EXPLICIT_STARTUP_INPUT_WITHHELD").toBeUndefined();
       expect(tool!.stdout, "CLAUDE_SHELL_STARTUP_ABSENT").toStartWith(`hi\ngit is ${result.expectedGit}\nunset\nconfig=yes\n`);
       expect(tool!.stdout).not.toMatch(/planted|ithaca-\.bash|\/planted-bin/);
       expect(tool!.stderr).toBe("");
@@ -79,7 +85,6 @@ for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false],
       expect(result.xdgWritePrivate, "XDG_WRITES_USE_PRIVATE_TURN_TEMP").toBe(true);
       expect(result.nativeEnv, "TURN_XDG_PATHS_UNCHANGED").toMatchObject({ HOME: "/tmp/brain-worker-empty-home", CLAUDE_CONFIG_DIR: "/tmp/brain-worker-state",
         XDG_CONFIG_HOME: "/tmp/brain-worker-home/config", XDG_CACHE_HOME: "/tmp/brain-worker-home/cache", XDG_DATA_HOME: "/tmp/brain-worker-home/data" });
-      if (startupEnv) for (const name of ["BASH_ENV", "ENV", "ZDOTDIR"]) expect(result.nativeEnv[name], "EXPLICIT_STARTUP_INPUT_WITHHELD").toBeUndefined();
       expect(result.ledgerLive, "SHELL_FIXTURE_RELEASES_ALL_RESERVATIONS").toBe(0);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   }, 35_000);

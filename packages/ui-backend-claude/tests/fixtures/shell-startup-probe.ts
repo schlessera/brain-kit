@@ -19,7 +19,7 @@ const brain = join(root, "ithaca"), home = join(root, "home"), saved = join(home
 for (const path of [brain, home, saved, planted]) mkdirSync(path, { recursive: true });
 writeFileSync(join(home, "voyage.txt"), "Odysseus returns to Ithaca.\n");
 writeFileSync(join(planted, "ithaca-profile-probe"), "#!/bin/sh\necho planted\n", { mode: 0o755 });
-for (const name of [".bashrc", ".bash_profile", ".zshenv", ".zprofile", ".zshrc", ".zlogin"]) writeFileSync(join(home, name), [
+for (const name of [".bashrc", ".bash_profile", ".bash_login", ".profile", ".bash_logout", ".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"]) writeFileSync(join(home, name), [
   `echo ithaca-${name}-stdout`,
   `echo ithaca-${name}-stderr >&2`,
   "export BRAIN_TEST_PROFILE_LEAK=1",
@@ -50,6 +50,7 @@ const homeProbe = [
 ].join("\n");
 const command = 'echo hi; type git; echo "${BRAIN_TEST_PROFILE_LEAK:-unset}"; '
   + 'printf "config=%s\\n" "$ITHACA_CONFIG_RETAINED"; '
+  + 'if [ -n "${ZSH_VERSION:-}" ]; then echo actual-shell=zsh; elif [ -n "${BASH_VERSION:-}" ]; then echo actual-shell=bash; else echo actual-shell=unknown; fi; '
   + 'command -v ithaca-profile-probe || true; '
   + 'printf "home=%s xdg=%s\\n" "$HOME" "$XDG_CONFIG_HOME"; '
   + 'printf "Athena charts.\\n" > "$XDG_CONFIG_HOME/voyage.txt"; '
@@ -93,7 +94,7 @@ function observeNative() {
         const values = Object.fromEntries(readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").filter(Boolean).map(pair => {
           const position = pair.indexOf("="); return [pair.slice(0, position), pair.slice(position + 1)];
         }));
-        nativeEnv = Object.fromEntries(["HOME", "CLAUDE_CONFIG_DIR", "SHELL", "BASH_ENV", "ENV", "ZDOTDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"].map(name => [name, values[name]]));
+        nativeEnv = Object.fromEntries(["HOME", "CLAUDE_CONFIG_DIR", "SHELL", "BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "BASH_FUNC_git%%", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"].map(name => [name, values[name]]));
         return;
       }
       pending.push(...readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number));
@@ -126,7 +127,8 @@ async function captureTool() {
 try {
   for await (const message of query({ prompt: "Inspect the Ithaca shell.", options: {
     cwd: brain, env: { HOME: home, ...(profile ? { CLAUDE_CONFIG_DIR: saved } : {}), PATH: "/usr/bin:/bin", SHELL: shell, LANG: "C.UTF-8",
-      ...(startupEnv ? { BASH_ENV: join(home, ".bashrc"), ENV: join(home, ".bashrc"), ZDOTDIR: home } : {}),
+      ...(startupEnv ? { BASH_ENV: join(home, ".bashrc"), ENV: join(home, ".bashrc"), ZDOTDIR: home,
+        SHELLOPTS: "hashall:braceexpand", BASHOPTS: "extquote", "BASH_FUNC_git%%": "() { echo planted-env-function; }" } : {}),
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" },
     settingSources: ["user"], permissionMode: "default", maxTurns: 3, model: "claude-sonnet-4-6", abortController: abort,
     extraArgs: { "debug-file": "/tmp/brain-worker-state/shell-debug.log" },
