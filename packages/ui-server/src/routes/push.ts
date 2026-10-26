@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 
-import type { PushSender } from "../activity/push-sender.js";
+import type { AwaitablePushSender } from "../activity/push-sender.js";
 import { noticeClientId } from "../inbox/notify.js";
 import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import type { AppEnv } from "../app-env.js";
@@ -39,13 +39,13 @@ const zoneSchema = z.object({
   clientId: z.string().max(64).optional(),
 });
 
-export function createPushRoutes(deps: { sender: PushSender; notices?: AwaitableActionNotifier }) {
+export function createPushRoutes(deps: { sender: AwaitablePushSender; notices?: AwaitableActionNotifier }) {
   const { sender, notices } = deps;
 
   return new Hono<AppEnv>()
-    .get("/push/public-key", (c) => {
+    .get("/push/public-key", async (c) => {
       try {
-        return c.json({ publicKey: sender.publicKey() });
+        return c.json({ publicKey: await sender.publicKey() });
       } catch (err) {
         return c.json(
           { error: err instanceof Error ? err.message : "Push unavailable" },
@@ -82,7 +82,7 @@ export function createPushRoutes(deps: { sender: PushSender; notices?: Awaitable
         if (result instanceof Response) return result;
         const body = subscribeSchema.parse(result);
         const principal = c.get("principal")!;
-        if (!sender.subscribe(body.subscription, principal.id, body.label)) {
+        if (!await sender.subscribe(body.subscription, principal.id, body.label)) {
           return c.json({ error: "Authentication required" }, 401);
         }
         // Omitted: an older client keeps the device's last reported zone.
@@ -122,7 +122,7 @@ export function createPushRoutes(deps: { sender: PushSender; notices?: Awaitable
         if (result instanceof Response) return result;
         const body = unsubscribeSchema.parse(result);
         return c.json({
-          removed: sender.unsubscribe(body.endpoint, c.get("principal")!.id),
+          removed: await sender.unsubscribe(body.endpoint, c.get("principal")!.id),
         });
       } catch (err) {
         return c.json(

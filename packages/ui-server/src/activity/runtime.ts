@@ -19,7 +19,7 @@ import type { SqliteWriter } from "../db/write-worker.js";
 import { createActivityStream, type ActivityStream } from "./stream.js";
 import { createOffloopNotifier } from "./notify-writes.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
-import { createPushSender, type PushSender } from "./push-sender.js";
+import { createPushSender, type AwaitablePushSender } from "./push-sender.js";
 import { createActionNotifier } from "../inbox/notify.js";
 import { createOffloopActionNotifier, type AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import { digestRetentionFloor } from "./digest.js";
@@ -45,7 +45,7 @@ export interface ActivityRuntime {
   store: AwaitableActivityStore;
   stream: ActivityStream;
   notifier: ActivityNotifier;
-  pushSender: PushSender;
+  pushSender: AwaitablePushSender;
   /** Durable Action notices: windows, per-destination attempts, digest coverage. */
   actionNotices: AwaitableActionNotifier;
   /** What the server knows about the agent runtime (boot probe, last turn, last auth failure). */
@@ -102,7 +102,7 @@ export function createActivityRuntime(
     isWatched: (scope) => stream.isWatched(scope),
     log,
   });
-  const pushSender = createPushSender(db, { log, ...(offloop ? { writes: offloop.push } : {}) });
+  const pushSender = createPushSender(db, { log, writer: deps.writer, ...(offloop ? { writes: offloop.push } : {}) });
   const offloopActions = deps.writer ? createOffloopActionNotifier(db, deps.writer) : undefined;
   const actionNotices = offloopActions?.notices ?? createActionNotifier(db);
 

@@ -29,7 +29,7 @@ import type { WebAuthnConfig } from "../config/env.js";
 import { readJsonBody } from "./body-limit.js";
 import { requireJson } from "./origin.js";
 import type { AppEnv } from "../app-env.js";
-import { revokeByCredential } from "../db/principals.js";
+import { accountWrites } from "../db/account-writes.js";
 import type { WsHost } from "../ws/host.js";
 import { requireOwner } from "./require-owner.js";
 
@@ -409,14 +409,7 @@ export function passkeyPublicRoutes(
           });
           return fail();
         }
-        const currentRow = credentialById(ctx.db, row.id);
-        if (!currentRow || currentRow.rp_id !== rp.rpID) return fail();
-
-        ctx.db
-          .prepare(
-            "UPDATE passkey_credentials SET counter = ?, last_used_at = ? WHERE id = ?"
-          )
-          .run(result.authenticationInfo.newCounter, now(), currentRow.id);
+        if (!await accountWrites(ctx.db).passkeyCounter(row.id, rp.rpID, result.authenticationInfo.newCounter, now())) return fail();
       } finally {
         releasePasskeyVerification(ip);
       }
@@ -541,26 +534,12 @@ export function passkeyManagementRoutes(
       }
       const { credential, aaguid, credentialDeviceType, credentialBackedUp } =
         result.registrationInfo;
-      const createdAt = now();
-      ctx.db
-        .prepare(
-          `INSERT INTO passkey_credentials
-             (id, public_key, counter, transports, rp_id, aaguid, device_type,
-              backed_up, label, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          credential.id,
-          credential.publicKey,
-          credential.counter,
-          credential.transports ? JSON.stringify(credential.transports) : null,
-          rp.rpID,
-          aaguid || null,
-          credentialDeviceType,
-          credentialBackedUp ? 1 : 0,
-          sanitizeLabel(body.label),
-          createdAt
-        );
+      await accountWrites(ctx.db).registerPasskey({
+        id: credential.id, publicKey: credential.publicKey, counter: credential.counter,
+        transports: credential.transports ? JSON.stringify(credential.transports) : null,
+        rpId: rp.rpID, aaguid: aaguid || null, deviceType: credentialDeviceType,
+        backedUp: credentialBackedUp ? 1 : 0, label: sanitizeLabel(body.label), createdAt: now(),
+      });
       const row = credentialById(ctx.db, credential.id);
       return c.json({ ok: true, credential: row ? toSummary(row) : null });
     } catch (err) {
@@ -598,24 +577,17 @@ export function passkeyManagementRoutes(
     } catch {
       return c.json({ error: "Invalid request body" }, 400);
     }
-    const result = ctx.db
-      .prepare("UPDATE passkey_credentials SET label = ? WHERE id = ?")
-      .run(sanitizeLabel(body.label), c.req.param("id"));
-    if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
+    const changes = await accountWrites(ctx.db).labelPasskey(c.req.param("id"), sanitizeLabel(body.label));
+    if (changes === 0) return c.json({ error: "Unknown passkey" }, 404);
     return c.json({ ok: true });
   });
 
-  app.delete("/auth/passkey/:id", (c) => {
+  app.delete("/auth/passkey/:id", async (c) => {
     if (mode !== "password") return notEnabled(c);
     const credentialId = c.req.param("id");
-    const result = ctx.db
-      .prepare("DELETE FROM passkey_credentials WHERE id = ?")
-      .run(credentialId);
+    const result = await accountWrites(ctx.db).deletePasskey(credentialId, Date.now());
     if (result.changes === 0) return c.json({ error: "Unknown passkey" }, 404);
-    applyPrincipalRevocation(
-      ctx.revoker,
-      revokeByCredential(ctx.db, credentialId, Date.now())
-    );
+    await applyPrincipalRevocation(ctx.revoker, result.revokedIds);
     return c.json({ ok: true });
   });
 

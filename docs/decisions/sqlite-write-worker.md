@@ -182,8 +182,26 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   (`packages/ui-server/src/db/principal-writes.ts`). A touch is never waited
   for and one pending is not submitted again; an ambient principal that is
   current is read at once; a login answers once its row has committed, and
-  its refusals keep their classes. Revocations and administrative principal
-  writes still commit on the app connection.
+  its refusals keep their classes. Account administration uses the same worker,
+  as described below.
+- **Account and security administration followed** (#3002, within #2850).
+  Delegated-principal creation and revocation, passkey registration, counters,
+  labels and deletion, reference grants and the account partition seed commit
+  on the worker (`packages/ui-server/src/db/account-writes.ts`). The existing
+  transaction bodies and modes stay together; passkey deletion still commits
+  before its credential's principal revocation. Revocation routes await both
+  durable revocation and push unbinding before answering; client authority is
+  invalidated as soon as revocation commits. Every authentication after the
+  response sees the committed revocation. Delegated minting
+  and reference grants recheck authority inside their original transactions;
+  refusals keep their classes and HTTP statuses. Boot awaits the partition seed
+  before constructing its synchronous key reader. Push subscription, removal
+  and unbinding, and first-use VAPID creation run on the same queue
+  (`packages/ui-server/src/activity/push-writes.ts`). Each VAPID caller checks
+  for the stored pair on that connection, so racing delivery passes and the
+  key route share one insert and its read-back. Delivery still joins devices
+  to live principals while runtime unbinding is pending. Standalone callers
+  retain the synchronous procedures on their own connection.
 - **The Activity notifier followed** (#2850). Its tick (intent detection
   under its cursor and the stuck-run watchdog), delivery status,
   acknowledgement and retention, and push delivery's subscription
@@ -341,15 +359,6 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   the same ordering relative to later work on that worktree. Callers without a
   registered writer run the same procedures inline. Boot-only source recovery
   retains its inline catalog writes.
-- **Other app-connection writers stay on the loop for now**: push
-  subscriptions and VAPID keys, principal revocation and administration
-  and passkeys. Each commits at
-  FULL on the loop, and while a worker procedure holds its turn, such a write
-  also waits there for the worker's commit to finish, including a journal
-  procedure that writes only `journal.db`, because the ledger's
-  `BEGIN IMMEDIATE` locks every attached file. Moving each of them to the
-  worker queue ends that wait too
-  ([#2850](https://github.com/schlessera/brain-kit/issues/2850)).
 
 ## Rejected
 

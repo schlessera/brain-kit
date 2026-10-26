@@ -11,7 +11,7 @@ import { createSilentObservability, type Observability } from "../observability/
 import { FrameRateLimiter } from "./rate-limit.js";
 import type { AwaitableActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
-import type { PushSender } from "../activity/push-sender.js";
+import type { AwaitablePushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import type { Principal } from "../db/principals.js";
@@ -34,7 +34,7 @@ export interface ActivityRuntime {
   store: AwaitableActivityStore;
   stream: ActivityStream;
   /** Push bindings invalidated through the same principal-revocation boundary. */
-  pushSender?: Pick<PushSender, "unbindPrincipal">;
+  pushSender?: Pick<AwaitablePushSender, "unbindPrincipal">;
   /** Read seam for the agent-facing query tool (bridge.queryActivity). */
   query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
   /** Where each turn's runtime report and auth failures are kept for /api/status. */
@@ -746,19 +746,22 @@ export class WsHost {
    * Running turns are marked but deliberately not aborted.
    * @internal Host wiring (#1053).
    */
-  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void {
+  revokePrincipals(principalIds: readonly string[], code: number, reason: string): void | Promise<void> {
     const revoked = new Set(principalIds);
     if (revoked.size === 0) return;
     const affectedRunning = this.coordinator.revokePrincipals(revoked);
+    const unbinding: Promise<number>[] = [];
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);
       this.activity?.stream.dropFor(principalId);
       this.inbox?.dropFor(principalId);
-      this.activity?.pushSender?.unbindPrincipal(principalId);
+      const unbound = this.activity?.pushSender?.unbindPrincipal(principalId);
+      if (unbound instanceof Promise) unbinding.push(unbound);
     }
     for (const turn of affectedRunning) {
       turn.recorder?.recordPrincipalRevocation(turn.principalId);
     }
+    if (unbinding.length) return Promise.all(unbinding).then(() => {});
   }
 
   /**
@@ -768,11 +771,13 @@ export class WsHost {
   expireAuthorizationContexts(now: number = Date.now()): void {
     const expired = new Set<string>();
     this.coordinator.collectExpiredPrincipalIds(now, expired);
-    this.revokePrincipals(
+    const revoked = this.revokePrincipals(
       [...expired],
       SESSION_EXPIRED_CLOSE_CODE,
       SESSION_EXPIRED_CLOSE_REASON
     );
+    if (revoked instanceof Promise) void revoked.catch(error => this.log.emit({ severityText: "WARN",
+      body: "expired principal push unbind failed", attributes: { error: error instanceof Error ? error.message : String(error) } }));
   }
 
   /** Stop host-owned timers during application/test teardown. */

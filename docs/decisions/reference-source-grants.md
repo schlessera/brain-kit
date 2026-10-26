@@ -39,7 +39,7 @@ Only a live owner can create a grant, and only for a live owner or agent
 principal. Cron's system principal and ambient principals cannot hold one. The
 routes sit inside the principal-management family, so they inherit its
 password-mode and owner checks
-(`app.get("/auth/principals/:id/reference-grants"`, `packages/ui-server/src/middleware/principals.ts:219-228`).
+(`app.get("/auth/principals/:id/reference-grants"`, `packages/ui-server/src/middleware/principals.ts:216-225`).
 Owner sessions are principals too: every login creates one, and a grant to an
 owner session ends when that session does.
 
@@ -78,7 +78,7 @@ anonymous success there says nothing about who may read the host path.
 Revocation is checked, not cached. Every new mount and every step that could
 publish private source asks for the live covering grant again. The revoke
 routes also report the lost authority synchronously
-(`app.delete("/auth/principals/:id/reference-grants/:grantId"`, `packages/ui-server/src/middleware/principals.ts:275-296`),
+(`app.delete("/auth/principals/:id/reference-grants/:grantId"`, `packages/ui-server/src/middleware/principals.ts:272-293`),
 so the acquisition layer can cancel in-flight private work rather than wait for
 its next check. Revocation cannot retract bytes a reader has already read.
 

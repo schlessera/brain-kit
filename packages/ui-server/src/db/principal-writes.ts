@@ -5,8 +5,8 @@
  * login's principal on every few requests; each of those commits on the
  * `ui.db` write worker at `synchronous=FULL` instead of the app connection.
  * The procedures are the synchronous writers in `principals.ts`, run on the
- * write connection. Revocations and administrative writes still commit on the
- * app connection.
+ * write connection. Account administration uses `account-writes.ts` on the
+ * same worker.
  */
 import type { Database } from "bun:sqlite";
 

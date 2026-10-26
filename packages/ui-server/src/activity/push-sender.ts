@@ -1,7 +1,7 @@
 /**
  * The accelerator tier: web push delivery for pending notification intents.
  *
- * VAPID keys are generated at first boot into their own table (see migration
+ * VAPID keys are generated at first use into their own table (see migration
  * 008 for why not the settings KV) and never leave the process. Payloads are
  * MINIMIZED — title + outcome word + a deep link — because push renders on
  * lock screens outside the app's auth; detail lives behind the authenticated
@@ -15,6 +15,8 @@
  * re-enable prompt when its subscription check disagrees with the server.
  */
 import type { Database } from "bun:sqlite";
+import type { SqliteWriter } from "../db/write-worker.js";
+import { createPushWrites, setup as inlinePushWrites } from "./push-writes.js";
 import type { PushWrites } from "./notify-writes.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import webpush from "web-push";
@@ -59,7 +61,16 @@ export interface PushSender {
   deliverStorage(notices: StorageNotifier, now?: number, signal?: AbortSignal): Promise<number>;
 }
 
+
+/** Hosted lifecycle writes settle after their FULL worker commit; standalone reads stay synchronous. */
+type LifecycleWrite = "publicKey" | "subscribe" | "unsubscribe" | "unbindPrincipal";
+export type AwaitablePushSender = Omit<PushSender, LifecycleWrite> & {
+  [K in LifecycleWrite]: (...args: Parameters<PushSender[K]>) => ReturnType<PushSender[K]> | Promise<ReturnType<PushSender[K]>>;
+};
+
 export interface CreatePushSenderOptions {
+  /** Shared hosted write connection; absent for standalone synchronous callers. */
+  writer?: SqliteWriter;
   /** Injection seam for tests — the real webpush.sendNotification otherwise. */
   send?: (
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
@@ -80,10 +91,10 @@ export interface CreatePushSenderOptions {
  *  delivering guard (the tick's reentrancy flag) forever. */
 const SEND_TIMEOUT_MS = 10_000;
 
-export function createPushSender(
-  db: Database,
-  options: CreatePushSenderOptions = {}
-): PushSender {
+export function createPushSender(db: Database, options: CreatePushSenderOptions & { writer: SqliteWriter }): AwaitablePushSender;
+export function createPushSender(db: Database, options?: CreatePushSenderOptions & { writer?: undefined }): PushSender;
+export function createPushSender(db: Database, options: CreatePushSenderOptions): AwaitablePushSender;
+export function createPushSender(db: Database, options: CreatePushSenderOptions = {}): AwaitablePushSender {
   const log = options.log;
   const writes: PushWrites = options.writes ?? {
     async touch(endpoint, at, principalId) {
@@ -102,19 +113,9 @@ export function createPushSender(
         { vapidDetails: opts.vapidDetails, timeout: opts.timeout }
       ));
 
-  // Generate-once VAPID keys. Concurrent first boots are safe: the INSERT is
-  // OR IGNORE and the read-back wins.
-  function vapid(): { publicKey: string; privateKey: string } {
-    const row = db
-      .query("SELECT public_key AS publicKey, private_key AS privateKey FROM vapid_keys WHERE id = 1")
-      .get() as { publicKey: string; privateKey: string } | null;
-    if (row) return row;
-    const generated = webpush.generateVAPIDKeys();
-    db.query(
-      "INSERT OR IGNORE INTO vapid_keys (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)"
-    ).run(generated.publicKey, generated.privateKey, Date.now());
-    return vapid();
-  }
+  // The worker serializes each first-use check and insert, including races
+  // between delivery passes and the public-key route.
+  const admin = options.writer ? createPushWrites(db, options.writer) : inlinePushWrites(db);
 
   function mapRows(dbRows: any[]): PushSubscriptionRow[] {
     return (
@@ -160,50 +161,13 @@ export function createPushSender(
 
   return {
     publicKey() {
-      return vapid().publicKey;
+      const keys = admin.vapid();
+      return keys instanceof Promise ? keys.then(row => row.publicKey) : keys.publicKey;
     },
-
-    subscribe(sub, principalId, label) {
-      const now = Date.now();
-      return db.query(
-        `INSERT INTO push_subscriptions
-           (endpoint, p256dh, auth, label, created_at, principal_id)
-         SELECT ?, ?, ?, ?, ?, id FROM principals
-         WHERE id = ? AND revoked_at IS NULL
-           AND typeof(expires_at) = 'integer' AND expires_at > ?
-         ON CONFLICT(endpoint) DO UPDATE SET
-           p256dh = excluded.p256dh,
-           auth = excluded.auth,
-           label = excluded.label,
-           principal_id = excluded.principal_id`
-      ).run(
-        sub.endpoint,
-        sub.keys.p256dh,
-        sub.keys.auth,
-        label ?? null,
-        now,
-        principalId,
-        now
-      ).changes > 0;
-    },
-
-    unsubscribe(endpoint, principalId) {
-      return db
-        .query(
-          "DELETE FROM push_subscriptions WHERE endpoint = ? AND principal_id = ?"
-        )
-        .run(endpoint, principalId).changes > 0;
-    },
-
+    subscribe: (sub, principalId, label) => admin.subscribe(sub, principalId, label, Date.now()),
+    unsubscribe: (endpoint, principalId) => admin.unsubscribe(endpoint, principalId),
     subscriptions: rows,
-
-    unbindPrincipal(principalId) {
-      return db
-        .query(
-          "UPDATE push_subscriptions SET principal_id = NULL WHERE principal_id = ?"
-        )
-        .run(principalId).changes;
-    },
+    unbindPrincipal: principalId => admin.unbindPrincipal(principalId),
 
     async deliverPending(notifier) {
       const pending = notifier.pending();
@@ -214,7 +178,7 @@ export function createPushSender(
         // if they are fresh, and the boot sweep can retry.
         return 0;
       }
-      const keys = vapid();
+      const keys = await admin.vapid();
       let attempts = 0;
 
       for (const intent of pending) {
@@ -299,7 +263,7 @@ export function createPushSender(
       // before its transport call. Authority/zone/time are rechecked per device.
       const subs = deliverableRows(at ?? Date.now());
       if (!subs.length) return 0;
-      const keys = vapid();
+      const keys = await admin.vapid();
       for (const sub of subs) {
         if (signal?.aborted) break;
         const attempt = await notices.begin(sub.endpoint, at ?? Date.now());
@@ -335,7 +299,7 @@ export function createPushSender(
         if (attempt) planned.push({ sub, attempt });
       }
       if (planned.length === 0) return 0;
-      const keys = vapid();
+      const keys = await admin.vapid();
       const results = await Promise.allSettled(
         planned.map(({ sub, attempt }) =>
           send(
