@@ -10,6 +10,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client";
+import { expectRejection } from "./helpers/expect-rejection";
 import { appearedSince, assertReconciled, createGovernedManifests, takeManifest } from "../src/brain/governed-manifest";
 
 const dirs: string[] = [];
@@ -30,36 +31,36 @@ function world() {
   return { root, brain, outside, quarantine, db, manifests };
 }
 
-describe("governed manifests", () => {
-  test("what appeared during the turn is quarantined, byte for byte; what existed stays", () => {
+describe("governed manifests", async () => {
+  test("what appeared during the turn is quarantined, byte for byte; what existed stays", async () => {
     const w = world();
     try {
-      w.manifests.begin("turn-1");
+      await w.manifests.begin("turn-1");
       writeFileSync(join(w.brain, "brain.config.ts"), "import './helper.ts';\n");
       writeFileSync(join(w.brain, ".env.local"), "STOLEN=1\n");
       writeFileSync(join(w.brain, ".mcp.json"), "{\"mcpServers\":{}}\n");
       writeFileSync(join(w.brain, "notes.md"), "Ordinary work stays.\n");
-      const result = w.manifests.end("turn-1");
+      const result = await w.manifests.end("turn-1");
       expect(result.quarantined.map(q => q.path).sort()).toEqual([".env.local", ".mcp.json", "brain.config.ts"]);
       expect(result.changed).toEqual([]);
       for (const name of [".env.local", ".mcp.json", "brain.config.ts"]) expect(existsSync(join(w.brain, name))).toBe(false);
       expect(readFileSync(join(w.quarantine, "turn-1", "brain.config.ts"), "utf8")).toBe("import './helper.ts';\n");
       expect(readFileSync(join(w.brain, ".env"), "utf8"), "an .env that existed at the start is the user's").toBe("KEY=kept\n");
       expect(readFileSync(join(w.brain, "notes.md"), "utf8")).toBe("Ordinary work stays.\n");
-      expect(() => w.manifests.end("turn-1"), "a turn closes once").toThrow("no open governed manifest");
+      await expectRejection(w.manifests.end("turn-1"), "no open governed manifest", "a turn closes once");
     } finally { w.db.close(); }
   });
 
-  test("an ancestor swapped for a link is itself quarantined, never followed", () => {
+  test("an ancestor swapped for a link is itself quarantined, never followed", async () => {
     const w = world();
     try {
-      w.manifests.begin("turn-2");
+      await w.manifests.begin("turn-2");
       // The redirected settings file lives outside the brain and must survive untouched.
       mkdirSync(join(w.outside, "claude"));
       writeFileSync(join(w.outside, "claude/settings.json"), "{\"permissions\":{\"allow\":[\"Bash\"]}}\n");
       rmSync(join(w.brain, ".claude"), { recursive: true });
       symlinkSync(join(w.outside, "claude"), join(w.brain, ".claude"));
-      const result = w.manifests.end("turn-2");
+      const result = await w.manifests.end("turn-2");
       expect(result.quarantined.map(q => q.path)).toEqual([".claude"]);
       expect(existsSync(join(w.brain, ".claude"))).toBe(false);
       const moved = join(w.quarantine, "turn-2", ".claude");
@@ -69,22 +70,22 @@ describe("governed manifests", () => {
     } finally { w.db.close(); }
   });
 
-  test("a protected file that existed and changed is reported, not moved", () => {
+  test("a protected file that existed and changed is reported, not moved", async () => {
     const w = world();
     try {
-      w.manifests.begin("turn-3");
+      await w.manifests.begin("turn-3");
       writeFileSync(join(w.brain, "package.json"), "{\"scripts\":{}}\n");
-      const result = w.manifests.end("turn-3");
+      const result = await w.manifests.end("turn-3");
       expect(result.quarantined).toEqual([]);
       expect(result.changed).toEqual(["package.json"]);
       expect(existsSync(join(w.brain, "package.json"))).toBe(true);
     } finally { w.db.close(); }
   });
 
-  test("a running turn's manifest masks what appeared for other launches, and is never reconciled while its server lives", () => {
+  test("a running turn's manifest masks what appeared for other launches, and is never reconciled while its server lives", async () => {
     const w = world();
     try {
-      w.manifests.begin("turn-live");
+      await w.manifests.begin("turn-live");
       writeFileSync(join(w.brain, "bunfig.toml"), "preload = [\"./x.ts\"]\n");
       expect(w.manifests.appearedDuringActiveTurns()).toEqual(["bunfig.toml"]);
       expect(w.manifests.reconcileAbandoned(), "this process is alive").toEqual([]);
@@ -93,14 +94,14 @@ describe("governed manifests", () => {
     } finally { w.db.close(); }
   });
 
-  test("a path that cannot be quarantined keeps the turn open and refuses until it is gone", () => {
+  test("a path that cannot be quarantined keeps the turn open and refuses until it is gone", async () => {
     const w = world();
     try {
-      w.manifests.begin("turn-stuck");
+      await w.manifests.begin("turn-stuck");
       writeFileSync(join(w.brain, "bunfig.toml"), "preload = [\"./x.ts\"]\n");
       // The quarantine cannot be written.
       mkdirSync(w.quarantine, { mode: 0o500 });
-      const result = w.manifests.end("turn-stuck");
+      const result = await w.manifests.end("turn-stuck");
       expect(result.failed.map(f => f.path)).toEqual(["bunfig.toml"]);
       expect(existsSync(join(w.brain, "bunfig.toml"))).toBe(true);
       expect(() => assertReconciled([result]), "FAIL_CLOSED").toThrow("could not be quarantined: bunfig.toml");
@@ -111,7 +112,7 @@ describe("governed manifests", () => {
       expect(() => assertReconciled(cron.reconcileAbandoned()), "FAILED_REFUSED_ACROSS_PROCESSES").toThrow("bunfig.toml");
       // Once the quarantine is writable again, the same turn reconciles.
       chmodSync(w.quarantine, 0o700);
-      expect(w.manifests.end("turn-stuck").quarantined.map(q => q.path)).toEqual(["bunfig.toml"]);
+      expect((await w.manifests.end("turn-stuck")).quarantined.map(q => q.path)).toEqual(["bunfig.toml"]);
     } finally { chmodSync(w.quarantine, 0o700); w.db.close(); }
   });
 

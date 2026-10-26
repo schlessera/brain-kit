@@ -306,7 +306,7 @@ export async function prepareHandoff(
     // The summary run has no proven recipient, so the policy hides every
     // provider folder from it. A chat not born with them hidden may hold what
     // an earlier turn read there (#2726): refused before its history is read.
-    if (host.governedTurns?.unprovenHistory(msg.sourceSessionId)) {
+    if (await host.governedTurns?.unprovenHistory(msg.sourceSessionId)) {
       return answer({ state: "failed", message: "This chat can't be summarized: the governance policy's provider rules hide folders from the summary run, "
         + "and the server can't show that this chat kept them hidden from every turn. Start a new conversation instead; this one is kept unchanged." });
     }
@@ -322,7 +322,7 @@ export async function prepareHandoff(
     if (!transcript) return answer({ state: "failed", message: "There is nothing in this chat to summarize yet." });
     // The summary run is not on a turn's inference relay, so no recipient is
     // proven for it; a chat that showed provider folders keeps them (#2695).
-    const shown = [...new Set((host.governedTurns?.exposures([msg.sourceSessionId]) ?? []).map(exposure => exposure.recipient))].sort();
+    const shown = [...new Set((await host.governedTurns?.exposures([msg.sourceSessionId]) ?? []).map(exposure => exposure.recipient))].sort();
     if (shown.length) return answer({ state: "failed", message: `This chat showed folders that the governance policy reserves for ${shown.join(", ")}, so it can't be summarized on a route that can't be proven to reach the same provider. Write the handoff summary yourself.` });
     const profileId = catalog.getStoredProviderId(msg.sourceSessionId) ?? undefined;
     const billing = await resolveRunBilling(host.registry, backend.id, profileId);

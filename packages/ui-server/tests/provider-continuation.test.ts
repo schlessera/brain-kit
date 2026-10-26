@@ -196,16 +196,16 @@ test("a run with no proven recipient may carry only history born with every prov
   try {
     writePolicy(w.brain, null);
     await w.send("Before the rule.");
-    expect(w.turns.unprovenHistory("voyage-1"), "NO_PROVIDER_RULES_NOTHING_HIDDEN").toBe(false);
+    expect(await w.turns.unprovenHistory("voyage-1"), "NO_PROVIDER_RULES_NOTHING_HIDDEN").toBe(false);
     writePolicy(w.brain, ["me"]);
-    expect(w.turns.unprovenHistory("voyage-1"), "PRE_POLICY_HISTORY_UNPROVEN").toBe(true);
+    expect(await w.turns.unprovenHistory("voyage-1"), "PRE_POLICY_HISTORY_UNPROVEN").toBe(true);
     await w.send("A fresh voyage.");
-    expect(w.turns.unprovenHistory("voyage-2"), "BORN_MASKED_HISTORY_PROVEN").toBe(false);
+    expect(await w.turns.unprovenHistory("voyage-2"), "BORN_MASKED_HISTORY_PROVEN").toBe(false);
     writePolicy(w.brain, ["me", "health"]);
-    expect(w.turns.unprovenHistory("voyage-2"), "WIDENED_POLICY_UNPROVEN").toBe(true);
+    expect(await w.turns.unprovenHistory("voyage-2"), "WIDENED_POLICY_UNPROVEN").toBe(true);
     // A type's folders follow the current taxonomy, which this check does not translate.
     writeFileSync(join(w.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [me/**], allow: [anthropic] }, { types: [note], allow: [anthropic] }]\n---\nNotes stay with Anthropic.\n");
-    expect(w.turns.unprovenHistory("voyage-2"), "TYPE_SELECTOR_UNPROVEN").toBe(true);
+    expect(await w.turns.unprovenHistory("voyage-2"), "TYPE_SELECTOR_UNPROVEN").toBe(true);
   } finally { await w.close(); }
 });
 

@@ -218,7 +218,7 @@ function rig(options: RigOptions = {}): Rig {
     catalog,
     activity: { store, stream },
     maxConcurrentSessions: () => options.cap ?? 4,
-    ...(options.exposures || options.unprovenHistory ? { governedTurns: { exposures: options.exposures ?? (() => []), unprovenHistory: options.unprovenHistory ?? (() => false), bindSession() {}, refresh() {}, async close() {},
+    ...(options.exposures || options.unprovenHistory ? { governedTurns: { exposures: async (ids: readonly string[]) => (options.exposures ?? (() => []))(ids), unprovenHistory: async (id: string) => (options.unprovenHistory ?? (() => false))(id), async bindSession() {}, refresh() {}, async close() {},
       async begin(): Promise<never> { throw new Error("No turn is admitted in this rig"); },
       facts(): never { throw new Error("No turn is admitted in this rig"); } } } : {}),
   });

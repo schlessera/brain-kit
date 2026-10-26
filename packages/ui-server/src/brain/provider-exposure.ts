@@ -14,23 +14,30 @@
 import type { Database } from "bun:sqlite";
 import { maskedInBoth } from "./governance-policy.js";
 import type { ProviderExposure } from "./governance-policy.js";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import { url as GOVERNED_TURN_WRITES, setup as governedTurnWriteSetup } from "./governed-turn-writes.js";
 
 export interface ProviderExposures {
   /** Record what an admitted turn's recipient sees; `sessionId` is null until a new session is named. */
-  record(turnId: string, sessionId: string | null, exposure: ProviderExposure): void;
+  record(turnId: string, sessionId: string | null, exposure: ProviderExposure): Promise<void>;
   /** A new session was named: its turn's rows belong to it from now on. */
-  bind(turnId: string, sessionId: string): void;
+  bind(turnId: string, sessionId: string): Promise<void>;
   /** Every exposure recorded for these sessions. */
   forSessions(sessionIds: readonly string[]): ProviderExposure[];
   /**
    * Start a lineage: a new conversation born masking `masked`, or a handoff
    * from one. Its row binds to the session once it is named.
    */
-  startMasked(turnId: string, masked: readonly string[]): void;
+  startMasked(turnId: string, masked: readonly string[]): Promise<void>;
   /** Narrow an existing session's lineage to what this turn masks as well; no lineage, no row. */
-  narrowMasked(turnId: string, sessionId: string, masked: readonly string[]): void;
+  narrowMasked(turnId: string, sessionId: string, masked: readonly string[]): Promise<void>;
   /** The folders masked from every turn of this session; undefined when it has no lineage. */
   maskedThroughout(sessionId: string): string[] | undefined;
+  /**
+   * Settles once every write submitted before it has settled (#2850): a read
+   * that must see this session's latest exposures awaits it.
+   */
+  settled(): Promise<void>;
 }
 
 const folders = (raw: string): string[] => {
@@ -41,18 +48,52 @@ const folders = (raw: string): string[] => {
   throw new Error("A recorded provider exposure is unreadable; refusing rather than guessing what it showed");
 };
 
-export function createProviderExposures(db: Database): ProviderExposures {
+/** The synchronous writers, run on whichever connection commits them. */
+export function exposureWriters(db: Database) {
   return {
-    record(turnId, sessionId, exposure) {
+    record(turnId: string, sessionId: string | null, exposure: ProviderExposure, at: number) {
       db.query(`INSERT INTO session_provider_exposure (turn_id, session_id, recipient, visible, hidden, recorded_at) VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(turnId, sessionId, exposure.recipient, JSON.stringify(exposure.visible), JSON.stringify(exposure.hidden), Date.now());
+        .run(turnId, sessionId, exposure.recipient, JSON.stringify(exposure.visible), JSON.stringify(exposure.hidden), at);
     },
-    bind(turnId, sessionId) {
+    bind(turnId: string, sessionId: string) {
       db.transaction(() => {
         db.query("UPDATE session_provider_exposure SET session_id = ? WHERE turn_id = ? AND session_id IS NULL").run(sessionId, turnId);
         db.query("UPDATE session_masked_lineage SET session_id = ? WHERE turn_id = ? AND session_id IS NULL").run(sessionId, turnId);
       })();
     },
+    startMasked(turnId: string, masked: readonly string[], at: number) {
+      db.query("INSERT INTO session_masked_lineage (turn_id, session_id, masked, recorded_at) VALUES (?, NULL, ?, ?)")
+        .run(turnId, JSON.stringify([...masked]), at);
+    },
+    narrowMasked(turnId: string, sessionId: string, masked: readonly string[], at: number) {
+      // One row per session, narrowed in place: it never widens, and a lost
+      // row is no lineage rather than an older, wider one.
+      db.transaction(() => {
+        const row = db.query("SELECT masked FROM session_masked_lineage WHERE session_id = ?").get(sessionId) as { masked: string } | null;
+        if (!row) return;
+        db.query("UPDATE session_masked_lineage SET turn_id = ?, masked = ?, recorded_at = ? WHERE session_id = ?")
+          .run(turnId, JSON.stringify(maskedInBoth(folders(row.masked), masked)), at, sessionId);
+      })();
+    },
+  };
+}
+
+/**
+ * Exposures read on `db`; every write commits on `writer` when there is one
+ * (#2850), else on `db` at once. Each write settles once committed, and
+ * `settled()` once every write submitted before it has.
+ */
+export function createProviderExposures(db: Database, writer?: SqliteWriter): ProviderExposures {
+  const call = procedureCaller(db, { url: GOVERNED_TURN_WRITES, setup: governedTurnWriteSetup }, undefined, writer);
+  let tail: Promise<void> = Promise.resolve();
+  const submit = (name: string, ...args: unknown[]): Promise<void> => {
+    const done = call<void>(name, ...args);
+    tail = done.then(() => {}, () => {});
+    return done;
+  };
+  return {
+    record: (turnId, sessionId, exposure) => submit("exposureRecord", turnId, sessionId, exposure, Date.now()),
+    bind: (turnId, sessionId) => submit("exposureBind", turnId, sessionId),
     forSessions(sessionIds) {
       const ids = [...new Set(sessionIds)];
       if (!ids.length) return [];
@@ -60,23 +101,12 @@ export function createProviderExposures(db: Database): ProviderExposures {
         .all(...ids) as { recipient: string; visible: string; hidden: string }[];
       return rows.map(row => ({ recipient: row.recipient, visible: folders(row.visible), hidden: folders(row.hidden) }));
     },
-    startMasked(turnId, masked) {
-      db.query("INSERT INTO session_masked_lineage (turn_id, session_id, masked, recorded_at) VALUES (?, NULL, ?, ?)")
-        .run(turnId, JSON.stringify([...masked]), Date.now());
-    },
-    narrowMasked(turnId, sessionId, masked) {
-      // One row per session, narrowed in place: it never widens, and a lost
-      // row is no lineage rather than an older, wider one.
-      db.transaction(() => {
-        const row = db.query("SELECT masked FROM session_masked_lineage WHERE session_id = ?").get(sessionId) as { masked: string } | null;
-        if (!row) return;
-        db.query("UPDATE session_masked_lineage SET turn_id = ?, masked = ?, recorded_at = ? WHERE session_id = ?")
-          .run(turnId, JSON.stringify(maskedInBoth(folders(row.masked), masked)), Date.now(), sessionId);
-      })();
-    },
+    startMasked: (turnId, masked) => submit("exposureStartMasked", turnId, [...masked], Date.now()),
+    narrowMasked: (turnId, sessionId, masked) => submit("exposureNarrowMasked", turnId, sessionId, [...masked], Date.now()),
     maskedThroughout(sessionId) {
       const row = db.query("SELECT masked FROM session_masked_lineage WHERE session_id = ?").get(sessionId) as { masked: string } | null;
       return row ? folders(row.masked) : undefined;
     },
+    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
   };
 }
