@@ -211,7 +211,10 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   hides the retry from synchronous reads as soon as it is submitted and
   stays in force even if its delete fails; the worker refuses any later
   reservation of that obsolete request. The failure is reported, and only a
-  successfully retained new request resets the invalidation. A reservation
+  successfully retained new request resets the invalidation. That memory does
+  not survive a restart, so a reservation also refuses once the session's
+  accepted work (`session_work`) names a later request than the retained
+  turn (`reserveRetry`, `packages/ui-server/src/ws/retry-requests.ts`). A reservation
   keeps its receipt and eligibility consumption in one immediate transaction,
   awaited before its receipt is sent or its prompt dispatched; a duplicate
   receives the receipt without dispatching again. A pending session row still
