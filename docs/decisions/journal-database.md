@@ -28,7 +28,7 @@ that no pre-charge covers. The evidence is on the issue.
   `DB_PATH` names one journal.
   Every page in it is the journal's, so the measurement is the file's page
   count and the journal's own WAL, read without walking
-  (`function measure()`, `packages/ui-server/src/brain/journal-accounting.ts:61-74`).
+  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:67-81`).
   Other components' pages and WAL frames are no longer the journal's charge.
 - **The tables move on start.** Migrations up to `063` create journal tables
   in the UI database. Before any later migration, and again after the last,
@@ -49,6 +49,11 @@ that no pre-charge covers. The evidence is on the issue.
   `journal.<name>`; the runner refuses one that changes the UI database's
   schema. Any other migration touches no journal table. A test holds every
   migration after `063` to this.
+  The conditional object-pin index upgrade (#2913) instead runs through the
+  journal's capacity ledger on its write worker; its committed schema entry
+  is the atomic receipt. It cannot allocate pages before admission and cannot
+  make expiry depend on installing the index. See
+  [the admitted-index rule](governed-writable-workers.md#admitted-object-pin-index-and-near-cap-recovery--2026-10-26-2913).
 - **Released pages return to the file system on restart.** The file uses
   incremental auto-vacuum, and a ledger runs it once as it starts. Within a run,
   released pages stay charged, as before.
@@ -67,6 +72,9 @@ that no pre-charge covers. The evidence is on the issue.
   before the split kept them, and refuses the journal file as a destination.
   A restore needs no journal file at the target and moves the tables out on
   the first start. The backup's format is unchanged.
+  The optional object-pin index (#2913) is omitted from the copied schema:
+  it holds no authoritative rows and must be admitted again on the restored
+  store. The live index stays in place; unknown schema is still rejected.
 - **The journal file is operational state.** It is masked from workers, refused
   inside the brain like the UI database, and inventoried as retained file
   history. A ledger on any connection attaches it and enforces its references.

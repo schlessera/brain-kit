@@ -79,7 +79,9 @@ describe("the bash tool", () => {
         // Absolute, so the helper can execv it and PATH cannot choose which
         // bash runs.
         Bun.which("bash")!,
-        "-lc",
+        "--noprofile",
+        "--norc",
+        "-c",
         "echo brain-kit-ok",
       ]);
     } finally {
@@ -125,7 +127,9 @@ describe("the bash tool", () => {
       expect(resultText(res)).toContain("still-fine");
       expect(readFileSync(argvLog, "utf-8").split("\n").filter(Boolean)).toEqual([
         Bun.which("bash")!,
-        "-lc",
+        "--noprofile",
+        "--norc",
+        "-c",
         "echo still-fine",
       ]);
       expect(existsSync(join(brain.root, "pwned"))).toBe(false);
@@ -184,7 +188,7 @@ test("host A/C and explicit empty override ambient B for both Pi spawn tools (#1
       expect(existsSync(b.argvLog), "EXPLICIT_EMPTY_NOT_AMBIENT").toBe(false);
     }
     expect(readFileSync(a.argvLog, "utf8").split("\n").filter(Boolean)).toEqual([
-      Bun.which("bash")!, "-lc", "echo needle", Bun.which("grep")!, "-rInE", "--", "needle", ".",
+      Bun.which("bash")!, "--noprofile", "--norc", "-c", "echo needle", Bun.which("grep")!, "-rInE", "--", "needle", ".",
     ]);
     expect(readFileSync(c.argvLog, "utf8")).toBe(readFileSync(a.argvLog, "utf8"));
   } finally { brain.cleanup(); }

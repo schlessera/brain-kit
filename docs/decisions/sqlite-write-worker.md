@@ -62,7 +62,10 @@ thread waits for it.
   procedures still reach `governance_events` in the UI database.
 - **A turn waits for its Activity writes.** The recorder keeps a turn's writes
   in call order and exposes `settled()`. The session slot awaits it before it
-  ends, and an autonomous turn awaits it before the transaction that releases
+  ends or sends its final recovery notification, after releasing turn authority.
+  Otherwise a client can read before the terminal rollup commits, retain a
+  completion without its host times, and never learn that the commit finished
+  (#2900). An autonomous turn awaits it before the transaction that releases
   its lifetime and commits its terminal, so that terminal still commits inside
   the transaction.
 - **Refusals keep their class.** `JournalCapacityError`,
@@ -86,6 +89,16 @@ thread waits for it.
   record never reuses a sequence an observation is committing.
 
 ## The exceptions
+
+**Journal object-pin index (#2913).** The journal worker builds the hash index
+through an admitted runtime upgrade rather than an unconditional startup SQL
+migration. The write lock covers its storage allowance, in-memory build,
+measured page/WAL checks and FULL commit. A refused build leaves the existing
+foreign-key-checked collection path available; collection retries after freeing
+bytes. An index's schema entry commits atomically as its completion receipt, so
+restart and competing openers are idempotent. The cap, retention and ordinary
+foreign-key enforcement remain unchanged. The full rationale and near-cap rule
+are in [the governed-workers decision](governed-writable-workers.md#admitted-object-pin-index-and-near-cap-recovery--2026-10-26-2913).
 
 - **A write inside the caller's transaction runs there.** The off-loop
   Activity store sees `db.inTransaction` and runs such a write synchronously on

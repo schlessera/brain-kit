@@ -94,6 +94,8 @@ export interface ObservationRecord {
 
 export function setup(db: Database, options: JournalStoreOptions): WriteProcedures {
   const accounting = createJournalAccounting(db, options.dbPath, { capBytes: options.capBytes });
+  // Refusing this optional migration must never prevent recovery/expiry.
+  accounting.ensureObjectRefIndex();
   const objects = createJournalObjects(options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();
@@ -139,7 +141,13 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         return true;
       });
     },
-    collectObjects(): void { accounting.write(collect); },
+    collectObjects(): void {
+      const indexed = accounting.ensureObjectRefIndex();
+      accounting.write(collect);
+      // A near-cap journal may only have room once this collection freed
+      // object bytes. Retry without making that space depend on the index.
+      if (!indexed) accounting.ensureObjectRefIndex();
+    },
     /**
      * One step of the one-time purge of index-family bytes that releases
      * before #2873 retained (#2903), run at each open until it is done. Each

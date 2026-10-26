@@ -18,6 +18,7 @@ import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
 import { WsHost, type ToolPermissions } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
+import { readSessionRecovery } from "../src/ws/recovery";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
 
@@ -991,6 +992,51 @@ describe("activity stream over the ws path", () => {
       ws.frames().some((f) => f.type === "activity_delta" && f.span?.spanId === "sub-t1" && f.span?.outcome === "cancelled")
     );
   });
+
+  for (const outcome of ["success", "error"] as const) {
+    test(`recovery idle waits for the committed ${outcome} Activity terminal (#2900)`, async () => {
+      const finish = deferred();
+      let writes!: ReturnType<typeof heldWrites>;
+      const sessionId = "odysseus-ithaca";
+      const s = setup(async ({ bridge }) => {
+        bridge.emit({ type: "session_info", sessionId, isNew: true });
+        await finish.promise;
+        writes.hold();
+        bridge.emit({ type: "result", sessionId, outcome, durationMs: 1, numTurns: 1, isError: outcome === "error" });
+      }, {}, { writes: (store) => (writes = heldWrites(store)).view });
+      cleanup = () => { s.stream.close(); s.db.close(); };
+      const ws = fakeSocket();
+      const atIdle: ReturnType<typeof readSessionRecovery>[] = [];
+      const send = ws.send;
+      ws.send = data => {
+        send(data);
+        const frame = JSON.parse(data);
+        if (frame.type === "status" && frame.status === "idle" && frame.sessionId === sessionId) atIdle.push(readSessionRecovery(s.host, sessionId, testPrincipal()));
+      };
+      await s.handlers.onOpen(undefined as never, ws);
+      s.handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Plot the route home", requestId: "odysseus-return" }) } as MessageEvent, ws);
+      try {
+        await until(() => ws.frames().some(frame => frame.type === "session_info"));
+        finish.resolve();
+        await until(() => writes.pending() > 0 && s.host.coordinator.bySession.get(sessionId)?.startedAt === undefined);
+        const result = ws.frames().find(frame => frame.type === "result");
+        expect(result).toMatchObject({ sessionId, outcome });
+        expect(s.store.runRollup?.(result.turnId)?.outcome ?? null).toBeNull();
+        expect(atIdle, "ACTIVITY_RECOVERY_IDLE_AFTER_COMMITTED_TERMINAL").toHaveLength(0);
+      } finally {
+        finish.resolve();
+        writes.release();
+        await until(() => s.host.coordinator.bySession.size === 0);
+      }
+      expect(atIdle, "ACTIVITY_COMMIT_NOTIFIES_RECOVERY_ONCE").toHaveLength(1);
+      const read = await atIdle[0]!;
+      expect(read.kind).toBe("ok");
+      if (read.kind !== "ok") throw new Error("Expected committed recovery");
+      expect(read.recovery.latest).toMatchObject({ requestId: "odysseus-return", state: "terminal", outcome });
+      expect(read.recovery.latest.startedAt).toBeNumber();
+      expect(read.recovery.latest.endedAt).toBeNumber();
+    });
+  }
 
   test("a session's next turn waits until the previous turn's Activity writes commit (#2814)", async () => {
     let releaseFirst!: () => void;
