@@ -282,7 +282,8 @@ export async function handleClientMessage(
       // A command the client answered itself (#582). Stored against the
       // session; the next prompt handed to the backend carries its context.
       // Answered either way, so the client can say when it is not kept.
-      const saved = catalog.recordLocalExchange?.(msg.sessionId, msg.exchange, false) ?? false;
+      // Answered once it is stored (#2850); the next prompt takes it meanwhile.
+      const saved = (await catalog.recordLocalExchange?.(msg.sessionId, msg.exchange, false)) ?? false;
       host.sendMessage(ws, {
         type: "local_exchange_result",
         sessionId: msg.sessionId,

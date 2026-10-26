@@ -160,14 +160,14 @@ function leaseFor(authorization: AuthorizationContext, work: HostWork | undefine
  */
 function recordDraftExchanges(host: WsHost, sessionId: string, exchanges: readonly LocalExchange[]): void {
   for (const exchange of exchanges) {
-    const saved = host.catalog.recordLocalExchange?.(sessionId, exchange, true) ?? false;
-    host.sendToClients({
+    // Each is answered once it is stored (#2850).
+    void (host.catalog.recordLocalExchange?.(sessionId, exchange, true) ?? Promise.resolve(false)).then(saved => host.sendToClients({
       type: "local_exchange_result",
       sessionId,
       exchangeId: exchange.id,
       saved,
       ...(saved ? {} : { reason: "The server could not store it." }),
-    });
+    }));
   }
 }
 
@@ -1198,14 +1198,14 @@ export async function handleChatMessage(
   // carries them, whichever of the paths below hands it over.
   if (sessionId && localExchanges?.length) {
     for (const exchange of localExchanges) {
-      const saved = host.catalog.recordLocalExchange?.(sessionId, exchange, false) ?? false;
-      host.sendMessage(ws, {
+      // Recorded now, so the prompt handed over next takes it; answered once stored (#2850).
+      void (host.catalog.recordLocalExchange?.(sessionId, exchange, false) ?? Promise.resolve(false)).then(saved => host.sendMessage(ws, {
         type: "local_exchange_result",
         sessionId,
         exchangeId: exchange.id,
         saved,
         ...(saved ? {} : { reason: "The server could not store it." }),
-      });
+      }));
     }
   }
   const runningTurn = sessionId ? coordinator.bySession.get(sessionId) : undefined;

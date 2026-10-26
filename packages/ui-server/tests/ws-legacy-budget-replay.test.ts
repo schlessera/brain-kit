@@ -54,7 +54,7 @@ for (const adapter of ["claude", "pi"] as const) {
         snapshot = await readFile(nativePath, "utf8");
         load = () => getPiHistory(brain, sessionId, sessionDir);
       }
-      expect(catalog.recordLocalExchange!(sessionId, exchange, true)).toBe(true);
+      expect(await catalog.recordLocalExchange!(sessionId, exchange, true)).toBe(true);
       catalog.recordMessageSource!(sessionId, text, "voice-dictate", { thinkingLevel: "high", turnId: "legacy-turn", files });
       const backendHistory = await load();
       expect(backendHistory[0]!.content).toBe(prompt);
