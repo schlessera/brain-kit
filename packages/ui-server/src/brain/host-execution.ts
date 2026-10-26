@@ -81,8 +81,8 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
   let history = false;
   let early: Database | undefined;
   let quarantineDir: string | undefined;
-  const open = (db: Database) => createGovernedManifests(db, { brainPath: options.brainPath,
-    quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}) });
+  const open = (db: Database, writer?: SqliteWriter) => createGovernedManifests(db, { brainPath: options.brainPath,
+    quarantineDir: quarantineDir ??= quarantineDirFor(options.dbPath), ...(options.log ? { log: options.log } : {}), ...(writer ? { writer } : {}) });
   const boundary = createHostBoundary({ profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
     ...(options.nativeManager ? { nativeManager: options.nativeManager } : {}),
     ...(options.nativeManager && options.providerRelay ? { providerRelay: options.providerRelay } : {}),
@@ -115,7 +115,8 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     attach(db, writer) {
       // Reconciled first: a failure refuses before the gate exists, so no
       // gated maintenance can start on a brain still holding such a path.
-      const opened = open(db);
+      // A turn's manifest records commit on the write worker (#2850).
+      const opened = open(db, writer);
       const results = opened.reconcileAbandoned();
       history = opened.hasHistory();
       assertReconciled(results);

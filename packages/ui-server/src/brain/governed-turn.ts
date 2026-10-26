@@ -55,15 +55,15 @@ export interface GovernedTurnRoute {
 export interface GovernedTurns {
   begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
   /** A new conversation was named: what its first turn was shown belongs to it (#2695). */
-  bindSession(turnId: string, sessionId: string): void;
+  bindSession(turnId: string, sessionId: string): Promise<void>;
   /** What earlier turns of these sessions showed their recipients (#2695). */
-  exposures(sessionIds: readonly string[]): ProviderExposure[];
+  exposures(sessionIds: readonly string[]): Promise<ProviderExposure[]>;
   /**
    * Whether this session's history may hold a folder the current policy hides
    * from a run with no proven recipient (#2726): the policy masks provider
    * folders, and the session has no born-masked lineage covering them.
    */
-  unprovenHistory(sessionId: string): boolean;
+  unprovenHistory(sessionId: string): Promise<boolean>;
   /** Display facts use the same process-local last-valid reader as admission. */
   facts(origin?: "interactive" | "voice"): { policyProfile: "governed" | "strict"; policy: TurnGovernancePolicy };
   /** Deferred maintenance, serialized with application/CLI mutations. */
@@ -77,7 +77,8 @@ export function createGovernedTurns(options: {
   brainPath: string; execution: HostExecution; profile: "governed" | "strict";
   maskPaths: readonly string[]; index: (lock: KeyedLock) => Promise<unknown>;
   report: (message: string) => void;
-  recordPolicy?: (turnId: string, origin: "interactive" | "voice", profile: "governed" | "strict", policy: TurnGovernancePolicy) => void;
+  /** Settles once the record has committed; admission waits for it (#2850). */
+  recordPolicy?: (turnId: string, origin: "interactive" | "voice", profile: "governed" | "strict", policy: TurnGovernancePolicy) => void | Promise<unknown>;
   /** The CLI argv that reads a restricted turn's taxonomy and builds its private index; default: the brain's packaged CLI. */
   privateIndexCommand?: readonly string[];
   /**
@@ -125,9 +126,12 @@ export function createGovernedTurns(options: {
       return { policyProfile: options.profile === "strict" ? "strict" : policy.policy.profiles[origin], policy };
     },
     async close() { closing = true; again = false; await current; await privateIndexes.close(); },
-    bindSession(turnId, sessionId) { options.exposures?.bind(turnId, sessionId); },
-    exposures(sessionIds) { return options.exposures?.forSessions(sessionIds) ?? []; },
-    unprovenHistory(sessionId) {
+    // Exposure records commit on the write worker (#2850): a read waits for
+    // every one submitted before it.
+    bindSession(turnId, sessionId) { return options.exposures?.bind(turnId, sessionId) ?? Promise.resolve(); },
+    async exposures(sessionIds) { await options.exposures?.settled(); return options.exposures?.forSessions(sessionIds) ?? []; },
+    async unprovenHistory(sessionId) {
+      await options.exposures?.settled();
       const policy = policyReader.load();
       if (!policy.policy.providers.length) return false;
       if (unsupportedProviderSelectors(policy.policy).length) return true;
@@ -191,6 +195,7 @@ export function createGovernedTurns(options: {
         // A conversation's provider history keeps what its earlier turns, or a
         // handoff's source, were shown; this turn's recipient would receive it.
         const continued = [...(route?.sessionId ? [route.sessionId] : []), ...(route?.inherit ?? [])];
+        await options.exposures?.settled();
         const inherited = route?.inherit?.length ? options.exposures?.forSessions(route.inherit) ?? [] : [];
         const conflicts = exposureConflicts(continued.length ? options.exposures?.forSessions(continued) ?? [] : [], maskedFolders);
         if (conflicts.length) throw new ProviderRecipientRefusedError(conflicts, recipient);
@@ -298,7 +303,7 @@ export function createGovernedTurns(options: {
           ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}), ...(dataTree?.mount ? { dataTree: dataTree.mount } : {}),
           ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
         const governed = workerProfile(sandbox) === "governed";
-        options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
+        await options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
         for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
         const managedStorage = isManagedWorkerStartupView(startupView);
@@ -307,18 +312,19 @@ export function createGovernedTurns(options: {
         signal.throwIfAborted();
         // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
         const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
-        for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
+        // Each commits before the turn goes on (#2850).
+        for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) await options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
         // A turn that fails later in admission still narrows: that only refuses more.
-        if (lineage && route?.sessionId) options.exposures?.narrowMasked(turnId, route.sessionId, lineage);
-        else if (lineage) options.exposures?.startMasked(turnId, lineage);
-        if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
+        if (lineage && route?.sessionId) await options.exposures?.narrowMasked(turnId, route.sessionId, lineage);
+        else if (lineage) await options.exposures?.startMasked(turnId, lineage);
+        if (governed) await manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
         return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}),
           ...(dataTree ? { dataTree } : {}), async end() {
           if (ended) return null;
           ended = true;
           try {
-            const result = governed ? manifests.end(turnId) : null;
+            const result = governed ? await manifests.end(turnId) : null;
             if (result) assertReconciled([result]);
             return result;
           } finally { await release(); }

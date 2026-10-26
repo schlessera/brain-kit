@@ -61,7 +61,7 @@ test("a turn's recipient comes from its backend's relay origin and a conversatio
     expect(started[0], "BACKEND_RECEIVES_THE_ADMITTED_RECIPIENT").toEqual({ sessionId: undefined,
       recipient: { name: "anthropic", origin: "https://api.anthropic.com" }, masks: { folders: [] } });
     expect(based[0], "ALLOWED_ROUTE_READS_THROUGH_BRAIN_READ_BASE").toBe("# Odysseus\n");
-    expect(turns.exposures(["voyage-1"]), "NEW_CONVERSATION_BOUND_WHEN_NAMED").toEqual([{ recipient: "anthropic", visible: ["me"], hidden: [] }]);
+    expect(await turns.exposures(["voyage-1"]), "NEW_CONVERSATION_BOUND_WHEN_NAMED").toEqual([{ recipient: "anthropic", visible: ["me"], hidden: [] }]);
 
     await runSession(host, { authorization: testAuthorization(principal.id), text: "And again.", attachments: [], sessionId: "voyage-1" });
     expect(asked.at(-1), "RESUMED_TURN_ASKS_FOR_ITS_SESSION_ORIGIN").toMatchObject({ sessionId: "voyage-1" });
