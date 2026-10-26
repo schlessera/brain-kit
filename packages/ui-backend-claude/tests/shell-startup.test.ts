@@ -9,6 +9,7 @@ interface Observation {
   fallback: boolean;
   profile: string;
   runtimeVersion: string;
+  expectedGit: string;
   nativeMatches: boolean;
   nativeEnv: Record<string, string>;
   snapshots: { name: string; content: string }[];
@@ -20,6 +21,7 @@ interface Observation {
   hostHomeUnchanged: boolean;
   xdgWritePrivate: boolean;
   ledgerLive: number;
+  stateFailure: unknown;
   namespace: string;
 }
 
@@ -51,7 +53,7 @@ for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false],
       }
       const tool = result.messages.find(message => message.hook_event_name === "PostToolUse")?.tool_response;
       expect(tool, "NATIVE_BASH_COMMAND_EXECUTED").toBeDefined();
-      expect(tool!.stdout, "CLAUDE_SHELL_STARTUP_ABSENT").toStartWith("hi\ngit is /usr/bin/git\nunset\nconfig=yes\n");
+      expect(tool!.stdout, "CLAUDE_SHELL_STARTUP_ABSENT").toStartWith(`hi\ngit is ${result.expectedGit}\nunset\nconfig=yes\n`);
       expect(tool!.stdout).not.toMatch(/planted|ithaca-\.bash|\/planted-bin/);
       expect(tool!.stderr).toBe("");
       expect(result.startup, "OPERATOR_STARTUP_FILES_NEVER_RAN").toBe("");
@@ -61,6 +63,17 @@ for (const [profile, startupEnv] of [["unprofiled", false], ["governed", false],
         "NATIVE_INFERENCE_USES_PREPARED_CREDENTIAL_WITHOUT_API_KEY").toBe(true);
       expect(tool!.stdout, "REAL_HOME_READS_AND_READ_ONLY_MOUNT_UNCHANGED").toContain("Odysseus returns to Ithaca.\nreal-home-read-only");
       expect(result.hostHomeUnchanged).toBe(true);
+      const home = JSON.parse(/^home-probe=(.*)$/m.exec(tool!.stdout)![1]!);
+      expect(Object.values(home.errors), "HOME_WRITES_FAIL_WITH_EROFS").toEqual(Array(5).fill("EROFS"));
+      expect(home, "HOME_IS_EMPTY_READ_ONLY_AND_SEPARATE_FROM_RUNTIME_STATE").toMatchObject({ readonly: true, empty: true, separateFromState: true });
+      expect(result.stateFailure, "HOME_WRITES_DO_NOT_EXHAUST_RUNTIME_STATE").toBeNull();
+      if (profile === "unprofiled") {
+        const consumers = JSON.parse(/^home-consumers=(.*)$/m.exec(tool!.stdout)![1]!);
+        expect(consumers, "HOME_CONSUMERS_DO_NOT_CREATE_PRIVATE_GEO_ADMISSION").toMatchObject({
+          home: result.nativeEnv.HOME, binDir: `${result.nativeEnv.HOME}/.local/bin`,
+          geoDirectory: `${result.nativeEnv.HOME}/.cache/brain-kit/geo`, geoError: "cache_unavailable", requestSent: false, requests: 0,
+        });
+      }
       expect(result.xdgWritePrivate, "XDG_WRITES_USE_PRIVATE_TURN_TEMP").toBe(true);
       expect(result.nativeEnv, "TURN_XDG_PATHS_UNCHANGED").toMatchObject({ HOME: "/tmp/brain-worker-state", CLAUDE_CONFIG_DIR: "/tmp/brain-worker-state",
         XDG_CONFIG_HOME: "/tmp/brain-worker-home/config", XDG_CACHE_HOME: "/tmp/brain-worker-home/cache", XDG_DATA_HOME: "/tmp/brain-worker-home/data" });

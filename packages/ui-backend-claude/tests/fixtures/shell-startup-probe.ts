@@ -35,13 +35,31 @@ writeFileSync(join(saved, "settings.json"), JSON.stringify({ env: { ITHACA_CONFI
 const wrapper = join(root, "worker-wrapper.sh");
 writeFileSync(wrapper, "#!/bin/sh\n" + (fallback
   ? 'printf "snapshot intentionally unavailable\\n" > "$CLAUDE_CONFIG_DIR/shell-snapshots"\n' : "") + 'exec "$@"\n', { mode: 0o755 });
+const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+const homeProbe = [
+  "import errno, json, os",
+  "home = os.environ['HOME']",
+  "errors = {}",
+  "for relative in ['.npm', 'go', '.cargo', '.cache/brain-kit/geo', '.local/bin']:",
+  "    try:",
+  "        os.makedirs(os.path.join(home, relative), exist_ok=True)",
+  "        errors[relative] = None",
+  "    except OSError as error:",
+  "        errors[relative] = errno.errorcode[error.errno]",
+  "print('home-probe=' + json.dumps({'errors': errors, 'readonly': bool(os.statvfs(home).f_flag & os.ST_RDONLY), 'empty': not os.listdir(home), 'separateFromState': os.stat(home).st_dev != os.stat(os.environ['CLAUDE_CONFIG_DIR']).st_dev}))",
+].join("\n");
 const command = 'echo hi; type git; echo "${BRAIN_TEST_PROFILE_LEAK:-unset}"; '
   + 'printf "config=%s\\n" "$ITHACA_CONFIG_RETAINED"; '
   + 'command -v ithaca-profile-probe || true; '
   + 'printf "home=%s xdg=%s\\n" "$HOME" "$XDG_CONFIG_HOME"; '
   + 'printf "Athena charts.\\n" > "$XDG_CONFIG_HOME/voyage.txt"; '
   + 'cat "' + home + '/voyage.txt"; '
-  + '(echo changed > "' + home + '/voyage.txt") 2>/dev/null || echo real-home-read-only';
+  + '(echo changed > "' + home + '/voyage.txt") 2>/dev/null || echo real-home-read-only; '
+  + 'python3 -I -S -c ' + quote(homeProbe)
+  + (profile ? "" : '; ' + quote(process.execPath) + ' --config=/dev/null --no-env-file '
+    + quote(new URL("./shell-home-consumers.ts", import.meta.url).pathname));
+const expectedGit = Bun.which("git", { PATH: "/usr/bin:/bin" });
+if (!expectedGit) throw new Error("The shell fixture requires an installed git executable.");
 let worker: LaunchedWorker | undefined;
 let sent = false, selected: { command: string; args: string[] } | undefined;
 const messages: unknown[] = [], requests: unknown[] = [], stderr: string[] = [];
@@ -89,7 +107,7 @@ function capture() {
   const read = (path: string) => existsSync(path) ? readFileSync(path, "utf8") : "";
   const snapshotDir = join(state, "shell-snapshots");
   const snapshots = fallback ? [] : existsSync(snapshotDir) ? readdirSync(snapshotDir).map(name => ({ name, content: read(join(snapshotDir, name)) })) : [];
-  result = { fallback, profile: profile ?? "unprofiled", command, runtimeVersion, selected, nativeMatches, nativeEnv, snapshots,
+  result = { fallback, profile: profile ?? "unprofiled", command, expectedGit, runtimeVersion, selected, nativeMatches, nativeEnv, snapshots,
     startup: read(join(temp, "brain-worker-scratch/startup.log")), debug: read(join(state, "shell-debug.log")), messages, requests,
     credentialsProjected: read(join(state, ".credentials.json")) === credential,
     xdgWritePrivate: read(join(temp, "brain-worker-home/config/voyage.txt")) === "Athena charts.\n" && !existsSync(join(home, ".config/voyage.txt")),
@@ -124,5 +142,5 @@ try {
   }
 } catch (error) { console.error("Production worker failure:", spawner.startFailure() ?? error); throw error; }
 finally { clearTimeout(timer); abort.abort(); server.stop(true); try { await spawner.finish(); } finally { await startupView.cleanup(); } }
-console.log(JSON.stringify({ ...(result as object), ledgerLive: ledger.live,
+console.log(JSON.stringify({ ...(result as object), ledgerLive: ledger.live, stateFailure: spawner.failure() ?? null,
   executableSha256: createHash("sha256").update(readFileSync(executable)).digest("hex"), namespace: readlinkSync("/proc/self/ns/net") }));

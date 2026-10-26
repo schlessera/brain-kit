@@ -318,6 +318,7 @@ describe("worker sandbox writable areas (#1626)", () => {
         expect(note.includes("`/tmp/brain-worker-areas/scratch/` is writable"), "NOTE_SCRATCH").toBe(mounts.binds.includes(join(f.brain, ".brain/scratch")));
         expect(note.includes("`/tmp/brain-worker-areas/workspaces/` is writable"), "NOTE_WORKSPACES").toBe(mounts.binds.includes(join(f.brain, "workspaces")));
         expect(mounts.overlay, "NOTE_HOME").toBe(false);
+        expect(note, "RUNTIME_HOME_NOTE_REPORTS_READ_ONLY").toContain("`$HOME` is read-only");
         expect(note, "REAL_HOME_NOTE_DOES_NOT_ASSUME_RUNTIME_HOME").toContain("the real host home is read-only");
         expect(note.includes("XDG_CONFIG_HOME"), "NOTE_XDG").toBe(mounts.xdg);
         expect(note.includes("There is no `workspaces/` directory")).toBe(sandbox.areas.some(a => a.name === "workspaces" && !a.mount.writable && a.mount.missing));
