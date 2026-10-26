@@ -113,7 +113,9 @@ test("a failed worker clear stays invalidated and reports its failure", async ()
     f.catalog.clearRetryRequest!("ithaca");
     // Submit before the failed DELETE's reply, so refusal cannot depend on
     // an app-thread rejection handler racing the next worker procedure.
-    const reserved = await f.catalog.reserveRetry!("ithaca", "voyage", "failed-clear-retry", "athena");
+    // A reservation that tries to consume the obsolete row throws on the refused delete: record it as such.
+    const reserved = await f.catalog.reserveRetry!("ithaca", "voyage", "failed-clear-retry", "athena")
+      .catch((error: Error) => ({ receipt: { state: `consumed the obsolete request (${error.message})` }, request: undefined }));
     await f.catalog.settled!();
     expect(f.failures, "RETRY_FAILED_CLEAR_REPORTED").toEqual(["Poseidon refuses clear"]);
     expect(f.db.query("SELECT turn_id FROM retry_requests").get(), "RETRY_FAILED_CLEAR_LEFT_OBSOLETE_ROW").toEqual({ turn_id: "voyage" });
