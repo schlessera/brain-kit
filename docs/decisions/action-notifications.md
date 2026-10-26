@@ -178,10 +178,10 @@ about any deployment's zone or timezone-data version.
 
 The existing notifier drops later same-tag activity intents instead of
 incrementing an Action count
-(`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:91-127`).
+(`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`).
 The sender processes run-bound activity rows and settles one intent from a
 device pass; that is not the required per-episode/per-destination Action history
-(`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:197-276`).
+(`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:207-281`).
 Reuse concrete subscriptions, authorization, revocation and bounded backoff,
 but add the Actions-aware aggregate and durable constituent/destination records.
 This decision authorizes no new channel, extension seam or daemon.

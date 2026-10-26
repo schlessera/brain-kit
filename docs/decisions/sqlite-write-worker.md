@@ -177,10 +177,29 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   still the host fallback afterwards. A type folder translation that cannot
   be recorded refuses the turn. `holders()`, a diagnostic, still reads on
   the gate's own connection.
+- **Authentication's per-request writes followed** (#2850). A principal's
+  `last_seen_at` touch, terminal-principal pruning, ambient principal
+  resolution and a login's new principal commit on the worker
+  (`packages/ui-server/src/db/principal-writes.ts`). A touch is never waited
+  for and one pending is not submitted again; an ambient principal that is
+  current is read at once; a login answers once its row has committed, and
+  its refusals keep their classes. Revocations and administrative principal
+  writes still commit on the app connection.
+- **The Activity notifier followed** (#2850). Its tick (intent detection
+  under its cursor and the stuck-run watchdog), delivery status,
+  acknowledgement and retention, and push delivery's subscription
+  bookkeeping commit on the worker (`packages/ui-server/src/activity/notify-writes.ts`).
+  The tick runs the same notifier on the write connection, with who is
+  watching taken where the tick was submitted, and its log records come back
+  to the app's log; a tick still committing is not submitted again. A push
+  delivery pass settles only once its bookkeeping and delivery status have
+  committed, so the next pass never sends an intent again or retries a gone
+  device. The inbox and the pending queue are still read on the app
+  connection.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
-  proposals, the Activity notifier and push ticks, auth sessions, inbox and
-  settings. Each commits at
+  proposals, action and storage notices, push subscriptions and VAPID keys,
+  principal revocation and administration, passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's

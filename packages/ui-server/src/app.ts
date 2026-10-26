@@ -91,6 +91,7 @@ import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
 import { openSqliteWriter } from "./db/write-worker.js";
+import { registerPrincipalWrites } from "./db/principal-writes.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
@@ -452,6 +453,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Journal and Activity commits run on this worker's connection, off the event loop (#2814).
   // It owns the journal's own file too (#2789), attached as it is here.
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
+  // Authentication's per-request principal writes commit on it too (#2850).
+  registerPrincipalWrites(db, writer);
   bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
