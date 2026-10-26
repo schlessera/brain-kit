@@ -208,7 +208,11 @@ test("an admitted renewal commits before the ended turn's release and generation
     const renewedAt = f.advance();
     const slow = f.held.call("slow", "Calypso holds admitted renewal", 400);
     const renewal = tools.call("voyage", PRINCIPAL, { tool: "reference_worktree", input: { action: "renew", worktreeId: tree.id } });
-    await checkedLive;
+    // A renewal that never consults its turn's lifetime fails here instead of hanging.
+    let consulted = false;
+    void checkedLive.then(() => { consulted = true; });
+    await Promise.race([checkedLive, renewal, Bun.sleep(5000)]);
+    expect(consulted, "REFERENCE_RENEW_CONSULTS_TURN_LIFETIME").toBe(true);
     expect(passed, "REFERENCE_RENEW_LIVE_PASSED_BEFORE_TURN_END").toBe(true);
     const late = tools.call("voyage", PRINCIPAL, { tool: "reference_worktree", input: { action: "renew", worktreeId: tree.id } });
     tools.end("voyage");
