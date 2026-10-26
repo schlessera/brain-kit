@@ -13,7 +13,10 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpathSync } from "node:fs";
 
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
-import { dropUnstartedItems } from "./queue-items.js";
+import { encodeError, type SqliteWriter } from "../db/write-worker.js";
+import { scheduleWrites } from "./service-writes.js";
+import { ScheduleError } from "./errors.js";
+export { ScheduleError, type ScheduleErrorCode } from "./errors.js";
 import { canonicalJson, scheduleFingerprint, sha256Hex } from "./canonical.js";
 import {
   DEFINITIONS_DIR,
@@ -44,23 +47,6 @@ const ENVELOPE_RESERVE = 256 + MAX_CURSOR_BYTES;
 const DEFAULT_PAGE = 25;
 const MAX_PAGE = 100;
 
-export type ScheduleErrorCode =
-  | "invalid_request" | "invalid_cursor" | "unauthorized" | "not_found" | "key_conflict"
-  | "approval_required" | "approval_expired" | "definition_conflict" | "server_unavailable"
-  | "unsupported_capability";
-const STATUS: Record<ScheduleErrorCode, number> = {
-  invalid_request: 400, invalid_cursor: 400, unauthorized: 403, not_found: 404, key_conflict: 409,
-  approval_required: 409, approval_expired: 409, definition_conflict: 409, server_unavailable: 503,
-  unsupported_capability: 503,
-};
-
-export class ScheduleError extends Error {
-  readonly status: number;
-  constructor(readonly code: ScheduleErrorCode, message: string, status?: number) {
-    super(message);
-    this.status = status ?? STATUS[code];
-  }
-}
 
 export interface ExecutionPolicy {
   backendId: string;
@@ -94,12 +80,12 @@ export interface DueCandidate {
   admittable: boolean; blockedReason: BlockedReason | null;
 }
 
-interface ProposalRow {
+export interface ProposalRow {
   id: string; task_id: string; principal_id: string; request_key: string; input_hash: string;
   definition_json: string; zone_source: ZoneSource; execution_policy_json: string; root_identity: string;
   fingerprint: string; created_at: number; expires_at: number;
 }
-interface ApprovalRow {
+export interface ApprovalRow {
   id: string; proposal_id: string; approver_principal_id: string; approver_kind: string;
   fingerprint: string; approved_at: number; consumed_at: number | null;
 }
@@ -161,13 +147,22 @@ export function gitCheckIgnored(root: string, boundary: HostBoundary = createHos
   };
 }
 
-export function createScheduleService(db: Database, options: ScheduleServiceOptions) {
+export function createScheduleService(db: Database, options: ScheduleServiceOptions, writer?: SqliteWriter) {
   const now = options.now ?? Date.now;
   const dispatchAvailable = options.dispatchAvailable ?? (() => false);
   let root: { path: string; identity: string; secret: Buffer; matches: boolean } | null = null;
   let files: ScheduleFiles | null = null;
   let gitCheck: ((relativePath: string) => boolean | Promise<boolean>) | undefined;
   const gitIgnored = () => options.gitIgnored ?? (gitCheck ??= gitCheckIgnored(rootInfo().path));
+
+  let writes: ReturnType<typeof scheduleWrites> | undefined;
+  function write<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
+    if (!writes) {
+      const { path, identity } = rootInfo();
+      writes = scheduleWrites(db, { path, identity }, writer);
+    }
+    return writes<T>(name, options.now?.(), ...args);
+  }
 
   function rootInfo() {
     if (root) return root;
@@ -426,26 +421,16 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     } catch (error) {
       if (error instanceof ScheduleFileConflictError || error instanceof ScheduleContainmentError) {
         // Never overwrite: quarantine the task and expose the drift.
-        db.transaction(() => {
-          db.query(`UPDATE schedule_tasks SET publication = 'quarantined', updated_at = ?,
-            state = CASE WHEN state = 'publishing' THEN 'paused' ELSE state END,
-            blocked_reason = CASE WHEN state = 'publishing' THEN 'definition_drift' ELSE blocked_reason END
-            WHERE id = ? AND publication = 'pending'`).run(now(), id);
-        }).immediate();
+        await write("quarantine", id);
         throw new ScheduleError("definition_conflict", "A different definition file occupies this schedule's path.");
       }
       throw new ScheduleError("server_unavailable", "Schedule storage is unavailable; retry with the same key.");
     }
-    const activated = db.transaction(() => {
-      const result = db.query(`UPDATE schedule_tasks SET publication = 'published', updated_at = ?,
-        state = CASE WHEN state = 'publishing' THEN 'active' ELSE state END
-        WHERE id = ? AND publication = 'pending'`).run(now(), id);
-      return result.changes > 0 && taskRow(id)!.state === "active";
-    }).immediate();
+    const activated = await write<boolean>("activate", id);
     // A cancellation that won the race retires the file this call just wrote,
     // even when another publisher's retirement already completed before it.
     if (taskRow(id)?.state === "cancelled") {
-      db.query("UPDATE schedule_tasks SET retirement = 'pending', updated_at = ? WHERE id = ? AND state = 'cancelled'").run(now(), id);
+      await write("retireAgain", id);
       await completeRetirement(id);
     }
     return activated;
@@ -459,7 +444,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     let done = false;
     try { done = await fileStore().retire(id, serializeDefinition(definitionOf(row))); }
     catch { return; } // The journal stays pending; status reports compensationPending.
-    if (done) db.query("UPDATE schedule_tasks SET retirement = 'retired', updated_at = ? WHERE id = ? AND retirement = 'pending'").run(now(), id);
+    if (done) await write("retired", id);
   }
 
   /** Boot/retry reconciliation of every journal. Never dispatches work. */
@@ -475,8 +460,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const active = db.query("SELECT * FROM schedule_tasks WHERE state = 'active' ORDER BY created_at").all() as TaskRow[];
     for (const row of active) {
       if (await fileDrifted(row)) {
-        db.query("UPDATE schedule_tasks SET state = 'paused', blocked_reason = 'definition_drift', updated_at = ? WHERE id = ? AND state = 'active'")
-          .run(now(), row.id);
+        await write("pauseDrifted", row.id);
       }
     }
   }
@@ -529,16 +513,12 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const fingerprint = scheduleFingerprint({ definition: materialized.definition, rootIdentity: identity,
       creatorPrincipalId: actor.id, executionPolicy: policy });
     const id = newId("proposal"), at = now();
-    const created = db.transaction(() => {
-      caller(actor);
-      const raced = db.query("SELECT * FROM schedule_proposals WHERE principal_id = ? AND request_key = ?").get(actor.id, key) as ProposalRow | null;
-      if (raced) return raced;
-      db.query(`INSERT INTO schedule_proposals (id, task_id, principal_id, request_key, input_hash, definition_json,
-        zone_source, execution_policy_json, root_identity, fingerprint, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, taskId, actor.id, key, inputHash,
-        canonicalJson(materialized.definition), materialized.zoneSource, canonicalJson(policy), identity, fingerprint, at, at + PROPOSAL_TTL_MS);
-      return null;
-    }).immediate();
+    const created = await write<ProposalRow | null>("propose", actor, {
+      id, task_id: taskId, principal_id: actor.id, request_key: key, input_hash: inputHash,
+      definition_json: canonicalJson(materialized.definition), zone_source: materialized.zoneSource,
+      execution_policy_json: canonicalJson(policy), root_identity: identity, fingerprint,
+      created_at: at, expires_at: at + PROPOSAL_TTL_MS,
+    } satisfies ProposalRow);
     if (created) {
       if (created.input_hash !== inputHash) throw new ScheduleError("key_conflict", "This key was already used for a different schedule.");
       return { status: 200, proposal: proposalView(created) };
@@ -560,22 +540,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     if (!isOperator(actor)) throw new ScheduleError("unauthorized", "Only the operator can approve a schedule.");
     if (proposal.fingerprint !== fingerprint) throw new ScheduleError("definition_conflict", "The fingerprint does not match this proposal.");
     const policy = await currentPolicy();
-    return db.transaction(() => {
-      caller(actor);
-      const existing = db.query("SELECT * FROM schedule_approvals WHERE proposal_id = ?").get(proposal.id) as ApprovalRow | null;
-      if (existing) return { approvalId: existing.id };
-      if (proposal.expires_at <= now()) throw new ScheduleError("approval_expired", "This proposal expired; propose again with a new key.");
-      assertWritable();
-      if (proposal.root_identity !== rootInfo().identity) throw new ScheduleError("definition_conflict", "The proposal belongs to another brain root.");
-      if (!usable(proposal.principal_id)) throw new ScheduleError("unauthorized", "The schedule's creator is no longer usable.");
-      if (canonicalJson(policy) !== proposal.execution_policy_json)
-        throw new ScheduleError("definition_conflict", "The host execution policy changed since this proposal.");
-      const id = newId("approval");
-      db.query(`INSERT INTO schedule_approvals (id, proposal_id, approver_principal_id, approver_kind, channel,
-        fingerprint, nonce, approved_at) VALUES (?, ?, ?, ?, 'http', ?, ?, ?)`)
-        .run(id, proposal.id, actor.id, actor.kind, fingerprint, randomBytes(16).toString("hex"), now());
-      return { approvalId: id };
-    }).immediate();
+    return write<{ approvalId: string }>("approve", actor, proposal, fingerprint, policy);
   }
 
   async function publish(principal: Principal, body: unknown): Promise<{ status: 200 | 201; created: boolean; task: ScheduleTask }> {
@@ -612,38 +577,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     const policy = await currentPolicy();
     assertWritable();
     await assertNotIgnored(proposal.task_id);
-    const taskId = db.transaction(() => {
-      const at = now();
-      caller(actor);
-      const raced = db.query("SELECT id FROM schedule_tasks WHERE proposal_id = ?").get(proposal.id) as { id: string } | null;
-      if (raced) return null;
-      if (proposal.expires_at <= at) throw new ScheduleError("approval_expired", "This approval expired before publication; propose again with a new key.");
-      assertWritable();
-      const approver = usable(approval.approver_principal_id);
-      if (!approver || !isOperator(approver) || approver.kind !== approval.approver_kind)
-        throw new ScheduleError("unauthorized", "The approving operator is no longer usable.");
-      if (approval.fingerprint !== proposal.fingerprint || proposal.root_identity !== rootInfo().identity)
-        throw new ScheduleError("definition_conflict", "The approval no longer matches this proposal.");
-      if (canonicalJson(policy) !== proposal.execution_policy_json)
-        throw new ScheduleError("definition_conflict", "The host execution policy changed since approval.");
-      const recomputed = scheduleFingerprint({ definition, rootIdentity: proposal.root_identity,
-        creatorPrincipalId: proposal.principal_id, executionPolicy: JSON.parse(proposal.execution_policy_json) });
-      if (recomputed !== proposal.fingerprint) throw new ScheduleError("definition_conflict", "The stored proposal does not match its fingerprint.");
-      // First-publication timing is rechecked; replay above never reaches here.
-      if (definition.when.kind === "at" && parseInstant(definition.when.at)! <= at)
-        throw new ScheduleError("invalid_request", "The one-off time has passed; propose a new future time.");
-      if (definition.when.kind === "cron" && definition.when.endAt !== null && parseInstant(definition.when.endAt)! <= at)
-        throw new ScheduleError("invalid_request", "The recurrence end has passed; propose a new schedule.");
-      db.query("UPDATE schedule_approvals SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL").run(at, approval.id);
-      db.query(`INSERT INTO schedule_tasks (id, proposal_id, approval_id, creator_principal_id, root_identity,
-        definition_json, execution_policy_json, fingerprint, file_sha256, zone_source, created_at, state,
-        blocked_reason, publication, retirement, cancelled_at, evaluated_through, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'publishing', NULL, 'pending', 'none', NULL, ?, ?)`)
-        .run(proposal.task_id, proposal.id, approval.id, proposal.principal_id, proposal.root_identity,
-          proposal.definition_json, proposal.execution_policy_json, proposal.fingerprint, sha256Hex(text),
-          proposal.zone_source, at, at, at);
-      return proposal.task_id;
-    }).immediate();
+    const taskId = await write<string | null>("publish", actor, proposal, approval, policy, definition, text);
     if (taskId === null) return publish(principal, body);
     await completePublication(taskId);
     return { status: 201, created: true, task: await taskView(taskRow(taskId)!) };
@@ -730,33 +664,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
       throw new ScheduleError("invalid_request", "Cancellation needs {key}.");
     const row = SCHEDULE_ID.test(taskId) ? taskRow(taskId) : null;
     if (!row || !canSee(actor, row.creator_principal_id)) throw new ScheduleError("not_found", "No such scheduled task.");
-    const changed = db.transaction(() => {
-      caller(actor);
-      const receipt = db.query("SELECT task_id FROM schedule_cancel_receipts WHERE principal_id = ? AND request_key = ?")
-        .get(actor.id, key) as { task_id: string } | null;
-      if (receipt) {
-        if (receipt.task_id !== row.id) throw new ScheduleError("key_conflict", "This key was already used to cancel a different task.");
-        return false;
-      }
-      const current = taskRow(row.id)!;
-      const at = now();
-      // Future/unstarted only: terminal one-offs and earlier cancellations stay as they are.
-      const cancellable = ["publishing", "active", "paused"].includes(current.state);
-      if (cancellable) {
-        db.query(`UPDATE schedule_tasks SET state = 'cancelled', blocked_reason = NULL, cancelled_at = ?,
-          retirement = 'pending', updated_at = ? WHERE id = ?`).run(at, at, row.id);
-        // Unstarted and stale-Action work is invalidated in the same transaction.
-        // A started attempt keeps its bounded snapshot; this is not a live stop.
-        db.query(`UPDATE schedule_occurrences SET state = 'cancelled', updated_at = ?
-          WHERE task_id = ? AND state IN ('queued', 'retrying', 'waiting_for_action')`).run(at, row.id);
-        // Their unclaimed Queue items go with them. A claim that has not
-        // started yet is refused by admission's start check instead.
-        dropUnstartedItems(db, row.id, at);
-      }
-      db.query("INSERT INTO schedule_cancel_receipts (principal_id, request_key, task_id, changed, created_at) VALUES (?, ?, ?, ?, ?)")
-        .run(actor.id, key, row.id, cancellable ? 1 : 0, at);
-      return cancellable;
-    }).immediate();
+    const changed = await write<boolean>("cancel", actor, row, key);
     await completeRetirement(row.id);
     const running = (db.query(`SELECT * FROM schedule_occurrences WHERE task_id = ? AND state IN ('running', 'unwinding')
       ORDER BY due_at`).all(row.id) as OccurrenceRow[]).map(occurrenceView);
@@ -769,17 +677,9 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
    * operator's own statement rather than a claimed matching fingerprint. The
    * root identity, and with it every approval fingerprint, is unchanged.
    */
-  function adoptRestoredRoot(): void {
+  async function adoptRestoredRoot(): Promise<void> {
     const info = rootInfo();
-    db.transaction(() => {
-      const bound = db.query("SELECT root_path FROM schedule_root WHERE id = 1").get() as { root_path: string } | null;
-      if (bound?.root_path === info.path) return;
-      const restored = db.query("SELECT status, brain_root FROM inbox_recovery_state WHERE id = 1").get() as
-        { status: string; brain_root: string } | null;
-      if (restored?.status !== "ready" || restored.brain_root !== info.path)
-        throw new ScheduleError("unsupported_capability", "Schedule storage belongs to another brain root; no restore named this one.");
-      db.query("UPDATE schedule_root SET root_path = ? WHERE id = 1").run(info.path);
-    }).immediate();
+    await write("adoptRestoredRoot");
     info.matches = true;
   }
 
@@ -820,39 +720,15 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     if (replay()) return { ok: true as const, changed: false, task: await taskView(taskRow(row.id)!) };
     if (db.query("SELECT 1 FROM inbox_recovery_state WHERE status = 'pending'").get())
       throw new ScheduleError("unsupported_capability", "The operational restore has not finished.");
-    adoptRestoredRoot();
+    await adoptRestoredRoot();
     // Journals frozen by the restore can finish now; this never dispatches.
     await reconcile();
     // Only a reopening needs the host policy; a no-op still records its receipt.
     const policy = await currentPolicy().catch((error: unknown) => error as Error);
     const before = taskRow(row.id)!;
     const drifted = await fileDrifted(before);
-    const changed = db.transaction(() => {
-      const at = now();
-      caller(actor);
-      if (replay()) return false;
-      const current = taskRow(row.id)!;
-      const reason = current.state === "paused" ? current.blocked_reason : null;
-      const resolvable = reason === "restore_pending" || reason === "unknown_effect";
-      if (resolvable) {
-        if (drifted || current.updated_at !== before.updated_at || current.publication !== "published")
-          throw new ScheduleError("definition_conflict", "The definition file does not match the approved snapshot; cancel and create a new schedule.");
-        if (current.root_identity !== rootInfo().identity)
-          throw new ScheduleError("definition_conflict", "The task belongs to another brain root.");
-        if (!authorized(current)) throw new ScheduleError("unauthorized", "The schedule's creator or approving operator is no longer usable.");
-        if (policy instanceof Error) throw policy;
-        if (canonicalJson(policy) !== current.execution_policy_json)
-          throw new ScheduleError("definition_conflict", "The host execution policy changed since approval; cancel and create a new schedule.");
-        if (db.query(`SELECT 1 FROM schedule_occurrences WHERE task_id = ? AND state IN
-          ('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying')`).get(current.id))
-          throw new ScheduleError("definition_conflict", "The task still has outstanding work.");
-        db.query("UPDATE schedule_tasks SET state = ?, blocked_reason = NULL, updated_at = ? WHERE id = ?")
-          .run(finished(current, at) ? "expired" : "active", at, current.id);
-      }
-      db.query(`INSERT INTO schedule_reconciliations (principal_id, request_key, task_id, approver_kind, resolved_reason, changed, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(actor.id, key, row.id, actor.kind, resolvable ? reason : null, resolvable ? 1 : 0, at);
-      return resolvable;
-    }).immediate();
+    const changed = await write<boolean>("reopen", actor, row, key, before, drifted,
+      policy instanceof Error ? { error: encodeError(policy) } : { value: policy });
     return { ok: true as const, changed, task: await taskView(taskRow(row.id)!) };
   }
 
