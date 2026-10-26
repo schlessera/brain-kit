@@ -1,5 +1,5 @@
 /** Action notice writes keep their transactions on the shared write worker (#3000). */
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,15 +131,19 @@ test("an action notice tick still committing is not submitted again", async () =
 
 test("the Activity interval submits its action notice tick to the write worker", async () => {
   const original = globalThis.setInterval;
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval")!;
   let tick: (() => void) | undefined;
-  const interval = spyOn(globalThis, "setInterval").mockImplementation((callback, ms, ...args) => {
-    if (ms === 20_000) tick = () => callback(...args);
-    return original(callback, ms, ...args);
+  Object.defineProperty(globalThis, "setInterval", {
+    ...descriptor,
+    value: (callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+      if (ms === 20_000) tick = () => callback(...args);
+      return Reflect.apply(original, globalThis, [callback, ms, ...args]);
+    },
   });
   let f: Fixture | undefined;
   try {
     f = fixture();
-    interval.mockRestore();
+    Object.defineProperty(globalThis, "setInterval", descriptor);
     // There is no transport in this cell; the due digest still has real contents.
     f.db.query("DELETE FROM push_subscriptions").run();
     const sites = await watchWriteSites(f.db, f.writer, TABLES);
@@ -148,7 +152,7 @@ test("the Activity interval submits its action notice tick to the write worker",
     await f.writer.idle();
     expect(f.failures, "ACTION_RUNTIME_TICK_COMMITS_ON_WORKER_AT_FULL").toEqual([]);
     expect(new Set(await sites.log()), "ACTION_RUNTIME_TICK_GENERATES_DIGEST").toEqual(new Set(["inbox_notice_digests", "inbox_notice_coverage"]));
-  } finally { interval.mockRestore(); await f?.close(); }
+  } finally { Object.defineProperty(globalThis, "setInterval", descriptor); await f?.close(); }
 });
 
 test("an action delivery commits its attempt before transport and its outcome before the pass settles", async () => {
@@ -158,18 +162,21 @@ test("an action delivery commits its attempt before transport and its outcome be
     const held = f.writer.channel(probe, { table: "odysseus_hold" });
     await held.ready;
     let slow: Promise<unknown> | undefined;
+    let submitted: unknown;
     const sender = createPushSender(f.db, { send: async () => {
-      expect(f.db.query("SELECT outcome, count FROM inbox_notice_attempts").get(), "ACTION_ATTEMPT_DURABLE_BEFORE_TRANSPORT")
-        .toEqual({ outcome: "in_flight", count: 1 });
+      submitted = f.db.query("SELECT outcome, count FROM inbox_notice_attempts").get();
       slow = held.call("slow", "Calypso", 300);
       throw Object.assign(new Error("push service refused"), { statusCode: 500 });
     } });
     sender.publicKey(); // Boot-only key setup is outside this slice's watched writes.
     const sites = await watchWriteSites(f.db, f.writer, TABLES);
+    const before = held.call("slow", "Circe", 300);
     expect(await sender.deliverActions(f.notices, AT + 60_000)).toBe(1);
+    expect(submitted, "ACTION_ATTEMPT_DURABLE_BEFORE_TRANSPORT").toEqual({ outcome: "in_flight", count: 1 });
     expect(f.db.query("SELECT outcome FROM inbox_notice_attempts").get(), "ACTION_DELIVERY_SETTLES_AFTER_ATTEMPT_COMMIT")
       .toEqual({ outcome: "failed" });
     expect(await sender.deliverActions(f.notices, AT + 60_001), "ACTION_DELIVERY_RETRY_SEES_COMMITTED_ATTEMPT").toBe(0);
+    await before;
     await slow;
     expect(new Set(await sites.log()), "ACTION_DELIVERY_ATTEMPTS_COMMIT_ON_WORKER")
       .toEqual(new Set(["inbox_notice_attempts", "inbox_notice_attempt_components"]));
