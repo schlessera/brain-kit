@@ -150,6 +150,8 @@ export interface ActivityStream {
   pump(): void;
   /** Whether any connection currently watches the given session's activity. */
   isWatched(scope: { sessionId?: string; runId?: string }): boolean;
+  /** What `isWatched` answers from, as data: the notifier ticks on the write worker (#2850). */
+  watched(): import("./notify-writes.js").WatchedScopes;
   /** Number of live subscriptions (all connections). */
   subscriptionCount(): number;
   close(): void;
@@ -385,6 +387,16 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
     },
 
     pump,
+
+    watched() {
+      const scopes = { index: false, runs: [] as string[], sessions: [] as string[] };
+      for (const entry of subscriptions.values()) for (const s of entry.subscriptions) {
+        if (s.view === "index") scopes.index = true;
+        else if (s.view === "run" && s.runId) scopes.runs.push(s.runId);
+        else if (s.view === "session" && s.sessionId) scopes.sessions.push(s.sessionId);
+      }
+      return scopes;
+    },
 
     isWatched(scope) {
       for (const entry of subscriptions.values()) {

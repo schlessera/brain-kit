@@ -51,17 +51,20 @@ export interface ActivityNotifierDeps {
 }
 
 export interface ActivityNotifier {
-  /** Detect new terminal failures + stuck runs; create intents. */
-  tick(now?: number): void;
+  /**
+   * Detect new terminal failures + stuck runs; create intents. Off the event
+   * loop (#2850), each write below settles once it has committed.
+   */
+  tick(now?: number): void | Promise<void>;
   /** Unacknowledged intents, newest first (the inbox). */
   inbox(limit?: number): NotificationIntent[];
   /** Intents awaiting delivery (the push sender's queue). */
   pending(limit?: number): NotificationIntent[];
-  markDelivered(id: number, status: "sent" | "send_failed"): void;
-  acknowledge(id: number): boolean;
-  acknowledgeAll(): number;
+  markDelivered(id: number, status: "sent" | "send_failed"): void | Promise<void>;
+  acknowledge(id: number): boolean | Promise<boolean>;
+  acknowledgeAll(): number | Promise<number>;
   /** Retention: delete acknowledged intents untouched for longer than this. */
-  pruneAcknowledged(olderThanMs: number): number;
+  pruneAcknowledged(olderThanMs: number): number | Promise<number>;
 }
 
 /** Global cap on intents CREATED per hour — failure-storm circuit. */
