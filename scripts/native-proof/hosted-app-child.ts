@@ -44,8 +44,8 @@ if (APPLY_TIMING) {
   });
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
-  spyOn(bridges, "makeBridge").mockImplementation((...args: Parameters<typeof makeBridge>) => {
-    const bridge = makeBridge(...args), apply = bridge.applyBrain, awaitIndex = bridge.awaitIndex;
+  spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {
+    const bridge = await makeBridge(...args), apply = bridge.applyBrain, awaitIndex = bridge.awaitIndex;
     if (apply) bridge.applyBrain = async (input: any) => {
       const start = performance.now(); const result = await apply(input);
       event("apply_timing", { operation: input.operation, path: input.path, ms: performance.now() - start, ok: result.ok, indexed: result.indexed, indexStatus: result.indexStatus ?? null });
@@ -64,8 +64,8 @@ const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING ===
 if (OBSERVATION_TIMING) {
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
-  spyOn(bridges, "makeBridge").mockImplementation((...args: Parameters<typeof makeBridge>) => {
-    const bridge = makeBridge(...args), emit = bridge.emit;
+  spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {
+    const bridge = await makeBridge(...args), emit = bridge.emit;
     bridge.emit = (message: any) => {
       if (message.type === "tool_use_start" || message.type === "tool_result") event("timeline_frame", { frame: message.type, toolUseId: message.toolUseId, toolName: message.toolName ?? null, isError: message.isError ?? null, at: performance.now() });
       return emit(message);

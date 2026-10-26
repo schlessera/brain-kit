@@ -6,6 +6,7 @@ import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxStore } from "./store.js";
 import { enqueueInboxCleanup, inboxIdentity } from "./actions.js";
 import { recordInboxProvenance } from "./provenance.js";
+import { inboxResolutionWrites } from "./resolve-writes.js";
 
 const DAY = 86_400_000;
 /** Calendar rule uses one configured timezone; persisted times remain UTC. */
@@ -39,6 +40,8 @@ export function createInboxResolver(db: Database, deps: {
   applyHygiene?: (principalId: string, request: ClientInboxResolve) => Promise<{ replay: boolean; followUpId: string | undefined }>;
 }) {
   const now = deps.now ?? Date.now, timeZone = deps.timeZone ?? "UTC", store = createInboxStore(db, { now });
+  let writes: ReturnType<typeof inboxResolutionWrites> | undefined;
+  const write: ReturnType<typeof inboxResolutionWrites> = (name, ...args) => (writes ??= inboxResolutionWrites(db, timeZone))(name, ...args);
   new Intl.DateTimeFormat("en-US", { timeZone }).format(now());
   function authorized(principalId: string, itemId: string) {
     const principal = resolvePrincipal(db, principalId);
@@ -81,8 +84,9 @@ export function createInboxResolver(db: Database, deps: {
   return {
     inspect,
     async resolveAsync(principalId: string, request: ClientInboxResolve, expectedVersion?: number) {
-      const msg = clientInboxResolveSchema.parse(request), { effect } = inspect(principalId, msg);
-      if (effect.kind !== "hygiene") return this.resolve(principalId, msg, expectedVersion);
+      const msg = clientInboxResolveSchema.parse(request), { effect, thread } = inspect(principalId, msg);
+      if (effect.kind !== "hygiene") return write<{ replay: boolean; followUpId: string | undefined }>(
+        "resolve", principalId, msg, expectedVersion, now(), thread.id, deps.allowedOperations(principalId, thread), JSON.stringify(effect));
       if (!deps.applyHygiene) throw new Error("Hygiene resolution is unavailable");
       return deps.applyHygiene(principalId, msg);
     },
@@ -121,6 +125,11 @@ export function createInboxResolver(db: Database, deps: {
         enqueueInboxCleanup(db, action.threadId, now());
         return { replay: false, followUpId };
       }).immediate();
+    },
+    snoozeAsync(principalId: string, itemId: string, expectedVersion?: number) {
+      const { thread } = authorized(principalId, itemId);
+      return write<{ replay: boolean; followUpId: string | undefined }>(
+        "snooze", principalId, itemId, expectedVersion, now(), thread.id, deps.allowedOperations(principalId, thread));
     },
     snooze(principalId: string, itemId: string, expectedVersion?: number) {
       return db.transaction(() => {

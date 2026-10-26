@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
-import { failInboxWork } from "./actions.js";
+import { inboxLifecycleWrites } from "./lifecycle-writes.js";
 import { safeResolve } from "../files/walker.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
-import { inboxThreadAwaitingSettlement, reapInboxThreadLifetimes } from "./lifetime.js";
+import { reapInboxThreadLifetimes } from "./lifetime.js";
 
 export interface CleanupItemOutcome { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
 export interface CleanupReport { cleaned: number; failed: number; deferred: number; cancelled: boolean; truncated: boolean; items: CleanupItemOutcome[] }
@@ -19,28 +19,8 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
   /** Internal crash fixture between removal and acknowledgement; never wired by createApp. */
   afterRemove?: () => Promise<void> } = {}) {
   const now = options.now ?? Date.now, store = createInboxStore(db, { now });
+  const write = inboxLifecycleWrites(db);
   let active: Promise<CleanupReport> | null = null, closed = false;
-  function claim(id: string): InboxQueueItem | null {
-    return db.transaction(() => {
-      assertInboxRecoveryReady(db);
-      let item = store.getItem(id);
-      if (!item || item.queue !== "queue" || item.type !== "cleanup_pending") return null;
-      if (item.status === "claimed" && item.leaseUntil! <= now()) {
-        failInboxWork(db, item.id, item.version, now());
-        item = store.getItem(id)!;
-      }
-      if (item.queue !== "queue" || item.status !== "ready" || item.attempts >= item.maxAttempts || (item.waitUntil ?? 0) > now()) return null;
-      if (inboxThreadAwaitingSettlement(db, item.threadId)) return null;
-      if (db.query("SELECT 1 FROM inbox_interactive_shares s JOIN inbox_items i ON i.id = s.item_id WHERE i.thread_id = ? AND s.completion_json IS NULL").get(item.threadId)) return null;
-      // Re-raising a decision before compensation begins must protect the
-      // retained staging. Admission and this check share SQLite's write lock.
-      if (db.query(`SELECT 1 FROM inbox_items WHERE thread_id = ? AND deleted_at IS NULL AND
-        ((queue = 'queue' AND type != 'cleanup_pending' AND status IN ('scheduled','ready','claimed','blocked','failed')) OR
-         (queue = 'actions' AND type != 'fyi' AND status IN ('pending','snoozed'))) LIMIT 1`).get(item.threadId)) return null;
-      store.commit([{ kind: "transition", itemId: id, expectedVersion: item.version, to: "claimed", leaseUntil: now() + 60_000 }]);
-      return store.getItem(id) as InboxQueueItem;
-    }).immediate();
-  }
   async function remove(stagingId: string): Promise<void> {
     if (!/^[a-f0-9-]{36}$/.test(stagingId)) throw new Error("Invalid cleanup staging id");
     const root = await safeResolve(SHARE_STAGING_DIR, brainRoot);
@@ -63,7 +43,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
     for (const { id } of rows) {
       if (closed || request?.signal?.aborted) { report.cancelled = true; break; }
       request?.assertAuthorized?.();
-      const item = claim(id);
+      const item = await write<InboxQueueItem | null>("claimCleanup", id, now());
       if (!item || item.type !== "cleanup_pending") { report.deferred++; continue; }
       request?.assertAuthorized?.(); request?.signal?.throwIfAborted();
       request?.onItem?.({ id, state: "running", reason: null });
@@ -74,13 +54,13 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
         reapInboxThreadLifetimes(db, item.threadId);
         // A process killed here leaves a claimed row; restart safely repeats
         // rm, which succeeds even when both directories are already absent.
-        store.commit([{ kind: "transition", itemId: id, expectedVersion: item.version, to: "done" }]);
+        await write("commit", [{ kind: "transition", itemId: id, expectedVersion: item.version, to: "done" }], now());
         report.cleaned++;
         outcome = { id, state: "cleaned", reason: null };
       } catch {
         const current = store.getItem(id);
         if (current?.queue === "queue" && current.status === "claimed" && current.version === item.version)
-          failInboxWork(db, id, item.version, now());
+          await write("fail", id, item.version, now());
         report.failed++;
         outcome = { id, state: "failed", reason: "cleanup_incomplete" };
       }

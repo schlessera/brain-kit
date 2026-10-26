@@ -241,7 +241,7 @@ host.clients.add({ send(text) {
   if (scenario === "mask-stale") writeFileSync(join(brainPath, "notes/raft.png"), "concurrently changed image");
   pending.resolve(png);
 } }, "odysseus");
-const maskBridge = makeBridge(host, maskTurn, "Odysseus worker proof", "pi", {
+const maskBridge = await makeBridge(host, maskTurn, "Odysseus worker proof", "pi", {
   recordApplication(result: BrainApplicationResult) {
     applicationReceipts.push(result);
     if (scenario === "mask-cancel-commit" && result.ok) controller.abort();
