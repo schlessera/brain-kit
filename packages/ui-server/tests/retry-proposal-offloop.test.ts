@@ -244,7 +244,8 @@ test("after a restart, a retry whose clear failed still refuses once a later inp
     f.catalog.acceptWork!("ithaca", "later", "claude", () => {});
     await f.catalog.settled!();
     expect(f.db.query("SELECT turn_id FROM retry_requests").get(), "RETRY_RESTART_OBSOLETE_ROW_LEFT").toEqual({ turn_id: "voyage" });
-    // A restart forgets every in-process invalidation.
+    // The disk recovers, and a restart forgets every in-process invalidation.
+    f.db.exec("DROP TRIGGER refuse_retry_clear");
     const writer = openSqliteWriter(f.db);
     const log = { emit() {} } as unknown as Logger;
     const restarted = createSessionCatalog(() => f.db, log, undefined, { pricing: { resolve: () => null }, store: createActivityStore(f.db, { writer: "odysseus" }), writer });
