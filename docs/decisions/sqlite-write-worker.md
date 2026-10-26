@@ -177,21 +177,32 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   still the host fallback afterwards. A type folder translation that cannot
   be recorded refuses the turn. `holders()`, a diagnostic, still reads on
   the gate's own connection.
-- **Storage history and notice ticks followed** (#2850). History initialization
-  and the bounded history flush, plus notice sweep, begin and finish, commit
-  on the worker (`packages/ui-server/src/storage/history-writes.ts`,
-  `packages/ui-server/src/storage/notify-writes.ts`). Observations and owner
-  reports stay buffered in the app; a flush requested during a commit runs
-  once after it, and pending status includes that commit. The twenty-second
-  sampling tick submits flush and sweep without waiting or overlapping them.
-  Push transport awaits its durable notice intent and completion; shutdown
-  awaits the final history flush. Callers without a writer run the same
-  transactions inline. Operational restore still writes inside its caller's
-  transaction.
+- **Authentication's per-request writes followed** (#2850). A principal's
+  `last_seen_at` touch, terminal-principal pruning, ambient principal
+  resolution and a login's new principal commit on the worker
+  (`packages/ui-server/src/db/principal-writes.ts`). A touch is never waited
+  for and one pending is not submitted again; an ambient principal that is
+  current is read at once; a login answers once its row has committed, and
+  its refusals keep their classes. Revocations and administrative principal
+  writes still commit on the app connection.
+- **Storage history and notices followed** (#2850). The storage history's
+  first row and its bounded flush, and the notice sweep, a delivery's begin
+  and its finish, commit on the worker
+  (`packages/ui-server/src/storage/history-writes.ts`,
+  `packages/ui-server/src/storage/notify-writes.ts`), each the transaction
+  that ran inline. Observations and owner reports stay buffered in the app
+  until a flush commits them; a flush requested while one commits runs once
+  after it. The 20-second sampling tick submits its flush and sweep without
+  waiting, and never overlaps one still committing. A delivery's begin takes
+  the process's buffered history state from where it was submitted and reads
+  the durable history under its own transaction, so a newer observation
+  another process committed meanwhile counts. Push transport awaits begin
+  and finish; shutdown awaits the final flush. Operational restore still
+  writes inside its caller's transaction.
 - **Other app-connection writers stay on the loop for now**: retained
   retries and local exchanges, saved worker profiles, policy
-  proposals, the Activity notifier and push ticks, auth sessions, inbox and
-  settings. Each commits at
+  proposals, the Activity notifier and push ticks, principal revocation and
+  administration, passkeys, inbox and settings. Each commits at
   FULL on the loop, and while a worker procedure holds its turn, such a write
   also waits there for the worker's commit to finish, including a journal
   procedure that writes only `journal.db`, because the ledger's
