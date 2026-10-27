@@ -9,6 +9,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { contrast, parse } from "../../../ui-kit/tests/_contrast.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { createConversationPlayback } from "../../src/voice/conversation-pcm.js";
 import { hidePage } from "./offline/fake-microphone.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
 
@@ -107,9 +108,10 @@ function controlledMicrophone(ctx: TestContext) {
   oscillator.connect(gain); gain.connect(destination); oscillator.start(); void context.resume();
   const media = navigator.mediaDevices;
   const descriptor = Object.getOwnPropertyDescriptor(media, "getUserMedia");
-  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => destination.stream });
+  let opens = 0;
+  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; return destination.stream; } });
   ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); void context.close(); });
-  return { quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
+  return { opens: () => opens, quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
 }
 
 for (const ending of ["leave", "hide", "disconnect"] as const) test(`${ending}: capture closes synchronously, finalized text stays with its original draft, and reconnect never opens it`, async (ctx) => {
@@ -346,7 +348,7 @@ for (const late of [false, true]) test(`hold finalized=${!late}: fresh trustwort
 test("quiet-boundary delivery waits during capture, drains once, and host terminal alone cannot finish playback", async (ctx) => {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start();
-  const audio: ConversationWireEvent = { kind: "audio", outputId: "ithaca-quiet", sequence: 0, pcm: btoa(String.fromCharCode(...new Uint8Array(24_000))), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } };
+  const audio: ConversationWireEvent = { kind: "audio", outputId: "ithaca-quiet", sequence: 0, pcm: outputPcm(0.5), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } };
   s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-quiet-turn", text: "The note is ready" });
   s.event(audio);
   expect(s.client.state.getState().playing).toBe(false);
@@ -362,11 +364,54 @@ test("quiet-boundary delivery waits during capture, drains once, and host termin
   expect(s.socket.frames("conversation_playback")).toHaveLength(1);
 });
 
+function outputPcm(seconds = 1, audibleSeconds = seconds) {
+  const bytes = new Uint8Array(Math.round(48000 * seconds));
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < Math.min(bytes.length / 2, audibleSeconds * 24000); i++) view.setInt16(i * 2, Math.sin(i * 2 * Math.PI * 440 / 24000) * 6000, true);
+  let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+for (const tail of [false, true]) test(`${tail ? "silent tail" : "silence-only"}: transport PCM does not turn user speech into a stop`, async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start(); mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  s.event({ kind: "audio", outputId: "ithaca-silence", sequence: 0, pcm: outputPcm(1, tail ? 0.2 : 0), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  if (tail) await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  await expect.poll(() => s.client.state.getState().playing, { timeout: 600 }).toBe(false);
+  // The real source still has PCM queued; draining the source is not the
+  // same thing as reaching the end of potentially audible samples.
+  expect(s.socket.frames("conversation_playback")).toHaveLength(0);
+  const before = s.socket.frames("conversation_audio").length;
+  mic.speak();
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.client.state.getState().interaction).not.toBe("Checking whether the reply stopped");
+});
+
+for (const receipt of ["output", "work"] as const) test(`Start before ready waits visibly, then opens capture after the last ${receipt} resync receipt`, async (ctx) => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx);
+  s.client.enter();
+  s.socket.deliver({ ...PROFILE, resync: { work: receipt === "work" ? 1 : 0, outputs: receipt === "output" ? 1 : 0 }, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
+  await expect.poll(() => s.button("Start")).not.toBeUndefined();
+  await userEvent.click(s.button("Start"));
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().notice).toContain("Waiting for voice readiness");
+  s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  expect(s.client.state.getState().notice).toContain("Synchronizing voice");
+  if (receipt === "output") s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "ithaca-old", generated: "Earlier reply", playback: "unknown" });
+  else s.deliver({ type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 1, utteranceId: "ithaca-old-input", requestId: "ithaca-old-work", state: "completed", delivery: "returned", recognized: "Find the departure note", submitted: "Find the departure note" });
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().notice).toBe("");
+});
+
 test("barge-in from actual PCM speech cuts output and leaves capture off until host resync", async (ctx) => {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start(); mic.quiet();
   await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
-  s.event({ kind: "audio", outputId: "ithaca-barge", sequence: 0, pcm: btoa(String.fromCharCode(...new Uint8Array(48_000))), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  s.event({ kind: "audio", outputId: "ithaca-barge", sequence: 0, pcm: outputPcm(), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
   mic.speak();
   await expect.poll(() => s.client.state.getState().playing).toBe(false);
@@ -583,4 +628,128 @@ for (const theme of ["dark", "light"] as const) test(`permission layout ${theme}
   for (const target of strip.querySelectorAll<HTMLElement>('[role="button"],button')) expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   expect(strip.scrollWidth).toBeLessThanOrEqual(strip.clientWidth);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/${theme}-320-permission.png` });
+});
+
+test("scheduled audible output stays pending during leading silence and becomes speaking on the audio clock", async (ctx) => {
+  const reports: string[] = [];
+  const playback = createConversationPlayback((id) => reports.push(id), () => {});
+  ctx.onTestFinished(() => playback.dispose());
+  playback.quiet(true);
+  playback.enqueue("ithaca-leading-silence", new Uint8Array(24000), { encoding: "pcm16", channels: 1, sampleRate: 24000 });
+  playback.enqueue("ithaca-future-tone", Uint8Array.from(atob(outputPcm()), c => c.charCodeAt(0)), { encoding: "pcm16", channels: 1, sampleRate: 24000 });
+  expect(playback.pending()).toBe(true);
+  expect(playback.playingIds()).toEqual([]);
+  await expect.poll(() => playback.playingIds()).toEqual(["ithaca-future-tone"]);
+  expect(reports).toEqual(["ithaca-leading-silence"]);
+  playback.cut();
+  expect(playback.pending()).toBe(false);
+  expect(playback.playingIds()).toEqual([]);
+});
+
+test("speech before a scheduled audible reply cancels the queued sources without closing capture", async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start(); mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  s.event({ kind: "audio", outputId: "ithaca-leading", sequence: 0, pcm: outputPcm(1, 0), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  s.event({ kind: "audio", outputId: "ithaca-future", sequence: 0, pcm: outputPcm(), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  const before = s.socket.frames("conversation_audio").length;
+  mic.speak();
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.socket.frames("conversation_playback").map(frame => frame.outputId)).toEqual(["ithaca-leading", "ithaca-future"]);
+  expect(s.client.state.getState().playing).toBe(false);
+});
+
+test("microphone permission denial is visible and a late ready cannot undo explicit mute", async (ctx) => {
+  const media = navigator.mediaDevices;
+  const descriptor = Object.getOwnPropertyDescriptor(media, "getUserMedia");
+  let calls = 0;
+  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { calls++; throw new DOMException("Fixture permission refusal", "NotAllowedError"); } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); });
+  const s = await scene(ctx); await s.enter();
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().notice).toContain("Microphone permission denied");
+  expect(s.client.state.getState().micOn).toBe(false);
+  await expect.poll(() => s.host.textContent).toContain("Microphone permission denied");
+  s.client.mute();
+  s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  expect(calls).toBe(1);
+  expect(s.client.state.getState().notice).toContain("Microphone muted");
+});
+
+test("mute while awaiting readiness withdraws Start consent", async (ctx) => {
+  const s = await scene(ctx); s.client.enter();
+  s.socket.deliver({ ...PROFILE, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
+  s.client.start(); s.client.mute();
+  s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  // Wait for a real audio scheduling boundary; an erroneously opened capture
+  // would have completed by then, even with a silent fake microphone.
+  const clock = new AudioContext(); const source = clock.createBufferSource();
+  source.buffer = clock.createBuffer(1, 12000, 24000); source.connect(clock.destination);
+  await clock.resume();
+  await new Promise<void>(resolve => { source.onended = () => resolve(); source.start(); });
+  await clock.close();
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.socket.frames("conversation_audio")).toHaveLength(0);
+});
+
+test("Resume before a replacement disclosure cannot authorize a changed voice service", async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start();
+  expect(mic.opens()).toBe(1);
+  s.client.stopReply();
+  s.client.resume();
+  s.socket.deliver({ ...PROFILE, epoch: 2, disclosure: { voiceService: "Changed Odysseus voice fixture", destinations: ["Changed fixture destination. Retention: unknown."] }, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
+  s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, 2);
+  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(1);
+  expect(s.client.state.getState().notice).toContain("Review the voice service disclosure");
+});
+
+test("reconnect and its ready event keep capture closed until explicit Resume", async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start();
+  s.network.drop({ announce: true });
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  s.network.recover(); s.ui.connection.reconnectNow();
+  await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  const replacement = s.network.socket()!;
+  await expect.poll(() => replacement.frames("conversation_start").length).toBe(1);
+  replacement.deliver({ ...PROFILE, epoch: 2, requestId: replacement.frames("conversation_start").at(-1)?.requestId });
+  replacement.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch: 2, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(1);
+  s.client.resume();
+  expect(mic.opens()).toBe(2);
+});
+
+for (const reason of ["stopped", "replaced"] as const) test(`Resume before the old epoch's ${reason} receipt keeps the replacement opening and mic consent`, async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start();
+  const previousRequest = s.socket.frames("conversation_start")[0]?.requestId;
+  s.client.stopReply(); s.client.resume();
+  expect(s.socket.frames("conversation_start")).toHaveLength(2);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId: String(previousRequest), reason });
+  s.opened(2);
+  expect(mic.opens()).toBe(2);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().profile?.epoch).toBe(2);
+});
+
+test("ordinary working, speaking and reply-drained state changes keep the microphone open", async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start(); mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  s.deliver({ type: "status", sessionId: SESSION, status: "thinking", turnId: "ithaca-speaking-turn" });
+  s.event({ kind: "output_transcript", outputId: "ithaca-drained", sequence: 0, text: "The departure note is ready." });
+  s.event({ kind: "audio", outputId: "ithaca-drained", sequence: 0, pcm: outputPcm(0.2), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  await expect.poll(() => s.client.state.getState().interaction).toBe("Speaking");
+  expect(s.client.state.getState().micOn).toBe(true);
+  s.deliver({ type: "result", sessionId: SESSION, turnId: "ithaca-speaking-turn", durationMs: 100, numTurns: 1, isError: false });
+  await expect.poll(() => s.socket.frames("conversation_playback").at(-1)?.playback).toBe("played");
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(1);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
 });
