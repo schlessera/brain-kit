@@ -1678,6 +1678,8 @@ export const conversationWireEventSchema = z.union([
     output: conversationAudioFormatSchema,
   }),
   inputFragmentEventSchema,
+  z.looseObject({ kind: z.literal("unassigned_input_fragment"), sequence: conversationSequence, text: fragmentText, sessionInterval: conversationIntervalSchema }),
+  z.looseObject({ kind: z.literal("unassigned_delegation"), handle: id, offsetMs: z.number().nonnegative() }),
   z.looseObject({
     kind: z.literal("output_transcript"),
     outputId: id,

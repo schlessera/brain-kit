@@ -92,6 +92,9 @@ interface Epoch {
   /** Advisory provider requests not yet bound to committed work. */
   nativePending: Map<string, { utteranceId?: string }>;
   lastAudioSequence: number;
+  unassignedCount: number;
+  unassignedChars: number;
+  unassignedHandles: Set<string>;
   /** Utterance ids this epoch evicted; one never comes back as new input. */
   retiredUtterances: Set<string>;
 }
@@ -201,6 +204,7 @@ export class ConversationHost {
       closed: false,
       utterances: new Map(),
       nativePending: new Map(),
+      unassignedCount: 0, unassignedChars: 0, unassignedHandles: new Set(),
       lastAudioSequence: -1,
       retiredUtterances: new Set(),
     };
@@ -477,6 +481,28 @@ export class ConversationHost {
           kind: "ready", ...(event.model ? { model: event.model } : {}), ...(event.api ? { api: event.api } : {}),
           input: { ...event.input }, output: { ...event.output },
         } });
+        return;
+      }
+      case "unassigned_input_fragment": {
+        if (event.sequence !== epoch.unassignedCount) {
+          this.endEpoch(conversation, "correlation", "Unassigned recognition arrived out of sequence.", epoch); return;
+        }
+        if (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars) {
+          this.endEpoch(conversation, "backpressure", "Unassigned recognition is full. Review the retained text before restarting voice.", epoch); return;
+        }
+        epoch.unassignedCount++; epoch.unassignedChars += event.text.length;
+        this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text, sessionInterval: { ...event.sessionInterval } } });
+        return;
+      }
+      case "unassigned_delegation": {
+        if (epoch.unassignedHandles.has(event.handle)) return;
+        if (epoch.unassignedHandles.size >= CONVERSATION_LIMITS.maxPendingNativeRequests) {
+          this.endEpoch(conversation, "backpressure", "Unassigned voice requests are full. These requests were not submitted.", epoch); return;
+        }
+        epoch.unassignedHandles.add(event.handle);
+        // Deliberately outside nativePending: arrival order cannot bind this
+        // advisory request to committed work, including work already running.
+        this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, handle: event.handle, offsetMs: event.offsetMs } });
         return;
       }
       case "input_fragment": {
