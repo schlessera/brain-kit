@@ -280,7 +280,11 @@ and principal changes, corrupt persisted records and Liveness B remain native.
 The one-kind real-socket suite adds transport proof; it does not replace browser
 storage, form callbacks or the other three adapters. Liveness B uses controlled
 browser time at the production thresholds, with real greetings, correlated
-pongs and resync frames; no product deadline is shortened.
+pongs and resync frames; no product deadline is shortened. Before measuring
+idle, it consumes the session's native terminal Activity lifecycle and final
+idle status while the page clock is paused. Rendering a backend result alone
+does not establish silence: asynchronous host finalization can still publish a
+valid frame that correctly restarts the client's idle clock.
 
 None of this reproduces a phone's suspended timers or its background policy.
 The phone PWA check reserved on #910 is still owed.
