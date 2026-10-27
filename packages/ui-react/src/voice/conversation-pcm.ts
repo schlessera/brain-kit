@@ -136,6 +136,17 @@ export function createConversationPlayback(report: (outputId: string, state: Con
     }
     changed(); scheduleBoundary();
   }
+  function flush(retire: boolean) {
+    generation++;
+    clearTimeout(boundary);
+    const ids = new Set([...live.values()].map(item => item.outputId).concat(waiting.map((chunk) => chunk.outputId)));
+    waiting.length = 0;
+    for (const source of live.keys()) { source.onended = null; source.stop(); source.disconnect(); }
+    live.clear();
+    availableAt = 0;
+    for (const id of ids) { if (retire) discarded.add(id); report(id, touched.has(id) ? "unknown" : "discarded"); }
+    changed();
+  }
   return {
     enqueue(outputId: string, bytes: Uint8Array, format: ConversationAudioFormat) {
       if (discarded.has(outputId)) return;
@@ -147,17 +158,10 @@ export function createConversationPlayback(report: (outputId: string, state: Con
     pending: () => waiting.length > 0 || live.size > 0,
     playing: () => playingIds().length > 0,
     playingIds,
-    cut() {
-      generation++;
-      clearTimeout(boundary);
-      const ids = new Set([...live.values()].map(item => item.outputId).concat(waiting.map((chunk) => chunk.outputId)));
-      waiting.length = 0;
-      for (const source of live.keys()) { source.onended = null; source.stop(); source.disconnect(); }
-      live.clear();
-      availableAt = 0;
-      for (const id of ids) { discarded.add(id); report(id, touched.has(id) ? "unknown" : "discarded"); }
-      changed();
-    },
+    // A local floor/tone flush cannot retire an epoch-wide provider identity.
+    // Only cancellation/teardown rejects later chunks with the same identity.
+    flush() { flush(false); },
+    cut() { flush(true); },
     dispose() {
       this.cut();
       blocked = true;

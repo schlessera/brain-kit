@@ -64,7 +64,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const localTones = new Set<string>();
   let playback = makePlayback();
   const permissions = createConversationPermissions(root, send, () => ({ active: state.getState().active, sessionId: state.getState().sessionId, micOn: state.getState().micOn, isolated: scope()?.capabilities.echoIsolatedInput === "supported", quiet: !state.getState().micOn || ended && !hold }), () => {
-    playback.cut();
+    playback.flush();
     const outputId = crypto.randomUUID(); localTones.add(outputId);
     const bytes = new Uint8Array(12000); const view = new DataView(bytes.buffer);
     for (let i = 0; i < bytes.length / 2; i++) view.setInt16(i * 2, Math.sin(i * 2 * Math.PI * 660 / 24000) * 1600 * Math.sin(i * Math.PI / (bytes.length / 2)), true);
@@ -177,7 +177,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         lastSpeech = performance.now();
         clearTimeout(hold); hold = undefined;
         if (playback.playingIds().some(id => !localTones.has(id))) { stopReply(); return; }
-        if (playback.pending()) playback.cut();
+        if (playback.pending()) playback.flush();
         playback.quiet(false);
         if (!utterance || ended) { if (capturedInputs.size >= 4096) { pause(true); state.setState({ notice: "Restart voice to continue this long conversation." }); return; } utterance = crypto.randomUUID(); capturedInputs.add(utterance); ended = false; }
         clearTimeout(silence);

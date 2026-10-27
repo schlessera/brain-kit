@@ -390,6 +390,51 @@ for (const tail of [false, true]) test(`${tail ? "silent tail" : "silence-only"}
   expect(s.client.state.getState().interaction).not.toBe("Checking whether the reply stopped");
 });
 
+// GPT-Live has one output identity for the entire epoch, including later
+// replies (the adapter's audio/output_transcript handlers), not one per turn.
+for (const trigger of ["silence-only", "silent tail", "permission earcon"] as const) test(`${trigger}: later GPT-Live replies reuse the epoch output ID after a local flush`, async (ctx) => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start();
+  const outputId = `output-${PROFILE.epoch}`;
+  let sequence = 0;
+  const audio = (pcm: string) => s.event({ kind: "audio", outputId, sequence: sequence++, pcm, format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  if (trigger === "permission earcon") {
+    // Waiting provider transport is flushed by the once-only local tone.
+    audio(outputPcm(1, 0));
+    approval(s, "ithaca-stream-announcement");
+    mic.quiet();
+    await expect.poll(() => s.client.permissions.state.getState().records[0]?.announced).toBe(true);
+  } else {
+    mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+    audio(outputPcm(1, trigger === "silent tail" ? 0.2 : 0));
+    if (trigger === "silent tail") await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(() => s.client.state.getState().playing, { timeout: 600 }).toBe(false);
+    const before = s.socket.frames("conversation_audio").length;
+    mic.speak();
+    await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+    mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(2);
+  }
+  // Repeated replies and input turns must survive without Resume/new epoch.
+  for (let turn = 0; turn < 2; turn++) {
+    s.event({ kind: "output_transcript", outputId, sequence: sequence++, text: "The departure note is ready." });
+    const played = s.socket.frames("conversation_playback").filter(frame => frame.outputId === outputId && frame.playback === "played").length;
+    audio(outputPcm(0.3));
+    await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(() => s.socket.frames("conversation_playback").filter(frame => frame.outputId === outputId && frame.playback === "played").length).toBe(played + 1);
+    const before = s.socket.frames("conversation_audio").length;
+    const endpoints = s.socket.frames("conversation_endpoint").length;
+    mic.speak();
+    await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+    mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(endpoints + 1);
+  }
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+});
+
 for (const receipt of ["output", "work"] as const) test(`Start before ready waits visibly, then opens capture after the last ${receipt} resync receipt`, async (ctx) => {
   controlledMicrophone(ctx);
   const s = await scene(ctx);
@@ -644,6 +689,43 @@ test("scheduled audible output stays pending during leading silence and becomes 
   playback.cut();
   expect(playback.pending()).toBe(false);
   expect(playback.playingIds()).toEqual([]);
+});
+
+test("cancellation cut retires both live and waiting identities even after the quiet gate reopens", async (ctx) => {
+  const reports: { id: string; state: string }[] = [];
+  const playback = createConversationPlayback((id, state) => reports.push({ id, state }), () => {});
+  ctx.onTestFinished(() => playback.dispose());
+  const format = { encoding: "pcm16", channels: 1, sampleRate: 24000 } as const;
+  const pcm = Uint8Array.from(atob(outputPcm()), c => c.charCodeAt(0));
+  playback.quiet(true);
+  playback.enqueue("output-1", pcm, format);
+  await expect.poll(() => playback.playing()).toBe(true);
+  playback.quiet(false);
+  playback.enqueue("ithaca-waiting", pcm, format);
+  playback.cut();
+  expect(reports).toEqual([{ id: "output-1", state: "unknown" }, { id: "ithaca-waiting", state: "discarded" }]);
+  playback.quiet(true);
+  playback.enqueue("output-1", pcm, format);
+  playback.enqueue("ithaca-waiting", pcm, format);
+  expect(playback.pending(), "late cancelled chunks cannot restart even with an open quiet gate").toBe(false);
+  expect(playback.playing()).toBe(false);
+  expect(reports).toHaveLength(2);
+});
+
+test("replacement epoch rejects old PCM but plays the new epoch output identity", async (ctx) => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start();
+  s.client.mute();
+  s.client.stopReply(); s.client.resume(); s.opened(2);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.client.mute();
+  const audio = (epoch: number) => s.event({ kind: "audio", outputId: `output-${epoch}`, sequence: 0, pcm: outputPcm(0.3), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, epoch);
+  audio(1);
+  expect(s.client.state.getState().playing).toBe(false);
+  audio(2);
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_playback").filter(frame => frame.outputId === "output-2" && frame.playback === "played").length).toBe(1);
+  expect(s.socket.frames("conversation_playback").some(frame => frame.outputId === "output-1")).toBe(false);
 });
 
 test("speech before a scheduled audible reply cancels the queued sources without closing capture", async (ctx) => {
