@@ -51,7 +51,11 @@ afterEach(() => {
     timers.clear();
     clients.clear();
   }
-  if (failures.length) throw new AggregateError(failures, "WebSocket client fixture teardown failed");
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    const details = failures.map(error => error instanceof Error ? error.stack ?? error.message : String(error));
+    throw new AggregateError(failures, `WebSocket client fixture teardown failed:\n${details.join("\n")}`);
+  }
 });
 
 function ownedClient(options: ConstructorParameters<typeof BrainUiClient>[0]): BrainUiClient {
