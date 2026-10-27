@@ -149,7 +149,12 @@ async function openGemini(
         // retain arrival order and cannot resume after their epoch has ended.
         frame = new TextDecoder("utf-8", { fatal: true }).decode(data);
       } else throw new Error();
-      const parsed = messageSchema.safeParse(JSON.parse(frame));
+      const raw: unknown = JSON.parse(frame);
+      // Google's SDK also distinguishes empty raw envelopes from nonempty
+      // payloads stripped by its converter. See the investigation's #3040 note.
+      // No ack, finality, attribution, output or authority follows from {}.
+      if (ready && raw !== null && typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length === 0) return;
+      const parsed = messageSchema.safeParse(raw);
       if (!parsed.success || Object.keys(parsed.data).length === 0) throw new Error();
       const m = parsed.data;
       if (m.error !== undefined) { fail("Gemini Live provider error."); return; }

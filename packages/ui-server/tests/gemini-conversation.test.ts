@@ -92,6 +92,60 @@ test("Gemini parameterless host_task completes a schema-checking peer handshake"
   await expect(fixture(true, true, true)).resolves.toMatchObject({ provider: { id: "gemini-live" } });
 });
 
+// Empty envelopes carry no meaning; check raw keys before schema stripping.
+for (const wire of ["text", "binary", "arraybuffer"] as const) {
+  test(`Gemini ${wire} literal empty envelope permits later transcript and audio without authority`, async () => {
+    const f = await fixture(true, true, false, wire);
+    await f.audio(); f.session.markEndpoint("u1");
+    f.emit({ voiceActivity: { type: "ACTIVITY_END", audioOffset: "1s" } });
+    f.emit({});
+    f.emit({ serverContent: {
+      inputTranscription: { text: "Check the Ithaca note." },
+      outputTranscription: { text: "The ship is ready for Ithaca." },
+      modelTurn: { parts: [{ inlineData: { data: "AAA=", mimeType: "audio/pcm;rate=24000" } }] },
+    } });
+    await until(() => f.received.length > 1);
+    expect(f.received.map((e) => e.kind)).toEqual(["ready", "input_fragment", "output_transcript", "audio"]);
+    expect(f.frameTypes).toEqual([wire, wire, wire, wire]);
+    expect(f.received[1]).toMatchObject({ utteranceId: "u1", sequence: 0,
+      finalization: "unknown", certainty: "unknown", origin: "unknown" });
+    const output = f.received[2] as Extract<LiveConversationEvent, { kind: "output_transcript" }>;
+    expect(output).toMatchObject({ sequence: 0, text: "The ship is ready for Ithaca." });
+    expect(f.received[3]).toMatchObject({ outputId: output.outputId, sequence: 1, pcm: new Uint8Array([0, 0]) });
+    expect(f.provider.capabilities).toMatchObject({ finalTranscript: "unproven", remoteOutputCancelAck: "unproven",
+      exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" });
+    await until(() => f.sent.some((m) => m.realtimeInput?.activityEnd));
+    expect(f.sent.length).toBe(4); // setup, activityStart, audio, activityEnd only
+    expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 1, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("correlation");
+  });
+
+  test(`Gemini ${wire} empty envelope cannot replace setupComplete`, async () => {
+    const f = await fixture(false, false, false, wire);
+    f.emit({});
+    f.emit({ setupComplete: {} });
+    await expect(f.opening).rejects.toThrow("invalid or uncorrelatable frame");
+  });
+
+  for (const [label, frame] of [
+    ["null JSON", "null"], ["empty array", "[]"], ["string JSON", '\"\"'],
+    ["number JSON", "0"], ["boolean JSON", "false"], ["malformed JSON", "{"],
+    ["unknown-only nonempty", '{"futureProviderField":{}}'],
+    ["malformed recognized", '{"serverContent":false}'],
+    ["oversized empty envelope", " ".repeat(262143) + "{}"],
+  ]) {
+    test(`Gemini ${wire} ${label} remains rejected after empty envelope`, async () => {
+      const f = await fixture(true, true, false, wire);
+      f.emit({});
+      f.emitRaw(wire === "text" ? frame! : Buffer.from(frame!));
+      f.emit({ serverContent: { outputTranscription: { text: "Must not be delivered." } } });
+      await until(() => f.received.length > 1);
+      expect(f.received.map((e) => e.kind)).toEqual(["ready", "error"]);
+      expect(f.frameTypes.length).toBeGreaterThanOrEqual(3); // rejection reached the second frame
+      expect(f.received[1]).toMatchObject({ message: "Gemini Live returned an invalid or uncorrelatable frame." });
+    });
+  }
+}
+
 // Provider VAD metadata is transport bookkeeping, never acoustic attribution.
 for (const wire of ["text", "binary", "arraybuffer"] as const) {
   test(`Gemini ${wire} voiceActivity metadata preserves subsequent audio and unknown input attribution`, async () => {
@@ -234,6 +288,7 @@ for (const wire of ["binary", "arraybuffer"] as const) {
           const bytes = new TextEncoder().encode(JSON.stringify(frame));
           f.dispatch(wire === "arraybuffer" ? bytes.buffer : bytes);
         };
+        lateFrame({});
         lateFrame({ voiceActivity: { type: "ACTIVITY_END", audioOffset: "1s" } });
         lateFrame({ setupComplete: {} });
         lateFrame({ toolCall: { functionCalls: [{ id: "late", name: "host_task" }] } });

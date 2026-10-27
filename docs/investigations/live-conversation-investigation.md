@@ -76,6 +76,24 @@ Activity ending is evidence for a candidate endpoint, not permission to
 execute a consequential tool. [Live protocol](https://ai.google.dev/api/live),
 [audio capabilities](https://ai.google.dev/gemini-api/docs/live-api/capabilities).
 
+**Empty receive envelopes (#3040):** two bounded digital attempts after the
+voiceActivity correction reached setup and transcribed the fictional input,
+then received literal `{}` after activity end and before captured audio.
+Those receipts establish neither an audio reply nor completion. The
+[server-message reference](https://ai.google.dev/api/live.md#BidiGenerateContentServerMessage)
+assigns no acknowledgment or finality meaning to an empty envelope. Google's
+[Python `AsyncSession._receive` path](https://github.com/googleapis/python-genai/blob/daac53e8ad1731e8c0067a3e83fd3dfab6973c3f/google/genai/live.py)
+allows an empty raw response but raises an API error when a nonempty raw
+response converts to nothing; its
+[`_LiveServerMessage_from_mldev` converter](https://github.com/googleapis/python-genai/blob/daac53e8ad1731e8c0067a3e83fd3dfab6973c3f/google/genai/_live_converters.py)
+copies present recognized fields (source checked 2026-10-27). This supports
+ignoring a decoded object with zero raw keys after setup, within the existing
+byte and JSON bounds. Check raw keys before schema stripping: unknown-only
+nonempty objects still fail. Empty envelopes emit and send nothing; they do
+not complete setup, finalize input, change attribution or establish any
+permission/capability. Real loopback tests show later fictional transcript and
+PCM frames can continue; they supply no new live audio qualification.
+
 For an admitted native call, preserve its `id` and `name`. Send a bounded,
 host-reviewed function result with **top-level** `scheduling: "SILENT"` for
 quiet context or `"WHEN_IDLE"` for ordinary response, and `willContinue: false`
