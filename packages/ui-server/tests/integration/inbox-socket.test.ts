@@ -44,15 +44,22 @@ async function start(path: string) {
   cleanup.push(close);
   return { app, url: `ws://127.0.0.1:${server.port}/ws`, close, starts: () => starts };
 }
-async function connect(running: Awaited<ReturnType<typeof start>>) {
+async function connect(running: Awaited<ReturnType<typeof start>>, delayExecuteProjection = false) {
   const principal = createPrincipal(running.app.db, { authMethod: "password", label: "Example browser", ttlSeconds: 3600 });
   const cookie = await serializeSigned("brain_ui_session", principal.id, SECRET);
   const frames: ServerMessage[] = [];
   const errors: string[] = [];
   const closes: number[] = [];
+  const projectionTimers = new Set<ReturnType<typeof setTimeout>>();
+  cleanup.push(() => { for (const timer of projectionTimers) clearTimeout(timer); });
   const client = new BrainUiClient({ url: running.url,
     socketFactory: (url) => new NativeWebSocket(url, { headers: { cookie } }),
-    handlers: { onAny: (f) => frames.push(f) },
+    handlers: { onAny: (f) => {
+      if (delayExecuteProjection && f.type === "inbox_delta" && f.change.kind === "upsert_item" && f.change.item.type === "execute") {
+        const timer = setTimeout(() => { projectionTimers.delete(timer); frames.push(f); }, 250);
+        projectionTimers.add(timer);
+      } else frames.push(f);
+    } },
     onProtocolError: (e) => errors.push(`${e.reason}: ${e.detail}`),
     onClose: (e) => closes.push(e.code),
   });
@@ -247,7 +254,9 @@ test("two real clients resolve stored work once, converge both views and make ze
   const source = ingest(store, "resolution"), decision = action("decision", source.thread.id);
   store.commit([{ kind: "item", item: decision }, { kind: "transition", itemId: source.item.id, expectedVersion: 1, to: "claimed", leaseUntil: Date.now() + 600_000 },
     { kind: "transition", itemId: source.item.id, expectedVersion: 2, to: "blocked", blockedByItemId: decision.id }]);
-  const first = await connect(running), second = await connect(running);
+  // Resolve the Action before one client's native execute frame enters its projection.
+  // This preserves the delivery race even when the socket callbacks run in one burst.
+  const first = await connect(running), second = await connect(running, true);
   bothViews(first); bothViews(second);
   expect(await waitFor(() => project(first.frames, "actions").items.length === 1 && project(second.frames, "actions").items.length === 1)).toBe(true);
   expect(decision.options).toHaveLength(1);
@@ -263,7 +272,7 @@ test("two real clients resolve stored work once, converge both views and make ze
   expect(running.app.db.query("SELECT COUNT(*) AS n FROM inbox_resolutions").get()).toEqual({ n: 1 });
   expect(store.getItem(source.item.id)).toMatchObject({ status: "superseded" });
   expect(running.starts()).toBe(0);
-  expect(await waitFor(() => project(first.frames, "actions").items[0]?.status === "resolved" && project(second.frames, "actions").items[0]?.status === "resolved")).toBe(true);
+  expect(await waitFor(() => hasConverged(first, store) && hasConverged(second, store))).toBe(true);
   assertConverged(first, store); assertConverged(second, store);
   expect(first.errors).toEqual([]); expect(second.errors).toEqual([]);
 });
