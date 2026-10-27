@@ -60,7 +60,11 @@ The keyless `conversation-diagnostic-samples.offline.tsx` browser proof uses the
 actual playback queue and tap at 48 kHz. A deterministic nonrepeating PCM buffer,
 a final 37-sample chunk and both silence edges are compared sample by sample
 against scheduled frame offsets. There is no onset search or trimming to discard
-lost startup/finish samples. A second case runs a separate synthetic input
+lost startup/finish samples. Both silence edges require exact zero. Inside the
+signal only, the comparison allows numerical differences up to `1e-9` (over
+30,000 times smaller than one PCM16 step) and reports their count and maximum
+error. Fractional scheduled-frame values are logged too; no raw sample is altered
+or a discrepancy hidden. A second case runs a separate synthetic input
 AudioContext/AudioWorklet with zero input and no microphone. This bounded topology
 probe cannot establish absence of an intermittent browser anomaly. These graph-only
 cases have no provider output and therefore never claim paired-capture completeness.

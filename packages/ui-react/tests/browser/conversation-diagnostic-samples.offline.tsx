@@ -49,7 +49,7 @@ for (const secondContext of [false, true]) test(`diagnostic compares every nonre
     const schedules = result.metadata.events.filter((e): e is { kind: string; outputId: string; start: number; frames: number } => "kind" in e && e.kind === "playback-scheduled");
     const start = Math.round(schedules.find(e => e.outputId === "odysseus-nonrepeating")!.start * 48000) - result.metadata.mix.firstFrame!;
     const comparison = compareScheduledSamples(mix, expected, start);
-    console.log("Nonrepeating output graph proof", JSON.stringify({ secondContext, firstFrame: result.metadata.mix.firstFrame, start, comparison, issues: result.metadata.issues, gaps: result.metadata.events.filter(e => "kind" in e && e.kind === "render-gap") }));
+    console.log("Nonrepeating output graph proof", JSON.stringify({ secondContext, firstFrame: result.metadata.mix.firstFrame, start, comparison, scheduledFrameFractions: schedules.map(e => e.start * 48000 - Math.round(e.start * 48000)), issues: result.metadata.issues, gaps: result.metadata.events.filter(e => "kind" in e && e.kind === "render-gap") }));
     expect(comparison.mismatches, JSON.stringify(comparison)).toBe(0);
     expect(comparison.startupSamples).toBeGreaterThanOrEqual(4800);
     expect(comparison.finishSamples).toBeGreaterThan(4800);
