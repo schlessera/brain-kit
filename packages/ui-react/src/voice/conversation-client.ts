@@ -64,7 +64,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const localTones = new Set<string>();
   let playback = makePlayback();
   const permissions = createConversationPermissions(root, send, () => ({ active: state.getState().active, sessionId: state.getState().sessionId, micOn: state.getState().micOn, isolated: scope()?.capabilities.echoIsolatedInput === "supported", quiet: !state.getState().micOn || ended && !hold }), () => {
-    playback.cut();
+    playback.flush();
     const outputId = crypto.randomUUID(); localTones.add(outputId);
     const bytes = new Uint8Array(12000); const view = new DataView(bytes.buffer);
     for (let i = 0; i < bytes.length / 2; i++) view.setInt16(i * 2, Math.sin(i * 2 * Math.PI * 660 / 24000) * 1600 * Math.sin(i * Math.PI / (bytes.length / 2)), true);
@@ -139,7 +139,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const profile = scope();
     if (profile && notify) send({ type: "conversation_stop", conversationId: profile.conversationId, ...(resumable ? { resumable: true } : {}) });
     ready = false; consent = false; requested = false;
-    state.setState({ connection: lost ? "Speech lost" : "Reconnecting", notice: lost ? "Reply outcome unknown until reconnect" : state.getState().notice });
+    state.setState({ connection: lost ? "Speech lost" : "Reconnecting", notice: lost ? "Speech lost. Microphone off; reply outcome unknown until reconnect." : "Microphone off. Resume when voice is ready." });
     announce(lost ? "Speech lost. Chat is still connected." : "Microphone off");
   }
   function leave() {
@@ -159,10 +159,17 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   async function capture() {
     const profile = scope();
-    if (!state.getState().active || !ready || resync !== 0 || !consent || stopFence || !profile || mic || state.getState().connection !== "Connected") return;
+    if (!state.getState().active || !consent || !profile || mic) return;
+    const reason = state.getState().disclosureOpen ? "Review the voice service disclosure. Microphone off."
+      : state.getState().connection !== "Connected" ? "Waiting for the voice connection. Microphone off."
+      : !ready ? "Waiting for voice readiness. Microphone off."
+      : resync !== 0 ? "Synchronizing voice. Microphone off."
+      : stopFence ? "Checking whether the reply stopped. Microphone off." : "";
+    if (reason) { state.setState({ notice: reason }); return; }
     const own = generation;
     const input = inputFormat;
     if (!input) return;
+    state.setState({ notice: "Opening microphone. Check browser permission if prompted." });
     const captureSession = openConversationMicrophone(input.sampleRate, (pcm, speaking) => {
       if (!current(own) || mic !== captureSession) return;
       if (speaking) {
@@ -170,7 +177,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         lastSpeech = performance.now();
         clearTimeout(hold); hold = undefined;
         if (playback.playingIds().some(id => !localTones.has(id))) { stopReply(); return; }
-        if (playback.playing()) playback.cut();
+        if (playback.pending()) playback.flush();
         playback.quiet(false);
         if (!utterance || ended) { if (capturedInputs.size >= 4096) { pause(true); state.setState({ notice: "Restart voice to continue this long conversation." }); return; } utterance = crypto.randomUUID(); capturedInputs.add(utterance); ended = false; }
         clearTimeout(silence);
@@ -182,11 +189,17 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (!send({ type: "conversation_audio", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance, sequence: sequence++, rate: input.sampleRate, pcm: btoa(binary) })) pause(true);
     }, () => {
       if (!current(own) || mic !== captureSession) return;
-      state.setState({ micOn: true }); playback.quiet(true); announce("Microphone on"); refresh();
-    }, () => { if (current(own) && mic === captureSession) pause(true); });
+      state.setState({ micOn: true, notice: "" }); playback.quiet(true); announce("Microphone on"); refresh();
+    }, () => { if (current(own) && mic === captureSession) { pause(true); state.setState({ notice: "Microphone input ended. Check the device, then resume." }); } });
     mic = captureSession;
     try { await captureSession.ready; }
-    catch { if (current(own) && mic === captureSession) { stopMic(); state.setState({ notice: "Microphone could not be opened. Use the screen." }); } }
+    catch (error) { if (current(own) && mic === captureSession) {
+      stopMic(); consent = false;
+      const name = error instanceof DOMException ? error.name : "";
+      state.setState({ notice: name === "NotAllowedError" ? "Microphone permission denied. Allow it in the browser, then unmute."
+        : name === "NotFoundError" ? "No microphone found. Connect one, then unmute."
+        : "Microphone could not be opened. Check the device and browser, then unmute." });
+    } }
   }
   function endpoint(own: number) {
     if (!current(own) || !utterance || ended) return;
@@ -242,7 +255,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     // local flush happens synchronously; no remote acknowledgement is invented.
     pause();
     stopFence = true;
-    state.setState({ interaction: "Checking whether the reply stopped" });
+    state.setState({ interaction: "Checking whether the reply stopped", notice: "Microphone off while checking the reply stop. Resume when voice is ready." });
     announce("Checking whether the reply stopped");
   }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
@@ -292,7 +305,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         const work = Object.fromEntries(Object.entries({ ...s.work, [message.requestId]: message }).slice(-128));
         state.setState({ work });
         if (resync > 0) resync--;
-        refresh();
+        refresh(); if (consent) void capture();
       }
       return null;
     }
@@ -307,9 +320,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     const p = scope();
     if (!p || !("conversationId" in message) || message.conversationId !== p.conversationId) return null;
-    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message); if (resync > 0) resync--; return null; }
+    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message); if (resync > 0) resync--; refresh(); if (consent) void capture(); return null; }
     if (!("epoch" in message) || message.epoch !== p.epoch) return null;
     if (message.type === "conversation_closed") {
+      // An old epoch can close after explicit Resume has already requested
+      // its replacement. The opening's own closed response is handled above;
+      // this receipt must not retire the replacement request or its consent.
+      if (openingId && requested) return null;
       requested = false;
       if (message.reason === "stopped") {
         if (typeof document === "undefined" || !document.hidden) startEpoch();
@@ -375,8 +392,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     },
     start() { const profile = scope(); if (!profile) return; agreedDisclosure = disclosureKey(profile); consent = true; state.setState({ disclosureOpen: false }); void capture(); },
     details() { state.setState({ disclosureOpen: true }); },
-    resume() { if (state.getState().disclosureOpen) return; if (ready && !stopFence) { consent = true; state.setState({ interaction: "Listening" }); void capture(); } else startEpoch(); },
-    mute() { clearTimers(); endpoint(generation); stopMic(); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
+    resume() { if (state.getState().disclosureOpen) return; consent = true; if (!ready) startEpoch(); void capture(); },
+    mute() { consent = false; clearTimers(); endpoint(generation); stopMic(); state.setState({ notice: "Microphone muted. Unmute to speak." }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
     commit,
     discard() { clearTimers(); removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh(); },
     stopReply, leave,
