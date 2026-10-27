@@ -208,3 +208,23 @@ test("timer diagnostics keep unknown native state counted and forward the origin
     Object.defineProperty(globalThis, "setTimeout", descriptor);
   }
 });
+
+
+test("timer failure identifies an anonymous non-socket callback without running it", () => {
+  const timers = observeMountTimers();
+  let fired = 0;
+  const handle = setTimeout(() => { fired++; }, 30_000);
+  try {
+    const snapshot = timers.snapshot("anonymous-callback-control");
+    expect(snapshot.pending).toBe(1);
+    expect(snapshot.handles[0]!.callback.name).toBe("");
+    expect(snapshot.handles[0]!.socket).toBeNull();
+    expect(snapshot.handles[0]!.hasRef).toBe(true);
+    expect(snapshot.handles[0]!.nativeDestroyed).toBe(false);
+    expect(() => timers.expectEmpty("anonymous-callback-control"), "ANONYMOUS_TIMER_FAILURE_RETAINS_CALLBACK_SOURCE").toThrow("fired++");
+    expect(fired, "DIAGNOSTICS_DO_NOT_EXECUTE_CALLBACK").toBe(0);
+  } finally {
+    nativeClearTimeout(handle);
+    timers.restore();
+  }
+});
