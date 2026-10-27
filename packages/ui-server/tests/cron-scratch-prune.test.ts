@@ -217,12 +217,18 @@ describe("BrainClient.scratchPrune", () => {
     const { root, bin } = brainWithCli(
       `await Bun.sleep(60_000);\n`
     );
+    const controller = new AbortController();
+    let call: Promise<string> | undefined;
     try {
       const brain = createBrainClient({ brainPath: root });
-      const controller = new AbortController();
-      const call = brain.scratchPrune({ signal: controller.signal });
-      while (!hostPidsRunning(bin).length) await settle(10);
-      const pids = hostPidsRunning(bin);
+      call = brain.scratchPrune({ signal: controller.signal });
+      // Observe an early refusal rather than polling until the outer timeout.
+      let outcome: unknown;
+      void call.catch(error => { outcome = error; });
+      const pids = await observeBootPrune(bin, createRecordingObservability(), { pids: marker => {
+        if (outcome) throw outcome;
+        return hostPidsRunning(marker);
+      } });
       expect(pids.length).toBeGreaterThan(0);
       controller.abort(new Error("deadline"));
       await expect(call).rejects.toThrow("deadline");
@@ -235,53 +241,134 @@ describe("BrainClient.scratchPrune", () => {
       }
       expect(alive).toBe(false);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      controller.abort(new Error("fixture teardown"));
+      try { await call?.catch(() => {}); }
+      finally { rmSync(root, { recursive: true, force: true }); }
     }
   });
 });
 
+// A failure maximum, not a settling delay or a new product deadline. Leave
+// the rest of the unchanged 30-second test budget for owned app/child teardown.
+const BOOT_CHILD_OBSERVATION_MS = 5_000;
+
+async function observeBootPrune(bin: string, observability: ReturnType<typeof createRecordingObservability>, options: {
+  pids?: typeof hostPidsRunning;
+  deadline?: number;
+} = {}) {
+  const started = Date.now(), deadline = options.deadline ?? started + BOOT_CHILD_OBSERVATION_MS;
+  let iterations = 0;
+  for (;;) {
+    iterations++;
+    let pids: number[];
+    try { pids = (options.pids ?? hostPidsRunning)(bin); }
+    catch (cause) { throw new Error(`BOOT_PRUNE_OBSERVATION_FAILED phase=observe-child command=${bin} iterations=${iterations}`, { cause }); }
+    // The path alone also matches the worker launcher: require the actual
+    // owned scratch-prune command, rather than a version probe or another CLI.
+    pids = pids.filter(pid => {
+      try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").slice(2, 4).join(" ") === "scratch prune"; }
+      catch { return false; }
+    });
+    if (pids.length) return pids;
+    const failed = observability.logs.count({ scope: "cron", severity: "WARN", body: "scratch prune failed" });
+    if (failed || Date.now() >= deadline) {
+      throw new Error(`BOOT_PRUNE_CHILD_NOT_OBSERVED phase=observe-child command=${bin} outcome=${failed ? "prune-failed" : "observation-deadline"} elapsedMs=${Date.now() - started} iterations=${iterations}`);
+    }
+    await settle(10);
+  }
+}
+
+async function withBootPruneApp(source: string, action: (fixture: {
+  app: Awaited<ReturnType<typeof createApp>>; root: string; bin: string;
+  observability: ReturnType<typeof createRecordingObservability>;
+}) => Promise<void>) {
+  const root = mkdtempSync(join(tmpdir(), "brain-app-close-"));
+  const bin = join(root, "node_modules", ".bin", "brain");
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  const failures: unknown[] = [];
+  try {
+    mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+    writeFileSync(bin, `#!/usr/bin/env bun\n` +
+      `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` + source);
+    chmodSync(bin, 0o755);
+    const observability = createRecordingObservability();
+    app = await createApp({
+      config: resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:",
+        BRAIN_PATH: root, BRAIN_UI_PRICING_DISCOVERY: "0" }),
+      observability,
+      registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
+    });
+    await action({ app, root, bin, observability });
+  } catch (error) { failures.push(error); }
+  finally {
+    // Close even when observing the boot child failed, and attempt state
+    // removal even when close rejects. Preserve the original failure as well.
+    try { await app?.close(); } catch (error) { failures.push(error); }
+    try { rmSync(root, { recursive: true, force: true }); } catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length) throw new AggregateError(failures, "BOOT_PRUNE_FIXTURE_TEARDOWN_FAILED");
+}
+
 describe("BrainUiApp.close", () => {
   test("resolves only once a scratch prune in flight has been killed and has exited", async () => {
-    const root = mkdtempSync(join(tmpdir(), "brain-app-close-"));
-    const binDir = join(root, "node_modules", ".bin");
-    mkdirSync(binDir, { recursive: true });
-    writeFileSync(
-      join(binDir, "brain"),
-      `#!/usr/bin/env bun\n` +
-        `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
-        `await Bun.sleep(60_000);\n`
-    );
-    chmodSync(join(binDir, "brain"), 0o755);
-    try {
-      const app = await createApp({
-        config: resolveServerConfig({
-          AUTH_MODE: "none",
-          HOST: "127.0.0.1",
-          DB_PATH: ":memory:",
-          BRAIN_PATH: root,
-          BRAIN_UI_PRICING_DISCOVERY: "0",
-        }),
-        observability: createRecordingObservability(),
-        registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
-      });
-      // The actual boot-prune CLI is running; its host PID is observable.
-      while (!hostPidsRunning(join(binDir, "brain")).length) await settle(10);
-      const pids = hostPidsRunning(join(binDir, "brain"));
+    await withBootPruneApp(`await Bun.sleep(60_000);\n`, async ({ app, bin, observability }) => {
+      const pids = await observeBootPrune(bin, observability);
       expect(pids.length).toBeGreaterThan(0);
       await app.close();
-      // Already reaped when close resolves: the client awaited the exit
-      // before rejecting, and close awaited the client. A close that only
-      // fired the kill would leave a zombie here, which still answers.
+      // Already reaped when close resolves: a zombie still answers signal 0.
       expect(pids.filter(answers)).toEqual([]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    });
   });
+
+  test("boot-prune refusal reports a named outcome and removes owned app state", async () => {
+    let ownedRoot = "", ownedApp: Awaited<ReturnType<typeof createApp>> | undefined;
+    let failure: unknown;
+    try {
+      await withBootPruneApp(`process.exit(23);\n`, async ({ app, root, bin, observability }) => {
+        ownedRoot = root; ownedApp = app;
+        // Deliberately hide the short-lived child: observe the actual pruner's
+        // refusal log rather than winning a race with its process exit.
+        await observeBootPrune(bin, observability, { pids: () => [] });
+      });
+    } catch (error) { failure = error; }
+    expect(String(failure), "BOOT_REFUSAL_HAS_NAMED_FAILURE").toContain("BOOT_PRUNE_CHILD_NOT_OBSERVED");
+    expect(String(failure)).toContain("outcome=prune-failed");
+    expect(ownedApp).toBeDefined();
+    expect(() => ownedApp!.db.query("SELECT 1").get(), "BOOT_REFUSAL_CLOSED_DB").toThrow();
+    expect(existsSync(ownedRoot), "BOOT_REFUSAL_REMOVED_STATE").toBe(false);
+  });
+
+  for (const mode of ["deadline", "observer-error"] as const) {
+    test(`boot-prune ${mode} reports a named failure and reaps its real owned child`, async () => {
+      let ownedRoot = "", pids: number[] = [], ownedApp: Awaited<ReturnType<typeof createApp>> | undefined;
+      let failure: unknown;
+      try {
+        await withBootPruneApp(`await Bun.sleep(60_000);\n`, async ({ app, root, bin, observability }) => {
+          ownedRoot = root; ownedApp = app;
+          pids = await observeBootPrune(bin, observability);
+          expect(pids.length).toBeGreaterThan(0);
+          // Fault the observation after proving that a real owned child runs.
+          await observeBootPrune(bin, observability, { deadline: Date.now(), pids: () => {
+            if (mode === "observer-error") throw new Error("controlled /proc observation refusal");
+            return [];
+          } });
+        });
+      } catch (error) { failure = error; }
+      expect(String(failure), "BOOT_OBSERVATION_HAS_NAMED_FAILURE").toContain(mode === "deadline" ? "BOOT_PRUNE_CHILD_NOT_OBSERVED" : "BOOT_PRUNE_OBSERVATION_FAILED");
+      expect(pids.filter(answers), "BOOT_FAILURE_REAPED_CHILD").toEqual([]);
+      expect(ownedApp).toBeDefined();
+      expect(() => ownedApp!.db.query("SELECT 1").get(), "BOOT_FAILURE_CLOSED_DB").toThrow();
+      expect(existsSync(ownedRoot), "BOOT_FAILURE_REMOVED_STATE").toBe(false);
+    });
+  }
 });
 
 describe("the shared test-app helper", () => {
   test("teardown awaits the app's close: the prune child is gone before state is removed", async () => {
+    const observability = createRecordingObservability();
     const harness = await createTestApp({
+      appOptions: { observability },
       prepare: (brainPath) => {
         const binDir = join(brainPath, "node_modules", ".bin");
         mkdirSync(binDir, { recursive: true });
@@ -294,11 +381,12 @@ describe("the shared test-app helper", () => {
         chmodSync(join(binDir, "brain"), 0o755);
       },
     });
-    while (!hostPidsRunning(join(harness.brainPath, "node_modules/.bin/brain")).length) await settle(10);
-    const pids = hostPidsRunning(join(harness.brainPath, "node_modules", ".bin", "brain"));
-    expect(pids.length).toBeGreaterThan(0);
-    await harness.teardown();
-    expect(pids.filter(answers)).toEqual([]);
-    expect(existsSync(harness.brainPath)).toBe(false);
+    try {
+      const pids = await observeBootPrune(join(harness.brainPath, "node_modules", ".bin", "brain"), observability);
+      expect(pids.length).toBeGreaterThan(0);
+      await harness.teardown();
+      expect(pids.filter(answers)).toEqual([]);
+      expect(existsSync(harness.brainPath)).toBe(false);
+    } finally { await harness.teardown(); }
   });
 });

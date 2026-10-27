@@ -9,11 +9,24 @@ export function httpMountAgentKey(fixture: HttpContractApp) {
 /** Join only this fixture's native HTTP sockets; never destroy the global agent. */
 export async function closeHttpMountFixture(fixture: HttpContractApp) {
   const key = httpMountAgentKey(fixture);
-  const sockets = [...(globalAgent.sockets[key] ?? []), ...(globalAgent.freeSockets[key] ?? [])];
-  // Destruction can still be waiting for its native close acknowledgement.
-  const stopped = sockets.filter(socket => !socket.closed).map(socket => new Promise<void>(resolve => socket.once("close", () => resolve())));
+  const seen = new Set<import("node:net").Socket>();
+  const stopped: Promise<void>[] = [];
+  function joinOwnedSockets() {
+    for (const socket of [...(globalAgent.sockets[key] ?? []), ...(globalAgent.freeSockets[key] ?? [])]) {
+      if (seen.has(socket)) continue;
+      seen.add(socket);
+      // Destruction can still await its native close acknowledgement.
+      if (!socket.closed) stopped.push(new Promise<void>(resolve => socket.once("close", () => resolve())));
+    }
+  }
+  joinOwnedSockets();
   const failures: unknown[] = [];
   try { await fixture.close(); } catch (error) { failures.push(error); }
+  // App shutdown can issue native requests after the first snapshot. The
+  // fixture has now stopped its broker and joined its request producers.
+  // Agent entries remain until their native close event; already removed
+  // entries have completed that event. Subscribe synchronously before yielding.
+  joinOwnedSockets();
   try {
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
