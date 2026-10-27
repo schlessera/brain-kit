@@ -112,9 +112,22 @@ export class GeoTransport {
       state.nextStart=Date.now()+Math.max(operator.floorMs,this.config.minimumIntervalMs);
       await this.writeAtomic(statePath,state);
       const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),this.config.timeoutMs);
+      let unclaimedBody: ReadableStream<Uint8Array> | null=null;
+      const cancelUnclaimedBody=()=>{
+        if (unclaimedBody && !unclaimedBody.locked) {
+          const body=unclaimedBody;unclaimedBody=null;
+          void body.cancel().catch(()=>{});
+        }
+      };
       try {
         source.requestSent=true;
-        const pending=(this.runtime.fetchImpl ?? fetch)(url,{...init,redirect:"manual",headers:{...Object.fromEntries(new Headers(init.headers)),"User-Agent":this.config.userAgent,"Accept":"application/json"},signal:controller.signal});
+        const pending=(this.runtime.fetchImpl ?? fetch)(url,{...init,redirect:"manual",headers:{...Object.fromEntries(new Headers(init.headers)),"User-Agent":this.config.userAgent,"Accept":"application/json"},signal:controller.signal}).then(response=>{
+          unclaimedBody=response.body;
+          // A fetch implementation can deliver its response after abort has
+          // already settled the request. It still transfers body ownership.
+          if (controller.signal.aborted) cancelUnclaimedBody();
+          return response;
+        });
         void pending.catch(()=>{});
         // Anchor the floor after dispatch. Fsync before dispatch can otherwise
         // make the interval between actual network starts shorter than the floor.
@@ -168,7 +181,12 @@ export class GeoTransport {
         return {value,source,error:null};
       } catch {
         return failed({code:controller.signal.aborted ? "timeout" : "network",message:controller.signal.aborted ? "Geo request timed out." : "Geo request failed before a valid response."});
-      } finally { clearTimeout(timer); }
+      } finally {
+        clearTimeout(timer);
+        // Admission persistence can outlast the timer or fail before a reader
+        // owns the response. Locked bodies use the reader's cancellation path.
+        if (controller.signal.aborted) cancelUnclaimedBody();
+      }
     } catch {
       return failed({code:"cache_unavailable",message:"Geo admission/cache storage is unavailable; no usable result."});
     } finally {

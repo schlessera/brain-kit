@@ -165,6 +165,88 @@ describe("shared geo request admission and cache",()=>{
     }
   }
 
+  // A response can exist while durable admission I/O still owns the request.
+  // Keep that lifecycle separate from the stalled reader subject below.
+  for (const failure of ["timeout", "persistence"] as const) {
+    for (const delivery of ["before abort", "after settlement"] as const) {
+      test(`an unclaimed body delivered ${delivery} is cancelled after ${failure}`,async()=>{
+        const timeoutMs=500, watchdogHeadroomMs=1_500;
+        const requests: string[]=[], writes: string[]=[];
+        let signal!: AbortSignal, body!: ReadableStream<Uint8Array>;
+        let streamController!: ReadableStreamDefaultController<Uint8Array>;
+        let deliver!: (response: Response)=>void, response!: Response;
+        let cancelled=false, bodyReads=0, readerAcquisitions=0;
+        let observeCancellation!: ()=>void;
+        const cancellation=new Promise<void>(resolve=>{observeCancellation=resolve;});
+        const bytes=new TextEncoder().encode("{");
+        const {io,root}=await setup(async(url,init)=>{
+          requests.push(url);signal=init.signal!;
+          body=new ReadableStream<Uint8Array>({
+            start(controller){streamController=controller;controller.enqueue(bytes);},
+            pull(){bodyReads++;},
+            cancel(){cancelled=true;observeCancellation();},
+          },{highWaterMark:0});
+          const acquire=body.getReader.bind(body);
+          body.getReader=(()=>{readerAcquisitions++;return acquire();}) as typeof body.getReader;
+          response=new Response(body);
+          if(delivery==="before abort") return response;
+          return new Promise<Response>(resolve=>{deliver=resolve;});
+        },{timeoutMs});
+        const instrumented=io as unknown as {writeAtomic(path:string,value:unknown):Promise<void>};
+        const persist=instrumented.writeAtomic.bind(io);
+        instrumented.writeAtomic=async(path,value)=>{
+          writes.push(path);
+          if(writes.length===2 && failure==="timeout") {
+            // The real timer expires at the production await, before a reader
+            // is acquired. The original writer still performs fsync/rename.
+            await new Promise<void>(resolve=>signal.addEventListener("abort",()=>resolve(),{once:true}));
+          }
+          await persist(path,value);
+          if(writes.length===2 && failure==="persistence") throw new Error("Fixture post-write failure");
+        };
+        const started=performance.now(), pending=ask(io);
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
+        const budget=new Promise<false>(resolve=>{
+          watchdog=setTimeout(()=>resolve(false),timeoutMs+watchdogHeadroomMs);
+        });
+        try {
+          const result=await Promise.race([pending,budget]);
+          expect(result!==false && result.error?.code).toBe(failure==="timeout" ? "timeout" : "cache_unavailable");
+          if(delivery==="after settlement") {
+            deliver(response);
+            await Promise.race([cancellation,budget]);
+          }
+          expect(cancelled).toBe(true);
+          expect(signal.aborted).toBe(true);
+          expect(readerAcquisitions).toBe(0);
+          expect(bodyReads).toBe(0);
+          expect(body.locked).toBe(false);
+          // Cancellation really closes the queued nonempty stream.
+          const reader=body.getReader();
+          try { expect(await reader.read()).toEqual({done:true,value:undefined}); }
+          finally { reader.releaseLock(); }
+          expect(bytes.byteLength).toBeGreaterThan(0);
+          expect(performance.now()-started).toBeLessThan(timeoutMs+watchdogHeadroomMs);
+          expect(requests).toEqual([endpoint+"/search?q=one"]);
+          expect(result!==false && result.value).toBeNull();
+          expect(result!==false && result.source).toMatchObject({requestSent:true,fromCache:false});
+          expect(writes).toHaveLength(2);
+          expect(writes[1]).toBe(writes[0]);
+          const admission=JSON.parse(await readFile(writes[1]!,"utf8"));
+          expect(admission.nextStart).toBeGreaterThan(0);
+          expect(admission.blockedUntil).toBe(0);
+          expect((await readdir(join(root,"admission"))).filter(x=>x.endsWith(".lock"))).toHaveLength(failure==="persistence" ? 1 : 0);
+          expect((await readdir(root)).includes("responses")).toBe(false);
+        } finally {
+          clearTimeout(watchdog);
+          if(delivery==="after settlement") deliver(response);
+          try { streamController.close(); } catch { /* Already cancelled. */ }
+          await pending;
+        }
+      });
+    }
+  }
+
   test("a stalled nonempty body times out, cancels its reader and does not cache",async()=>{
     const timeoutMs=500, watchdogHeadroomMs=1_500;
     const requests: string[]=[];
