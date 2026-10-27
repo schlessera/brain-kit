@@ -155,3 +155,15 @@ describe("provider boundary", () => {
       text: "x".repeat(2_001) }).ok).toBe(false);
   });
 });
+
+for (const kind of ["unassigned_input_fragment", "unassigned_delegation"] as const) test(`${kind} validates retained session evidence on provider and wire boundaries`, () => {
+  const scope = { conversationId: "ithaca", epoch: 2 };
+  const event = kind === "unassigned_input_fragment"
+    ? { kind, sequence: 0, text: " the harbour", sessionInterval: { startMs: 10200, endMs: 10400 } }
+    : { kind, handle: "native-unassigned", offsetMs: 10200 };
+  expect(parseLiveConversationEvent({ ...scope, ...event })).toMatchObject({ ok: true, event });
+  expect(server({ type: "conversation_event", ...scope, event })).toMatchObject({ ok: true });
+  const invalid = kind === "unassigned_input_fragment" ? { ...event, sessionInterval: { startMs: 10400, endMs: 10200 } } : { ...event, offsetMs: -1 };
+  expect(parseLiveConversationEvent({ ...scope, ...invalid }).ok).toBe(false);
+  expect(server({ type: "conversation_event", ...scope, event: invalid }).ok).toBe(false);
+});

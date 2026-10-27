@@ -835,3 +835,139 @@ test("ordinary working, speaking and reply-drained state changes keep the microp
   expect(mic.opens()).toBe(1);
   expect(s.socket.frames("conversation_stop")).toHaveLength(0);
 });
+
+
+// Shared keyless adapter/host fixture from #3049; diagnostic changes stay there.
+/** Feed real client microphone/endpoint/commit frames through a native host and
+ * GPT-Live adapter. Only the provider connection is replaced, by loopback WS. */
+async function adapterScene(ctx: TestContext, width = 390) {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx, width, true);
+  const fixture = await commands.conversationServer({ op: "start" }) as { id: string };
+  ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
+  let cursor = 0;
+  const upstream: Record<string, unknown>[] = [];
+  const downstream: ServerMessage[] = [];
+  const pump = async (provider: unknown[] = []) => {
+    const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data)));
+    cursor = s.socket.sent.length;
+    const result = await commands.conversationServer({ op: "step", id: fixture.id, client, provider }) as { frames: ServerMessage[]; sent: Record<string, unknown>[] };
+    upstream.push(...result.sent); downstream.push(...result.frames);
+    for (const frame of result.frames) s.deliver(frame);
+  };
+  s.client.enter();
+  await pump();
+  await expect.poll(async () => { await pump(); return s.client.state.getState().profile; }).not.toBe(null);
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  await pump();
+  return { ...s, mic, pump, upstream, downstream };
+}
+
+for (const width of [390, 320]) test(`missing-ID conversation stays live and review never sends (${width})`, async ctx => {
+  const s = await adapterScene(ctx, width);
+  const draft = s.ui.stores.drafts.getState();
+  const id = draft.idFor(SESSION);
+  draft.edit(id, SESSION, { text: "Existing typed note." });
+  s.ui.stores.voice.getState().setReviewText("Existing voice review.");
+  const parts = ["Find", " the departure", " note."];
+  for (let turn = 0; turn < 3; turn++) {
+    if (turn) {
+      const before = s.socket.frames("conversation_audio").length;
+      s.mic.speak();
+      await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+      await s.pump();
+    }
+    s.mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(turn + 1);
+    await s.pump([{ type: "session.input_transcript.delta", event_id: `missing-${turn}`, delta: parts[turn], start_ms: [600, 10200, 19000][turn], end_ms: [1800, 10400, 19600][turn] },
+      { type: "session.delegation.created", event_id: `native-${turn}`, offset_ms: turn * 10000, delegation: { id: `native-${turn}`, type: "delegation", target: "client" } }]);
+    expect(s.client.state.getState().micOn, "missing IDs must not close capture").toBe(true);
+    await expect.poll(() => s.client.state.getState().unassigned.length + (s.client.state.getState().text ? 1 : 0)).toBe(turn + 1);
+    expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+    if (s.client.state.getState().unassigned.length) expect(s.client.commit(s.client.state.getState().token), "unassigned text cannot fabricate a correlated commit").toBe(false);
+    await s.pump([{ type: "session.output_audio.delta", delta: outputPcm(0.15) }]);
+    await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+    expect(s.client.state.getState().micOn).toBe(true);
+  }
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  expect(s.downstream.some(f => f.type === "conversation_closed")).toBe(false);
+  expect(s.upstream.some(f => f.type === "session.commentary.append" || f.type === "session.thinking.append")).toBe(false);
+  expect(s.client.state.getState().text).toBe("");
+  expect(s.client.state.getState().unassignedWork).toBe(3);
+  const outputs = s.downstream.flatMap(f => f.type === "conversation_event" && f.event.kind === "audio" ? [f.event.outputId] : []);
+  expect(new Set(outputs)).toEqual(new Set(["output-1"]));
+  const summary = s.host.querySelector('[aria-label="Unassigned voice recognition"] summary') as HTMLElement;
+  await userEvent.click(summary);
+  await expect.poll(() => s.host.querySelector('[data-unassigned-recognition]')?.textContent).toBe(parts.join(""));
+  expect(s.client.state.getState().unassigned.map(f => f.sessionInterval.startMs)).toEqual([600, 10200, 19000]);
+  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/unassigned-${width}.png` });
+  expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
+  expect(s.host.querySelector('[aria-label="Unassigned voice recognition"]')!.getBoundingClientRect().bottom).toBeLessThanOrEqual(s.host.getBoundingClientRect().bottom + 1);
+  await userEvent.click(s.button("Review in composer"));
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.client.reviewUnassigned(), "the transfer cannot append twice").toBe(false);
+  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Existing typed note.");
+  expect(s.ui.stores.voice.getState().reviewText).toBe("Existing voice review.\n\nFind the departure note.");
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  await expect.poll(() => s.button("Send")).not.toBeUndefined();
+  await userEvent.click(s.button("Send"));
+  const sent = s.socket.frames("chat_message");
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ source: "voice-dictate", text: "Existing typed note.\nExisting voice review.\n\nFind the departure note." });
+  expect(sent[0]).not.toHaveProperty("utteranceId");
+});
+
+test("unassigned recognition never denies, auto-commits, or migrates into a different chat", async ctx => {
+  const s = await scene(ctx); await s.start(); approval(s, "unassigned-refusal");
+  const fragment: ConversationWireEvent = { kind: "unassigned_input_fragment", sequence: 0, text: "brain, stop", sessionInterval: { startMs: 600, endMs: 1800 } };
+  s.event(fragment); s.event(fragment);
+  expect(s.client.state.getState().unassigned).toHaveLength(1);
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.client.commit(s.client.state.getState().token)).toBe(false);
+  s.event({ ...fragment, sequence: 1, text: " stale" }, 0);
+  expect(s.client.state.getState().unassigned).toHaveLength(1);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed", message: "The voice service closed." });
+  expect(s.client.state.getState().unassigned).toHaveLength(1);
+  s.client.resume(); s.opened(2);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.event({ ...fragment, sequence: 0, text: " later", sessionInterval: { startMs: 500, endMs: 700 } }, 2);
+  expect(s.client.state.getState().unassigned.map(f => f.epoch)).toEqual([1, 2]);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-harbour"));
+  expect(s.client.reviewUnassigned()).toBe(false);
+  expect(s.ui.stores.voice.getState().reviewText).toBe("");
+  expect(s.client.state.getState().unassigned).toHaveLength(2);
+});
+
+test("unassigned review preserves captured and typed drafts exactly once", async ctx => {
+  const s = await scene(ctx); await s.start();
+  const drafts = s.ui.stores.drafts.getState(); const id = drafts.idFor(SESSION);
+  drafts.edit(id, SESSION, { text: "Typed note." });
+  s.input("Captured note.");
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Unassigned note.", sessionInterval: { startMs: 10200, endMs: 10400 } });
+  expect(s.client.reviewUnassigned()).toBe(true);
+  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Typed note.\n\nCaptured note.");
+  expect(s.ui.stores.voice.getState().reviewText).toBe("Unassigned note.");
+  expect(s.client.reviewUnassigned()).toBe(false);
+  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Typed note.\n\nCaptured note.");
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("full unassigned recognition stops visibly and retains text until explicit review", async ctx => {
+  const s = await scene(ctx); await s.start();
+  for (let sequence = 0; sequence < CONVERSATION_LIMITS.maxFragmentsPerUtterance; sequence++) s.event({ kind: "unassigned_input_fragment", sequence, text: " note", sessionInterval: { startMs: sequence * 1000, endMs: sequence * 1000 + 100 } });
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().notice).toContain("Recognition is full");
+  expect(s.client.state.getState().unassigned).toHaveLength(CONVERSATION_LIMITS.maxFragmentsPerUtterance);
+  const starts = s.socket.frames("conversation_start").length;
+  s.client.resume();
+  expect(s.socket.frames("conversation_start")).toHaveLength(starts);
+  expect(s.client.reviewUnassigned()).toBe(true);
+  expect(s.ui.stores.voice.getState().reviewText).toBe(" note".repeat(CONVERSATION_LIMITS.maxFragmentsPerUtterance));
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
