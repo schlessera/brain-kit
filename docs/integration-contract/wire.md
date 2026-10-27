@@ -1921,6 +1921,20 @@ promoted. The proposed behavior delta requires separate post-evidence production
 compatibility and release rulings; this draft is **DO NOT MERGE** and schedules
 no package release.
 
+### Evaluation-only output diagnostics (#3057; not shipped)
+
+The isolated diagnostic branch combines the #3053 trial with stable controls.
+Its removable browser console surface `brainAudioEvaluation.arm(sourceSha)` must
+be awaited before entering voice; it starts no provider and captures no input.
+It retains bounded adapter-received PCM before recovery filtering and float32
+playback-source graph output, with sample rates, scheduled byte/time anchors,
+source identity, sequence/gap indicators and lifecycle/action metadata. The graph
+is before driver/headphone hardware, not at-ear evidence. Export/collector details
+and limits are in [the diagnostic helper](../../experiments/voice-tail/README.md).
+The optional internal `mute` origin distinguishes a control action from component
+cleanup; it grants no additional operation. No new wire event, production API,
+activation flag or qualified guarantee is introduced. **DO NOT MERGE**.
+
 ### Conversation permission fallback (#114)
 
 The shipped SDK client declares `client_hello.capabilities.toolResolution: true`.

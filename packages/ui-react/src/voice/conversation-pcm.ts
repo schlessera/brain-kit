@@ -1,3 +1,4 @@
+import { evaluationConnect, evaluationContextClosed, evaluationContextOpened, evaluationEvent, evaluationOwnsContext, evaluationPlaybackContext, evaluationSchedule } from "./evaluation-audio.js";
 import type { ConversationAudioFormat, ConversationPlayback } from "@schlessera/brain-ui-sdk/protocol";
 
 /** Concrete browser PCM transport. No recorder codec or independent speech service. */
@@ -95,7 +96,8 @@ export function createConversationPlayback(report: (outputId: string, state: Con
       const chunk = waiting.shift()!;
       if (discarded.has(chunk.outputId)) continue;
       if (!context) {
-        context = new AudioContext();
+        context = evaluationPlaybackContext() ?? new AudioContext();
+        evaluationContextOpened(context);
         context.onstatechange = () => { changed(); scheduleBoundary(); };
       }
       if (Math.max(0, availableAt - context.currentTime) + chunk.bytes.byteLength / (2 * chunk.format.sampleRate) > 80) throw new Error("Speech playback queue is full.");
@@ -107,6 +109,7 @@ export function createConversationPlayback(report: (outputId: string, state: Con
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(context.destination);
+      evaluationConnect(source);
       availableAt = Math.max(context.currentTime, availableAt);
       const audible: [number, number][] = [];
       const window = Math.max(1, Math.round(chunk.format.sampleRate / 100));
@@ -131,12 +134,14 @@ export function createConversationPlayback(report: (outputId: string, state: Con
         if (![...live.values()].some(item => item.outputId === chunk.outputId) && !waiting.some((x) => x.outputId === chunk.outputId)) report(chunk.outputId, "played");
         changed(); scheduleBoundary();
       };
+      evaluationSchedule(chunk.bytes, { outputId: chunk.outputId, start: availableAt, frames: samples.length, sampleRate: chunk.format.sampleRate, bytes: chunk.bytes.byteLength });
       source.start(availableAt);
       availableAt += buffer.duration;
     }
     changed(); scheduleBoundary();
   }
   function flush(retire: boolean) {
+    evaluationEvent(retire ? "playback-cut" : "playback-flush", { live: live.size, waiting: waiting.length });
     generation++;
     clearTimeout(boundary);
     const ids = new Set([...live.values()].map(item => item.outputId).concat(waiting.map((chunk) => chunk.outputId)));
@@ -154,7 +159,7 @@ export function createConversationPlayback(report: (outputId: string, state: Con
       waiting.push({ outputId, bytes, format });
       pump();
     },
-    quiet(value: boolean) { blocked = !value; pump(); },
+    quiet(value: boolean) { if (blocked === value) evaluationEvent("playback-gate", { quiet: value }); blocked = !value; pump(); },
     pending: () => waiting.length > 0 || live.size > 0,
     playing: () => playingIds().length > 0,
     playingIds,
@@ -165,7 +170,7 @@ export function createConversationPlayback(report: (outputId: string, state: Con
     dispose() {
       this.cut();
       blocked = true;
-      if (context) { context.onstatechange = null; if (context.state !== "closed") void context.close(); }
+      if (context) { evaluationContextClosed(context); context.onstatechange = null; if (!evaluationOwnsContext(context) && context.state !== "closed") void context.close(); context = undefined; }
     },
   };
 }

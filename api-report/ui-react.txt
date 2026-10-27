@@ -1306,7 +1306,7 @@ signatures (every public export and the types it is made of)
             enter(): void;
             frame: (message: ServerMessage) => ServerMessage | null;
             leave: () => void;
-            mute(): void;
+            mute(origin?: "component-cleanup" | "control"): void;
             permissions: {
                 clear(): void;
                 dispose(): void;

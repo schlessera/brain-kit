@@ -9,6 +9,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { contrast, parse } from "../../../ui-kit/tests/_contrast.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { armEvaluationAudio } from "../../src/voice/evaluation-audio.js";
 import { createConversationPlayback } from "../../src/voice/conversation-pcm.js";
 import { hidePage } from "./offline/fake-microphone.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
@@ -59,7 +60,7 @@ test("capture truth and disclosure: a ready speech session cannot mark an unopen
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.socket.frames("conversation_audio")).toHaveLength(0);
   expect(document.body.textContent).toContain("Host relay:");
-  expect(document.body.textContent).toContain("Independently selected agent backend:");
+  expect(document.body.textContent).toContain("Brain task backend:");
   await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   await expect.poll(() => s.socket.frames("conversation_audio").length, { timeout: 5000 }).toBeGreaterThan(0);
@@ -71,7 +72,7 @@ test("commit only: GPT-Live fragments remain NOT SENT while ordinary progress an
   await s.start();
   s.input("Find the departure note");
   expect(s.socket.frames("conversation_commit"), "unknown fragments cannot commit themselves").toHaveLength(0);
-  await expect.poll(() => s.host.textContent).toContain("NOT SENT");
+  await expect.poll(() => s.host.textContent).toContain("Brain task not sent");
   s.deliver({ type: "text_delta", sessionId: SESSION, text: "Looking through the voyage notes" });
   s.deliver({ type: "tool_use_start", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search" });
   s.deliver({ type: "tool_use_complete", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search", input: { query: "departure" } });
@@ -1146,4 +1147,42 @@ test("evaluation adapter and host keep their real connection and forward the int
   expect(s.socket.frames("conversation_start")).toHaveLength(1);
   expect(s.socket.frames("conversation_stop")).toHaveLength(0);
   expect(s.mic.opens()).toBe(1);
+});
+
+
+test("evaluation actions distinguish control mute, Resume, cleanup and host cap close without text breadcrumbs", async (ctx) => {
+  const recording = await armEvaluationAudio("b".repeat(40));
+  const s = await scene(ctx);
+  await s.start();
+  await userEvent.click(s.button("Mute mic"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  await userEvent.click(s.button("Resume microphone"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed", message: "Evaluation 120-second session cap reached. Microphone off. Start a new bounded evaluation session." });
+  await expect.poll(() => s.host.textContent).toContain("120-second session cap");
+  expect(s.client.state.getState().micOn).toBe(false);
+  flushSync(() => s.client.leave());
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const result = await recording.finish();
+  const events = result.metadata.events as {kind:string; origin?:string}[];
+  expect(events.some(e => e.kind === "resume-action")).toBe(true);
+  expect(events.some(e => e.kind === "mute-action" && e.origin === "control")).toBe(true);
+  expect(events.some(e => e.kind === "mute-action" && e.origin === "component-cleanup")).toBe(true);
+  expect(events.some(e => e.kind === "conversation-closed")).toBe(true);
+  expect(events.some(e => e.kind === "microphone-opened")).toBe(true);
+  expect(JSON.stringify(events)).not.toContain("departure note");
+});
+
+
+test("evaluation diagnostics retain PCM before recovery suppression", async ctx => {
+  const recording = await armEvaluationAudio("c".repeat(40));
+  const s = await interruptedScene(ctx);
+  s.audio(outputPcm(.05));
+  const result = await recording.finish();
+  const received = result.metadata.events.filter(e => "kind" in e && e.kind === "adapter-output-received");
+  const suppressed = result.metadata.events.filter(e => "kind" in e && e.kind === "output-filter" && "suppressed" in e && e.suppressed);
+  expect(received.length).toBeGreaterThanOrEqual(2);
+  expect(suppressed.length).toBeGreaterThan(0);
+  expect(result.metadata.provider.bytes).toBeGreaterThanOrEqual(24000 * 2 * 1.05);
+  expect(result.metadata.events.some(e => "kind" in e && e.kind === "output-recovery")).toBe(true);
 });

@@ -11,9 +11,9 @@ export function ConversationOutputs({ sessionId }: { sessionId: string | null })
   const tools = buffer?.messages.flatMap(m => m.toolCalls) ?? [];
   return <>{permission.records.filter(r => r.sessionId === sessionId && r.word && (r.postureDenied || r.heardAt && !tools.some(t => t.id === r.toolUseId))).map(r => <p key={`posture:${r.turnId}:${r.toolUseId}`} data-voice-posture-outcome={r.postureDenied ? "" : undefined} data-voice-permission-outcome="" className="py-2 text-xs">{r.word}</p>)}{outputs.filter((output) => output.sessionId === sessionId && output.generated).map((output) =>
     <div key={`${output.conversationId}:${output.epoch}:${output.outputId}`} className="py-4" data-conversation-output="">
-      <TurnHeader who="Brain" tone="brain" />
+      <TurnHeader who="Voice service" tone="brain" />
       <p className="whitespace-pre-wrap">{output.generated}</p>
-      <p className="mt-2 text-xs text-muted-foreground">Generated speech · {output.playback === "played" ? "received audio chunks played; spoken portion unknown" : output.playback === "discarded" ? "rest of reply · not spoken" : "spoken portion unknown"}</p>
+      <p className="mt-2 text-xs text-muted-foreground">Voice-service reply · does not indicate a Brain task ran · {output.playback === "played" ? "received audio chunks played; spoken portion unknown" : output.playback === "discarded" ? "rest of reply · not spoken" : "spoken portion unknown"}</p>
     </div>)}
   </>;
 }
