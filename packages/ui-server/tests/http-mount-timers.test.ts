@@ -4,6 +4,14 @@ import { clearTimeout as nativeClearTimeout, clearInterval as nativeClearInterva
 import { Socket } from "node:net";
 import { observeMountTimers } from "./helpers/http-mount-timers";
 
+async function closeObservedFixture(close: () => Promise<void>, timers: ReturnType<typeof observeMountTimers>, removeState: () => void) {
+  try { await close(); }
+  finally {
+    try { timers.restore(); }
+    finally { removeState(); }
+  }
+}
+
 test("HTTP keepalive and application timers remain observed with shallow stacks", () => {
   const stackDescriptor = Object.getOwnPropertyDescriptor(Error, "stackTraceLimit")!;
   const agentDescriptor = Object.getOwnPropertyDescriptor(globalAgent, "keepSocketAlive");
@@ -142,11 +150,38 @@ test("failed timer zero oracle retains live owned Unix HTTP evidence and restore
     timers.expectEmpty("controlled-owned-native-close-complete");
   } finally {
     clearTimeout(live);
-    await closeHttpMountFixture(fixture);
-    timers.restore();
-    rmSync(root, { recursive: true, force: true });
+    await closeObservedFixture(() => closeHttpMountFixture(fixture), timers, () => rmSync(root, { recursive: true, force: true }));
   }
   expect(Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout")).toEqual(descriptor);
+});
+
+test("rejected fixture cleanup restores timer descriptors and removes owned state", async () => {
+  const { existsSync, mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { closeHttpMountFixture } = await import("./helpers/http-mount-pool");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-rejected-timer-cleanup-"));
+  const descriptor = Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout");
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout");
+  const intervalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval");
+  const server = Bun.serve({ unix: join(root, "native.sock"), fetch: () => new Response("ready") });
+  const cleanupError = new Error("controlled fixture cleanup refusal");
+  const fixture = { app: { config: { nativeBrain: { socketPath: join(root, "native.sock") } } },
+    async close() { await server.stop(true); throw cleanupError; } } as unknown as import("./helpers/http-contract-app").HttpContractApp;
+  const timers = observeMountTimers();
+  try {
+    let failure: unknown;
+    try { await closeObservedFixture(() => closeHttpMountFixture(fixture), timers, () => rmSync(root, { recursive: true, force: true })); }
+    catch (error) { failure = error; }
+    expect(failure, "CLEANUP_REJECTION_PRESERVES_ERROR").toBe(cleanupError);
+    expect(Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout"), "CLEANUP_REJECTION_RESTORES_SOCKET_DESCRIPTOR").toEqual(descriptor);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "setTimeout"), "CLEANUP_REJECTION_RESTORES_TIMEOUT_DESCRIPTOR").toEqual(timeoutDescriptor);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "setInterval"), "CLEANUP_REJECTION_RESTORES_INTERVAL_DESCRIPTOR").toEqual(intervalDescriptor);
+    expect(existsSync(root), "CLEANUP_REJECTION_REMOVES_STATE").toBe(false);
+  } finally {
+    try { await server.stop(true); }
+    finally { try { timers.restore(); } finally { rmSync(root, { recursive: true, force: true }); } }
+  }
 });
 
 

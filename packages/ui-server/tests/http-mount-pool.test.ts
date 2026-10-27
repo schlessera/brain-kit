@@ -69,10 +69,15 @@ for (const rejectClose of [false, true]) test(`mount disposal joins real owned U
     timers.expectEmpty("late-owned-connections-after-fixture-close");
     expect([...owned].every(socket => socket.closed), "LATE_OWNED_NATIVE_SOCKETS_CLOSED_AT_DISPOSAL_BOUNDARY").toBe(true);
   } finally {
-    await server.stop(true);
-    for (const socket of owned) socket.destroy();
-    await Promise.all(closed);
-    timers.restore();
-    rmSync(root, { recursive: true, force: true });
+    try { await server.stop(true); }
+    finally {
+      try {
+        for (const socket of owned) socket.destroy();
+        await Promise.all(closed);
+      } finally {
+        try { timers.restore(); }
+        finally { rmSync(root, { recursive: true, force: true }); }
+      }
+    }
   }
 });
