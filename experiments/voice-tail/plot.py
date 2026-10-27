@@ -11,6 +11,8 @@ p.add_argument('directory', type=pathlib.Path)
 p.add_argument('--end', type=float, required=True, help='end of comparison window in AudioContext seconds')
 a = p.parse_args()
 m = json.loads((a.directory/'metadata.json').read_text())
+if not m['complete']:
+    raise ValueError('Incomplete capture: inspect gap/cap metadata before plotting a tail comparison')
 def read(name, dtype):
     b = (a.directory/name).read_bytes()
     assert b[:4] == b'RIFF' and b[8:12] == b'WAVE' and b[36:40] == b'data'
@@ -36,7 +38,7 @@ for ax, label, data, rate, offset in [(axes[0], 'Adapter-received provider PCM (
     rt = (np.arange(n)*window+window/2)/rate+offset
     take = (rt >= end-1.2) & (rt <= end+.2)
     ax.plot(rt[take], rms[take], label='10 ms RMS', linewidth=1.2)
-    ax.set(title=label, ylim=(-1, 1), xlabel='Seconds'); ax.legend(); ax.grid(alpha=.2)
+    ax.set(title=label, ylim=(-1, 1), xlim=(end-1.2, end+.2), xlabel='Seconds'); ax.legend(); ax.grid(alpha=.2)
 for e in m['events']:
     if e['kind'] in ('playback-cut', 'playback-flush', 'conversation-closed'):
         axes[1].axvline(e['contextTime'], color='red', alpha=.6)

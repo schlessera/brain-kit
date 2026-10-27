@@ -15,7 +15,7 @@ test("diagnostic graph: known smooth tail and intentional cut differ; tap adds z
     const recording = await arm();
     const playback = createConversationPlayback(() => {}, () => {});
     const analyser = recording.context.createAnalyser(); recording.tap.connect(analyser); analyser.connect(recording.context.destination);
-    const bytes = pcm(Array.from({ length: 12000 }, (_, i) => .3 * Math.min(1, (12000-i) / 7200)));
+    const bytes = pcm(Array.from({ length: 12000 }, (_, i) => .3 * Math.sin(2 * Math.PI * 440 * i / 24000) * Math.min(1, (12000-i) / 7200)));
     evaluationProvider(bytes, 24000, "odysseus-tail");
     playback.enqueue("odysseus-tail", bytes, format); playback.quiet(true);
     await wait(180);
@@ -44,7 +44,7 @@ test("diagnostic graph: known smooth tail and intentional cut differ; tap adds z
   const smooth = await capture(false);
   const cut = await capture(true);
   expect(smooth).toBeLessThan(.01);
-  expect(cut).toBeGreaterThan(.25);
+  expect(cut).toBeGreaterThan(.17);
 });
 
 test("diagnostic retains final 37-sample chunk plus post-reply silence; no microphone setup", async () => {
