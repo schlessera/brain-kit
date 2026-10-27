@@ -82,10 +82,10 @@ then received literal `{}` after activity end and before captured audio.
 Those receipts establish neither an audio reply nor completion. The
 [server-message reference](https://ai.google.dev/api/live.md#BidiGenerateContentServerMessage)
 assigns no acknowledgment or finality meaning to an empty envelope. Google's
-[Python receive path](https://github.com/googleapis/python-genai/blob/daac53e8ad1731e8c0067a3e83fd3dfab6973c3f/google/genai/live.py#L577-L608)
+[Python `AsyncSession._receive` path](https://github.com/googleapis/python-genai/blob/daac53e8ad1731e8c0067a3e83fd3dfab6973c3f/google/genai/live.py)
 allows an empty raw response but raises an API error when a nonempty raw
 response converts to nothing; its
-[Developer API converter](https://github.com/googleapis/python-genai/blob/daac53e8ad1731e8c0067a3e83fd3dfab6973c3f/google/genai/_live_converters.py#L1408-L1466)
+[`_LiveServerMessage_from_mldev` converter](https://github.com/googleapis/python-genai/blob/daac53e8ad1731e8c0067a3e83fd3dfab6973c3f/google/genai/_live_converters.py)
 copies present recognized fields (source checked 2026-10-27). This supports
 ignoring a decoded object with zero raw keys after setup, within the existing
 byte and JSON bounds. Check raw keys before schema stripping: unknown-only
