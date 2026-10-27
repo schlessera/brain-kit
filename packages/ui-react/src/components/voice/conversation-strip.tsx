@@ -44,6 +44,10 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
+    {s.outputRecovery !== "open" && <div data-output-recovery="" className="flex items-center gap-2 text-xs">
+      <span className="flex-1">{s.outputRecovery === "manual" ? "Output stays muted. No silence boundary found." : "Output muted during interruption recovery."} Microphone {s.micOn ? "on" : "off"}.</span>
+      {s.outputRecovery === "manual" && <Button label="Recover audio" tone="ghost" style={button} onClick={client.recoverPlayback} />}
+    </div>}
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
       <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="">
         <div className="font-mono text-[10px]">NOT SENT · SAVED AS DRAFT</div>
@@ -65,6 +69,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
     <Overlay open={s.disclosureOpen} variant="sheet" title="Live conversation" onClose={leave} data-overlay-site="conversation-disclosure">
       <div className="space-y-3 p-4 text-sm">
         <p>{profile?.disclosure.voiceService ?? "Connecting to the configured voice service…"}</p>
+        <p>Evaluation only: interrupting ordinary speech keeps listening and mutes output until a silence boundary. Delayed earlier speech may return. Recover audio manually if output stays muted.</p>
         {profile?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
         <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
         <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>

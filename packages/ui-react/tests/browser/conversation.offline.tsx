@@ -452,16 +452,24 @@ for (const receipt of ["output", "work"] as const) test(`Start before ready wait
   expect(s.client.state.getState().notice).toBe("");
 });
 
-test("barge-in from actual PCM speech cuts output and leaves capture off until host resync", async (ctx) => {
+test("evaluation barge-in retains the triggering PCM, live capture and epoch", async (ctx) => {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start(); mic.quiet();
   await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
   s.event({ kind: "audio", outputId: "ithaca-barge", sequence: 0, pcm: outputPcm(), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  const before = s.socket.frames("conversation_audio").length;
   mic.speak();
   await expect.poll(() => s.client.state.getState().playing).toBe(false);
-  expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
+  expect(s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+  const audio = s.socket.frames("conversation_audio");
+  expect(audio[before]!.sequence).toBe(Number(audio[before - 1]!.sequence) + 1);
+  expect(atob(String(audio[before]!.pcm))).not.toMatch(/^\x00*$/);
+  expect(mic.opens()).toBe(1);
+  expect(mic.stream.getAudioTracks().every(track => track.readyState === "live")).toBe(true);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
 
@@ -970,4 +978,172 @@ test("full unassigned recognition stops visibly and retains text until explicit 
   expect(s.client.reviewUnassigned()).toBe(true);
   expect(s.ui.stores.voice.getState().reviewText).toBe(" note".repeat(CONVERSATION_LIMITS.maxFragmentsPerUtterance));
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+async function interruptedScene(ctx: TestContext, width = 390) {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx, width); await s.start(); mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  let sequence = 0;
+  const audio = (pcm: string) => s.event({ kind: "audio", outputId: "output-1", sequence: sequence++, pcm, format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  audio(outputPcm(1));
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  mic.speak();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("speaking");
+  return { ...s, mic, audio };
+}
+
+test("evaluation recovery requires decoded silence after endpoint; fast reply heads are dropped and delayed old audio can return", async ctx => {
+  const s = await interruptedScene(ctx);
+  s.audio(outputPcm(0.4, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("speaking");
+  s.mic.quiet();
+  // A fast answer during the unchanged 700 ms endpoint wait loses its head.
+  s.audio(outputPcm(0.2));
+  expect(s.client.state.getState().playing).toBe(false);
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("waiting");
+  s.audio(outputPcm(0.2, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("waiting");
+  const nearZero = new Uint8Array(2); nearZero[0] = 1;
+  s.audio(btoa(String.fromCharCode(...nearZero)));
+  s.audio(outputPcm(0.299, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("waiting");
+  s.audio(outputPcm(0.001, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("open");
+  expect(s.client.state.getState().playing).toBe(false);
+  // Accepted experiment limit: same-ID delayed old PCM is indistinguishable
+  // from a new reply once the heuristic reopens. No cancellation is reported.
+  s.audio(outputPcm(0.3));
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  expect(s.client.state.getState().outputs[0]?.playback).toBe("unknown");
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.mic.opens()).toBe(1);
+});
+
+for (const packets of ["stall", "nonzero"] as const) test(`evaluation ${packets}: fixed deadline stays muted with a usable manual action`, async ctx => {
+  const s = await interruptedScene(ctx, 320); s.mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("waiting");
+  const started = performance.now();
+  // Neither missing packets nor continued audible packets extend the deadline.
+  const timer = setInterval(() => { if (packets === "nonzero") s.audio(outputPcm(0.1)); }, 100);
+  ctx.onTestFinished(() => clearInterval(timer));
+  await expect.poll(() => s.client.state.getState().outputRecovery, { timeout: 3600 }).toBe("manual");
+  clearInterval(timer);
+  expect(performance.now() - started).toBeLessThan(3500);
+  s.audio(outputPcm(0.4, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("manual");
+  expect(s.client.state.getState().playing).toBe(false);
+  expect(s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.button("Recover audio")).not.toBeUndefined();
+  const button = s.button("Recover audio");
+  expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(321);
+  await userEvent.click(button);
+  expect(s.client.state.getState().outputRecovery).toBe("open");
+  s.audio(outputPcm(0.3));
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  expect(s.mic.opens()).toBe(1);
+});
+
+test("evaluation new speech resets silence evidence and starts a new bounded recovery after endpoint", async ctx => {
+  const s = await interruptedScene(ctx); s.mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("waiting");
+  s.audio(outputPcm(0.2, 0));
+  s.mic.speak();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("speaking");
+  s.audio(outputPcm(0.4, 0)); s.mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("waiting");
+  s.audio(outputPcm(0.1, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("waiting");
+  s.audio(outputPcm(0.2, 0));
+  expect(s.client.state.getState().outputRecovery).toBe("open");
+  expect(s.mic.opens()).toBe(1);
+});
+
+for (const ending of ["leave", "hide", "disconnect", "stop", "device", "resync", "disclosure"] as const) test(`evaluation recovery ${ending}: no timer or stale callback can reopen capture`, async ctx => {
+  const s = await interruptedScene(ctx); s.mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("waiting");
+  let hidden: ReturnType<typeof hidePage> | undefined;
+  if (ending === "leave") s.client.leave();
+  else if (ending === "hide") hidden = hidePage();
+  else if (ending === "disconnect") s.network.drop();
+  else if (ending === "stop" || ending === "disclosure") s.client.stopReply();
+  else if (ending === "resync") s.event({ kind: "interrupted", outputId: "output-1" });
+  else s.mic.stream.getAudioTracks()[0]!.dispatchEvent(new Event("ended"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  s.client.recoverPlayback();
+  if (ending !== "leave" && ending !== "disconnect") {
+    s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" });
+    if (ending === "disclosure") {
+      s.deliver({ ...PROFILE, epoch: 2, disclosure: { voiceService: "Changed fixture service", destinations: ["Changed fixture destination"] }, requestId: s.socket.frames("conversation_start").at(-1)?.requestId as string });
+      s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, 2);
+      s.client.resume();
+      expect(s.client.state.getState().disclosureOpen).toBe(true);
+    } else s.opened(2);
+    s.audio(outputPcm(0.4, 0));
+  }
+  hidden?.show();
+  await new Promise(resolve => setTimeout(resolve, 3100));
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.mic.stream.getAudioTracks().every(track => track.readyState === "ended")).toBe(true);
+  expect(s.mic.opens()).toBe(1);
+});
+
+test("evaluation host work arriving after interruption blocks replacement but keeps an existing question answer bound", async ctx => {
+  const s = await interruptedScene(ctx); s.mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("waiting");
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-late-turn", text: "Checking departure" });
+  s.input("Tomorrow before departure");
+  expect(s.client.commit(s.client.state.getState().token)).toBe(false);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.client.state.getState().text).toBe("Tomorrow before departure");
+  s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-late-turn", requestId: "ithaca-late-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [] }] });
+  expect(s.client.commit(s.client.state.getState().token)).toBe(true);
+  await expect.poll(() => s.socket.frames("ask_user_response").length).toBe(1);
+  expect(s.socket.frames("ask_user_response")[0]).toMatchObject({ turnId: "ithaca-late-turn", requestId: "ithaca-late-question", answers: { "Which day?": "Tomorrow before departure" } });
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const kind of ["work", "question", "approval"] as const) test(`evaluation ${kind}: audible interruption retains the host-work fallback and sends no replacement`, async ctx => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx); await s.start(); mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-turn", text: "Checking departure" });
+  if (kind === "question") s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-turn", requestId: "ithaca-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [] }] });
+  if (kind === "approval") approval(s, "ithaca-write", SESSION, "ithaca-turn");
+  s.event({ kind: "audio", outputId: "output-1", sequence: 0, pcm: outputPcm(1), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  mic.speak();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
+  expect(s.socket.frames("conversation_stop")).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("cancel_turn")).toHaveLength(0);
+  expect(s.socket.frames("tool_approval")).toHaveLength(0);
+  const buffer = s.ui.stores.chat.getState().buffers[SESSION];
+  expect(buffer?.isStreaming).toBe(true);
+  if (kind === "question") expect(buffer?.askUser?.cancelled).not.toBe(true);
+  if (kind === "approval") expect(s.client.permissions.state.getState().records[0]?.phase).toBe("pending");
+});
+
+test("evaluation adapter and host keep their real connection and forward the interruption PCM in order", async ctx => {
+  const s = await adapterScene(ctx); s.mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  await s.pump([{ type: "session.output_audio.delta", delta: outputPcm(1) }]);
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  const before = s.socket.frames("conversation_audio").length;
+  s.mic.speak();
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("speaking");
+  await s.pump();
+  const frames = s.socket.frames("conversation_audio");
+  expect(frames.length).toBeGreaterThan(before);
+  const forwarded = s.upstream.filter(frame => frame.type === "session.input_audio.append");
+  expect(forwarded.length).toBeGreaterThan(before);
+  expect(forwarded.map(frame => frame.audio)).toEqual(frames.slice(0, forwarded.length).map(frame => frame.pcm));
+  expect(s.upstream.filter(frame => frame.type === "session.start")).toHaveLength(1);
+  expect(s.upstream.filter(frame => frame.type === "session.close")).toHaveLength(0);
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.mic.opens()).toBe(1);
 });
