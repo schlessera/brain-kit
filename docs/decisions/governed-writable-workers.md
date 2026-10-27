@@ -1735,7 +1735,7 @@ recorded.
 **One identity inspector per manager.** The manager starts one
 `python3 -I -S` interpreter and sends it each inspection as one JSON line
 (`export function createNativeIdentityInspector`,
-`packages/ui-sdk/src/server/native-identity-inspector.ts:66-160`). The root
+`packages/ui-sdk/src/server/native-identity-inspector.ts:79-173`). The root
 and loop-device programs are byte-identical to the ones each fresh launch ran,
 which a test pins by hash. The interpreter compiles them once and runs one in
 fresh globals per request, with the path as its only argument, and answers
@@ -1749,6 +1749,22 @@ malformed exchange, or one with an interpreter that died, kills the
 interpreter and fails that request with the outcome a killed launch had; the
 next inspection starts a new interpreter. A refused startup and `close()`
 stop it.
+
+**2026-10-28 — Diagnostic source correction (#3062).** Python 3.14's
+command-string source cache identifies code by filename, qualified name and
+first line; the outer loop and both inspection modules collide. Formatting an
+inspection with that cache can display the outer loop's statements. The
+inspector now supplies active source through the public
+[`FrameSummary` constructor](https://docs.python.org/3.14/library/traceback.html#traceback.FrameSummary)
+and formats the resulting `TracebackException`. A startup stack summary probes
+whether this interpreter exposes source for its own command string: Python
+3.12 omits it, while 3.14 includes it. Explicit source follows that presentation,
+including the original filename, line and column positions; no private
+CPython cache API or version threshold is used. The fixed inspection texts,
+per-request execution, isolation flags and fresh-launch diagnostic guarantee
+remain binding. The seven rejected-path comparisons and alternating root/loop
+regression run against real interpreters; this correction makes no new timing
+claim about the observation measurements above.
 
 **Releasing the previous checkpoint.** `commit()` advances the observer's
 root and hands the previous checkpoint to the observer's release owner, which

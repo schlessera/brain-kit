@@ -49,6 +49,22 @@ test("each inspection answers as a fresh launch would, for the same path", async
   expect(inspect.launches, "NATIVE_INSPECTOR_ONE_INTERPRETER").toBe(1);
 });
 
+test("alternating inspection failures retain the active source and exact fresh diagnostic", async () => {
+  const root = directory(), path = join(root, "scheria.md"), inspect = inspector();
+  writeFileSync(path, "Nausicaa");
+  const cases: [NativeInspection, string][] = [["root", root], ["loop", path], ["root", root], ["loop", path]];
+  for (const [program, rejectedPath] of cases) {
+    const expected = fresh(program, rejectedPath), actual = await inspect.run(program, rejectedPath);
+    expect(expected.code).toBe(1);
+    expect(expected.text).toBe("");
+    expect(actual, `NATIVE_INSPECTOR_ACTIVE_SOURCE ${program}`).toEqual(expected);
+    expect(actual.errors).toContain('File "<string>"');
+    expect(actual.errors).not.toContain("request=json.loads(line)");
+    expect(actual.errors).not.toContain("for line in sys.stdin");
+  }
+  expect(inspect.launches).toBe(1);
+});
+
 test("every request inspects the path again; no answer is reused", async () => {
   const root = directory(), path = join(root, "penelope"), inspect = inspector();
   expect(lastLine((await inspect.run("root", path)).errors), "NATIVE_INSPECTOR_SEES_ABSENT_PATH").toContain("FileNotFoundError");
