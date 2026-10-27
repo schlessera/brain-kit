@@ -195,7 +195,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
 for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`reply windows keep controls stable ${theme} ${width}x${height} text ${scale}`, async ctx => {
   const s = await scene(ctx, width, height, theme, scale);
   s.active();
-  flushSync(() => s.client.state.setState({ text: "Ask Nestor about the supplies.", interaction: "Review before sending", micOn: true }));
+  flushSync(() => s.client.state.setState({ text: "Ask Nestor about the supplies.", interaction: "Review before sending", micOn: true, notice: "spoken portion unknown" }));
   const names = ["Mute mic", "Stop reply", "Leave voice"];
   const controls = () => names.map(name => page.getByRole("button", { name, exact: true }).element() as HTMLElement);
   expect(s.strip().textContent, "Stop reply keeps its place before playback starts").toContain("Stop reply");
