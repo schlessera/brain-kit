@@ -37,9 +37,11 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
     try { for (const receipt of records.values()) root.stores.chat.getState().applyVoicePermission(receipt); }
     finally { applying = false; }
   }
+  // Both shipped engines emit unknown-origin input. Echo isolation alone does
+  // not prove user attribution; keep the scoped input guard and direct decisions
+  // to the screen until a separately qualified capability can support this copy.
   function publish() {
-    const s = selected();
-    state.setState({ records: [...records.values()], line: full ? "Use Deny on screen; the voice request limit was reached." : pending().length ? s.micOn ? 'Say “brain, stop” to refuse · voice can’t approve' : "Mic is off. Use Deny on screen, or unmute to refuse." : "" });
+    state.setState({ records: [...records.values()], line: full ? "Use Deny on screen; the voice request limit was reached." : pending().length ? "Use Deny on screen · voice can’t approve or refuse with this service" : "" });
     apply();
   }
   function put(receipt: VoicePermissionReceipt) {
@@ -58,9 +60,7 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
       const key = identity(receipt.sessionId, receipt.turnId, receipt.toolUseId);
       if (announced.has(key) || announced.size >= 4096) continue;
       announced.add(key);
-      put({ ...receipt, announced: true, word: "earcon once · voice can’t approve", script: selected().micOn
-        ? `${receipt.label ?? "An action"} needs a decision on screen. Voice can’t approve it. Say “brain, stop” to refuse.`
-        : `${receipt.label ?? "An action"} needs a decision on screen. Mic is off. Use Deny on screen, or unmute to refuse.` });
+      put({ ...receipt, announced: true, word: "earcon once · voice can’t approve", script: `${receipt.label ?? "An action"} needs a decision on screen. Use Deny on screen. Voice can’t approve or refuse with this service.` });
       tone = true;
     }
     if (tone) earcon();
