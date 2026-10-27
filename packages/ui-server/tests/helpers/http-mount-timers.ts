@@ -11,7 +11,7 @@ type MountTimerSnapshot = {
   phase: string; pending: number;
   handles: Array<{ id: number | null; type: string; prototype?: string; nativeDestroyed: boolean | "unknown";
     hasRef: boolean | "unknown"; ownProperties: string[]; kind?: string; delay?: unknown;
-    callback: { id: number | null; name: string }; socket: SocketSnapshot | null }>;
+    callback: { id: number | null; name: string; source: string | null }; socket: SocketSnapshot | null }>;
   sockets: SocketSnapshot[];
   ownedAgents: Array<{ key: string; active: SocketSnapshot[]; free: SocketSnapshot[]; queuedRequests: number }>;
 };
@@ -107,7 +107,10 @@ export function observeMountTimers() {
           nativeDestroyed: native._destroyed ?? "unknown", hasRef: native.hasRef?.() ?? "unknown",
           ownProperties: Reflect.ownKeys(Object(handle)).map(String),
           kind: registration?.kind, delay: registration?.delay,
-          callback: { id: identity(registration?.callback), name: typeof registration?.callback === "function" ? registration.callback.name : typeof registration?.callback },
+          callback: { id: identity(registration?.callback), name: typeof registration?.callback === "function" ? registration.callback.name : typeof registration?.callback,
+            // Read code only while taking a diagnostic snapshot. An anonymous
+            // live callback cannot be attributed from its name or delay alone.
+            source: typeof registration?.callback === "function" ? Function.prototype.toString.call(registration.callback) : null },
           socket: registration?.socket ? socketState(registration.socket) : null };
       }), sockets: [...sockets.keys()].map(socketState), ownedAgents: [...ownedKeys].map(key => ({ key,
         active: (globalAgent.sockets[key] ?? []).map(socketState), free: (globalAgent.freeSockets[key] ?? []).map(socketState),
