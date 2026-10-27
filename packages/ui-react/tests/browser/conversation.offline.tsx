@@ -1100,7 +1100,7 @@ test("evaluation host work arriving after interruption blocks replacement but ke
   expect(s.client.state.getState().text).toBe("Tomorrow before departure");
   s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-late-turn", requestId: "ithaca-late-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [] }] });
   expect(s.client.commit(s.client.state.getState().token)).toBe(true);
-  expect(s.socket.frames("ask_user_response")).toHaveLength(1);
+  await expect.poll(() => s.socket.frames("ask_user_response").length).toBe(1);
   expect(s.socket.frames("ask_user_response")[0]).toMatchObject({ turnId: "ithaca-late-turn", requestId: "ithaca-late-question", answers: { "Which day?": "Tomorrow before departure" } });
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
