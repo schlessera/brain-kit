@@ -190,3 +190,57 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   flushSync(() => s.client.state.setState({ notice: "" }));
   expect(s.strip().querySelector('[role="status"]')).toBe(null);
 });
+
+// PCM scheduling gaps must not move a pointer target or flash the displayed state.
+for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`reply windows keep controls stable ${theme} ${width}x${height} text ${scale}`, async ctx => {
+  const s = await scene(ctx, width, height, theme, scale);
+  s.active();
+  flushSync(() => s.client.state.setState({ text: "Ask Nestor about the supplies.", interaction: "Review before sending", micOn: true }));
+  const names = ["Mute mic", "Stop reply", "Leave voice"];
+  const controls = () => names.map(name => page.getByRole("button", { name, exact: true }).element() as HTMLElement);
+  expect(s.strip().textContent, "Stop reply keeps its place before playback starts").toContain("Stop reply");
+  const targets = controls();
+  const bounds = targets.map(node => node.getBoundingClientRect());
+  expect(targets[1].getAttribute("aria-disabled")).toBe("true");
+  for (const box of bounds) { expect(box.height).toBeGreaterThanOrEqual(44); expect(box.width).toBeGreaterThanOrEqual(44); }
+  for (const gap of [10, 40, 100, 20]) {
+    flushSync(() => s.client.state.setState({ playing: true, interaction: "Speaking" }));
+    await expect.element(page.getByRole("button", { name: "Stop reply", exact: true })).not.toHaveAttribute("aria-disabled", "true");
+    targets[0].focus();
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement, "Tab reaches Stop reply in its stable slot").toBe(targets[1]);
+    flushSync(() => s.client.state.setState({ playing: false, interaction: gap === 40 ? "Listening" : "Review before sending" }));
+    await new Promise(resolve => setTimeout(resolve, gap));
+    expect(s.strip().children[1].textContent, "short PCM gaps retain Speaking feedback").toContain("Speaking");
+    expect(s.client.state.getState().micOn, "display smoothing must not mute or resume capture").toBe(true);
+    expect(s.client.state.getState().playing, "presentation must not alter sample-level state").toBe(false);
+    expect(targets[1].getAttribute("aria-disabled"), "Stop remains available across a short gap").not.toBe("true");
+    controls().forEach((node, index) => {
+      const box = node.getBoundingClientRect();
+      expect([box.x, box.y, box.width, box.height], "control geometry stays fixed across PCM windows").toEqual([bounds[index].x, bounds[index].y, bounds[index].width, bounds[index].height]);
+      expect(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button,[role="button"]'), "original target center still hits the same action").toBe(targets[index]);
+      expect(node.scrollWidth).toBeLessThanOrEqual(node.clientWidth + 1);
+    });
+    expect(document.activeElement).toBe(targets[1]);
+  }
+  await s.capture("reply-gap");
+  await expect.poll(() => targets[1].getAttribute("aria-disabled")).toBe("true");
+  expect(s.strip().children[1].textContent).toContain("Review before sending");
+  flushSync(() => s.client.state.setState({ playing: true, interaction: "Speaking" }));
+  flushSync(() => s.client.state.setState({ playing: false, interaction: "Review before sending" }));
+  flushSync(() => s.client.state.setState({ connection: "Speech lost", notice: "Speech connection lost. Resume when ready." }));
+  expect(s.strip().children[1].textContent, "connection loss is never smoothed away").toContain("Review before sending");
+  expect(targets[1].getAttribute("aria-disabled")).toBe("true");
+  flushSync(() => s.client.state.setState({ connection: "Connected", notice: "", playing: true, interaction: "Speaking" }));
+  flushSync(() => s.client.state.setState({ playing: false, interaction: "Review before sending" }));
+  targets[0].focus();
+  await userEvent.keyboard("{Tab}");
+  expect(document.activeElement).toBe(targets[1]);
+  await userEvent.keyboard("{Enter}");
+  expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
+  expect(s.strip().children[1].textContent, "explicit stop feedback takes precedence immediately").toContain("Checking whether the reply stopped");
+  expect(targets[1].getAttribute("aria-disabled")).toBe("true");
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.network.socket()!.frames("conversation_audio")).toHaveLength(0);
+  expect(s.network.socket()!.frames("conversation_commit")).toHaveLength(0);
+});
