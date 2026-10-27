@@ -143,6 +143,8 @@ authoritative content. Cache keys include endpoint, query/body, method, service
 and application identity. Expired, future-dated or malformed entries cannot answer
 as fresh evidence. Network replies are bounded to 5 MiB and `timeoutMs` (default
 5 s, range 100 ms–60 s), including body consumption.
+An aborted request cancels response bodies that have not acquired a reader,
+including responses delivered after timeout or failed admission persistence.
 
 Admission is shared across cooperating processes at
 `~/.cache/brain-kit/geo/admission`, independent of response-cache location. Server
