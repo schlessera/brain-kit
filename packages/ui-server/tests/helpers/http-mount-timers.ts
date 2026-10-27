@@ -3,6 +3,19 @@ import { globalAgent } from "node:http";
 import { Socket } from "node:net";
 import type { HttpContractApp } from "./http-contract-app";
 
+type SocketSnapshot = {
+  id: number | null; ownedAgentKeys: string[]; destroyed: boolean; closed: boolean;
+  connecting: boolean; pending: boolean; timeout?: number; readable: boolean; writable: boolean;
+};
+type MountTimerSnapshot = {
+  phase: string; pending: number;
+  handles: Array<{ id: number | null; type: string; prototype?: string; nativeDestroyed: boolean | "unknown";
+    hasRef: boolean | "unknown"; ownProperties: string[]; kind?: string; delay?: unknown;
+    callback: { id: number | null; name: string }; socket: SocketSnapshot | null }>;
+  sockets: SocketSnapshot[];
+  ownedAgents: Array<{ key: string; active: SocketSnapshot[]; free: SocketSnapshot[]; queuedRequests: number }>;
+};
+
 /** Observe real timers, including unref'ed ones Bun's active-resource API omits. */
 export function observeMountTimers() {
   const observed = new Set<ReturnType<typeof setTimeout>>();
@@ -42,7 +55,13 @@ export function observeMountTimers() {
     registrations.set(handle, { callback: args[0], delay: args[1], kind: "interval", socket: currentSocket });
     return handle;
   }) as typeof setInterval);
-  const observer = {
+  const observer: {
+    readonly pending: Set<ReturnType<typeof setTimeout>>;
+    own(fixture: HttpContractApp): void;
+    expectEmpty(phase: string): void;
+    snapshot(phase: string, pending?: Set<ReturnType<typeof setTimeout>>): MountTimerSnapshot;
+    restore(): void;
+  } = {
     get pending(): Set<ReturnType<typeof setTimeout>> {
       // Bun 1.4.2's native Timeout getter reports cancellation even when an
       // imported clear function, close() or socket destruction bypasses a
@@ -62,14 +81,14 @@ export function observeMountTimers() {
         keys.add(key);
       }
     },
-    expectEmpty(phase: string) {
+    expectEmpty(phase: string): void {
       const pending = observer.pending;
       // The ordinary count assertion remains the oracle; diagnostics neither
       // filter nor wait for any handle. Successful assertions allocate no JSON.
       const message = pending.size ? `HTTP_MOUNT_PENDING_TIMERS ${JSON.stringify(observer.snapshot(phase, pending))}` : phase;
       expect(pending.size, message).toBe(0);
     },
-    snapshot(phase: string, pending: Set<ReturnType<typeof setTimeout>> = observer.pending) {
+    snapshot(phase: string, pending: Set<ReturnType<typeof setTimeout>> = observer.pending): MountTimerSnapshot {
       const ids = new Map<unknown, number>();
       const identity = (value: unknown) => {
         if (value === undefined || value === null) return null;
