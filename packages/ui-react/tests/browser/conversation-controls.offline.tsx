@@ -1,0 +1,133 @@
+/// <reference types="@vitest/browser-playwright" />
+import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
+import { commands, page, userEvent } from "vitest/browser";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { CONVERSATION_LIMITS, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { createBrainUiRoot } from "../../src/root.js";
+import { BrainUiProvider } from "../../src/root-context.js";
+import { AppShell } from "../../src/components/layout/app-shell.js";
+import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { installFaultNetwork } from "./offline/fault-network.js";
+
+const SESSION = "odysseus-ithaca";
+const PROFILE: ServerConversationOpened = { type: "conversation_opened", conversationId: "ithaca-voice", epoch: 1, sessionId: SESSION, providerId: "gpt-live", capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" }, disclosure: { voiceService: "Odysseus voice fixture", destinations: ["Audio and transcripts: fictional fixture. Retention: unknown."] }, limits: { ...CONVERSATION_LIMITS }, resync: { work: 0, outputs: 0 } };
+let styles: HTMLStyleElement;
+beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
+afterAll(() => styles.remove());
+
+/** Render real controls with inert state evidence; never opens a microphone or a provider. */
+async function scene(ctx: TestContext, width: number, height: number, theme: "light" | "dark", scale = 1) {
+  const viewport = { width: innerWidth, height: innerHeight };
+  const outer = await commands.formViewport(width, height);
+  await page.viewport(width, height);
+  const network = installFaultNetwork({ routes: url => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
+    onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { liveConversation: true, conversationPause: true, toolResolution: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
+  const ui = createBrainUiRoot({ storage: null, request: network.request });
+  ui.stores.chat.getState().setActiveSession(SESSION);
+  ui.stores.ui.getState().setTheme(theme);
+  const host = document.createElement("div");
+  host.style.cssText = `position:fixed;inset:0;width:${width}px;height:${height}px`;
+  document.body.append(host);
+  const renderer = createRoot(host);
+  flushSync(() => renderer.render(<BrainUiProvider root={ui}><AppShell><ChatPage /></AppShell></BrainUiProvider>));
+  const release = ui.connection.connect();
+  ctx.onTestFinished(async () => { flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+  await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
+  const client = ui.connection.conversation;
+  const deliver = (message: ServerMessage) => network.socket()!.deliver(message);
+  const capture = async (name: string) => { await page.screenshot({ element: host, path: `../../.vitest-attachments/conversation-controls/${theme}-${width}-${height}-${scale}-${name}.png` }); };
+  const active = () => flushSync(() => client.state.setState({ active: true, sessionId: SESSION, connection: "Connected", profile: PROFILE, disclosureOpen: false }));
+  const strip = () => host.querySelector<HTMLElement>('[data-conversation-strip]')!;
+  if (scale !== 1) {
+    // Text-only enlargement exercises wrapping independently of viewport zoom.
+    const large = document.createElement("style"); large.textContent = `[data-conversation-strip] { font-size:${12 * scale}px } [data-conversation-strip] :is(div,button,[role=button]) { font-size:inherit !important; line-height:1.3 !important }`;
+    document.head.append(large); ctx.onTestFinished(() => large.remove());
+  }
+  return { ui, client, host, deliver, capture, active, strip, network };
+}
+
+for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`control audit ${theme} ${width}x${height} text ${scale}`, async ctx => {
+  const s = await scene(ctx, width, height, theme, scale);
+  s.active();
+  for (const [name, connection, interaction, micOn, playing] of [
+    ["connecting", "Connecting", "Listening", false, false],
+    ["listening", "Connected", "Listening", true, false],
+    ["muted", "Connected", "Listening", false, false],
+    ["working", "Connected", "Working", false, false],
+    ["speaking", "Connected", "Speaking", false, true],
+    ["interruption", "Reconnecting", "Checking whether the reply stopped", false, false],
+    ["reconnect", "Speech lost", "Listening", false, false],
+  ] as const) {
+    flushSync(() => s.client.state.setState({ connection, interaction, micOn, playing, notice: name === "reconnect" ? "Speech connection lost. Resume when ready." : "" }));
+    // Pin keyboard modality and focus; earlier test input must not change a baseline's ring.
+    if (name === "interruption") { s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus(); await userEvent.keyboard("{ArrowRight}"); }
+    await s.capture(name);
+    if (name === "interruption" && width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`);
+    const status = s.strip().children[1] as HTMLElement;
+    expect(status.scrollHeight, `${name}: status must not paint over the next row`).toBeLessThanOrEqual(status.clientHeight + 1);
+    expect(s.strip().scrollWidth, `${name}: no horizontal overflow`).toBeLessThanOrEqual(s.strip().clientWidth);
+    for (const control of s.strip().querySelectorAll<HTMLElement>('button,[role=button]')) {
+      expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      expect(control.scrollWidth, `${name}: full control label`).toBeLessThanOrEqual(control.clientWidth + 1);
+    }
+  }
+  flushSync(() => s.client.state.setState({ connection: "Connected", interaction: "Review before sending", micOn: false, notice: "", text: "Ask Nestor about the departure, the harbour supplies and the next meeting before sailing." }));
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-turn", text: "The departure note needs review." });
+  s.deliver({ type: "tool_approval_request", sessionId: SESSION, turnId: "ithaca-turn", toolUseId: "ithaca-write", toolName: "Write", kind: "tool", input: { file_path: "voyage/raft.md", content: "Review the raft supplies" } });
+  await expect.poll(() => s.host.querySelector('[data-approval-card]')).not.toBe(null);
+  s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus(); await userEvent.keyboard("{ArrowRight}");
+  await s.capture("review-permission");
+  if (width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`review-permission-${theme}-${scale}`);
+  const line = s.strip().querySelector<HTMLElement>('[data-voice-refusal-window]')!;
+  expect(line.scrollHeight, "permission guidance cannot overlap controls under enlarged text").toBeLessThanOrEqual(line.clientHeight + 1);
+  expect(line.textContent).toContain("Use Deny on screen");
+  expect(line.textContent).not.toContain("unmute to refuse");
+  flushSync(() => s.client.state.setState({ micOn: true })); s.client.permissions.refresh();
+  expect(s.client.permissions.state.getState().line).not.toContain("brain, stop");
+  flushSync(() => s.client.state.setState({ micOn: false }));
+  expect(s.client.permissions.state.getState().records[0]?.script).not.toContain("unmute to refuse");
+  const review = s.strip().querySelector<HTMLElement>('[data-conversation-review]')!;
+  expect(page.getByRole("region", { name: "Unsent voice transcript" }).element()).toBe(review);
+  s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus();
+  await userEvent.keyboard("{Tab}");
+  expect(document.activeElement, "Tab reaches the review after service details").toBe(review);
+  const beforeScroll = review.scrollTop;
+  await userEvent.keyboard("{ArrowDown}");
+  if (review.scrollHeight > review.clientHeight) await expect.poll(() => review.scrollTop).toBeGreaterThan(beforeScroll);
+  expect(document.activeElement).toBe(review);
+  expect(getComputedStyle(review).outlineStyle).not.toBe("none");
+  await userEvent.click(page.getByRole("button", { name: /^Deny/ }));
+  expect(s.network.socket()!.frames("tool_denial")).toHaveLength(1);
+  expect(s.network.socket()!.frames("tool_denial")[0]?.channel).toBe("card");
+  for (const outcome of ["denied", "expired"] as const) {
+    s.deliver({ type: "tool_resolution", sessionId: SESSION, turnId: "ithaca-turn", toolUseId: "ithaca-write", outcome, channel: "card" });
+    await expect.poll(() => s.host.querySelector('[data-approval-card]')).toBe(null);
+    await s.capture(outcome);
+  }
+  flushSync(() => s.client.state.setState({ disclosureOpen: true, micOn: false }));
+  await s.capture("disclosure");
+  expect(document.body.textContent).not.toContain("Refusal by voice needs headphones");
+  expect(document.body.textContent).toContain("Spoken refusal is unavailable");
+  const dialog = document.querySelector<HTMLElement>('[data-overlay-site="conversation-disclosure"]')!;
+  for (const name of ["Start", "Cancel"]) {
+    const control = [...dialog.querySelectorAll<HTMLElement>('button,[role=button]')].find(node => node.textContent === name)!;
+    expect(control.getBoundingClientRect().right, `${name} fits inside disclosure`).toBeLessThanOrEqual(dialog.getBoundingClientRect().right);
+  }
+  await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.network.socket()!.frames("conversation_audio")).toHaveLength(0);
+});
+
+for (const theme of ["light", "dark"] as const) test(`entry and connecting disclosure ${theme}`, async ctx => {
+  const s = await scene(ctx, 1280, 720, theme);
+  await userEvent.click(page.getByRole("button", { name: "Attach — photo, camera, file", exact: true }));
+  await s.capture("entry");
+  await userEvent.click(page.getByRole("button", { name: /Live conversation/ }));
+  await expect.poll(() => s.client.state.getState().disclosureOpen).toBe(true);
+  await s.capture("connecting-disclosure");
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(page.getByRole("button", { name: "Start", exact: true }).element().getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
+  expect(s.client.state.getState().active).toBe(false);
+});

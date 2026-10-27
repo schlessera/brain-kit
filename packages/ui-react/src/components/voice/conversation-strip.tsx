@@ -35,29 +35,29 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   const profile = s.profile;
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
   const leave = () => { client.leave(); onLeave(); };
-  return <div ref={frame} data-conversation-strip="" className="mx-auto max-w-3xl border-t border-border bg-background text-foreground" style={{ overflowWrap: "anywhere" }}>
+  return <div ref={frame} data-conversation-strip="" className="mx-auto max-w-3xl border-t border-border bg-background text-foreground" style={{ overflowWrap: "anywhere", maxHeight: "60dvh", overflowY: "auto" }}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{s.announcement}</div>
-    <div style={{ height: 44, display: "flex", alignItems: "center", gap: 4, fontSize: 12, lineHeight: "13px" }}>
+    <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 4, fontSize: 12, lineHeight: 1.3 }}>
       <div style={{ flex: 1, minWidth: 0 }} className={s.micOn ? "text-[var(--bk-teal-ink)]" : s.interaction === "Working" || s.interaction === "Speaking" ? "text-[var(--bk-amber-ink)]" : undefined}>
         <div>{s.micOn ? "●" : "○"} {s.interaction} · mic {s.micOn ? "on" : "off"}</div>
-        <div title={s.notice || undefined} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.connection} · chat: {chat === "connected" ? "ok" : "lost"}{s.notice && !s.text ? ` · ${s.notice}` : ""}</div>
+        <div>{s.connection} · chat: {chat === "connected" ? "ok" : "lost"}{s.notice && !s.text ? ` · ${s.notice}` : ""}</div>
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
-      <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="">
+      <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="" tabIndex={0} role="region" aria-label="Unsent voice transcript" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]">
         <div className="font-mono text-[10px]">NOT SENT · SAVED AS DRAFT</div>
         <div>{s.text}</div>
         <div>{needsScreen ? "This question needs the screen" : s.interaction === "Sending soon" ? "Sending soon" : "Review before sending"}</div>
         {s.notice.startsWith("I couldn") && <div>{s.notice}</div>}
       </div>
-      <div className="w-full min-[900px]:w-[220px]" style={{ height: 46, display: "flex", gap: 4 }}>
+      <div className="w-full min-[900px]:w-[220px]" style={{ minHeight: 46, display: "flex", gap: 4 }}>
         <Button label="Send now" tone="primary" style={button} onClick={() => client.commit(s.token)} disabled={s.connection !== "Connected" || s.interaction === "Checking whether the reply stopped"} />
         <Button label="Discard" tone="ghost" style={button} onClick={client.discard} />
       </div>
     </div>}
-    {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ height: 40, fontSize: 12 }}>{permission.line}</div>}
-    <div style={{ height: permission.line && s.text && shortScreen ? 44 : 52, display: "flex", alignItems: "center", gap: 4 }}>
+    {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ minHeight: 40, fontSize: 12 }}>{permission.line}</div>}
+    <div className="sticky bottom-0 bg-background" style={{ minHeight: permission.line && s.text && shortScreen ? 44 : 52, display: "flex", alignItems: "center", gap: 4 }}>
       <Button label={s.micOn ? "Mute mic" : s.connection === "Connected" ? "Unmute mic" : "Resume"} ariaLabel={s.micOn ? "Mute mic" : "Resume microphone"} tone="ghost" style={button} onClick={s.micOn ? client.mute : client.resume} />
       {s.playing && <Button label="Stop reply" tone="ghost" style={button} onClick={client.stopReply} />}
       <Button label="Leave voice" tone="ghost" style={button} onClick={leave} />
@@ -69,10 +69,10 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
         <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>
         {profile?.capabilities.finalTranscript !== "supported" && <p>Automatic send isn't available with this service. Use Send now.</p>}
-        {profile?.capabilities.echoIsolatedInput !== "supported" && <p>Refusal by voice needs headphones with this service.</p>}
+        <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
         {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}
         {s.notice && <p>{s.notice}</p>}
-        <div className="flex gap-2"><Button label="Start" disabled={!profile || s.connection !== "Connected"} onClick={client.start} /><Button label="Cancel" tone="ghost" onClick={leave} /></div>
+        <div className="flex gap-2"><Button label="Start" style={button} disabled={!profile || s.connection !== "Connected"} onClick={client.start} /><Button label="Cancel" style={button} tone="ghost" onClick={leave} /></div>
       </div>
     </Overlay>
   </div>;
