@@ -40,16 +40,16 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
     <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 4, fontSize: 12, lineHeight: 1.3 }}>
       <div style={{ flex: 1, minWidth: 0 }} className={s.micOn ? "text-[var(--bk-teal-ink)]" : s.interaction === "Working" || s.interaction === "Speaking" ? "text-[var(--bk-amber-ink)]" : undefined}>
         <div>{s.micOn ? "●" : "○"} {s.interaction} · mic {s.micOn ? "on" : "off"}</div>
-        <div>{s.connection} · chat: {chat === "connected" ? "ok" : "lost"}{s.notice && !s.text ? ` · ${s.notice}` : ""}</div>
+        <div>{s.connection} · chat: {chat === "connected" ? "ok" : "lost"}</div>
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
+    {s.notice && <div role="status" aria-label="Voice notice" style={{ fontSize: 12, lineHeight: 1.3 }}>{s.notice}</div>}
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
       <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="" tabIndex={0} role="region" aria-label="Unsent voice transcript" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]">
         <div className="font-mono text-[10px]">NOT SENT · SAVED AS DRAFT</div>
         <div>{s.text}</div>
         <div>{needsScreen ? "This question needs the screen" : s.interaction === "Sending soon" ? "Sending soon" : "Review before sending"}</div>
-        {s.notice.startsWith("I couldn") && <div>{s.notice}</div>}
       </div>
       <div className="w-full min-[900px]:w-[220px]" style={{ minHeight: 46, display: "flex", gap: 4 }}>
         <Button label="Send now" tone="primary" style={button} onClick={() => client.commit(s.token)} disabled={s.connection !== "Connected" || s.interaction === "Checking whether the reply stopped"} />

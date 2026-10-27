@@ -131,3 +131,62 @@ for (const theme of ["light", "dark"] as const) test(`entry and connecting discl
   await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
   expect(s.client.state.getState().active).toBe(false);
 });
+
+// Capture/readiness diagnostics remain actionable alongside an unsent draft.
+for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`notice with review ${theme} ${width}x${height} text ${scale}`, async ctx => {
+  const s = await scene(ctx, width, height, theme, scale);
+  s.active();
+  const text = "Ask Nestor to review the harbour supplies before sailing.";
+  flushSync(() => s.client.state.setState({ micOn: false, text, interaction: "Review before sending" }));
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "notice-turn", text: "The supplies need review." });
+  s.deliver({ type: "tool_approval_request", sessionId: SESSION, turnId: "notice-turn", toolUseId: "notice-write", toolName: "Write", kind: "tool", input: { file_path: "voyage/raft.md", content: "Review supplies" } });
+  await expect.poll(() => s.host.querySelector('[data-approval-card]')).not.toBe(null);
+  const details = s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!;
+  details.focus();
+  for (const notice of [
+    "Microphone input ended. Check the device, then resume.",
+    "Waiting for voice readiness. Microphone off.",
+    "Synchronizing voice. Microphone off.",
+    "Microphone off while checking the reply stop. Resume when voice is ready.",
+    "Microphone permission denied. Allow it in the browser, then unmute.",
+    "Speech input could not be matched to captured audio. Microphone off; review before resuming.",
+    "I couldn't hear that clearly. Review before sending.",
+  ]) {
+    flushSync(() => s.client.state.setState({ connection: "Speech lost", notice }));
+    expect(s.strip().textContent, "capture-off reason remains present beside review text").toContain(notice);
+    const diagnostic = page.getByRole("status", { name: "Voice notice" });
+    await expect.element(diagnostic).toHaveTextContent(notice);
+    const node = diagnostic.element() as HTMLElement;
+    expect(node.textContent).toBe(notice);
+    expect(s.strip().textContent?.split(notice)).toHaveLength(2);
+    expect(s.strip().querySelector('[data-conversation-review]')?.textContent).toContain(text);
+    expect(document.activeElement, "a diagnostic must not steal focus").toBe(details);
+    const status = s.strip().children[1] as HTMLElement;
+    expect(status.scrollHeight, "diagnostic wraps within its growing row").toBeLessThanOrEqual(status.clientHeight + 1);
+    expect(node.scrollWidth).toBeLessThanOrEqual(node.clientWidth + 1);
+    expect(node.scrollHeight).toBeLessThanOrEqual(node.clientHeight + 1);
+    expect(s.strip().scrollWidth).toBeLessThanOrEqual(s.strip().clientWidth);
+  }
+  await userEvent.keyboard("{Tab}");
+  const review = s.strip().querySelector<HTMLElement>('[data-conversation-review]')!;
+  expect(document.activeElement).toBe(review);
+  expect(getComputedStyle(review).outlineStyle).not.toBe("none");
+  expect(page.getByRole("button", { name: "Send now", exact: true }).element().getAttribute("aria-disabled")).toBe("true");
+  // A long diagnostic must not remove access to the host-owned permission card.
+  flushSync(() => s.client.state.setState({ notice: "Microphone input ended. Check the device, then resume.", connection: "Speech lost" }));
+  details.focus(); await userEvent.keyboard("{ArrowRight}");
+  const diagnosticBounds = page.getByRole("status", { name: "Voice notice" }).element().getBoundingClientRect();
+  const controls = page.getByRole("button", { name: "Resume microphone" }).element().getBoundingClientRect();
+  expect(diagnosticBounds.top).toBeGreaterThanOrEqual(s.strip().getBoundingClientRect().top);
+  expect(diagnosticBounds.bottom, "the complete device notice fits above sticky controls").toBeLessThanOrEqual(controls.top);
+  if (scale === 2) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`notice-review-${theme}`);
+  await s.capture("notice-review-permission");
+  await userEvent.click(page.getByRole("button", { name: /^Deny/ }));
+  expect(s.network.socket()!.frames("tool_denial")).toHaveLength(1);
+  expect(s.network.socket()!.frames("tool_denial")[0]?.channel).toBe("card");
+  expect(s.network.socket()!.frames("conversation_commit")).toHaveLength(0);
+  flushSync(() => s.client.state.setState({ text: "" }));
+  await expect.element(page.getByRole("status", { name: "Voice notice" })).toHaveTextContent("Microphone input ended.");
+  flushSync(() => s.client.state.setState({ notice: "" }));
+  expect(s.strip().querySelector('[role="status"]')).toBe(null);
+});
