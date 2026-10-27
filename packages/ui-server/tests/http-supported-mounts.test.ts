@@ -232,6 +232,7 @@ test("a dirty failed mount discards its resources before the next independent ca
   let failedStartup: HttpContractApp | undefined;
   let attempts = 0;
   const pool = createHttpMountPool(async () => (await prepare("", t => {
+    timers.own(t);
     if (attempts++ === 0) { failedStartup = t; throw new Error("injected seed failure"); }
   })).t);
   let dirty: HttpContractApp | undefined;
@@ -241,7 +242,7 @@ test("a dirty failed mount discards its resources before the next independent ca
     expect(existsSync(failedStartup!.root)).toBe(false);
     expect(existsSync(failedStartup!.app.config.nativeBrain!.socketPath)).toBe(false);
     expect(() => failedStartup!.app.db.query("SELECT 1").get()).toThrow();
-    expect(timers.pending.size).toBe(0);
+    timers.expectEmpty("failed-startup-disposed");
     await expect(pool.run(async t => {
       dirty = t;
       expect(timers.pending.size).toBeGreaterThan(0);
@@ -251,7 +252,7 @@ test("a dirty failed mount discards its resources before the next independent ca
       writeFileSync(join(t.app.config.voice.cacheDir, "keyterms.json"), "dirty cache");
       throw new Error("injected mount failure");
     })).rejects.toThrow("injected mount failure");
-    expect(timers.pending.size).toBe(0);
+    timers.expectEmpty("dirty-case-disposed");
     const agentKey = httpMountAgentKey(dirty!);
     expect(globalAgent.sockets[agentKey] ?? []).toHaveLength(0);
     expect(globalAgent.freeSockets[agentKey] ?? []).toHaveLength(0);
@@ -266,10 +267,10 @@ test("a dirty failed mount discards its resources before the next independent ca
       await checkShared(operation, t);
     });
     await pool.close();
-    expect(timers.pending.size).toBe(0);
+    timers.expectEmpty("rebuilt-pool-closed");
     // A separate fresh app must also retain its native startup observer after
     // the failed and rebuilt shared environments have completely shut down.
-    const fresh = await prepare("GET /api/auth/principals");
+    const fresh = await prepare("GET /api/auth/principals", t => { timers.own(t); });
     try {
       const native = createNativeBrainManagerClient(fresh.t.app.config.nativeBrain!);
       await Promise.all(Array.from({ length: 6 }, () => native.ready()));
@@ -290,7 +291,7 @@ test("a dirty failed mount discards its resources before the next independent ca
       expect([...afterSocketTimers].filter(handle => !beforeSocketTimers.has(handle))).toHaveLength(6);
       await checkHandler("GET /api/auth/principals", checks["GET /api/auth/principals"]!, fresh.t, fresh.cookie);
     } finally { await closeHttpMountFixture(fresh.t); }
-    expect(timers.pending.size).toBe(0);
+    timers.expectEmpty("fresh-native-sockets-closed");
   } finally {
     try { await pool.close(); }
     finally { timers.restore(); }

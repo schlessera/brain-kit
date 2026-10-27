@@ -4,6 +4,14 @@ import { clearTimeout as nativeClearTimeout, clearInterval as nativeClearInterva
 import { Socket } from "node:net";
 import { observeMountTimers } from "./helpers/http-mount-timers";
 
+async function closeObservedFixture(close: () => Promise<void>, timers: ReturnType<typeof observeMountTimers>, removeState: () => void) {
+  try { await close(); }
+  finally {
+    try { timers.restore(); }
+    finally { removeState(); }
+  }
+}
+
 test("HTTP keepalive and application timers remain observed with shallow stacks", () => {
   const stackDescriptor = Object.getOwnPropertyDescriptor(Error, "stackTraceLimit")!;
   const agentDescriptor = Object.getOwnPropertyDescriptor(globalAgent, "keepSocketAlive");
@@ -100,4 +108,103 @@ test("native handle close, numeric cancellation and refresh preserve timer liven
     timers.restore();
   }
   for (const [key, descriptor] of descriptors) expect(Object.getOwnPropertyDescriptor(globalThis, key)).toEqual(descriptor);
+});
+
+test("failed timer zero oracle retains live owned Unix HTTP evidence and restores descriptors", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { request } = await import("node:http");
+  const { closeHttpMountFixture, httpMountAgentKey } = await import("./helpers/http-mount-pool");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-timer-evidence-"));
+  const socketPath = join(root, "native.sock");
+  const descriptor = Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout");
+  const server = Bun.serve({ unix: socketPath, fetch: () => new Response("ready") });
+  const fixture = { app: { config: { nativeBrain: { socketPath } } }, async close() { server.stop(true); } } as unknown as import("./helpers/http-contract-app").HttpContractApp;
+  const timers = observeMountTimers();
+  timers.own(fixture);
+  let live: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const req = request({ socketPath, path: "/" }, res => { res.resume(); res.once("end", resolve); });
+      req.once("error", reject); req.end();
+    });
+    const key = httpMountAgentKey(fixture);
+    const sockets = [...(globalAgent.sockets[key] ?? []), ...(globalAgent.freeSockets[key] ?? [])];
+    expect(sockets).toHaveLength(1);
+    sockets[0]!.setTimeout(60_000);
+    live = setTimeout(function ownedLiveControl() {}, 60_000).unref();
+    let message = "";
+    try { timers.expectEmpty("controlled-owned-live-boundary"); }
+    catch (error) { message = String(error); }
+    expect(message, "FAILURE_RETAINS_PHASE").toContain("controlled-owned-live-boundary");
+    expect(message, "FAILURE_RETAINS_NAMED_ORACLE").toContain("HTTP_MOUNT_PENDING_TIMERS");
+    expect(message, "FAILURE_RETAINS_OWNED_SOCKET").toContain(key);
+    expect(message, "FAILURE_RETAINS_NATIVE_LIVE_STATE").toContain('"nativeDestroyed":false');
+    expect(message, "FAILURE_RETAINS_CALLBACK_IDENTITY").toContain("ownedLiveControl");
+    expect(message, "FAILURE_RETAINS_UNREF_STATE").toContain('"hasRef":false');
+    const snapshot = timers.snapshot("live-control");
+    expect(snapshot.handles.some(handle => handle.socket?.ownedAgentKeys.includes(key)), "HANDLE_RETAINS_OWNED_SOCKET_ASSOCIATION").toBe(true);
+    clearTimeout(live);
+    await closeHttpMountFixture(fixture);
+    timers.expectEmpty("controlled-owned-native-close-complete");
+  } finally {
+    clearTimeout(live);
+    await closeObservedFixture(() => closeHttpMountFixture(fixture), timers, () => rmSync(root, { recursive: true, force: true }));
+  }
+  expect(Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout")).toEqual(descriptor);
+});
+
+test("rejected fixture cleanup restores timer descriptors and removes owned state", async () => {
+  const { existsSync, mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { closeHttpMountFixture } = await import("./helpers/http-mount-pool");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-rejected-timer-cleanup-"));
+  const descriptor = Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout");
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout");
+  const intervalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval");
+  const server = Bun.serve({ unix: join(root, "native.sock"), fetch: () => new Response("ready") });
+  const cleanupError = new Error("controlled fixture cleanup refusal");
+  const fixture = { app: { config: { nativeBrain: { socketPath: join(root, "native.sock") } } },
+    async close() { await server.stop(true); throw cleanupError; } } as unknown as import("./helpers/http-contract-app").HttpContractApp;
+  const timers = observeMountTimers();
+  try {
+    let failure: unknown;
+    try { await closeObservedFixture(() => closeHttpMountFixture(fixture), timers, () => rmSync(root, { recursive: true, force: true })); }
+    catch (error) { failure = error; }
+    expect(failure, "CLEANUP_REJECTION_PRESERVES_ERROR").toBe(cleanupError);
+    expect(Object.getOwnPropertyDescriptor(Socket.prototype, "setTimeout"), "CLEANUP_REJECTION_RESTORES_SOCKET_DESCRIPTOR").toEqual(descriptor);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "setTimeout"), "CLEANUP_REJECTION_RESTORES_TIMEOUT_DESCRIPTOR").toEqual(timeoutDescriptor);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "setInterval"), "CLEANUP_REJECTION_RESTORES_INTERVAL_DESCRIPTOR").toEqual(intervalDescriptor);
+    expect(existsSync(root), "CLEANUP_REJECTION_REMOVES_STATE").toBe(false);
+  } finally {
+    try { await server.stop(true); }
+    finally { try { timers.restore(); } finally { rmSync(root, { recursive: true, force: true }); } }
+  }
+});
+
+
+test("timer diagnostics keep unknown native state counted and forward the original callback", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const handle = { unref() { return this; } };
+  const originalCallback = function unknownNativeStateControl() {};
+  let callback: unknown;
+  Object.defineProperty(globalThis, "setTimeout", { ...descriptor, value: (...args: unknown[]) => {
+    callback = args[0]; return handle;
+  } });
+  const timers = observeMountTimers();
+  try {
+    const observed = setTimeout(originalCallback, 60_000);
+    expect(callback, "DIAGNOSTICS_FORWARD_CALLBACK_IDENTITY").toBe(originalCallback);
+    expect(observed).toBe(handle as unknown as typeof observed);
+    expect(timers.pending.has(observed), "UNKNOWN_NATIVE_STATE_STILL_COUNTS").toBe(true);
+    const snapshot = timers.snapshot("unknown-native-state");
+    expect(snapshot.handles[0]!.nativeDestroyed).toBe("unknown");
+    expect(snapshot.handles[0]!.hasRef).toBe("unknown");
+    expect(() => timers.expectEmpty("unknown-native-state"), "UNKNOWN_STATE_FAILS_ZERO_ORACLE").toThrow("HTTP_MOUNT_PENDING_TIMERS");
+  } finally {
+    timers.restore();
+    Object.defineProperty(globalThis, "setTimeout", descriptor);
+  }
 });
