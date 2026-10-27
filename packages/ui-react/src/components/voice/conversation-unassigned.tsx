@@ -12,8 +12,8 @@ export function ConversationUnassigned({ onReview }: { onReview: () => void }) {
   if ((!fragments.length && !pending) || fragments.some(f => f.sessionId !== sessionId)) return null;
   return <section aria-label="Unassigned voice recognition" className="mx-auto max-h-64 w-full max-w-3xl shrink-0 overflow-y-auto border-t border-border py-2 text-sm text-foreground">
     <details>
-      <summary className="min-h-11 cursor-pointer">Recognized speech · not sent to the agent</summary>
-      <p className="my-2">Live speech can continue without an agent request. This text has no confirmed input association or completed-turn boundary.</p>
+      <summary className="min-h-11 cursor-pointer">Voice-service transcription—not submitted as Brain task</summary>
+      <p className="my-2">Audio has already been sent to the voice service for transcription and spoken replies. This text has no confirmed input association or completed-turn boundary. Review it in the composer before explicitly sending a Brain task.</p>
       <div className="max-h-32 overflow-y-auto whitespace-pre-wrap" data-unassigned-recognition="">
         {fragments.map(f => <span key={`${f.conversationId}:${f.epoch}:${f.sequence}`} title={`Session ${f.epoch}: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms`}>{f.text}</span>)}
       </div>

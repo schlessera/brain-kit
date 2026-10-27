@@ -39,7 +39,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   useEffect(() => {
     const own = ++lifetime.current;
     return () => {
-      client.mute();
+      client.mute("component-cleanup");
       queueMicrotask(() => { if (lifetime.current === own) client.leave(); });
     };
   }, [client]);
@@ -57,12 +57,16 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
+    {s.outputRecovery !== "open" && <div data-output-recovery="" className="flex items-center gap-2 text-xs">
+      <span className="flex-1">{s.outputRecovery === "manual" ? "Output stays muted. No silence boundary found." : "Output muted during interruption recovery."} Microphone {s.micOn ? "on" : "off"}.</span>
+      {s.outputRecovery === "manual" && <Button label="Recover audio" tone="ghost" style={button} onClick={client.recoverPlayback} />}
+    </div>}
     {s.notice && <div role="status" aria-label="Voice notice" style={{ fontSize: 12, lineHeight: 1.3 }}>{s.notice}</div>}
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
       <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="" tabIndex={0} role="region" aria-label="Unsent voice transcript" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]">
-        <div className="font-mono text-[10px]">NOT SENT · SAVED AS DRAFT</div>
+        <div className="font-mono text-[10px]">Brain task not sent · saved draft</div>
         <div>{s.text}</div>
-        <div>{needsScreen ? "This question needs the screen" : s.interaction === "Sending soon" ? "Sending soon" : "Review before sending"}</div>
+        <div>{needsScreen ? "This question needs the screen" : s.interaction === "Sending soon" ? "Sending soon" : "Review before sending as a Brain task"}</div>
       </div>
       <div className="w-full min-[900px]:w-[220px]" style={{ minHeight: 46, display: "flex", gap: 4 }}>
         <Button label="Send now" tone="primary" style={button} onClick={() => client.commit(s.token)} disabled={s.connection !== "Connected" || s.interaction === "Checking whether the reply stopped"} />
@@ -71,16 +75,17 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
     </div>}
     {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ minHeight: 40, fontSize: 12 }}>{permission.line}</div>}
     <div className="sticky bottom-0 bg-background" style={{ minHeight: permission.line && s.text && shortScreen ? 44 : 52, display: "flex", alignItems: "center", gap: 4 }}>
-      <Button label={s.micOn ? "Mute mic" : s.connection === "Connected" ? "Unmute mic" : "Resume"} ariaLabel={s.micOn ? "Mute mic" : "Resume microphone"} tone="ghost" style={control} onClick={s.micOn ? client.mute : client.resume} />
+      <Button label={s.micOn ? "Mute mic" : s.connection === "Connected" ? "Unmute mic" : "Resume"} ariaLabel={s.micOn ? "Mute mic" : "Resume microphone"} tone="ghost" style={control} onClick={s.micOn ? () => client.mute() : client.resume} />
       <Button label="Stop reply" tone="ghost" style={control} disabled={!replyVisible} onClick={client.stopReply} />
       <Button label="Leave voice" tone="ghost" style={control} onClick={leave} />
     </div>
     <Overlay open={s.disclosureOpen} variant="sheet" title="Live conversation" onClose={leave} data-overlay-site="conversation-disclosure">
       <div className="space-y-3 p-4 text-sm">
         <p>{profile?.disclosure.voiceService ?? "Connecting to the configured voice service…"}</p>
+        <p>Evaluation only: interrupting ordinary speech keeps listening and mutes output until a silence boundary. Delayed earlier speech may return. Recover audio manually if output stays muted.</p>
         {profile?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
         <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
-        <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>
+        <p>Brain task backend: {backend}. API destination and retention: unknown unless documented by the host. The voice service receives audio and can return transcription and spoken replies; Brain tasks receive text only after submission. This evaluation uses a scripted task executor, not a task model.</p>
         {profile?.capabilities.finalTranscript !== "supported" && <p>Automatic send isn't available with this service. Use Send now.</p>}
         <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
         {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}

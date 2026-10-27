@@ -123,3 +123,22 @@ Permission outcomes became host-authoritative for every client that asks
 (`tool_resolution`), not only for conversations. No adapter ships; #958 and
 #959 implement the two engines against this seam, and #961 still gates
 activation on measured device and provider behavior.
+
+## Isolated interruption evaluation — 2026-10-27
+
+The [#3053 maintainer ruling](https://github.com/schlessera/brain-kit/issues/3053#issuecomment-6446732971)
+authorizes a bounded automatic local playback-recovery prototype only. Keeping
+already-consented capture avoids losing triggering speech. Dropping output avoids
+building a hidden backlog; digital sample silence supplies a deliberately weak
+segmentation heuristic where per-answer cancellation evidence is absent. It
+supplies no authority, finality or provider capability evidence. A finite wall
+deadline makes missing silence a visible manual-recovery outcome.
+
+The [unreleased contract proposal](../integration-contract/wire.md#evaluation-only-interruption-proposal-3053-not-shipped)
+records the trial's exact boundaries. This does not amend the shipped fallback
+or authorize merge, release, activation or live spending. In particular, the
+existing host-work fallback remains for ongoing work and pending exchanges;
+full ongoing interruption across those cases is not delivered by this trial.
+Delayed interrupted PCM after reopening and lost fast-reply heads are accepted
+evaluation risks, not production guarantees. Production compatibility and
+release scope require a separate ruling after parent-owned live evidence.

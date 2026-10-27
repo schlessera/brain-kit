@@ -356,6 +356,7 @@ signatures (every public export and the types it is made of)
         outputs: ConversationClientOutput[];
         unassigned: UnassignedRecognition[];
         unassignedWork: number;
+        outputRecovery: "open" | "speaking" | "waiting" | "manual";
     }
   CorpusStats (packages/ui-react/src/lib/api-client.ts)
     export interface CorpusStats {
@@ -1305,7 +1306,7 @@ signatures (every public export and the types it is made of)
             enter(): void;
             frame: (message: ServerMessage) => ServerMessage | null;
             leave: () => void;
-            mute(): void;
+            mute(origin?: "component-cleanup" | "control"): void;
             permissions: {
                 clear(): void;
                 dispose(): void;
@@ -1321,6 +1322,7 @@ signatures (every public export and the types it is made of)
                     records: import("./voice/conversation-permissions.js").VoicePermissionReceipt[];
                 }>;
             };
+            recoverPlayback(): void;
             resume(): void;
             reviewUnassigned(): boolean;
             start(): void;
