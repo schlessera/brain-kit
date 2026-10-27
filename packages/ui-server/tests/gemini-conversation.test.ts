@@ -92,6 +92,98 @@ test("Gemini parameterless host_task completes a schema-checking peer handshake"
   await expect(fixture(true, true, true)).resolves.toMatchObject({ provider: { id: "gemini-live" } });
 });
 
+// Provider VAD metadata is transport bookkeeping, never acoustic attribution.
+for (const wire of ["text", "binary", "arraybuffer"] as const) {
+  test(`Gemini ${wire} voiceActivity metadata preserves subsequent audio and unknown input attribution`, async () => {
+    const f = await fixture(true, true, false, wire);
+    await f.audio();
+    for (const voiceActivity of [
+      {}, { type: "TYPE_UNSPECIFIED" },
+      { type: "ACTIVITY_START", audioOffset: "0s" },
+      { type: "ACTIVITY_END", audioOffset: "1.250s" },
+    ]) f.emit({ voiceActivity });
+    f.emit({
+      voiceActivity: { type: "ACTIVITY_START", audioOffset: "2s" },
+      serverContent: {
+        inputTranscription: { text: "brain, stop", finished: true },
+        modelTurn: { parts: [{ inlineData: { data: "AAA=", mimeType: "audio/pcm;rate=24000" } }] },
+      },
+    });
+    await until(() => f.received.length > 1);
+    expect(f.received.map((event) => event.kind)).toEqual(["ready", "input_fragment", "audio"]);
+    expect(f.received[1]).toMatchObject({ text: "brain, stop", origin: "unknown", certainty: "unknown", utteranceId: "u1" });
+    expect(f.provider.capabilities.echoIsolatedInput).toBe("unproven");
+    expect(f.provider.capabilities.finalTranscript).toBe("unproven");
+    f.session.markEndpoint("u1");
+    await f.audio("u2", 1);
+    expect(f.sent.some((frame) => frame.toolResponse)).toBe(false);
+  });
+}
+
+for (const [label, voiceActivity] of [
+  ["null", null], ["non-object", "ACTIVITY_START"],
+  ["unknown type", { type: "USER_IDENTIFIED" }],
+  ["non-string type", { type: 1 }],
+  ["non-string offset", { audioOffset: 0 }],
+  ["malformed duration", { audioOffset: "not-a-duration" }],
+  ["excess precision", { audioOffset: "1.1234567890s" }],
+  ["missing seconds suffix", { audioOffset: "1.250" }],
+  ["oversized offset", { audioOffset: "1".repeat(65) + "s" }],
+] as const) {
+  test(`Gemini malformed voiceActivity ${label} fails closed`, async () => {
+    const f = await fixture();
+    f.emit({ voiceActivity });
+    f.emit({ serverContent: { outputTranscription: { text: "Must not be delivered." } } });
+    await until(() => f.received.length > 1);
+    expect(f.received.map((event) => event.kind)).toEqual(["ready", "error"]);
+    expect(f.received.at(-1)).toMatchObject({ message: "Gemini Live returned an invalid or uncorrelatable frame." });
+  });
+}
+
+test("Gemini voiceActivity cannot hide malformed tools", async () => {
+  const f = await fixture();
+  f.emit({ voiceActivity: { type: "ACTIVITY_START" }, toolCall: { functionCalls: [{ id: "x", name: "Bash" }] } });
+  await until(() => f.received.length > 1);
+  expect(f.received.map((event) => event.kind)).toEqual(["ready", "error"]);
+});
+
+test("Gemini standalone metadata before input accepts defaults without emitting authority", async () => {
+  const f = await fixture();
+  for (const voiceActivity of [{}, { audioOffset: "0s" }, { type: "TYPE_UNSPECIFIED" },
+    { type: "ACTIVITY_START", audioOffset: "-0.123456789s" }]) f.emit({ voiceActivity });
+  f.emit({ serverContent: { outputTranscription: { text: "The Ithaca view." } } });
+  await until(() => f.received.length > 1);
+  expect(f.received.map((e) => e.kind)).toEqual(["ready", "output_transcript"]);
+  f.emit({ voiceActivity: { type: "ACTIVITY_START" }, serverContent: { inputTranscription: { text: "brain, stop" } } });
+  await until(() => f.received.length > 2);
+  expect(f.received.map((e) => e.kind)).toEqual(["ready", "output_transcript", "error"]);
+});
+
+test("Gemini activity end cannot finalize an input or release correlation", async () => {
+  const f = await fixture();
+  await f.audio(); f.session.markEndpoint("u1");
+  f.emit({ voiceActivity: { type: "ACTIVITY_END", audioOffset: "1s" },
+    serverContent: { inputTranscription: { text: "Check the Ithaca note." } } });
+  await until(() => f.received.length > 1);
+  expect(f.received[1]).toMatchObject({ finalization: "unknown", certainty: "unknown", origin: "unknown" });
+  expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 1, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("correlation");
+});
+
+for (const [label, frame] of [
+  ["unknown-only", { futureProviderField: {} }],
+  ["mixed invalid audio", { voiceActivity: {}, serverContent: { modelTurn: { parts: [
+    { inlineData: { data: "AAA=", mimeType: "audio/pcm;rate=16000" } },
+  ] } } }],
+] as const) {
+  test(`Gemini ${label} frame still fails closed`, async () => {
+    const f = await fixture();
+    f.emit(frame);
+    await until(() => f.received.length > 1);
+    expect(f.received.map((e) => e.kind)).toEqual(["ready", "error"]);
+    expect(f.received[1]).toMatchObject({ message: "Gemini Live returned an invalid or uncorrelatable frame." });
+  });
+}
+
 for (const wire of ["binary", "arraybuffer"] as const) {
   test(`Gemini ${wire} UTF-8 JSON completes the real Bun handshake`, async () => {
     await expect(fixture(true, true, false, wire)).resolves.toMatchObject({
@@ -142,6 +234,7 @@ for (const wire of ["binary", "arraybuffer"] as const) {
           const bytes = new TextEncoder().encode(JSON.stringify(frame));
           f.dispatch(wire === "arraybuffer" ? bytes.buffer : bytes);
         };
+        lateFrame({ voiceActivity: { type: "ACTIVITY_END", audioOffset: "1s" } });
         lateFrame({ setupComplete: {} });
         lateFrame({ toolCall: { functionCalls: [{ id: "late", name: "host_task" }] } });
         const events = [];
