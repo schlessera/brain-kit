@@ -783,7 +783,8 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       // event delivery stay real; only this page's JS clock is controlled.
       await installPausedLivenessClock(page);
       await page.addInitScript(() => {
-        const frames: Array<{ dir: string; type: string; probeId?: string; at: number }> = [];
+        const frames: Array<{ dir: string; type: string; probeId?: string; at: number;
+          sessionId?: string; lifecycleOutcome?: string | null; status?: string }> = [];
         const NativeSocket = WebSocket;
         class ObservedSocket extends NativeSocket {
           constructor(url: string | URL, protocols?: string | string[]) {
@@ -792,7 +793,9 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
               const frame = JSON.parse(event.data);
               // Record delivery only; the later page evaluation and synchronous
               // production handler establish the clock-advance barrier.
-              queueMicrotask(() => frames.push({ dir: "down", type: frame.type, probeId: frame.probeId, at: Date.now() }));
+              queueMicrotask(() => frames.push({ dir: "down", type: frame.type, probeId: frame.probeId, at: Date.now(),
+                sessionId: frame.sessionId ?? frame.lifecycle?.sessionId,
+                lifecycleOutcome: frame.lifecycle?.outcome, status: frame.status }));
             });
           }
           override send(data: Parameters<WebSocket["send"]>[0]) {
@@ -814,7 +817,8 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       await waitForState(page, requestId, "answered");
       await page.getByText("Completed ask_user_rank", { exact: true }).waitFor();
       const frames = () => page.evaluate(() => (window as unknown as {
-        __livenessFrames: Array<{ dir: string; type: string; probeId?: string; at: number }>;
+        __livenessFrames: Array<{ dir: string; type: string; probeId?: string; at: number;
+          sessionId?: string; lifecycleOutcome?: string | null; status?: string }>;
       }).__livenessFrames);
       // Each read is a separate page evaluation after native dispatch; the
       // current liveness/history handlers commit synchronously. The observer
@@ -831,6 +835,14 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
           nativeWait.waitedMs += performance.now() - started;
         }
       };
+      // Rendering the backend result precedes native journal/Activity
+      // finalization. Its terminal lifecycle can still arrive after status and
+      // correctly restart the client's idle clock. Consume that completion at
+      // paused time, rather than treating an active stream as 15 s of silence.
+      const sessionId = await page.evaluate<string>("window.__answers.activeSession()");
+      await observed(fs => fs.some(f => f.dir === "down" && f.type === "activity_delta" &&
+        f.sessionId === sessionId && f.lifecycleOutcome === "success") &&
+        fs.some(f => f.dir === "down" && f.type === "status" && f.sessionId === sessionId && f.status === "idle"));
       // Reset through a real host frame, then test the full default interval.
       const statuses = (await frames()).filter(f => f.dir === "down" && f.type === "status").length;
       for (const entry of net.live) entry.route.send(JSON.stringify({ type: "status", status: "idle" }));
