@@ -835,3 +835,98 @@ test("ordinary working, speaking and reply-drained state changes keep the microp
   expect(mic.opens()).toBe(1);
   expect(s.socket.frames("conversation_stop")).toHaveLength(0);
 });
+
+/** Feed real client microphone/endpoint/commit frames through a native host and
+ * GPT-Live adapter. Only the provider connection is replaced, by loopback WS. */
+async function adapterScene(ctx: TestContext) {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx);
+  const fixture = await commands.conversationServer({ op: "start" }) as { id: string };
+  ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
+  let cursor = 0;
+  const upstream: Record<string, unknown>[] = [];
+  const downstream: ServerMessage[] = [];
+  const pump = async (provider: unknown[] = []) => {
+    const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data)));
+    cursor = s.socket.sent.length;
+    const result = await commands.conversationServer({ op: "step", id: fixture.id, client, provider }) as { frames: ServerMessage[]; sent: Record<string, unknown>[] };
+    upstream.push(...result.sent); downstream.push(...result.frames);
+    for (const frame of result.frames) s.deliver(frame);
+  };
+  s.client.enter();
+  await pump();
+  await expect.poll(async () => { await pump(); return s.client.state.getState().profile; }).not.toBe(null);
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  await pump();
+  return { ...s, mic, pump, upstream, downstream };
+}
+
+for (const ending of ["correlated", "uncorrelated", "uncommitted second", "provider error", "provider close"] as const) test(`real GPT-Live repeated turns: ${ending}`, async ctx => {
+  const s = await adapterScene(ctx);
+  let outputSequence = 0;
+  const silence = { type: "session.output_audio.delta", delta: outputPcm(0.1, 0) };
+  const input = (turn: number, correlated: boolean) => ({ type: "session.input_transcript.delta", event_id: `input-${turn}`, start_ms: turn * 1000, end_ms: turn * 1000 + 100,
+    delta: "Find the departure note.", ...(correlated ? { client_event_id: s.upstream.filter(frame => frame.type === "session.input_audio.append").at(-1)!.event_id } : {}) });
+  // The first transcript may omit correlation while exactly one input exists.
+  const turns = ending === "uncommitted second" ? 1 : 3;
+  for (let turn = 0; turn < turns; turn++) {
+    if (turn) {
+      const before = s.socket.frames("conversation_audio").length;
+      s.mic.speak();
+      await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+      await s.pump();
+    }
+    s.mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(turn + 1);
+    await s.pump([silence, input(turn, turn > 0), { type: "session.delegation.created", event_id: `work-${turn}`, offset_ms: turn * 1000 + 100, delegation: { id: `delegation-${turn}`, type: "delegation", target: "client" } }]);
+    await expect.poll(() => s.client.state.getState().text).toContain("Find the departure note.");
+    expect(s.socket.frames("conversation_commit")).toHaveLength(turn);
+    expect(s.downstream.filter(frame => frame.type === "conversation_event" && frame.event.kind === "input_fragment").at(-1)).toMatchObject({ event: { finalization: "unknown", origin: "unknown", certainty: "unknown" } });
+    if (ending !== "uncommitted second") {
+      // Invoke the explicit manual-send action; no provider finality is invented.
+      expect(s.client.commit(s.client.state.getState().token)).toBe(true);
+      expect(s.socket.frames("conversation_commit")).toHaveLength(turn + 1);
+      await s.pump();
+      await expect.poll(async () => { await s.pump(); return s.upstream.filter(frame => frame.type === "session.commentary.append").length; }).toBe(turn + 1);
+      expect(Object.values(s.client.state.getState().work).at(-1)?.state).toBe("completed");
+    }
+    await s.pump([{ type: "session.output_transcript.delta", event_id: `output-${turn}`, start_ms: turn * 1000, end_ms: turn * 1000 + 100, delta: "The departure note is ready." },
+      { type: "session.output_audio.delta", delta: outputPcm(0.15) }, silence]);
+    await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(async () => { await s.pump([silence]); return s.client.state.getState().playing; }).toBe(false);
+    expect(s.client.state.getState().micOn, "reply drain must retain capture").toBe(true);
+    expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+    expect(s.socket.frames("conversation_start")).toHaveLength(1);
+    outputSequence++;
+  }
+  expect(outputSequence).toBe(turns);
+  const outputs = s.downstream.flatMap(frame => frame.type === "conversation_event" && (frame.event.kind === "audio" || frame.event.kind === "output_transcript") ? [frame.event.outputId] : []);
+  expect(new Set(outputs)).toEqual(new Set(["output-1"]));
+  if (ending === "correlated") return;
+  if (ending === "uncorrelated" || ending === "uncommitted second") {
+    s.mic.speak();
+    const before = s.socket.frames("conversation_audio").length;
+    await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+    await s.pump([input(3, false)]);
+  } else if (ending === "provider error") await s.pump([{ type: "error", error: { message: "upstream details must remain redacted" } }]);
+  else await s.pump([{ type: "session.closed", reason: "remote_hangup" }]);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().interaction).not.toBe("Checking whether the reply stopped");
+  if (ending === "uncommitted second") {
+    expect(s.client.state.getState().text).toBe("Find the departure note.");
+    expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  }
+  const expected = (ending === "uncorrelated" || ending === "uncommitted second") ? "GPT-Live could not correlate an input transcript with captured audio." : ending === "provider error" ? "GPT-Live provider error." : "The voice service closed the connection.";
+  expect(s.client.state.getState().notice).toContain(expected);
+  expect(s.client.state.getState().notice).not.toContain("upstream details");
+});
+
+
+test("failed opening preserves the host diagnostic before a profile exists", async ctx => {
+  const s = await scene(ctx); s.client.enter();
+  s.deliver({ type: "conversation_closed", conversationId: "ithaca-failed", epoch: 1, requestId: String(s.socket.frames("conversation_start")[0]!.requestId), reason: "provider_error", message: "GPT-Live setup timed out." });
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().notice).toContain("GPT-Live setup timed out.");
+});

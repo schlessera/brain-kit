@@ -155,7 +155,9 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
         // A single captured input is unambiguous. Once several exist, never
         // infer the transcript's identity from which microphone chunk was last.
         const utteranceId = correlated ?? (options.resync.work.length === 0 && inputs.size === 1 ? inputs.keys().next().value : undefined);
-        if (!utteranceId || (m.client_event_id && !correlated)) throw new Error();
+        if (!utteranceId || (m.client_event_id && !correlated)) {
+          fail("GPT-Live could not correlate an input transcript with captured audio."); return;
+        }
         const input = inputs.get(utteranceId)!;
         emit({ kind: "input_fragment", utteranceId, sequence: input.sequence++, text: m.delta,
           finalization: "unknown", certainty: "unknown", origin: "unknown" });

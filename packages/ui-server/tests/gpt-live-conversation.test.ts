@@ -118,6 +118,7 @@ test("uncorrelated input after multiple utterances closes rather than borrowing 
   const f = await fixture(); await f.audio(); f.session.markEndpoint("u1"); await f.audio("u2", 1);
   f.emit(input("Uncertain attribution.", "ambiguous"));
   await until(() => f.received.some((e) => e.kind === "error"));
+  expect(f.received.at(-1)).toMatchObject({ kind: "error", message: "GPT-Live could not correlate an input transcript with captured audio." });
   expect(f.received.some((e) => e.kind === "input_fragment")).toBe(false);
 });
 

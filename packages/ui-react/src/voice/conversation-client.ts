@@ -1,6 +1,6 @@
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ServerMessage, ServerConversationOpened, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
@@ -141,6 +141,15 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     ready = false; consent = false; requested = false;
     state.setState({ connection: lost ? "Speech lost" : "Reconnecting", notice: lost ? "Speech lost. Microphone off; reply outcome unknown until reconnect." : "Microphone off. Resume when voice is ready." });
     announce(lost ? "Speech lost. Chat is still connected." : "Microphone off");
+  }
+  function closedNotice(message: ServerConversationClosed) {
+    const reasons: Record<ServerConversationClosed["reason"], string> = {
+      stopped: "The voice session stopped.", replaced: "The voice session was replaced.",
+      disconnected: "The voice connection was lost.", provider_closed: "The voice service closed the connection.",
+      provider_error: "The voice service failed.", backpressure: "The voice session reached a transport limit.",
+      correlation: "The voice service could not match the conversation input.", refused: "The voice session was refused.",
+    };
+    return `${message.message || reasons[message.reason]} Microphone off; reply outcome unknown. Resume when voice is ready.`;
   }
   function leave() {
     if (!state.getState().active) return;
@@ -285,7 +294,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         if (s.active) queueMicrotask(startEpoch);
         return null;
       }
-      if (message.type === "conversation_closed") { send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
+      if (message.type === "conversation_closed") { send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); state.setState({ notice: closedNotice(message) }); return null; }
     } else if (message.type === "conversation_opened") return null;
     if (message.type === "conversation_work") {
       const p = scope();
@@ -330,7 +339,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       requested = false;
       if (message.reason === "stopped") {
         if (typeof document === "undefined" || !document.hidden) startEpoch();
-      } else pause(true);
+      } else { pause(true); state.setState({ notice: closedNotice(message) }); }
       return null;
     }
     if (message.type !== "conversation_event") return null;
