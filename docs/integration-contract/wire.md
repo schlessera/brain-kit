@@ -1897,6 +1897,30 @@ needed to retain transcript space. Cards remain in the existing scrolling Chat
 transcript. No live recognition, latency, echo or exact permission-speech
 qualification is implied; #961 owns the bounded provider/device measurements.
 
+### Evaluation-only interruption proposal (#3053; not shipped)
+
+<!-- Experimental scope is intentionally separate from the shipped contract. -->
+
+The isolated evaluation branch for [#3053](https://github.com/schlessera/brain-kit/issues/3053#issuecomment-6446732971)
+trials an **unreleased, evaluation-only** exception to ordinary speech interruption:
+retain existing consent/capture and the connected epoch, forward triggering PCM,
+flush local playback without retiring the epoch output identity, and drop incoming
+provider audio while the user speaks. After the unchanged 700 ms local endpoint,
+300 ms of consecutive decoded digital-zero PCM16 samples permits local playback
+recovery. Packet absence and EOF supply no evidence. A fixed three-second
+monotonic wall deadline expires into output-muted manual recovery. Delayed old
+audio may return after reopening; fast reply heads during endpointing may be lost.
+Neither silence nor reopening implies cancellation, finality or authority.
+
+This trial retains the existing fallback for pending host work/questions/approvals,
+and cannot queue replacement work if host work starts after local interruption.
+Existing single-question answers retain their ordinary answer binding. Explicit
+Stop and all lifecycle/consent-invalidating boundaries retain capture-off and
+explicit Resume/Start. No wire event, provider capability or production promise is
+promoted. The proposed behavior delta requires separate post-evidence production,
+compatibility and release rulings; this draft is **DO NOT MERGE** and schedules
+no package release.
+
 ### Conversation permission fallback (#114)
 
 The shipped SDK client declares `client_hello.capabilities.toolResolution: true`.
