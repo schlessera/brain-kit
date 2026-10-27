@@ -70,6 +70,7 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
   const eventIds = new Set<string>();
   let ready = false; let ended = false; let closing = false;
   let lastAudio = -1;
+  let unassignedSequence = 0;
   let wake: (() => void) | undefined;
   let resolveReady!: () => void; let rejectReady!: (error: Error) => void;
   const handshake = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
@@ -152,10 +153,15 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
         // It is never a fresh microphone utterance.
         if (m.end_ms === m.start_ms) return;
         const correlated = m.client_event_id ? audioCommands.get(m.client_event_id) : undefined;
-        // A single captured input is unambiguous. Once several exist, never
-        // infer the transcript's identity from which microphone chunk was last.
-        const utteranceId = correlated ?? (options.resync.work.length === 0 && inputs.size === 1 ? inputs.keys().next().value : undefined);
-        if (!utteranceId || (m.client_event_id && !correlated)) throw new Error();
+        if (m.client_event_id && !correlated) throw new Error();
+        // Session timing is not a captured-audio clock. Preserve evidence
+        // without inventing an input identity, including on the first input.
+        if (!correlated) {
+          emit({ kind: "unassigned_input_fragment", sequence: unassignedSequence++, text: m.delta,
+            sessionInterval: { startMs: m.start_ms, endMs: m.end_ms } });
+          return;
+        }
+        const utteranceId = correlated;
         const input = inputs.get(utteranceId)!;
         emit({ kind: "input_fragment", utteranceId, sequence: input.sequence++, text: m.delta,
           finalization: "unknown", certainty: "unknown", origin: "unknown" });
@@ -171,11 +177,12 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
         emit({ kind: "audio", outputId: `output-${scope.epoch}`, sequence: outputSequence++, format: FORMAT, pcm });
       } else if (m.type === "session.delegation.created") {
         if (handles.has(m.delegation.id)) return;
-        if (handles.size >= MAX_IDENTITIES || [...handles.values()].filter((h) => !h.returned).length >= CONVERSATION_LIMITS.maxPendingNativeRequests) throw new Error();
+        if (handles.size >= MAX_IDENTITIES || [...handles.values()].filter((h) => !h.returned).length >= CONVERSATION_LIMITS.maxPendingNativeRequests) { fail("GPT-Live native request capacity exceeded. Review unassigned requests before restarting voice."); return; }
         const utteranceId = m.client_event_id ? audioCommands.get(m.client_event_id) : undefined;
         if (m.client_event_id && !utteranceId) throw new Error();
         handles.set(m.delegation.id, { ...(utteranceId ? { utteranceId } : {}), returned: false });
-        emit({ kind: "work_requested", handle: m.delegation.id, ...(utteranceId ? { utteranceId } : {}) });
+        if (utteranceId) emit({ kind: "work_requested", handle: m.delegation.id, utteranceId });
+        else emit({ kind: "unassigned_delegation", handle: m.delegation.id, offsetMs: m.offset_ms });
       }
     } catch { fail("GPT-Live returned an invalid or uncorrelatable frame."); }
   });
@@ -220,7 +227,7 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
     },
     async returnWork(ref, result) {
       const handle = ref.nativeHandle ? handles.get(ref.nativeHandle) : undefined;
-      if (ended || closing || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !handle || handle.returned || (handle.utteranceId && handle.utteranceId !== ref.utteranceId)) throw new Error("GPT-Live result correlation is no longer current.");
+      if (ended || closing || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !handle || handle.returned || !handle.utteranceId || handle.utteranceId !== ref.utteranceId) throw new Error("GPT-Live result correlation is no longer current.");
       if (!ref.turnId || !ref.requestId || result.facts.length > CONVERSATION_LIMITS.maxFactChars) throw new Error("GPT-Live invalid host result.");
       handle.returned = true;
       const parts = chunks(result.facts);

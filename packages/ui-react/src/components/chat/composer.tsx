@@ -1,4 +1,5 @@
 import { useStore } from "zustand";
+import { ConversationUnassigned } from "../voice/conversation-unassigned.js";
 import { ConversationStrip } from "../voice/conversation-strip.js";
 import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
@@ -910,6 +911,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         {/* What became of this draft's save, under the field (D52 §5). */}
         <DraftSaveLine draftId={draftId} />
       </div>}
+      <ConversationUnassigned onReview={() => queueMicrotask(focusField)} />
     </>
   );
 }

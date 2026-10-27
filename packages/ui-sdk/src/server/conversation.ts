@@ -93,6 +93,8 @@ export type LiveConversationEvent = ConversationScope &
         confidence?: number;
         origin: "user" | "assistant" | "unknown";
       }
+    | { kind: "unassigned_input_fragment"; sequence: number; text: string; sessionInterval: ConversationInterval }
+    | { kind: "unassigned_delegation"; handle: string; offsetMs: number }
     | { kind: "output_transcript"; outputId: string; sequence: number; text: string; interval?: ConversationInterval }
     | { kind: "audio"; outputId: string; sequence: number; format: ConversationAudioFormat; pcm: Uint8Array }
     | { kind: "interrupted"; outputId?: string }
@@ -203,6 +205,8 @@ const providerEventSchema = z.discriminatedUnion("kind", [
     interval: interval.optional(), finalization: z.enum(["interim", "final", "unknown"]),
     certainty: z.enum(["known", "unknown"]), confidence: z.number().min(0).max(1).optional(),
     origin: z.enum(["user", "assistant", "unknown"]) }),
+  z.object({ ...scope, kind: z.literal("unassigned_input_fragment"), sequence, text, sessionInterval: interval }),
+  z.object({ ...scope, kind: z.literal("unassigned_delegation"), handle: shortId, offsetMs: z.number().nonnegative() }),
   z.object({ ...scope, kind: z.literal("output_transcript"), outputId: shortId, sequence, text, interval: interval.optional() }),
   z.object({ ...scope, kind: z.literal("audio"), outputId: shortId, sequence, format: conversationAudioFormatSchema,
     pcm: z.instanceof(Uint8Array).refine((b) => b.byteLength > 0 && b.byteLength <= CONVERSATION_LIMITS.maxAudioChunkBytes && b.byteLength % 2 === 0, {

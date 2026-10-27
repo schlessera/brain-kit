@@ -354,6 +354,8 @@ signatures (every public export and the types it is made of)
         playing: boolean;
         work: Record<string, ConversationWorkReceipt>;
         outputs: ConversationClientOutput[];
+        unassigned: UnassignedRecognition[];
+        unassignedWork: number;
     }
   CorpusStats (packages/ui-react/src/lib/api-client.ts)
     export interface CorpusStats {
@@ -862,6 +864,18 @@ signatures (every public export and the types it is made of)
         setActiveView(view: ActiveView): void;
         setFilePanelOpen(open: boolean): void;
     }
+  UnassignedRecognition (packages/ui-react/src/voice/conversation-client.ts)
+    export interface UnassignedRecognition {
+        sessionId: string | null;
+        conversationId: string;
+        epoch: number;
+        sequence: number;
+        text: string;
+        sessionInterval: {
+            startMs: number;
+            endMs: number;
+        };
+    }
   UpdateHold (packages/ui-react/src/lib/update-holds.ts)
     export interface UpdateHold {
         busy: () => boolean;
@@ -1308,6 +1322,7 @@ signatures (every public export and the types it is made of)
                 }>;
             };
             resume(): void;
+            reviewUnassigned(): boolean;
             start(): void;
             state: import("zustand").StoreApi<import("./voice/conversation-client.js").ConversationClientState>;
             stopReply: () => void;

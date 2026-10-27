@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3755-3761`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1830-1832`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3764-3770`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1832-1834`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -1359,11 +1359,50 @@ Native delegations are metadata only; the host's existing semantic commit and
 backend bridge own execution, progress, tools and interactive questions. Input
 and output remain independent of pending backend work. Audio commands carry
 opaque client event IDs. A transcript echoed with `client_event_id` keeps that
-original utterance identity even after another utterance starts. With one input
-only and no historical resync context, attribution is unambiguous; after multiple inputs, a fragment without a
-recognized client correlation closes the epoch rather than using the newest
-capture identity. Zero-duration appended text is not microphone input. Transcript fragments have no finalization event and remain
-unknown certainty/origin, so automatic semantic submission is unavailable.
+original utterance identity even after another utterance starts. A missing
+`client_event_id`, including on the first input or after historical resync,
+emits `unassigned_input_fragment` instead of guessing a captured identity or
+closing solely for omission. An explicit unknown client ID still closes.
+Zero-duration appended text is not microphone input. Transcript fragments
+have no finalization event and remain unknown certainty/origin, so automatic
+semantic submission is unavailable.
+
+`unassigned_input_fragment` carries `sequence` (starting at zero per epoch),
+original `text`, and required `sessionInterval: { startMs, endMs }`: approximate
+milliseconds from the provider session's start, **not** the capture PCM clock
+or a turn boundary. The provider seam and `conversation_event.event` both
+include this additive event. Exact fragments append in delivery order, without
+inserted spaces. Duplicate provider event IDs are ignored. Late, overlapping,
+out-of-order timeline intervals and gaps remain evidence, never captured-input
+ownership, speaker certainty, completion, or permission authority. Host sequence
+gaps close `correlation`. Recognition is separate from `input_fragment` and
+cannot satisfy `conversation_commit` admission. The host forwards at most
+`maxFragmentsPerUtterance` fragments and `maxUtteranceChars` characters per epoch;
+an exceeding event closes `backpressure` with a fixed review diagnostic.
+The client also bounds retained recognition across epochs by those limits,
+retaining the boundary-crossing fragment before stopping (at most one extra
+`maxFragmentChars` fragment). Restart waits for explicit review when full.
+Recognition retained across reconnect keeps its original epoch and session
+intervals; old-epoch wire frames are ignored. Recognition is not replayed as
+new input or seeded into provider history.
+
+An uncorrelated native delegation emits `unassigned_delegation` with `handle`
+and `offsetMs` on the same provider and wire event families. It never binds to
+oldest/newest/running/next committed work and cannot receive a host result.
+It is displayed as an unsubmitted advisory request, bounded by
+`maxPendingNativeRequests` per epoch; capacity closes visibly. Explicit matched
+delegations retain their existing work path. Explicit mismatches still close.
+
+Unassigned recognition has a separate client review panel. “Review in composer”
+leaves voice and appends the exact text to the existing voice review area,
+preserving typed/captured draft text and prior review text. This explicit action
+sends nothing, fabricates no correlated commit and never associates a native
+handle. Repeating it cannot append the same retained stream twice. Subsequent
+manual Send is a new reviewed chat request through the ordinary voice-review
+path (`source: "voice-dictate"`), under existing host provenance/posture rules.
+The client refuses transfer into a different chat; auth teardown clears the
+retained recognition. Continuous spoken replies require none of these actions.
+
 `markEndpoint` records the host's review boundary only; it sends no invented
 provider commit or done command.
 

@@ -1952,6 +1952,15 @@ export interface ConversationInterval {
  */
 export type ConversationWireEvent =
   | {
+      /** Recognition with no evidence linking it to a captured utterance. */
+      kind: "unassigned_input_fragment";
+      sequence: number;
+      text: string;
+      /** Approximate milliseconds from the start of the provider session. */
+      sessionInterval: ConversationInterval;
+    }
+  | { kind: "unassigned_delegation"; handle: string; offsetMs: number }
+  | {
       kind: "ready";
       /** Resolved model/API the provider reports for this epoch. */
       model?: string;

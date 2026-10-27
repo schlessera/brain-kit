@@ -1112,3 +1112,39 @@ test("a voice posture denial publishes one host outcome without raising a grant 
   expect(client.frames("tool_approval_request")).toHaveLength(0);
   expect(s.host.coordinator.pendingApprovals.size).toBe(0);
 });
+
+for (const boundary of ["count", "chars", "sequence", "delegations"] as const) test(`unassigned recognition has a visible ${boundary} boundary`, async () => {
+  const s = setup(); const client = await s.connect(); const conversation = await client.open();
+  if (boundary === "delegations") {
+    for (let i = 0; i <= CONVERSATION_LIMITS.maxPendingNativeRequests; i++) conversation.session.emit({ kind: "unassigned_delegation", handle: `unassigned-${i}`, offsetMs: i * 1000 });
+  } else if (boundary === "sequence") {
+    conversation.session.emit({ kind: "unassigned_input_fragment", sequence: 1, text: "A late note.", sessionInterval: { startMs: 10200, endMs: 10400 } });
+  } else {
+    const count = boundary === "count" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance + 1 : 9;
+    for (let i = 0; i < count; i++) conversation.session.emit({ kind: "unassigned_input_fragment", sequence: i, text: boundary === "chars" ? "x".repeat(2000) : "x", sessionInterval: { startMs: i * 1000, endMs: i * 1000 + 100 } });
+  }
+  await until(() => client.frames("conversation_closed").length > 0);
+  expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: boundary === "sequence" ? "correlation" : "backpressure" });
+  const retained = client.frames("conversation_event").filter(f => f.event.kind === "unassigned_input_fragment");
+  expect(retained.length).toBeLessThanOrEqual(CONVERSATION_LIMITS.maxFragmentsPerUtterance);
+  expect(retained.reduce((n, f) => n + f.event.text.length, 0)).toBeLessThanOrEqual(CONVERSATION_LIMITS.maxUtteranceChars);
+  expect(s.turns).toHaveLength(0);
+});
+
+test("unassigned native work never borrows a running request or the next committed input", async () => {
+  const s = setup(); const client = await s.connect(); const conversation = await client.open();
+  await client.speak(conversation, "u1", "Check the harbour.");
+  client.commit(conversation, "u1", "r1", "Check the harbour.");
+  await until(() => s.turns.length === 1);
+  conversation.session.emit({ kind: "unassigned_delegation", handle: "unassigned", offsetMs: 10200 });
+  conversation.session.emit({ kind: "unassigned_delegation", handle: "unassigned", offsetMs: 10200 });
+  await until(() => client.frames("conversation_event").some(f => f.event.kind === "unassigned_delegation"));
+  expect(client.frames("conversation_event").filter(f => f.event.kind === "unassigned_delegation")).toHaveLength(1);
+  await client.speak(conversation, "u2", "Check the departure.");
+  client.commit(conversation, "u2", "r2", "Check the departure.");
+  s.turns[0]!.answer("The harbour note is ready.");
+  await until(() => s.turns.length === 2);
+  s.turns[1]!.answer("The departure note is ready.");
+  await until(() => client.last("r2")?.state === "completed");
+  expect(conversation.session.returned.every(r => !r.ref.nativeHandle)).toBe(true);
+});

@@ -6034,6 +6034,15 @@ signatures (every public export and the types it is made of)
     }
   ConversationWireEvent (packages/ui-sdk/src/protocol.ts)
     export type ConversationWireEvent = {
+        kind: "unassigned_input_fragment";
+        sequence: number;
+        text: string;
+        sessionInterval: ConversationInterval;
+    } | {
+        kind: "unassigned_delegation";
+        handle: string;
+        offsetMs: number;
+    } | {
         kind: "ready";
         model?: string;
         api?: string;
@@ -6925,6 +6934,15 @@ signatures (every public export and the types it is made of)
         certainty: "known" | "unknown";
         confidence?: number;
         origin: "user" | "assistant" | "unknown";
+    } | {
+        kind: "unassigned_input_fragment";
+        sequence: number;
+        text: string;
+        sessionInterval: ConversationInterval;
+    } | {
+        kind: "unassigned_delegation";
+        handle: string;
+        offsetMs: number;
     } | {
         kind: "output_transcript";
         outputId: string;
@@ -11877,6 +11895,18 @@ signatures (every public export and the types it is made of)
         text: z.ZodString;
         utteranceId: z.ZodString;
     }, z.core.$loose>, z.ZodObject<{
+        kind: z.ZodLiteral<"unassigned_input_fragment">;
+        sequence: z.ZodNumber;
+        sessionInterval: z.ZodObject<{
+            endMs: z.ZodNumber;
+            startMs: z.ZodNumber;
+        }, z.core.$loose>;
+        text: z.ZodString;
+    }, z.core.$loose>, z.ZodObject<{
+        handle: z.ZodString;
+        kind: z.ZodLiteral<"unassigned_delegation">;
+        offsetMs: z.ZodNumber;
+    }, z.core.$loose>, z.ZodObject<{
         interval: z.ZodOptional<z.ZodObject<{
             endMs: z.ZodNumber;
             startMs: z.ZodNumber;
@@ -14879,6 +14909,18 @@ signatures (every public export and the types it is made of)
             sequence: z.ZodNumber;
             text: z.ZodString;
             utteranceId: z.ZodString;
+        }, z.core.$loose>, z.ZodObject<{
+            kind: z.ZodLiteral<"unassigned_input_fragment">;
+            sequence: z.ZodNumber;
+            sessionInterval: z.ZodObject<{
+                endMs: z.ZodNumber;
+                startMs: z.ZodNumber;
+            }, z.core.$loose>;
+            text: z.ZodString;
+        }, z.core.$loose>, z.ZodObject<{
+            handle: z.ZodString;
+            kind: z.ZodLiteral<"unassigned_delegation">;
+            offsetMs: z.ZodNumber;
         }, z.core.$loose>, z.ZodObject<{
             interval: z.ZodOptional<z.ZodObject<{
                 endMs: z.ZodNumber;
@@ -18047,6 +18089,18 @@ signatures (every public export and the types it is made of)
             sequence: z.ZodNumber;
             text: z.ZodString;
             utteranceId: z.ZodString;
+        }, z.core.$loose>, z.ZodObject<{
+            kind: z.ZodLiteral<"unassigned_input_fragment">;
+            sequence: z.ZodNumber;
+            sessionInterval: z.ZodObject<{
+                endMs: z.ZodNumber;
+                startMs: z.ZodNumber;
+            }, z.core.$loose>;
+            text: z.ZodString;
+        }, z.core.$loose>, z.ZodObject<{
+            handle: z.ZodString;
+            kind: z.ZodLiteral<"unassigned_delegation">;
+            offsetMs: z.ZodNumber;
         }, z.core.$loose>, z.ZodObject<{
             interval: z.ZodOptional<z.ZodObject<{
                 endMs: z.ZodNumber;

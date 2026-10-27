@@ -114,11 +114,24 @@ test("delayed original input retains its audio command identity after another ut
   expect(f.received.filter((e) => e.kind === "input_fragment").map((e) => e.kind === "input_fragment" ? [e.utteranceId, e.text] : [])).toEqual([["u2", "Harbour fees."], ["u1", "The Ithaca note."]]);
 });
 
-test("uncorrelated input after multiple utterances closes rather than borrowing the newest identity", async () => {
-  const f = await fixture(); await f.audio(); f.session.markEndpoint("u1"); await f.audio("u2", 1);
-  f.emit(input("Uncertain attribution.", "ambiguous"));
-  await until(() => f.received.some((e) => e.kind === "error"));
-  expect(f.received.some((e) => e.kind === "input_fragment")).toBe(false);
+test("three missing-ID input turns retain exact unassigned recognition without closing", async () => {
+  const f = await fixture();
+  for (let turn = 0; turn < 3; turn++) {
+    await f.audio(`u${turn}`, turn); f.session.markEndpoint(`u${turn}`);
+    f.emit({ ...input(["Find", " the departure", " note."][turn]!, `missing-${turn}`), start_ms: [600, 10200, 19000][turn], end_ms: [1800, 10400, 19600][turn] });
+    f.emit({ type: "session.output_audio.delta", delta: "AAA=" });
+    await until(() => f.received.some(e => e.kind === "error") || f.received.filter(e => e.kind === "audio").length === turn + 1);
+    expect(f.received.some(e => e.kind === "error"), "optional correlation must not end ordinary repeated input").toBe(false);
+  }
+  const fragments = f.received.filter(e => (e as { kind: string }).kind === "unassigned_input_fragment");
+  expect(fragments).toMatchObject([
+    { sequence: 0, text: "Find", sessionInterval: { startMs: 600, endMs: 1800 } },
+    { sequence: 1, text: " the departure", sessionInterval: { startMs: 10200, endMs: 10400 } },
+    { sequence: 2, text: " note.", sessionInterval: { startMs: 19000, endMs: 19600 } },
+  ]);
+  expect(fragments.every(e => !("utteranceId" in e))).toBe(true);
+  expect(f.received.some(e => e.kind === "input_fragment")).toBe(false);
+  expect(new Set(f.received.filter(e => e.kind === "audio").map(e => e.kind === "audio" ? e.outputId : ""))).toEqual(new Set(["output-1"]));
 });
 
 for (const mode of ["abort", "close", "epoch", "conversation", "unknown-handle", "utterance"] as const) {
@@ -136,7 +149,7 @@ for (const mode of ["abort", "close", "epoch", "conversation", "unknown-handle",
 }
 
 test("large host facts use bounded quiet chunks then one commentary with the original delegation", async () => {
-  const f = await fixture(); await f.audio(); f.emit(delegation());
+  const f = await fixture(); const command = await f.audio(); f.emit(delegation("delegation-1", command));
   await until(() => f.received.some((e) => e.kind === "work_requested"));
   const facts = "Ithaca harbour. ".repeat(150);
   await f.session.returnWork(ref(), { ...result, facts });
@@ -149,7 +162,7 @@ test("large host facts use bounded quiet chunks then one commentary with the ori
 });
 
 test("quiet host results never request commentary", async () => {
-  const f = await fixture(); await f.audio(); f.emit(delegation());
+  const f = await fixture(); const command = await f.audio(); f.emit(delegation("delegation-1", command));
   await until(() => f.received.some((e) => e.kind === "work_requested"));
   await f.session.returnWork(ref(), { ...result, delivery: "quiet" });
   await until(() => f.sent.some((m) => m.type === "session.thinking.append"));
@@ -221,8 +234,8 @@ test("real adapter and host keep chat progress and a question interactive while 
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "u1", sequence: 0, rate: 24000, pcm: "AAA=" });
   await until(() => f.sent.some((m) => m.type === "session.input_audio.append"));
   send({ type: "conversation_endpoint", conversationId, epoch, utteranceId: "u1" });
-  f.emit(input("Check the Ithaca note.", "host-input-1"));
-  f.emit(delegation("host-1"));
+  f.emit(input("Check the Ithaca note.", "host-input-1", f.sent.filter(m => m.type === "session.input_audio.append").at(-1).event_id));
+  f.emit(delegation("host-1", f.sent.filter(m => m.type === "session.input_audio.append").at(-1).event_id));
   await until(() => frames.some((m) => m.event?.kind === "input_fragment"));
   expect(turns).toHaveLength(0);
   send({ type: "conversation_commit", conversationId, epoch, utteranceId: "u1", requestId: "request-1", text: "Check the Ithaca note." });
@@ -247,7 +260,7 @@ test("real adapter and host keep chat progress and a question interactive while 
 
 
 test("replacement epoch seeds host outcomes as history without replaying audio or delegated effects", async () => {
-  const f = await fixture(); await f.audio(); f.emit(delegation());
+  const f = await fixture(); const command = await f.audio(); f.emit(delegation("delegation-1", command));
   await until(() => f.received.some((e) => e.kind === "work_requested"));
   await f.session.close();
   const abort = new AbortController(); const oldCleanup = cleanup!;
@@ -267,8 +280,8 @@ test("historical zero-duration transcript text is never relabeled as a fresh mic
   const f = await fixture(); await f.audio();
   f.emit({ ...input("Historical context.", "context-1"), end_ms: 0 });
   f.emit(input("The new Ithaca note.", "actual-1"));
-  await until(() => f.received.some((e) => e.kind === "input_fragment" && e.text === "The new Ithaca note."));
-  expect(f.received.filter((e) => e.kind === "input_fragment").map((e) => e.kind === "input_fragment" ? e.text : "")).toEqual(["The new Ithaca note."]);
+  await until(() => f.received.some((e) => e.kind === "unassigned_input_fragment" && e.text === "The new Ithaca note."));
+  expect(f.received.filter((e) => e.kind === "unassigned_input_fragment").map((e) => e.kind === "unassigned_input_fragment" ? e.text : "")).toEqual(["The new Ithaca note."]);
 });
 
 
@@ -310,4 +323,54 @@ test("completed input identities do not consume the host active-utterance capaci
   }
   await until(() => f.sent.filter((m) => m.type === "session.thinking.append").length === 17);
   expect(f.received.some((e) => e.kind === "error")).toBe(false);
+});
+
+for (const mode of ["late", "overlap", "gap"] as const) test(`missing-ID ${mode} timing stays unassigned; duplicate IDs do not repeat text`, async () => {
+  const f = await fixture(); await f.audio(); await f.audio("u2", 1);
+  const frame = { ...input(" the harbour", "timed"), start_ms: mode === "late" ? 600 : 10200, end_ms: mode === "gap" ? 90000 : 10400 };
+  f.emit(frame); f.emit(frame);
+  f.emit({ ...input(" note.", "timed-2"), start_ms: 500, end_ms: 700 });
+  await until(() => f.received.filter(e => e.kind === "unassigned_input_fragment").length === 2);
+  expect(f.received.filter(e => e.kind === "unassigned_input_fragment")).toMatchObject([
+    { sequence: 0, text: " the harbour", sessionInterval: { startMs: frame.start_ms, endMs: frame.end_ms } },
+    { sequence: 1, text: " note.", sessionInterval: { startMs: 500, endMs: 700 } },
+  ]);
+  expect(f.received.some(e => e.kind === "input_fragment" || e.kind === "error")).toBe(false);
+});
+
+test("missing-ID delegation cannot return another running request's result", async () => {
+  const f = await fixture(); const command = await f.audio();
+  f.emit(delegation("correlated", command));
+  f.emit(delegation("unassigned"));
+  await until(() => f.received.some(e => e.kind === "unassigned_delegation"));
+  expect(f.received.filter(e => e.kind === "work_requested")).toMatchObject([{ handle: "correlated", utteranceId: "u1" }]);
+  await expect(f.session.returnWork(ref("unassigned"), result)).rejects.toThrow("correlation");
+  await expect(f.session.returnWork(ref("correlated"), result)).resolves.toBeUndefined();
+  await until(() => f.sent.some(m => m.type === "session.commentary.append"));
+  expect(f.sent.filter(m => m.type === "session.commentary.append")).toMatchObject([{ delegation_id: "correlated" }]);
+});
+
+test("unknown explicit transcript identity still closes instead of becoming unassigned", async () => {
+  const f = await fixture(); await f.audio();
+  f.emit(input("Foreign input.", "foreign", "foreign-command"));
+  await until(() => f.received.some(e => e.kind === "error"));
+  expect(f.received.some(e => e.kind === "unassigned_input_fragment" || e.kind === "input_fragment")).toBe(false);
+});
+
+test("replacement session missing-ID recognition remains unassigned despite historical context", async () => {
+  const f = await fixture(); await f.session.close();
+  const abort = new AbortController(); const oldCleanup = cleanup!;
+  cleanup = () => { abort.abort(); oldCleanup(); };
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: abort.signal, resync: { work: [{
+    conversationId: "ithaca", epoch: 1, utteranceId: "u1", requestId: "r1", turnId: "t1", state: "completed", delivery: "discarded", recognized: "Old note.", submitted: "Old note.",
+  }] } });
+  const received: LiveConversationEvent[] = [];
+  void (async () => { for await (const e of next.events) received.push(e); })();
+  next.appendAudio({ utteranceId: "u2", sequence: 0, rate: 24000, pcm: new Uint8Array([0, 0]) });
+  f.emit({ ...input("Historical context.", "historical"), end_ms: 0 });
+  f.emit({ ...input("New recognition.", "new"), start_ms: 600, end_ms: 1800 });
+  await until(() => received.some(e => e.kind === "unassigned_input_fragment"));
+  expect(received.filter(e => e.kind === "unassigned_input_fragment")).toMatchObject([{ epoch: 2, sequence: 0, text: "New recognition." }]);
+  expect(received.some(e => e.kind === "input_fragment" || e.kind === "error")).toBe(false);
+  await next.close();
 });
