@@ -272,7 +272,11 @@ async function observeBootPrune(bin: string, observability: ReturnType<typeof cr
     if (pids.length) return pids;
     const failed = observability.logs.count({ scope: "cron", severity: "WARN", body: "scratch prune failed" });
     if (failed || Date.now() >= deadline) {
-      throw new Error(`BOOT_PRUNE_CHILD_NOT_OBSERVED phase=observe-child command=${bin} outcome=${failed ? "prune-failed" : "observation-deadline"} elapsedMs=${Date.now() - started} iterations=${iterations}`);
+      // The outcome alone cannot distinguish admission/setup refusal from a
+      // CLI failure. Retain the real pruner's already-recorded error on failure.
+      const pruneErrors = observability.logs.find({ scope: "cron", severity: "WARN", body: "scratch prune failed" })
+        .map(record => record.attributes.error);
+      throw new Error(`BOOT_PRUNE_CHILD_NOT_OBSERVED phase=observe-child command=${bin} outcome=${failed ? "prune-failed" : "observation-deadline"} elapsedMs=${Date.now() - started} iterations=${iterations} pruneErrors=${JSON.stringify(pruneErrors)}`);
     }
     await settle(10);
   }
@@ -334,6 +338,7 @@ describe("BrainUiApp.close", () => {
     } catch (error) { failure = error; }
     expect(String(failure), "BOOT_REFUSAL_HAS_NAMED_FAILURE").toContain("BOOT_PRUNE_CHILD_NOT_OBSERVED");
     expect(String(failure)).toContain("outcome=prune-failed");
+    expect(String(failure), "BOOT_REFUSAL_RETAINS_PRUNE_ERROR").toContain("exit 23");
     expect(ownedApp).toBeDefined();
     expect(() => ownedApp!.db.query("SELECT 1").get(), "BOOT_REFUSAL_CLOSED_DB").toThrow();
     expect(existsSync(ownedRoot), "BOOT_REFUSAL_REMOVED_STATE").toBe(false);
