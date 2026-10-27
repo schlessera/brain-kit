@@ -47,6 +47,29 @@ above 250 ms are reported; sequence/frame discontinuities, processor errors,
 metadata/byte caps and missing finish acknowledgements mark incomplete. An
 incomplete capture must not be presented as product clipping or silently repaired.
 
+Each tap callback snapshots the browser's observed `currentFrame` and
+`currentTime` once. A separate `sampleOffset` counts copied input samples; the
+collector checks it against retained WAV samples. Gap events retain both clock
+observations and cumulative offsets, under the existing event cap. First/last
+observed times, captured sample count and the terminal observed clocks/offset are
+exported too. The counter never replaces browser frames: a repeated/jumped frame
+still makes `complete: false`, even when samples independently match a fixture.
+A clock snapshot is diagnostic evidence, not an asserted causal repair.
+
+The keyless `conversation-diagnostic-samples.offline.tsx` browser proof uses the
+actual playback queue and tap at 48 kHz. A deterministic nonrepeating PCM buffer,
+a final 37-sample chunk and both silence edges are compared sample by sample
+against scheduled frame offsets. There is no onset search or trimming to discard
+lost startup/finish samples. A second case runs a separate synthetic input
+AudioContext/AudioWorklet with zero input and no microphone. This bounded topology
+probe cannot establish absence of an intermittent browser anomaly. These graph-only
+cases have no provider output and therefore never claim paired-capture completeness.
+Run them with `node scripts/visual.mjs --project=ui-react-layout
+--filter=conversation-diagnostic`; run processor/analyzer/collector checks with
+`bun run test experiments/voice-tail`. Sample-integrity proof and the conservative
+browser-clock verdict are separate assertions. Neither proves provider finality,
+physical playback, or the cause of a reported reply ending.
+
 ## Optional local collection
 
 Run `bun experiments/voice-tail/collector.ts OUTPUT_DIRECTORY EXACT_BROWSER_ORIGIN

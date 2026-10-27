@@ -6,7 +6,7 @@ const MAX_MIX = 24_000_000; // float32 mono, up to 120 s at 48 kHz (no requantiz
 const MAX_EVENTS = 16_384;
 const MAX_MS = 120_000;
 type Fields = Record<string, string | number | boolean | null>;
-type Block = { sequence: number; frame: number; samples: Float32Array };
+type Block = { sequence: number; frame: number; time: number; sampleOffset: number; samples: Float32Array };
 let active: Recording | undefined;
 let ordinaryContexts = 0;
 let arming = false;
@@ -29,19 +29,22 @@ export function evaluationConnect(source: AudioBufferSourceNode) {
 
 // All render quanta, including silence, are posted immediately. Never batch a
 // partial last block. The extra destination branch always emits digital zero.
+// Snapshot browser clocks once; sampleOffset counts copied samples independently.
+// It never replaces the observed frame or makes a timing gap complete.
 const processor = `class OutputTap extends AudioWorkletProcessor {
-  constructor() { super(); this.sequence=0; this.bytes=0; this.start=null; this.done=false;
-    this.port.onmessage=({data})=>{if(data==='finish') {this.port.postMessage({done:true,sequence:this.sequence,frame:currentFrame});this.done=true;}};
+  constructor() { super(); this.sequence=0; this.bytes=0; this.sampleOffset=0; this.start=null; this.done=false;
+    this.port.onmessage=({data})=>{if(data==='finish') {const frame=currentFrame,time=currentTime;this.port.postMessage({done:true,sequence:this.sequence,frame,time,sampleOffset:this.sampleOffset});this.done=true;}};
   }
   process(inputs, outputs) {
     if(this.done) return false;
-    if(this.start===null) this.start=currentFrame;
+    const frame=currentFrame,time=currentTime;
+    if(this.start===null) this.start=frame;
     const n=outputs[0][0].length;
-    if(this.bytes+n*4>24000000 || currentFrame-this.start>=sampleRate*120) {
-      this.port.postMessage({cap:true,sequence:this.sequence,frame:currentFrame});this.done=true;return false;
+    if(this.bytes+n*4>24000000 || frame-this.start>=sampleRate*120) {
+      this.port.postMessage({cap:true,sequence:this.sequence,frame,time,sampleOffset:this.sampleOffset});this.done=true;return false;
     }
     const samples=new Float32Array(n); if(inputs[0]?.[0]) samples.set(inputs[0][0]);
-    this.port.postMessage({sequence:this.sequence++,frame:currentFrame,samples},[samples.buffer]);this.bytes+=n*4;
+    this.port.postMessage({sequence:this.sequence++,frame,time,sampleOffset:this.sampleOffset,samples},[samples.buffer]);this.bytes+=n*4;this.sampleOffset+=n;
     return true;
   }
 } registerProcessor('brain-evaluation-output-only',OutputTap);`;
@@ -65,6 +68,8 @@ class Recording {
   readonly issues = new Set<string>();
   providerBytes = 0; mixBytes = 0; providerRate = 0; providerSequence = 0;
   nextSequence = 0; nextFrame: number | undefined; firstFrame: number | undefined;
+  firstTime: number | undefined; lastTime: number | undefined;
+  observedSampleOffset = 0;
   maxDeliveryMs = 0; lastDelivery = performance.now();
   finished = false;
   resolveFinish: (() => void) | undefined;
@@ -86,8 +91,10 @@ class Recording {
   }
   block(data: Block) {
     if (this.finished) { this.issues.add("post-finish-block"); return; }
-    if (data.sequence !== this.nextSequence || this.nextFrame !== undefined && data.frame !== this.nextFrame) { this.issues.add("render-frame-or-sequence-gap"); this.event("render-gap", { expectedSequence: this.nextSequence, sequenceReceived: data.sequence, expectedFrame: this.nextFrame ?? -1, frameReceived: data.frame }); }
-    this.firstFrame ??= data.frame;
+    if (data.sequence !== this.nextSequence || this.nextFrame !== undefined && data.frame !== this.nextFrame) { this.issues.add("render-frame-or-sequence-gap"); this.event("render-gap", { expectedSequence: this.nextSequence, sequenceReceived: data.sequence, expectedFrame: this.nextFrame ?? -1, frameReceived: data.frame, timeReceived: data.time, previousTime: this.lastTime ?? -1, sampleOffset: data.sampleOffset, capturedSampleOffset: this.mixBytes / 4 }); }
+    if (data.sampleOffset !== this.mixBytes / 4) { this.issues.add("captured-sample-offset-gap"); this.event("sample-offset-gap", { expectedSampleOffset: this.mixBytes / 4, sampleOffset: data.sampleOffset, frameReceived: data.frame, timeReceived: data.time }); }
+    this.firstFrame ??= data.frame; this.firstTime ??= data.time;
+    this.lastTime = data.time; this.observedSampleOffset = data.sampleOffset + data.samples.length;
     this.nextSequence = data.sequence + 1; this.nextFrame = data.frame + data.samples.length;
     const now = performance.now(); const delay = now - this.lastDelivery;
     this.maxDeliveryMs = Math.max(this.maxDeliveryMs, delay);
@@ -121,7 +128,7 @@ class Recording {
       complete: acknowledged && this.issues.size === 0, issues: [...this.issues],
       limits: { wallMs: MAX_MS, providerBytes: MAX_PROVIDER, mixBytes: MAX_MIX, metadataEvents: MAX_EVENTS },
       provider: { provenance: "browser-adapter-received-not-raw-provider-wire", encoding: "pcm16le", channels: 1, sampleRate: this.providerRate || 24000, bytes: this.providerBytes, chunks: this.providerSequence, sha256: await hash(provider) },
-      mix: { encoding: "float32le", channels: 1, sampleRate: this.context.sampleRate, bytes: this.mixBytes, blocks: this.nextSequence, firstFrame: this.firstFrame, endFrame: this.nextFrame, maxCallbackDeliveryMs: this.maxDeliveryMs, sha256: await hash(mix) }, events: this.events };
+      mix: { encoding: "float32le", channels: 1, sampleRate: this.context.sampleRate, bytes: this.mixBytes, blocks: this.nextSequence, firstFrame: this.firstFrame, endFrame: this.nextFrame, firstTime: this.firstTime, lastTime: this.lastTime, capturedSamples: this.mixBytes / 4, observedSampleOffset: this.observedSampleOffset, maxCallbackDeliveryMs: this.maxDeliveryMs, sha256: await hash(mix) }, events: this.events };
     return { provider, mix, metadata };
   }
 }
@@ -143,6 +150,8 @@ async function prepareEvaluationAudio(sourceSha: string) {
     if (data.cap) { recording.issues.add("render-cap"); recording.resolveFinish?.(); return; }
     if (data.done) {
       if (data.sequence !== recording.nextSequence || recording.nextFrame !== undefined && data.frame !== recording.nextFrame) recording.issues.add("finish-frame-gap");
+      if (data.sampleOffset !== recording.mixBytes / 4) recording.issues.add("finish-sample-offset-gap");
+      recording.event("render-finish-observed", { frame: data.frame, time: data.time, sampleOffset: data.sampleOffset, sequenceReceived: data.sequence, capturedSamples: recording.mixBytes / 4 });
       recording.resolveFinish?.(); return;
     }
     recording.block(data); first?.(); first = undefined;

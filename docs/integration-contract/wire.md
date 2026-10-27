@@ -1928,7 +1928,9 @@ Its removable browser console surface `brainAudioEvaluation.arm(sourceSha)` must
 be awaited before entering voice; it starts no provider and captures no input.
 It retains bounded adapter-received PCM before recovery filtering and float32
 playback-source graph output, with sample rates, scheduled byte/time anchors,
-source identity, sequence/gap indicators and lifecycle/action metadata. The graph
+source identity, sequence/gap indicators and lifecycle/action metadata. Observed
+browser frame/time snapshots remain separate from cumulative captured-sample
+offsets; sample agreement never overrides a frame-gap integrity failure. The graph
 is before driver/headphone hardware, not at-ear evidence. Export/collector details
 and limits are in [the diagnostic helper](../../experiments/voice-tail/README.md).
 The optional internal `mute` origin distinguishes a control action from component
