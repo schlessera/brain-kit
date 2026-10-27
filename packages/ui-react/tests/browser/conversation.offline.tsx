@@ -458,11 +458,42 @@ test("barge-in from actual PCM speech cuts output and leaves capture off until h
   await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
   s.event({ kind: "audio", outputId: "ithaca-barge", sequence: 0, pcm: outputPcm(), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  const before = s.socket.frames("conversation_audio").length;
   mic.speak();
   await expect.poll(() => s.client.state.getState().playing).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("conversation_audio"), "the triggering utterance never reaches the provider").toHaveLength(before);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(1);
+  expect(mic.stream.getAudioTracks().every(track => track.readyState === "ended")).toBe(true);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" });
+  await expect.poll(() => s.socket.frames("conversation_start").length).toBe(2);
+  s.opened(2);
+  expect(s.client.state.getState().profile?.epoch).toBe(2);
+  expect(s.client.state.getState().connection).toBe("Connected");
+  expect(s.client.state.getState().micOn, "ready replacement is not permission to reopen capture").toBe(false);
+  expect(s.socket.frames("conversation_audio")).toHaveLength(before);
+});
+
+for (const operation of ["cut", "flush"] as const) test(`interruption research: ${operation} cannot distinguish late audio from a new reply with the same epoch ID`, async (ctx) => {
+  const reports: string[] = [];
+  const playback = createConversationPlayback((_id, state) => reports.push(state), () => {});
+  ctx.onTestFinished(() => playback.dispose());
+  const bytes = Uint8Array.from(atob(outputPcm()), char => char.charCodeAt(0));
+  const format = { encoding: "pcm16", channels: 1, sampleRate: 24000 } as const;
+  playback.quiet(true);
+  playback.enqueue("output-1", bytes, format);
+  await expect.poll(() => playback.playing()).toBe(true);
+  playback[operation]();
+  expect(playback.pending()).toBe(false);
+  expect(reports).toEqual(["unknown"]);
+  // Both a delayed old chunk and the next answer carry exactly this identity.
+  // Retiring it loses both; retaining it accepts both. Neither is an ack.
+  playback.enqueue("output-1", bytes, format);
+  expect(playback.pending()).toBe(operation === "flush");
+  if (operation === "flush") await expect.poll(() => playback.playing()).toBe(true);
+  else expect(playback.playing()).toBe(false);
 });
 
 test("one tracker activation leaves voice and preserves the original draft without a dialog", async (ctx) => {
