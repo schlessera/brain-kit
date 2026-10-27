@@ -35,7 +35,14 @@ finally: os.close(fd)
  * traceback omits this loop's own frame, and `SystemExit` maps to the status
  * the interpreter would have exited with.
  */
+// Python 3.14 caches the outer -c source under the same filename/qualname/first
+// line as both compiled programs. Supply active source through FrameSummary's
+// public constructor instead of CPython's private code cache. The startup stack
+// probes whether this interpreter's fresh -c tracebacks show source at all
+// (3.12 does not). Preserve that presentation, including column indicators.
 const INSPECTOR = `import sys,json,io,traceback
+show_source=bool(traceback.extract_stack()[-1].line)
+sources={"root":sys.argv[1].splitlines(True),"loop":sys.argv[2].splitlines(True)}
 programs={"root":compile(sys.argv[1],"<string>","exec"),"loop":compile(sys.argv[2],"<string>","exec")}
 reply=sys.stdout
 for line in sys.stdin:
@@ -48,7 +55,13 @@ for line in sys.stdin:
   elif isinstance(error.code,int): code=error.code
   else: code=1; errors=str(error.code)+"\\n"
  except BaseException as error:
-  code=1; errors="".join(traceback.format_exception(type(error),error,error.__traceback__.tb_next))
+  code=1
+  diagnostic=traceback.TracebackException(type(error),error,error.__traceback__.tb_next,lookup_lines=False,compact=True)
+  for index,frame in enumerate(diagnostic.stack):
+   if frame.filename=="<string>":
+    source="".join(sources[request["program"]][frame.lineno-1:frame.end_lineno or frame.lineno]) if show_source else ""
+    diagnostic.stack[index]=traceback.FrameSummary(frame.filename,frame.lineno,frame.name,line=source,end_lineno=frame.end_lineno,colno=frame.colno,end_colno=frame.end_colno)
+  errors="".join(diagnostic.format())
  finally:
   sys.stdout=reply
  reply.write(json.dumps({"code":code,"text":out.getvalue(),"errors":errors})+"\\n"); reply.flush()
