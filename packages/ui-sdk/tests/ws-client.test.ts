@@ -5,7 +5,7 @@
  * exercisable with no network, no browser and no React, which is the property
  * that made moving it out of `ui-react` worth doing.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   BrainUiClient,
@@ -14,6 +14,55 @@ import {
   type ServerMessage,
   type WebSocketClose,
 } from "../src/client/index.js";
+
+// Observe native handles rather than replacing the clock: a silent fake socket
+// still owns a real handshake deadline, and its retries can outlive this file.
+let timeoutDescriptor: PropertyDescriptor;
+const timers = new Set<ReturnType<typeof setTimeout>>();
+const clients = new Set<BrainUiClient>();
+beforeEach(() => {
+  timers.clear();
+  timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const timeout = globalThis.setTimeout;
+  Object.defineProperty(globalThis, "setTimeout", {
+    ...timeoutDescriptor,
+    value: ((...args: Parameters<typeof setTimeout>) => {
+      const handle = Reflect.apply(timeout, globalThis, args);
+      timers.add(handle);
+      return handle;
+    }) as typeof setTimeout,
+  });
+});
+afterEach(() => {
+  const failures: unknown[] = [];
+  try {
+    for (const client of clients) {
+      try { client.close(); } catch (error) { failures.push(error); }
+    }
+    // Bun's native getter sees cancellation even through saved clear functions.
+    // Unknown states remain pending, just as in the mount cleanup oracle.
+    const pending = [...timers].filter(handle =>
+      (handle as unknown as { readonly _destroyed?: boolean })._destroyed !== true);
+    try {
+      expect(pending.length, "WS_CLIENT_FIXTURE_RELEASES_NATIVE_TIMERS").toBe(0);
+    } catch (error) { failures.push(error); }
+  } finally {
+    Object.defineProperty(globalThis, "setTimeout", timeoutDescriptor);
+    timers.clear();
+    clients.clear();
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    const details = failures.map(error => error instanceof Error ? error.stack ?? error.message : String(error));
+    throw new AggregateError(failures, `WebSocket client fixture teardown failed:\n${details.join("\n")}`);
+  }
+});
+
+function ownedClient(options: ConstructorParameters<typeof BrainUiClient>[0]): BrainUiClient {
+  const client = new BrainUiClient(options);
+  clients.add(client);
+  return client;
+}
 
 /** A WebSocket stand-in the test drives directly. */
 class FakeSocket {
@@ -56,7 +105,7 @@ function makeClient(handlers: Record<string, unknown> = {}) {
   const statuses: string[] = [];
   const errors: ProtocolError[] = [];
   const closes: WebSocketClose[] = [];
-  const client = new BrainUiClient({
+  const client = ownedClient({
     url: "ws://test/ws",
     handlers: handlers as never,
     onStatusChange: (s) => statuses.push(s),
@@ -82,7 +131,7 @@ describe("socket closes", () => {
   test("reports the close code and reason when an attempt never opened", () => {
     const sockets: FakeSocket[] = [];
     const closes: WebSocketClose[] = [];
-    const client = new BrainUiClient({
+    const client = ownedClient({
       url: "ws://test/ws",
       onClose: (close) => closes.push(close),
       socketFactory: () => {
