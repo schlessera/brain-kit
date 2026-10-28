@@ -1,4 +1,4 @@
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,6 +18,8 @@ import { openDatabase } from "@schlessera/brain/internal";
 import { createProviderMaskGuard } from "../src/brain/provider-mask-refusal.js";
 import { readsIndex } from "../src/brain/index-batch.js";
 import { decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 let fixtureRoot: string;
 let root: string;

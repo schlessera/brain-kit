@@ -179,7 +179,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
       return;
     }
     const id = entry.item.submissionId;
-    entry.letGo = tabs.claim(id, () => void takeOver(id));
+    entry.letGo = tabs.claim(id, () => takeOver(id));
   }
 
   /** This tab now owns a submission another tab may have been driving. */
@@ -202,6 +202,9 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
         fresh = entry.item;
       }
       if (disposed || epoch !== readIn) return;
+      // A removed broadcast can forget this entry while storage is reading.
+      // A newer entry with the same id does not authorize this continuation.
+      if (entries.get(submissionId) !== entry) return;
       if (!fresh) {
         forget(entry);
         return;

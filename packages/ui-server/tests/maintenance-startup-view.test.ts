@@ -10,11 +10,13 @@ import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes
 import { createTestApp } from "./helpers/test-app";
 import { prepareFixtureWorkerOutput as prepareMaintenanceOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { listDirectory } from "../src/files/walker.js";
-import { createFixtureHostBoundary as createHostBoundary } from "./helpers/native-host-fixture.js";
-import { createFixtureHostExecution as createHostExecution } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
+
 import { createUiDb } from "../src/db/client.js";
 import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
+
+const { createFixtureHostBoundary: createHostBoundary, createFixtureHostExecution: createHostExecution } = installNativeHostFixtures();
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
@@ -415,6 +417,7 @@ else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");
     expect(pids.length).toBeGreaterThan(0);
     await fixture.app.close();
     expect(pids.filter(hostProcessAlive), "DEFERRED_REFRESH_EXITED_BEFORE_DB_CLOSE").toEqual([]);
+    expect(() => fixture.app.db.query("SELECT 1").get(), "DEFERRED_REFRESH_APP_DB_CLOSED").toThrow("closed");
     const db = createUiDb(fixture.dbPath);
     try { expect(db.query("SELECT count(*) AS n FROM writer_gate").get(), "DEFERRED_REFRESH_GATE_RELEASED").toEqual({ n: 0 }); }
     finally { db.close(); }

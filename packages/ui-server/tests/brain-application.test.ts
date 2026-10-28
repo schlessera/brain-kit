@@ -1,4 +1,4 @@
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, statSync, cpSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import { createKeyedLock, BRAIN_APPLICATION_MAX_BYTES, type BrainApplicationInput, type BrainApplicationResult, type BrainApplicationOperation } from "@schlessera/brain-ui-sdk/server";
 import { keylessEnv } from "../../core/tests/cli-harness.js";
 import { boundaryPlanner, contentHash, createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 const operations: BrainApplicationOperation[] = ["add", "update", "archive", "write", "edit", "staged"];
 let root: string;
