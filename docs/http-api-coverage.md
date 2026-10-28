@@ -161,9 +161,9 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **H — Liveness.**
 
-- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:81-87`)
-- `shutdown refuses health before touching the closed database` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`shutdown refuses health before touching the closed database`, `packages/ui-server/tests/app-wiring.test.ts:688-702`).
-- `the public health route reports only unhealthy for a dead SQLite handle` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`the public health route reports only unhealthy for a dead SQLite handle`, `packages/ui-server/tests/app-wiring.test.ts:704-715`).
+- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:125-131`)
+- `shutdown refuses health before touching the closed database` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`shutdown refuses health before touching the closed database`, `packages/ui-server/tests/app-wiring.test.ts:732-746`).
+- `the public health route reports only unhealthy for a dead SQLite handle` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`the public health route reports only unhealthy for a dead SQLite handle`, `packages/ui-server/tests/app-wiring.test.ts:748-759`).
 
 **T — Operational status.**
 
