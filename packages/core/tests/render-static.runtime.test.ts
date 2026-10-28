@@ -17,7 +17,7 @@ function renderEnv(root: string): Record<string, string> {
    symlinkSync(executable, join(tools, name));
  }
  return { PATH: [keylessEnv(root).PATH, tools].join(delimiter),
-   PUPPETEER_EXECUTABLE_PATH: Bun.which("google-chrome-stable") ?? Bun.which("google-chrome") ?? Bun.which("chromium") ?? "/missing-chrome" };
+   PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH ?? Bun.which("google-chrome-stable") ?? Bun.which("google-chrome") ?? Bun.which("chromium") ?? "/missing-chrome" };
 }
 function firstPixel(bytes: Buffer): number[] {
  expect(bytes.subarray(1,4).toString()).toBe("PNG");expect(bytes[24]).toBe(8);expect([2,6]).toContain(bytes[25]);

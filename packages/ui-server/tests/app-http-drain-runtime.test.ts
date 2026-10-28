@@ -18,7 +18,7 @@ test("a native browser's held status belongs to its first app while the next app
  try{
   first=await httpContractApp({env:{DB_PATH:join(state,"first.sqlite"),SOURCE_COMMIT:"a".repeat(40)},staticRoot:true});capture.mockRestore();
   server=Bun.serve({hostname:"127.0.0.1",port:0,fetch:first.app.fetch,websocket:first.app.websocket});
-  const origin=`http://127.0.0.1:${server.port}`,executablePath=["google-chrome-stable","google-chrome","chromium","chromium-browser"].map(name=>Bun.which(name)).find(Boolean);
+  const origin=`http://127.0.0.1:${server.port}`,executablePath=process.env.PUPPETEER_EXECUTABLE_PATH??["google-chrome-stable","google-chrome","chromium","chromium-browser"].map(name=>Bun.which(name)).find(Boolean);
   if(!executablePath)throw Error("Native HTTP shutdown proof requires real Chrome");
   browser=await chromium.launch({executablePath,headless:true,args:["--no-sandbox","--disable-dev-shm-usage"]});
   const context=await browser.newContext(),denied:string[]=[];

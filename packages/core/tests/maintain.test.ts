@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "f
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { cleanup, makeTempBrain, keylessEnv, runCli } from "./cli-harness";
 import { maintainCommand } from "../src/cli/commands/maintain";
 import { initContext } from "../src/lib/context";
 import { expectBlobsIntact, git, initRepo, looseCount, reflogs, refs, writeLooseBlobs } from "./git-fixture";
@@ -83,7 +83,7 @@ test("--no-git skips the step and leaves the objects loose", async () => {
   expect(looseCount(root)).toBe(3);
 });
 
-// A read-only pack directory makes git's own pack-objects fail. Root writes
+// A read-only pack directory makes native Git maintenance fail. Root writes
 // through the mode, so this cannot be staged there.
 test.skipIf(process.getuid?.() === 0)("a git failure is a FAILED step with git's message, and exit 2", async () => {
   const root = tempBrain();
@@ -92,8 +92,19 @@ test.skipIf(process.getuid?.() === 0)("a git failure is a FAILED step with git's
   const pack = join(root, ".git", "objects", "pack");
   chmodSync(pack, 0o555);
   try {
-    const { code, git: step } = await maintain(root);
-    expect(step?.result).toStartWith("FAILED — fatal: Unable to create temporary file");
+    // Git versions may attempt incremental-repack before loose-objects. Observe
+    // the native refusal rather than pinning which task reports it first.
+    const env = { LC_ALL: "C" };
+    const native = Bun.spawnSync(["git", "-C", root, "maintenance", "run",
+      "--task=loose-objects", "--task=incremental-repack", "--task=pack-refs"],
+      { env: { ...keylessEnv(root), ...env }, stdout: "pipe", stderr: "pipe" });
+    const error = native.stderr.toString().trim();
+    expect(native.exitCode, "NATIVE_GIT_PERMISSION_REFUSAL").not.toBe(0);
+    expect(error, "NATIVE_GIT_PACK_DIRECTORY_REFUSAL").toContain(pack);
+    expect(error, "NATIVE_GIT_PERMISSION_DIAGNOSTIC").toContain("Permission denied");
+    const firstLine = error.split("\n").find(line => line.trim() !== "")!.trim();
+    const { code, git: step } = await maintain(root, [], env);
+    expect(step?.result, "MAINTAIN_PRESERVES_NATIVE_GIT_ERROR").toBe(`FAILED — ${firstLine}`);
     expect(code).toBe(2);
   } finally {
     chmodSync(pack, 0o755);
