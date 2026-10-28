@@ -15,6 +15,7 @@ import { createWsHandlers } from "../src/ws/connection";
 import { WsHost } from "../src/ws/host";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import { createSessionCatalog } from "../src/ws/session-catalog";
+import { ConversationHost } from "../src/ws/conversation";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { fakeLiveProvider, SILENCE, type FakeLiveSession } from "./helpers/live-conversation";
 import { testPrincipal } from "./helpers/principal";
@@ -114,6 +115,10 @@ function setup(options: {
         await until(() => frames("conversation_opened").length > before);
         const opened = frames("conversation_opened").at(-1);
         return { id: opened.conversationId as string, epoch: opened.epoch as number, session: live.sessions.at(-1)! as FakeLiveSession, opened };
+      },
+      async capture(conversation: { id: string; epoch: number; session: FakeLiveSession }, utteranceId = "context-capture") {
+        send({ type: "conversation_audio", conversationId: conversation.id, epoch: conversation.epoch, utteranceId, sequence: sequence++, rate: 16_000, pcm: SILENCE });
+        await until(() => conversation.session.audio.some(chunk => chunk.utteranceId === utteranceId));
       },
       /** Capture one utterance and have the provider recognize it. */
       async speak(conversation: { id: string; epoch: number; session: FakeLiveSession }, utteranceId: string, text: string, origin: "user" | "assistant" | "unknown" = "user") {
@@ -718,13 +723,14 @@ describe("fourth review pass: identities outlive retention", () => {
     conversation.session.emit({ kind: "work_requested", handle: "native-next" });
     await settle();
     expect(conversation.session.returned).toHaveLength(1);
-    // It waits for the next commit instead.
+    // An unkeyed advisory never borrows the next commit either.
     await client.speak(conversation, "u2", "And the cistern?");
     client.commit(conversation, "u2", "r2", "And the cistern?");
     await until(() => s.turns.length === 2);
     s.turns[1]!.answer("Half full.");
     await until(() => conversation.session.returned.length === 2);
-    expect(conversation.session.returned[1]!.ref).toMatchObject({ requestId: "r2", nativeHandle: "native-next" });
+    expect(conversation.session.returned[1]!.ref).toMatchObject({ requestId: "r2" });
+    expect(conversation.session.returned[1]!.ref.nativeHandle).toBeUndefined();
   });
 });
 
@@ -1152,4 +1158,189 @@ test("unassigned native work never borrows a running request or the next committ
   s.turns[1]!.answer("The departure note is ready.");
   await until(() => client.last("r2")?.state === "completed");
   expect(conversation.session.returned.every(r => !r.ref.nativeHandle)).toBe(true);
+});
+
+describe("contextual host tasks (#3070)", () => {
+  test("native handle starts exactly one new task while three-turn dialogue continues", async () => {
+    const s = setup({ capabilities: { contextualTasks: "supported" } });
+    const client = await s.connect();
+    const c = await client.open({ contextualTasks: true }); await client.capture(c);
+    c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the Ithaca departure note.", sessionInterval: { startMs: 0, endMs: 500 } });
+    c.session.emit({ kind: "work_requested", handle: "departure" });
+    await until(() => s.turns.length === 1);
+    c.session.emit({ kind: "unassigned_input_fragment", sequence: 1, text: "What about the route?", sessionInterval: { startMs: 1000, endMs: 1500 } });
+    c.session.emit({ kind: "output_transcript", outputId: "dialogue", sequence: 0, text: "We can discuss the route while I check." });
+    c.session.emit({ kind: "unassigned_input_fragment", sequence: 2, text: "And the Sirens?", sessionInterval: { startMs: 2000, endMs: 2500 } });
+    c.session.emit({ kind: "work_requested", handle: "departure" });
+    await until(() => client.frames("conversation_event").some(f => f.event.text === "And the Sirens?"));
+    expect(s.turns).toHaveLength(1);
+    expect(new Set(client.frames("conversation_work").map(f => f.taskId)).size).toBe(1);
+    const receipt = client.frames("conversation_work").at(-1);
+    expect(receipt.provenance).toBe("contextual");
+    expect(receipt.taskId).toBeTruthy();
+    expect(receipt).not.toHaveProperty("utteranceId");
+    expect(s.turns[0]!.req.prompt).toContain("Find the Ithaca departure note.");
+    expect(s.turns[0]!.req.prompt).not.toContain("And the Sirens?");
+    s.turns[0]!.answer("The departure note says to leave Ithaca at dawn.");
+    await until(() => c.session.returned.length === 1);
+    expect(c.session.returned[0]!.ref.nativeHandle).toBe("departure");
+    expect(c.session.returned[0]!.ref).not.toHaveProperty("utteranceId");
+    expect(c.session.returned[0]!.result.facts).toContain("dawn");
+  });
+});
+
+for (const ending of ["withdraw", "cancel", "replace", "revoke"] as const) test(`contextual task never narrates late work after ${ending}`, async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the Ithaca note.", sessionInterval: { startMs: 0, endMs: 20 } });
+  c.session.emit({ kind: "work_requested", handle: "first" });
+  await until(() => s.turns.length === 1);
+  if (ending === "withdraw") c.session.emit({ kind: "work_withdrawn", handle: "first" });
+  if (ending === "cancel") client.send({ type: "cancel", sessionId: s.turns[0]!.sessionId });
+  if (ending === "replace") await client.open({ conversationId: c.id, contextualTasks: true });
+  if (ending === "revoke") await client.close();
+  s.turns[0]!.answer("The note was found.");
+  await until(() => s.host.coordinator.running.size === 0);
+  await settle();
+  expect(c.session.returned).toHaveLength(0);
+  expect(s.turns).toHaveLength(1);
+});
+
+test("contextual queued withdrawal and pre-request withdrawal cannot run or borrow manual work", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  await client.speak(c, "manual", "Review the raft plan.");
+  client.commit(c, "manual", "manual-review", "Review the raft plan.");
+  await until(() => s.turns.length === 1);
+  c.session.emit({ kind: "work_requested", handle: "new-task" });
+  c.session.emit({ kind: "work_withdrawn", handle: "new-task" });
+  c.session.emit({ kind: "work_withdrawn", handle: "withdrawn-first" });
+  c.session.emit({ kind: "work_requested", handle: "withdrawn-first" });
+  await until(() => client.frames("conversation_work").some(f => f.provenance === "contextual" && f.state === "cancelled"));
+  s.turns[0]!.answer("Manual work finished.");
+  await until(() => client.last("manual-review")?.state === "completed");
+  expect(c.session.returned.every(r => r.ref.nativeHandle === undefined)).toBe(true);
+  expect(s.turns).toHaveLength(1);
+});
+
+test("contextual tasks bind separate handles before serial dispatch; duplicates and unchanged context do not replay", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  const input = (sequence: number, text: string) => c.session.emit({ kind: "unassigned_input_fragment", sequence, text, sessionInterval: { startMs: sequence * 30, endMs: sequence * 30 + 20 } });
+  input(0, "Find the departure note."); c.session.emit({ kind: "work_requested", handle: "first" });
+  await until(() => s.turns.length === 1);
+  c.session.emit({ kind: "work_requested", handle: "duplicate-context" });
+  input(1, "Also check the harbour note."); c.session.emit({ kind: "work_requested", handle: "second" });
+  c.session.emit({ kind: "work_requested", handle: "second" });
+  await until(() => client.frames("conversation_work").some(f => f.nativeHandle === "second"));
+  expect(s.turns).toHaveLength(1);
+  expect(client.frames("conversation_work").find(f => f.nativeHandle === "duplicate-context")?.state).toBe("refused");
+  s.turns[0]!.answer("First note."); await until(() => s.turns.length === 2);
+  expect(s.turns[1]!.req.prompt).toContain("harbour note");
+  s.turns[1]!.answer("Second note."); await until(() => c.session.returned.length === 2);
+  expect(c.session.returned.map(r => r.ref.nativeHandle)).toEqual(["first", "second"]);
+  expect(new Set(c.session.returned.map(r => r.ref.requestId)).size).toBe(2);
+});
+
+test("contextual snapshot and queue bounds refuse explicitly without borrowing work", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  for (let i = 0; i < 5; i++) {
+    c.session.emit({ kind: "unassigned_input_fragment", sequence: i, text: `Find Ithaca note ${i}.`, sessionInterval: { startMs: i * 100, endMs: i * 100 + 50 } });
+    c.session.emit({ kind: "work_requested", handle: `bounded-${i}` });
+  }
+  await until(() => client.frames("conversation_work").some(f => f.nativeHandle === "bounded-4" && f.state === "refused"));
+  await until(() => s.turns.length === 1);
+  expect(s.turns).toHaveLength(1);
+  expect(new Set(client.frames("conversation_work").filter(f => f.state !== "refused").map(f => f.taskId)).size).toBe(4);
+  expect(client.frames("conversation_work").find(f => f.nativeHandle === "bounded-4")?.reason).toContain("capacity");
+});
+
+test("contextual work refuses aged recognition rather than inventing a fresh task", async () => {
+  const original = Date.now;
+  try {
+    const s = setup({ capabilities: { contextualTasks: "supported" } });
+    const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+    Date.now = () => original();
+    c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the old Ithaca note.", sessionInterval: { startMs: 0, endMs: 10 } });
+    await until(() => client.frames("conversation_event").some(f => f.event.kind === "unassigned_input_fragment"));
+    Date.now = () => original() + 31_000;
+    c.session.emit({ kind: "work_requested", handle: "aged" });
+    await until(() => client.frames("conversation_work").some(f => f.nativeHandle === "aged"));
+    expect(client.frames("conversation_work").at(-1)).toMatchObject({ state: "refused", recognized: "" });
+    expect(s.turns).toHaveLength(0);
+  } finally { Date.now = original; }
+});
+
+test("an older client cannot silently resume contextual receipts as reviewed work", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the Ithaca note.", sessionInterval: { startMs: 0, endMs: 20 } });
+  c.session.emit({ kind: "work_requested", handle: "context-task" });
+  await until(() => s.turns.length === 1);
+  s.turns[0]!.answer("Found."); await until(() => c.session.returned.length === 1);
+  client.send({ type: "conversation_start", conversationId: c.id });
+  await until(() => client.frames("error").some(f => f.code === "CONVERSATION_CAPABILITY"));
+  expect(client.frames("conversation_opened")).toHaveLength(1);
+  expect(s.turns).toHaveLength(1);
+});
+
+test("contextual result submission followed by epoch loss stays unknown rather than claiming it was withheld", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" }, holdReturns: true });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the Ithaca note.", sessionInterval: { startMs: 0, endMs: 20 } });
+  c.session.emit({ kind: "work_requested", handle: "pending-ack" });
+  await until(() => s.turns.length === 1); s.turns[0]!.answer("The signal is a bronze owl.");
+  await until(() => c.session.returned.length === 1);
+  const requestId = c.session.returned[0]!.ref.requestId;
+  expect(client.last(requestId).delivery).toBe("pending");
+  const next = await client.open({ conversationId: c.id, contextualTasks: true });
+  expect(client.last(requestId)).toMatchObject({ state: "completed", delivery: "unknown" });
+  expect(next.session.returned).toHaveLength(0);
+  expect(s.turns).toHaveLength(1);
+});
+
+test("resync recognition before fresh epoch audio never admits an automatic effect", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true });
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Historical task: repair the raft.", sessionInterval: { startMs: 0, endMs: 10 } });
+  c.session.emit({ kind: "work_requested", handle: "history-before-audio" });
+  await until(() => client.frames("conversation_work").some(f => f.nativeHandle === "history-before-audio"));
+  expect(client.frames("conversation_work").at(-1)?.state).toBe("refused");
+  await client.capture(c);
+  c.session.emit({ kind: "work_requested", handle: "history-after-audio" });
+  await until(() => client.frames("conversation_work").some(f => f.nativeHandle === "history-after-audio"));
+  expect(client.frames("conversation_work").at(-1)?.state).toBe("refused");
+  expect(s.turns).toHaveLength(0);
+});
+
+test("a fresh host instance recovers scoped outcomes into a later epoch without dispatch or native replay", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the Ithaca note.", sessionInterval: { startMs: 0, endMs: 20 } });
+  c.session.emit({ kind: "work_requested", handle: "durable-task" });
+  await until(() => s.turns.length === 1); s.turns[0]!.answer("The signal is a bronze owl.");
+  await until(() => !s.host.coordinator.isTurnActive());
+  await s.host.catalog.settled!();
+  s.host.conversations!.closeAll();
+  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.live.provider), configurable: true });
+  const resumed = await s.connect();
+  const next = await resumed.open({ conversationId: c.id, contextualTasks: true });
+  expect(next.epoch).toBe(2);
+  expect(next.opened.resync.work).toBe(1);
+  expect(resumed.frames("conversation_work").at(-1)).toMatchObject({ provenance: "contextual", nativeHandle: "durable-task", state: "completed" });
+  expect(next.session.returned).toHaveLength(0);
+  expect(s.turns).toHaveLength(1);
+});
+
+test("a contextual provider's void return is not promoted to acceptance evidence", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the Ithaca note.", sessionInterval: { startMs: 0, endMs: 20 } });
+  c.session.emit({ kind: "work_requested", handle: "unknown-acceptance" });
+  await until(() => s.turns.length === 1); s.turns[0]!.answer("Found.");
+  await until(() => c.session.returned.length === 1);
+  const requestId = c.session.returned[0]!.ref.requestId;
+  await until(() => client.last(requestId).delivery !== "pending");
+  expect(client.last(requestId).delivery).toBe("unknown");
 });

@@ -115,7 +115,7 @@ export const MessageBubble = memo(function MessageBubble({
       data-transcript-anchor={anchor}
     >
       <TurnHeader
-        who={isUser ? "You" : root.config.assistantName}
+        who={isUser ? message.source === "voice-context" ? "Conversation task" : "You" : root.config.assistantName}
         when={message.turnShell ? (shellStartedAt !== null ? formatTime(shellStartedAt) : undefined) : formatTime(message.timestamp)}
         voice={isUser && (message.source === "voice-dictate" || message.source === "voice-conversation") ? message.source : undefined}
         effort={isUser && message.thinkingLevel !== undefined ? (
@@ -129,6 +129,12 @@ export const MessageBubble = memo(function MessageBubble({
       {/* Content */}
       {isUser && message.source === "handoff" ? (
         <HandoffCard content={message.content} />
+      ) : isUser && message.source === "voice-context" ? (
+        <details className="text-sm text-foreground">
+          <summary className="min-h-11 cursor-pointer">Background work from conversation context</summary>
+          <p>Recognition may be uncertain. This is the context the task agent received.</p>
+          <div className="whitespace-pre-wrap">{linkifyPaths(message.content)}</div>
+        </details>
       ) : isUser ? (
         <UserTurn>
           <UserAttachments message={message} />

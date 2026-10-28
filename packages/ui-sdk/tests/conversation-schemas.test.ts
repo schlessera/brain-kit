@@ -167,3 +167,25 @@ for (const kind of ["unassigned_input_fragment", "unassigned_delegation"] as con
   expect(parseLiveConversationEvent({ ...scope, ...invalid }).ok).toBe(false);
   expect(server({ type: "conversation_event", ...scope, event: invalid }).ok).toBe(false);
 });
+
+test("contextual receipts require task/native identity and prohibit invented utterance provenance", () => {
+  const contextual: Record<string, unknown> = { type: "conversation_work", conversationId: "ithaca", epoch: 1, provenance: "contextual", taskId: "task", nativeHandle: "native", requestId: "request", state: "unknown", delivery: "unknown", recognized: "Find the note.", submitted: "Uncertain context for the ordinary agent." };
+  expect(server(contextual).ok).toBe(true);
+  for (const key of ["taskId", "nativeHandle"]) {
+    const missing = { ...contextual }; delete missing[key]; expect(server(missing).ok).toBe(false);
+  }
+  expect(server({ ...contextual, utteranceId: "invented" }).ok).toBe(false);
+  expect(server({ ...contextual, provenance: "reviewed", utteranceId: "manual" }).ok).toBe(false);
+  expect(client({ type: "conversation_start", contextualTasks: true }).ok).toBe(true);
+});
+
+test("unassigned evidence carries exactly one real provider interval or explicit unavailable timing", () => {
+  const event = { kind: "unassigned_input_fragment", sequence: 0, text: "A delayed Ithaca fragment.", timing: { kind: "unavailable" }, finalization: "final" };
+  const scope = { conversationId: "ithaca", epoch: 1 };
+  expect(server({ type: "conversation_event", ...scope, event }).ok).toBe(true);
+  expect(parseLiveConversationEvent({ ...scope, ...event }).ok).toBe(true);
+  for (const invalid of [{ ...event, timing: undefined }, { ...event, sessionInterval: { startMs: 0, endMs: 10 } }, { ...event, utteranceId: "invented" }]) {
+    expect(server({ type: "conversation_event", ...scope, event: invalid }).ok).toBe(false);
+    expect(parseLiveConversationEvent({ ...scope, ...invalid }).ok).toBe(false);
+  }
+});

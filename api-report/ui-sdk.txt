@@ -5691,6 +5691,7 @@ signatures (every public export and the types it is made of)
     }
   ClientConversationStart (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationStart {
+        contextualTasks?: boolean;
         type: "conversation_start";
         requestId?: string;
         agentProviderId?: string;
@@ -5982,6 +5983,7 @@ signatures (every public export and the types it is made of)
     }
   ConversationCapabilities (packages/ui-sdk/src/protocol.ts)
     export interface ConversationCapabilities {
+        contextualTasks?: ConversationEvidence;
         nonblockingWork: ConversationEvidence;
         manualEndpoint: ConversationEvidence;
         finalTranscript: ConversationEvidence;
@@ -5993,7 +5995,7 @@ signatures (every public export and the types it is made of)
   ConversationCloseReason (packages/ui-sdk/src/protocol.ts)
     export type ConversationCloseReason = "stopped" | "replaced" | "disconnected" | "provider_closed" | "provider_error" | "backpressure" | "correlation" | "refused";
   ConversationDelivery (packages/ui-sdk/src/protocol.ts)
-    export type ConversationDelivery = "pending" | "returned" | "discarded";
+    export type ConversationDelivery = "pending" | "returned" | "discarded" | "unknown";
   ConversationDisclosure (packages/ui-sdk/src/protocol.ts)
     export interface ConversationDisclosure {
         voiceService: string;
@@ -6037,7 +6039,11 @@ signatures (every public export and the types it is made of)
         kind: "unassigned_input_fragment";
         sequence: number;
         text: string;
-        sessionInterval: ConversationInterval;
+        sessionInterval?: ConversationInterval;
+        timing?: {
+            kind: "unavailable";
+        };
+        finalization?: "final" | "unknown";
     } | {
         kind: "unassigned_delegation";
         handle: string;
@@ -6075,10 +6081,9 @@ signatures (every public export and the types it is made of)
         outputId?: string;
     };
   ConversationWorkReceipt (packages/ui-sdk/src/protocol.ts)
-    export interface ConversationWorkReceipt {
+    export type ConversationWorkReceipt = {
         conversationId: string;
         epoch: number;
-        utteranceId: string;
         requestId: string;
         turnId?: string;
         sessionId?: string;
@@ -6087,14 +6092,31 @@ signatures (every public export and the types it is made of)
         recognized: string;
         submitted: string;
         reason?: string;
-    }
-  ConversationWorkRef (packages/ui-sdk/src/server/conversation.ts)
-    export interface ConversationWorkRef extends ConversationScope {
+    } & ({
+        provenance?: "reviewed";
         utteranceId: string;
+        taskId?: never;
+        nativeHandle?: never;
+    } | {
+        provenance: "contextual";
+        taskId: string;
+        nativeHandle: string;
+        utteranceId?: never;
+    });
+  ConversationWorkRef (packages/ui-sdk/src/server/conversation.ts)
+    export type ConversationWorkRef = ConversationScope & {
         turnId: string;
         requestId: string;
         nativeHandle?: string;
-    }
+    } & ({
+        provenance?: "reviewed";
+        utteranceId: string;
+    } | {
+        provenance: "contextual";
+        taskId: string;
+        nativeHandle: string;
+        utteranceId?: never;
+    });
   ConversationWorkResult (packages/ui-sdk/src/server/conversation.ts)
     export interface ConversationWorkResult {
         outcome: "completed" | "error";
@@ -6102,7 +6124,7 @@ signatures (every public export and the types it is made of)
         delivery: "quiet" | "when-idle";
     }
   ConversationWorkState (packages/ui-sdk/src/protocol.ts)
-    export type ConversationWorkState = "queued" | "running" | "completed" | "cancelled" | "error" | "refused";
+    export type ConversationWorkState = "unknown" | "queued" | "running" | "completed" | "cancelled" | "error" | "refused";
   Coord (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CreateToolPermissionRequestInput (packages/ui-sdk/src/server/permission-gate.ts)
     export interface CreateToolPermissionRequestInput {
@@ -6938,7 +6960,11 @@ signatures (every public export and the types it is made of)
         kind: "unassigned_input_fragment";
         sequence: number;
         text: string;
-        sessionInterval: ConversationInterval;
+        sessionInterval?: ConversationInterval;
+        timing?: {
+            kind: "unavailable";
+        };
+        finalization?: "final" | "unknown";
     } | {
         kind: "unassigned_delegation";
         handle: string;
@@ -6976,6 +7002,7 @@ signatures (every public export and the types it is made of)
   LiveConversationOpenOptions (packages/ui-sdk/src/server/conversation.ts)
     export interface LiveConversationOpenOptions {
         signal: AbortSignal;
+        contextualTasks?: boolean;
         resync: ConversationResync;
     }
   LiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
@@ -6990,7 +7017,14 @@ signatures (every public export and the types it is made of)
         events: AsyncIterable<LiveConversationEvent>;
         appendAudio(chunk: LiveConversationAudioChunk): void;
         markEndpoint(utteranceId: string): void;
-        returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void>;
+        bindContextualWork?(ref: {
+            taskId: string;
+            requestId: string;
+            nativeHandle: string;
+        }): void;
+        returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void | {
+            acceptance: "acknowledged" | "unknown";
+        }>;
         close(): Promise<{
             remote: "acknowledged" | "unknown";
         }>;
@@ -7112,7 +7146,7 @@ signatures (every public export and the types it is made of)
         toolIndex: number;
     };
   MessageSource (packages/ui-sdk/src/protocol.ts)
-    export type MessageSource = "typed" | "voice-dictate" | "voice-conversation" | "handoff";
+    export type MessageSource = "typed" | "voice-dictate" | "voice-conversation" | "voice-context" | "handoff";
   ModelCatalogEntry (packages/ui-sdk/src/protocol.ts)
     export interface ModelCatalogEntry extends ProviderInfo {
         hidden: boolean;
@@ -9409,9 +9443,9 @@ signatures (every public export and the types it is made of)
         announce: boolean;
     }
   ServerConversationWork (packages/ui-sdk/src/protocol.ts)
-    export interface ServerConversationWork extends ConversationWorkReceipt {
+    export type ServerConversationWork = ConversationWorkReceipt & {
         type: "conversation_work";
-    }
+    };
   ServerError (packages/ui-sdk/src/protocol.ts)
     export interface ServerError extends SessionScoped {
         type: "error";
@@ -11212,6 +11246,7 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodOptional<z.ZodString>;
         shareId: z.ZodOptional<z.ZodString>;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            "voice-context": "voice-context";
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";
             handoff: "handoff";
@@ -11266,6 +11301,7 @@ signatures (every public export and the types it is made of)
   clientConversationStartSchema (packages/ui-sdk/src/schemas.ts)
     const clientConversationStartSchema: z.ZodObject<{
         agentProviderId: z.ZodOptional<z.ZodString>;
+        contextualTasks: z.ZodOptional<z.ZodBoolean>;
         conversationId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -11487,6 +11523,7 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodOptional<z.ZodString>;
         shareId: z.ZodOptional<z.ZodString>;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            "voice-context": "voice-context";
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";
             handoff: "handoff";
@@ -11670,6 +11707,7 @@ signatures (every public export and the types it is made of)
         }>;
     }, z.core.$strict>, z.ZodObject<{
         agentProviderId: z.ZodOptional<z.ZodString>;
+        contextualTasks: z.ZodOptional<z.ZodBoolean>;
         conversationId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -11776,6 +11814,11 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   conversationCapabilitiesSchema (packages/ui-sdk/src/schemas.ts)
     const conversationCapabilitiesSchema: z.ZodObject<{
+        contextualTasks: z.ZodOptional<z.ZodEnum<{
+            supported: "supported";
+            unproven: "unproven";
+            unsupported: "unsupported";
+        }>>;
         echoIsolatedInput: z.ZodEnum<{
             supported: "supported";
             unproven: "unproven";
@@ -11895,13 +11938,20 @@ signatures (every public export and the types it is made of)
         text: z.ZodString;
         utteranceId: z.ZodString;
     }, z.core.$loose>, z.ZodObject<{
+        finalization: z.ZodOptional<z.ZodEnum<{
+            final: "final";
+            unknown: "unknown";
+        }>>;
         kind: z.ZodLiteral<"unassigned_input_fragment">;
         sequence: z.ZodNumber;
-        sessionInterval: z.ZodObject<{
+        sessionInterval: z.ZodOptional<z.ZodObject<{
             endMs: z.ZodNumber;
             startMs: z.ZodNumber;
-        }, z.core.$loose>;
+        }, z.core.$loose>>;
         text: z.ZodString;
+        timing: z.ZodOptional<z.ZodObject<{
+            kind: z.ZodLiteral<"unavailable">;
+        }, z.core.$strip>>;
     }, z.core.$loose>, z.ZodObject<{
         handle: z.ZodString;
         kind: z.ZodLiteral<"unassigned_delegation">;
@@ -11930,30 +11980,7 @@ signatures (every public export and the types it is made of)
         outputId: z.ZodOptional<z.ZodString>;
     }, z.core.$loose>]>;
   conversationWorkReceiptSchema (packages/ui-sdk/src/schemas.ts)
-    const conversationWorkReceiptSchema: z.ZodObject<{
-        conversationId: z.ZodString;
-        delivery: z.ZodEnum<{
-            discarded: "discarded";
-            pending: "pending";
-            returned: "returned";
-        }>;
-        epoch: z.ZodNumber;
-        reason: z.ZodOptional<z.ZodString>;
-        recognized: z.ZodString;
-        requestId: z.ZodString;
-        sessionId: z.ZodOptional<z.ZodString>;
-        state: z.ZodEnum<{
-            cancelled: "cancelled";
-            completed: "completed";
-            error: "error";
-            queued: "queued";
-            refused: "refused";
-            running: "running";
-        }>;
-        submitted: z.ZodString;
-        turnId: z.ZodOptional<z.ZodString>;
-        utteranceId: z.ZodString;
-    }, z.core.$loose>;
+    const conversationWorkReceiptSchema: z.ZodType<ConversationWorkReceipt, unknown, z.core.$ZodTypeInternals<ConversationWorkReceipt, unknown>>;
   createAsrClient (packages/ui-sdk/src/client/asr.ts)
     const createAsrClient: (opts: AsrClientOptions) => AsrClient;
   createAsrClientRegistry (packages/ui-sdk/src/client/asr.ts)
@@ -14230,6 +14257,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   messageSourceSchema (packages/ui-sdk/src/schemas.ts)
     const messageSourceSchema: z.ZodEnum<{
+        "voice-context": "voice-context";
         "voice-conversation": "voice-conversation";
         "voice-dictate": "voice-dictate";
         handoff: "handoff";
@@ -14288,6 +14316,7 @@ signatures (every public export and the types it is made of)
         queuedAt: z.ZodNumber;
         requestId: z.ZodOptional<z.ZodString>;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            "voice-context": "voice-context";
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";
             handoff: "handoff";
@@ -14910,13 +14939,20 @@ signatures (every public export and the types it is made of)
             text: z.ZodString;
             utteranceId: z.ZodString;
         }, z.core.$loose>, z.ZodObject<{
+            finalization: z.ZodOptional<z.ZodEnum<{
+                final: "final";
+                unknown: "unknown";
+            }>>;
             kind: z.ZodLiteral<"unassigned_input_fragment">;
             sequence: z.ZodNumber;
-            sessionInterval: z.ZodObject<{
+            sessionInterval: z.ZodOptional<z.ZodObject<{
                 endMs: z.ZodNumber;
                 startMs: z.ZodNumber;
-            }, z.core.$loose>;
+            }, z.core.$loose>>;
             text: z.ZodString;
+            timing: z.ZodOptional<z.ZodObject<{
+                kind: z.ZodLiteral<"unavailable">;
+            }, z.core.$strip>>;
         }, z.core.$loose>, z.ZodObject<{
             handle: z.ZodString;
             kind: z.ZodLiteral<"unassigned_delegation">;
@@ -14950,6 +14986,11 @@ signatures (every public export and the types it is made of)
     const serverConversationOpenedSchema: z.ZodObject<{
         agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
+            contextualTasks: z.ZodOptional<z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>>;
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
                 unproven: "unproven";
@@ -15044,14 +15085,20 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"conversation_permission">;
     }, z.core.$loose>;
   serverConversationWorkSchema (packages/ui-sdk/src/schemas.ts)
-    const serverConversationWorkSchema: z.ZodObject<{
+    const serverConversationWorkSchema: z.ZodPipe<z.ZodObject<{
         conversationId: z.ZodString;
         delivery: z.ZodEnum<{
             discarded: "discarded";
             pending: "pending";
             returned: "returned";
+            unknown: "unknown";
         }>;
         epoch: z.ZodNumber;
+        nativeHandle: z.ZodOptional<z.ZodString>;
+        provenance: z.ZodOptional<z.ZodEnum<{
+            contextual: "contextual";
+            reviewed: "reviewed";
+        }>>;
         reason: z.ZodOptional<z.ZodString>;
         recognized: z.ZodString;
         requestId: z.ZodString;
@@ -15063,12 +15110,67 @@ signatures (every public export and the types it is made of)
             queued: "queued";
             refused: "refused";
             running: "running";
+            unknown: "unknown";
         }>;
         submitted: z.ZodString;
+        taskId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_work">;
-        utteranceId: z.ZodString;
-    }, z.core.$loose>;
+        utteranceId: z.ZodOptional<z.ZodString>;
+    }, z.core.$loose>, z.ZodTransform<({
+        conversationId: string;
+        delivery: import("./protocol.js").ConversationDelivery;
+        epoch: number;
+        reason?: string;
+        recognized: string;
+        requestId: string;
+        sessionId?: string;
+        state: import("./protocol.js").ConversationWorkState;
+        submitted: string;
+        turnId?: string;
+    } & {
+        nativeHandle: string;
+        provenance: "contextual";
+        taskId: string;
+        utteranceId?: never;
+    } & {
+        type: "conversation_work";
+    }) | ({
+        conversationId: string;
+        delivery: import("./protocol.js").ConversationDelivery;
+        epoch: number;
+        reason?: string;
+        recognized: string;
+        requestId: string;
+        sessionId?: string;
+        state: import("./protocol.js").ConversationWorkState;
+        submitted: string;
+        turnId?: string;
+    } & {
+        nativeHandle?: never;
+        provenance?: "reviewed";
+        taskId?: never;
+        utteranceId: string;
+    } & {
+        type: "conversation_work";
+    }), {
+        [x: string]: unknown;
+        conversationId: string;
+        delivery: "discarded" | "pending" | "returned" | "unknown";
+        epoch: number;
+        nativeHandle?: string | undefined;
+        provenance?: "contextual" | "reviewed" | undefined;
+        reason?: string | undefined;
+        recognized: string;
+        requestId: string;
+        sessionId?: string | undefined;
+        state: "cancelled" | "completed" | "error" | "queued" | "refused" | "running" | "unknown";
+        submitted: string;
+        taskId?: string | undefined;
+        turnId?: string | undefined;
+        type: "conversation_work";
+        utteranceId?: string | undefined;
+    }>>;
   serverErrorSchema (packages/ui-sdk/src/schemas.ts)
     const serverErrorSchema: z.ZodObject<{
         code: z.ZodString;
@@ -15715,6 +15817,7 @@ signatures (every public export and the types it is made of)
         requestId: z.ZodString;
         sessionId: z.ZodString;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            "voice-context": "voice-context";
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";
             handoff: "handoff";
@@ -16455,6 +16558,7 @@ signatures (every public export and the types it is made of)
                 user: "user";
             }>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
                 "voice-dictate": "voice-dictate";
                 handoff: "handoff";
@@ -17938,6 +18042,7 @@ signatures (every public export and the types it is made of)
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
                 "voice-dictate": "voice-dictate";
                 handoff: "handoff";
@@ -17955,6 +18060,7 @@ signatures (every public export and the types it is made of)
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
                 "voice-dictate": "voice-dictate";
                 handoff: "handoff";
@@ -17968,6 +18074,11 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>, z.ZodObject<{
         agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
+            contextualTasks: z.ZodOptional<z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>>;
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
                 unproven: "unproven";
@@ -18090,13 +18201,20 @@ signatures (every public export and the types it is made of)
             text: z.ZodString;
             utteranceId: z.ZodString;
         }, z.core.$loose>, z.ZodObject<{
+            finalization: z.ZodOptional<z.ZodEnum<{
+                final: "final";
+                unknown: "unknown";
+            }>>;
             kind: z.ZodLiteral<"unassigned_input_fragment">;
             sequence: z.ZodNumber;
-            sessionInterval: z.ZodObject<{
+            sessionInterval: z.ZodOptional<z.ZodObject<{
                 endMs: z.ZodNumber;
                 startMs: z.ZodNumber;
-            }, z.core.$loose>;
+            }, z.core.$loose>>;
             text: z.ZodString;
+            timing: z.ZodOptional<z.ZodObject<{
+                kind: z.ZodLiteral<"unavailable">;
+            }, z.core.$strip>>;
         }, z.core.$loose>, z.ZodObject<{
             handle: z.ZodString;
             kind: z.ZodLiteral<"unassigned_delegation">;
@@ -18125,14 +18243,20 @@ signatures (every public export and the types it is made of)
             outputId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>]>;
         type: z.ZodLiteral<"conversation_event">;
-    }, z.core.$loose>, z.ZodObject<{
+    }, z.core.$loose>, z.ZodPipe<z.ZodObject<{
         conversationId: z.ZodString;
         delivery: z.ZodEnum<{
             discarded: "discarded";
             pending: "pending";
             returned: "returned";
+            unknown: "unknown";
         }>;
         epoch: z.ZodNumber;
+        nativeHandle: z.ZodOptional<z.ZodString>;
+        provenance: z.ZodOptional<z.ZodEnum<{
+            contextual: "contextual";
+            reviewed: "reviewed";
+        }>>;
         reason: z.ZodOptional<z.ZodString>;
         recognized: z.ZodString;
         requestId: z.ZodString;
@@ -18144,12 +18268,67 @@ signatures (every public export and the types it is made of)
             queued: "queued";
             refused: "refused";
             running: "running";
+            unknown: "unknown";
         }>;
         submitted: z.ZodString;
+        taskId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_work">;
-        utteranceId: z.ZodString;
-    }, z.core.$loose>, z.ZodObject<{
+        utteranceId: z.ZodOptional<z.ZodString>;
+    }, z.core.$loose>, z.ZodTransform<({
+        conversationId: string;
+        delivery: import("./protocol.js").ConversationDelivery;
+        epoch: number;
+        reason?: string;
+        recognized: string;
+        requestId: string;
+        sessionId?: string;
+        state: import("./protocol.js").ConversationWorkState;
+        submitted: string;
+        turnId?: string;
+    } & {
+        nativeHandle: string;
+        provenance: "contextual";
+        taskId: string;
+        utteranceId?: never;
+    } & {
+        type: "conversation_work";
+    }) | ({
+        conversationId: string;
+        delivery: import("./protocol.js").ConversationDelivery;
+        epoch: number;
+        reason?: string;
+        recognized: string;
+        requestId: string;
+        sessionId?: string;
+        state: import("./protocol.js").ConversationWorkState;
+        submitted: string;
+        turnId?: string;
+    } & {
+        nativeHandle?: never;
+        provenance?: "reviewed";
+        taskId?: never;
+        utteranceId: string;
+    } & {
+        type: "conversation_work";
+    }), {
+        [x: string]: unknown;
+        conversationId: string;
+        delivery: "discarded" | "pending" | "returned" | "unknown";
+        epoch: number;
+        nativeHandle?: string | undefined;
+        provenance?: "contextual" | "reviewed" | undefined;
+        reason?: string | undefined;
+        recognized: string;
+        requestId: string;
+        sessionId?: string | undefined;
+        state: "cancelled" | "completed" | "error" | "queued" | "refused" | "running" | "unknown";
+        submitted: string;
+        taskId?: string | undefined;
+        turnId?: string | undefined;
+        type: "conversation_work";
+        utteranceId?: string | undefined;
+    }>>, z.ZodObject<{
         conversationId: z.ZodString;
         epoch: z.ZodNumber;
         generated: z.ZodString;
@@ -18239,6 +18418,7 @@ signatures (every public export and the types it is made of)
         requestId: z.ZodString;
         sessionId: z.ZodString;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            "voice-context": "voice-context";
             "voice-conversation": "voice-conversation";
             "voice-dictate": "voice-dictate";
             handoff: "handoff";
@@ -18762,6 +18942,7 @@ signatures (every public export and the types it is made of)
                 user: "user";
             }>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
                 "voice-dictate": "voice-dictate";
                 handoff: "handoff";
@@ -18863,6 +19044,7 @@ signatures (every public export and the types it is made of)
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
                 "voice-dictate": "voice-dictate";
                 handoff: "handoff";
@@ -18880,6 +19062,7 @@ signatures (every public export and the types it is made of)
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+                "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
                 "voice-dictate": "voice-dictate";
                 handoff: "handoff";

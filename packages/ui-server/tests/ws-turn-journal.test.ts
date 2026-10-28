@@ -163,3 +163,55 @@ test("the host observes after a tool result unless the backend proved where that
     expect(counts, "HOST_SCHEDULE_BY_PROVEN_EXECUTION_PATH").toEqual({ "read-proven": 0, "base-proven": 0, "read-unproven": 1, "read-after-unproven": 1 });
   } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
+
+test("an automatically admitted conversation task keeps real effects, receipts and supported revert/undo", async () => {
+  const { fakeLiveProvider } = await import("./helpers/live-conversation.js");
+  const { createClaudeBackend } = await import("../../ui-backend-claude/src/backend.js");
+  const root = await mkdtemp(resolve(tmpdir(), "odysseus-context-revert-")), brain = resolve(root, "brain");
+  await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
+  await writeFile(resolve(brain, "notes/journal.md"), "Ithaca before the voyage.\n");
+  await mkdir(resolve(brain, "context/policies"), { recursive: true });
+  await writeFile(resolve(brain, "context/policies/governance.md"), "---\nschema_version: 1\nprofiles: { interactive: governed }\n---\nAthena reviews policy.\n");
+  const live = fakeLiveProvider({ contextualTasks: "supported" });
+  let calls = 0, effect: unknown;
+  const production = createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "mcp__brain-ui__write_file"] });
+  const backend = makeFakeBackend({ id: "journal-fixture", startTurn: async req => {
+    calls++;
+    req.bridge.emit({ type: "session_info", sessionId: "sess-ithaca", isNew: true });
+    effect = await req.bridge.applyBrain!({ operation: "write", path: "notes/contextual-effect.md", content: "Eumaeus takes the night watch.\n", expectedBaseHash: null });
+    req.bridge.emit({ type: "text_delta", text: "The watch note was written." });
+    req.bridge.emit({ type: "result", sessionId: "sess-ithaca", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = production.brainApplicationPolicy;
+  const native = createNativeJournalFixture(brain, root), broker = native.serve();
+  const app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), conversationProvider: live.provider, observability: createRecordingObservability() });
+  try {
+    const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus watch", ttlSeconds: 60 });
+    const sent: any[] = [], ws = { send: (text: string) => sent.push(JSON.parse(text)), close() {}, readyState: 1 } as WSContext;
+    const handlers = createWsHandlers(app.wsHost, principal); await handlers.onOpen(undefined as never, ws);
+    const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
+    const wait = async (check: () => boolean) => { const end = Date.now() + 10_000; while (!check()) { if (Date.now() > end) throw new Error(JSON.stringify(sent)); await Bun.sleep(5); } };
+    send({ type: "conversation_start", contextualTasks: true }); await wait(() => sent.some(f => f.type === "conversation_opened"));
+    const opened = sent.find(f => f.type === "conversation_opened");
+    send({ type: "conversation_audio", conversationId: opened.conversationId, epoch: opened.epoch, utteranceId: "watch-capture", sequence: 0, rate: 16000, pcm: "AAA=" });
+    await wait(() => live.sessions[0]!.audio.length === 1);
+    live.sessions[0]!.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Record Eumaeus taking the night watch.", sessionInterval: { startMs: 0, endMs: 500 } });
+    live.sessions[0]!.emit({ kind: "work_requested", handle: "watch-effect" });
+    await wait(() => sent.some(f => f.type === "conversation_work" && f.state === "completed"));
+    await wait(() => !app.wsHost.coordinator.isTurnActive());
+    expect(effect).toMatchObject({ ok: true, changes: [{ path: "notes/contextual-effect.md" }] });
+    const task = sent.findLast(f => f.type === "conversation_work");
+    expect(task).toMatchObject({ provenance: "contextual", nativeHandle: "watch-effect", state: "completed" });
+    expect(task).not.toHaveProperty("utteranceId");
+    expect(app.wsHost.journal!.details("sess-ithaca", task.turnId)?.summary).toMatchObject({ state: "complete", actor: "interactive" });
+    const reverts = app.wsHost.turnReverts!;
+    expect(reverts.plan("sess-ithaca", task.turnId).paths.some(p => p.path === "notes/contextual-effect.md" && p.state === "eligible")).toBe(true);
+    const reverted = await reverts.start(principal.id, "sess-ithaca", task.turnId, { id: "odysseus_context_revert" });
+    await reverts.idle(reverted.id);
+    expect(await Bun.file(resolve(brain, "notes/contextual-effect.md")).exists()).toBe(false);
+    const undo = await reverts.start(principal.id, "sess-ithaca", reverted.journalTurnId, { id: "odysseus_context_undo" });
+    await reverts.idle(undo.id);
+    expect(await readFile(resolve(brain, "notes/contextual-effect.md"), "utf8")).toBe("Eumaeus takes the night watch.\n");
+    expect(calls).toBe(1);
+  } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
+}, 30_000);

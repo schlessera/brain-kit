@@ -69,6 +69,14 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         <Button label="Discard" tone="ghost" style={button} onClick={client.discard} />
       </div>
     </div>}
+    {Object.values(s.work).some(w => w.provenance === "contextual") && <details aria-label="Conversation tasks" className="py-2 text-xs">
+      <summary className="min-h-11 cursor-pointer">Background tasks</summary>
+      <ul>{Object.values(s.work).filter(w => w.provenance === "contextual").slice(-8).map(w => <li key={w.requestId} className="py-1">
+        <p>Context: {w.recognized.slice(-160)}</p>
+        Conversation task · {w.state} · {w.delivery === "returned" ? "result accepted by voice service" : w.delivery === "unknown" ? "result acceptance unknown; no replay" : w.delivery === "pending" ? "result pending" : "result withheld"}
+        {w.reason && <p>{w.reason}</p>}
+      </li>)}</ul>
+    </details>}
     {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ minHeight: 40, fontSize: 12 }}>{permission.line}</div>}
     <div className="sticky bottom-0 bg-background" style={{ minHeight: permission.line && s.text && shortScreen ? 44 : 52, display: "flex", alignItems: "center", gap: 4 }}>
       <Button label={s.micOn ? "Mute mic" : s.connection === "Connected" ? "Unmute mic" : "Resume"} ariaLabel={s.micOn ? "Mute mic" : "Resume microphone"} tone="ghost" style={control} onClick={s.micOn ? client.mute : client.resume} />
@@ -81,7 +89,9 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         {profile?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
         <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
         <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>
-        {profile?.capabilities.finalTranscript !== "supported" && <p>Automatic send isn't available with this service. Use Send now.</p>}
+        {profile?.capabilities.contextualTasks === "supported"
+          ? <p>Brain can start permitted background tasks from the conversation and share results while you keep talking. Actions that need confirmation use the same screen cards as typed requests. Recognition may be uncertain; speech cannot approve an action.</p>
+          : profile?.capabilities.finalTranscript !== "supported" && <p>Automatic tasks aren't available with this service. Review recognized text and use Send now.</p>}
         <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
         {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}
         {s.notice && <p>{s.notice}</p>}

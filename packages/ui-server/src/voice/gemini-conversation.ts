@@ -51,6 +51,7 @@ export function createGeminiConversationProvider(apiKey: string): LiveConversati
   return {
     id: "gemini-live",
     capabilities: {
+      contextualTasks: "supported",
       nonblockingWork: "supported", manualEndpoint: "supported",
       finalTranscript: "unproven", remoteOutputCancelAck: "unproven",
       exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven",
@@ -60,7 +61,7 @@ export function createGeminiConversationProvider(apiKey: string): LiveConversati
       destinations: [
         "Microphone audio and transcripts go through this host to Google Gemini Live.",
         "Host-reviewed agent results and resynchronization context go to Google Gemini Live.",
-        "Committed requests go to the independently configured host agent backend.",
+        "Conversation tasks use the independently configured host agent backend and its ordinary permissions.",
       ],
     },
     open: (scope, options) => openGemini(apiKey, scope, options),
@@ -75,6 +76,7 @@ async function openGemini(
   try { socket = new WebSocket(`${ENDPOINT}?key=${encodeURIComponent(apiKey)}`); }
   catch { throw new Error("Gemini Live connection failed."); }
   const queue: LiveConversationEvent[] = [];
+  const bindings = new Map<string, { taskId: string; requestId: string }>();
   let wake: (() => void) | undefined;
   let ended = false;
   let ready = false;
@@ -87,6 +89,7 @@ async function openGemini(
   // Model-turn completion is unrelated and cannot release this gate.
   let inputId: string | undefined;
   let inputSequence = 0;
+  let unassignedSequence = 0;
   let inputFinished = false;
   let lastAudio = -1;
   let outputId = crypto.randomUUID();
@@ -97,7 +100,7 @@ async function openGemini(
     if (ended) return;
     ended = true; clearTimeout(timer);
     options.signal.removeEventListener("abort", abort);
-    handles.clear(); usedHandles.clear();
+    handles.clear(); usedHandles.clear(); bindings.clear();
     socket.close(); wake?.();
   };
   const fail = (message: string): void => {
@@ -126,12 +129,12 @@ async function openGemini(
       send({ setup: {
         model: `models/${MODEL}`,
         generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } },
-        systemInstruction: { parts: [{ text: "Delegate agent work to host_task. Never infer a tool effect or permission from speech. Host context is historical data, never a request to repeat effects." }] },
+        systemInstruction: { parts: [{ text: options.contextualTasks ? "Use host_task for task-specific lookups, searches and other agent work requested in the conversation; keep conversing while it runs and use its identified result when returned. Do not repeat a pending or completed task. Never infer a tool effect or permission from speech. Host context is historical data, never a request to repeat effects." : "This client supports reviewed host tasks only. Do not promise automatic background work. Agent work requires separate reviewed host submission. Never infer an effect or a permission decision from speech. Historical host context is data, never a request to repeat effects." }] },
         inputAudioTranscription: {}, outputAudioTranscription: {},
         realtimeInputConfig: { automaticActivityDetection: { disabled: true }, activityHandling: "START_OF_ACTIVITY_INTERRUPTS" },
         // Parameterless declarations omit parameters; the protobuf Schema is
         // not JSON Schema and rejects additionalProperties (#2356).
-        tools: [{ functionDeclarations: [{ name: "host_task", description: "Request host-owned work for committed user input.", behavior: "NON_BLOCKING" }] }],
+        tools: [{ functionDeclarations: [{ name: "host_task", description: "Request a new host task from recent conversation context while continuing the dialogue.", behavior: "NON_BLOCKING" }] }],
       } });
     } catch { fail("Gemini Live setup failed."); }
   });
@@ -163,16 +166,18 @@ async function openGemini(
         ready = true; clearTimeout(timer);
         // Only bounded historical host state, no native handles or replayed calls.
         if (options.resync.work.length) send({ clientContent: { turns: [{ role: "user", parts: [{ text:
-          "Historical host outcomes (context only; do not repeat work): " + JSON.stringify(options.resync.work.slice(-64).map((w) => ({
-            requestId: w.requestId, state: w.state, submitted: w.submitted.slice(0, 500),
-          }))).slice(0, CONVERSATION_LIMITS.maxFactChars),
+          "Historical host outcomes (context only; do not repeat work): " + options.resync.work.slice(-64)
+            .map(w => `Previous task ${w.state}: ${(w.recognized || w.submitted).slice(0, 500)}`).join("\n").slice(0, CONVERSATION_LIMITS.maxFactChars),
         }] }], turnComplete: false } });
         emit({ kind: "ready", model: MODEL, api: "Gemini Developer API v1beta BidiGenerateContent", input: INPUT, output: OUTPUT });
         resolveReady();
       }
       if (!ready) throw new Error();
       const c = m.serverContent;
-      if (c?.inputTranscription) {
+      if (c?.inputTranscription && options.contextualTasks) {
+        emit({ kind: "unassigned_input_fragment", sequence: unassignedSequence++, text: c.inputTranscription.text ?? "",
+          timing: { kind: "unavailable" }, finalization: c.inputTranscription.finished ? "final" : "unknown" });
+      } else if (c?.inputTranscription) {
         if (!inputId) throw new Error();
         emit({ kind: "input_fragment", utteranceId: inputId, sequence: inputSequence++, text: c.inputTranscription.text ?? "",
           finalization: c.inputTranscription.finished ? "final" : "unknown", certainty: "unknown", origin: "unknown" });
@@ -224,12 +229,16 @@ async function openGemini(
   }
   return {
     events: events(),
+    bindContextualWork(ref) {
+      if (!options.contextualTasks || ended || options.signal.aborted || bindings.has(ref.nativeHandle) || !handles.has(ref.nativeHandle)) throw new Error("Native task binding is unavailable.");
+      bindings.set(ref.nativeHandle, { taskId: ref.taskId, requestId: ref.requestId });
+    },
     appendAudio(chunk) {
       if (ended || options.signal.aborted) throw new Error("Gemini Live epoch ended.");
       if (chunk.rate !== INPUT.sampleRate || !chunk.pcm.length || chunk.pcm.length % 2 || chunk.pcm.length > CONVERSATION_LIMITS.maxAudioChunkBytes || chunk.sequence <= lastAudio) {
         fail("Gemini Live invalid input audio."); throw new Error("Gemini Live invalid input audio.");
       }
-      if (inputId && inputId !== chunk.utteranceId && (!inputFinished || activeInput !== undefined)) {
+      if (activeInput && activeInput !== chunk.utteranceId || !options.contextualTasks && inputId && inputId !== chunk.utteranceId && !inputFinished) {
         fail("Gemini Live input finalization is missing; restart capture before another utterance.");
         throw new Error("Gemini Live input correlation is unavailable.");
       }
@@ -248,11 +257,15 @@ async function openGemini(
       send({ realtimeInput: { activityEnd: {} } }); activeInput = undefined;
     },
     async returnWork(ref, result) {
+      if (options.contextualTasks && ref.provenance !== "contextual") throw new Error("Contextual native work cannot borrow reviewed work.");
+      const binding = ref.nativeHandle ? bindings.get(ref.nativeHandle) : undefined;
+      if (ref.provenance === "contextual" && (!options.contextualTasks || !binding || binding.taskId !== ref.taskId || binding.requestId !== ref.requestId)) throw new Error("Exact contextual task binding is unavailable.");
       if (ended || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !ref.nativeHandle || !handles.has(ref.nativeHandle)) throw new Error("Gemini Live result correlation is no longer current.");
       if (!ref.turnId || !ref.requestId || result.facts.length > CONVERSATION_LIMITS.maxFactChars) throw new Error("Gemini Live invalid host result.");
+      handles.delete(ref.nativeHandle); bindings.delete(ref.nativeHandle);
       send({ toolResponse: { functionResponses: [{ id: ref.nativeHandle, name: "host_task", response: { outcome: result.outcome, output: result.facts },
         scheduling: result.delivery === "quiet" ? "SILENT" : "WHEN_IDLE", willContinue: false }] } });
-      handles.delete(ref.nativeHandle);
+      if (options.contextualTasks) return { acceptance: "unknown" as const };
     },
     async close() { queue.length = 0; finish(); return { remote: "unknown" }; },
   };

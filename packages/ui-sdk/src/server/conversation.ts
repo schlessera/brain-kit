@@ -44,12 +44,14 @@ export interface ConversationScope {
  *
  * @experimental Part of the `LiveConversationProvider` seam.
  */
-export interface ConversationWorkRef extends ConversationScope {
-  utteranceId: string;
+export type ConversationWorkRef = ConversationScope & {
   turnId: string;
   requestId: string;
   nativeHandle?: string;
-}
+} & (
+  | { provenance?: "reviewed"; utteranceId: string }
+  | { provenance: "contextual"; taskId: string; nativeHandle: string; utteranceId?: never }
+);
 
 /**
  * A bounded, host-reviewed result. `quiet` adds context without prompting
@@ -93,7 +95,7 @@ export type LiveConversationEvent = ConversationScope &
         confidence?: number;
         origin: "user" | "assistant" | "unknown";
       }
-    | { kind: "unassigned_input_fragment"; sequence: number; text: string; sessionInterval: ConversationInterval }
+    | { kind: "unassigned_input_fragment"; sequence: number; text: string; sessionInterval?: ConversationInterval; timing?: { kind: "unavailable" }; finalization?: "final" | "unknown" }
     | { kind: "unassigned_delegation"; handle: string; offsetMs: number }
     | { kind: "output_transcript"; outputId: string; sequence: number; text: string; interval?: ConversationInterval }
     | { kind: "audio"; outputId: string; sequence: number; format: ConversationAudioFormat; pcm: Uint8Array }
@@ -121,6 +123,8 @@ export interface ConversationResync {
 export interface LiveConversationOpenOptions {
   /** Aborted when the host ends this epoch. */
   signal: AbortSignal;
+  /** Enabled only when both client and provider support contextual host tasks. */
+  contextualTasks?: boolean;
   resync: ConversationResync;
 }
 
@@ -133,7 +137,9 @@ export interface LiveConversationSession {
   events: AsyncIterable<LiveConversationEvent>;
   appendAudio(chunk: LiveConversationAudioChunk): void;
   markEndpoint(utteranceId: string): void;
-  returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void>;
+  /** Required when contextualTasks is negotiated; binds before any dispatch. */
+  bindContextualWork?(ref: { taskId: string; requestId: string; nativeHandle: string }): void;
+  returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void | { acceptance: "acknowledged" | "unknown" }>;
   /** Close the remote session; `unknown` when the provider cannot confirm it. */
   close(): Promise<{ remote: "acknowledged" | "unknown" }>;
 }
@@ -170,6 +176,9 @@ export function assertLiveConversationProvider(provider: LiveConversationProvide
       throw new Error(`Invalid LiveConversationProvider "${provider.id}": capabilities.${key} must be "supported", "unsupported" or "unproven".`);
     }
   }
+  if (provider.capabilities.contextualTasks !== undefined && !conversationCapabilitiesSchema.shape.contextualTasks.safeParse(provider.capabilities.contextualTasks).success) {
+    throw new Error(`Invalid LiveConversationProvider "${provider.id}": invalid contextualTasks capability.`);
+  }
   if (!conversationDisclosureSchema.safeParse(provider.disclosure).success) {
     throw new Error(`Invalid LiveConversationProvider "${provider.id}": disclosure needs a voiceService and one to sixteen destinations.`);
   }
@@ -205,7 +214,7 @@ const providerEventSchema = z.discriminatedUnion("kind", [
     interval: interval.optional(), finalization: z.enum(["interim", "final", "unknown"]),
     certainty: z.enum(["known", "unknown"]), confidence: z.number().min(0).max(1).optional(),
     origin: z.enum(["user", "assistant", "unknown"]) }),
-  z.object({ ...scope, kind: z.literal("unassigned_input_fragment"), sequence, text, sessionInterval: interval }),
+  z.object({ ...scope, kind: z.literal("unassigned_input_fragment"), sequence, text, sessionInterval: interval.optional(), timing: z.object({ kind: z.literal("unavailable") }).optional(), finalization: z.enum(["final", "unknown"]).optional() }),
   z.object({ ...scope, kind: z.literal("unassigned_delegation"), handle: shortId, offsetMs: z.number().nonnegative() }),
   z.object({ ...scope, kind: z.literal("output_transcript"), outputId: shortId, sequence, text, interval: interval.optional() }),
   z.object({ ...scope, kind: z.literal("audio"), outputId: shortId, sequence, format: conversationAudioFormatSchema,
@@ -227,6 +236,9 @@ const providerEventSchema = z.discriminatedUnion("kind", [
 export function parseLiveConversationEvent(
   value: unknown
 ): { ok: true; event: LiveConversationEvent } | { ok: false; error: string } {
+  if (value && typeof value === "object" && "kind" in value && value.kind === "unassigned_input_fragment" && "utteranceId" in value) {
+    return { ok: false, error: "Unassigned recognition cannot claim a captured utterance" };
+  }
   const parsed = providerEventSchema.safeParse(value);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -234,6 +246,9 @@ export function parseLiveConversationEvent(
     return { ok: false, error: `Invalid conversation event${where ? ` at ${where}` : ""}: ${issue?.message ?? "failed validation"}` };
   }
   const event = parsed.data;
+  if (event.kind === "unassigned_input_fragment" && (!!event.sessionInterval === !!event.timing)) {
+    return { ok: false, error: "Unassigned recognition needs exactly one actual timeline or explicit unavailable timing" };
+  }
   if (event.kind === "input_fragment" && (event.certainty === "known") !== (event.confidence !== undefined)) {
     return { ok: false, error: "Invalid conversation event: confidence is present exactly when certainty is known" };
   }

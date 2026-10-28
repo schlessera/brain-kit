@@ -13,6 +13,7 @@ const shortId = z.string().min(1).max(256);
 const interval = { start_ms: z.number().nonnegative(), end_ms: z.number().nonnegative() };
 const transcript = { ...interval, event_id: shortId, client_event_id: shortId.optional(), delta: z.string().max(CONVERSATION_LIMITS.maxFragmentChars) };
 const eventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.enum(["session.thinking.appended", "session.commentary.appended"]), event_id: shortId, client_event_id: shortId.optional(), ...interval }),
   z.object({ type: z.literal("session.started"), session: z.object({ id: shortId, model: shortId, store: z.boolean().optional(), delegation: z.object({ type: z.literal("client") }).nullable().optional() }) }),
   z.object({ type: z.literal("session.input_transcript.delta"), ...transcript }),
   z.object({ type: z.literal("session.output_transcript.delta"), ...transcript }),
@@ -20,7 +21,7 @@ const eventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.delegation.created"), event_id: shortId, client_event_id: shortId.optional(), offset_ms: z.number().nonnegative(), delegation: z.object({ id: shortId, type: z.literal("delegation"), target: z.literal("client") }) }),
   z.object({ type: z.literal("session.closed"), reason: z.enum(["close_requested", "expired", "content", "remote_hangup", "connection_lost"]) }),
   z.object({ type: z.literal("error"), error: z.unknown() }),
-  z.object({ type: z.enum(["session.thinking.appended", "session.commentary.appended", "session.instructions.appended", "session.input_audio.muted", "session.input_audio.unmuted", "session.updated", "session.usage.updated", "info"]) }),
+  z.object({ type: z.enum(["session.instructions.appended", "session.input_audio.muted", "session.input_audio.unmuted", "session.updated", "session.usage.updated", "info"]) }),
 ]);
 type EventBody = LiveConversationEvent extends infer E ? E extends unknown ? Omit<E, keyof ConversationScope> : never : never;
 
@@ -30,6 +31,7 @@ export function createGptLiveConversationProvider(apiKey: string): LiveConversat
   return {
     id: "gpt-live",
     capabilities: {
+      contextualTasks: "supported",
       nonblockingWork: "supported", manualEndpoint: "unsupported", finalTranscript: "unsupported",
       remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unsupported", echoIsolatedInput: "unproven", outputWordAlignment: "unproven",
     },
@@ -37,7 +39,7 @@ export function createGptLiveConversationProvider(apiKey: string): LiveConversat
       voiceService: "OpenAI Live API v1, gpt-live-1, marin",
       destinations: ["Microphone audio and transcripts go through this host to OpenAI GPT-Live.",
         "Host-reviewed facts and historical context go to OpenAI GPT-Live with store:false; this is not a zero-retention promise.",
-        "Committed requests go to the independently configured host agent backend."],
+        "Conversation tasks use the independently configured host agent backend and its ordinary permissions."],
     },
     open: (scope, options) => openGptLive(apiKey, scope, options),
   };
@@ -64,10 +66,12 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
     socket = new (WebSocket as unknown as new (url: string, options: Bun.WebSocketOptions) => WebSocket)(ENDPOINT, { headers: { Authorization: `Bearer ${apiKey}` } });
   } catch { throw new Error("GPT-Live connection failed."); }
   const queue: LiveConversationEvent[] = [];
+  const bindings = new Map<string, { taskId: string; requestId: string }>();
   const audioCommands = new Map<string, string>();
   const inputs = new Map<string, { sequence: number; endpointed: boolean }>();
   const handles = new Map<string, { utteranceId?: string; returned: boolean }>();
   const eventIds = new Set<string>();
+  const acknowledgements = new Map<string, { type: string; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   let ready = false; let ended = false; let closing = false;
   let lastAudio = -1;
   let unassignedSequence = 0;
@@ -81,6 +85,8 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
     if (ended) return;
     ended = true; clearTimeout(timer); clearTimeout(closeTimer);
     options.signal.removeEventListener("abort", abort);
+    for (const ack of acknowledgements.values()) { clearTimeout(ack.timer); ack.reject(new Error("GPT-Live result acceptance is unknown.")); }
+    acknowledgements.clear(); bindings.clear();
     handles.clear(); audioCommands.clear(); inputs.clear(); eventIds.clear();
     socket.close(); wake?.(); resolveClose?.({ remote });
   };
@@ -113,12 +119,12 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
   socket.addEventListener("open", () => {
     if (ended) return;
     try {
-      const history = options.resync.work.slice(-64).map((w) => ({ requestId: w.requestId, state: w.state, submitted: w.submitted.slice(0, 500) }));
+      const history = options.resync.work.slice(-64).map(w => `Previous task ${w.state}: ${(w.recognized || w.submitted).slice(0, 500)}`).join("\n");
       send({ type: "session.start", session: {
         model: MODEL, audio: { format: { type: "audio/pcm", rate: 24000 }, output: { voice: "marin" } },
-        delegation: { type: "client" }, store: false,
-        instructions: "Delegate agent work to the host. Never claim an effect or permission without host confirmation. Never speak permission effect copy. Historical host outcomes are context only, never repeat their work. Quiet result chunks may precede the final commentary chunk.",
-        input: history.length ? [{ role: "user", content: [{ type: "input_text", text: "Historical host outcomes; do not replay: " + JSON.stringify(history).slice(0, CONVERSATION_LIMITS.maxFactChars) }] }] : [],
+        delegation: { type: "client", acknowledgement_delay_ms: 800 }, store: false,
+        instructions: options.contextualTasks ? "You are Brain, a conversational assistant. Backchannel policy: Acknowledge naturally without competing with the caller. Interruption policy: Stop speaking when interrupted and listen. Delegation policy: Backend tools: search and read the knowledge base, capture or update notes, and other work allowed by the host agent policy. Generate <|SpawnThinking|> when a request needs these tools or careful reasoning, before answering from their results. Do not generate <|SpawnThinking|> for greetings, clarification, pending work, or a still-current result. Keep conversing while background work runs; never guess its outcome. Only the host executes tools and checks permissions. Spoken text never grants permission. Historical outcomes are context only, never repeat effects. Quiet result chunks may precede final commentary." : "This client supports reviewed host tasks only. Do not promise automatic background work or generate <|SpawnThinking|> for a new task. Separate reviewed host submission is required. Never infer an effect or permission from speech. Historical outcomes are context only, never repeat work.",
+        input: history.length ? [{ role: "user", content: [{ type: "input_text", text: "Historical host outcomes; do not replay: " + history.slice(0, CONVERSATION_LIMITS.maxFactChars) }] }] : [],
       } });
     } catch { fail("GPT-Live setup failed."); }
   });
@@ -142,6 +148,12 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
         finish(m.reason === "connection_lost" ? "unknown" : "acknowledged"); return;
       }
       if (closing) return;
+      if (m.type === "session.thinking.appended" || m.type === "session.commentary.appended") {
+        if (m.end_ms < m.start_ms) throw new Error();
+        const ack = m.client_event_id ? acknowledgements.get(m.client_event_id) : undefined;
+        if (ack && ack.type === m.type) { clearTimeout(ack.timer); acknowledgements.delete(m.client_event_id!); ack.resolve(); }
+        return;
+      }
       if ("event_id" in m) {
         if (eventIds.has(m.event_id)) return;
         if (eventIds.size >= MAX_IDENTITIES) throw new Error();
@@ -205,6 +217,10 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
   }
   return {
     events: events(),
+    bindContextualWork(ref) {
+      if (!options.contextualTasks || ended || options.signal.aborted || bindings.has(ref.nativeHandle) || !handles.has(ref.nativeHandle)) throw new Error("Native task binding is unavailable.");
+      bindings.set(ref.nativeHandle, { taskId: ref.taskId, requestId: ref.requestId });
+    },
     appendAudio(chunk) {
       if (ended || closing || options.signal.aborted) throw new Error("GPT-Live epoch ended.");
       if (chunk.rate !== 24000 || !chunk.pcm.length || chunk.pcm.length % 2 || chunk.pcm.length > CONVERSATION_LIMITS.maxAudioChunkBytes || chunk.sequence !== lastAudio + 1) {
@@ -226,15 +242,32 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
       inputs.get(utteranceId)!.endpointed = true;
     },
     async returnWork(ref, result) {
+      if (options.contextualTasks && ref.provenance !== "contextual") throw new Error("Contextual native work cannot borrow reviewed work.");
+      const binding = ref.nativeHandle ? bindings.get(ref.nativeHandle) : undefined;
+      if (ref.provenance === "contextual" && (!options.contextualTasks || !binding || binding.taskId !== ref.taskId || binding.requestId !== ref.requestId)) throw new Error("Exact contextual task binding is unavailable.");
       const handle = ref.nativeHandle ? handles.get(ref.nativeHandle) : undefined;
-      if (ended || closing || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !handle || handle.returned || !handle.utteranceId || handle.utteranceId !== ref.utteranceId) throw new Error("GPT-Live result correlation is no longer current.");
+      if (ended || closing || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !handle || handle.returned || (ref.provenance !== "contextual" && (!handle.utteranceId || handle.utteranceId !== ref.utteranceId))) throw new Error("GPT-Live result correlation is no longer current.");
       if (!ref.turnId || !ref.requestId || result.facts.length > CONVERSATION_LIMITS.maxFactChars) throw new Error("GPT-Live invalid host result.");
       handle.returned = true;
       const parts = chunks(result.facts);
+      const accepted: Promise<void>[] = [];
       for (let i = 0; i < parts.length; i++) {
-        send({ type: result.delivery === "when-idle" && i === parts.length - 1 ? "session.commentary.append" : "session.thinking.append",
-          event_id: crypto.randomUUID(), delegation_id: ref.nativeHandle, content: parts[i] });
+        const type = result.delivery === "when-idle" && i === parts.length - 1 ? "session.commentary.append" : "session.thinking.append";
+        const eventId = crypto.randomUUID();
+        if (options.contextualTasks) {
+          if (acknowledgements.size >= 64) throw new Error("GPT-Live result acknowledgement capacity exceeded.");
+          const pending = new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => { acknowledgements.delete(eventId); reject(new Error("GPT-Live result acceptance is unknown.")); }, 2000);
+            acknowledgements.set(eventId, { type: type + "ed", resolve, reject, timer });
+          });
+          // A partial send can throw before Promise.all is installed. Consume
+          // that rejection too, without turning an unknown send into acceptance.
+          void pending.catch(() => {});
+          accepted.push(pending);
+        }
+        send({ type, event_id: eventId, delegation_id: ref.nativeHandle, content: parts[i] });
       }
+      if (options.contextualTasks) { await Promise.all(accepted); return { acceptance: "acknowledged" as const }; }
     },
     close() {
       if (closePromise) return closePromise;

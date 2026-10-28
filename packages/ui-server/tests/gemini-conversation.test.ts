@@ -21,7 +21,7 @@ async function until(check: () => boolean): Promise<void> {
   while (!check()) { if (Date.now() > end) throw new Error("transport condition timed out"); await Bun.sleep(1); }
 }
 type Wire = "text" | "binary" | "arraybuffer";
-async function fixture(ack = true, consume = true, parameterless = false, wire: Wire = "text") {
+async function fixture(ack = true, consume = true, parameterless = false, wire: Wire = "text", contextualTasks = false) {
   const sent: any[] = [];
   const received: LiveConversationEvent[] = [];
   const frameTypes: string[] = [];
@@ -62,7 +62,7 @@ async function fixture(ack = true, consume = true, parameterless = false, wire: 
   let session: LiveConversationSession | undefined;
   cleanup = () => { abort.abort(); remote?.close(); server.stop(true); };
   const provider = createGeminiConversationProvider("keyless-odyssey-placeholder");
-  const opening = provider.open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, resync: { work: [] } });
+  const opening = provider.open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, contextualTasks, resync: { work: [] } });
   await until(() => !!remote);
   await until(() => sent.some((m) => m.setup));
   if (ack) {
@@ -525,7 +525,7 @@ test.each(["text", "binary"] as const)("real %s adapter and host keep chat progr
   expect(frames.some((m) => m.type === "text_delta" && m.text === "Checking the harbour notes.")).toBe(true);
   expect(f.sent.some((m) => m.toolResponse)).toBe(false);
   expect(frames.some((m) => m.type === "tool_use_start" && m.toolUseId === "lookup-1")).toBe(true);
-  expect(turns[0]!.noGrantSurface).toBe(true);
+  expect(turns[0]!.noGrantSurface).toBeUndefined();
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "u2", sequence: 1, rate: 16000, pcm: "AAA=" });
   await until(() => f.sent.filter((m) => m.realtimeInput?.audio).length === 2);
   f.emit({ serverContent: { inputTranscription: { text: "Also check the harbour fees.", finished: true } } });
@@ -533,9 +533,10 @@ test.each(["text", "binary"] as const)("real %s adapter and host keep chat progr
   const card = frames.find((m) => m.type === "ask_user_request");
   send({ type: "ask_user_response", submissionId: "answer-1", sessionId: "sess-ithaca", turnId: card.turnId, requestId: "q1", answers: { "Which watch?": "Morning" } });
   release();
-  await until(() => f.sent.some((m) => m.toolResponse));
-  expect(f.sent.find((m) => m.toolResponse).toolResponse.functionResponses[0]).toMatchObject({ id: "host-1", scheduling: "WHEN_IDLE", willContinue: false });
-  expect(frames.some((m) => m.type === "result")).toBe(true);
+  await until(() => frames.some((m) => m.type === "result"));
+  // This older reviewed client supplied no contextual negotiation and Gemini
+  // supplied no input identity: the advisory cannot borrow the manual result.
+  expect(f.sent.some((m) => m.toolResponse)).toBe(false);
 });
 
 
@@ -571,4 +572,36 @@ test("a fresh finish after continued audio permits the next utterance", async ()
   await until(() => f.received.filter((e) => e.kind === "input_fragment").length === 2);
   expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 2, rate: 16000, pcm: new Uint8Array([0, 0]) })).not.toThrow();
   await until(() => f.sent.filter((m) => m.realtimeInput?.audio).length === 3);
+});
+
+for (const finished of [false, true]) test(`contextual Gemini never assigns late recognition across capture boundaries; finished=${finished}`, async () => {
+  const f = await fixture(true, true, true, "text", true);
+  await f.audio("first", 0);
+  f.emit({ serverContent: { inputTranscription: { text: "Find the note.", finished } } });
+  await until(() => f.received.some(e => e.kind === "unassigned_input_fragment"));
+  await f.audio("first", 1); // finished evidence does not cover this PCM
+  f.session.markEndpoint("first");
+  await f.audio("second", 2);
+  f.emit({ serverContent: { inputTranscription: { text: "Late first recognition.", finished: true } } });
+  await until(() => f.received.filter(e => e.kind === "unassigned_input_fragment").length === 2);
+  expect(f.received.filter(e => e.kind === "unassigned_input_fragment")).toMatchObject([
+    { sequence: 0, timing: { kind: "unavailable" }, finalization: finished ? "final" : "unknown" },
+    { sequence: 1, timing: { kind: "unavailable" }, text: "Late first recognition." },
+  ]);
+  expect(f.received.some(e => e.kind === "input_fragment" || e.kind === "error")).toBe(false);
+});
+
+test("contextual Gemini result requires the exact pre-dispatch binding and never borrows reviewed work", async () => {
+  const f = await fixture(true, true, true, "text", true);
+  f.emit({ toolCall: { functionCalls: [{ id: "context-native", name: "host_task" }] } });
+  await until(() => f.received.some(e => e.kind === "work_requested"));
+  f.session.bindContextualWork!({ nativeHandle: "context-native", taskId: "task-one", requestId: "request-one" });
+  const contextual = { conversationId: "ithaca", epoch: 1, provenance: "contextual" as const, taskId: "task-one", requestId: "request-one", turnId: "turn-one", nativeHandle: "context-native" };
+  const result = { outcome: "completed" as const, facts: "The signal is a bronze owl.", delivery: "quiet" as const };
+  await expect(f.session.returnWork({ ...contextual, taskId: "task-two" }, result)).rejects.toThrow("binding");
+  await expect(f.session.returnWork({ conversationId: "ithaca", epoch: 1, utteranceId: "manual", requestId: "manual", turnId: "manual", nativeHandle: "context-native" }, result)).rejects.toThrow("borrow");
+  expect(await f.session.returnWork(contextual, result)).toEqual({ acceptance: "unknown" });
+  await until(() => f.sent.some(m => m.toolResponse));
+  expect(f.sent.find(m => m.toolResponse).toolResponse.functionResponses[0]).toMatchObject({ id: "context-native", name: "host_task", scheduling: "SILENT", willContinue: false });
+  await expect(f.session.returnWork(contextual, result)).rejects.toThrow("binding");
 });

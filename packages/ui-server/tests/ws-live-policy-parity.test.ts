@@ -29,7 +29,7 @@ async function until(predicate: () => boolean): Promise<void> {
 }
 
 for (const backendId of ["claude", "pi"] as const) {
-  for (const modality of ["typed", "live"] as const) {
+  for (const modality of ["typed", "live", "contextual"] as const) {
     for (const action of ["permitted", "confirm", "deny", "protected"] as const) {
       test(`${backendId} ${modality}: ${action} uses ordinary policy and exact parent effects`, async () => {
         const root = mkdtempSync(join(tmpdir(), "odysseus-live-policy-"));
@@ -37,7 +37,7 @@ for (const backendId of ["claude", "pi"] as const) {
         const config = join(root, "brain.config.ts");
         writeFileSync(config, readFileSync(config, "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
         const db = createUiDb(":memory:");
-        const live = fakeLiveProvider();
+        const live = fakeLiveProvider({ contextualTasks: "supported" });
         const sent: any[] = [];
         const frames = (type: string) => sent.filter(frame => frame.type === type);
         const ws = { send: (data: string) => sent.push(JSON.parse(data)) } as WSContext;
@@ -74,7 +74,7 @@ for (const backendId of ["claude", "pi"] as const) {
           let opened: any;
           if (modality === "typed") send({ type: "chat_message", text });
           else {
-            send({ type: "conversation_start" });
+            send({ type: "conversation_start", contextualTasks: modality === "contextual" });
             await until(() => frames("conversation_opened").length === 1);
             opened = frames("conversation_opened")[0];
             const scope = { conversationId: opened.conversationId, epoch: opened.epoch };
@@ -82,7 +82,8 @@ for (const backendId of ["claude", "pi"] as const) {
             await until(() => live.sessions[0]!.audio.length === 1);
             live.sessions[0]!.emit({ kind: "input_fragment", utteranceId: "watch", sequence: 0, text, finalization: "unknown", certainty: "unknown", origin: "unknown" });
             await until(() => frames("conversation_event").length === 1);
-            send({ type: "conversation_commit", ...scope, utteranceId: "watch", requestId: "watch-request", text });
+            if (modality === "contextual") live.sessions[0]!.emit({ kind: "work_requested", handle: "watch-native" });
+            else send({ type: "conversation_commit", ...scope, utteranceId: "watch", requestId: "watch-request", text });
           }
           await until(() => request !== undefined || frames("result").length > 0);
           expect(request, "LIVE_POLICY_BACKEND_ADMITTED").toBeDefined();
@@ -123,7 +124,7 @@ for (const backendId of ["claude", "pi"] as const) {
           await until(() => frames("result").length === 1);
           if (opened) {
             await until(() => frames("conversation_work").some(frame => frame.state === "completed"));
-            send({ type: "conversation_start", conversationId: opened.conversationId });
+            send({ type: "conversation_start", conversationId: opened.conversationId, contextualTasks: modality === "contextual" });
             await until(() => frames("conversation_opened").length === 2);
             expect(calls, "LIVE_POLICY_NO_EFFECT_REPLAY").toBe(1);
           }
