@@ -3,12 +3,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import type { BrowserCommand } from "vitest/node";
-type Op = { op: "start" } | { op: "step"; id: string; client: unknown[]; provider: unknown[] } | { op: "stop"; id: string };
+type Op = { op: "start"; provider?: "gemini" } | { op: "step"; id: string; client: unknown[]; provider: unknown[] } | { op: "stop"; id: string };
 const servers = new Map<string, { process: ChildProcess; url: string; diagnostics: () => string }>();
 /** Native byte witnesses come from a real loopback server inside the pinned offline container. */
 export const conversationServer: BrowserCommand<[Op], unknown> = async (_ctx, input) => {
   if (input.op === "start") {
-    const child = spawn(process.env.BUN_BIN ?? "bun", ["--preload", resolve("../../scripts/test-network-child-preload.ts"), resolve("../ui-react/tests/fixtures/conversation-browser-server.ts")],
+    const child = spawn(process.env.BUN_BIN ?? "bun", ["--preload", resolve("../../scripts/test-network-child-preload.ts"), resolve("../ui-react/tests/fixtures/conversation-browser-server.ts"), ...(input.provider === "gemini" ? ["--gemini"] : [])],
       { cwd: resolve("../.."), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = ""; child.stderr!.on("data", bytes => { stderr += String(bytes); });
     const url = await new Promise<string>((resolve, reject) => {

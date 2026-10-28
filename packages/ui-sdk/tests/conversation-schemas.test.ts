@@ -167,3 +167,12 @@ for (const kind of ["unassigned_input_fragment", "unassigned_delegation"] as con
   expect(parseLiveConversationEvent({ ...scope, ...invalid }).ok).toBe(false);
   expect(server({ type: "conversation_event", ...scope, event: invalid }).ok).toBe(false);
 });
+
+for (const kind of ["unassigned_input_fragment", "unassigned_delegation"] as const) test(`#3064 ${kind} cannot fabricate absent provider timing`, () => {
+  const scope = { conversationId: "ithaca", epoch: 1 };
+  const event = kind === "unassigned_input_fragment"
+    ? { kind, sequence: 0, text: "Check the harbour watch." }
+    : { kind, handle: "ithaca-native" };
+  expect(parseLiveConversationEvent({ ...scope, ...event }).ok).toBe(false);
+  expect(server({ type: "conversation_event", ...scope, event }).ok).toBe(false);
+});
