@@ -17,15 +17,16 @@ test("only EROFS receives the hosted read-only error envelope", () => {
 test("mount topology selects visible stacks and excludes hidden descendants independent of record order", () => {
   root = mkdtempSync(join(tmpdir(), "odysseus mount-topology-"));
   const target = fs.realpathSync(root);
+  const ancestor = fs.realpathSync(tmpdir());
   const row = (id: number, parent: number, point: string, mode: string) =>
     `${id} ${parent} 0:1 / ${point.replaceAll(" ", "\\040")} ${mode},relatime - tmpfs tmpfs rw`;
   const cases = [
-    { name: "writable over readonly", ro: false, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "ro"), row(7, 90, "/tmp", "rw")] },
-    { name: "readonly over writable", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "rw"), row(7, 90, "/tmp", "ro")] },
-    { name: "hidden readonly descendant", ro: false, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "ro"), row(95, 90, target, "ro"), row(7, 90, "/tmp", "rw")] },
-    { name: "hidden writable descendant", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "rw"), row(95, 90, target, "rw"), row(7, 90, "/tmp", "ro")] },
-    { name: "visible child of top mount", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, "/tmp", "ro"), row(7, 90, "/tmp", "rw"), row(3, 7, target, "ro")] },
-    { name: "ancestor cover hides a separately mounted descendant", ro: true, rows: [row(42, 42, "/", "rw"), row(95, 42, target, "rw"), row(90, 42, "/tmp", "ro")] },
+    { name: "writable over readonly", ro: false, rows: [row(42, 42, "/", "rw"), row(90, 42, ancestor, "ro"), row(7, 90, ancestor, "rw")] },
+    { name: "readonly over writable", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, ancestor, "rw"), row(7, 90, ancestor, "ro")] },
+    { name: "hidden readonly descendant", ro: false, rows: [row(42, 42, "/", "rw"), row(90, 42, ancestor, "ro"), row(95, 90, target, "ro"), row(7, 90, ancestor, "rw")] },
+    { name: "hidden writable descendant", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, ancestor, "rw"), row(95, 90, target, "rw"), row(7, 90, ancestor, "ro")] },
+    { name: "visible child of top mount", ro: true, rows: [row(42, 42, "/", "rw"), row(90, 42, ancestor, "ro"), row(7, 90, ancestor, "rw"), row(3, 7, target, "ro")] },
+    { name: "ancestor cover hides a separately mounted descendant", ro: true, rows: [row(42, 42, "/", "rw"), row(95, 42, target, "rw"), row(90, 42, ancestor, "ro")] },
     { name: "root stack hides old descendants", ro: false, rows: [row(42, 900, "/", "ro"), row(90, 42, target, "ro"), row(7, 42, "/", "rw")] },
   ];
   const original = fs.readFileSync;
