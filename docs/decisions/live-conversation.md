@@ -30,7 +30,7 @@ tool admission and execution, permissions, cancellation, terminal state and
 resynchronization. Engine task requests are advisory until mapped to committed
 user input. No native search, code-execution or alternate permission loop is
 enabled. Both adapters can delegate through the existing `AgentBackend`
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:707-750`);
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:708-751`);
 the host serializes work in a session and uses capability-checked follow-ups.
 
 The [voice-permission decision](voice-permission.md) binds this interface.
@@ -123,3 +123,30 @@ Permission outcomes became host-authoritative for every client that asks
 (`tool_resolution`), not only for conversations. No adapter ships; #958 and
 #959 implement the two engines against this seam, and #961 still gates
 activation on measured device and provider behavior.
+
+## Shared task policy and hands-free admission — 2026-10-28
+
+The [maintainer ruling on #3070](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905)
+supersedes the client-commit-only admission and separate narrower voice posture
+for the live-conversation task path. Both selected speech services may propose
+background work while dialogue continues. The host forms a task-specific
+request from bounded, honestly labeled conversation context, creates new host
+identities, binds the exact native handle before dispatch, and executes through
+the same ordinary backend/session/principal policy as typed work. This is no
+permission grant, authenticated transcript or captured-input ownership claim.
+A provider request cannot attach itself by arrival to existing manual work.
+
+Routine permitted work needs no Send or extra voice consent. Ordinary screen
+cards remain required wherever typed work requires them; uncertain speech
+cannot settle them. Curated and governed writes are allowed exactly where the
+ordinary policy permits them. Protected resources, egress, budgets, cancellation,
+writer checks, receipts and supported recovery remain binding. See the
+[policy supersession](voice-permission.md#live-conversation-policy-supersession--2026-10-28).
+Explicit legacy restricted-posture consumers keep their existing enforcement
+or safe refusal. Missing provider input finality never becomes fabricated user
+finality; #3064 must use honest unassigned recognition for continuity.
+
+#3071 delivers the shared-policy execution portion. Automatic task admission,
+new task/native identity binding and continuous Gemini capture remain #3070 and
+#3064 work. The October 5 client-commit wire implementation remains in place
+until those paths ship; this ruling does not describe them as implemented.

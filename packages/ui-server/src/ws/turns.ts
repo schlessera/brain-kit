@@ -47,11 +47,11 @@ export type HostWorkOutcome = "completed" | "cancelled" | "error" | "refused";
  * typed by a client (a committed live-conversation utterance, #957). The
  * session machinery calls `settle` on every exit — refused, dropped from a
  * queue, cancelled before starting, or finished — and an implementation must
- * treat repeats as no-ops. `posture: "voice"` makes a new turn declare
- * `enforceAllowedTools` and `noGrantSurface` (docs/decisions/voice-permission.md).
+ * treat repeats as no-ops. Live conversations use `interactive` policy, matching
+ * typed work (#3070). Explicit legacy `voice` work retains its restrictions.
  */
 export interface HostWork {
-  posture: "voice";
+  posture: "interactive" | "voice";
   started(turnId: string): void;
   /** Every frame the turn emits, after host scoping. */
   observe(frame: import("@schlessera/brain-ui-sdk/protocol").ServerMessage): void;

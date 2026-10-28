@@ -145,7 +145,7 @@ Each receipt carries `eventId`, `dimension`, measured `count`, active `cap`,
 and optional `submissionId`/`reason`. A floor's count is free bytes, its cap
 is max(5% of filesystem capacity, 2 GiB), and its overshoot is the deficit.
 `newCap` exists only for the first finite grant of an interactive dimension;
-no floor/voice grant exists. Other dimensions keep their own one-grant allowance.
+no floor/explicit restricted-voice grant exists. Other dimensions keep their own one-grant allowance.
 A fresh Continue check cannot bypass a floor crossed during another pause;
 the newest floor event leaves one Stop-only card and retains the earlier cap facts.
 Independent hard time, resource and storage limits remain effective.
@@ -166,8 +166,9 @@ The existing ask-user card displays this host operation without a free-text
 answer or model-tool grant. Arrival preserves composer focus; activating an
 answer moves focus to its receipt only while that chat is still active. Limits
 and retained scope facts share the existing under-turn Disclosure, with upfront
-limits in the picker's This chat section. True voice stops with a short written/
-spoken explanation. Pi's existing lack of voice posture still refuses admission.
+limits in the picker's This chat section. Explicit legacy restricted-voice work
+stops with a short written/spoken explanation; Pi rejects that explicit posture.
+Live-conversation host work uses ordinary interactive scope decisions (#3071).
 Older clients may ignore the additive facts and decision frames; independent
 host deadlines and the 30-minute disconnected pause lifetime still terminate work.
 
@@ -1203,23 +1204,38 @@ a typed message arriving while a host-work turn runs queues as the next turn
 instead of joining it, even on a `followUp` backend. A `cancel` for the
 session, and any cancellation of the running request (a cancel without a
 session id, host shutdown, a timeout), also cancels the conversation's
-committed work that was not yet submitted. A new turn it
-starts declares the voice posture: `posture: "voice"` with
-`enforceAllowedTools` and `noGrantSurface`. An ordinary turn already running
-in the session keeps its own posture. A failed host-work turn offers no
-client Retry handle (`retryOfTurnId`), because `retry_turn` could not restore
-its posture. Backend `startTurn`, `followUp`, the session queue and the
-permission bridge are otherwise unchanged.
+committed work that was not yet submitted. A new turn uses the same ordinary
+backend/session/principal policy as typed work: selected backend profile,
+interactive governance policy and session preference, normal tool/application
+policy, screen permission cards, journal and supported recovery. It does not
+set `posture: "voice"`, `enforceAllowedTools` or `noGrantSurface` merely because
+its source is live conversation. Both speech providers share this host path.
+Voice modality alone neither grants an operation nor denies/prompts for an
+otherwise permitted one. Protected paths, writer boundaries, egress, budgets,
+scope and cancellation retain their ordinary enforcement. Message source stays
+`voice-conversation`; shared policy does not relabel recognition as typed input.
 
-`StartTurnRequest.posture?: "voice"` (additive, `@experimental`) asks the
-backend to run the turn on its declared voice allowlist instead of its
-ordinary one ([voice posture](../decisions/voice-permission.md#the-voice-posture)).
-`assertTurnPosture` refuses it without both `enforceAllowedTools` and
-`noGrantSurface`, or on an autonomous turn. The Claude backend selects
-`VOICE_ALLOWED_TOOLS`. The pi backend declares no voice posture and rejects the
-turn with `BackendRequestError`, so a conversation on pi fails visibly instead
-of running on the ordinary allowlist. A conforming backend must do one or the
-other; ignoring the field is forbidden.
+A failed host-work turn offers no client Retry handle (`retryOfTurnId`): a
+client retry cannot restore its request/native binding, and must not replay an
+effect automatically. Backend `startTurn`, the session queue and the permission
+bridge retain their ordinary behavior. Spoken approval and uncertain recognition
+cannot settle a pending card; authenticated screen approval remains required.
+
+**Compatibility (2026-10-28, #3070/#3071).** This is a documented pre-1.0
+breaking minor: live-conversation host work previously forced the narrower
+voice posture and no-grant surface. Hosts relying on that implicit restriction
+must express their intended ordinary task policy. No new flag or separate voice
+policy declaration is required. The automatic-admission and native-binding
+supersession is authorized by #3070 but not yet implemented here; the semantic
+commit admission/correlation behavior above still describes shipped code.
+
+Explicit `StartTurnRequest.posture?: "voice"` remains an experimental restricted
+backend request, distinct from message source. It asks for the declared voice
+allowlist. `assertTurnPosture` requires `enforceAllowedTools` and
+`noGrantSurface`, and refuses autonomous combinations. Claude enforces
+`VOICE_ALLOWED_TOOLS`; Pi safely rejects this explicit restricted request.
+Ordinary-policy live host work requests neither, and therefore uses Pi's
+ordinary supported execution path. Ignoring an explicit restriction is forbidden.
 
 **Receipts and provenance.** `ConversationWorkReceipt` carries
 `conversationId`, the commit `epoch`, `utteranceId`, `requestId`, `turnId?`,

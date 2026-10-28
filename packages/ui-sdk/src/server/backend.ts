@@ -633,7 +633,8 @@ export interface StartTurnRequest {
    * `BackendRequestError` rather than run it on its ordinary allowlist.
    *
    * Absent (the default) every existing deployment behaves exactly as it
-   * always has. Hosts set it for turns a live conversation starts (#957).
+   * always has. Live-conversation host work uses ordinary policy (#3070);
+   * this field remains available for explicit legacy restricted requests.
    *
    * @experimental
    */

@@ -652,7 +652,10 @@ export class ConversationHost {
 
   private hostWork(conversation: Conversation, work: Work): HostWork {
     return {
-      posture: "voice",
+      // Speech is provenance, not a separate permission policy (#3070).
+      // Keep host-work identity/serialization while using ordinary admission,
+      // session preference, screen cards and supported recovery.
+      posture: "interactive",
       started: (turnId) => {
         if (work.settled) return;
         work.receipt.turnId = turnId;

@@ -151,10 +151,10 @@ describe("semantic commit is the only admission", () => {
     await until(() => s.turns.length === 1);
     const req = s.turns[0]!.req;
     expect(req.prompt).toBe("Draft the night-watch rota for the palace");
-    // A new voice turn runs the voice posture.
-    expect(req.posture).toBe("voice");
-    expect(req.enforceAllowedTools).toBe(true);
-    expect(req.noGrantSurface).toBe(true);
+    // Live modality uses ordinary task policy, including the screen surface.
+    expect(req.posture).toBeUndefined();
+    expect(req.enforceAllowedTools).toBeUndefined();
+    expect(req.noGrantSurface).toBeUndefined();
 
     s.turns[0]!.answer("The rota names Eumaeus for the first watch.");
     await until(() => conversation.session.returned.length === 1);
@@ -549,7 +549,7 @@ describe("second review pass: identity, resync and retry", () => {
     expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: "backpressure" });
   });
 
-  test("a failed voice turn offers no client Retry, which could not restore its posture", async () => {
+  test("a failed live turn offers no client Retry, which could not restore its host identity", async () => {
     const db = createUiDb(":memory:");
     const live = fakeLiveProvider();
     const requests: StartTurnRequest[] = [];
@@ -585,7 +585,7 @@ describe("second review pass: identity, resync and retry", () => {
     await until(() => frames("conversation_event").length === 1);
     send({ type: "conversation_commit", conversationId: opened.conversationId, epoch: 1, utteranceId: "u1", requestId: "r1", text: "spoken question" });
     await until(() => frames("result").length === 2);
-    expect(requests[1]!.posture).toBe("voice");
+    expect(requests[1]!.posture).toBeUndefined();
     expect(frames("result")[1].retryOfTurnId).toBeUndefined();
   });
 });
@@ -1064,7 +1064,7 @@ test("a new voice conversation uses its independently selected agent profile", a
   expect(s.turns[0]!.req.profileId, "the disclosed selected profile is the one given to the agent backend").toBe("palace-model");
 });
 
-for (const kind of ["list", "rank", "form"] as const) test(`voice posture preserves the ${kind} card's independent host response`, async () => {
+for (const kind of ["list", "rank", "form"] as const) test(`live work preserves the ${kind} card's independent host response`, async () => {
   const s = setup();
   const client = await s.connect();
   const conversation = await client.open();
@@ -1072,7 +1072,7 @@ for (const kind of ["list", "rank", "form"] as const) test(`voice posture preser
   client.commit(conversation, "u-card", "r-card", "Review the voyage supplies");
   await until(() => s.turns.length === 1);
   const bridge = s.turns[0]!.req.bridge;
-  expect(s.turns[0]!.req.noGrantSurface).toBe(true);
+  expect(s.turns[0]!.req.noGrantSurface).toBeUndefined();
   const requestId = `ithaca-${kind}`;
   const pending = kind === "list" ? bridge.askUserList!(requestId, { prompt: "Review the supplies", scale: [{ label: "Ready" }, { label: "Missing" }], items: [{ id: "rope", label: "Rope" }], allowSkip: false, notes: false })
     : kind === "rank" ? bridge.askUserRank!(requestId, { prompt: "Order the supplies", items: [{ id: "rope", label: "Rope" }, { id: "timber", label: "Timber" }] })
@@ -1096,7 +1096,7 @@ test("opening correlation is echoed so an abandoned client's late opening can be
   expect(resumed.opened).toMatchObject({ requestId: "ithaca-resume", epoch: 2 });
 });
 
-test("a voice posture denial publishes one host outcome without raising a grant card", async () => {
+test("a live screen denial publishes one host outcome; backend denial events cannot replace it", async () => {
   const s = setup({ authorized: true });
   const client = await s.connect();
   client.send({ type: "client_hello", protocolRev: 5, capabilities: { toolResolution: true } });
@@ -1104,12 +1104,17 @@ test("a voice posture denial publishes one host outcome without raising a grant 
   await client.speak(conversation, "u-denied", "Update the raft plan");
   client.commit(conversation, "u-denied", "r-denied", "Update the raft plan");
   await until(() => s.turns.length === 1);
-  const event = { kind: "permission_denied" as const, toolUseId: "ithaca-posture-denial", requestKind: "tool" as const, reason: "Voice cannot grant tools." };
-  s.turns[0]!.req.bridge.activity!(event);
-  s.turns[0]!.req.bridge.activity!(event);
-  expect(client.frames("tool_resolution"), "a posture-denied action needs one authoritative outcome, even with no approval card").toHaveLength(1);
-  expect(client.frames("tool_resolution")[0]).toMatchObject({ toolUseId: event.toolUseId, outcome: "denied", reason: "voice_posture", sessionId: s.turns[0]!.sessionId });
-  expect(client.frames("tool_approval_request")).toHaveLength(0);
+  const bridge = s.turns[0]!.req.bridge;
+  const pending = bridge.requestPermission({ toolUseId: "ithaca-denial", toolName: "Write", input: {} });
+  await until(() => client.frames("tool_approval_request").length === 1);
+  const card = client.frames("tool_approval_request")[0];
+  client.send({ type: "tool_denial", toolUseId: card.toolUseId, turnId: card.turnId, channel: "card", message: "Keep the raft unchanged." });
+  expect(await pending).toMatchObject({ behavior: "deny" });
+  const event = { kind: "permission_denied" as const, toolUseId: card.toolUseId, requestKind: "tool" as const, reason: "Backend acknowledged the denial." };
+  bridge.activity!(event);
+  bridge.activity!(event);
+  expect(client.frames("tool_resolution")).toHaveLength(1);
+  expect(client.frames("tool_resolution")[0]).toMatchObject({ toolUseId: card.toolUseId, outcome: "denied", channel: "card", sessionId: s.turns[0]!.sessionId });
   expect(s.host.coordinator.pendingApprovals.size).toBe(0);
 });
 
