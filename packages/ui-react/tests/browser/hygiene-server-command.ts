@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import type { Page, Route } from "playwright";
 import type { BrowserCommand } from "vitest/node";
 import { hygieneCapture } from "./hygiene-capture.ts";
+import { closeHygieneContext, hygieneRouteOwner } from "./hygiene-route-owner.ts";
 
 type Op =
   | { op: "start" }
@@ -16,7 +17,7 @@ type Op =
   | { op: "capture"; name: string; selector: string };
 const servers = new Map<
   string,
-  { process: ChildProcess; url: string; pending: Set<Promise<void>>; handler: (route: Route) => Promise<void> }
+  { process: ChildProcess; url: string; routes: ReturnType<typeof hygieneRouteOwner> }
 >();
 /** Native server runs inside the same network-disabled browser container. */
 export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
@@ -79,27 +80,18 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
       });
     });
     const id = crypto.randomUUID();
-    const pending = new Set<Promise<void>>();
-    const handler = async (route: Route) => {
-      const task = (async () => {
-        const req = route.request(),
-          path = new URL(req.url()).pathname;
-        const r = await fetch(`${url}${path}`, {
-          method: req.method(),
-          headers: { "content-type": "application/json" },
-          ...(req.postData() ? { body: req.postData()! } : {}),
+    const routes = hygieneRouteOwner(async (route: Route) => {
+      const req = route.request(),
+        path = new URL(req.url()).pathname;
+      const r = await fetch(`${url}${path}`, {
+        method: req.method(),
+        headers: { "content-type": "application/json" },
+        ...(req.postData() ? { body: req.postData()! } : {}),
         });
         await route.fulfill({ status: r.status, contentType: "application/json", body: await r.text() });
-      })();
-      pending.add(task);
-      try {
-        await task;
-      } finally {
-        pending.delete(task);
-      }
-    };
-    servers.set(id, { process: child, url, pending, handler });
-    await ctx.page.route("**/api/hygiene/**", handler);
+    });
+    servers.set(id, { process: child, url, routes });
+    await ctx.page.route("**/api/hygiene/**", routes.handler);
     return { id, url, scratch: tmpdir() };
   }
   const s = servers.get(p.id)!;
@@ -291,7 +283,7 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
       throw new Error(`${String(error)}\n${diagnostics.join("\n")}`);
     } finally {
       if (p.completion) await fetch(`${s.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ releaseNext: true }) });
-      await context.close();
+      await closeHygieneContext(context);
     }
   }
   if (p.op === "set")
@@ -303,13 +295,24 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
       })
     ).json();
   // Client disposal invalidates reads, but the HTTP route still owes its response.
-  await Promise.all([...s.pending]);
-  await ctx.page.unroute("**/api/hygiene/**", s.handler);
-  const ended = once(s.process, "exit");
-  s.process.kill("SIGTERM");
-  const [code, signal] = await ended;
-  if (code !== 0 || signal !== null) throw new Error(`fixture cleanup failed: ${code}/${signal}`);
-  servers.delete(p.id);
+  let routeFailure: { error: unknown } | undefined;
+  try {
+    await s.routes.close(ctx.page, "**/api/hygiene/**");
+  } catch (error) {
+    routeFailure = { error };
+  }
+  try {
+    const ended = once(s.process, "exit");
+    s.process.kill("SIGTERM");
+    const [code, signal] = await ended;
+    if (code !== 0 || signal !== null) throw new Error(`fixture cleanup failed: ${code}/${signal}`);
+  } catch (error) {
+    if (routeFailure) throw new AggregateError([routeFailure.error, error], "fixture route and cleanup failed");
+    throw error;
+  } finally {
+    servers.delete(p.id);
+  }
+  if (routeFailure) throw routeFailure.error;
 };
 declare module "vitest/browser" {
   interface BrowserCommands {
