@@ -12,6 +12,15 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
   let delivering: Promise<unknown> | null = null, cleaning: Promise<unknown> | null = null;
   let flushing: Promise<unknown> | null = null, sweeping: Promise<unknown> | null = null;
   const controller = new AbortController();
+  // Keep the first four distinct original causes, not an app-lifetime error log.
+  // Count failed operations (not distinct identities); saturation bounds the counter.
+  const failures = new Set<unknown>();
+  let failureCount = 0;
+  function retain(error: unknown): void {
+    failureCount = Math.min(Number.MAX_SAFE_INTEGER, failureCount + 1);
+    if (failures.size < 4) failures.add(error);
+  }
+  let closed: Promise<void> | undefined;
   function tick(now = Date.now()) {
     if (controller.signal.aborted) return;
     // Reversed clocks cannot re-enter a past bucket or renew stale evidence.
@@ -19,8 +28,8 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
     lastClock = now;
     if (!flushing) try {
       const result = history.flush();
-      if (result instanceof Promise) flushing = result.catch(() => {}).finally(() => { flushing = null; });
-    } catch { /* Existing evidence remains readable. */ }
+      if (result instanceof Promise) flushing = result.catch(retain).finally(() => { flushing = null; });
+    } catch (error) { retain(error); /* Existing evidence remains readable. */ }
     const current = bucket(0, now);
     if (current > lastBucket) {
       try {
@@ -31,17 +40,33 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
     }
     if (!sweeping) try {
       const result = notices.sweep(now);
-      if (result instanceof Promise) sweeping = result.catch(() => {}).finally(() => { sweeping = null; });
-    } catch { /* A failed receipt write cannot authorize transport. */ }
-    if (!delivering) delivering = sender.deliverStorage(notices, undefined, controller.signal).catch(() => {}).finally(() => { delivering = null; });
+      if (result instanceof Promise) sweeping = result.catch(retain).finally(() => { sweeping = null; });
+    } catch (error) { retain(error); /* A failed receipt write cannot authorize transport. */ }
+    if (!delivering) try {
+      delivering = sender.deliverStorage(notices, undefined, controller.signal).catch(retain).finally(() => { delivering = null; });
+    } catch (error) { retain(error); }
     if (!cleaning && now - lastCleanup >= 60_000) {
       lastCleanup = now;
-      cleaning = shared.cleanupCache().catch(() => {}).finally(() => { cleaning = null; });
+      try { cleaning = shared.cleanupCache().catch(retain).finally(() => { cleaning = null; }); }
+      catch (error) { retain(error); }
     }
   }
   const timer = setInterval(tick, 20_000); timer.unref();
   return {
     tick,
-    async close() { controller.abort(); clearInterval(timer); await Promise.allSettled([delivering, cleaning, flushing, sweeping]); await history.flush(); },
+    close() {
+      if (closed) return closed;
+      controller.abort(); clearInterval(timer);
+      return closed = (async () => {
+        await Promise.allSettled([delivering, cleaning, flushing, sweeping]);
+        // Retry the final flush even after an earlier write/cleanup failed.
+        try { await history.flush(); } catch (error) { retain(error); }
+        const errors = [...failures];
+        if (failureCount === 1) throw errors[0];
+        if (failureCount) throw new AggregateError(errors,
+          `Storage sampling shutdown failed: ${failureCount === Number.MAX_SAFE_INTEGER ? "at least " : ""}${failureCount} failed operations; ${errors.length} error representatives retained`,
+          { cause: errors[0] });
+      })();
+    },
   };
 }

@@ -14,6 +14,8 @@ import { createPushSender } from "../src/activity/push-sender.js";
 import { HISTORY_LIMITS, jsonBytes, hashScope, type Aggregate } from "../src/storage/history-model.js";
 import { watchWriteSites } from "./helpers/write-sites.js";
 import * as probe from "./fixtures/write-worker-probe.js";
+import { watchRetainedErrors } from "./helpers/retained-errors.js";
+import { rejection } from "./helpers/expect-rejection.js";
 
 const start = Date.UTC(2026, 6, 12, 9, 41), scope = hashScope("Odysseus stores");
 function observation(at: number): Aggregate {
@@ -224,4 +226,69 @@ test("a queued begin decides on the durable history at its commit, not the one a
     expect(history.read()!.metadata.state.lastPersistedAt).toBe(later);
     expect(await queued, "STORAGE_QUEUED_BEGIN_READS_DURABLE_HISTORY_AT_COMMIT").toBeNull();
   } finally { await f.close(); }
+});
+
+
+for (const mode of ["sync", "async"] as const) test(`sampling retains ${mode} flush, sweep and cleanup failures after settlement and still attempts the final flush`, async () => {
+  const f = fixture();
+  const history = createStorageHistory(f.db, f.root, { now: f.now, writer: f.writer });
+  const shared = createSharedStorageScan(f.db, f.root, join(f.root, "cache"), () => false);
+  const storage = createStorageCoordinator({ brainPath: f.root, stores: [], shared, salt: history.salt, authorized: () => false });
+  const notices = createStorageNotifier(f.db, history, f.writer);
+  const failures = [Error("Odysseus flush refused"), Error("Odysseus sweep refused"), Error("Odysseus cleanup refused")];
+  const fail = (error: Error): never | Promise<never> => { if (mode === "sync") throw error; return Promise.reject(error); };
+  const flush = spyOn(history, "flush").mockImplementation(() => fail(failures[0]!));
+  const sweep = spyOn(notices, "sweep").mockImplementation(() => fail(failures[1]!));
+  const clean = spyOn(shared, "cleanupCache").mockImplementation(() => fail(failures[2]!));
+  const sampling = createStorageSampling(f.db, storage, history, shared, notices, { deliverStorage: async () => 0 }, start);
+  try {
+    sampling.tick(start + 60_000);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const closing = sampling.close();
+    expect(sampling.close(), "SAMPLER_CONCURRENT_CLOSE_JOINS").toBe(closing);
+    const error = await closing.then(() => undefined, error => error);
+    expect(error, "SAMPLER_RETAINS_SETTLED_WRITE_AND_CLEANUP_FAILURES").toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual(failures);
+    expect(flush, "SAMPLER_FINAL_FLUSH_ATTEMPTED_AFTER_FAILURES").toHaveBeenCalledTimes(2);
+    expect(await sampling.close().then(() => undefined, error => error)).toBe(error);
+    sampling.tick(start + 120_000);
+    expect(clean).toHaveBeenCalledTimes(1);
+  } finally { flush.mockRestore(); sweep.mockRestore(); clean.mockRestore(); await sampling.close().catch(() => {}); await storage.close(); await f.close(); }
+});
+
+for (const mode of ["sync", "async"] as const) test(`sampling ${mode} retry failures retain bounded diagnostics through recovery and late close`, async () => {
+  const f = fixture();
+  const history = createStorageHistory(f.db, f.root, { now: f.now, writer: f.writer });
+  const shared = createSharedStorageScan(f.db, f.root, join(f.root, "cache"), () => false);
+  const storage = createStorageCoordinator({ brainPath: f.root, stores: [], shared, salt: history.salt, authorized: () => false });
+  const notices = createStorageNotifier(f.db, history, f.writer);
+  const errors = Array.from({ length: 80 }, (_, i) => Error(`Odysseus sampling refused ${i}`));
+  const retained = watchRetainedErrors(errors);
+  let calls = 0, recovered = false;
+  const fail = (): never | Promise<never> => { const error = errors[calls++]; if (mode === "sync") throw error; return Promise.reject(error); };
+  const flush = spyOn(history, "flush").mockImplementation(() => recovered ? true : fail());
+  const sweep = spyOn(notices, "sweep").mockImplementation(() => recovered ? undefined : fail());
+  const clean = spyOn(shared, "cleanupCache").mockImplementation(() => recovered ? Promise.resolve() : fail());
+  const sampling = createStorageSampling(f.db, storage, history, shared, notices, { deliverStorage: () => recovered ? Promise.resolve(0) : Promise.reject(errors[calls++]) }, start);
+  try {
+    for (let i = 1; i <= 20; i++) {
+      sampling.tick(start + i * 60_000);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(calls).toBe(80);
+    recovered = true;
+    sampling.tick(start + 21 * 60_000);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(retained.peak(), "SAMPLER_RETRY_ERROR_RETENTION_BOUNDED_WHILE_RUNNING").toBeLessThanOrEqual(4);
+    const closing = sampling.close();
+    expect(sampling.close()).toBe(closing);
+    const failure = await rejection(closing) as AggregateError;
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure.errors, "SAMPLER_RETRY_DIAGNOSTICS_BOUNDED").toHaveLength(4);
+    expect(failure.errors).toContain(errors[0]);
+    expect(failure.cause).toBe(failure.errors[0]);
+    expect(failure.message).toContain("80 failed operations");
+    expect(failure.message).toContain("representatives");
+    expect(await rejection(sampling.close())).toBe(failure);
+  } finally { retained.restore(); flush.mockRestore(); sweep.mockRestore(); clean.mockRestore(); await sampling.close().catch(() => {}); await storage.close(); await f.close(); }
 });

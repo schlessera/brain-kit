@@ -4,7 +4,7 @@
  * orphan sweep, and the always-on lifecycle tick (stale sweep, notification
  * detection, push delivery, hourly prune). `createApp` constructs one and
  * wires its pieces into the host, routes, and bridge; `close()` releases the
- * interval and subscriptions.
+ * interval and subscriptions, and joins admitted push outcome writes.
  *
  * Nothing here may block boot or fail the observed work: the sweep and every
  * tick pass log and continue on failure.
@@ -60,7 +60,7 @@ export interface ActivityRuntime {
   governance(input: GovernanceEventInput): Promise<void>;
   /** Every governance write, committed on the write worker when there is one (#2850). */
   governanceWrites: GovernanceWrites;
-  close(): void;
+  close(): Promise<void>;
 }
 
 export function createActivityRuntime(
@@ -129,6 +129,7 @@ export function createActivityRuntime(
   }
 
   let delivering = false;
+  let closed: Promise<void> | undefined;
   let lastPrune = 0;
   const tickFailed = (err: unknown) => {
     log.emit({
@@ -138,6 +139,7 @@ export function createActivityRuntime(
     });
   };
   const tick = setInterval(() => {
+    if (closed) return;
     try {
       afterWrite(store.sweepStale(ACTIVITY_STALE_AFTER_MS), stale => {
         if (stale > 0) {
@@ -231,8 +233,14 @@ export function createActivityRuntime(
     }),
     governanceWrites,
     close() {
+      if (closed) return closed;
       clearInterval(tick);
-      stream.close();
+      const failures: unknown[] = [];
+      try { stream.close(); } catch (error) { failures.push(error); }
+      return closed = pushSender.close().catch(error => { failures.push(error); }).then(() => {
+        if (failures.length === 1) throw failures[0];
+        if (failures.length) throw new AggregateError(failures, "Activity shutdown retained failed cleanup outcomes.");
+      });
     },
   };
 }

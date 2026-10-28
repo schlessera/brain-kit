@@ -181,7 +181,7 @@ incrementing an Action count
 (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`).
 The sender processes run-bound activity rows and settles one intent from a
 device pass; that is not the required per-episode/per-destination Action history
-(`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:172-246`).
+(`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:218-293`).
 Reuse concrete subscriptions, authorization, revocation and bounded backoff,
 but add the Actions-aware aggregate and durable constituent/destination records.
 This decision authorizes no new channel, extension seam or daemon.
