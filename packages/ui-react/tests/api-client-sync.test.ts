@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrainApi, ApiRequestError } from "../src/lib/api-client.js";
 import { createBrainRoutes } from "../../ui-server/src/routes/brain.js";
-import { createFixtureHostBoundary as createHostBoundary } from "../../ui-server/tests/helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "../../ui-server/tests/helpers/native-host-fixture.js";
 import type { BrainClient } from "../../ui-server/src/brain/client.js";
 import type { KeytermSettings } from "../../ui-server/src/voice/keyterm-builder.js";
+
+const { createFixtureHostBoundary: createHostBoundary } = installNativeHostFixtures();
 
 const terminal = 'data: {"type":"done","success":true,"text":"Sync café completed"}\n\n';
 const progress = 'data: {"type":"progress","text":"Working"}\n\n';

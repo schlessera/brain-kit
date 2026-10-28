@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
-import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
+import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
 import { createHygieneReview } from "../src/inbox/hygiene-review.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { createInboxStream } from "../src/inbox/stream.js";
@@ -17,6 +17,8 @@ import { Hono } from "hono";
 import type { AppEnv } from "../src/app-env.js";
 import type { InboxActionItem, InboxDelta, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
+
+const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
 const clean: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const fn of clean.splice(0).reverse()) await fn(); });

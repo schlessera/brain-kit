@@ -16,7 +16,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
-import { createFixtureBrainClient as createBrainClient, probeFixtureBrainCliVersion as probeBrainCliVersion } from "./helpers/native-brain-client-fixture.js";
+import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
 import { resolveServerConfig, type ServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
@@ -26,6 +26,8 @@ import { createBrainRoutes } from "../src/routes/brain";
 import { BRAIN_BIN, runCli } from "../../core/tests/cli-harness";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
+
+const { createFixtureBrainClient: createBrainClient, probeFixtureBrainCliVersion: probeBrainCliVersion } = installNativeBrainClientFixtures();
 
 const temporaryRoots: string[] = [];
 

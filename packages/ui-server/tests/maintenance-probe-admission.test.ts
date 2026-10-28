@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostMaintenanceTempLimits } from "@schlessera/brain-ui-sdk/internal";
 import { reserveMaintenanceTemp } from "../../ui-sdk/src/server/maintenance-temp-budget";
-import { createFixtureHostBoundary as createHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+
+const { createFixtureHostBoundary: createHostBoundary } = installNativeHostFixtures();
 
 const roots: string[] = [];
 const inputOwners: ReturnType<typeof createFixtureMaintenanceHost>[] = [];

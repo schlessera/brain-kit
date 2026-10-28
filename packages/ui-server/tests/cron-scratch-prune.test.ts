@@ -11,7 +11,7 @@ import { join } from "path";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
-import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
+import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import {
@@ -21,6 +21,8 @@ import {
 } from "../src/cron/scratch-prune";
 import { createRecordingObservability } from "../src/observability/index";
 import { createTestApp } from "./helpers/test-app";
+
+const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
 /**
  * Host pids of the processes running `marker` (the fixture CLI's path). A

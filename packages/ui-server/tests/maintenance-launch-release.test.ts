@@ -10,8 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as maintenanceWorker from "../../ui-sdk/src/server/maintenance-worker.js";
 import { createUiDb } from "../src/db/client.js";
-import { createFixtureHostExecution as createHostExecution } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { holdWorkPool, ownedWorkerFifos } from "../../ui-sdk/tests/helpers/work-pool.js";
+
+const { createFixtureHostExecution: createHostExecution } = installNativeHostFixtures();
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });

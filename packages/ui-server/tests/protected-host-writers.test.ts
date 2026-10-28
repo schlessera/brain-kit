@@ -27,7 +27,7 @@ import { createInboxResolver } from "../src/inbox/resolve.js";
 import { createInboxBridgeTools } from "../src/inbox/bridge-tools.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { boundaryPlanner, contentHash, createBrainApplication } from "../src/brain/application.js";
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { createHostExecution } from "../src/brain/host-execution.js";
 import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { WsHost } from "../src/ws/host.js";
@@ -39,6 +39,8 @@ import { testAuthorization } from "./helpers/principal.js";
 import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import { createMaskApplication, readMaskBase } from "../src/brain/mask-application.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 const cleanup: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
