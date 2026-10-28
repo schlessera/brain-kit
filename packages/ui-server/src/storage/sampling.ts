@@ -12,8 +12,14 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
   let delivering: Promise<unknown> | null = null, cleaning: Promise<unknown> | null = null;
   let flushing: Promise<unknown> | null = null, sweeping: Promise<unknown> | null = null;
   const controller = new AbortController();
+  // Keep the first four distinct original causes, not an app-lifetime error log.
+  // Count failed operations (not distinct identities); saturation bounds the counter.
   const failures = new Set<unknown>();
-  const retain = (error: unknown) => { failures.add(error); };
+  let failureCount = 0;
+  function retain(error: unknown): void {
+    failureCount = Math.min(Number.MAX_SAFE_INTEGER, failureCount + 1);
+    if (failures.size < 4) failures.add(error);
+  }
   let closed: Promise<void> | undefined;
   function tick(now = Date.now()) {
     if (controller.signal.aborted) return;
@@ -56,8 +62,10 @@ export function createStorageSampling(db: Database, storage: StorageCoordinator,
         // Retry the final flush even after an earlier write/cleanup failed.
         try { await history.flush(); } catch (error) { retain(error); }
         const errors = [...failures];
-        if (errors.length === 1) throw errors[0];
-        if (errors.length) throw new AggregateError(errors, "Storage sampling shutdown failed");
+        if (failureCount === 1) throw errors[0];
+        if (failureCount) throw new AggregateError(errors,
+          `Storage sampling shutdown failed: ${failureCount === Number.MAX_SAFE_INTEGER ? "at least " : ""}${failureCount} failed operations; ${errors.length} error representatives retained`,
+          { cause: errors[0] });
       })();
     },
   };

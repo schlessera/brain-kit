@@ -133,7 +133,14 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
   const flights = new Map<string, Promise<number>>();
   // Runtime and sampler catches report failures before app shutdown reaches
   // this owner. Settled failures must outlive removal from the pending set.
+  // Keep the first four distinct original causes, not an app-lifetime error log.
+  // Count failed operations (not distinct identities); saturation bounds the counter.
   const failures = new Set<unknown>();
+  let failureCount = 0;
+  function retain(error: unknown): void {
+    failureCount = Math.min(Number.MAX_SAFE_INTEGER, failureCount + 1);
+    if (failures.size < 4) failures.add(error);
+  }
   async function settleWrites(writes: Promise<unknown>[]): Promise<void> {
     const results = await Promise.allSettled(writes);
     const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
@@ -148,7 +155,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
     const flight = Promise.resolve().then(run);
     flights.set(kind, flight);
     const done = () => { flights.delete(kind); };
-    void flight.then(done, error => { failures.add(error); done(); });
+    void flight.then(done, error => { retain(error); done(); });
     return flight;
   }
 
@@ -393,11 +400,13 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
         closing = true;
         // Stop admission, then join transport AND its committed outcome writes.
         // Do not turn a failed persistence write into successful shutdown.
-        return Promise.allSettled([...flights.values()]).then(results => {
-          for (const result of results) if (result.status === "rejected") failures.add(result.reason);
+        return Promise.allSettled([...flights.values()]).then(() => {
+          // Each flight's earlier rejection observer has already retained it once.
           const errors = [...failures];
-          if (errors.length === 1) throw errors[0];
-          if (errors.length) throw new AggregateError(errors, "Push delivery drain failed");
+          if (failureCount === 1) throw errors[0];
+          if (failureCount) throw new AggregateError(errors,
+            `Push delivery drain failed: ${failureCount === Number.MAX_SAFE_INTEGER ? "at least " : ""}${failureCount} failed operations; ${errors.length} error representatives retained`,
+            { cause: errors[0] });
         });
       })();
     },

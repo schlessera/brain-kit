@@ -6,6 +6,7 @@ import { createActivityNotifier } from "../src/activity/notify.js";
 import { createPushSender } from "../src/activity/push-sender.js";
 import type { PushWrites } from "../src/activity/notify-writes.js";
 import { rejection } from "./helpers/expect-rejection.js";
+import { watchRetainedErrors } from "./helpers/retained-errors.js";
 
 function fixture(touch: PushWrites["touch"]) {
   const db = createUiDb(":memory:"), store = createActivityStore(db, { writer: "test" });
@@ -52,4 +53,27 @@ test("multiple failed outcome writes retain their original errors in delivery an
     expect(await rejection(f.sender.close())).toBe(error);
     expect(await rejection(f.sender.close())).toBe(error);
   } finally { await f.sender.close().catch(() => {}); f.db.close(); }
+});
+
+test("delivery retry failures retain bounded diagnostics through recovery and late close", async () => {
+  const errors = Array.from({ length: 60 }, (_, i) => Error(`Odysseus write refused ${i}`));
+  const retained = watchRetainedErrors(errors);
+  let calls = 0, recovered = false;
+  const f = fixture(async () => { if (!recovered) throw errors[calls++]; });
+  f.db.query("DELETE FROM push_subscriptions WHERE endpoint LIKE '%troy'").run();
+  try {
+    for (const error of errors) expect(await rejection(f.sender.deliverPending(f.notifier))).toBe(error);
+    recovered = true;
+    expect(await f.sender.deliverPending(f.notifier)).toBe(1);
+    expect(retained.peak(), "DELIVERY_RETRY_ERROR_RETENTION_BOUNDED_WHILE_RUNNING").toBeLessThanOrEqual(4);
+    const closing = f.sender.close();
+    expect(f.sender.close()).toBe(closing);
+    const failure = await rejection(closing) as AggregateError;
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure.errors, "DELIVERY_RETRY_DIAGNOSTICS_BOUNDED").toEqual(errors.slice(0, 4));
+    expect(failure.cause).toBe(errors[0]);
+    expect(failure.message).toContain("60 failed operations");
+    expect(failure.message).toContain("representatives");
+    expect(await rejection(f.sender.close())).toBe(failure);
+  } finally { retained.restore(); await f.sender.close().catch(() => {}); f.db.close(); }
 });

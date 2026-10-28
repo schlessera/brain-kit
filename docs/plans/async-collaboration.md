@@ -151,7 +151,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`) and
-  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:211-279`) are run-bound and do not
+  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:218-286`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:101`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2368`) bounds text, not binary uploads;

@@ -385,8 +385,12 @@ termination; this is not a production thread-join guarantee.
 Activity, Actions and Storage delivery retain admitted transport and outcome
 writes through shutdown. A flight that already rejected remains a shutdown
 failure even when a runtime logger or sampler has observed it and removed it
-from pending work. Parallel outcome/bookkeeping writes all settle before their
-owner finishes. Transport refusal and ambiguity keep their existing notification
+from pending work. Each owner keeps at most four distinct original error
+representatives and a saturating failed-operation count. A sole failed operation
+rejects with its original identity; multiple failures report the first cause,
+count and bounded representatives without claiming a complete error log. Recovery
+does not erase a known failure before late close. Parallel outcome/bookkeeping
+writes all settle before their owner finishes. Transport refusal and ambiguity keep their existing notification
 outcomes; persistence failures reject shutdown while remaining cleanup runs.
 The sampler retains rejected flush, receipt sweep and cache cleanup operations,
 attempts its final history flush, and joins concurrent close calls. The app
