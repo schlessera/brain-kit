@@ -32,6 +32,14 @@ function fixture() {
 }
 
 describe("affected CI checks", () => {
+  test("file-read dispatch audits follow reviewed consumers and handler sources", () => {
+    for (const path of ["packages/ui-react/src/connection.ts", "packages/ui-react/src/hooks/use-websocket.ts",
+      "packages/ui-react/src/hooks/websocket-handlers/chat.ts", "packages/ui-react/src/lib/stats/context-text.ts"]) {
+      expect(planChecks([path], [{dir: "ui-react", name: "@fixture/ui-react", dependencies: [], files: ["src"]}]).tests,
+        `DISPATCH_SOURCE_AUDIT_SELECTED: ${path}`).toContain("tests/source-browser-dispatch.test.ts");
+    }
+  });
+
   test.each([
     "docs/supported-inputs.md", "docs/decisions/provider-history.md", "docs/plans/example.md",
     "docs/guides/nested/example.md", "README.md", "ROADMAP.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md",

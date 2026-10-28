@@ -21,8 +21,13 @@ test("audited imports of a different chat helper cannot gain the handler map thr
   const {root,write}=fixture(),consumers=["packages/ui-react/src/connection.ts","packages/ui-react/src/hooks/use-websocket.ts"],selected=[...files,...consumers];
   for(const file of consumers)write(file,readFileSync(join(repo,file),"utf8"));
   expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner)).toBe(true);
-  write(consumers[0]!,readFileSync(join(repo,consumers[0]!),"utf8")+`\nimport {chatFrameHandlers} from "./hooks/websocket-handlers/chat.js"; chatFrameHandlers.text=external;\n`);
-  expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner)).toBe(false);
+  for(const consumer of consumers){
+    const specifier=consumer.includes("/hooks/")?"./websocket-handlers/chat.js":"./hooks/websocket-handlers/chat.js";
+    write(consumer,readFileSync(join(repo,consumer),"utf8")+`\nimport {chatFrameHandlers} from "${specifier}"; chatFrameHandlers.text_delta=external;\n`);
+    expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner),`UNREVIEWED_HELPER_CONSUMER_REFUSED: ${consumer}`).toBe(false);
+    write(consumer,readFileSync(join(repo,consumer),"utf8"));
+    expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner)).toBe(true);
+  }
 });
 test("registry escape, owner drift and changed imported handler definitions remain unknown",()=>{
   for(const file of [owner,stats,base+"provider.ts",base+"connection.ts"]){const {root,write}=fixture();write(file,readFileSync(join(root,file),"utf8")+"\n// source drift\n");expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(file===stats?stats:owner)).toBe(false);}
