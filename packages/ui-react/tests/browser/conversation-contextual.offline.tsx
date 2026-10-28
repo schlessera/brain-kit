@@ -322,3 +322,40 @@ test("contextual identity rejects unrelated, queued, mismatched and stale frames
   expect(s.ui.stores.chat.getState().activeSessionId).toBe(null);
   expect(s.ui.stores.chat.getState().draft).not.toBe(null);
 });
+
+for (const reconnect of [false, true]) test(`typed legacy identity after contextual voice leave, reconnect=${reconnect}, rejects late contextual work`, async ctx => {
+  const s = await scene(ctx);
+  s.ui.stores.chat.getState().setActiveSession(null);
+  s.ui.stores.chat.getState().setMessages(null, []);
+  s.client.enter();
+  s.opened(2, { ...CAPS, contextualTasks: "supported" });
+  const work = { type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 2, requestId: "odysseus-late-task", taskId: "odysseus-late-host-task", nativeHandle: "odysseus-late-native", provenance: "contextual", state: "running", delivery: "pending", recognized: "", submitted: "Find the harbour watch.", turnId: "odysseus-late-turn" } as const;
+  s.deliver(work);
+  s.client.leave();
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.client.state.getState().profile?.capabilities.contextualTasks).toBe("supported");
+  if (reconnect) {
+    s.network.drop(); s.network.recover(); s.ui.connection.reconnectNow();
+    await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  }
+  const socket = s.network.socket()!;
+  // The reconnected host's hello supplies no contextual capability. Voice is
+  // inactive, but its historical work receipt must still fence late identities.
+  const chat = s.ui.stores.chat.getState();
+  const draft = chat.startDraftTurn();
+  chat.addUserMessage(null, "Which harbour is sheltered?", "typed");
+  chat.startAssistantMessage(null, undefined, "odysseus-typed-request");
+  expect(s.ui.connection.send({ type: "chat_message", text: "Which harbour is sheltered?", requestId: "odysseus-typed-request", draftId: draft, source: "typed" })).toBe(true);
+  socket.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-late-contextual", requestId: work.requestId, turnId: work.turnId });
+  expect(s.ui.stores.chat.getState().activeSessionId, "known contextual requests cannot borrow a typed draft after leave").toBe(null);
+  expect(s.ui.stores.chat.getState().pendingDraftId).toBe(draft);
+  expect(s.ui.stores.chat.getState().buffers["odysseus-late-contextual"]).toBeUndefined();
+  // A legacy host omits the draft echo even for this client's typed request.
+  socket.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-typed-harbour", requestId: "odysseus-typed-request" });
+  expect(s.ui.stores.chat.getState().activeSessionId, "inactive historical voice capabilities must not disable legacy typed adoption").toBe("odysseus-typed-harbour");
+  expect(s.ui.stores.chat.getState().pendingDraftId).toBe(null);
+  expect(s.ui.stores.chat.getState().draft).toBe(null);
+  socket.deliver({ type: "text_delta", sessionId: "odysseus-typed-harbour", text: "The sheltered harbour is Ithaca." });
+  s.ui.connection.flushChatDeltas();
+  expect(s.ui.stores.chat.getState().buffers["odysseus-typed-harbour"]?.messages.at(-1)?.content).toBe("The sheltered harbour is Ithaca.");
+});
