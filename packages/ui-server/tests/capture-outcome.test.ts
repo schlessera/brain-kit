@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
+import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
 import { createBrainRoutes } from "../src/routes/brain";
+
+const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
 test("capture keeps partial success and retry runs only index through the actual CLI adapter", async () => {
   const root = mkdtempSync(join(tmpdir(), "brain-capture-outcome-"));

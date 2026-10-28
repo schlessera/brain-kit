@@ -10,11 +10,13 @@ import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes
 import { createTestApp } from "./helpers/test-app";
 import { prepareFixtureWorkerOutput as prepareMaintenanceOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { listDirectory } from "../src/files/walker.js";
-import { createFixtureHostBoundary as createHostBoundary } from "./helpers/native-host-fixture.js";
-import { createFixtureHostExecution as createHostExecution } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
+
 import { createUiDb } from "../src/db/client.js";
 import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
+
+const { createFixtureHostBoundary: createHostBoundary, createFixtureHostExecution: createHostExecution } = installNativeHostFixtures();
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });

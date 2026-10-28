@@ -2,7 +2,7 @@
 // `idle()` is a transient hold, not revoked authority. A valid host effect waits
 // for it, bounded, and runs after it; nothing commits while it holds; a
 // principal that really lost authority still refuses `authority_revoked`.
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +19,8 @@ import { WsHost } from "../src/ws/host.js";
 import type { TurnJournal } from "../src/brain/turn-journal.js";
 import type { TurnScope } from "../src/brain/turn-scope.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 /**
  * The journal's hold accounting: a hold counts from the moment it begins and

@@ -19,7 +19,7 @@ import { createInboxStore, InboxStore } from "../src/inbox/store.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { ACTIVITY_WRITE_METHODS } from "../src/activity/store-writes.js";
 import { boundaryPlanner, type ApplicationPlanner } from "../src/brain/application.js";
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { WsHost } from "../src/ws/host.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
@@ -27,6 +27,8 @@ import { handleChatMessage } from "../src/ws/run-session.js";
 import { testAuthorization } from "./helpers/principal.js";
 import * as nativeStartup from "../../ui-sdk/src/server/worker-startup-view.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undefined = true, options: { dbPath?: string; api?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-autonomous-input-")), brainPath = join(root, "brain"); mkdirSync(brainPath);

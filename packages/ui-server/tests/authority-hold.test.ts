@@ -1,7 +1,7 @@
 // #2853: a hold that begins right before a route's final pre-commit check is
 // waited out, bounded and outside the lock, then the route commits. Nothing
 // commits while it holds; real revocation and cancellation still refuse.
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,8 @@ import { boundaryPlanner, contentHash, createBrainApplication } from "../src/bra
 import { createMaskApplication, readMaskBase } from "../src/brain/mask-application.js";
 import { createPolicyProposals } from "../src/brain/policy-proposal.js";
 import { createUiDb } from "../src/db/client.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 /**
  * A hold the test begins and releases; `waits` counts each time a route waited

@@ -15,10 +15,12 @@ import { createWsHandlers } from "../src/ws/connection.js";
 import type { WSContext } from "../src/ws/clients.js";
 import { WsHost } from "../src/ws/host.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { fakeLiveProvider, SILENCE } from "./helpers/live-conversation.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { testPrincipal } from "./helpers/principal.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 async function until(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 5000;

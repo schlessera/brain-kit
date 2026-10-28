@@ -14,7 +14,9 @@ import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
-import { createFixtureBrainClient as createBrainClient } from "./helpers/native-brain-client-fixture.js";
+import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
+
+const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
 const roots: string[] = [];
 const apps: { close(): Promise<void> }[] = [];

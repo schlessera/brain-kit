@@ -154,8 +154,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **HY — Human-started hygiene review.**
 
-- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:467-489`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
-- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:381-389`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
+- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:469-491`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
+- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:383-391`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
 - `the owner reads the recorded facts; every delegated and ambient principal is refused by direct request` ([source](../packages/ui-server/tests/reference-worktree-hygiene.test.ts)) (`the owner reads the recorded facts; every delegated and ambient principal is refused by direct request`, `packages/ui-server/tests/reference-worktree-hygiene.test.ts:603-620`). The sibling owner-only detail tests prove the per-request access fact, read-only facts, changed and gone replies with no values, and no private byte in any replicated surface.
 
 
@@ -214,21 +214,21 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **B — Corpus transport and CLI errors.**
 
-- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:123-147`)
-- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:209-223`)
-- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:66-92`)
-- “stats history runs `brain stats --history` and the route passes its nulls through” ([source](../packages/ui-server/tests/brain-client.test.ts)), (`stats history runs`, `packages/ui-server/tests/brain-client.test.ts:94-121`)
+- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:125-149`)
+- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:211-225`)
+- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:68-94`)
+- “stats history runs `brain stats --history` and the route passes its nulls through” ([source](../packages/ui-server/tests/brain-client.test.ts)), (`stats history runs`, `packages/ui-server/tests/brain-client.test.ts:96-123`)
 - `mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame` ([source](../packages/ui-server/tests/http-cli-errors.test.ts)), (`mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame`, `packages/ui-server/tests/http-cli-errors.test.ts:7-37`)
 
 **C — Capture and index recovery.**
 
-- `capture keeps partial success and retry runs only index through the actual CLI adapter` ([source](../packages/ui-server/tests/capture-outcome.test.ts)), (`capture keeps partial success and retry runs only index through the actual CLI adapter`, `packages/ui-server/tests/capture-outcome.test.ts:8-35`)
+- `capture keeps partial success and retry runs only index through the actual CLI adapter` ([source](../packages/ui-server/tests/capture-outcome.test.ts)), (`capture keeps partial success and retry runs only index through the actual CLI adapter`, `packages/ui-server/tests/capture-outcome.test.ts:10-37`)
 - `mounted capture rejects incorrect JSON media, oversized bytes and missing content without invoking add` ([source](../packages/ui-server/tests/http-validation.test.ts)), (`mounted capture rejects incorrect JSON media, oversized bytes and missing content without invoking add`, `packages/ui-server/tests/http-validation.test.ts:6-28`)
 
 **Y — Sync reservation.**
 
-- `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:20-71`)
-- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:73-85`)
+- `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:22-73`)
+- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:75-87`)
 
 **V — Mounted validation.**
 

@@ -1,4 +1,4 @@
-import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
+import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
 import { boundaryPlanner, inProcessPlanner, type ApplicationPlanner } from "../src/brain/application.js";
 import { createIndexBatch, IndexFlushError } from "../src/brain/index-batch.js";
 import { createBrainAccess } from "../../ui-backend-pi/src/brain-access.js";
@@ -18,6 +18,8 @@ import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import { runSession } from "../src/ws/run-session.js";
 import { WsHost } from "../src/ws/host.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
+
+const { createFixtureHostBoundary } = installNativeHostFixtures();
 
 test("the real session bridge applies, rechecks revocation and records exact effects", async () => {
   const root = mkdtempSync(join(tmpdir(), "ws-brain-application-"));
