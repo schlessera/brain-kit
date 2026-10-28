@@ -166,7 +166,11 @@ and opening option. Absent negotiation retains reviewed behavior. Each native
 handle binds to a newly minted host task before dispatch, never to manual, running
 or future work. Context is frozen and bounded; identity tombstones outlive receipt
 eviction. Failed/ambiguous delivery is not replay permission. Replacement epochs
-receive historical outcomes only and never replay work.
+receive historical outcomes only and never replay work. Recovery rechecks the
+registered owner after storage awaits, so concurrent resumes share one epoch
+counter and use ordinary replacement. Native refusals terminate under their
+exact binding without an executed turn, releasing pending slots while keeping
+tombstones. A binding/refusal failure closes the epoch rather than borrowing work.
 
 Gemini transcription has no captured-input identity. In contextual mode it is
 unassigned from epoch start with unavailable timing and its actual finished signal

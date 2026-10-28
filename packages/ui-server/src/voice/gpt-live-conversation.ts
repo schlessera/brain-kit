@@ -221,6 +221,14 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
       if (!options.contextualTasks || ended || options.signal.aborted || bindings.has(ref.nativeHandle) || !handles.has(ref.nativeHandle)) throw new Error("Native task binding is unavailable.");
       bindings.set(ref.nativeHandle, { taskId: ref.taskId, requestId: ref.requestId });
     },
+    refuseContextualWork(ref, _reason) {
+      const binding = bindings.get(ref.nativeHandle);
+      if (!options.contextualTasks || ended || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !binding || binding.taskId !== ref.taskId || binding.requestId !== ref.requestId) throw new Error("Exact contextual refusal binding is unavailable.");
+      const handle = handles.get(ref.nativeHandle);
+      if (closing || !handle || handle.returned) throw new Error("Native refusal is no longer current.");
+      handle.returned = true;
+      send({ type: "session.commentary.append", event_id: crypto.randomUUID(), delegation_id: ref.nativeHandle, content: "Host admission refused this task; no work was executed." });
+    },
     appendAudio(chunk) {
       if (ended || closing || options.signal.aborted) throw new Error("GPT-Live epoch ended.");
       if (chunk.rate !== 24000 || !chunk.pcm.length || chunk.pcm.length % 2 || chunk.pcm.length > CONVERSATION_LIMITS.maxAudioChunkBytes || chunk.sequence !== lastAudio + 1) {

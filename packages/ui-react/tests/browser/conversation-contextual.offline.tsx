@@ -100,7 +100,7 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
 }
 
-for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-finished", "finished-then-pcm"] as const) test(`${provider} automatic background task: three turns, ${mode}, actual policy and exact result`, async ctx => {
+for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-finished", "finished-then-pcm"] as const) test(`${provider} automatic background task: initiating plus three subsequent exchanges, ${mode}, actual policy and exact result`, async ctx => {
   const s = await contextualScene(ctx, provider, "permitted", mode === "finished-then-pcm" ? 320 : 390, mode === "finished-then-pcm");
   const native = (id: string) => provider === "gemini" ? { toolCall: { functionCalls: [{ id, name: "host_task" }] } }
     : { type: "session.delegation.created", event_id: `native-${id}`, offset_ms: 500, delegation: { id, type: "delegation", target: "client" } };
@@ -115,15 +115,15 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
     expect(config.delegation).toEqual({ type: "client", acknowledgement_delay_ms: 800 });
     expect(config.instructions).toContain("Generate <|SpawnThinking|>");
   }
-  for (let turn = 0; turn < 3; turn++) {
+  for (let turn = 0; turn < 4; turn++) {
     if (turn) {
       const before = s.socket.frames("conversation_audio").length; s.mic.speak();
       await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
       await s.pump();
-      expect(s.client.state.getState().micOn, "second/third ordinary capture remains open without invented finality").toBe(true);
+      expect(s.client.state.getState().micOn, "subsequent ordinary capture remains open without invented finality").toBe(true);
       await s.pump([recognize(turn + 10, " A delayed Ithaca fragment.")]);
     }
-    await s.pump([recognize(turn, ["Find the departure signal note and capture the watch.", "What about our route?", "Tell me about the Sirens while we wait."][turn]!)]);
+    await s.pump([recognize(turn, ["Find the departure signal note and capture the watch.", "What about our route?", "Tell me about the Sirens while we wait.", "And the harbour watch?"][turn]!)]);
     if (!turn) {
       await s.pump([native("departure-1")]);
       await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.read; }).toContain("bronze owl");
@@ -140,12 +140,15 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
     await expect.poll(() => s.host.textContent).toContain(`Continuing the voyage conversation ${turn + 1}.`);
     await expect.poll(() => s.client.state.getState().playing).toBe(true);
     await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
-    expect(s.evidence().released, "backend completion is causally blocked throughout the three-turn exchange").toBe(false);
+    expect(s.evidence().released, "backend completion is causally blocked throughout initiating plus three subsequent exchanges").toBe(false);
     expect(s.evidence().tasks).toHaveLength(1);
     expect(s.evidence().tasks[0].completed).toBe(false);
     expect(s.evidence().effect).toBe(false);
     expect(s.client.state.getState().micOn).toBe(true);
   }
+  expect(s.socket.frames("conversation_endpoint"), "initiating capture plus three subsequent spoken inputs before backend release").toHaveLength(4);
+  expect(s.downstream.filter(f => f.type === "conversation_event" && f.event.kind === "output_transcript" && f.event.text.startsWith("Continuing the voyage conversation")), "each unresolved-backend exchange produced actual output and playback").toHaveLength(4);
+  expect(s.host.textContent).not.toContain("bronze owl");
   expect(s.client.state.getState().unassigned.map(f => f.text).join("")).toContain(" A delayed Ithaca fragment.");
   expect(s.client.state.getState().unassigned.every(f => !("utteranceId" in f))).toBe(true);
   if (provider === "gemini") expect(s.client.state.getState().unassigned.every(f => f.timing?.kind === "unavailable" && !f.sessionInterval)).toBe(true);
@@ -170,7 +173,7 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   if (provider === "gemini") expect(returned).toMatchObject({ scheduling: "WHEN_IDLE", willContinue: false });
   const facts = provider === "gemini" ? returned.response.output : returned.content;
   expect(facts).toContain("bronze owl");
-  await s.pump(reply(4, facts)); // scripted provider incorporation; no claim of live model NLU
+  await s.pump(reply(5, facts)); // scripted provider incorporation; no claim of live model NLU
   await expect.poll(() => s.client.state.getState().outputs.some(o => o.generated.includes("bronze owl"))).toBe(true);
   await expect.poll(() => s.host.textContent).toContain("bronze owl");
   await expect.poll(() => s.client.state.getState().playing).toBe(true);

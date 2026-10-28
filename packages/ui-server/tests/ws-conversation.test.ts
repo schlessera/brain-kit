@@ -1344,3 +1344,52 @@ test("a contextual provider's void return is not promoted to acceptance evidence
   await until(() => client.last(requestId).delivery !== "pending");
   expect(client.last(requestId).delivery).toBe("unknown");
 });
+
+
+test("concurrent durable recovery has one owner and monotonically distinct epochs", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const initial = await s.connect();
+  const c = await initial.open({ contextualTasks: true });
+  s.host.conversations!.closeAll();
+  await s.host.catalog.settled!();
+  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.live.provider), configurable: true });
+  const load = s.host.catalog.loadConversation!.bind(s.host.catalog);
+  const releases: (() => void)[] = [];
+  Object.defineProperty(s.host.catalog, "loadConversation", { value: async (...args: Parameters<typeof load>) => {
+    const snapshot = await load(...args);
+    await new Promise<void>(resolve => releases.push(resolve));
+    return snapshot;
+  } });
+  const epochs: number[] = [];
+  const save = s.host.catalog.saveConversationEpoch!.bind(s.host.catalog);
+  Object.defineProperty(s.host.catalog, "saveConversationEpoch", { value: async (record: Parameters<typeof save>[0]) => {
+    epochs.push(record.epoch); await save(record);
+  } });
+  const a = await s.connect(), b = await s.connect();
+  a.send({ type: "conversation_start", conversationId: c.id, contextualTasks: true });
+  b.send({ type: "conversation_start", conversationId: c.id, contextualTasks: true });
+  await until(() => releases.length === 2);
+  releases[0]!();
+  await until(() => a.frames("conversation_opened").length === 1);
+  releases[1]!();
+  await until(() => b.frames("conversation_opened").length === 1);
+  expect(epochs).toEqual([2, 3]);
+  expect(a.frames("conversation_closed").at(-1)?.reason).toBe("replaced");
+  expect(s.live.sessions.filter(session => !session.closed)).toHaveLength(1);
+  const loser = s.live.sessions.at(-2)!, winner = s.live.sessions.at(-1)!;
+  const active = { id: c.id, epoch: 3, session: winner };
+  await b.capture(active);
+  for (const [session, handle] of [[loser, "loser-task"], [winner, "winner-task"]] as const) {
+    session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Capture the Ithaca watch.", sessionInterval: { startMs: 0, endMs: 20 } });
+    session.emit({ kind: "work_requested", handle });
+  }
+  await until(() => s.turns.length === 1);
+  winner.emit({ kind: "work_requested", handle: "winner-task" });
+  s.turns[0]!.answer("The watch was captured once.");
+  await until(() => winner.returned.length === 1);
+  await s.host.catalog.settled!();
+  expect(s.turns).toHaveLength(1);
+  expect(loser.returned).toHaveLength(0);
+  expect(winner.returned[0]!.ref).toMatchObject({ epoch: 3, nativeHandle: "winner-task" });
+  expect((await load(c.id, testPrincipal().id))?.epoch).toBe(3);
+});

@@ -153,14 +153,16 @@ export class ConversationHost {
   async start(ws: WSContext, connection: ConnectionState, msg: ClientConversationStart): Promise<void> {
     if (connection.closed) return;
     const principalId = connection.authorization.principalId;
-    const owned = this.byConnection.get(connection);
     let conversation: Conversation;
     if (msg.conversationId !== undefined) {
       let found = this.conversations.get(msg.conversationId);
       if (!found && this.host.catalog.loadConversation) {
         try {
           const stored = await this.host.catalog.loadConversation(msg.conversationId, principalId);
-          if (stored && this.makeRoom()) {
+          if (connection.closed || !connection.authorization.valid) return;
+          // Another resume may have registered an owner while storage awaited.
+          found = this.conversations.get(msg.conversationId);
+          if (!found && stored && this.makeRoom()) {
             found = { id: stored.id, principalId, lastEpoch: stored.epoch,
               ...(stored.sessionId ? { sessionId: stored.sessionId } : {}), ...(stored.agentProviderId ? { agentProviderId: stored.agentProviderId } : {}),
               connection: null, ws: null, epoch: null, receipts: [], byRequestId: new Map(), usedRequestIds: new Set(stored.requestIds), queue: [], running: null, outputs: new Map(), announced: new Set() };
@@ -174,6 +176,7 @@ export class ConversationHost {
         this.refuse(ws, "CONVERSATION_UNKNOWN", "No conversation with that id can be resumed here.");
         return;
       }
+      const owned = this.byConnection.get(connection);
       if (owned && owned !== found) {
         this.refuse(ws, "CONVERSATION_LIMIT", "Stop this connection's conversation before resuming another.");
         return;
@@ -186,7 +189,7 @@ export class ConversationHost {
       }
       if (conversation.sessionId === undefined && msg.sessionId !== undefined) conversation.sessionId = msg.sessionId;
     } else {
-      if (owned) {
+      if (this.byConnection.has(connection)) {
         this.refuse(ws, "CONVERSATION_LIMIT", `A connection holds at most ${CONVERSATION_LIMITS.maxConversationsPerConnection} conversation.`);
         return;
       }
@@ -250,7 +253,7 @@ export class ConversationHost {
         resync: { work: conversation.receipts.map((work) => ({ ...work.receipt })) },
       });
       assertLiveConversationSession(session);
-      if (epoch.contextualTasks && !session.bindContextualWork) throw new Error("Contextual provider did not expose exact task binding");
+      if (epoch.contextualTasks && (!session.bindContextualWork || !session.refuseContextualWork)) throw new Error("Contextual provider did not expose exact task binding");
     } catch (err) {
       this.host.log.emit({
         severityText: "WARN",
@@ -698,17 +701,21 @@ export class ConversationHost {
       requestId, state: "queued", delivery: "pending", recognized, submitted }, nativeHandle: handle, withdrawn: false, facts: "", settled: false, sawResult: false };
     const refuse = (reason: string): void => {
       work.durableReady = true; work.settled = true; work.receipt.state = "refused"; work.receipt.delivery = "discarded"; work.receipt.reason = reason;
+      this.terminateRefusedNative(conversation, epoch, work);
       this.retainReceipt(conversation, work); this.sendReceipt(conversation, work);
     };
     if (conversation.receipts.length >= MAX_CONVERSATION_RECEIPTS && !conversation.receipts.some(evictable)) {
       this.endEpoch(conversation, "backpressure", "Host result receipt capacity exceeded.", epoch); return;
     }
+    try { epoch.session!.bindContextualWork!({ taskId, requestId, nativeHandle: handle }); }
+    catch {
+      // A broken binding cannot safely be answered under another identity.
+      return refuse("The exact native task binding is unavailable.");
+    }
     if (epoch.lastAudioSequence < 0 || !recognized.trim()) return refuse("No recent recognition is available to identify this task.");
     if (epoch.contextDigests.has(digest)) return refuse("This unchanged conversation context already proposed a task; it will not be replayed.");
     if (!conversation.connection?.authorization.valid || conversation.connection.closed || epoch.closed) return refuse("The conversation is no longer authorized.");
     if (conversation.usedRequestIds.size >= MAX_CONVERSATION_REQUEST_IDS || conversation.queue.length + Number(!!conversation.running) >= CONVERSATION_LIMITS.maxQueuedWork) return refuse("Host task capacity exceeded.");
-    try { epoch.session!.bindContextualWork!({ taskId, requestId, nativeHandle: handle }); }
-    catch { return refuse("The exact native task binding is unavailable."); }
     epoch.contextDigests.add(digest);
     conversation.usedRequestIds.add(requestId);
     this.retainReceipt(conversation, work);
@@ -721,8 +728,21 @@ export class ConversationHost {
     }, () => {
       const index = conversation.queue.indexOf(work);
       if (index >= 0) conversation.queue.splice(index, 1);
+      work.durableReady = true; // Persist the terminal no-dispatch tombstone, never retry admission.
       this.settle(conversation, work, "refused", { reason: "Task identity could not be retained. No work was dispatched." });
     });
+  }
+
+  /** Refusal is terminal native bookkeeping, never a backend turn/result. */
+  private terminateRefusedNative(conversation: Conversation, epoch: Epoch, work: Work): void {
+    if (work.receipt.provenance !== "contextual" || epoch.closed || conversation.epoch !== epoch) return;
+    try {
+      epoch.session!.refuseContextualWork!({ conversationId: conversation.id, epoch: epoch.number,
+        taskId: work.receipt.taskId, requestId: work.receipt.requestId, nativeHandle: work.receipt.nativeHandle },
+        work.receipt.reason ?? "Host admission refused this task.");
+    } catch {
+      this.endEpoch(conversation, "provider_error", "The native refusal could not be submitted; no replay.", epoch);
+    }
   }
 
   private pumpQueue(conversation: Conversation): void {
@@ -814,6 +834,7 @@ export class ConversationHost {
         }
       }
     }
+    if (outcome === "refused" && conversation.epoch?.number === work.receipt.epoch) this.terminateRefusedNative(conversation, conversation.epoch, work);
     this.deliver(conversation, work);
     this.sendReceipt(conversation, work);
     // Next request on a fresh task: settle can run inside handleChatMessage.

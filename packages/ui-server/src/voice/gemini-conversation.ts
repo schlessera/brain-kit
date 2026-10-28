@@ -233,6 +233,13 @@ async function openGemini(
       if (!options.contextualTasks || ended || options.signal.aborted || bindings.has(ref.nativeHandle) || !handles.has(ref.nativeHandle)) throw new Error("Native task binding is unavailable.");
       bindings.set(ref.nativeHandle, { taskId: ref.taskId, requestId: ref.requestId });
     },
+    refuseContextualWork(ref, reason) {
+      const binding = bindings.get(ref.nativeHandle);
+      if (!options.contextualTasks || ended || options.signal.aborted || ref.conversationId !== scope.conversationId || ref.epoch !== scope.epoch || !binding || binding.taskId !== ref.taskId || binding.requestId !== ref.requestId) throw new Error("Exact contextual refusal binding is unavailable.");
+      if (!handles.has(ref.nativeHandle)) throw new Error("Native refusal is no longer current.");
+      handles.delete(ref.nativeHandle); bindings.delete(ref.nativeHandle);
+      send({ toolResponse: { functionResponses: [{ id: ref.nativeHandle, name: "host_task", response: { outcome: "refused", output: reason.slice(0, 500) }, scheduling: "SILENT", willContinue: false }] } });
+    },
     appendAudio(chunk) {
       if (ended || options.signal.aborted) throw new Error("Gemini Live epoch ended.");
       if (chunk.rate !== INPUT.sampleRate || !chunk.pcm.length || chunk.pcm.length % 2 || chunk.pcm.length > CONVERSATION_LIMITS.maxAudioChunkBytes || chunk.sequence <= lastAudio) {

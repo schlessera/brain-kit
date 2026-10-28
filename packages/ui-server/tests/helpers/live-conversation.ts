@@ -100,6 +100,7 @@ export function fakeLiveProvider(capabilities: Partial<ConversationCapabilities>
         appendAudio: (chunk) => record.audio.push(chunk),
         markEndpoint: (utteranceId) => record.endpoints.push(utteranceId),
         bindContextualWork: () => {},
+        refuseContextualWork: () => {},
         returnWork: async (ref, result) => {
           record.returned.push({ ref, result });
           // A provider that never acknowledges: the host's delivery stays pending.

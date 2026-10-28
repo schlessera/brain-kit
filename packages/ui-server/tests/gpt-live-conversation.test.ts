@@ -1,5 +1,6 @@
 /** Real primary WebSocket transport redirected to a loopback fixture, no keys/network. */
 import { afterEach, expect, test } from "bun:test";
+import { contextualRefusals } from "./helpers/contextual-refusals";
 import type { SessionStartEvent, SessionStartedEvent, InputTranscriptDeltaEvent, DelegationCreatedEvent } from "openai/resources/live/live";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
 import { createGptLiveConversationProvider } from "../src/voice/gpt-live-conversation";
@@ -408,4 +409,28 @@ test("contextual GPT lost append acknowledgement is unknown and cannot replay an
   f.closeRemote(); await rejection;
   await expect(f.session.returnWork(contextual, result)).rejects.toThrow("correlation");
   expect(f.sent.filter(m => m.type === "session.commentary.append")).toHaveLength(1);
+});
+
+for (const mode of ["missing", "duplicate", "queue", "aged", "no-audio", "storage", "request-identity", "binding", "submission", "authorization"] as const) test(`contextual refusals release native capacity: ${mode}`, async () => {
+  const f = await fixture(true, true, true);
+  const oldCleanup = cleanup!;
+  await contextualRefusals("gpt", mode, f, close => { cleanup = () => { close(); oldCleanup(); }; });
+});
+
+
+test("contextual refusal requires exact scope and binding and permanently consumes the handle", async () => {
+  const f = await fixture(true, true, true);
+  f.emit(delegation("refusal"));
+  await until(() => f.received.some(e => e.kind === "unassigned_delegation" && e.handle === "refusal"));
+  const binding = { taskId: "task", requestId: "request", nativeHandle: "refusal" };
+  const ref = { conversationId: "ithaca", epoch: 1, ...binding };
+  expect(() => f.session.refuseContextualWork!(ref, "No recognition.")).toThrow("binding");
+  f.session.bindContextualWork!(binding);
+  for (const mismatch of [{ epoch: 2 }, { conversationId: "other" }, { taskId: "other" }, { requestId: "other" }, { nativeHandle: "other" }]) {
+    expect(() => f.session.refuseContextualWork!({ ...ref, ...mismatch }, "No recognition.")).toThrow("binding");
+  }
+  f.session.refuseContextualWork!(ref, "No recognition.");
+  expect(() => f.session.refuseContextualWork!(ref, "No recognition.")).toThrow();
+  expect(() => f.session.bindContextualWork!(binding)).toThrow();
+  await expect(f.session.returnWork({ ...ref, provenance: "contextual", turnId: "unrelated" }, result)).rejects.toThrow();
 });

@@ -1969,7 +1969,7 @@ backend requests retain their policy; they do not define live task policy.
 `ConversationCapabilities.contextualTasks` is optional evidence. A new client
 sends `conversation_start.contextualTasks:true`. The host enables it only with
 provider `supported` evidence, durable catalog support and the session's exact
-binding operation. `conversation_opened.capabilities.contextualTasks` reports
+binding and terminal refusal operations. `conversation_opened.capabilities.contextualTasks` reports
 the effective mode. Omission/unsupported keeps reviewed admission; an older
 provider or client never silently gains automatic mode. A client omitting negotiation
 when resuming retained contextual receipts receives `CONVERSATION_CAPABILITY`
@@ -1995,7 +1995,16 @@ There is no extra ASR, classifier or provider executor. Recognition predating
 fresh audio in this epoch is excluded from task context, including resync echoes.
 This is an epoch activity gate, not captured-utterance attribution. No available recognition
 means visible refusal rather than waiting indefinitely or guessing. Identical
-snapshots are refused rather than replayed. Existing queue (four), native pending
+snapshots are refused rather than replayed. Every refused native request is terminal:
+the optional (required in negotiated contextual mode) session operation
+`refuseContextualWork(ref, reason)` requires the exact conversation/epoch and
+pre-bound task/request/native handle, without a fabricated turn id. It releases
+pending capacity while retaining identity tombstones. Gemini sends a final
+`SILENT` function response with `outcome:"refused"`; GPT sends a bounded refusal
+commentary on the exact delegation. Neither is a completed task result or an
+acceptance/playback claim. Binding or refusal submission failure closes the
+epoch instead of answering another request. Durable admission-write failure also
+terminates the native request without dispatch. Existing queue (four), native pending
 (eight), fragment/text/audio, result (4,000 characters), timeout and ordinary
 budget controls remain. Four thousand ninety-six host/native identities require
 a new conversation/epoch rather than forgetting a consumed identity.
@@ -2040,7 +2049,9 @@ stored in ui.db through its ordered write worker before contextual dispatch.
 Tombstones remain up to 4,096 tasks; up to 64 durable conversations are retained.
 A process restart recovers queued/running work as `state:"unknown"`, with an
 explicit unknown-effect/no-replay explanation. Pending delivery becomes unknown.
-No stored row is an executable queue. Resume increments the stored epoch and
+No stored row is an executable queue. Concurrent recovery reuses the registered
+conversation owner after awaiting storage; replacement ends the former epoch,
+so simultaneous resumes never open the same next epoch twice. Resume increments the stored epoch and
 supplies bounded historical outcomes only; it never replays audio, tasks or
 results. Forgotten, foreign-principal or corrupt identities refuse recovery.
 Effect journals and supported revert/undo remain authoritative for recovery;

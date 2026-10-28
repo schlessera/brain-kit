@@ -7022,6 +7022,11 @@ signatures (every public export and the types it is made of)
             requestId: string;
             nativeHandle: string;
         }): void;
+        refuseContextualWork?(ref: ConversationScope & {
+            taskId: string;
+            requestId: string;
+            nativeHandle: string;
+        }, reason: string): void;
         returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void | {
             acceptance: "acknowledged" | "unknown";
         }>;

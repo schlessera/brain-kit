@@ -1,5 +1,6 @@
 /** Real Bun WebSocket transport, loopback only. No vendor session or key. */
 import { afterEach, expect, test } from "bun:test";
+import { contextualRefusals } from "./helpers/contextual-refusals";
 import { createGeminiConversationProvider } from "../src/voice/gemini-conversation";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
 
@@ -604,4 +605,28 @@ test("contextual Gemini result requires the exact pre-dispatch binding and never
   await until(() => f.sent.some(m => m.toolResponse));
   expect(f.sent.find(m => m.toolResponse).toolResponse.functionResponses[0]).toMatchObject({ id: "context-native", name: "host_task", scheduling: "SILENT", willContinue: false });
   await expect(f.session.returnWork(contextual, result)).rejects.toThrow("binding");
+});
+
+for (const mode of ["missing", "duplicate", "queue", "aged", "no-audio", "storage", "request-identity", "binding", "submission", "authorization"] as const) test(`contextual refusals release native capacity: ${mode}`, async () => {
+  const f = await fixture(true, true, false, "text", true);
+  const oldCleanup = cleanup!;
+  await contextualRefusals("gemini", mode, f, close => { cleanup = () => { close(); oldCleanup(); }; });
+});
+
+
+test("contextual refusal requires exact scope and binding and permanently consumes the handle", async () => {
+  const f = await fixture(true, true, false, "text", true);
+  f.emit({ toolCall: { functionCalls: [{ id: "refusal", name: "host_task" }] } });
+  await until(() => f.received.some(e => e.kind === "work_requested" && e.handle === "refusal"));
+  const binding = { taskId: "task", requestId: "request", nativeHandle: "refusal" };
+  const ref = { conversationId: "ithaca", epoch: 1, ...binding };
+  expect(() => f.session.refuseContextualWork!(ref, "No recognition.")).toThrow("binding");
+  f.session.bindContextualWork!(binding);
+  for (const mismatch of [{ epoch: 2 }, { conversationId: "other" }, { taskId: "other" }, { requestId: "other" }, { nativeHandle: "other" }]) {
+    expect(() => f.session.refuseContextualWork!({ ...ref, ...mismatch }, "No recognition.")).toThrow("binding");
+  }
+  f.session.refuseContextualWork!(ref, "No recognition.");
+  expect(() => f.session.refuseContextualWork!(ref, "No recognition.")).toThrow();
+  expect(() => f.session.bindContextualWork!(binding)).toThrow();
+  await expect(f.session.returnWork({ ...ref, provenance: "contextual", turnId: "unrelated" }, result)).rejects.toThrow();
 });

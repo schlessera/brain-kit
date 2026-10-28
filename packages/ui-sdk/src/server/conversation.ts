@@ -139,6 +139,8 @@ export interface LiveConversationSession {
   markEndpoint(utteranceId: string): void;
   /** Required when contextualTasks is negotiated; binds before any dispatch. */
   bindContextualWork?(ref: { taskId: string; requestId: string; nativeHandle: string }): void;
+  /** Required for contextual tasks: terminate an exactly bound refusal without a turn. */
+  refuseContextualWork?(ref: ConversationScope & { taskId: string; requestId: string; nativeHandle: string }, reason: string): void;
   returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void | { acceptance: "acknowledged" | "unknown" }>;
   /** Close the remote session; `unknown` when the provider cannot confirm it. */
   close(): Promise<{ remote: "acknowledged" | "unknown" }>;
