@@ -1,5 +1,6 @@
 /** Real primary WebSocket transport redirected to a loopback fixture, no keys/network. */
 import { afterEach, expect, test } from "bun:test";
+import { contextualRefusals } from "./helpers/contextual-refusals";
 import type { SessionStartEvent, SessionStartedEvent, InputTranscriptDeltaEvent, DelegationCreatedEvent } from "openai/resources/live/live";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
 import { createGptLiveConversationProvider } from "../src/voice/gpt-live-conversation";
@@ -21,7 +22,7 @@ async function until(check: () => boolean): Promise<void> {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw new Error("transport condition timed out"); await Bun.sleep(1); }
 }
-async function fixture(ack = true, consume = true) {
+async function fixture(ack = true, consume = true, contextualTasks = false) {
   const sent: any[] = [];
   const received: LiveConversationEvent[] = [];
   let remote: Bun.ServerWebSocket<undefined> | undefined;
@@ -50,7 +51,7 @@ async function fixture(ack = true, consume = true) {
   const abort = new AbortController();
   cleanup = () => { abort.abort(); remote?.close(); server.stop(true); };
   const provider = createGptLiveConversationProvider("keyless-odyssey-placeholder");
-  const opening = provider.open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, resync: { work: [] } });
+  const opening = provider.open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, contextualTasks, resync: { work: [] } });
   await until(() => sent.some((m) => m.type === "session.start"));
   let session: LiveConversationSession | undefined;
   if (ack) {
@@ -243,7 +244,7 @@ test("real adapter and host keep chat progress and a question interactive while 
   expect(frames.some((m) => m.type === "text_delta" && m.text === "Checking the harbour notes.")).toBe(true);
   expect(f.sent.some((m) => m.type === "session.commentary.append")).toBe(false);
   expect(frames.some((m) => m.type === "tool_use_start" && m.toolUseId === "lookup-1")).toBe(true);
-  expect(turns[0]!.noGrantSurface).toBe(true);
+  expect(turns[0]!.noGrantSurface).toBeUndefined();
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "u2", sequence: 1, rate: 24000, pcm: "AAA=" });
   await until(() => f.sent.filter((m) => m.type === "session.input_audio.append").length === 2);
   f.emit(input("Also check the harbour fees.", "host-input-2", f.sent.filter((m) => m.type === "session.input_audio.append").at(-1).event_id));
@@ -303,7 +304,7 @@ test("the native primary socket refuses redirects instead of forwarding Bearer c
   } });
   const abort = new AbortController();
   cleanup = () => { abort.abort(); source.stop(true); target.stop(true); };
-  await expect(createGptLiveConversationProvider("keyless-odyssey-placeholder").open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, resync: { work: [] } })).rejects.toThrow("GPT-Live connection failed.");
+  await expect(createGptLiveConversationProvider("keyless-odyssey-placeholder").open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, contextualTasks: false, resync: { work: [] } })).rejects.toThrow("GPT-Live connection failed.");
   expect(redirectedRequests).toBe(0);
 });
 
@@ -373,4 +374,63 @@ test("replacement session missing-ID recognition remains unassigned despite hist
   expect(received.filter(e => e.kind === "unassigned_input_fragment")).toMatchObject([{ epoch: 2, sequence: 0, text: "New recognition." }]);
   expect(received.some(e => e.kind === "input_fragment" || e.kind === "error")).toBe(false);
   await next.close();
+});
+
+test("contextual GPT binds exact delegation and waits for matching append acknowledgement, never playback", async () => {
+  const f = await fixture(true, true, true);
+  f.emit(delegation("context-native"));
+  await until(() => f.received.some(e => e.kind === "unassigned_delegation"));
+  f.session.bindContextualWork!({ nativeHandle: "context-native", taskId: "task-one", requestId: "request-one" });
+  const contextual = { conversationId: "ithaca", epoch: 1, provenance: "contextual" as const, taskId: "task-one", requestId: "request-one", turnId: "turn-one", nativeHandle: "context-native" };
+  await expect(f.session.returnWork({ ...contextual, taskId: "task-two" }, result)).rejects.toThrow("binding");
+  await expect(f.session.returnWork(ref("context-native"), result)).rejects.toThrow("borrow");
+  let accepted = false;
+  const returning = f.session.returnWork(contextual, result).then(value => { accepted = true; return value; });
+  await until(() => f.sent.some(m => m.type === "session.commentary.append"));
+  const command = f.sent.find(m => m.type === "session.commentary.append");
+  expect(command.delegation_id).toBe("context-native");
+  f.emit({ type: "session.commentary.appended", event_id: "wrong-ack", client_event_id: "different-command", start_ms: 100, end_ms: 100 });
+  await f.audio("continued", 0); // causal foreground progress while result acceptance waits
+  expect(accepted).toBe(false);
+  f.emit({ type: "session.commentary.appended", event_id: "exact-ack", client_event_id: command.event_id, start_ms: 100, end_ms: 100 });
+  expect(await returning).toEqual({ acceptance: "acknowledged" });
+  expect(f.received.some(e => e.kind === "audio")).toBe(false);
+  await expect(f.session.returnWork(contextual, result)).rejects.toThrow("correlation");
+});
+
+test("contextual GPT lost append acknowledgement is unknown and cannot replay an effect", async () => {
+  const f = await fixture(true, true, true);
+  f.emit(delegation("lost-ack")); await until(() => f.received.some(e => e.kind === "unassigned_delegation"));
+  f.session.bindContextualWork!({ nativeHandle: "lost-ack", taskId: "task-one", requestId: "request-one" });
+  const contextual = { conversationId: "ithaca", epoch: 1, provenance: "contextual" as const, taskId: "task-one", requestId: "request-one", turnId: "turn-one", nativeHandle: "lost-ack" };
+  const returning = f.session.returnWork(contextual, result);
+  const rejection = expect(returning).rejects.toThrow("unknown");
+  await until(() => f.sent.some(m => m.type === "session.commentary.append"));
+  f.closeRemote(); await rejection;
+  await expect(f.session.returnWork(contextual, result)).rejects.toThrow("correlation");
+  expect(f.sent.filter(m => m.type === "session.commentary.append")).toHaveLength(1);
+});
+
+for (const mode of ["missing", "duplicate", "queue", "aged", "no-audio", "storage", "request-identity", "binding", "submission", "authorization"] as const) test(`contextual refusals release native capacity: ${mode}`, async () => {
+  const f = await fixture(true, true, true);
+  const oldCleanup = cleanup!;
+  await contextualRefusals("gpt", mode, f, close => { cleanup = () => { close(); oldCleanup(); }; });
+});
+
+
+test("contextual refusal requires exact scope and binding and permanently consumes the handle", async () => {
+  const f = await fixture(true, true, true);
+  f.emit(delegation("refusal"));
+  await until(() => f.received.some(e => e.kind === "unassigned_delegation" && e.handle === "refusal"));
+  const binding = { taskId: "task", requestId: "request", nativeHandle: "refusal" };
+  const ref = { conversationId: "ithaca", epoch: 1, ...binding };
+  expect(() => f.session.refuseContextualWork!(ref, "No recognition.")).toThrow("binding");
+  f.session.bindContextualWork!(binding);
+  for (const mismatch of [{ epoch: 2 }, { conversationId: "other" }, { taskId: "other" }, { requestId: "other" }, { nativeHandle: "other" }]) {
+    expect(() => f.session.refuseContextualWork!({ ...ref, ...mismatch }, "No recognition.")).toThrow("binding");
+  }
+  f.session.refuseContextualWork!(ref, "No recognition.");
+  expect(() => f.session.refuseContextualWork!(ref, "No recognition.")).toThrow();
+  expect(() => f.session.bindContextualWork!(binding)).toThrow();
+  await expect(f.session.returnWork({ ...ref, provenance: "contextual", turnId: "unrelated" }, result)).rejects.toThrow();
 });

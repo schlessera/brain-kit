@@ -5,6 +5,36 @@ talking to is not looking at a screen. Answers issue #55; binds the voice epic
 (#54) and the containment unit of the async-collaboration epic (#51). Nothing
 here is built yet — this is the design record the build is held to.
 
+## Live conversation policy supersession — 2026-10-28
+
+The [maintainer ruling on #3070](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905)
+requires the same effective ordinary backend/session/principal policy for all
+live conversation backends, including Gemini and GPT-Live. This supersedes the
+narrower voice membership, forced `noGrantSurface`, separate voice governance
+profile and client-Send-only requirements for host-admitted live-conversation
+work. The historical rationale and explicit restricted-posture API below remain
+applicable to callers that deliberately request that restricted posture.
+
+Live host work uses ordinary session preference, tool and application policy,
+protected paths, writer isolation, egress, budgets, scope, cancellation and
+journal/revert support. Permitted reads and writes proceed as typed work would.
+Work requiring typed confirmation uses the same screen card while speech may
+continue. No extra voice-only approval, denial or retrieval-only configuration
+is required. Safe and reversible work should use existing receipts and supported
+recovery; reversibility neither grants authority nor guarantees every effect
+can be undone. General policy improvements apply across modalities.
+
+Speech still cannot grant permission. Unknown recognition cannot settle a card;
+the authenticated screen remains the grant surface. A model's task proposal is
+context for host-owned execution, never authenticated user text or a privilege.
+Host admission mints task/request/turn identities and must bind each native
+handle to its new task before dispatch; it must not borrow a manual request by
+arrival order. Context and results are bounded, stale/cancelled/withdrawn results
+are discarded, and reconnect must not re-execute effects. Provider history
+remains append-only. The automatic-admission implementation and Gemini capture
+continuity are specified by #3070/#3064 separately from the ordinary-policy
+execution slice #3071.
+
 ## Summary
 
 Voice is a **modality on an ordinary turn**, not a second permission model. Two

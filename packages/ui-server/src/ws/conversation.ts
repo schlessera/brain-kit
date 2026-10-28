@@ -4,7 +4,8 @@
  * A `LiveConversationProvider` streams voice in and out; this module decides
  * what any of it means. It owns the identities — conversation, epoch,
  * utterance, request, host turn — and binds a provider's advisory work
- * requests to them only after a semantic commit from the client. Work runs
+ * requests either to exact reviewed input or to a newly admitted contextual
+ * task. Unkeyed native requests never borrow another request. Work runs
  * through the ordinary chat path (`handleChatMessage`), so the backend's
  * startTurn/followUp capabilities, the session queue and the permission
  * bridge are the same ones a typed message gets. One conversation submits one
@@ -69,6 +70,7 @@ interface Utterance {
 }
 
 interface Work {
+  durableReady?: boolean;
   receipt: ConversationWorkReceipt;
   nativeHandle?: string;
   withdrawn: boolean;
@@ -82,7 +84,13 @@ interface Work {
   handedOver?: { ref: ConversationWorkRef; result: ConversationWorkResult };
 }
 
+interface ContextFragment { key: string; text: string; kind: "recognition" | "generated"; at: number }
+
 interface Epoch {
+  contextualTasks: boolean;
+  context: ContextFragment[];
+  contextDigests: Set<string>;
+  nativeUsed: Set<string>;
   number: number;
   requestId?: string;
   session?: LiveConversationSession;
@@ -100,6 +108,7 @@ interface Epoch {
 }
 
 interface Conversation {
+  lastEpoch: number;
   id: string;
   agentProviderId?: string;
   principalId: string;
@@ -144,14 +153,30 @@ export class ConversationHost {
   async start(ws: WSContext, connection: ConnectionState, msg: ClientConversationStart): Promise<void> {
     if (connection.closed) return;
     const principalId = connection.authorization.principalId;
-    const owned = this.byConnection.get(connection);
     let conversation: Conversation;
     if (msg.conversationId !== undefined) {
-      const found = this.conversations.get(msg.conversationId);
+      let found = this.conversations.get(msg.conversationId);
+      if (!found && this.host.catalog.loadConversation) {
+        try {
+          const stored = await this.host.catalog.loadConversation(msg.conversationId, principalId);
+          if (connection.closed || !connection.authorization.valid) return;
+          // Another resume may have registered an owner while storage awaited.
+          found = this.conversations.get(msg.conversationId);
+          if (!found && stored && this.makeRoom()) {
+            found = { id: stored.id, principalId, lastEpoch: stored.epoch,
+              ...(stored.sessionId ? { sessionId: stored.sessionId } : {}), ...(stored.agentProviderId ? { agentProviderId: stored.agentProviderId } : {}),
+              connection: null, ws: null, epoch: null, receipts: [], byRequestId: new Map(), usedRequestIds: new Set(stored.requestIds), queue: [], running: null, outputs: new Map(), announced: new Set() };
+            for (const receipt of stored.receipts) this.retainReceipt(found, { receipt, nativeHandle: receipt.nativeHandle, withdrawn: true, facts: "", settled: true, sawResult: receipt.state === "completed", durableReady: true });
+            this.conversations.set(found.id, found);
+          }
+        } catch { this.refuse(ws, "CONVERSATION_STORAGE", "Conversation recovery is unavailable. No work was replayed."); return; }
+        if (connection.closed || !connection.authorization.valid) return;
+      }
       if (!found || found.principalId !== principalId) {
         this.refuse(ws, "CONVERSATION_UNKNOWN", "No conversation with that id can be resumed here.");
         return;
       }
+      const owned = this.byConnection.get(connection);
       if (owned && owned !== found) {
         this.refuse(ws, "CONVERSATION_LIMIT", "Stop this connection's conversation before resuming another.");
         return;
@@ -164,7 +189,7 @@ export class ConversationHost {
       }
       if (conversation.sessionId === undefined && msg.sessionId !== undefined) conversation.sessionId = msg.sessionId;
     } else {
-      if (owned) {
+      if (this.byConnection.has(connection)) {
         this.refuse(ws, "CONVERSATION_LIMIT", `A connection holds at most ${CONVERSATION_LIMITS.maxConversationsPerConnection} conversation.`);
         return;
       }
@@ -174,6 +199,7 @@ export class ConversationHost {
       }
       conversation = {
         id: crypto.randomUUID(),
+        lastEpoch: 0,
         ...(!msg.sessionId && msg.agentProviderId ? { agentProviderId: msg.agentProviderId } : {}),
         principalId,
         connection: null,
@@ -190,6 +216,10 @@ export class ConversationHost {
       };
       this.conversations.set(conversation.id, conversation);
     }
+    if (msg.contextualTasks !== true && conversation.receipts.some(work => work.receipt.provenance === "contextual")) {
+      this.refuse(ws, "CONVERSATION_CAPABILITY", "This conversation contains contextual task receipts. Resume with an updated conversation client; no work was replayed.");
+      return;
+    }
     conversation.connection = connection;
     conversation.ws = ws;
     this.byConnection.set(connection, conversation);
@@ -198,7 +228,9 @@ export class ConversationHost {
     // unsubmitted work end here. Submitted work keeps running.
     this.endEpoch(conversation, "replaced");
     const epoch: Epoch = {
-      number: (conversation.epoch?.number ?? 0) + 1,
+      number: ++conversation.lastEpoch,
+      contextualTasks: msg.contextualTasks === true && this.provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch,
+      context: [], contextDigests: new Set(), nativeUsed: new Set(),
       ...(msg.requestId ? { requestId: msg.requestId } : {}),
       abort: new AbortController(),
       closed: false,
@@ -212,11 +244,16 @@ export class ConversationHost {
     const scope = { conversationId: conversation.id, epoch: epoch.number };
     let session: LiveConversationSession;
     try {
+      await this.host.catalog.saveConversationEpoch?.({ id: conversation.id, principalId, epoch: epoch.number,
+        ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}) });
+      if (epoch.closed || connection.closed || !connection.authorization.valid) return;
       session = await this.provider.open(scope, {
         signal: epoch.abort.signal,
+        contextualTasks: epoch.contextualTasks,
         resync: { work: conversation.receipts.map((work) => ({ ...work.receipt })) },
       });
       assertLiveConversationSession(session);
+      if (epoch.contextualTasks && (!session.bindContextualWork || !session.refuseContextualWork)) throw new Error("Contextual provider did not expose exact task binding");
     } catch (err) {
       this.host.log.emit({
         severityText: "WARN",
@@ -240,7 +277,7 @@ export class ConversationHost {
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
       providerId: this.provider.id,
       ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}),
-      capabilities: { ...this.provider.capabilities },
+      capabilities: { ...this.provider.capabilities, contextualTasks: epoch.contextualTasks ? "supported" : "unsupported" },
       disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] },
       limits: { ...CONVERSATION_LIMITS },
       resync: { work: conversation.receipts.length, outputs: conversation.outputs.size },
@@ -309,7 +346,7 @@ export class ConversationHost {
     }
   }
 
-  /** Semantic commit: the only way a conversation creates host work. */
+  /** Reviewed admission; negotiated contextual tasks have their own host path. */
   commit(ws: WSContext, connection: ConnectionState, msg: ClientConversationCommit): void {
     const conversation = this.owned(ws, connection, msg.conversationId);
     if (!conversation) return;
@@ -399,9 +436,8 @@ export class ConversationHost {
     // One handle per request: further requests naming this utterance are
     // dropped, not parked, since nothing could ever answer them.
     for (const [handle, pending] of epoch.nativePending) {
-      if (pending.utteranceId === undefined || pending.utteranceId === utterance.id) {
+      if (pending.utteranceId === utterance.id) {
         if (work.nativeHandle === undefined) work.nativeHandle = handle;
-        else if (pending.utteranceId === undefined) continue;
         epoch.nativePending.delete(handle);
       }
     }
@@ -491,10 +527,15 @@ export class ConversationHost {
           this.endEpoch(conversation, "backpressure", "Unassigned recognition is full. Review the retained text before restarting voice.", epoch); return;
         }
         epoch.unassignedCount++; epoch.unassignedChars += event.text.length;
-        this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text, sessionInterval: { ...event.sessionInterval } } });
+        this.collectContext(epoch, `unassigned:${event.sequence}`, "recognition", event.text);
+        this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text,
+          ...(event.sessionInterval ? { sessionInterval: { ...event.sessionInterval } } : { timing: { kind: "unavailable" as const } }),
+          ...(event.finalization ? { finalization: event.finalization } : {}),
+        } });
         return;
       }
       case "unassigned_delegation": {
+        if (epoch.contextualTasks) { this.admitContextual(conversation, epoch, event.handle); return; }
         if (epoch.unassignedHandles.has(event.handle)) return;
         if (epoch.unassignedHandles.size >= CONVERSATION_LIMITS.maxPendingNativeRequests) {
           this.endEpoch(conversation, "backpressure", "Unassigned voice requests are full. These requests were not submitted.", epoch); return;
@@ -524,6 +565,7 @@ export class ConversationHost {
           this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxUtteranceChars} recognized characters for one utterance.`, epoch);
           return;
         }
+        this.collectContext(epoch, `input:${event.utteranceId}:${event.sequence}`, event.origin === "assistant" ? "generated" : "recognition", event.text);
         utterance.fragments.set(event.sequence, { sequence: event.sequence, text: event.text, origin: event.origin });
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "input_fragment", utteranceId: event.utteranceId, sequence: event.sequence, text: event.text,
@@ -535,6 +577,7 @@ export class ConversationHost {
         return;
       }
       case "output_transcript": {
+        this.collectContext(epoch, `output:${event.outputId}:${event.sequence}`, "generated", event.text);
         const record = this.output(conversation, epoch.number, event.outputId);
         record.generated = bounded(record.generated + event.text, CONVERSATION_LIMITS.maxGeneratedChars);
         this.send(conversation, { type: "conversation_event", ...scope, event: {
@@ -558,6 +601,7 @@ export class ConversationHost {
         return;
       }
       case "work_requested": {
+        if (epoch.contextualTasks) { this.admitContextual(conversation, epoch, event.handle); return; }
         const known = epoch.nativePending.has(event.handle) ||
           conversation.receipts.some((work) => work.receipt.epoch === epoch.number && work.nativeHandle === event.handle);
         if (known) return;
@@ -569,12 +613,11 @@ export class ConversationHost {
           return;
         }
         // Bind to committed work of this epoch that has no handle yet. The
-        // request itself never runs anything. A request naming its utterance
-        // binds to that work in any state; one naming none binds only to work
-        // still running, never to an older finished request.
+        // request itself never runs anything. Only an exact captured identity
+        // can bind reviewed work; no arrival-order fallback exists.
         const target = conversation.receipts.find((work) =>
           work.receipt.epoch === epoch.number && work.nativeHandle === undefined &&
-          (event.utteranceId !== undefined ? work.receipt.utteranceId === event.utteranceId : !work.settled));
+          event.utteranceId !== undefined && work.receipt.utteranceId === event.utteranceId);
         if (target) {
           target.nativeHandle = event.handle;
           // The result already went out without this handle: answer the
@@ -600,14 +643,22 @@ export class ConversationHost {
         return;
       }
       case "work_withdrawn": {
+        if (epoch.contextualTasks) {
+          if (epoch.nativeUsed.size >= MAX_CONVERSATION_REQUEST_IDS && !epoch.nativeUsed.has(event.handle)) {
+            this.endEpoch(conversation, "backpressure", "Native identity capacity exceeded.", epoch); return;
+          }
+          epoch.nativeUsed.add(event.handle);
+        }
         if (epoch.nativePending.delete(event.handle)) return;
         const work = conversation.receipts.find((candidate) =>
           candidate.receipt.epoch === epoch.number && candidate.nativeHandle === event.handle);
         if (!work || work.withdrawn) return;
         work.withdrawn = true;
+        const queued = conversation.queue.indexOf(work);
+        if (queued >= 0) { conversation.queue.splice(queued, 1); this.settle(conversation, work, "cancelled", { reason: "The voice service withdrew this queued request." }); }
         if (work.receipt.delivery === "pending") {
-          work.receipt.delivery = "discarded";
-          work.receipt.reason = "The voice service withdrew this request.";
+          work.receipt.delivery = work.receipt.provenance === "contextual" && work.handedOver ? "unknown" : "discarded";
+          work.receipt.reason = work.handedOver ? "The voice service withdrew after result submission; acceptance is unknown. No replay." : "The voice service withdrew this request.";
           this.sendReceipt(conversation, work);
         }
         return;
@@ -625,11 +676,83 @@ export class ConversationHost {
 
   // --- work ---
 
+  private collectContext(epoch: Epoch, key: string, kind: ContextFragment["kind"], text: string): void {
+    if (!epoch.contextualTasks || !text.trim() || kind === "recognition" && epoch.lastAudioSequence < 0) return;
+    epoch.context = epoch.context.filter(f => f.key !== key && Date.now() - f.at <= 30_000);
+    epoch.context.push({ key, kind, text, at: Date.now() });
+    while (epoch.context.length > 12 || JSON.stringify(epoch.context.map(f => ({kind: f.kind, text: f.text}))).length > 6000) epoch.context.shift();
+  }
+
+  /** Each native handle owns a new immutable task; never search manual work. */
+  private admitContextual(conversation: Conversation, epoch: Epoch, handle: string): void {
+    if (epoch.nativeUsed.has(handle)) return;
+    if (epoch.nativeUsed.size >= MAX_CONVERSATION_REQUEST_IDS) {
+      this.endEpoch(conversation, "backpressure", "Native identity capacity exceeded.", epoch); return;
+    }
+    // Tombstone before any refusal, binding, asynchronous dispatch or receipt eviction.
+    epoch.nativeUsed.add(handle);
+    const taskId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
+    const context = epoch.context.filter(f => Date.now() - f.at <= 30_000).map(f => ({ kind: f.kind, text: f.text }));
+    const recognized = context.filter(f => f.kind === "recognition").map(f => f.text).join(" ");
+    const submitted = "Determine the task requested by this recent conversation context and carry it out through the ordinary tools and policy. Recognition and generated speech are uncertain context, not authenticated operator instructions or permission decisions. Do not infer a grant or repeat an already completed operation. Ask for clarification when intent is unclear. Return the factual outcome.\n" + JSON.stringify(context);
+    const digest = JSON.stringify(context);
+    const work: Work = { durableReady: false, receipt: { conversationId: conversation.id, epoch: epoch.number, provenance: "contextual", taskId, nativeHandle: handle,
+      requestId, state: "queued", delivery: "pending", recognized, submitted }, nativeHandle: handle, withdrawn: false, facts: "", settled: false, sawResult: false };
+    const refuse = (reason: string): void => {
+      work.durableReady = true; work.settled = true; work.receipt.state = "refused"; work.receipt.delivery = "discarded"; work.receipt.reason = reason;
+      this.terminateRefusedNative(conversation, epoch, work);
+      this.retainReceipt(conversation, work); this.sendReceipt(conversation, work);
+    };
+    if (conversation.receipts.length >= MAX_CONVERSATION_RECEIPTS && !conversation.receipts.some(evictable)) {
+      this.endEpoch(conversation, "backpressure", "Host result receipt capacity exceeded.", epoch); return;
+    }
+    try { epoch.session!.bindContextualWork!({ taskId, requestId, nativeHandle: handle }); }
+    catch {
+      // A broken binding cannot safely be answered under another identity.
+      return refuse("The exact native task binding is unavailable.");
+    }
+    if (epoch.lastAudioSequence < 0 || !recognized.trim()) return refuse("No recent recognition is available to identify this task.");
+    if (epoch.contextDigests.has(digest)) return refuse("This unchanged conversation context already proposed a task; it will not be replayed.");
+    if (!conversation.connection?.authorization.valid || conversation.connection.closed || epoch.closed) return refuse("The conversation is no longer authorized.");
+    if (conversation.usedRequestIds.size >= MAX_CONVERSATION_REQUEST_IDS || conversation.queue.length + Number(!!conversation.running) >= CONVERSATION_LIMITS.maxQueuedWork) return refuse("Host task capacity exceeded.");
+    epoch.contextDigests.add(digest);
+    conversation.usedRequestIds.add(requestId);
+    this.retainReceipt(conversation, work);
+    conversation.queue.push(work);
+    this.sendReceipt(conversation, work);
+    void this.host.catalog.saveConversationTask!(conversation.principalId, { ...work.receipt }).then(() => {
+      work.durableReady = true;
+      this.sendReceipt(conversation, work);
+      this.pumpQueue(conversation);
+    }, () => {
+      const index = conversation.queue.indexOf(work);
+      if (index >= 0) conversation.queue.splice(index, 1);
+      work.durableReady = true; // Persist the terminal no-dispatch tombstone, never retry admission.
+      this.settle(conversation, work, "refused", { reason: "Task identity could not be retained. No work was dispatched." });
+    });
+  }
+
+  /** Refusal is terminal native bookkeeping, never a backend turn/result. */
+  private terminateRefusedNative(conversation: Conversation, epoch: Epoch, work: Work): void {
+    if (work.receipt.provenance !== "contextual" || epoch.closed || conversation.epoch !== epoch) return;
+    try {
+      epoch.session!.refuseContextualWork!({ conversationId: conversation.id, epoch: epoch.number,
+        taskId: work.receipt.taskId, requestId: work.receipt.requestId, nativeHandle: work.receipt.nativeHandle },
+        work.receipt.reason ?? "Host admission refused this task.");
+    } catch {
+      this.endEpoch(conversation, "provider_error", "The native refusal could not be submitted; no replay.", epoch);
+    }
+  }
+
   private pumpQueue(conversation: Conversation): void {
-    if (conversation.running || conversation.queue.length === 0) return;
+    if (conversation.running || conversation.queue.length === 0 || conversation.queue[0]!.durableReady === false) return;
     const connection = conversation.connection;
     const ws = conversation.ws;
     const work = conversation.queue.shift()!;
+    if (work.withdrawn || work.receipt.epoch !== conversation.epoch?.number || conversation.epoch.closed) {
+      this.settle(conversation, work, "cancelled", { reason: "This request no longer belongs to an active epoch." }); return;
+    }
     if (!connection || !ws || connection.closed || !connection.authorization.valid) {
       this.settle(conversation, work, "cancelled", { reason: "The conversation's connection ended before this request ran." });
       return;
@@ -642,7 +765,7 @@ export class ConversationHost {
       ...(conversation.agentProviderId ? { providerId: conversation.agentProviderId } : {}),
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
       attachments: [],
-      source: "voice-conversation",
+      source: work.receipt.provenance === "contextual" ? "voice-context" : "voice-conversation",
       requestId: work.receipt.requestId,
       work: this.hostWork(conversation, work),
     }).catch((err) => {
@@ -652,7 +775,10 @@ export class ConversationHost {
 
   private hostWork(conversation: Conversation, work: Work): HostWork {
     return {
-      posture: "voice",
+      // Speech is provenance, not a separate permission policy (#3070).
+      // Keep host-work identity/serialization while using ordinary admission,
+      // session preference, screen cards and supported recovery.
+      posture: "interactive",
       started: (turnId) => {
         if (work.settled) return;
         work.receipt.turnId = turnId;
@@ -664,6 +790,7 @@ export class ConversationHost {
         if (frame.type === "session_info") {
           work.receipt.sessionId = frame.sessionId;
           conversation.sessionId ??= frame.sessionId;
+          this.sendReceipt(conversation, work);
         } else if (frame.type === "text_delta") {
           work.facts = bounded(work.facts + frame.text, CONVERSATION_LIMITS.maxFactChars);
         } else if (frame.type === "result") {
@@ -707,6 +834,7 @@ export class ConversationHost {
         }
       }
     }
+    if (outcome === "refused" && conversation.epoch?.number === work.receipt.epoch) this.terminateRefusedNative(conversation, conversation.epoch, work);
     this.deliver(conversation, work);
     this.sendReceipt(conversation, work);
     // Next request on a fresh task: settle can run inside handleChatMessage.
@@ -729,11 +857,12 @@ export class ConversationHost {
       return discard("The epoch this request belonged to has ended.");
     }
     if (work.receipt.turnId === undefined) return discard("The request never started a turn.");
+    if (!conversation.connection?.authorization.valid || conversation.connection.closed) return discard("Current authorization is unavailable.");
     const session = epoch.session;
-    const ref = {
+    const ref: ConversationWorkRef = {
       conversationId: conversation.id,
       epoch: work.receipt.epoch,
-      utteranceId: work.receipt.utteranceId,
+      ...(work.receipt.provenance === "contextual" ? { provenance: "contextual" as const, taskId: work.receipt.taskId, nativeHandle: work.receipt.nativeHandle } : { utteranceId: work.receipt.utteranceId }),
       turnId: work.receipt.turnId,
       requestId: work.receipt.requestId,
       ...(work.nativeHandle !== undefined ? { nativeHandle: work.nativeHandle } : {}),
@@ -742,21 +871,27 @@ export class ConversationHost {
       ? { outcome: "completed" as const, facts: work.facts, delivery: "when-idle" as const }
       : { outcome: "error" as const, facts: bounded(work.receipt.reason ?? "The request failed.", CONVERSATION_LIMITS.maxFactChars), delivery: "quiet" as const };
     work.handedOver = { ref, result };
-    let returned: Promise<void>;
+    let returned: ReturnType<LiveConversationSession["returnWork"]>;
     try {
       returned = Promise.resolve(session.returnWork(ref, result));
     } catch (err) {
       returned = Promise.reject(err);
     }
     void returned.then(
-      () => {
+      (ack) => {
         if (work.receipt.delivery !== "pending") return;
-        work.receipt.delivery = "returned";
+        work.receipt.delivery = work.receipt.provenance === "contextual"
+          ? ack?.acceptance === "acknowledged" ? "returned" : "unknown"
+          : "returned";
+        if (work.receipt.delivery === "unknown") work.receipt.reason ??= "Result submitted; remote acceptance is unknown. It will not be replayed.";
         this.sendReceipt(conversation, work);
       },
       () => {
         if (work.receipt.delivery !== "pending") return;
-        discard("The voice service did not accept the result.");
+        if (work.receipt.provenance === "contextual") {
+          work.receipt.delivery = "unknown";
+          work.receipt.reason ??= "Voice result acceptance is unknown; it will not be replayed.";
+        } else discard("The voice service did not accept the reviewed result.");
         this.sendReceipt(conversation, work);
       }
     );
@@ -787,8 +922,8 @@ export class ConversationHost {
     // never be: its session is gone. A late acknowledgement cannot reopen it.
     for (const work of conversation.receipts) {
       if (work.receipt.epoch !== epoch.number || !work.settled || work.receipt.delivery !== "pending") continue;
-      work.receipt.delivery = "discarded";
-      work.receipt.reason ??= "The epoch ended before the voice service acknowledged the result.";
+      work.receipt.delivery = work.receipt.provenance === "contextual" && work.handedOver ? "unknown" : "discarded";
+      work.receipt.reason ??= "The epoch ended before result acceptance was known. No result will be replayed.";
       this.sendReceipt(conversation, work);
     }
     if (conversation.ws && reason !== "disconnected") {
@@ -927,6 +1062,11 @@ export class ConversationHost {
   }
 
   private sendReceipt(conversation: Conversation, work: Work): void {
+    if (work.receipt.provenance === "contextual" && work.durableReady) {
+      void this.host.catalog.saveConversationTask!(conversation.principalId, { ...work.receipt }).catch(() => {
+        this.endEpoch(conversation, "provider_error", "Task outcome persistence is unavailable. Do not replay uncertain work.");
+      });
+    }
     this.send(conversation, { type: "conversation_work", ...work.receipt });
   }
 

@@ -7,20 +7,21 @@ export function ConversationUnassigned({ onReview }: { onReview: () => void }) {
   const root = useBrainUiRoot();
   const client = root.connection.conversation;
   const sessionId = useStore(root.stores.chat, s => s.activeSessionId);
-  const fragments = useStore(client.state, s => s.unassigned);
+  const retained = useStore(client.state, s => s.unassigned);
+  const fragments = retained.filter(f => f.sessionId === sessionId);
   const pending = useStore(client.state, s => s.unassignedWork);
-  if ((!fragments.length && !pending) || fragments.some(f => f.sessionId !== sessionId)) return null;
+  if (!fragments.length && !pending) return null;
   return <section aria-label="Unassigned voice recognition" className="mx-auto max-h-64 w-full max-w-3xl shrink-0 overflow-y-auto border-t border-border py-2 text-sm text-foreground">
     <details>
-      <summary className="min-h-11 cursor-pointer">Recognized speech · not sent to the agent</summary>
-      <p className="my-2">Live speech can continue without an agent request. This text has no confirmed input association or completed-turn boundary.</p>
+      <summary className="min-h-11 cursor-pointer">Recognized speech · voice service context</summary>
+      <p className="my-2">Audio has reached the voice service. Recognition can inform background tasks when supported, but is not a verified quote or permission decision.</p>
       <div className="max-h-32 overflow-y-auto whitespace-pre-wrap" data-unassigned-recognition="">
-        {fragments.map(f => <span key={`${f.conversationId}:${f.epoch}:${f.sequence}`} title={`Session ${f.epoch}: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms`}>{f.text}</span>)}
+        {fragments.map(f => <span key={`${f.conversationId}:${f.epoch}:${f.sequence}`} title={f.sessionInterval ? `Provider session ${f.epoch}: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms` : "Provider timing unavailable"}>{f.text}</span>)}
       </div>
       <details className="my-2">
         <summary className="min-h-11 cursor-pointer">Fragment timings</summary>
         <ol className="max-h-24 overflow-y-auto text-xs">
-          {fragments.map(f => <li key={`${f.conversationId}:${f.epoch}:${f.sequence}`}>Session {f.epoch}: {f.sessionInterval.startMs}–{f.sessionInterval.endMs} ms</li>)}
+          {fragments.map(f => <li key={`${f.conversationId}:${f.epoch}:${f.sequence}`}>{f.sessionInterval ? `Provider session ${f.epoch}: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms` : "Provider timing unavailable"}</li>)}
         </ol>
       </details>
       {!!pending && <p className="my-2">Voice requested agent work without an input association. No request was submitted or linked to running work.</p>}

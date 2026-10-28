@@ -300,3 +300,16 @@ agent-profile routing are described in the
 [wire contract](../integration-contract/wire.md#live-conversation-additive-957).
 Registering a service is explicit; it does not certify the separate live-device
 qualification or enable exact permission speech without evidence.
+
+
+### Contextual host tasks
+
+An updated conversation provider can advertise `contextualTasks: "supported"`.
+The host opts in at open only when the client and durable host path support it.
+Implement `bindContextualWork` to consume the exact native handle with its new
+host task/request before dispatch. `returnWork` must reject another task's ref
+and report only actual acceptance evidence; void preserves legacy semantics.
+Do not attach an unkeyed request to existing manual work or infer captured-input
+ownership from arrival order. Keep missing timing explicit. The host retains
+tools, ordinary typed-task policy, screen permissions, effect journals and
+recovery. See the [wire amendment](../integration-contract/wire.md#contextual-conversation-tasks-3070-october-28-ruling).

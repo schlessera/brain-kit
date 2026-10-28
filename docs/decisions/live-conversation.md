@@ -30,7 +30,7 @@ tool admission and execution, permissions, cancellation, terminal state and
 resynchronization. Engine task requests are advisory until mapped to committed
 user input. No native search, code-execution or alternate permission loop is
 enabled. Both adapters can delegate through the existing `AgentBackend`
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:707-750`);
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:708-751`);
 the host serializes work in a session and uses capability-checked follow-ups.
 
 The [voice-permission decision](voice-permission.md) binds this interface.
@@ -123,3 +123,74 @@ Permission outcomes became host-authoritative for every client that asks
 (`tool_resolution`), not only for conversations. No adapter ships; #958 and
 #959 implement the two engines against this seam, and #961 still gates
 activation on measured device and provider behavior.
+
+## Shared task policy and hands-free admission — 2026-10-28
+
+The [maintainer ruling on #3070](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905)
+supersedes the client-commit-only admission and separate narrower voice posture
+for the live-conversation task path. Both selected speech services may propose
+background work while dialogue continues. The host forms a task-specific
+request from bounded, honestly labeled conversation context, creates new host
+identities, binds the exact native handle before dispatch, and executes through
+the same ordinary backend/session/principal policy as typed work. This is no
+permission grant, authenticated transcript or captured-input ownership claim.
+A provider request cannot attach itself by arrival to existing manual work.
+
+Routine permitted work needs no Send or extra voice consent. Ordinary screen
+cards remain required wherever typed work requires them; uncertain speech
+cannot settle them. Curated and governed writes are allowed exactly where the
+ordinary policy permits them. Protected resources, egress, budgets, cancellation,
+writer checks, receipts and supported recovery remain binding. See the
+[policy supersession](voice-permission.md#live-conversation-policy-supersession--2026-10-28).
+Explicit legacy restricted-posture consumers keep their existing enforcement
+or safe refusal. Missing provider input finality never becomes fabricated user
+finality; #3064 must use honest unassigned recognition for continuity.
+
+#3071 delivers the shared-policy execution portion. Automatic task admission,
+new task/native identity binding and continuous Gemini capture remain #3070 and
+#3064 work. The October 5 client-commit wire implementation remains in place
+until those paths ship; this ruling does not describe them as implemented.
+
+
+## Contextual work and recognition — 2026-10-28 (#3070)
+
+The [maintainer ruling](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905)
+supersedes client-commit-only admission for negotiated contextual work. The host
+may admit a new task from recent recognized/generated conversation context.
+Recognition is uncertain evidence, never authenticated operator text or a grant.
+The ordinary task backend interprets intent and applies its ordinary session and
+principal policy, including screen cards. This applies to both first-party engines.
+
+The existing provider seam negotiates contextual tasks with an optional capability
+and opening option. Absent negotiation retains reviewed behavior. Each native
+handle binds to a newly minted host task before dispatch, never to manual, running
+or future work. Context is frozen and bounded; identity tombstones outlive receipt
+eviction. Failed/ambiguous delivery is not replay permission. Replacement epochs
+receive historical outcomes only and never replay work. Recovery rechecks the
+registered owner after storage awaits, so concurrent resumes share one epoch
+counter and use ordinary replacement. Native refusals terminate under their
+exact binding without an executed turn, releasing pending slots while keeping
+tombstones. A binding/refusal failure closes the epoch rather than borrowing work.
+
+Gemini transcription has no captured-input identity. In contextual mode it is
+unassigned from epoch start with unavailable timing and its actual finished signal
+preserved only as evidence. Endpoints, output completion and drained playback do
+not establish input ownership. GPT keeps actual provider session intervals and
+explicit mismatched-ID rejection. Neither stream can settle a permission card.
+
+Both adapters delegate to the host while dialogue continues. Gemini declares
+host_task NON_BLOCKING and returns the exact call id with SILENT/WHEN_IDLE and
+willContinue:false. GPT uses Live v1 client delegation, SpawnThinking instructions,
+and exact delegation_id on bounded thinking/commentary appends. Acceptance and
+playback remain distinct; neither a socket send nor an append acknowledgement
+proves audible output. Source configuration and keyless fixtures do not qualify
+a live account, microphone, interruption, or device.
+
+Source verification on October 28 used the installed OpenAI Live v1
+`DelegationCreatedEvent`, `ThinkingAppendEvent`, `CommentaryAppendEvent` and
+matching appended-event declarations, the official [delegation guide](https://developers.openai.com/api/docs/guides/live-delegation)
+and [prompting guide](https://developers.openai.com/api/docs/guides/live-prompting),
+and Google's [Live WebSocket reference](https://ai.google.dev/api/live) plus
+installed `FunctionResponse`/scheduling declarations. Delegation is metadata,
+not task text. The literal SpawnThinking instruction is prompt text, not an
+invented client event. These sources establish API fields, not live behavior.

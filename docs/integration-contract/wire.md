@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1034-1049`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1036-1051`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3764-3770`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1832-1834`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3775-3781`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1841-1843`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -145,7 +145,7 @@ Each receipt carries `eventId`, `dimension`, measured `count`, active `cap`,
 and optional `submissionId`/`reason`. A floor's count is free bytes, its cap
 is max(5% of filesystem capacity, 2 GiB), and its overshoot is the deficit.
 `newCap` exists only for the first finite grant of an interactive dimension;
-no floor/voice grant exists. Other dimensions keep their own one-grant allowance.
+no floor/explicit restricted-voice grant exists. Other dimensions keep their own one-grant allowance.
 A fresh Continue check cannot bypass a floor crossed during another pause;
 the newest floor event leaves one Stop-only card and retains the earlier cap facts.
 Independent hard time, resource and storage limits remain effective.
@@ -166,8 +166,9 @@ The existing ask-user card displays this host operation without a free-text
 answer or model-tool grant. Arrival preserves composer focus; activating an
 answer moves focus to its receipt only while that chat is still active. Limits
 and retained scope facts share the existing under-turn Disclosure, with upfront
-limits in the picker's This chat section. True voice stops with a short written/
-spoken explanation. Pi's existing lack of voice posture still refuses admission.
+limits in the picker's This chat section. Explicit legacy restricted-voice work
+stops with a short written/spoken explanation; Pi rejects that explicit posture.
+Live-conversation host work uses ordinary interactive scope decisions (#3071).
 Older clients may ignore the additive facts and decision frames; independent
 host deadlines and the 30-minute disconnected pause lifetime still terminate work.
 
@@ -1176,7 +1177,7 @@ resuming it from another connection ends the first one's epoch with
 `replaced`. An id this principal cannot resume is answered with `error` code
 `CONVERSATION_UNKNOWN`. The client mints `utteranceId` and a per-conversation `requestId`.
 
-**Semantic commit is the only admission.** Audio, endpoints, recognized
+**Reviewed admission (without contextual negotiation).** Audio, endpoints, recognized
 fragments and provider work requests never run anything. `conversation_commit`
 creates host work only for an utterance this epoch received audio for, with
 at least one recognized fragment not attributed to the assistant, and not
@@ -1187,8 +1188,7 @@ admitted ids and then refuses further commits: start a new conversation. A provi
 advisory work request binds to committed work of the same epoch: one naming
 its utterance binds to that utterance's work in any state, and if the result
 already went out without a handle the same result is returned again with it;
-one naming no utterance binds only to the oldest unbound work still running,
-or waits for the next commit. One request holds one handle: a further
+one naming no utterance remains unbound and never borrows other work. One request holds one handle: a further
 request naming an utterance whose work already holds one is dropped. The
 handle is only the token the result is returned with. An utterance id an epoch has evicted stays retired: audio for
 it closes the epoch with `correlation` rather than starting it over.
@@ -1203,23 +1203,38 @@ a typed message arriving while a host-work turn runs queues as the next turn
 instead of joining it, even on a `followUp` backend. A `cancel` for the
 session, and any cancellation of the running request (a cancel without a
 session id, host shutdown, a timeout), also cancels the conversation's
-committed work that was not yet submitted. A new turn it
-starts declares the voice posture: `posture: "voice"` with
-`enforceAllowedTools` and `noGrantSurface`. An ordinary turn already running
-in the session keeps its own posture. A failed host-work turn offers no
-client Retry handle (`retryOfTurnId`), because `retry_turn` could not restore
-its posture. Backend `startTurn`, `followUp`, the session queue and the
-permission bridge are otherwise unchanged.
+committed work that was not yet submitted. A new turn uses the same ordinary
+backend/session/principal policy as typed work: selected backend profile,
+interactive governance policy and session preference, normal tool/application
+policy, screen permission cards, journal and supported recovery. It does not
+set `posture: "voice"`, `enforceAllowedTools` or `noGrantSurface` merely because
+its source is live conversation. Both speech providers share this host path.
+Voice modality alone neither grants an operation nor denies/prompts for an
+otherwise permitted one. Protected paths, writer boundaries, egress, budgets,
+scope and cancellation retain their ordinary enforcement. Message source stays
+`voice-conversation`; shared policy does not relabel recognition as typed input.
 
-`StartTurnRequest.posture?: "voice"` (additive, `@experimental`) asks the
-backend to run the turn on its declared voice allowlist instead of its
-ordinary one ([voice posture](../decisions/voice-permission.md#the-voice-posture)).
-`assertTurnPosture` refuses it without both `enforceAllowedTools` and
-`noGrantSurface`, or on an autonomous turn. The Claude backend selects
-`VOICE_ALLOWED_TOOLS`. The pi backend declares no voice posture and rejects the
-turn with `BackendRequestError`, so a conversation on pi fails visibly instead
-of running on the ordinary allowlist. A conforming backend must do one or the
-other; ignoring the field is forbidden.
+A failed host-work turn offers no client Retry handle (`retryOfTurnId`): a
+client retry cannot restore its request/native binding, and must not replay an
+effect automatically. Backend `startTurn`, the session queue and the permission
+bridge retain their ordinary behavior. Spoken approval and uncertain recognition
+cannot settle a pending card; authenticated screen approval remains required.
+
+**Compatibility (2026-10-28, #3070/#3071).** This is a documented pre-1.0
+breaking minor: live-conversation host work previously forced the narrower
+voice posture and no-grant surface. Hosts relying on that implicit restriction
+must express their intended ordinary task policy. No new flag or separate voice
+policy declaration is required. The automatic-admission and native-binding
+supersession is authorized by #3070 but not yet implemented here; the semantic
+commit admission/correlation behavior above still describes shipped code.
+
+Explicit `StartTurnRequest.posture?: "voice"` remains an experimental restricted
+backend request, distinct from message source. It asks for the declared voice
+allowlist. `assertTurnPosture` requires `enforceAllowedTools` and
+`noGrantSurface`, and refuses autonomous combinations. Claude enforces
+`VOICE_ALLOWED_TOOLS`; Pi safely rejects this explicit restricted request.
+Ordinary-policy live host work requests neither, and therefore uses Pi's
+ordinary supported execution path. Ignoring an explicit restriction is forbidden.
 
 **Receipts and provenance.** `ConversationWorkReceipt` carries
 `conversationId`, the commit `epoch`, `utteranceId`, `requestId`, `turnId?`,
@@ -1942,3 +1957,110 @@ the controls' eight pixels of empty vertical space give way while every target
 stays at least 44px and the transcript retains 264px. Real speaker/headphone
 listening, recognition, echo and latency qualification remain human/device
 verification under #114 and #961.
+
+### Contextual conversation tasks (#3070, October 28 ruling)
+
+This section supersedes client-commit-only admission, unkeyed native borrowing,
+and Gemini close-on-missing-finality for the negotiated contextual path, under
+[the maintainer ruling](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905).
+It is a pre-1.0 breaking change, released as a minor. Explicit legacy restricted
+backend requests retain their policy; they do not define live task policy.
+
+`ConversationCapabilities.contextualTasks` is optional evidence. A new client
+sends `conversation_start.contextualTasks:true`. The host enables it only with
+provider `supported` evidence, durable catalog support and the session's exact
+binding and terminal refusal operations. `conversation_opened.capabilities.contextualTasks` reports
+the effective mode. Omission/unsupported keeps reviewed admission; an older
+provider or client never silently gains automatic mode. A client omitting negotiation
+when resuming retained contextual receipts receives `CONVERSATION_CAPABILITY`
+instead of unreadable receipts. Adapter instructions describe the effective mode.
+Native advisories with
+no exact captured identity cannot borrow manual, running, finished or future
+reviewed work, including outside contextual mode.
+
+In contextual mode each native work request creates a new host `taskId` and
+`requestId`. A `conversation_work` receipt has `provenance:"contextual"`,
+`taskId` and `nativeHandle`, and **no utteranceId**. Reviewed receipts keep their
+required `utteranceId` and optional `provenance:"reviewed"`. `recognized` is
+uncertain evidence; `submitted` is the host's bounded purpose/context tail,
+not a user quote. The backend history records `source:"voice-context"`; clients
+label it Conversation task rather than YOU. This source confers no authority.
+
+A native handle binds to its new task before dispatch. Identity consumption
+precedes admission; duplicates, withdrawal-before-request and receipt eviction
+cannot free a handle. The frozen snapshot contains at most twelve recent
+recognition/generated fragments, at most 6,000 serialized characters, each at
+most thirty host-clock seconds old. This age clock is not provider audio timing.
+There is no extra ASR, classifier or provider executor. Recognition predating
+fresh audio in this epoch is excluded from task context, including resync echoes.
+This is an epoch activity gate, not captured-utterance attribution. No available recognition
+means visible refusal rather than waiting indefinitely or guessing. Identical
+snapshots are refused rather than replayed. Every refused native request is terminal:
+the optional (required in negotiated contextual mode) session operation
+`refuseContextualWork(ref, reason)` requires the exact conversation/epoch and
+pre-bound task/request/native handle, without a fabricated turn id. It releases
+pending capacity while retaining identity tombstones. Gemini sends a final
+`SILENT` function response with `outcome:"refused"`; GPT sends a bounded refusal
+commentary on the exact delegation. Neither is a completed task result or an
+acceptance/playback claim. Binding or refusal submission failure closes the
+epoch instead of answering another request. Durable admission-write failure also
+terminates the native request without dispatch. Existing queue (four), native pending
+(eight), fragment/text/audio, result (4,000 characters), timeout and ordinary
+budget controls remain. Four thousand ninety-six host/native identities require
+a new conversation/epoch rather than forgetting a consumed identity.
+
+The normal task backend interprets the new tail and executes through the same
+session/principal/profile policy as typed work, including permitted reads and
+writes, ordinary screen confirmation cards, protection, egress, journal and
+supported recovery. Permission waiting does not own the audio floor. Recognition
+and generated speech cannot approve or deny a card without the existing verified
+voice-refusal conditions; unknown-origin recognition never meets them. No per-task
+Send, voice-specific consent flag, read-only policy or spoken grant is added.
+Tools, system prompts and prior backend messages stay unchanged; context needed
+for this task is appended once to its new message. Internal identities, budgets,
+labels and receipt dumps do not enter provider history.
+
+For Gemini contextual sessions, `unassigned_input_fragment` carries `timing:
+{kind:"unavailable"}` and `finalization:"final"|"unknown"`, preserving the actual
+`finished` evidence. It has no `sessionInterval` and no captured utterance id.
+It is unassigned from epoch start, including late fragments after new PCM.
+Endpoints, `turnComplete`, playback drainage and a finish marker preceding more
+PCM do not establish ownership. GPT recognition keeps its actual
+`sessionInterval`; explicit unknown/mismatched client IDs still fail closed.
+Wire/provider validation requires exactly one real interval or explicit
+unavailable timing. Neither clock is invented from the host clock.
+
+Each result is withheld until the host terminal outcome and current epoch,
+authorization and cancellation/withdrawal checks permit publication. Backend
+completion does not mean provider acceptance or playback. `delivery:"unknown"`
+means result acceptance is uncertain and must not be retried automatically.
+Gemini sends the original call id, `host_task`, top-level `SILENT`/`WHEN_IDLE`
+and `willContinue:false`; the API exposes no result acceptance acknowledgement,
+so a successful socket submission still records unknown acceptance. GPT uses
+primary Live v1 client delegation, the original `delegation_id`, bounded
+500-UTF-8-byte thinking/commentary string chunks (below the 500-token cap), and
+matches append `client_event_id` and event kind before reporting `returned`.
+Missing acknowledgement after two seconds, disconnect or partial send remains
+unknown. Acceptance never asserts exact words, silence or playback. Client
+output/sample receipts retain their independent meaning.
+
+Host epoch/task identities and up to 64 detailed receipts per conversation are
+stored in ui.db through its ordered write worker before contextual dispatch.
+Tombstones remain up to 4,096 tasks; up to 64 durable conversations are retained.
+A process restart recovers queued/running work as `state:"unknown"`, with an
+explicit unknown-effect/no-replay explanation. Pending delivery becomes unknown.
+No stored row is an executable queue. Concurrent recovery reuses the registered
+conversation owner after awaiting storage; replacement ends the former epoch,
+so simultaneous resumes never open the same next epoch twice. Resume increments the stored epoch and
+supplies bounded historical outcomes only; it never replays audio, tasks or
+results. Forgotten, foreign-principal or corrupt identities refuse recovery.
+Effect journals and supported revert/undo remain authoritative for recovery;
+there is no promise that every action is reversible.
+
+Both first-party adapters configure asynchronous host delegation. Gemini declares
+`host_task` as `NON_BLOCKING`. GPT declares client delegation and fixed
+`Generate <|SpawnThinking|>` instructions for backend work, with instructions to
+continue dialogue and wait for verified facts. These source configurations and
+keyless three-turn browser fixtures establish implementation behavior only.
+Live provider/account, audio, device and physical interruption qualification
+remain separate.

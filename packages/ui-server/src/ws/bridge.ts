@@ -305,8 +305,8 @@ export async function makeBridge(
           && !msg.failure.authAction && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError));
         if (eligible && msg.failure && turn.turnId === turnId && turn.retryRequest && turn.retryPrompt !== undefined && turn.queue.length === 0
           && !(turn.isManualRetry && msg.failure.errorClass === "unknown")
-          // Host work carries a posture a client retry could not restore:
-          // retrying a voice turn as a typed one would widen its tools.
+          // A client retry cannot restore host-work/native result identity.
+          // Preserve once-only execution even under ordinary task policy.
           && work === undefined
           // File Retry needs a pre-reservation read to verify the exact original.
           // Older catalogs can still retain their text/image-only requests.

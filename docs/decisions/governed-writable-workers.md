@@ -114,6 +114,19 @@ Everything else in that record still binds:
 The [voice decision](voice-permission.md) still binds: speech may refuse a tool
 but never grant one.
 
+## Live conversation policy supersession — 2026-10-28
+
+The [#3070 ruling](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905)
+and [voice policy amendment](voice-permission.md#live-conversation-policy-supersession--2026-10-28)
+supersede this record's separate voice policy origin/tool membership for
+live-conversation host work. That work now selects `profiles.interactive` and
+the ordinary session preference, including the same permitted governed writers,
+screen confirmations, scope/egress checks, journal and supported revert as typed
+work. Its message source remains `voice-conversation`. The historical voice
+sections below still describe explicit legacy restricted-posture consumers;
+they are not the live host's policy. Speech cannot grant. Protected paths,
+pre-initialization isolation and every ordinary writer check still bind.
+
 ## Profiles
 
 A profile is the worker's filesystem and network view. Tool membership is a
@@ -1884,7 +1897,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:375`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:383`)
   must not feed any budget.
 
 **Enforcement:**

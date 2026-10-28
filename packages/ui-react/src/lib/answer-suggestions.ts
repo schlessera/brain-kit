@@ -130,7 +130,7 @@ export function visibleSuggestions(message: ChatMessage, context: SuggestionsCon
   if (context.voiceMode !== "idle" || context.voiceReviewPending) return [];
   const prompt = promptOf(message, context.messages);
   // S9: the reader never saw the answer.
-  if (prompt?.source === "voice-conversation") return [];
+  if (prompt?.source === "voice-conversation" || prompt?.source === "voice-context") return [];
   // S2: failed turns keep their partial output but make no follow-up offer.
   if (message.failure) return [];
   // S8: no valid call, or nothing survived the drops.

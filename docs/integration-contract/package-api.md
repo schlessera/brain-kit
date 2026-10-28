@@ -3995,3 +3995,15 @@ with the types its signature reaches: `CreatePiAuthOptions`, `PiAuth`,
 routes drive through the optional backend loader. The curated root dropped it
 in 0.41.0, so those routes threw on every request; restoring it changes no HTTP
 shape.
+
+
+The #3070 contextual conversation amendment adds optional `contextualTasks`
+evidence/open negotiation and `LiveConversationSession.bindContextualWork`.
+`ConversationWorkRef` and receipts discriminate contextual task/native identity
+from reviewed utterance identity; contextual work has no utteranceId. Result
+acceptance may explicitly be unknown; `returnWork` can report acceptance evidence.
+Unassigned fragments may carry explicit unavailable timing and native finalization
+evidence instead of a provider interval. Exhaustive consumers must handle unknown
+work/delivery and `voice-context` message provenance. These pre-1.0 breaking
+changes ship in a minor under the October 28 #3070 ruling; see the normative
+[wire amendment](wire.md#contextual-conversation-tasks-3070-october-28-ruling).

@@ -902,7 +902,7 @@ for (const width of [390, 320]) test(`missing-ID conversation stays live and rev
   const summary = s.host.querySelector('[aria-label="Unassigned voice recognition"] summary') as HTMLElement;
   await userEvent.click(summary);
   await expect.poll(() => s.host.querySelector('[data-unassigned-recognition]')?.textContent).toBe(parts.join(""));
-  expect(s.client.state.getState().unassigned.map(f => f.sessionInterval.startMs)).toEqual([600, 10200, 19000]);
+  expect(s.client.state.getState().unassigned.map(f => f.sessionInterval?.startMs)).toEqual([600, 10200, 19000]);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/unassigned-${width}.png` });
   expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
   expect(s.host.querySelector('[aria-label="Unassigned voice recognition"]')!.getBoundingClientRect().bottom).toBeLessThanOrEqual(s.host.getBoundingClientRect().bottom + 1);

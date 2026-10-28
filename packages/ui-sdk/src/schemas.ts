@@ -311,6 +311,7 @@ export const messageSourceSchema = z.enum([
   "typed",
   "voice-dictate",
   "voice-conversation",
+  "voice-context",
   "handoff",
 ]) satisfies z.ZodType<MessageSource>;
 
@@ -783,6 +784,7 @@ const sampleRangeSchema = z
 
 export const clientConversationStartSchema = z.looseObject({
   type: z.literal("conversation_start"),
+  contextualTasks: z.boolean().optional(),
   requestId: id.optional(),
   agentProviderId: id.optional(),
   conversationId: id.optional(),
@@ -1623,6 +1625,7 @@ export const inboxDeltaSchema = z.looseObject({ type: z.literal("inbox_delta"), 
 export const conversationEvidenceSchema = z.enum(["supported", "unsupported", "unproven"]);
 
 export const conversationCapabilitiesSchema = z.looseObject({
+  contextualTasks: conversationEvidenceSchema.optional(),
   nonblockingWork: conversationEvidenceSchema,
   manualEndpoint: conversationEvidenceSchema,
   finalTranscript: conversationEvidenceSchema,
@@ -1678,7 +1681,7 @@ export const conversationWireEventSchema = z.union([
     output: conversationAudioFormatSchema,
   }),
   inputFragmentEventSchema,
-  z.looseObject({ kind: z.literal("unassigned_input_fragment"), sequence: conversationSequence, text: fragmentText, sessionInterval: conversationIntervalSchema }),
+  z.looseObject({ kind: z.literal("unassigned_input_fragment"), sequence: conversationSequence, text: fragmentText, sessionInterval: conversationIntervalSchema.optional(), timing: z.object({ kind: z.literal("unavailable") }).optional(), finalization: z.enum(["final", "unknown"]).optional() }).refine(e => !!e.sessionInterval !== !!e.timing && !("utteranceId" in e)),
   z.looseObject({ kind: z.literal("unassigned_delegation"), handle: id, offsetMs: z.number().nonnegative() }),
   z.looseObject({
     kind: z.literal("output_transcript"),
@@ -1701,18 +1704,24 @@ export const conversationWireEventSchema = z.union([
 const conversationWorkReceiptShape = {
   conversationId: id,
   epoch: conversationEpoch,
-  utteranceId: id,
+  utteranceId: id.optional(),
+  provenance: z.enum(["reviewed", "contextual"]).optional(),
+  taskId: id.optional(),
+  nativeHandle: id.optional(),
   requestId: id,
   turnId: id.optional(),
   sessionId: id.optional(),
-  state: z.enum(["queued", "running", "completed", "cancelled", "error", "refused"]),
-  delivery: z.enum(["pending", "returned", "discarded"]),
+  state: z.enum(["unknown", "queued", "running", "completed", "cancelled", "error", "refused"]),
+  delivery: z.enum(["pending", "returned", "discarded", "unknown"]),
   recognized: z.string().max(CONVERSATION_LIMITS.maxUtteranceChars),
   submitted: z.string().max(CONVERSATION_LIMITS.maxCommitChars),
   reason: z.string().max(500).optional(),
 };
 
-export const conversationWorkReceiptSchema = z.looseObject(conversationWorkReceiptShape) satisfies z.ZodType<ConversationWorkReceipt>;
+const validWorkProvenance = (w: { provenance?: string; utteranceId?: string; taskId?: string; nativeHandle?: string }): boolean =>
+  w.provenance === "contextual" ? !!w.taskId && !!w.nativeHandle && w.utteranceId === undefined
+    : !!w.utteranceId && w.taskId === undefined && w.nativeHandle === undefined;
+export const conversationWorkReceiptSchema = z.looseObject(conversationWorkReceiptShape).refine(validWorkProvenance) as z.ZodType<ConversationWorkReceipt>;
 
 const conversationOutputRecordShape = {
   epoch: conversationEpoch,
@@ -1779,7 +1788,7 @@ export const serverConversationEventSchema = z.looseObject({
 export const serverConversationWorkSchema = z.looseObject({
   type: z.literal("conversation_work"),
   ...conversationWorkReceiptShape,
-}) satisfies z.ZodType<ServerConversationWork>;
+}).refine(validWorkProvenance).transform(w => w as ServerConversationWork);
 
 export const serverConversationPermissionSchema = z.looseObject({
   type: z.literal("conversation_permission"),

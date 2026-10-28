@@ -1750,7 +1750,7 @@ export interface PasskeySummary {
 // Voice (ASR / TTS)
 // ============================================================
 
-export type MessageSource = "typed" | "voice-dictate" | "voice-conversation" | "handoff";
+export type MessageSource = "typed" | "voice-dictate" | "voice-conversation" | "voice-context" | "handoff";
 
 export type VoiceMode = "idle" | "dictate" | "conversation";
 
@@ -1859,6 +1859,8 @@ export type ConversationEvidence = "supported" | "unsupported" | "unproven";
 
 /** The closed capability profile a live-conversation provider publishes. */
 export interface ConversationCapabilities {
+  /** Optional: new host tasks from bounded context, negotiated at open. */
+  contextualTasks?: ConversationEvidence;
   /** Conversation continues while host work is pending. */
   nonblockingWork: ConversationEvidence;
   /** The host can mark an utterance's end itself. */
@@ -1957,7 +1959,11 @@ export type ConversationWireEvent =
       sequence: number;
       text: string;
       /** Approximate milliseconds from the start of the provider session. */
-      sessionInterval: ConversationInterval;
+      sessionInterval?: ConversationInterval;
+      /** Explicit when the provider supplies no usable timeline. */
+      timing?: { kind: "unavailable" };
+      /** Native finish evidence, never captured-input ownership. */
+      finalization?: "final" | "unknown";
     }
   | { kind: "unassigned_delegation"; handle: string; offsetMs: number }
   | {
@@ -2003,8 +2009,9 @@ export type ConversationWireEvent =
       outputId?: string;
     };
 
-/** Host-side state of one committed request. */
+/** Host-side state of one reviewed request or contextual task. */
 export type ConversationWorkState =
+  | "unknown"
   | "queued"
   | "running"
   | "completed"
@@ -2017,17 +2024,16 @@ export type ConversationWorkState =
  * the host kept the outcome but the epoch, conversation or native request
  * it belonged to had ended, or the work was cancelled.
  */
-export type ConversationDelivery = "pending" | "returned" | "discarded";
+export type ConversationDelivery = "pending" | "returned" | "discarded" | "unknown";
 
 /**
- * One committed request: what was recognized, what the user submitted, and
+ * One admitted request: what was recognized, what was submitted, and
  * what the host did with it. Host authority, keyed by host identities only.
  */
-export interface ConversationWorkReceipt {
+export type ConversationWorkReceipt = {
   conversationId: string;
-  /** The epoch the request was committed in. */
+  /** The epoch the request was admitted in. */
   epoch: number;
-  utteranceId: string;
   requestId: string;
   /** Host turn identity, once the turn started. */
   turnId?: string;
@@ -2035,12 +2041,15 @@ export interface ConversationWorkReceipt {
   sessionId?: string;
   state: ConversationWorkState;
   delivery: ConversationDelivery;
-  /** Original recognized fragments of the utterance, joined in sequence order. */
+  /** Original recognition evidence; contextual evidence is not a verified user quote. */
   recognized: string;
-  /** The reviewed text the user committed — what the agent received. */
+  /** What the agent received: reviewed text or the host contextual purpose/tail. */
   submitted: string;
   reason?: string;
-}
+} & (
+  | { provenance?: "reviewed"; utteranceId: string; taskId?: never; nativeHandle?: never }
+  | { provenance: "contextual"; taskId: string; nativeHandle: string; utteranceId?: never }
+);
 
 /** Playback evidence a client reports for one output stream. */
 export type ConversationPlayback = "played" | "discarded" | "unknown";
@@ -2059,6 +2068,8 @@ export interface ConversationOutputRecord {
 
 /** Client → Server. Open a conversation, or a new epoch of an existing one. */
 export interface ClientConversationStart {
+  /** New clients opt into the provider capability; older clients stay reviewed. */
+  contextualTasks?: boolean;
   type: "conversation_start";
   /** Client start identity, echoed for this opening attempt, including a failed open. */
   requestId?: string;
@@ -2186,9 +2197,9 @@ export interface ServerConversationEvent {
 }
 
 /** Server → Client. A committed request changed state or delivery. */
-export interface ServerConversationWork extends ConversationWorkReceipt {
+export type ServerConversationWork = ConversationWorkReceipt & {
   type: "conversation_work";
-}
+};
 
 /**
  * Server → Client. A permission request is pending in the conversation's

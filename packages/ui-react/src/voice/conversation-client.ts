@@ -11,12 +11,16 @@ export interface ConversationClientOutput extends ConversationOutputRecord {
 }
 
 export interface UnassignedRecognition {
+  /** Ephemeral task context, separate from retained manual-review candidates. */
+  taskContext?: boolean;
   sessionId: string | null;
   conversationId: string;
   epoch: number;
   sequence: number;
   text: string;
-  sessionInterval: { startMs: number; endMs: number };
+  sessionInterval?: { startMs: number; endMs: number };
+  timing?: { kind: "unavailable" };
+  finalization?: "final" | "unknown";
 }
 
 export interface ConversationClientState {
@@ -171,7 +175,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     sequence = 0; utterance = null; ended = false; clearTimers();
     const s = state.getState();
     openingId = crypto.randomUUID(); openingGeneration = generation;
-    send({ type: "conversation_start", requestId: openingId, ...(!s.sessionId && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId ? { sessionId: s.sessionId } : {}) });
+    send({ type: "conversation_start", contextualTasks: true, requestId: openingId, ...(!s.sessionId && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId ? { sessionId: s.sessionId } : {}) });
   }
   async function capture() {
     const profile = scope();
@@ -223,7 +227,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const profile = scope()!;
     send({ type: "conversation_endpoint", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance });
     playback.quiet(!trustworthy());
-    maybeHold(own);
+    if (profile.capabilities.contextualTasks !== "supported") maybeHold(own);
     permissions.quiet();
     const endedUtterance = utterance;
     finalization = setTimeout(() => {
@@ -318,6 +322,16 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
       if (message.state === "refused" || message.state === "cancelled" || message.state === "error") root.stores.followUp.getState().dropLocal(message.requestId);
       if (s.active && p?.conversationId === message.conversationId) {
+        if (message.provenance === "contextual" && message.sessionId && s.sessionId === null) {
+          state.setState({ sessionId: message.sessionId,
+            outputs: s.outputs.map(o => o.conversationId === message.conversationId && o.sessionId === null ? { ...o, sessionId: message.sessionId! } : o),
+            unassigned: s.unassigned.map(f => f.conversationId === message.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId! } : f),
+          });
+          // An automatic first task has no reviewed draft to adopt. Open its
+          // own transcript before session_info/deltas arrive, preserving the
+          // independent new-chat draft and keeping voice in the same view.
+          if (root.stores.chat.getState().activeSessionId === null) root.stores.chat.getState().setActiveSession(message.sessionId);
+        }
         const work = Object.fromEntries(Object.entries({ ...s.work, [message.requestId]: message }).slice(-128));
         state.setState({ work });
         if (resync > 0) resync--;
@@ -358,7 +372,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && f.sequence === event.sequence)) return null;
       // Retain the boundary-crossing fragment before stopping. Never truncate
       // it or merge approximate session intervals into captured utterances.
-      const unassigned = [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, ...event }];
+      const unassigned = [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event }];
       state.setState({ unassigned });
       if (unassigned.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || unassigned.reduce((n, f) => n + f.text.length, 0) >= CONVERSATION_LIMITS.maxUtteranceChars) {
         pause(); state.setState({ notice: "Recognition is full. Review it in the composer before restarting voice." });
@@ -374,6 +388,15 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         retiredInputs.add(event.utteranceId); fragments.delete(event.utteranceId); lastInput = undefined;
         state.setState({ text: [...fragments.values()].flatMap(items => [...items.values()].map(f => f.text)).join(" ").trim() });
         saveDraft(); refresh(); return null;
+      }
+      if (p.capabilities.contextualTasks === "supported") {
+        const retained = state.getState().unassigned;
+        // Captured identity is evidence only; never manufacture a user message or edit a manual draft.
+        if (retained.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || retained.reduce((n, f) => n + f.text.length, 0) + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars) {
+          pause(); state.setState({ notice: "Recognition is full. Review it before restarting voice." }); return null;
+        }
+        state.setState({ unassigned: [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: true, sequence: retained.length, text: event.text, timing: { kind: "unavailable" }, finalization: event.finalization === "final" ? "final" : "unknown" }] });
+        return null;
       }
       const items = fragments.get(event.utteranceId) ?? new Map();
       if (event.certainty !== "known" || event.origin !== "user" || (event.confidence ?? 0) < 0.9) manualReview.add(event.utteranceId);
@@ -413,11 +436,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     enter() {
       if (disposed || state.getState().active || root.stores.voice.getState().mode !== "idle" || root.stores.voice.getState().local !== "idle") return;
       const sessionId = root.stores.chat.getState().activeSessionId;
-      if (state.getState().unassigned.some(f => f.sessionId !== sessionId)) { state.setState({ notice: "Return to the previous chat to review its recognized speech." }); return; }
+      if (state.getState().unassigned.some(f => !f.taskContext && f.sessionId !== sessionId)) { state.setState({ notice: "Return to the previous chat to review its recognized speech." }); return; }
       draftId = root.stores.drafts.getState().idFor(sessionId); savedVoice = "";
       const providers = root.stores.provider.getState();
       const agentProviderId = providers.available.some((provider) => provider.id === providers.selectedId) ? providers.selectedId : null;
-      state.setState({ active: true, sessionId, agentProviderId, profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
+      state.setState({ active: true, sessionId, agentProviderId, unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       stopFence = false;
       root.stores.voice.getState().setMode("conversation");
       consent = false; startEpoch(); permissions.refresh();
@@ -429,14 +452,15 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     commit,
     reviewUnassigned() {
       const s = state.getState();
-      if (!s.unassigned.length || s.unassigned.some(f => f.sessionId !== root.stores.chat.getState().activeSessionId)) return false;
+      const selected = s.unassigned.filter(f => f.sessionId === root.stores.chat.getState().activeSessionId);
+      if (!selected.length) return false;
       // One explicit transfer, with no send. Existing draft and review text
       // remain intact; the existing voice review path preserves provenance.
-      const text = s.unassigned.map(f => f.text).join("");
+      const text = selected.map(f => f.text).join("");
       leave();
       const voice = root.stores.voice.getState();
       voice.setReviewText([voice.reviewText, text].filter(Boolean).join("\n\n"));
-      state.setState({ unassigned: [], unassignedWork: 0 });
+      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), unassignedWork: 0 });
       return true;
     },
     discard() { clearTimers(); removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh(); },

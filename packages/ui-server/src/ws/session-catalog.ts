@@ -25,6 +25,7 @@ import {
   type LocalExchangeRecord,
 } from "./local-exchanges.js";
 
+import { loadConversation } from "./conversation-storage.js";
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
@@ -39,6 +40,10 @@ import { createGovernanceWrites, type GovernanceWrites } from "../governance/eve
  * methods, not editing the turn loop.
  */
 export interface SessionCatalog {
+  /** Host identity persistence, never an executable replay queue. */
+  saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
+  saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt): Promise<void>;
+  loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
   /** Claude cumulative totals are evidence only; returns this turn's priced
    * completed responses and retains newly measured unstreamed usage once. */
   accountClaudeUsage?(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence,
@@ -255,6 +260,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
   return {
+    saveConversationEpoch: state => submit("conversationEpoch", state),
+    saveConversationTask: (principalId, receipt) => submit("conversationTask", principalId, receipt),
+    async loadConversation(id, principalId) { await tail; return loadConversation(db(), id, principalId); },
     async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {
       let mainCost: number | undefined;

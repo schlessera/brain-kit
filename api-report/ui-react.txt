@@ -866,15 +866,20 @@ signatures (every public export and the types it is made of)
     }
   UnassignedRecognition (packages/ui-react/src/voice/conversation-client.ts)
     export interface UnassignedRecognition {
+        taskContext?: boolean;
         sessionId: string | null;
         conversationId: string;
         epoch: number;
         sequence: number;
         text: string;
-        sessionInterval: {
+        sessionInterval?: {
             startMs: number;
             endMs: number;
         };
+        timing?: {
+            kind: "unavailable";
+        };
+        finalization?: "final" | "unknown";
     }
   UpdateHold (packages/ui-react/src/lib/update-holds.ts)
     export interface UpdateHold {

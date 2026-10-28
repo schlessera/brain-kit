@@ -125,7 +125,7 @@ test("a known missing file selects defaults; the reader never invents autonomous
   expect(reader.load().policy.profiles).not.toHaveProperty("autonomous");
 });
 
-test.each(["interactive", "voice", "dictation"] as const)("real session routing carries %s origin to policy admission", async origin => {
+test.each(["interactive", "voice", "dictation", "live"] as const)("real session routing carries %s origin to policy admission", async origin => {
   const f = fixture(); f.write("profiles: { interactive: governed, voice: strict }");
   let actualProfile: string | undefined;
   const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
@@ -141,6 +141,7 @@ test.each(["interactive", "voice", "dictation"] as const)("real session routing 
   try {
     await runSession(host, { authorization: testAuthorization(), text: "Odysseus inspects the harbor.", attachments: [],
       ...(origin === "voice" ? { source: "voice-conversation" as const, work: { posture: "voice", started() {}, settle() {} } as never }
+        : origin === "live" ? { source: "voice-conversation" as const, work: { posture: "interactive", started() {}, settle() {} } as never }
         : origin === "dictation" ? { source: "voice-dictate" as const } : {}) });
     expect(actualProfile, "POLICY_ROUTED_ORIGIN_PROFILE").toBe(origin === "voice" ? "strict" : "governed");
     expect(f.db.query("SELECT origin, profile FROM turn_governance_policy").get()).toEqual({ origin: origin === "voice" ? "voice" : "interactive", profile: actualProfile });
@@ -252,6 +253,13 @@ test("real first sends bind only their authenticated draft preference and emit a
     expect(profiles.read(principal.id, "session", "ithaca-chat")).toMatchObject({ preference: "governed", actualProfile: "strict" });
     await runSession(host, { ...common, sessionId: "ithaca-chat", source: "voice-dictate" });
     expect(observations.at(-1), "SESSION_PROFILE_DICTATION_INTERACTIVE").toBe("governed");
+    for (const preference of ["strict", "governed"] as const) {
+      profiles.save(principal.id, "session", "ithaca-chat", preference);
+      await runSession(host, { ...common, sessionId: "ithaca-chat", source: "voice-conversation",
+        work: { posture: "interactive", started() {}, observe() {}, settle() {} } });
+      expect(observations.at(-1), "SESSION_PROFILE_LIVE_USES_ORDINARY_PREFERENCE").toBe(preference);
+      expect(profiles.read(principal.id, "session", "ithaca-chat")).toMatchObject({ preference, actualProfile: preference, origin: "interactive" });
+    }
     await runSession(host, { ...common, sessionId: "ithaca-chat", work: { posture: "voice", started() {}, settle() {} } as never });
     expect(profiles.read(principal.id, "session", "ithaca-chat").origin).toBe("voice");
     expect(() => profiles.save(principal.id, "session", "ithaca-chat", "strict"), "SESSION_PROFILE_VOICE_SAVE_REFUSAL").toThrow("Voice uses");

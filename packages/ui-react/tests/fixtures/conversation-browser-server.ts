@@ -39,7 +39,9 @@ const backend = makeFakeBackend({ id: "fake", startTurn: async req => {
   req.bridge.emit({ type: "text_delta", text: "The departure note is ready." });
   req.bridge.emit({ type: "result", sessionId: "odysseus-ithaca", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
 } });
-const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: createGptLiveConversationProvider("keyless-odyssey-placeholder") });
+const reviewedProvider = createGptLiveConversationProvider("keyless-odyssey-placeholder");
+reviewedProvider.capabilities = { ...reviewedProvider.capabilities, contextualTasks: "unsupported" };
+const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: reviewedProvider });
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;

@@ -20,6 +20,19 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Live task policy parity (breaking, #3070/#3071)
+
+Live-conversation host work now uses the same ordinary backend/session/principal
+policy as typed work, including session preference, permitted writes, screen
+confirmation cards and supported recovery. It no longer implicitly requests the
+narrower voice allowlist or no-grant surface. Speech cannot grant permission.
+Explicit restricted backend requests retain their enforcement or safe refusal.
+This is a pre-1.0 breaking minor under the
+[maintainer ruling](https://github.com/schlessera/brain-kit/issues/3070#issuecomment-6457436905);
+see [wire execution](integration-contract/wire.md#live-conversation-additive-957).
+Automatic task admission/native binding and Gemini continuity remain separate
+#3070/#3064 work; this slice does not claim that end-to-end experience.
+
 ## Content CLI minimum correction (patch, #1623)
 
 ui-server requires a content CLI of at least 0.41.0, the first release containing
