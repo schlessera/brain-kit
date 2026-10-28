@@ -455,6 +455,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const agentProviderId = providers.available.some((provider) => provider.id === providers.selectedId) ? providers.selectedId : null;
       state.setState({ active: true, sessionId, agentProviderId, unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       stopFence = false;
+      // A new entry needs Start even when the service matches the last visit.
+      agreedDisclosure = undefined;
       root.stores.voice.getState().setMode("conversation");
       consent = false; startEpoch(); permissions.refresh();
     },
