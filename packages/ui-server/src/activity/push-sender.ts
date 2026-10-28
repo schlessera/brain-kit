@@ -14,6 +14,7 @@
  * wipe/restore, typically) and it is logged loudly; the client surfaces a
  * re-enable prompt when its subscription check disagrees with the server.
  */
+import { Agent } from "node:https";
 import type { Database } from "bun:sqlite";
 import type { SqliteWriter } from "../db/write-worker.js";
 import { createPushWrites, setup as inlinePushWrites } from "./push-writes.js";
@@ -91,10 +92,13 @@ export interface CreatePushSenderOptions {
  *  delivering guard (the tick's reentrancy flag) forever. */
 const SEND_TIMEOUT_MS = 10_000;
 
-export function createPushSender(db: Database, options: CreatePushSenderOptions & { writer: SqliteWriter }): AwaitablePushSender;
-export function createPushSender(db: Database, options?: CreatePushSenderOptions & { writer?: undefined }): PushSender;
-export function createPushSender(db: Database, options: CreatePushSenderOptions): AwaitablePushSender;
-export function createPushSender(db: Database, options: CreatePushSenderOptions = {}): AwaitablePushSender {
+type ManagedPushSender = AwaitablePushSender & { close(): Promise<void> };
+type ManagedInlinePushSender = PushSender & { close(): Promise<void> };
+
+export function createPushSender(db: Database, options: CreatePushSenderOptions & { writer: SqliteWriter }): ManagedPushSender;
+export function createPushSender(db: Database, options?: CreatePushSenderOptions & { writer?: undefined }): ManagedInlinePushSender;
+export function createPushSender(db: Database, options: CreatePushSenderOptions): ManagedPushSender;
+export function createPushSender(db: Database, options: CreatePushSenderOptions = {}): ManagedPushSender {
   const log = options.log;
   const writes: PushWrites = options.writes ?? {
     async touch(endpoint, at, principalId) {
@@ -104,14 +108,40 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
     async drop(endpoint) { db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint); },
   };
   const subject = options.subject ?? "mailto:admin@localhost";
-  const send =
-    options.send ??
-    ((sub, payload, opts) =>
-      webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: sub.keys },
-        payload,
-        { vapidDetails: opts.vapidDetails, timeout: opts.timeout }
-      ));
+  // web-push's socket timeout is an inactivity limit. Own an agent per send
+  // so the absolute deadline also destroys a trickling/stalled transport.
+  // The same deadline covers the injected transport without changing outcomes.
+  const send: NonNullable<CreatePushSenderOptions["send"]> = async (sub, payload, opts) => {
+    const agent = options.send ? undefined : new Agent({ keepAlive: false });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(() => options.send
+          ? options.send(sub, payload, opts)
+          : webpush.sendNotification(sub, payload, { ...opts, agent })),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            agent?.destroy();
+            reject(new Error("Push send deadline exceeded"));
+          }, SEND_TIMEOUT_MS);
+        }),
+      ]);
+    } finally { clearTimeout(timer); agent?.destroy(); }
+  };
+  let closing = false;
+  let closed: Promise<void> | undefined;
+  const flights = new Map<string, Promise<number>>();
+  function deliver(kind: string, run: () => Promise<number>): Promise<number> {
+    if (closing) return Promise.resolve(0);
+    const existing = flights.get(kind);
+    if (existing) return existing;
+    // Install ownership before invoking any caller-supplied code.
+    const flight = Promise.resolve().then(run);
+    flights.set(kind, flight);
+    const done = () => { flights.delete(kind); };
+    void flight.then(done, done);
+    return flight;
+  }
 
   // The worker serializes each first-use check and insert, including races
   // between delivery passes and the public-key route.
@@ -159,7 +189,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
     );
   }
 
-  return {
+  const sender: AwaitablePushSender = {
     publicKey() {
       const keys = admin.vapid();
       return keys instanceof Promise ? keys.then(row => row.publicKey) : keys.publicKey;
@@ -182,6 +212,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
       let attempts = 0;
 
       for (const intent of pending) {
+        if (closing) break;
         // Re-read per intent: an endpoint pruned as dead during the previous
         // intent's pass must not be attempted again in this one.
         const subs = deliverableRows(Date.now());
@@ -265,7 +296,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
       if (!subs.length) return 0;
       const keys = await admin.vapid();
       for (const sub of subs) {
-        if (signal?.aborted) break;
+        if (closing || signal?.aborted) break;
         const attempt = await notices.begin(sub.endpoint, at ?? Date.now());
         if (!attempt) continue;
         let outcome: StorageNoticeOutcome;
@@ -295,6 +326,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
       // and components in the same transaction that rechecks them.
       const planned: Array<{ sub: PushSubscriptionRow; attempt: ActionAttempt }> = [];
       for (const sub of deliverableRows(now)) {
+        if (closing) break;
         const attempt = await notices.beginAttempt({ endpoint: sub.endpoint, principalId: sub.principalId! }, now);
         if (attempt) planned.push({ sub, attempt });
       }
@@ -340,6 +372,24 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
       });
       await Promise.all(bookkeeping);
       return planned.length;
+    },
+  };
+  return {
+    ...sender,
+    deliverPending: notifier => deliver("activity", () => sender.deliverPending(notifier)),
+    deliverActions: (notices, at) => deliver("actions", () => sender.deliverActions(notices, at)),
+    deliverStorage: (notices, at, signal) => deliver("storage", () => sender.deliverStorage(notices, at, signal)),
+    close() {
+      return closed ??= (() => {
+        closing = true;
+        // Stop admission, then join transport AND its committed outcome writes.
+        // Do not turn a failed persistence write into successful shutdown.
+        return Promise.allSettled([...flights.values()]).then(results => {
+          const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+          if (errors.length === 1) throw errors[0];
+          if (errors.length) throw new AggregateError(errors, "Push delivery drain failed");
+        });
+      })();
     },
   };
 }

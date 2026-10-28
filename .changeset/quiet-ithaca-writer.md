@@ -2,4 +2,4 @@
 "@schlessera/brain-ui-server": patch
 ---
 
-Close the app-owned SQLite write worker during ordinary shutdown after its consumers drain, including when another cleanup fails.
+Close the app-owned SQLite write worker during ordinary shutdown after its consumers and bounded push deliveries drain, preserving accepted notification outcomes and cleanup errors.

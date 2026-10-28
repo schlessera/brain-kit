@@ -1,3 +1,7 @@
+import * as activityRuntime from "../src/activity/runtime.js";
+import webpush from "web-push";
+import { createPrincipal } from "../src/db/principals.js";
+import { createInboxStore } from "../src/inbox/store.js";
 import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -183,4 +187,139 @@ test("multiple shutdown failures retain both errors while closing the database",
     if (restoreWriter) observed.writer.close = restoreWriter;
     await app?.close().catch(() => {}); await observed.restore(); await f.close();
   }
+});
+
+for (const kind of ["activity", "actions"] as const) test(`${kind} acceptance overlapping app close commits before the real worker stops and never resends after reopen`, async () => {
+  const f = fixture(), observed = observe(f.path);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  let accept!: () => void, started!: () => void;
+  const submitted = new Promise<void>(resolve => { started = resolve; });
+  const accepted = new Promise<void>(resolve => { accept = resolve; });
+  let sends = 0;
+  let activity!: activityRuntime.ActivityRuntime;
+  const createRuntime = activityRuntime.createActivityRuntime;
+  let tick!: () => void;
+  const intervalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval")!;
+  const interval = globalThis.setInterval;
+  const assembly = spyOn(activityRuntime, "createActivityRuntime").mockImplementation((...args) => {
+    Object.defineProperty(globalThis, "setInterval", { ...intervalDescriptor, value: (callback: () => void, ms: number) => {
+      if (ms === 20_000) tick = callback;
+      return interval(callback, ms);
+    } });
+    try { activity = createRuntime(...args); return activity; }
+    finally { Object.defineProperty(globalThis, "setInterval", intervalDescriptor); }
+  });
+  const transport = spyOn(webpush, "sendNotification").mockImplementation(async () => { sends++; started(); await accepted; return { statusCode: 201, body: "", headers: {} }; });
+  let delivery: Promise<number> | undefined;
+  try {
+    app = await createApp(f);
+    const owner = createPrincipal(app.db, { authMethod: "password", label: "Athena", ttlSeconds: 3600 });
+    app.db.query("INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at, principal_id, time_zone) VALUES (?, 'k', 'a', ?, ?, 'UTC')")
+      .run("https://push.example.test/ithaca", Date.now(), owner.id);
+    if (kind === "activity") {
+      await activity.store.startSpan({ runId: "voyage", spanId: "voyage:root", name: "invoke_agent", kind: "turn", origin: "session" });
+      await activity.store.endSpan("voyage:root", { outcome: "error" });
+      await activity.notifier.tick();
+      expect(activity.notifier.pending()).toHaveLength(1);
+      tick(); tick();
+      delivery = activity.pushSender.deliverPending(activity.notifier);
+    } else {
+      const now = Date.UTC(2026, 6, 12, 12);
+      const store = createInboxStore(app.db, { now: () => now });
+      store.ingest({ threadId: "sail", itemId: "sail-triage", source: "cli", dedupKey: "sail-triage", stagingId: "sail-staging", expiresAt: now + 86_400_000, stakes: 3 });
+      store.commit([{ kind: "item", item: { id: "sail", dedupKey: "sail", threadId: "sail", queue: "actions", type: "approve", status: "pending", version: 1,
+        createdAt: now, updatedAt: now, expiresAt: now + 86_400_000, payload: { title: "Set sail", detail: "Decide before departure." },
+        options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] } }]);
+      await activity.actionNotices.enroll(now);
+      delivery = activity.pushSender.deliverActions(activity.actionNotices, now + 60_000);
+    }
+    // Observe the real provider call before initiating shutdown; this cannot
+    // pass with an empty queue or a delivery that has not started yet.
+    await submitted;
+    const result = delivery.then(value => ({ value }), error => ({ error }));
+    let reached!: () => void;
+    const draining = new Promise<void>(resolve => { reached = resolve; });
+    const closeActivity = activity.close.bind(activity);
+    activity.close = () => { const completion = closeActivity(); reached(); return completion; };
+    const closing = app.close();
+    expect(app.close()).toBe(closing);
+    // A handshake proves shutdown reached the actual Activity close. Keep
+    // transport held through another event-loop turn, including on old code.
+    await draining;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const closedBeforeAcceptance = observed.closes;
+    accept();
+    await closing;
+    const outcome = await result;
+    const disk = new Database(f.path, { readonly: true });
+    try {
+      const receipt = kind === "activity"
+        ? disk.query("SELECT status AS outcome FROM notification_intents WHERE run_id = 'voyage'").get()
+        : disk.query("SELECT outcome FROM inbox_notice_attempts").get();
+      expect(receipt, `${kind.toUpperCase()}_ACCEPTANCE_DURABLE_BEFORE_WRITER_CLOSE`).toEqual({ outcome: kind === "activity" ? "sent" : "success" });
+      expect(disk.query("SELECT last_used_at FROM push_subscriptions").get()).not.toEqual({ last_used_at: null });
+    } finally { disk.close(); }
+    expect(outcome).toEqual({ value: 1 });
+    expect(closedBeforeAcceptance, "OWNED_WORKER_REMAINS_OPEN_DURING_ACCEPTANCE").toBe(0);
+    await observed.expectClosed();
+    expect(sends).toBe(1);
+    app = await createApp(f);
+    const reopened = activity;
+    await reopened.pushSender.deliverPending(reopened.notifier);
+    await reopened.pushSender.deliverActions(reopened.actionNotices, Date.UTC(2026, 6, 12, 12, 2));
+    expect(sends, "ACCEPTED_NOTICE_NOT_RESENT_AFTER_REOPEN").toBe(1);
+  } finally { accept(); await delivery?.catch(() => {}); await app?.close().catch(() => {}); transport.mockRestore(); assembly.mockRestore(); await observed.restore(); await f.close(); }
+});
+
+test("Activity close bounds a stalled transport, releases its agent, and joins failed outcome persistence", async () => {
+  const f = fixture(), observed = observe(f.path);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  let activity!: activityRuntime.ActivityRuntime;
+  const createRuntime = activityRuntime.createActivityRuntime;
+  const assembly = spyOn(activityRuntime, "createActivityRuntime").mockImplementation((...args) => { activity = createRuntime(...args); return activity; });
+  let started!: () => void, release!: () => void;
+  const submitted = new Promise<void>(resolve => { started = resolve; });
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let agent: import("node:https").Agent | undefined;
+  let destroyed = 0;
+  const transport = spyOn(webpush, "sendNotification").mockImplementation(async (_sub, _payload, options) => {
+    agent = options!.agent as import("node:https").Agent;
+    const destroy = agent.destroy.bind(agent);
+    agent.destroy = () => { destroyed++; return destroy(); };
+    started(); await pending; return { statusCode: 201, body: "", headers: {} };
+  });
+  const failure = new Error("Odysseus outcome commit refused");
+  let mark: ReturnType<typeof spyOn> | undefined;
+  try {
+    app = await createApp(f);
+    const owner = createPrincipal(app.db, { authMethod: "password", label: "Athena", ttlSeconds: 3600 });
+    app.db.query("INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at, principal_id) VALUES (?, 'k', 'a', 0, ?)")
+      .run("https://push.example.test/ithaca", owner.id);
+    await activity.store.startSpan({ runId: "voyage", spanId: "voyage:root", name: "invoke_agent", kind: "turn", origin: "session" });
+    await activity.store.endSpan("voyage:root", { outcome: "error" });
+    await activity.notifier.tick();
+    const deliver = activity.pushSender.deliverPending(activity.notifier);
+    expect(activity.pushSender.deliverPending(activity.notifier), "CONCURRENT_DELIVERY_JOINS_THE_SAME_PASS").toBe(deliver);
+    const result = deliver.catch(error => error);
+    await submitted;
+    // Persistence is deliberately refused after the real deadline classifies
+    // the stalled submission. Shutdown must retain this error and still clean up.
+    mark = spyOn(activity.notifier, "markDelivered").mockImplementation(async (_id, status) => {
+      expect(status, "DEADLINE_IS_NEVER_PROVIDER_SUCCESS").toBe("send_failed");
+      throw failure;
+    });
+    const at = performance.now();
+    const closing = app.close();
+    const runtimeClosing = activity.close();
+    expect(activity.close(), "CONCURRENT_ACTIVITY_CLOSE_JOINS").toBe(runtimeClosing);
+    void runtimeClosing.catch(() => {});
+    expect(await rejection(closing), "DELIVERY_COMMIT_FAILURE_RETAINED_BY_APP_CLOSE").toBe(failure);
+    expect(await result).toBe(failure);
+    expect(performance.now() - at, "PUSH_DRAIN_HAS_AN_ABSOLUTE_DEADLINE").toBeLessThan(15_000);
+    expect(destroyed, "DEADLINE_RELEASES_THE_OWNED_TRANSPORT_AGENT").toBeGreaterThan(0);
+    expect(await activity.pushSender.deliverPending(activity.notifier), "CLOSED_DELIVERY_REFUSES_NEW_WORK").toBe(0);
+    expect(await rejection(app.close())).toBe(failure);
+    await observed.expectClosed();
+    expect(() => app!.db.query("SELECT 1").get()).toThrow();
+  } finally { release(); mark?.mockRestore(); await app?.close().catch(() => {}); transport.mockRestore(); assembly.mockRestore(); await observed.restore(); await f.close(); }
 });
