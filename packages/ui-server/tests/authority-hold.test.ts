@@ -39,9 +39,15 @@ function testHold(waitMs = AUTHORITY_HOLD_WAIT_MS, signal?: AbortSignal) {
 }
 /** Register ownership before any await, including a runner timeout. Nested suite
  * hooks drain operations before deleting roots and before the native helper closes. */
+const fixtureRoots = { remove(root: string) { rmSync(root, { recursive: true, force: true }); } };
+function cleanupDiagnostic(error: unknown): string {
+  if (error instanceof AggregateError) return `${error.message} [${error.errors.map(cleanupDiagnostic).join("; ")}]`;
+  return error instanceof Error ? error.message : String(error);
+}
 function testOwner() {
   const controllers: AbortController[] = [], releases: (() => void)[] = [], pending: Promise<unknown>[] = [];
   const cleanup: (() => void)[] = [];
+  let closing: Promise<void> | undefined;
   return {
     cleanup,
     controller() { const controller = new AbortController(); controllers.push(controller); return controller; },
@@ -53,12 +59,22 @@ function testOwner() {
       // Observe rejection immediately; retain the actual promise/error for the caller and teardown.
       pending.push(operation); void operation.catch(() => {}); return operation;
     },
-    async close() {
-      controllers.forEach(controller => controller.abort()); releases.forEach(release => release());
-      const results = await Promise.allSettled(pending);
-      const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
-      for (const close of cleanup.reverse()) { try { close(); } catch (error) { errors.push(error); } }
-      if (errors.length) throw new AggregateError(errors, "AUTHORITY_HOLD_OWNED_CLEANUP_FAILED");
+    close() {
+      return closing ??= (async () => {
+        const errors: unknown[] = [];
+        const attempt = (close: () => void) => { try { close(); } catch (error) { errors.push(error); } };
+        try {
+          controllers.forEach(controller => attempt(() => controller.abort()));
+          releases.forEach(attempt);
+          const results = await Promise.allSettled(pending);
+          errors.push(...results.flatMap(result => result.status === "rejected" ? [result.reason] : []));
+          for (const close of [...cleanup].reverse()) attempt(close);
+        } finally {
+          controllers.length = releases.length = pending.length = cleanup.length = 0;
+        }
+        if (errors.length === 1) throw errors[0];
+        if (errors.length) throw new AggregateError(errors, `AUTHORITY_HOLD_OWNED_CLEANUP_FAILED: ${errors.map(cleanupDiagnostic).join("; ")}`);
+      })();
     },
   };
 }
@@ -84,7 +100,63 @@ test("owned cleanup cancels, releases and drains before deleting fixture state",
   await owner.close();
   const failed = testOwner(), error = new Error("Odysseus pending operation failed");
   failed.track(Promise.reject(error));
-  await expect(failed.close()).rejects.toMatchObject({ errors: [error] });
+  await expect(failed.close()).rejects.toBe(error);
+});
+
+test("owned cleanup retains operation and root removal failures after actual drain", async () => {
+  const root = mkdtempSync(join(tmpdir(), "authority-hold-cleanup-"));
+  const owner = testOwner(), controller = owner.controller(), f = owner.hold();
+  const operationError = new Error("CLEANUP_OPERATION_SENTINEL");
+  const nestedError = new AggregateError([operationError], "CLEANUP_OPERATION_NESTED");
+  const removalError = new Error("CLEANUP_ROOT_REMOVAL_SENTINEL");
+  const events: string[] = [];
+  const descriptor = Object.getOwnPropertyDescriptor(fixtureRoots, "remove")!;
+  let drained = false;
+  // Patch only this test-owned deletion boundary, and only this fixture root.
+  Object.defineProperty(fixtureRoots, "remove", { ...descriptor, value: (target: string) => {
+    if (target !== root) return descriptor.value(target);
+    expect(drained, "CLEANUP_FAILURE_DELETE_AFTER_ACTUAL_DRAIN").toBe(true);
+    expect(controller.signal.aborted, "CLEANUP_FAILURE_ABORT_BEFORE_DELETE").toBe(true);
+    expect(f.state.held, "CLEANUP_FAILURE_RELEASE_BEFORE_DELETE").toBe(false);
+    events.push("remove");
+    throw removalError;
+  } });
+  // The independent real removal is attempted last, even if the injected boundary fails.
+  owner.cleanup.push(() => descriptor.value(root));
+  owner.cleanup.push(() => { events.push("later cleanup"); });
+  owner.cleanup.push(() => fixtureRoots.remove(root));
+  let closeError: unknown;
+  try {
+    f.begin();
+    const pending = owner.track(retryHeld(f.hold, controller.signal,
+      () => { throw new AuthorityHeld(); },
+      () => { drained = true; events.push("drain"); throw nestedError; }));
+    await f.entered(pending);
+    const close = owner.close();
+    expect(owner.close(), "CLEANUP_SHARES_ONE_CLOSE").toBe(close);
+    const error = await close.catch(error => { closeError = error; return error; });
+    expect(error, "CLEANUP_DUAL_FAILURE_AGGREGATES").toBeInstanceOf(AggregateError);
+    expect(error.errors[0], "CLEANUP_RETAINS_OPERATION_IDENTITY").toBe(nestedError);
+    expect(error.errors[0].errors[0], "CLEANUP_RETAINS_NESTED_OPERATION_IDENTITY").toBe(operationError);
+    expect(error.errors[1], "CLEANUP_RETAINS_REMOVAL_IDENTITY").toBe(removalError);
+    expect(error.message, "CLEANUP_NAMES_NESTED_OPERATION").toContain(operationError.message);
+    expect(error.message, "CLEANUP_NAMES_ROOT_REMOVAL").toContain(removalError.message);
+    expect(events, "CLEANUP_ATTEMPTS_ALL_ONCE_IN_ORDER").toEqual(["drain", "remove", "later cleanup"]);
+    expect(owner.cleanup, "CLEANUP_RELEASES_CALLBACK_REFERENCES").toEqual([]);
+  } finally {
+    try { await owner.close().catch(error => { if (error !== closeError) throw error; }); }
+    finally { Object.defineProperty(fixtureRoots, "remove", descriptor); }
+  }
+});
+
+test("owned cleanup preserves a sole root removal error and attempts later cleanup", async () => {
+  const owner = testOwner(), error = new Error("CLEANUP_SOLE_REMOVAL_SENTINEL");
+  let later = 0;
+  owner.cleanup.push(() => { later++; });
+  owner.cleanup.push(() => { throw error; });
+  await expect(owner.close()).rejects.toBe(error);
+  await expect(owner.close()).rejects.toBe(error);
+  expect(later, "CLEANUP_SOLE_FAILURE_ATTEMPTS_LATER_ONCE").toBe(1);
 });
 
 test("the production wait bound is sixty seconds", () => {
@@ -129,10 +201,11 @@ describe("brain application", () => {
   beforeEach(() => {
     owner = testOwner();
     root = mkdtempSync(join(tmpdir(), "authority-hold-application-"));
+    owner.cleanup.push(() => fixtureRoots.remove(root));
     mkdirSync(join(root, "notes")); writeFileSync(join(root, path), raw);
     controller = owner.controller(); receipts = []; beforeCommit = undefined;
   });
-  afterEach(async () => { try { await owner.close(); } finally { rmSync(root, { recursive: true, force: true }); } });
+  afterEach(async () => { await owner.close(); });
   const application = (f: ReturnType<typeof testHold>, lock = createKeyedLock()) => {
     const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })),
     principalId: "odysseus", turnId: "turn-raft", signal: controller.signal, isAuthorized: f.isAuthorized, hold: f.hold,
@@ -270,8 +343,8 @@ describe("brain application", () => {
 describe("mask application", () => {
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]), imagePath = "assets/raft.png", maskPath = "assets/raft-mask.png";
   let root: string, owner: ReturnType<typeof testOwner>;
-  beforeEach(() => { owner = testOwner(); root = mkdtempSync(join(tmpdir(), "authority-hold-mask-")); mkdirSync(join(root, "assets")); writeFileSync(join(root, imagePath), png); });
-  afterEach(async () => { try { await owner.close(); } finally { rmSync(root, { recursive: true, force: true }); } });
+  beforeEach(() => { owner = testOwner(); root = mkdtempSync(join(tmpdir(), "authority-hold-mask-")); owner.cleanup.push(() => fixtureRoots.remove(root)); mkdirSync(join(root, "assets")); writeFileSync(join(root, imagePath), png); });
+  afterEach(async () => { await owner.close(); });
 
   test("a hold that begins at the final pre-commit check is waited out and the mask commits after it", async () => {
     const f = owner.hold(), records: BrainApplicationResult[] = [];
@@ -309,7 +382,7 @@ describe("policy proposal", () => {
   const proposed = original.replace("interactive: governed", "interactive: strict");
   test("a scope pause that begins before publication is waited out and the policy publishes after it", async () => {
     const root = mkdtempSync(join(tmpdir(), "authority-hold-policy-")), db = createUiDb(":memory:");
-    owner.cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    owner.cleanup.push(() => fixtureRoots.remove(root));
     owner.cleanup.push(() => db.close());
     mkdirSync(join(root, "context/policies"), { recursive: true });
     const path = join(root, "context/policies/governance.md"); writeFileSync(path, original);
