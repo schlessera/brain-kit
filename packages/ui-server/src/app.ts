@@ -457,13 +457,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Journal and Activity commits run on this worker's connection, off the event loop (#2814).
   // It owns the journal's own file too (#2789), attached as it is here.
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
+  bootCleanup.push(() => writer.close());
   markAppPhase(db, "boot");
   // Authentication's per-request principal writes commit on it too (#2850).
   registerPrincipalWrites(db, writer);
   registerAccountWrites(db, writer);
   registerInboxWrites(db, writer);
   registerReferenceWrites(db, writer);
-  bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
@@ -1208,7 +1208,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       closeBegun.abort(new Error("Server shutting down"));
       const grace = setTimeout(() => shutdown.abort(new Error("Server shutting down")), CLOSE_GRACE_MS);
       const failures: unknown[] = [];
-      const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { if (!failures.includes(error)) failures.push(error); } };
       for (const cancelBody of httpRequests.values()) cancelBody();
       // Cancel turn work before joining HTTP handlers that may be waiting for
       // its locks. Keep operational state alive until admitted dispatch ends.
@@ -1223,7 +1223,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
       await attempt(() => storage.close());
-      await attempt(async () => { await storageHistory.flush(); storageHistory.close(); });
+      await attempt(async () => { await storageHistory.flush(); });
+      await attempt(() => storageHistory.close());
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
       await attempt(() => reverts.close());
@@ -1238,6 +1239,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(async () => { await hostExecution.gate()?.settled(); });
       await attempt(() => activity.close());
       await attempt(() => hostExecution.release());
+      // Consumers have drained; close the shared write connection before its reader.
+      await attempt(() => writer.close());
       await attempt(() => db.close());
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];

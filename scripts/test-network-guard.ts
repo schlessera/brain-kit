@@ -85,34 +85,43 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
     const mode = request.redirect;
     for (let hop = 0; ; hop++) {
       const replay = request.clone();
-      const response = await nativeFetch(request, { redirect: "manual" });
-      const location = REDIRECTS.has(response.status) ? response.headers.get("location") : null;
-      if (mode === "manual" || location === null) {
-        if (hop) Object.defineProperty(response, "redirected", { value: true });
-        return response;
+      let replayBody = replay.body;
+      try {
+        const response = await nativeFetch(request, { redirect: "manual" });
+        const location = REDIRECTS.has(response.status) ? response.headers.get("location") : null;
+        if (mode === "manual" || location === null) {
+          if (hop) Object.defineProperty(response, "redirected", { value: true });
+          return response;
+        }
+        await response.body?.cancel();
+        if (mode === "error") throw new TypeError("Fetch redirect mode is error");
+        if (hop === 20) throw new TypeError("Fetch redirected more than 20 times");
+        const next = new URL(location, request.url);
+        permitted(next);
+        const headers = new Headers(request.headers);
+        if (next.origin !== new URL(request.url).origin) {
+          for (const name of ["authorization", "cookie", "proxy-authorization"]) headers.delete(name);
+        }
+        const rewrite = (response.status === 303 && request.method !== "HEAD") ||
+          ([301, 302].includes(response.status) && request.method === "POST");
+        if (rewrite) {
+          for (const name of ["content-type", "content-length", "content-encoding", "content-language", "content-location"]) headers.delete(name);
+        }
+        request = new Request(next, {
+          method: rewrite ? "GET" : replay.method,
+          headers,
+          body: rewrite ? undefined : replay.body,
+          signal: replay.signal,
+          credentials: replay.credentials,
+          redirect: mode,
+        });
+        // The next request now owns the replay stream. A rewrite has no body.
+        if (!rewrite) replayBody = null;
+      } finally {
+        // Cancelling one tee branch can wait for its unread sibling. Initiate
+        // disposal without awaiting it or replacing the transport error.
+        void replayBody?.cancel().catch(() => {});
       }
-      await response.body?.cancel();
-      if (mode === "error") throw new TypeError("Fetch redirect mode is error");
-      if (hop === 20) throw new TypeError("Fetch redirected more than 20 times");
-      const next = new URL(location, request.url);
-      permitted(next);
-      const headers = new Headers(request.headers);
-      if (next.origin !== new URL(request.url).origin) {
-        for (const name of ["authorization", "cookie", "proxy-authorization"]) headers.delete(name);
-      }
-      const rewrite = (response.status === 303 && request.method !== "HEAD") ||
-        ([301, 302].includes(response.status) && request.method === "POST");
-      if (rewrite) {
-        for (const name of ["content-type", "content-length", "content-encoding", "content-language", "content-location"]) headers.delete(name);
-      }
-      request = new Request(next, {
-        method: rewrite ? "GET" : replay.method,
-        headers,
-        body: rewrite ? undefined : replay.body,
-        signal: replay.signal,
-        credentials: replay.credentials,
-        redirect: mode,
-      });
     }
   }, nativeFetch);
 
