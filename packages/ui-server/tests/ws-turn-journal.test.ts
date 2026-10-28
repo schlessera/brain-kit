@@ -64,6 +64,9 @@ test("host admission, tool completion and terminal observation produce scoped re
     expect(first, "JOURNAL_RECEIPT_FOLLOWS_SESSION_IDENTITY").toBeGreaterThan(identity);
     const receipt = frames().find(frame => frame?.type === "turn_journal")!;
     if (receipt.type !== "turn_journal") throw new Error("Missing receipt");
+    // A receipt can precede another queued tool observation. Model the real
+    // worker observation hold before allowing this fake backend to write again.
+    await app.wsHost.journal!.idle();
     release();
     await wait(() => frames().some(frame => frame?.type === "turn_journal" && frame.journal.state === "complete"));
     // Roadblocks are classified after the journal completes; the turn's slot
