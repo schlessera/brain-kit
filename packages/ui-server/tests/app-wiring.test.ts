@@ -1,9 +1,11 @@
-import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdirSync } from "node:fs";
+import * as nativeStartup from "../../ui-sdk/src/server/worker-startup-view.js";
+import * as nativeOutput from "../../ui-sdk/src/server/worker-native-output.js";
 import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
-import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
+import { createFixtureApp } from "./helpers/native-app-fixture.js";
 import {
   createConsoleLoggerProvider,
   createObservability,
@@ -40,6 +42,43 @@ const ENV = [
 ] as const;
 const saved: Record<string, string | undefined> = {};
 const TEST_DB = join(tmpdir(), `app-wiring-test-${process.pid}.db`);
+const TEST_BRAIN = join(tmpdir(), `app-wiring-brain-${process.pid}`);
+const ownedApps: Awaited<ReturnType<typeof createFixtureApp>>[] = [];
+let startupBeforeTest = nativeStartup.prepareNativeWorkerStartupView;
+let outputBeforeTest = nativeOutput.prepareNativeWorkerOutput;
+
+// Register immediately after construction, including direct factories below.
+async function createApp(options?: Parameters<typeof createFixtureApp>[0]) {
+  const instance = await createFixtureApp(options);
+  ownedApps.push(instance);
+  return instance;
+}
+
+async function closeOwnedApps() {
+  const errors: unknown[] = [];
+  while (ownedApps.length) {
+    const instance = ownedApps.pop()!;
+    try { await instance.close(); } catch (error) { errors.push(error); }
+    try {
+      expect(() => instance.db.query("SELECT 1").get(), "APP_FIXTURE_DATABASE_CLOSED").toThrow();
+    } catch (error) { errors.push(error); }
+  }
+  // Exercise the actual canonical module exports, including the generated
+  // fixture's final shared reference release, rather than a cleanup counter.
+  try {
+    expect(nativeStartup.prepareNativeWorkerStartupView, "APP_FIXTURE_RELEASES_NATIVE_STARTUP_EXPORT").toBe(startupBeforeTest);
+  } catch (error) { errors.push(error); }
+  try {
+    expect(nativeOutput.prepareNativeWorkerOutput, "APP_FIXTURE_RELEASES_NATIVE_OUTPUT_EXPORT").toBe(outputBeforeTest);
+  } catch (error) { errors.push(error); }
+  if (errors.length) throw new AggregateError(errors, "App wiring fixture cleanup failed");
+}
+
+beforeEach(() => {
+  startupBeforeTest = nativeStartup.prepareNativeWorkerStartupView;
+  outputBeforeTest = nativeOutput.prepareNativeWorkerOutput;
+});
+afterEach(closeOwnedApps);
 
 beforeAll(async () => {
   for (const key of ENV) saved[key] = process.env[key];
@@ -52,7 +91,7 @@ beforeAll(async () => {
   // Passkey routes touch the DB; never let a wiring test open a real db file.
   process.env.DB_PATH = TEST_DB;
   // The version probe must never inspect a developer's real brain repo.
-  process.env.BRAIN_PATH = join(tmpdir(), `app-wiring-brain-${process.pid}`);
+  process.env.BRAIN_PATH = TEST_BRAIN;
   mkdirSync(process.env.BRAIN_PATH, { recursive: true });
   // Boot probes the binary a turn would spawn (#211): the one the lockfile installs.
   process.env.CLAUDE_CODE_PATH = bundledClaudeBinary();
@@ -60,13 +99,18 @@ beforeAll(async () => {
   process.env.BRAIN_UI_PRICING_DISCOVERY = "0";
 });
 
-afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(TEST_DB + suffix, { force: true });
-  }
-  for (const key of ENV) {
-    if (saved[key] === undefined) delete process.env[key];
-    else process.env[key] = saved[key]!;
+afterAll(async () => {
+  try {
+    await closeOwnedApps();
+  } finally {
+    rmSync(TEST_BRAIN, { recursive: true, force: true });
+    for (const suffix of ["", "-shm", "-wal"]) {
+      rmSync(TEST_DB + suffix, { force: true });
+    }
+    for (const key of ENV) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key]!;
+    }
   }
 });
 
@@ -446,7 +490,7 @@ describe("app wiring — CORS (split topology)", () => {
 
 describe("createApp refuses unsafe configuration", () => {
   const restore: Record<string, string | undefined> = {};
-  const keys = ["AUTH_MODE", "HOST", "NODE_ENV", "WEBAUTHN_USER_ID"] as const;
+  const keys = ["AUTH_MODE", "HOST", "NODE_ENV", "WEBAUTHN_USER_ID", "BRAIN_UI_DANGEROUSLY_DISABLE_AUTH"] as const;
 
   function snapshot() {
     for (const k of keys) restore[k] = process.env[k];
@@ -471,7 +515,7 @@ describe("createApp refuses unsafe configuration", () => {
       await (await createApp()).close();
       delete process.env.BRAIN_UI_DANGEROUSLY_DISABLE_AUTH;
     } finally {
-      reset();
+      try { await closeOwnedApps(); } finally { reset(); }
     }
   });
 
@@ -484,7 +528,7 @@ describe("createApp refuses unsafe configuration", () => {
       process.env.WEBAUTHN_USER_ID = "x".repeat(64);
       await (await createApp()).close();
     } finally {
-      reset();
+      try { await closeOwnedApps(); } finally { reset(); }
     }
   });
 });
@@ -712,5 +756,35 @@ describe("app wiring — health and shutdown", () => {
       expect(res.status, "HEALTH_PROBES_REAL_DATABASE").toBe(503);
       expect(await res.json(), "PUBLIC_UNHEALTHY_RESPONSE_IS_MINIMAL").toEqual({ status: "unhealthy" });
     } finally { if (!closed) db.close(); }
+  });
+});
+
+describe("app wiring — fixture ownership", () => {
+  test("cleanup drains every real app and retains all close errors", async () => {
+    // Independent databases keep this a lifetime test rather than shared-file
+    // contention. Explicitly generate our fixtures even in a native host run.
+    const config = { ...resolveServerConfig(), nativeBrain: undefined };
+    const first = await createApp({ config, dbPath: ":memory:" });
+    const second = await createApp({ config, dbPath: ":memory:" });
+    const firstClose = first.close;
+    const secondClose = second.close;
+    const firstError = new Error("first app cleanup receipt");
+    const secondError = new Error("second app cleanup receipt");
+    first.close = async () => { await firstClose(); throw firstError; };
+    second.close = async () => { await secondClose(); throw secondError; };
+    try {
+      expect(nativeStartup.prepareNativeWorkerStartupView, "GENERATED_APPS_ACQUIRE_NATIVE_STARTUP_EXPORT").not.toBe(startupBeforeTest);
+      expect(nativeOutput.prepareNativeWorkerOutput, "GENERATED_APPS_ACQUIRE_NATIVE_OUTPUT_EXPORT").not.toBe(outputBeforeTest);
+      await expect(closeOwnedApps()).rejects.toMatchObject({
+        errors: [secondError, firstError],
+      });
+      expect(() => first.db.query("SELECT 1").get(), "FIRST_APP_DATABASE_CLOSED_AFTER_REJECTION").toThrow();
+      expect(() => second.db.query("SELECT 1").get(), "SECOND_APP_DATABASE_CLOSED_AFTER_REJECTION").toThrow();
+      expect(nativeStartup.prepareNativeWorkerStartupView, "ALL_APP_NATIVE_STARTUP_OWNERS_RELEASED").toBe(startupBeforeTest);
+      expect(nativeOutput.prepareNativeWorkerOutput, "ALL_APP_NATIVE_OUTPUT_OWNERS_RELEASED").toBe(outputBeforeTest);
+    } finally {
+      // Preserve real resource cleanup even when the regression assertion fails.
+      await Promise.allSettled([firstClose(), secondClose()]);
+    }
   });
 });
