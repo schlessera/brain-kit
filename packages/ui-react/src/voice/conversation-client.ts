@@ -1,7 +1,7 @@
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ServerMessage, ServerConversationOpened, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
@@ -50,6 +50,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let generation = 0;
   let disposed = false;
   let requested = false;
+  let closedNotice = "";
   let openingId: string | undefined;
   let openingGeneration = 0;
   let ready = false;
@@ -155,10 +156,27 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const profile = scope();
     if (profile && notify) send({ type: "conversation_stop", conversationId: profile.conversationId, ...(resumable ? { resumable: true } : {}) });
     ready = false; consent = false; requested = false;
-    state.setState({ connection: lost ? "Speech lost" : "Reconnecting", notice: lost ? "Speech lost. Microphone off; reply outcome unknown until reconnect." : "Microphone off. Resume when voice is ready." });
+    state.setState({ connection: lost ? "Speech lost" : "Reconnecting", notice: closedNotice || (lost ? "Speech lost. Microphone off; reply outcome unknown until reconnect." : "Microphone off. Resume when voice is ready.") });
     announce(lost ? "Speech lost. Chat is still connected." : "Microphone off");
   }
+  function closeDiagnostic(reason: ServerConversationClosed["reason"]) {
+    // Only local fixed classes survive an epoch closure. Remote message text
+    // can contain provider details or content and must never be retained here.
+    const reasons: Record<ServerConversationClosed["reason"], string> = {
+      stopped: "The voice session stopped.", replaced: "The voice session was replaced.",
+      disconnected: "The voice connection was lost.", provider_closed: "The voice service closed the connection.",
+      provider_error: "The voice service failed.", backpressure: "The voice session reached a transport limit.",
+      correlation: "The voice service could not match the conversation input.", refused: "The voice session was refused.",
+    };
+    return `${reasons[reason] ?? "The voice session closed."} Microphone off; reply outcome unknown. Resume when voice is ready.`;
+  }
+  function clearClosedNotice() {
+    if (!closedNotice) return;
+    closedNotice = "";
+    state.setState({ notice: "" });
+  }
   function leave() {
+    clearClosedNotice();
     if (!state.getState().active) return;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
@@ -171,6 +189,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (retained.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || retained.reduce((n, f) => n + f.text.length, 0) >= CONVERSATION_LIMITS.maxUtteranceChars) {
       state.setState({ notice: "Recognition is full. Review it in the composer before restarting voice." }); return;
     }
+    clearClosedNotice();
     requested = true; ready = false; resync = 0; generation++; state.setState({ token: generation });
     sequence = 0; utterance = null; ended = false; clearTimers();
     const s = state.getState();
@@ -327,7 +346,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         if (s.active) queueMicrotask(startEpoch);
         return null;
       }
-      if (message.type === "conversation_closed") { send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
+      if (message.type === "conversation_closed") { closedNotice = closeDiagnostic(message.reason); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
     } else if (message.type === "conversation_opened") return null;
     if (message.type === "conversation_work") {
       const p = scope();
@@ -355,6 +374,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (!s.active) return null;
     if (message.type === "conversation_opened") {
       if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return null;
+      clearClosedNotice();
       generation++; state.setState({ token: generation }); stopMic(); playback.dispose(); playback = makePlayback(); fragments.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); lastInput = undefined;
       state.setState({ profile: message, connection: "Connected", text: "", interaction: stopFence ? "Checking whether the reply stopped" : "Listening", disclosureOpen: agreedDisclosure !== disclosureKey(message) });
       resync = message.resync.work + message.resync.outputs;
@@ -373,7 +393,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       requested = false;
       if (message.reason === "stopped") {
         if (typeof document === "undefined" || !document.hidden) startEpoch();
-      } else pause(true);
+      } else { closedNotice = closeDiagnostic(message.reason); pause(true); }
       return null;
     }
     if (message.type !== "conversation_event") return null;
