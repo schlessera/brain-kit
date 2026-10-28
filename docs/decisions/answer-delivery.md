@@ -126,7 +126,7 @@ that fails leaves the card editable and sends nothing, because sending an
 answer that would not survive a reload breaks the promise the queued state
 makes. After a reconnect or a takeover, every held answer asks for its
 status first and is sent again only while the host reports it `pending`
-(`function replay(entry`, `manager.ts:318-322`).
+(`function replay(entry`, `manager.ts:321-325`).
 
 Admission against Queue A is decided, and its storage write committed, under
 one lock that every tab shares. The count and byte totals are read from what
@@ -174,7 +174,7 @@ A host hello can arrive while startup is still reading the previously stored
 principal. The completed storage read is only a fallback: it cannot replace
 the newer host identity, even with an empty first-visit value. A read begun
 before logout or disposal cannot restore admission authority (`async function
-restore`, `packages/ui-react/src/lib/answer-delivery/manager.ts:702-722`). Without
+restore`, `packages/ui-react/src/lib/answer-delivery/manager.ts:705-725`). Without
 the check after the await, a real offline Submit could incorrectly say Not
 saved, or queue its answer under an older principal.
 

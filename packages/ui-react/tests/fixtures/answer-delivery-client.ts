@@ -1,5 +1,6 @@
 // The public ChatPage on a persistent root (IndexedDB answer queue, Web
 // Locks across tabs), for tests/answer-delivery-runtime.test.ts (#910).
+import { answerTakeoverControl } from "./answer-takeover-control";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { BrainUiProvider, ChatPage, createBrainUiRoot } from "@schlessera/brain-ui-react";
@@ -23,11 +24,14 @@ const answerStorage = holdPrincipalRead ? {
   },
 } : storage;
 
+const takeover = answerTakeoverControl(answerStorage);
 const root = createBrainUiRoot({
   storagePrefix: "odysseus-answers",
-  answerStorage,
+  answerStorage: takeover?.answerStorage ?? answerStorage,
+  ...(takeover ? { answerTabs: takeover.answerTabs } : {}),
   config: { appName: "Odysseus’s notebook", assistantName: "Brain" },
 });
+takeover?.bind(root);
 // Keep only fixture identities/state, never transcript or answer content.
 const transitions: Array<Record<string, unknown>> = [];
 const unsubscribeDelivery = root.stores.chat.subscribe((state, previous) => {
@@ -46,6 +50,7 @@ if (!mount) throw new Error("Answer delivery fixture mount is missing");
 createRoot(mount).render(createElement(BrainUiProvider, { root, children: createElement(ChatPage) }));
 Object.assign(window, {
   __answers: {
+    takeover: takeover?.api,
     connected: () => root.stores.connection.getState().wsStatus === "connected",
     deliveries: () => root.stores.chat.getState().deliveries,
     cards: () =>

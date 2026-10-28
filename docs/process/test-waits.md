@@ -1733,8 +1733,8 @@ intact. Extra same-stack registrations fail the ownership assertion; numeric
 matching or callback text is insufficient (`installReceiptWatchdogObserver`,
 `packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts:2-88`). The actual
 manager arms after send and later probes liveness before asking for the same
-submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:324-339`;
-`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:247-257`).
+submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:327-342`;
+`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:250-260`).
 
 The candidate checks the independently required 5000 ms registration before
 pausing at its actual deadline minus one millisecond. It observes no callback,

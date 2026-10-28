@@ -13,6 +13,7 @@ import type { ClientMessage, ServerAskAnswerReceipt } from "@schlessera/brain-ui
 import { createBrainUiRoot } from "../src/root";
 import { createAnswerDelivery, type SubmitAnswer } from "../src/lib/answer-delivery/manager";
 import { createMemoryAnswerStorage, type AnswerStorage } from "../src/lib/answer-delivery/storage";
+import type { TabCoordinator, TabMessage } from "../src/lib/answer-delivery/tabs";
 import { createTabHub } from "../src/lib/answer-delivery/tabs";
 import {
   MAX_QUEUED_ANSWERS,
@@ -162,6 +163,72 @@ describe("a host hello overtakes the stored principal read", () => {
         } finally {
           h.queue.dispose();
           h.root.dispose();
+        }
+      });
+    }
+  }
+});
+
+describe("takeover continuation authority", () => {
+  for (const outcome of ["read", "fallback"] as const) {
+    for (const invalidate of ["removed", "replaced", "disposed", "logout", "none"] as const) {
+      test(`${outcome}: ${invalidate} while takeover reads storage`, async () => {
+        const storage = createMemoryAnswerStorage();
+        let listener!: (message: TabMessage) => void;
+        const grants: Array<() => void> = [];
+        const posted: TabMessage[] = [];
+        const tabs: TabCoordinator = {
+          post: message => { posted.push(message); },
+          subscribe(fn) { listener = fn; return () => {}; },
+          claim(_id, onOwned) { grants.push(onOwned); return () => {}; },
+          exclusive: (_name, fn) => fn(),
+          dispose() {},
+        };
+        let finish!: (records: unknown[]) => void, fail!: (error: Error) => void;
+        const read = new Promise<unknown[]>((resolve, reject) => { finish = resolve; fail = reject; });
+        let hold = false;
+        const h = await harness({ storage: { ...storage, load: () => hold ? read : storage.load() }, tabs });
+        const item: QueuedAnswer = {
+          v: 1, submissionId: "submission-odysseus", principalKey: "principal-odysseus", requestId: "req-1",
+          sessionId: "s1", turnId: "turn-1", payload: PAYLOADS.ask_user, submittedAt: T0, sent: true,
+        };
+        try {
+          h.connect();
+          listener({ type: "item", item });
+          hold = true;
+          const completed = Promise.resolve(grants[0]!());
+          expect(h.queue.held()).toHaveLength(1);
+          expect(h.queue.held()[0]?.owned).toBe(false);
+          if (invalidate === "disposed") h.queue.dispose();
+          else if (invalidate === "logout") await h.queue.logout();
+          else if (invalidate !== "none") {
+            listener({ type: "removed", submissionId: item.submissionId, requestId: item.requestId,
+              delivery: { requestId: item.requestId, submissionId: item.submissionId, sessionId: item.sessionId,
+                payload: item.payload, submittedAt: T0, state: "answered" } });
+            if (invalidate === "replaced") listener({ type: "item", item: { ...item, sent: false } });
+          }
+          const before = { view: h.delivery(), posted: posted.length, sent: h.sent.length, timers: h.timers.length };
+          // Both successful snapshot and failed-read fallback must obey the
+          // same authority boundary. Join the real async claim continuation.
+          if (outcome === "fallback") fail(new Error("Storage read refused"));
+          else finish([item]);
+          await completed;
+          if (invalidate === "none") {
+            expect(h.queue.held()[0]?.owned).toBe(true);
+            expect(h.statuses()).toHaveLength(1);
+            expect(h.delivery()?.state).toBe("awaiting");
+          } else {
+            expect(h.delivery()).toEqual(before.view);
+            expect(posted).toHaveLength(before.posted);
+            expect(h.sent).toHaveLength(before.sent);
+            expect(h.timers).toHaveLength(before.timers);
+            expect(h.queue.held()).toEqual(invalidate === "replaced" ? [{ ...item, sent: false, owned: false }] : []);
+          }
+          h.advance(RECEIPT_WAIT);
+          if (invalidate !== "none") expect(h.sent).toHaveLength(before.sent);
+          expect(h.answers()).toEqual([]);
+        } finally {
+          finish([]); h.queue.dispose(); h.root.dispose(); tabs.dispose();
         }
       });
     }

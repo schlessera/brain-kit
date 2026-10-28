@@ -160,7 +160,8 @@ beforeAll(async () => {
   }));
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   origin = `http://127.0.0.1:${server.port}`;
-  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, chromiumSandbox: true, args: ["--disable-dev-shm-usage"], timeout: 120_000 }));
+  console.error("[answer-delivery-browser]", browser.version());
 }, 180_000);
 
 afterEach(() => {
@@ -190,13 +191,14 @@ interface Net {
   cut(): void;
   /** Stop forwarding on every open connection without closing it. */
   blackhole(): void;
-  frames: Array<{ dir: "up" | "down"; type: string; at: number }>;
+  frames: Array<{ dir: "up" | "down"; type: string; at: number; requestId?: string; submissionId?: string }>;
 }
 
 const networks = new WeakMap<BrowserContext, Net>();
 
-async function newContext(hasTouch = false): Promise<{ context: BrowserContext; net: Net }> {
+async function newContext(hasTouch = false, own?: (context: BrowserContext) => void): Promise<{ context: BrowserContext; net: Net }> {
   const context = await browser!.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "reduce", hasTouch });
+  own?.(context);
   await context.route("**/*", (route) => (new URL(route.request().url()).origin === origin ? route.continue() : route.abort()));
   const net: Net = {
     mode: "pass",
@@ -227,7 +229,8 @@ async function newContext(hasTouch = false): Promise<{ context: BrowserContext; 
     route.onMessage((message) => {
       if (entry.blackholed) return;
       try {
-        net.frames.push({ dir: "up", type: JSON.parse(String(message)).type, at: Date.now() });
+        const frame = JSON.parse(String(message));
+        net.frames.push({ dir: "up", type: frame.type, requestId: frame.requestId, submissionId: frame.submissionId, at: Date.now() });
       } catch {}
       upstream.send(message);
     });
@@ -746,6 +749,88 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
     } finally {
       await context.close();
     }
+  });
+
+  test("two tabs: a forgotten takeover cannot regress the host's answered outcome", async () => {
+    let contextDeadline: ReturnType<typeof setTimeout> | undefined;
+    const { context, net } = await newContext(false, owned => {
+      contextDeadline = setTimeout(() => { void owned.close(); }, 29_000);
+    });
+    // Register owned cleanup before the first page/fixture await. Context close
+    // cancels pages even when a gate or its cleanup acknowledgement times out.
+    const cleanup = async () => {
+      try {
+        const receipts = await Promise.all(context.pages().map(page => page.evaluate(() => {
+          const api = (window as unknown as { __answers?: { takeover?: import("./fixtures/answer-takeover-control").TakeoverControl } }).__answers?.takeover;
+          api?.releaseAll(); return api?.dispose();
+        }).catch(() => {})));
+        for (const receipt of receipts) if (receipt) expect(receipt.restored).toBe(true);
+      } finally { clearTimeout(contextDeadline); await context.close(); }
+    };
+    type ControlledWindow = { __answers: {
+      deliveries(): Record<string, { submissionId: string; state: string; mirror?: boolean }>;
+      takeover: import("./fixtures/answer-takeover-control").TakeoverControl;
+    } };
+    try {
+      const a = await context.newPage();
+      await a.goto(`${origin}/?takeover=a`);
+      await a.waitForFunction("window.__answers?.connected()");
+      const requestId = await ask(a, "ask_user");
+      const b = await context.newPage();
+      await b.goto(`${origin}/?takeover=b`);
+      await b.waitForFunction("window.__answers?.connected() && window.__answers.cards() === 1");
+      net.mode = "refuse";
+      net.cut();
+      await a.waitForFunction("!window.__answers.connected()");
+      await answer(a, "ask_user");
+      await waitForState(a, requestId, "queued");
+      await waitForState(b, requestId, "queued");
+      const owner = await a.evaluate(id => (window as unknown as ControlledWindow).__answers.deliveries()[id]!, requestId);
+      const mirror = await b.evaluate(id => (window as unknown as ControlledWindow).__answers.deliveries()[id]!, requestId);
+      expect(mirror.mirror).toBe(true);
+      expect(mirror.submissionId).toBe(owner.submissionId);
+      expect(owner.submissionId.length).toBeGreaterThan(0);
+      expect(await b.locator('[data-answer-delivery="queued"]').getByRole("button", { name: "Cancel sending" }).count()).toBe(0);
+      const submissionId = owner.submissionId;
+      for (const page of [a, b]) await page.evaluate(({ requestId, submissionId }) =>
+        (window as unknown as ControlledWindow).__answers.takeover.arm(requestId, submissionId), { requestId, submissionId });
+      net.mode = "pass";
+      await online(a);
+      await online(b);
+      await a.waitForFunction(() => (window as unknown as ControlledWindow).__answers.takeover.status().removeEntered, undefined, { timeout: 20_000 });
+      await b.waitForFunction(() => {
+        const s = (window as unknown as ControlledWindow).__answers.takeover.status();
+        return s.error || (s.loadCaptured && s.removedCaptured);
+      }, undefined, { timeout: 20_000 });
+      expect(await b.evaluate(() => (window as unknown as ControlledWindow).__answers.takeover.status().error)).toBe("");
+      await b.waitForFunction("window.__answers.connected()", undefined, { timeout: 20_000 });
+      await b.evaluate(() => (window as unknown as ControlledWindow).__answers.takeover.deliverRemoved());
+      const removed = await b.evaluate(id => (window as unknown as ControlledWindow).__answers.deliveries()[id], requestId);
+      expect(removed?.state).toBe("answered");
+      expect(removed?.mirror).toBe(true);
+      await a.evaluate(() => (window as unknown as ControlledWindow).__answers.takeover.finishRemove());
+      const effects = await b.evaluate(() => (window as unknown as ControlledWindow).__answers.takeover.finishLoad());
+      // Keep the original terminal wait first: a guard-removal mutation must
+      // fail this named outcome after completion of the same controlled gates.
+      let terminalError: unknown;
+      try {
+        await waitForState(a, requestId, "answered");
+        await waitForState(b, requestId, "answered");
+      } catch (error) { terminalError = error; }
+      const answers = net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response");
+      expect(settlements.get(requestId)).toEqual([EXPECTED_RESULTS.ask_user]);
+      expect(answers).toHaveLength(1);
+      expect(answers[0]?.requestId).toBe(requestId);
+      expect(answers[0]?.submissionId).toBe(submissionId);
+      console.error("[takeover-control-complete]", JSON.stringify({ requestId, submissionId, effects,
+        expectedResult: true, settlementCount: settlements.get(requestId)?.length, answerFrames: answers.length,
+        sameIds: answers[0]?.requestId === requestId && answers[0]?.submissionId === submissionId,
+        terminalError: terminalError ? String(terminalError) : null }));
+      if (terminalError) throw terminalError;
+      expect(effects).toEqual({ publications: 0, statusQueries: 0, watchdogs: 0, takeoverDone: true });
+      expect(await a.evaluate(id => (window as unknown as ControlledWindow).__answers.deliveries()[id]?.submissionId, requestId)).toBe(submissionId);
+      expect(await b.evaluate(id => (window as unknown as ControlledWindow).__answers.deliveries()[id]?.submissionId, requestId)).toBe(submissionId);
+    } finally { await cleanup(); }
   });
 
   test("a corrupt stored answer is dropped on load and never sent", async () => {
