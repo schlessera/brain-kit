@@ -82,17 +82,27 @@ export function fakeLiveProvider(capabilities: Partial<ConversationCapabilities>
       };
       sessions.push(record);
       async function* events(): AsyncGenerator<LiveConversationEvent> {
-        while (true) {
-          if (queue.length > 0) {
-            yield queue.shift() as LiveConversationEvent;
-            continue;
+        try {
+          while (true) {
+            if (queue.length > 0) {
+              yield queue.shift() as LiveConversationEvent;
+              continue;
+            }
+            if (ended || record.closed || options.signal.aborted) return;
+            await new Promise<void>((resolve) => {
+              // The wake owns its abort listener, including ordinary event,
+              // end and close wakes where a once-only listener would survive.
+              const resume = () => {
+                options.signal.removeEventListener("abort", resume);
+                wake = null;
+                resolve();
+              };
+              wake = resume;
+              options.signal.addEventListener("abort", resume, { once: true });
+            });
           }
-          if (ended || record.closed || options.signal.aborted) return;
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-            options.signal.addEventListener("abort", () => resolve(), { once: true });
-          });
-          wake = null;
+        } finally {
+          wake?.();
         }
       }
       return {
