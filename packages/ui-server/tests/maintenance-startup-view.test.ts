@@ -417,6 +417,7 @@ else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");
     expect(pids.length).toBeGreaterThan(0);
     await fixture.app.close();
     expect(pids.filter(hostProcessAlive), "DEFERRED_REFRESH_EXITED_BEFORE_DB_CLOSE").toEqual([]);
+    expect(() => fixture.app.db.query("SELECT 1").get(), "DEFERRED_REFRESH_APP_DB_CLOSED").toThrow("closed");
     const db = createUiDb(fixture.dbPath);
     try { expect(db.query("SELECT count(*) AS n FROM writer_gate").get(), "DEFERRED_REFRESH_GATE_RELEASED").toEqual({ n: 0 }); }
     finally { db.close(); }
