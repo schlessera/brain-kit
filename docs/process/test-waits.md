@@ -172,7 +172,7 @@ claim: `session_history` and scoped `status` update the chat store synchronously
 (`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
 `status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:395-407`). Native protocol
+"session_queue")`, `packages/ui-react/src/connection.ts:400-412`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.

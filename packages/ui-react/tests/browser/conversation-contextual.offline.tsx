@@ -72,21 +72,21 @@ function outputPcm(seconds = 1, audibleSeconds = seconds) {
   return btoa(binary);
 }
 
-async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false) {
+async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false) {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx, width, true);
-  if (newChat) s.ui.stores.chat.getState().setActiveSession(null);
+  if (newChat) { s.ui.stores.chat.getState().setActiveSession(null); s.ui.stores.chat.getState().setMessages(null, []); }
   const manualDraftId = s.ui.stores.drafts.getState().idFor(newChat ? null : SESSION);
   s.ui.stores.drafts.getState().edit(manualDraftId, newChat ? null : SESSION, { text: "Keep the separate typed raft draft." });
-  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action }) as { id: string };
+  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity }) as { id: string };
   ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
   let cursor = 0;
   const upstream: any[] = [];
   const downstream: ServerMessage[] = [];
   let evidence: any;
-  const pump = async (provider: unknown[] = [], release = false) => {
+  const pump = async (provider: unknown[] = [], release = false, identify = false) => {
     const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data))); cursor = s.socket.sent.length;
-    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release });
+    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify });
     upstream.push(...evidence.sent); downstream.push(...evidence.frames);
     for (const frame of evidence.frames) s.deliver(frame);
     return evidence;
@@ -224,4 +224,138 @@ for (const provider of ["gemini", "gpt"] as const) for (const decision of ["conf
   expect(s.evidence().tasks[0].applied.ok).toBe(decision === "confirm");
   expect(s.client.state.getState().micOn).toBe(true);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} delayed backend identity keeps the first automatic task in one voice epoch`, async ctx => {
+  const s = await contextualScene(ctx, provider, "permitted", 390, true, true);
+  const native = (id: string) => provider === "gemini" ? { toolCall: { functionCalls: [{ id, name: "host_task" }] } }
+    : { type: "session.delegation.created", event_id: `native-${id}`, offset_ms: 500, delegation: { id, type: "delegation", target: "client" } };
+  const recognized = provider === "gemini" ? { serverContent: { inputTranscription: { text: "Find the departure signal." } } }
+    : { type: "session.input_transcript.delta", event_id: "identity-input", delta: "Find the departure signal.", start_ms: 0, end_ms: 500 };
+  await s.pump([recognized, native("identity-first")]);
+  await s.pump([provider === "gemini" ? { serverContent: { inputTranscription: { text: "Also check the harbour watch." } } }
+    : { ...recognized, event_id: "identity-queued-input", delta: "Also check the harbour watch.", start_ms: 600, end_ms: 900 }, native("identity-queued")]);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks.length; }).toBe(1);
+  const token = s.client.state.getState().token;
+  expect(s.client.state.getState().sessionId).toBe(null);
+  expect(s.client.state.getState().micOn).toBe(true);
+  await s.pump([], false, true);
+  expect(s.client.state.getState().active, "backend identity adoption must not be mistaken for user navigation").toBe(true);
+  await expect.poll(() => s.client.state.getState().sessionId).toBe("odysseus-pylos");
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().token).toBe(token);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  const identityIndex = s.downstream.findIndex(f => f.type === "session_info" && f.sessionId === "odysseus-pylos");
+  const receiptIndex = s.downstream.findIndex(f => f.type === "conversation_work" && f.sessionId === "odysseus-pylos");
+  expect(identityIndex).toBeGreaterThan(-1);
+  expect(receiptIndex, "real host identity broadcast precedes its updated work receipt").toBeGreaterThan(identityIndex);
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe("odysseus-pylos");
+  expect(s.ui.stores.chat.getState().draft).not.toBe(null);
+  expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
+  await s.pump([], true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks.filter((task: any) => task.completed).length; }).toBe(2);
+  await s.pump([provider === "gemini" ? { serverContent: { inputTranscription: { text: "Check the signal once more." } } }
+    : { ...recognized, event_id: "identity-followup-input", delta: "Check the signal once more.", start_ms: 1000, end_ms: 1400 }, native("identity-followup")]);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks.filter((task: any) => task.completed).length; }).toBe(3);
+  const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
+  expect(identities).toEqual(["identity-first", "identity-queued", "identity-followup"]);
+  const facts = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.response.output) : f.type === "session.commentary.append" ? [f.content] : []);
+  expect(facts).toHaveLength(3);
+  expect(facts.every((text: string) => text.includes("bronze owl")), "each exact native binding receives the retrieved backend fact").toBe(true);
+  expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
+  s.mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  await s.pump(provider === "gemini" ? [{ serverContent: { outputTranscription: { text: facts[0] }, modelTurn: { parts: [{ inlineData: { data: outputPcm(0.15), mimeType: "audio/pcm;rate=24000" } }] }, turnComplete: true } }]
+    : [{ type: "session.output_transcript.delta", event_id: "identity-result", delta: facts[0], start_ms: 600, end_ms: 800 }, { type: "session.output_audio.delta", delta: outputPcm(0.15) }]);
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+  expect(s.client.state.getState().active).toBe(true);
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  s.ui.stores.chat.getState().setActiveSession("odysseus-troy");
+  expect(s.client.state.getState().active, "intentional navigation still closes capture").toBe(false);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(1);
+});
+
+test("contextual identity rejects unrelated, queued, mismatched and stale frames without claiming the typed draft", async ctx => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  s.ui.stores.chat.getState().setActiveSession(null);
+  s.ui.stores.chat.getState().setMessages(null, []);
+  // Negotiate contextual mode through the normal opened frame, then capture.
+  s.client.enter();
+  s.opened(2, { ...CAPS, contextualTasks: "supported" });
+  await expect.poll(() => s.button("Start")).not.toBeUndefined();
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  const token = s.client.state.getState().token;
+  const typedDraft = s.ui.stores.chat.getState().startDraftTurn();
+  const work = { type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 2, requestId: "odysseus-task", taskId: "odysseus-host-task", nativeHandle: "odysseus-native", provenance: "contextual", state: "running", delivery: "pending", recognized: "", submitted: "Find the harbour watch.", turnId: "odysseus-turn" } as const;
+  s.deliver({ ...work, requestId: "odysseus-stale", epoch: 1, sessionId: "odysseus-old" });
+  expect(s.client.state.getState().work["odysseus-stale"]?.epoch, "historical receipt is valid wire input, not schema rejection").toBe(1);
+  expect(s.client.state.getState().sessionId).toBe(null);
+  s.deliver(work);
+  s.deliver({ ...work, requestId: "odysseus-queued", turnId: undefined, state: "queued" });
+  for (const frame of [
+    { requestId: "odysseus-unrelated", turnId: "odysseus-turn" },
+    { requestId: work.requestId, turnId: "odysseus-wrong-turn" },
+    { requestId: "odysseus-queued", turnId: "odysseus-turn" },
+    { requestId: "odysseus-stale", turnId: "odysseus-turn" },
+  ]) {
+    s.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-other", ...frame });
+    expect(s.client.state.getState().sessionId).toBe(null);
+    expect(s.ui.stores.chat.getState().activeSessionId).toBe(null);
+    expect(s.ui.stores.chat.getState().draft).not.toBe(null);
+    expect(s.ui.stores.chat.getState().pendingDraftId).toBe(typedDraft);
+    expect(s.client.state.getState().micOn).toBe(true);
+  }
+  s.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-pylos", requestId: work.requestId, turnId: work.turnId });
+  expect(s.client.state.getState().sessionId).toBe("odysseus-pylos");
+  expect(s.client.state.getState().token).toBe(token);
+  // A later/out-of-order receipt cannot rename the selected task session.
+  s.deliver({ ...work, sessionId: "odysseus-other" });
+  expect(s.client.state.getState().sessionId).toBe("odysseus-pylos");
+  s.ui.stores.chat.getState().setActiveSession(null);
+  expect(s.client.state.getState().active).toBe(false);
+  s.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-pylos", requestId: work.requestId, turnId: work.turnId });
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(null);
+  expect(s.ui.stores.chat.getState().draft).not.toBe(null);
+});
+
+for (const reconnect of [false, true]) test(`typed legacy identity after contextual voice leave, reconnect=${reconnect}, rejects late contextual work`, async ctx => {
+  const s = await scene(ctx);
+  s.ui.stores.chat.getState().setActiveSession(null);
+  s.ui.stores.chat.getState().setMessages(null, []);
+  s.client.enter();
+  s.opened(2, { ...CAPS, contextualTasks: "supported" });
+  const work = { type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 2, requestId: "odysseus-late-task", taskId: "odysseus-late-host-task", nativeHandle: "odysseus-late-native", provenance: "contextual", state: "running", delivery: "pending", recognized: "", submitted: "Find the harbour watch.", turnId: "odysseus-late-turn" } as const;
+  s.deliver(work);
+  s.client.leave();
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.client.state.getState().profile?.capabilities.contextualTasks).toBe("supported");
+  if (reconnect) {
+    s.network.drop(); s.network.recover(); s.ui.connection.reconnectNow();
+    await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  }
+  const socket = s.network.socket()!;
+  // The reconnected host's hello supplies no contextual capability. Voice is
+  // inactive, but its historical work receipt must still fence late identities.
+  const chat = s.ui.stores.chat.getState();
+  const draft = chat.startDraftTurn();
+  chat.addUserMessage(null, "Which harbour is sheltered?", "typed");
+  chat.startAssistantMessage(null, undefined, "odysseus-typed-request");
+  expect(s.ui.connection.send({ type: "chat_message", text: "Which harbour is sheltered?", requestId: "odysseus-typed-request", draftId: draft, source: "typed" })).toBe(true);
+  socket.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-late-contextual", requestId: work.requestId, turnId: work.turnId });
+  expect(s.ui.stores.chat.getState().activeSessionId, "known contextual requests cannot borrow a typed draft after leave").toBe(null);
+  expect(s.ui.stores.chat.getState().pendingDraftId).toBe(draft);
+  expect(s.ui.stores.chat.getState().buffers["odysseus-late-contextual"]).toBeUndefined();
+  // A legacy host omits the draft echo even for this client's typed request.
+  socket.deliver({ type: "session_info", isNew: true, sessionId: "odysseus-typed-harbour", requestId: "odysseus-typed-request" });
+  expect(s.ui.stores.chat.getState().activeSessionId, "inactive historical voice capabilities must not disable legacy typed adoption").toBe("odysseus-typed-harbour");
+  expect(s.ui.stores.chat.getState().pendingDraftId).toBe(null);
+  expect(s.ui.stores.chat.getState().draft).toBe(null);
+  socket.deliver({ type: "text_delta", sessionId: "odysseus-typed-harbour", text: "The sheltered harbour is Ithaca." });
+  s.ui.connection.flushChatDeltas();
+  expect(s.ui.stores.chat.getState().buffers["odysseus-typed-harbour"]?.messages.at(-1)?.content).toBe("The sheltered harbour is Ithaca.");
 });

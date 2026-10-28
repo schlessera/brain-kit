@@ -75,6 +75,10 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
  * Keep the input scopes beside their invariant, including non-Markdown inputs.
  */
 export const FILE_INPUT_TESTS: Readonly<Record<string, readonly RegExp[]>> = {
+  // The fixture copies these sources as bytes, so import discovery misses edits.
+  "tests/source-browser-dispatch.test.ts": [
+    /^packages\/ui-react\/src\/(?:connection\.ts|hooks\/use-websocket\.ts|hooks\/websocket-handlers\/[^/]+\.ts|lib\/stats\/context-text\.ts)$/,
+  ],
   // Links, path kinds and short citations can resolve to arbitrary repo targets.
   // New/deleted targets anywhere can break a doc without changing its Markdown.
   "tests/docs-paths.test.ts": [/.+/],
