@@ -36,7 +36,9 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
   ui.stores.ui.getState().setTheme(theme);
   flushSync(() => renderer.render(<BrainUiProvider root={ui}>{shell ? <AppShell><ChatPage /></AppShell> : <ChatPage />}</BrainUiProvider>));
   const release = ui.connection.connect();
-  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); });
+  let disposed = false;
+  const dispose = () => { if (disposed) return; disposed = true; flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); };
+  ctx.onTestFinished(dispose);
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
   const socket = network.socket()!;
   const deliver = (message: ServerMessage & { turnId?: string }) => socket.deliver(message);
@@ -50,7 +52,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const audio = socket.frames("conversation_audio").at(-1)!;
     event({ kind: "input_fragment", utteranceId: String(audio.utteranceId), sequence: 0, text, finalization, certainty: "unknown", origin: "unknown" }, epoch);
   };
-  return { ui, client, host, socket, deliver, network, button, event, opened, enter, start, input };
+  return { ui, client, host, socket, deliver, network, button, event, opened, enter, start, input, dispose };
 }
 
 test("capture truth and disclosure: a ready speech session cannot mark an unopened microphone on", async (ctx) => {
@@ -100,7 +102,7 @@ test("late epoch and session change: a stale fragment and submit cannot target t
   expect(drafts.drafts[drafts.idFor("odysseus-harbour")]?.text ?? "").toBe("");
 });
 
-function controlledMicrophone(ctx: TestContext) {
+function controlledMicrophone(ctx: TestContext, freshStreams = false) {
   const context = new AudioContext();
   const oscillator = context.createOscillator();
   const gain = context.createGain(); gain.gain.value = 0.15;
@@ -109,9 +111,10 @@ function controlledMicrophone(ctx: TestContext) {
   const media = navigator.mediaDevices;
   const descriptor = Object.getOwnPropertyDescriptor(media, "getUserMedia");
   let opens = 0;
-  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; return destination.stream; } });
-  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); void context.close(); });
-  return { opens: () => opens, quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
+  const streams: MediaStream[] = [];
+  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; const stream = freshStreams ? destination.stream.clone() : destination.stream; streams.push(stream); return stream; } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); streams.forEach(stream => stream.getTracks().forEach(track => track.stop())); destination.stream.getTracks().forEach(track => track.stop()); void context.close(); });
+  return { streams, opens: () => opens, quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
 }
 
 for (const ending of ["leave", "hide", "disconnect"] as const) test(`${ending}: capture closes synchronously, finalized text stays with its original draft, and reconnect never opens it`, async (ctx) => {
@@ -970,4 +973,82 @@ test("full unassigned recognition stops visibly and retains text until explicit 
   expect(s.client.reviewUnassigned()).toBe(true);
   expect(s.ui.stores.voice.getState().reviewText).toBe(" note".repeat(CONVERSATION_LIMITS.maxFragmentsPerUtterance));
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+
+for (const terminal of ["leave", "provider_error", "backpressure"] as const) test(`fresh voice entry after ${terminal} requires Start and opens exactly one new microphone`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  const oldRequest = String(s.socket.frames("conversation_start")[0]?.requestId);
+  const oldStream = mic.streams[0]!;
+  if (terminal !== "leave") {
+    s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId: oldRequest, reason: terminal });
+    expect(s.client.state.getState().active).toBe(true);
+    expect(s.client.state.getState().micOn).toBe(false);
+    expect(oldStream.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  }
+  await userEvent.click(s.button("Leave voice"));
+  expect(s.client.state.getState().active).toBe(false);
+  expect(oldStream.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  // Re-enter the same service in the same root. A fresh conversation has its
+  // own identity even when its epoch counter starts at one again.
+  flushSync(() => s.client.enter());
+  const request = s.socket.frames("conversation_start").at(-1)!;
+  expect(request.requestId).not.toBe(oldRequest);
+  const conversationId = "ithaca-fresh-voice";
+  s.deliver({ ...PROFILE, conversationId, requestId: String(request.requestId) });
+  s.deliver({ type: "conversation_event", conversationId, epoch: 1, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
+  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  expect(mic.opens()).toBe(1);
+  await expect.poll(() => s.button("Start")).not.toBeUndefined();
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(2);
+  expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
+  // Delayed frames from the previous conversation cannot close the fresh one.
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId: oldRequest, reason: "provider_error" });
+  expect(s.client.state.getState().active).toBe(true);
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().profile?.conversationId).toBe(conversationId);
+  expect(s.ui.stores.voice.getState().mode).toBe("conversation");
+});
+
+
+test("root refresh: dispose releases physical capture and a fresh root requires Start", async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const old = await scene(ctx); await old.start();
+  old.dispose();
+  expect(old.client.state.getState().active).toBe(false);
+  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  const fresh = await scene(ctx); await fresh.enter();
+  expect(fresh.client.state.getState().disclosureOpen).toBe(true);
+  expect(fresh.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(1);
+  old.client.enter(); old.client.resume();
+  old.client.frame({ ...PROFILE, epoch: 2, requestId: String(old.socket.frames("conversation_start")[0]?.requestId) });
+  expect(mic.opens()).toBe(1);
+  await userEvent.click(fresh.button("Start"));
+  await expect.poll(() => fresh.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(2);
+  expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
+});
+
+test("reconnect: one live physical microphone requires explicit Resume after readiness", async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  s.network.drop({ announce: true });
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  s.network.recover(); s.ui.connection.reconnectNow();
+  await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  const replacement = s.network.socket()!;
+  await expect.poll(() => replacement.frames("conversation_start").length).toBe(1);
+  replacement.deliver({ ...PROFILE, epoch: 2, requestId: replacement.frames("conversation_start")[0]?.requestId });
+  replacement.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch: 2, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(1);
+  await userEvent.click(s.button("Resume microphone"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(2);
+  expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
 });
