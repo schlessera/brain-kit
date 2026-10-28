@@ -1052,3 +1052,120 @@ test("reconnect: one live physical microphone requires explicit Resume after rea
   expect(mic.opens()).toBe(2);
   expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
 });
+
+// These are local labels for the existing wire reason classes. Free-form
+// remote message text is deliberately never a retained client diagnostic.
+const CLOSE_DIAGNOSTICS = {
+  stopped: "The voice session stopped.",
+  replaced: "The voice session was replaced.",
+  disconnected: "The voice connection was lost.",
+  provider_closed: "The voice service closed the connection.",
+  provider_error: "The voice service failed.",
+  backpressure: "The voice session reached a transport limit.",
+  correlation: "The voice service could not match the conversation input.",
+  refused: "The voice session was refused.",
+} as const;
+const REMOTE_CLOSE_TEXT = "fixture-private-marker: transcript, audio, credential must not be retained";
+
+for (const reason of Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAGNOSTICS)[]) test(`close diagnostic: failed opening retains only fixed ${reason} class`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx);
+  s.client.enter();
+  const requestId = String(s.socket.frames("conversation_start").at(-1)!.requestId);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId, reason, message: REMOTE_CLOSE_TEXT });
+  expect(JSON.stringify(s.client.state.getState()), "REMOTE_CLOSE_TEXT_NOT_RETAINED").not.toContain(REMOTE_CLOSE_TEXT);
+  expect(s.client.state.getState().notice, "OPENING_CLOSE_FIXED_DIAGNOSTIC").toContain(CLOSE_DIAGNOSTICS[reason]);
+  expect(s.client.state.getState().connection).toBe("Speech lost");
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  // A later generic loss cannot erase the reason, or request a microphone.
+  s.network.drop({ announce: true });
+  await expect.poll(() => s.ui.stores.connection.getState().wsStatus).not.toBe("connected");
+  expect(s.client.state.getState().notice, "OPENING_CLOSE_SURVIVES_PAUSE").toContain(CLOSE_DIAGNOSTICS[reason]);
+});
+
+for (const reason of (Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAGNOSTICS)[]).filter(reason => reason !== "stopped")) test(`close diagnostic: active ${reason} survives pause with review intact`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  s.input("Ask Nestor about the ships");
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason, message: REMOTE_CLOSE_TEXT });
+  expect(JSON.stringify(s.client.state.getState()), "REMOTE_CLOSE_TEXT_NOT_RETAINED").not.toContain(REMOTE_CLOSE_TEXT);
+  expect(s.client.state.getState().notice, "ACTIVE_CLOSE_FIXED_DIAGNOSTIC").toContain(CLOSE_DIAGNOSTICS[reason]);
+  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().text).toBe("Ask Nestor about the ships");
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  await expect.poll(() => s.host.textContent, { timeout: 2000 }).toContain(CLOSE_DIAGNOSTICS[reason]);
+  // Visibility loss uses the actual generic pause path. Register restoration
+  // before assertions, so a failing/timeout assertion cannot leave globals changed.
+  const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, "hidden");
+  let restored = false;
+  const hidden = { restore() {
+    if (restored) return; restored = true;
+    if (visibility) Object.defineProperty(document, "visibilityState", visibility); else Reflect.deleteProperty(document, "visibilityState");
+    if (hiddenDescriptor) Object.defineProperty(document, "hidden", hiddenDescriptor); else Reflect.deleteProperty(document, "hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+  } };
+  ctx.onTestFinished(() => hidden.restore());
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+  document.dispatchEvent(new Event("visibilitychange"));
+  expect(s.client.state.getState().notice, "ACTIVE_CLOSE_SURVIVES_PAUSE").toContain(CLOSE_DIAGNOSTICS[reason]);
+  expect(mic.opens()).toBe(1);
+  hidden.restore();
+  expect(s.client.state.getState().notice, "NEW_START_CLEARS_CLOSE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS[reason]);
+  s.opened(2);
+  expect(s.client.state.getState().notice).not.toContain(CLOSE_DIAGNOSTICS[reason]);
+  expect(mic.opens()).toBe(1);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "refused", message: REMOTE_CLOSE_TEXT });
+  expect(s.client.state.getState().notice, "STALE_EPOCH_CANNOT_RESTORE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.refused);
+});
+
+for (const ending of ["leave", "logout", "dispose"] as const) test(`close diagnostic: ${ending} clears retained reason and rejects late frames`, async ctx => {
+  const s = await scene(ctx); await s.enter();
+  const requestId = String(s.socket.frames("conversation_start").at(-1)!.requestId);
+  const closed: ServerMessage = { type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId, reason: "provider_error" };
+  s.deliver(closed);
+  expect(s.client.state.getState().notice).toContain(CLOSE_DIAGNOSTICS.provider_error);
+  if (ending === "leave") s.client.leave();
+  else if (ending === "logout") await s.ui.authLock.expire("signed out", true);
+  else s.dispose();
+  expect(s.client.state.getState().notice, "LIFECYCLE_CLEARS_CLOSE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
+  s.client.frame(closed);
+  expect(s.client.state.getState().notice, "LATE_CLOSE_CANNOT_RESTORE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
+  expect(s.client.state.getState().active).toBe(false);
+});
+
+test("close diagnostic: replacement opening rejects stale close and old conversation refusal", async ctx => {
+  controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.enter();
+  s.client.start();
+  const oldRequest = String(s.socket.frames("conversation_start")[0]!.requestId);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_error" });
+  expect(s.client.state.getState().notice).toContain(CLOSE_DIAGNOSTICS.provider_error);
+  s.client.resume();
+  expect(s.client.state.getState().notice, "RESUME_CLEARS_CLOSE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId: oldRequest, reason: "refused" });
+  expect(s.client.state.getState().notice, "PENDING_REPLACEMENT_REJECTS_OLD_CLOSE").not.toContain(CLOSE_DIAGNOSTICS.refused);
+  s.opened(2);
+  s.deliver({ type: "conversation_closed", conversationId: "ithaca-obsolete", epoch: 2, reason: "refused" });
+  expect(s.client.state.getState().notice, "OTHER_CONVERSATION_REJECTS_CLOSE").not.toContain(CLOSE_DIAGNOSTICS.refused);
+});
+
+
+test("close diagnostic: abandoned opening refusal cannot contaminate fresh entry", async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx);
+  s.client.enter();
+  const requestId = String(s.socket.frames("conversation_start")[0]!.requestId);
+  s.client.leave(); s.client.enter();
+  s.deliver({ type: "conversation_closed", conversationId: "ithaca-abandoned", epoch: 1, requestId, reason: "refused", message: REMOTE_CLOSE_TEXT });
+  expect(s.client.state.getState().notice, "ABANDONED_OPENING_REJECTS_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.refused);
+  await expect.poll(() => s.socket.frames("conversation_start").length).toBe(2);
+  s.opened();
+  expect(s.client.state.getState().profile?.conversationId).toBe(PROFILE.conversationId);
+  expect(JSON.stringify(s.client.state.getState())).not.toContain(REMOTE_CLOSE_TEXT);
+  expect(mic.opens()).toBe(0);
+});
