@@ -9,6 +9,7 @@
  * into a breaking one for old clients.
  */
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 
 import {
   parseServerMessage,
@@ -162,6 +163,27 @@ const SAMPLES: ServerMessage[] = [
   { type: "pong", probeId: "probe-1" },
 ];
 
+// Inspect input frame discriminators, including object → transform pipes.
+// Refuse unfamiliar wrappers rather than silently omitting their frame types.
+function frameType(schema: unknown): string {
+  if (schema instanceof z.ZodPipe && schema.out instanceof z.ZodTransform) {
+    return frameType(schema.in);
+  }
+  if (!(schema instanceof z.ZodObject)) throw new Error("Unsupported frame schema wrapper");
+  const discriminator = schema.shape.type;
+  if (!(discriminator instanceof z.ZodLiteral)
+      || discriminator.values.size !== 1 || typeof discriminator.value !== "string") {
+    throw new Error("Frame schema must declare one literal string type");
+  }
+  return discriminator.value;
+}
+
+function expectFrameInventory(options: readonly z.ZodType[]): void {
+  const declared = new Set(SAMPLES.map((sample) => sample.type));
+  const covered = new Set(options.map(frameType));
+  expect([...covered].sort()).toEqual([...declared].sort());
+}
+
 describe("coverage", () => {
   test("every ServerMessage member round-trips", () => {
     for (const sample of SAMPLES) {
@@ -174,11 +196,35 @@ describe("coverage", () => {
   test("the union covers exactly the frame types the protocol declares", () => {
     // A frame added to protocol.ts without a schema would be dropped by every
     // validating client — silently, since drops are not fatal.
-    const declared = new Set(SAMPLES.map((s) => s.type));
-    const options = (serverMessageSchema as unknown as { options: Array<{ shape: { type: { value: string } } }> })
-      .options;
-    const covered = new Set(options.map((o) => o.shape.type.value));
-    expect([...covered].sort()).toEqual([...declared].sort());
+    expectFrameInventory(serverMessageSchema.options);
+  });
+
+  test("inventory inspects refined objects wrapped in transforms", () => {
+    const wrapped = z.object({ type: z.literal("conversation_work") })
+      .superRefine(() => {}).transform((frame) => frame).transform((frame) => frame);
+    expect(frameType(wrapped)).toBe("conversation_work");
+  });
+
+  test("inventory refuses unsupported wrappers and ambiguous discriminators", () => {
+    const object = z.object({ type: z.literal("conversation_work") });
+    for (const schema of [object.optional(), object.pipe(object)]) {
+      expect(() => frameType(schema)).toThrow("Unsupported frame schema wrapper");
+    }
+    for (const schema of [z.object({}), z.object({ type: z.string() }),
+      z.object({ type: z.literal(["conversation_work", "pong"]) }),
+      z.object({ type: z.literal(1) })]) {
+      expect(() => frameType(schema)).toThrow("Frame schema must declare one literal string type");
+    }
+  });
+
+  test("inventory catches an absent or replaced actual union option", () => {
+    const remaining = serverMessageSchema.options.filter((option) => frameType(option) !== "conversation_work");
+    expect(remaining).toHaveLength(serverMessageSchema.options.length - 1);
+    expect(() => expectFrameInventory(remaining)).toThrow("conversation_work");
+    // Keep the option count unchanged: duplicates cannot conceal a missing type.
+    expect(() => expectFrameInventory([...remaining, remaining[0]!])).toThrow("conversation_work");
+    expect(() => expectFrameInventory([...remaining,
+      z.object({ type: z.literal("undeclared_frame") })])).toThrow("undeclared_frame");
   });
 });
 
