@@ -1208,7 +1208,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       closeBegun.abort(new Error("Server shutting down"));
       const grace = setTimeout(() => shutdown.abort(new Error("Server shutting down")), CLOSE_GRACE_MS);
       const failures: unknown[] = [];
-      const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { if (!failures.includes(error)) failures.push(error); } };
       for (const cancelBody of httpRequests.values()) cancelBody();
       // Cancel turn work before joining HTTP handlers that may be waiting for
       // its locks. Keep operational state alive until admitted dispatch ends.
@@ -1223,7 +1223,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
       await attempt(() => storage.close());
-      await attempt(async () => { await storageHistory.flush(); storageHistory.close(); });
+      await attempt(async () => { await storageHistory.flush(); });
+      await attempt(() => storageHistory.close());
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
       await attempt(() => reverts.close());

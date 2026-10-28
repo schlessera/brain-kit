@@ -225,3 +225,31 @@ test("a queued begin decides on the durable history at its commit, not the one a
     expect(await queued, "STORAGE_QUEUED_BEGIN_READS_DURABLE_HISTORY_AT_COMMIT").toBeNull();
   } finally { await f.close(); }
 });
+
+
+for (const mode of ["sync", "async"] as const) test(`sampling retains ${mode} flush, sweep and cleanup failures after settlement and still attempts the final flush`, async () => {
+  const f = fixture();
+  const history = createStorageHistory(f.db, f.root, { now: f.now, writer: f.writer });
+  const shared = createSharedStorageScan(f.db, f.root, join(f.root, "cache"), () => false);
+  const storage = createStorageCoordinator({ brainPath: f.root, stores: [], shared, salt: history.salt, authorized: () => false });
+  const notices = createStorageNotifier(f.db, history, f.writer);
+  const failures = [Error("Odysseus flush refused"), Error("Odysseus sweep refused"), Error("Odysseus cleanup refused")];
+  const fail = (error: Error): never | Promise<never> => { if (mode === "sync") throw error; return Promise.reject(error); };
+  const flush = spyOn(history, "flush").mockImplementation(() => fail(failures[0]!));
+  const sweep = spyOn(notices, "sweep").mockImplementation(() => fail(failures[1]!));
+  const clean = spyOn(shared, "cleanupCache").mockImplementation(() => fail(failures[2]!));
+  const sampling = createStorageSampling(f.db, storage, history, shared, notices, { deliverStorage: async () => 0 }, start);
+  try {
+    sampling.tick(start + 60_000);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const closing = sampling.close();
+    expect(sampling.close(), "SAMPLER_CONCURRENT_CLOSE_JOINS").toBe(closing);
+    const error = await closing.then(() => undefined, error => error);
+    expect(error, "SAMPLER_RETAINS_SETTLED_WRITE_AND_CLEANUP_FAILURES").toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual(failures);
+    expect(flush, "SAMPLER_FINAL_FLUSH_ATTEMPTED_AFTER_FAILURES").toHaveBeenCalledTimes(2);
+    expect(await sampling.close().then(() => undefined, error => error)).toBe(error);
+    sampling.tick(start + 120_000);
+    expect(clean).toHaveBeenCalledTimes(1);
+  } finally { flush.mockRestore(); sweep.mockRestore(); clean.mockRestore(); await sampling.close().catch(() => {}); await storage.close(); await f.close(); }
+});

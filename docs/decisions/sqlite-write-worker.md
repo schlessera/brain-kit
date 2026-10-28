@@ -374,6 +374,25 @@ are in [the governed-workers decision](governed-writable-workers.md#admitted-obj
   registered writer run the same procedures inline. Boot-only source recovery
   retains its inline catalog writes.
 
+## App shutdown ownership
+
+The app registers failed-boot cleanup as soon as it acquires its shared writer.
+Ordinary shutdown drains borrowers before closing the writer, then closes the
+reader. Borrowed journals close their own channel without closing that writer.
+The writer awaits its database-close acknowledgement and invokes Bun worker
+termination; this is not a production thread-join guarantee.
+
+Activity, Actions and Storage delivery retain admitted transport and outcome
+writes through shutdown. A flight that already rejected remains a shutdown
+failure even when a runtime logger or sampler has observed it and removed it
+from pending work. Parallel outcome/bookkeeping writes all settle before their
+owner finishes. Transport refusal and ambiguity keep their existing notification
+outcomes; persistence failures reject shutdown while remaining cleanup runs.
+The sampler retains rejected flush, receipt sweep and cache cleanup operations,
+attempts its final history flush, and joins concurrent close calls. The app
+closes history even if that final flush throws. History's existing bounded
+buffer/status handling for unavailable writes remains unchanged.
+
 ## The inventory and its guard (#3004)
 
 Every hosted-path `ui.db` write commits on the write worker. That was verified by

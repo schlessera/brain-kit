@@ -131,6 +131,15 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
   let closing = false;
   let closed: Promise<void> | undefined;
   const flights = new Map<string, Promise<number>>();
+  // Runtime and sampler catches report failures before app shutdown reaches
+  // this owner. Settled failures must outlive removal from the pending set.
+  const failures = new Set<unknown>();
+  async function settleWrites(writes: Promise<unknown>[]): Promise<void> {
+    const results = await Promise.allSettled(writes);
+    const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length) throw new AggregateError(errors, "Push outcome writes failed");
+  }
   function deliver(kind: string, run: () => Promise<number>): Promise<number> {
     if (closing) return Promise.resolve(0);
     const existing = flights.get(kind);
@@ -139,7 +148,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
     const flight = Promise.resolve().then(run);
     flights.set(kind, flight);
     const done = () => { flights.delete(kind); };
-    void flight.then(done, done);
+    void flight.then(done, error => { failures.add(error); done(); });
     return flight;
   }
 
@@ -273,7 +282,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
         // Committed before the next intent re-reads its devices, and before
         // the next pass re-reads what is still pending.
         const at = Date.now();
-        await Promise.all([...touched.map(endpoint => writes.touch(endpoint, at)), ...dead.map(endpoint => writes.drop(endpoint))]);
+        await settleWrites([...touched.map(endpoint => Promise.resolve().then(() => writes.touch(endpoint, at))), ...dead.map(endpoint => Promise.resolve().then(() => writes.drop(endpoint)))]);
         await notifier.markDelivered(intent.id, delivered > 0 ? "sent" : "send_failed");
         if (delivered === 0) {
           // Every device failed — the all-devices signal (invalid VAPID after
@@ -351,12 +360,12 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
         if (result.status === "fulfilled") {
           // Provider acceptance: a submission receipt, not display or reading.
           outcome = "success";
-          bookkeeping.push(writes.touch(sub.endpoint, Date.now()));
+          bookkeeping.push(Promise.resolve().then(() => writes.touch(sub.endpoint, Date.now())));
         } else {
           const status = (result.reason as { statusCode?: number } | null)?.statusCode;
           if (status === 404 || status === 410) {
             outcome = "gone";
-            bookkeeping.push(writes.drop(sub.endpoint));
+            bookkeeping.push(Promise.resolve().then(() => writes.drop(sub.endpoint)));
           } else {
             // A provider status is a known refusal. Without one (timeout,
             // dropped connection) the request may have arrived: ambiguous.
@@ -368,9 +377,9 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
             attributes: { outcome, ...(status ? { status } : {}) },
           });
         }
-        bookkeeping.push(Promise.resolve(notices.finishAttempt(attempt.attemptId, outcome)));
+        bookkeeping.push(Promise.resolve().then(() => notices.finishAttempt(attempt.attemptId, outcome)));
       });
-      await Promise.all(bookkeeping);
+      await settleWrites(bookkeeping);
       return planned.length;
     },
   };
@@ -385,7 +394,8 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
         // Stop admission, then join transport AND its committed outcome writes.
         // Do not turn a failed persistence write into successful shutdown.
         return Promise.allSettled([...flights.values()]).then(results => {
-          const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+          for (const result of results) if (result.status === "rejected") failures.add(result.reason);
+          const errors = [...failures];
           if (errors.length === 1) throw errors[0];
           if (errors.length) throw new AggregateError(errors, "Push delivery drain failed");
         });

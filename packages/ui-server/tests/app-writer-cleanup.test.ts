@@ -1,3 +1,6 @@
+import * as storageSampling from "../src/storage/sampling.js";
+import * as storageHistory from "../src/storage/history-store.js";
+import { hashScope } from "../src/storage/history-model.js";
 import * as activityRuntime from "../src/activity/runtime.js";
 import webpush from "web-push";
 import { createPrincipal } from "../src/db/principals.js";
@@ -84,7 +87,11 @@ test("ordinary app close stops its real owned worker once and retains queued FUL
     expect(await pending, "QUEUED_WRITE_COMMITS_BEFORE_SHUTDOWN").toBe(1);
     await closing;
     // Negative control: an unclosed, unref'ed worker can still execute SQLite.
-    if (!observed.closes) expect(await channel.call<number>("level"), "UNCLOSED_OWNED_WORKER_STILL_RESPONDS").toBe(2);
+    if (!observed.closes) {
+      const level = await channel.call<number>("level");
+      console.info(JSON.stringify({ oracle: "UNCLOSED_OWNED_WORKER_STILL_RESPONDS", synchronous: level }));
+      expect(level, "UNCLOSED_OWNED_WORKER_STILL_RESPONDS").toBe(2);
+    }
     await observed.expectClosed();
     expect(observed.closes, "OWNED_WRITER_CLOSE_SENT_ONCE").toBe(1);
     await app.close();
@@ -322,4 +329,136 @@ test("Activity close bounds a stalled transport, releases its agent, and joins f
     await observed.expectClosed();
     expect(() => app!.db.query("SELECT 1").get()).toThrow();
   } finally { release(); mark?.mockRestore(); await app?.close().catch(() => {}); transport.mockRestore(); assembly.mockRestore(); await observed.restore(); await f.close(); }
+});
+
+
+for (const kind of ["storage", "activity", "actions"] as const) for (const status of [201, 410, 503, 0]) test(`${kind} tick outcome write failure after transport ${status} before Activity drain rejects app close and still closes its worker`, async () => {
+  const f = fixture(), observed = observe(f.path);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  let activity!: activityRuntime.ActivityRuntime, history!: storageHistory.StorageHistory;
+  let sampler!: ReturnType<typeof storageSampling.createStorageSampling>;
+  let storageNotices!: Parameters<typeof storageSampling.createStorageSampling>[4];
+  let tick!: () => void, storageTick!: () => void;
+  let accept!: () => void, started!: () => void, failed!: (error: unknown) => void, release!: () => void;
+  const submitted = new Promise<void>(resolve => { started = resolve; });
+  const accepted = new Promise<void>(resolve => { accept = resolve; });
+  const refused = new Promise<unknown>(resolve => { failed = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const createRuntime = activityRuntime.createActivityRuntime, createHistory = storageHistory.createStorageHistory, createSampling = storageSampling.createStorageSampling;
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval")!, interval = globalThis.setInterval;
+  function capture<T>(run: () => T, save: (callback: () => void) => void): T {
+    Object.defineProperty(globalThis, "setInterval", { ...descriptor, value: (callback: () => void, ms: number) => {
+      if (ms === 20_000) save(callback);
+      return interval(callback, ms);
+    } });
+    try { return run(); } finally { Object.defineProperty(globalThis, "setInterval", descriptor); }
+  }
+  const assembly = spyOn(activityRuntime, "createActivityRuntime").mockImplementation((...args) => {
+    activity = capture(() => createRuntime(...args), callback => { tick = callback; }); return activity;
+  });
+  const histories = spyOn(storageHistory, "createStorageHistory").mockImplementation((...args) => { history = createHistory(...args); return history; });
+  const sampling = spyOn(storageSampling, "createStorageSampling").mockImplementation((...args) => {
+    storageNotices = args[4];
+    sampler = capture(() => createSampling(...args), callback => { storageTick = callback; });
+    // Activity/Actions fail while an earlier shutdown owner is still held.
+    const close = sampler.close.bind(sampler);
+    if (kind !== "storage") sampler.close = async () => { await close(); await held; };
+    return sampler;
+  });
+  let sends = 0, finish: ReturnType<typeof spyOn> | undefined;
+  const transport = spyOn(webpush, "sendNotification").mockImplementation(async () => {
+    sends++; started(); await accepted;
+    if (status !== 201) throw Object.assign(Error("Odysseus transport refusal"), status ? { statusCode: status } : {});
+    return { statusCode: 201, body: "", headers: {} };
+  });
+  try {
+    app = await createApp(f);
+    const now = Date.now(), offset = 12 - new Date(now).getUTCHours();
+    const zone = offset === 0 ? "UTC" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+    const owner = createPrincipal(app.db, { authMethod: "password", label: "Athena", ttlSeconds: 3600 });
+    app.db.query("INSERT INTO push_subscriptions (endpoint, p256dh, auth, created_at, principal_id, time_zone) VALUES (?, 'k', 'a', ?, ?, ?)")
+      .run("https://push.example.test/ithaca", now, owner.id, zone);
+    if (kind === "storage") {
+      const scope = hashScope("Odysseus stores");
+      history.offer({ at: now, startedAt: now, source: 1, descriptor: ["0.44.0", scope, 1], coverage: 0, reason: 0,
+        capacities: [{ descriptor: [hashScope("Ithaca volume"), scope], values: [100_000, 95_000, 5000, 5000, 0, 1, 4096, 1, 4096, 0, 0, 2, 8192] }] });
+      await history.flush();
+      const original = storageNotices.finish.bind(storageNotices);
+      finish = spyOn(storageNotices, "finish").mockImplementation((...args) => {
+        expect(args[1], "STORAGE_TRANSPORT_OUTCOME_PRESERVED").toBe(status === 201 ? "accepted" : status === 410 ? "gone" : status ? "failed" : "unknown");
+        return Promise.resolve(original(...args)).catch(error => { failed(error); throw error; });
+      });
+      app.db.exec("CREATE TRIGGER odysseus_refuse_outcome BEFORE UPDATE OF state ON storage_notice_receipts WHEN OLD.state = 'sending' BEGIN SELECT RAISE(ABORT, 'Odysseus durable outcome refused'); END");
+      storageTick();
+    } else if (kind === "activity") {
+      await activity.store.startSpan({ runId: "voyage", spanId: "voyage:root", name: "invoke_agent", kind: "turn", origin: "session" });
+      await activity.store.endSpan("voyage:root", { outcome: "error" }); await activity.notifier.tick();
+      const original = activity.notifier.markDelivered.bind(activity.notifier);
+      finish = spyOn(activity.notifier, "markDelivered").mockImplementation((...args) => {
+        expect(args[1], "ACTIVITY_TRANSPORT_OUTCOME_PRESERVED").toBe(status === 201 ? "sent" : "send_failed");
+        return Promise.resolve(original(...args)).catch(error => { failed(error); throw error; });
+      });
+      app.db.exec("CREATE TRIGGER odysseus_refuse_outcome BEFORE UPDATE OF status ON notification_intents BEGIN SELECT RAISE(ABORT, 'Odysseus durable outcome refused'); END");
+      tick();
+    } else {
+      const at = now - 120_000, store = createInboxStore(app.db, { now: () => at });
+      store.ingest({ threadId: "sail", itemId: "sail-triage", source: "cli", dedupKey: "sail-triage", stagingId: "sail-staging", expiresAt: now + 86_400_000, stakes: 3 });
+      store.commit([{ kind: "item", item: { id: "sail", dedupKey: "sail", threadId: "sail", queue: "actions", type: "approve", status: "pending", version: 1,
+        createdAt: at, updatedAt: at, expiresAt: now + 86_400_000, payload: { title: "Set sail", detail: "Decide before departure." },
+        options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] } }]);
+      await activity.actionNotices.enroll(at);
+      const original = activity.actionNotices.finishAttempt.bind(activity.actionNotices);
+      finish = spyOn(activity.actionNotices, "finishAttempt").mockImplementation((...args) => {
+        expect(args[1], "ACTIONS_TRANSPORT_OUTCOME_PRESERVED").toBe(status === 201 ? "success" : status === 410 ? "gone" : status ? "failed" : "ambiguous");
+        return Promise.resolve(original(...args)).catch(error => { failed(error); throw error; });
+      });
+      app.db.exec("CREATE TRIGGER odysseus_refuse_outcome BEFORE UPDATE OF outcome ON inbox_notice_attempts BEGIN SELECT RAISE(ABORT, 'Odysseus durable outcome refused'); END");
+      tick();
+    }
+    await submitted;
+    const closing = app.close(), outcome = closing.then(() => undefined, error => error);
+    expect(app.close()).toBe(closing);
+    expect(observed.closes).toBe(0);
+    accept();
+    const originalError = await refused;
+    expect(originalError).toBeInstanceOf(Error);
+    expect((originalError as Error).message).toContain("Odysseus durable outcome refused");
+    // Let both the sampler and runtime catches observe settlement before the
+    // late Activity drain. The original worker failure must remain owned.
+    await new Promise(resolve => setTimeout(resolve, 20));
+    release();
+    expect(await outcome, `${kind.toUpperCase()}_SETTLED_COMMIT_FAILURE_RETAINED_BY_APP_CLOSE`).toBe(originalError);
+    expect(await rejection(app.close())).toBe(originalError);
+    await observed.expectClosed();
+    expect(observed.closes).toBe(1);
+    expect(() => app!.db.query("SELECT 1").get()).toThrow();
+    expect(sends, "FAILED_OUTCOME_DOES_NOT_REPEAT_TRANSPORT").toBe(1);
+    const disk = new Database(f.path, { readonly: true });
+    try {
+      const sql = kind === "storage" ? "SELECT state AS outcome FROM storage_notice_receipts" : kind === "activity" ? "SELECT status AS outcome FROM notification_intents" : "SELECT outcome FROM inbox_notice_attempts";
+      expect(disk.query(sql).all()).toEqual([{ outcome: kind === "storage" ? "sending" : kind === "activity" ? "pending" : "in_flight" }]);
+    } finally { disk.close(); }
+  } finally { accept(); release(); await app?.close().catch(() => {}); finish?.mockRestore(); transport.mockRestore(); sampling.mockRestore(); histories.mockRestore(); assembly.mockRestore(); await observed.restore(); await f.close(); }
+});
+
+
+test("failed final history flush still closes history, writer and reader and retains the error", async () => {
+  const f = fixture(), observed = observe(f.path);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  let history!: storageHistory.StorageHistory;
+  const original = storageHistory.createStorageHistory;
+  const histories = spyOn(storageHistory, "createStorageHistory").mockImplementation((...args) => { history = original(...args); return history; });
+  let flush: ReturnType<typeof spyOn> | undefined, close: ReturnType<typeof spyOn> | undefined;
+  try {
+    app = await createApp(f);
+    const failure = new Error("Odysseus final history flush refused");
+    flush = spyOn(history, "flush").mockImplementation(async () => { throw failure; });
+    close = spyOn(history, "close");
+    const error = await rejection(app.close());
+    expect(close, "FAILED_FLUSH_STILL_CLOSES_HISTORY").toHaveBeenCalledTimes(1);
+    expect(error, "FINAL_FLUSH_FAILURE_RETAINED").toBe(failure);
+    expect(await rejection(app.close())).toBe(failure);
+    await observed.expectClosed();
+    expect(() => app!.db.query("SELECT 1").get()).toThrow();
+  } finally { await app?.close().catch(() => {}); flush?.mockRestore(); close?.mockRestore(); histories.mockRestore(); await observed.restore(); await f.close(); }
 });
