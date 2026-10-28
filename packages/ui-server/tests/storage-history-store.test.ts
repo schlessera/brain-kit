@@ -37,12 +37,25 @@ test("an actual SQLite page quota preserves the previous valid payload when a hi
   const f = fixture();
   const before = (f.db.query("SELECT payload_json FROM storage_history").get() as { payload_json: string }).payload_json;
   f.db.exec("CREATE TABLE storage_test_ballast (value BLOB)");
+  // Migration layout can leave one free page after a large ballast insert
+  // fails: that is enough for the history's first overflow page. Compact this
+  // real migrated fixture before fixing its quota so no freelist page can hide
+  // the history write failure. No production schema or write method is doubled.
+  f.db.exec("VACUUM main");
   f.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  const freePages = () => (f.db.query("PRAGMA main.freelist_count").get() as { freelist_count: number }).freelist_count;
+  expect(freePages(), "STORAGE_QUOTA_NO_SPARE_PAGES").toBe(0);
   const pages = (f.db.query("PRAGMA page_count").get() as { page_count: number }).page_count;
   f.db.exec(`PRAGMA max_page_count = ${pages}`);
-  // Fill any already-free pages, so the next new history overflow page hits
-  // SQLite's real SQLITE_FULL boundary instead of a mocked database method.
-  for (;;) { try { f.db.query("INSERT INTO storage_test_ballast VALUES (zeroblob(4096))").run(); } catch { break; } }
+  // One bounded native probe verifies the actual quota, including its error
+  // identity. Its failed statement leaves no ballast or pages to reclaim.
+  let quotaError: unknown;
+  try { f.db.query("INSERT INTO storage_test_ballast VALUES (zeroblob(4096))").run(); }
+  catch (error) { quotaError = error; }
+  expect(quotaError, "STORAGE_QUOTA_ACTUAL_SQLITE_FULL").toMatchObject({ code: "SQLITE_FULL", errno: 13 });
+  expect(freePages()).toBe(0);
+  expect((f.db.query("SELECT count(*) AS count FROM storage_test_ballast").get() as { count: number }).count).toBe(0);
+  console.log("STORAGE_HISTORY_QUOTA_RECEIPT", JSON.stringify({ pages, freePages: freePages(), probeAttempts: 1, code: (quotaError as { code: string }).code }));
   const input = aggregate(start);
   input.capacities = Array.from({ length: 4 }, (_, index) => ({ descriptor: [hashScope(index), scope], values: [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 0, 0, 0, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER] }));
   f.history.offer(input);
