@@ -383,7 +383,11 @@ The writer awaits its database-close acknowledgement and invokes Bun worker
 termination; this is not a production thread-join guarantee.
 
 Activity, Actions and Storage delivery retain admitted transport and outcome
-writes through shutdown. A flight that already rejected remains a shutdown
+writes through shutdown. Every admitted call retains its own inputs, result and
+error, including concurrent calls of the same kind. Pending promises are tracked
+until settlement, independently of the bounded historical diagnostics; runtime
+and sampler admission flags still prevent overlapping ordinary ticks. Close stops
+new admission synchronously and joins every pending call. A flight that already rejected remains a shutdown
 failure even when a runtime logger or sampler has observed it and removed it
 from pending work. Each owner keeps at most four distinct original error
 representatives and a saturating failed-operation count. A sole failed operation

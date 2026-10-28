@@ -130,7 +130,7 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
   };
   let closing = false;
   let closed: Promise<void> | undefined;
-  const flights = new Map<string, Promise<number>>();
+  const flights = new Set<Promise<number>>();
   // Runtime and sampler catches report failures before app shutdown reaches
   // this owner. Settled failures must outlive removal from the pending set.
   // Keep the first four distinct original causes, not an app-lifetime error log.
@@ -147,14 +147,14 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
     if (errors.length === 1) throw errors[0];
     if (errors.length) throw new AggregateError(errors, "Push outcome writes failed");
   }
-  function deliver(kind: string, run: () => Promise<number>): Promise<number> {
+  function deliver(run: () => Promise<number>): Promise<number> {
     if (closing) return Promise.resolve(0);
-    const existing = flights.get(kind);
-    if (existing) return existing;
+    // Every call owns its inputs and result, even alongside the same kind.
+    // Track actual pending work; runtime and sampler guard their own ticks.
     // Install ownership before invoking any caller-supplied code.
     const flight = Promise.resolve().then(run);
-    flights.set(kind, flight);
-    const done = () => { flights.delete(kind); };
+    flights.add(flight);
+    const done = () => { flights.delete(flight); };
     void flight.then(done, error => { retain(error); done(); });
     return flight;
   }
@@ -392,15 +392,15 @@ export function createPushSender(db: Database, options: CreatePushSenderOptions 
   };
   return {
     ...sender,
-    deliverPending: notifier => deliver("activity", () => sender.deliverPending(notifier)),
-    deliverActions: (notices, at) => deliver("actions", () => sender.deliverActions(notices, at)),
-    deliverStorage: (notices, at, signal) => deliver("storage", () => sender.deliverStorage(notices, at, signal)),
+    deliverPending: notifier => deliver(() => sender.deliverPending(notifier)),
+    deliverActions: (notices, at) => deliver(() => sender.deliverActions(notices, at)),
+    deliverStorage: (notices, at, signal) => deliver(() => sender.deliverStorage(notices, at, signal)),
     close() {
       return closed ??= (() => {
         closing = true;
         // Stop admission, then join transport AND its committed outcome writes.
         // Do not turn a failed persistence write into successful shutdown.
-        return Promise.allSettled([...flights.values()]).then(() => {
+        return Promise.allSettled([...flights]).then(() => {
           // Each flight's earlier rejection observer has already retained it once.
           const errors = [...failures];
           if (failureCount === 1) throw errors[0];

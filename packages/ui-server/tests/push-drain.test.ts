@@ -77,3 +77,55 @@ test("delivery retry failures retain bounded diagnostics through recovery and la
     expect(await rejection(f.sender.close())).toBe(failure);
   } finally { retained.restore(); await f.sender.close().catch(() => {}); f.db.close(); }
 });
+
+test("same-kind independent calls preserve their own inputs, counts and failures through close", async () => {
+  const failure = Error("Odysseus second outcome refused");
+  const f = fixture(async () => {});
+  f.db.query("DELETE FROM push_subscriptions WHERE endpoint LIKE '%troy'").run();
+  const intent = f.notifier.pending()[0]!;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const marked: number[] = [];
+  const first = { ...f.notifier, pending: () => [intent, { ...intent, id: intent.id + 1 }], markDelivered: async (id: number) => { marked.push(id); } };
+  const second = { ...f.notifier, pending: () => [{ ...intent, id: intent.id + 2 }], markDelivered: async () => { await gate; throw failure; } };
+  const one = f.sender.deliverPending(first);
+  const two = f.sender.deliverPending(second).then(value => ({ value }), error => ({ error }));
+  try {
+    expect(await one, "INDEPENDENT_DELIVERY_RETAINS_OWN_COUNT").toBe(2);
+    expect(marked).toEqual([intent.id, intent.id + 1]);
+    const closing = f.sender.close();
+    expect(f.sender.close()).toBe(closing);
+    expect(await f.sender.deliverPending(first)).toBe(0);
+    release();
+    expect(await two, "INDEPENDENT_DELIVERY_RETAINS_OWN_FAILURE").toEqual({ error: failure });
+    expect(await rejection(closing)).toBe(failure);
+    expect(await rejection(f.sender.close())).toBe(failure);
+  } finally { release(); await two; await f.sender.close().catch(() => {}); f.db.close(); }
+});
+
+test("settling a delivery cannot remove a reentrant same-kind delivery from the drain", async () => {
+  const f = fixture(async () => {});
+  f.db.query("DELETE FROM push_subscriptions WHERE endpoint LIKE '%troy'").run();
+  const intent = f.notifier.pending()[0]!;
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const second = { ...f.notifier, markDelivered: async () => { entered(); await held; } };
+  let reentrant: Promise<number> | undefined;
+  const first = { ...f.notifier, markDelivered: async () => { reentrant = f.sender.deliverPending(second); } };
+  try {
+    expect(await f.sender.deliverPending(first)).toBe(1);
+    for (let i = 0; i < 20 && !reentrant; i++) await new Promise(resolve => setTimeout(resolve, 1));
+    expect(reentrant, "REENTRANT_DELIVERY_ADMITTED").toBeDefined();
+    // The first promise has settled; its removal must leave the new owner intact.
+    let settled = false;
+    const closing = f.sender.close().then(() => { settled = true; });
+    await Promise.race([started, new Promise(resolve => setTimeout(resolve, 20))]);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(settled, "SETTLED_CALL_CANNOT_DELETE_REENTRANT_OWNER").toBe(false);
+    release();
+    expect(await reentrant).toBe(1);
+    await closing;
+    expect(intent).toBeDefined();
+  } finally { release(); await reentrant; await f.sender.close().catch(() => {}); f.db.close(); }
+});

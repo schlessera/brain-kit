@@ -205,17 +205,7 @@ for (const kind of ["activity", "actions"] as const) test(`${kind} acceptance ov
   let sends = 0;
   let activity!: activityRuntime.ActivityRuntime;
   const createRuntime = activityRuntime.createActivityRuntime;
-  let tick!: () => void;
-  const intervalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setInterval")!;
-  const interval = globalThis.setInterval;
-  const assembly = spyOn(activityRuntime, "createActivityRuntime").mockImplementation((...args) => {
-    Object.defineProperty(globalThis, "setInterval", { ...intervalDescriptor, value: (callback: () => void, ms: number) => {
-      if (ms === 20_000) tick = callback;
-      return interval(callback, ms);
-    } });
-    try { activity = createRuntime(...args); return activity; }
-    finally { Object.defineProperty(globalThis, "setInterval", intervalDescriptor); }
-  });
+  const assembly = spyOn(activityRuntime, "createActivityRuntime").mockImplementation((...args) => { activity = createRuntime(...args); return activity; });
   const transport = spyOn(webpush, "sendNotification").mockImplementation(async () => { sends++; started(); await accepted; return { statusCode: 201, body: "", headers: {} }; });
   let delivery: Promise<number> | undefined;
   try {
@@ -228,7 +218,6 @@ for (const kind of ["activity", "actions"] as const) test(`${kind} acceptance ov
       await activity.store.endSpan("voyage:root", { outcome: "error" });
       await activity.notifier.tick();
       expect(activity.notifier.pending()).toHaveLength(1);
-      tick(); tick();
       delivery = activity.pushSender.deliverPending(activity.notifier);
     } else {
       const now = Date.UTC(2026, 6, 12, 12);
@@ -306,7 +295,6 @@ test("Activity close bounds a stalled transport, releases its agent, and joins f
     await activity.store.endSpan("voyage:root", { outcome: "error" });
     await activity.notifier.tick();
     const deliver = activity.pushSender.deliverPending(activity.notifier);
-    expect(activity.pushSender.deliverPending(activity.notifier), "CONCURRENT_DELIVERY_JOINS_THE_SAME_PASS").toBe(deliver);
     const result = deliver.catch(error => error);
     await submitted;
     // Persistence is deliberately refused after the real deadline classifies
@@ -461,4 +449,70 @@ test("failed final history flush still closes history, writer and reader and ret
     await observed.expectClosed();
     expect(() => app!.db.query("SELECT 1").get()).toThrow();
   } finally { await app?.close().catch(() => {}); flush?.mockRestore(); close?.mockRestore(); histories.mockRestore(); await observed.restore(); await f.close(); }
+});
+
+test("same-kind different-input deliveries both persist outcomes before app writer closure", async () => {
+  const f = fixture(), observed = observe(f.path);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  let activity!: activityRuntime.ActivityRuntime;
+  const createRuntime = activityRuntime.createActivityRuntime;
+  const assembly = spyOn(activityRuntime, "createActivityRuntime").mockImplementation((...args) => { activity = createRuntime(...args); return activity; });
+  let releaseFirst!: () => void, releaseSecond!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const secondGate = new Promise<void>(resolve => { releaseSecond = resolve; });
+  const tags: string[] = [];
+  const transport = spyOn(webpush, "sendNotification").mockImplementation(async (_sub, payload) => {
+    const tag = JSON.parse(String(payload)).tag as string;
+    tags.push(tag);
+    await (tag.endsWith(":ithaca") ? firstGate : secondGate);
+    return { statusCode: 201, body: "", headers: {} };
+  });
+  const deliveries: Promise<number>[] = [];
+  try {
+    app = await createApp(f);
+    const owner = createPrincipal(app.db, { authMethod: "password", label: "Athena", ttlSeconds: 3600 });
+    await activity.pushSender.subscribe({ endpoint: "https://push.example.test/ithaca", keys: { p256dh: "k", auth: "a" } }, owner.id);
+    for (const runId of ["ithaca", "troy"]) {
+      await activity.store.startSpan({ runId, spanId: `${runId}:root`, name: "invoke_agent", kind: "turn", origin: "session" });
+      await activity.store.endSpan(`${runId}:root`, { outcome: "error" });
+    }
+    await activity.notifier.tick();
+    const pending = activity.notifier.pending();
+    expect(pending).toHaveLength(2);
+    const notifier = (runId: string) => ({ ...activity.notifier, pending: () => pending.filter(intent => intent.runId === runId) });
+    deliveries.push(activity.pushSender.deliverPending(notifier("ithaca")), activity.pushSender.deliverPending(notifier("troy")));
+    expect(deliveries[0], "SAME_KIND_CALLS_OWN_DISTINCT_PROMISES").not.toBe(deliveries[1]);
+    for (let i = 0; i < 100 && tags.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    expect(tags.sort(), "SAME_KIND_DIFFERENT_INPUTS_BOTH_SEND").toEqual(["brain-activity:ithaca", "brain-activity:troy"]);
+    let reached!: () => void;
+    const draining = new Promise<void>(resolve => { reached = resolve; });
+    const closeActivity = activity.close.bind(activity);
+    activity.close = () => { const result = closeActivity(); reached(); return result; };
+    let closed = false;
+    const closing = app.close().then(() => { closed = true; });
+    await draining;
+    releaseFirst();
+    expect(await deliveries[0], "FIRST_DELIVERY_HAS_OWN_RESULT").toBe(1);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(closed, "APP_CLOSE_JOINS_SECOND_SAME_KIND_DELIVERY").toBe(false);
+    expect(observed.closes, "WRITER_OPEN_UNTIL_ALL_SAME_KIND_OUTCOMES").toBe(0);
+    expect(app.db.query("SELECT run_id, status FROM notification_intents ORDER BY run_id").all()).toEqual([
+      { run_id: "ithaca", status: "sent" }, { run_id: "troy", status: "pending" },
+    ]);
+    expect(await activity.pushSender.deliverPending(notifier("troy")), "CLOSE_STOPS_NEW_ADMISSION_SYNCHRONOUSLY").toBe(0);
+    releaseSecond();
+    expect(await deliveries[1], "SECOND_DELIVERY_HAS_OWN_RESULT").toBe(1);
+    await closing;
+    await observed.expectClosed();
+    const disk = new Database(f.path, { readonly: true });
+    try {
+      expect(disk.query("SELECT run_id, status FROM notification_intents ORDER BY run_id").all(), "ALL_SAME_KIND_OUTCOMES_DURABLE_BEFORE_WRITER_CLOSE").toEqual([
+        { run_id: "ithaca", status: "sent" }, { run_id: "troy", status: "sent" },
+      ]);
+      expect(disk.query("SELECT last_used_at FROM push_subscriptions").get()).not.toEqual({ last_used_at: null });
+    } finally { disk.close(); }
+  } finally {
+    releaseFirst(); releaseSecond(); await Promise.allSettled(deliveries); await app?.close().catch(() => {});
+    transport.mockRestore(); assembly.mockRestore(); await observed.restore(); await f.close();
+  }
 });
