@@ -125,6 +125,20 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     await advance(item.id);
     return item;
   }
+  const cleanup = async () => {
+    closing = true;
+    const errors: unknown[] = [];
+    for (const cleanup of [
+      () => closeHygieneContext(context),
+      () => Promise.all([...pending]),
+      () => stop(),
+      () => rmSync(root, { recursive: true, force: true }),
+    ]) {
+      try { await cleanup(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length) throw new AggregateError(errors, "hygiene loop cleanup failed");
+  };
   try {
     // Keep the fixture-owned clocked CLI selected: a whole node_modules link
     // exposes .bin/brain, which the real server client prefers over scripts.
@@ -343,18 +357,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     for (const p of context.pages()) diagnostics.push((await p.locator("body").innerText()).slice(-2500));
     throw new Error(`${String(error)}\n${diagnostics.join("\n")}`);
   } finally {
-    closing = true;
-    const errors: unknown[] = [];
-    for (const cleanup of [
-      () => closeHygieneContext(context),
-      () => Promise.all([...pending]),
-      () => stop(),
-      () => rmSync(root, { recursive: true, force: true }),
-    ]) {
-      try { await cleanup(); } catch (error) { errors.push(error); }
-    }
-    if (errors.length === 1) throw errors[0];
-    if (errors.length) throw new AggregateError(errors, "hygiene loop cleanup failed");
+    await cleanup();
   }
 };
 declare module "vitest/browser" {

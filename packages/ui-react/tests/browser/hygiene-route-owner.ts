@@ -9,12 +9,14 @@ export function hygieneRouteOwner(forward: (route: Route) => Promise<void>) {
     // discarded; only the first failure survives until its command boundary.
     const task = Promise.resolve().then(() => forward(route)).catch(error => {
       failure ??= { error };
+      // Preserve Playwright's original rejection as well as the stop failure.
+      throw error;
     }).finally(() => { pending.delete(task); });
     pending.add(task);
     return task;
   };
   const drain = async () => {
-    while (pending.size) await Promise.all([...pending]);
+    while (pending.size) await Promise.allSettled([...pending]);
   };
   return {
     handler,

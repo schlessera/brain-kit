@@ -195,9 +195,12 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
       assert.equal(read.review.status, "idle"); assert.equal(read.action, null);
     }
     return { responses: browser.length, stopPending: callbacks.size, unrouteActive, afterUnrouteActive };
-  } finally {
+  } catch (error) {
     await cleanup();
     if (originalError && !options.failRoute) throw originalError.error;
+    throw error;
+  } finally {
+    await cleanup();
   }
 };
 declare module "vitest/browser" {
@@ -263,9 +266,12 @@ export const hygieneContextLifecycle: BrowserCommand<[], unknown> = async (ctx) 
     if (error) throw error.value;
     assert.equal(callbacks.size, 0, "native context owns handlers through drain");
     return { original200: true, pending: 0 };
-  } finally {
+  } catch (caught) {
     await cleanup();
     if (error) throw error.value;
+    throw caught;
+  } finally {
+    await cleanup();
   }
 };
 declare module "vitest/browser" {
