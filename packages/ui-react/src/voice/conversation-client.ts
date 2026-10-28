@@ -278,14 +278,36 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     state.setState({ interaction: "Checking whether the reply stopped", notice: "Microphone off while checking the reply stop. Resume when voice is ready." });
     announce("Checking whether the reply stopped");
   }
+  // Adopt only a task admitted in the live epoch. Update voice before selecting
+  // its transcript: the chat subscription still treats other selections as leave.
+  function adoptContextualSession(work: ConversationWorkReceipt, sessionId: string) {
+    const s = state.getState();
+    const p = scope();
+    if (!s.active || work.provenance !== "contextual" || work.state !== "running" || !work.turnId
+      || p?.conversationId !== work.conversationId || p.epoch !== work.epoch
+      || s.sessionId !== null || root.stores.chat.getState().activeSessionId !== null) return;
+    state.setState({ sessionId,
+      outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? { ...o, sessionId } : o),
+      unassigned: s.unassigned.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
+    });
+    // This task has no reviewed composer draft. Materialize its own buffer so
+    // ordinary session_info routing cannot adopt the independent typed draft.
+    root.stores.chat.getState().setActiveSession(sessionId);
+  }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
   function frame(message: ServerMessage): ServerMessage | null {
     permissions.frame(message);
     if (message.type === "server_hello") state.setState({ available: message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true });
+    if (message.type === "session_info" && message.requestId) {
+      const work = state.getState().work[message.requestId];
+      // The bridge broadcasts identity before the work receipt names the session.
+      // Match both host request and turn; unrelated or stale frames cannot bind.
+      if (work?.turnId && work.turnId === (message as ServerMessage & { turnId?: string }).turnId && (!work.sessionId || work.sessionId === message.sessionId)) adoptContextualSession(work, message.sessionId);
+    }
     if (message.type === "session_info" && message.requestId && requests.has(message.requestId)) {
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
-      if (state.getState().active && scope()?.conversationId === request.conversationId && state.getState().sessionId === request.sessionId) {
+      if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
         state.setState({ sessionId: message.sessionId, outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? { ...output, sessionId: message.sessionId } : output) });
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
@@ -322,16 +344,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
       if (message.state === "refused" || message.state === "cancelled" || message.state === "error") root.stores.followUp.getState().dropLocal(message.requestId);
       if (s.active && p?.conversationId === message.conversationId) {
-        if (message.provenance === "contextual" && message.sessionId && s.sessionId === null) {
-          state.setState({ sessionId: message.sessionId,
-            outputs: s.outputs.map(o => o.conversationId === message.conversationId && o.sessionId === null ? { ...o, sessionId: message.sessionId! } : o),
-            unassigned: s.unassigned.map(f => f.conversationId === message.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId! } : f),
-          });
-          // An automatic first task has no reviewed draft to adopt. Open its
-          // own transcript before session_info/deltas arrive, preserving the
-          // independent new-chat draft and keeping voice in the same view.
-          if (root.stores.chat.getState().activeSessionId === null) root.stores.chat.getState().setActiveSession(message.sessionId);
-        }
+        if (message.sessionId) adoptContextualSession(message, message.sessionId);
         const work = Object.fromEntries(Object.entries({ ...s.work, [message.requestId]: message }).slice(-128));
         state.setState({ work });
         if (resync > 0) resync--;

@@ -101,6 +101,11 @@ export function createWebSocketClient(root: BrainUiServices) {
     // A resumed session (a late answer to opening or restoring one, #1328)
     // is never the conversation a draft is starting.
     if (msg.isNew === false) return false;
+    // Contextual tasks have no composer draft. Their exact request/turn binding
+    // is handled by the conversation client, never by legacy draft adoption.
+    const voice = conversation.state.getState();
+    if (msg.requestId && voice.work[msg.requestId]?.provenance === "contextual") return false;
+    if (voice.profile?.capabilities.contextualTasks === "supported") return false;
     // No echo to compare against.
     return true;
   }
