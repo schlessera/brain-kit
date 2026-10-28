@@ -60,7 +60,10 @@ export function fixtureDelta(before: { uuid: string; transaction: string; entrie
   return { stream, completed: Promise.resolve({ exitCode: 0 as const, bytes: raw.byteLength }) };
 }
 
-export function createNativeJournalFixture(brain: string, root: string) {
+/** The copy callback lets tests place a live overwrite precisely across the copy boundary. */
+export function createNativeJournalFixture(brain: string, root: string, copy = (source: string, destination: string) => {
+  cpSync(source, destination, { recursive: true, dereference: false, preserveTimestamps: true });
+}) {
   const snapshots = join(root, "native-test-checkpoints"); mkdirSync(snapshots, { recursive: true });
   const inodePins = mkdtempSync(join(root, "native-test-inode-pins-"));
   let pinSequence = 0;
@@ -72,8 +75,11 @@ export function createNativeJournalFixture(brain: string, root: string) {
       if (checkpointFailure) { const error = checkpointFailure; checkpointFailure = undefined; throw error; }
       if (deleted.has(id)) throw Error("Fixture checkpoint identity already released");
       const old = retained.get(id); if (old) return old.checkpoint;
-      const path = join(snapshots, id), entries = inventory(brain);
-      cpSync(brain, path, { recursive: true, dereference: false, preserveTimestamps: true });
+      const path = join(snapshots, id);
+      copy(brain, path);
+      // Synthetic deltas must describe the retained bytes, even if a live
+      // writer changed the source while the copy was being created.
+      const entries = inventory(path);
       // Copies lack Btrfs inode lineage. The observer can retain metadata from
       // an older released copy; reserve its file inodes so later copies cannot
       // reuse one for an unrelated path and manufacture a hardlink candidate.
