@@ -839,11 +839,11 @@ test("ordinary working, speaking and reply-drained state changes keep the microp
 
 // Shared keyless adapter/host fixture from #3049; diagnostic changes stay there.
 /** Feed real client microphone/endpoint/commit frames through a native host and
- * GPT-Live adapter. Only the provider connection is replaced, by loopback WS. */
-async function adapterScene(ctx: TestContext, width = 390) {
+ * live adapter. Only the provider connection is replaced, by loopback WS. */
+async function adapterScene(ctx: TestContext, width = 390, provider?: "gemini") {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx, width, true);
-  const fixture = await commands.conversationServer({ op: "start" }) as { id: string };
+  const fixture = await commands.conversationServer({ op: "start", provider }) as { id: string };
   ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
   let cursor = 0;
   const upstream: Record<string, unknown>[] = [];
@@ -970,4 +970,65 @@ test("full unassigned recognition stops visibly and retains text until explicit 
   expect(s.client.reviewUnassigned()).toBe(true);
   expect(s.ui.stores.voice.getState().reviewText).toBe(" note".repeat(CONVERSATION_LIMITS.maxFragmentsPerUtterance));
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+
+// #3064 research: these assertions preserve the CURRENT close policy. They do
+// not approve continued capture with unknown ownership or invent provider time.
+const geminiReply = () => ({ serverContent: {
+  outputTranscription: { text: "The Ithaca note is ready." },
+  modelTurn: { parts: [{ inlineData: { data: outputPcm(0.15), mimeType: "audio/pcm;rate=24000" } }] },
+  turnComplete: true,
+} });
+
+for (const mode of ["missing-finished", "finished-then-pcm"] as const) {
+  test(`Gemini #3064 ${mode}: completed playback still closes second capture`, async ctx => {
+    const s = await adapterScene(ctx, 390, "gemini");
+    if (mode === "finished-then-pcm") {
+      await s.pump([{ serverContent: { inputTranscription: { text: "Find the departure note.", finished: true } } }]);
+      await expect.poll(() => s.client.state.getState().text).toBe("Find the departure note.");
+      const before = s.upstream.filter(f => (f.realtimeInput as any)?.audio).length;
+      await expect.poll(async () => { await s.pump(); return s.upstream.filter(f => (f.realtimeInput as any)?.audio).length; }).toBeGreaterThan(before);
+    }
+    s.mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+    await s.pump(mode === "missing-finished" ? [{ serverContent: { inputTranscription: { text: "Find the departure note." } } }] : []);
+    await s.pump([geminiReply()]);
+    await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+    expect(s.client.state.getState().micOn).toBe(true);
+    expect(s.downstream.some(f => f.type === "conversation_closed")).toBe(false);
+    s.mic.speak();
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().micOn; }).toBe(false);
+    expect(s.client.state.getState().connection).toBe("Speech lost");
+    expect(s.downstream.find(f => f.type === "conversation_closed")).toMatchObject({ reason: "provider_error", message: "The voice service refused audio." });
+    expect(s.socket.frames("conversation_start")).toHaveLength(1);
+    expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+    expect(s.socket.frames("chat_message")).toHaveLength(0);
+    expect(s.upstream.some(f => f.toolResponse)).toBe(false);
+  });
+}
+
+test("Gemini #3064: three ordinary turns succeed only with fresh post-endpoint finality", async ctx => {
+  const s = await adapterScene(ctx, 390, "gemini");
+  for (let turn = 0; turn < 3; turn++) {
+    if (turn) {
+      const before = s.socket.frames("conversation_audio").length;
+      s.mic.speak();
+      await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+      await s.pump();
+    }
+    s.mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(turn + 1);
+    await s.pump([{ serverContent: { inputTranscription: { text: ["Find the departure note.", "Check the harbour watch.", "Review the voyage plan."][turn], finished: true } } },
+      { toolCall: { functionCalls: [{ id: `ithaca-native-${turn}`, name: "host_task" }] } }, geminiReply()]);
+    await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+    expect(s.client.state.getState().micOn).toBe(true);
+  }
+  expect(s.downstream.some(f => f.type === "conversation_closed")).toBe(false);
+  expect(new Set(s.downstream.flatMap(f => f.type === "conversation_event" && f.event.kind === "input_fragment" ? [f.event.utteranceId] : [])).size).toBe(3);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.upstream.some(f => f.toolResponse)).toBe(false);
 });

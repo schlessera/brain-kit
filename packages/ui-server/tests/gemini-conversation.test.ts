@@ -572,3 +572,31 @@ test("a fresh finish after continued audio permits the next utterance", async ()
   expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 2, rate: 16000, pcm: new Uint8Array([0, 0]) })).not.toThrow();
   await until(() => f.sent.filter((m) => m.realtimeInput?.audio).length === 3);
 });
+
+
+// #3064: preserve the current finality contract until its replacement is ruled.
+for (const mode of ["missing-finished", "finished-then-pcm"] as const) test(`Gemini #3064 ${mode} preserves attribution and refuses the new capture`, async () => {
+  const f = await fixture();
+  await f.audio();
+  f.emit({ serverContent: { inputTranscription: { text: "Find the departure note.", ...(mode === "finished-then-pcm" ? { finished: true } : {}) } } });
+  await until(() => f.received.some(e => e.kind === "input_fragment"));
+  expect(f.received.find(e => e.kind === "input_fragment")).toMatchObject({ utteranceId: "u1", finalization: mode === "finished-then-pcm" ? "final" : "unknown", origin: "unknown", certainty: "unknown" });
+  if (mode === "finished-then-pcm") await f.audio("u1", 1);
+  f.session.markEndpoint("u1");
+  f.emit({ serverContent: { outputTranscription: { text: "The Ithaca reply is complete." }, turnComplete: true } });
+  // Delayed recognition after endpoint still belongs to the old identity.
+  f.emit({ serverContent: { inputTranscription: { text: " A late fragment." } } });
+  await until(() => f.received.filter(e => e.kind === "input_fragment").length === 2);
+  expect(f.received.filter(e => e.kind === "input_fragment").map(e => e.utteranceId)).toEqual(["u1", "u1"]);
+  expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 2, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("correlation");
+  await until(() => f.received.some(e => e.kind === "error"));
+  expect(f.received.at(-1)).toMatchObject({ kind: "error", message: "Gemini Live input finalization is missing; restart capture before another utterance." });
+  expect(f.sent.some(m => m.toolResponse)).toBe(false);
+});
+
+test("Gemini #3064 a finished transcript does not end an active capture", async () => {
+  const f = await fixture(); await f.audio();
+  f.emit({ serverContent: { inputTranscription: { text: "Find the departure note.", finished: true }, turnComplete: true } });
+  await until(() => f.received.some(e => e.kind === "input_fragment"));
+  expect(() => f.session.appendAudio({ utteranceId: "u2", sequence: 1, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("correlation");
+});

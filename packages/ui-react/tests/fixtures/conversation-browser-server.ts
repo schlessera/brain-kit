@@ -1,5 +1,6 @@
 import { workerHostBoundary } from "../../../ui-sdk/src/server/worker-launcher.js";
-/** Real GPT-Live adapter/host with a loopback upstream and in-process fake agent. */
+/** Real live adapter/host with a loopback upstream and in-process fake agent. */
+import { createGeminiConversationProvider } from "../../../ui-server/src/voice/gemini-conversation.js";
 import { createGptLiveConversationProvider } from "../../../ui-server/src/voice/gpt-live-conversation.js";
 import { createStaticBackendRegistry } from "../../../ui-server/src/agent/backend.js";
 import { createUiDb } from "../../../ui-server/src/db/client.js";
@@ -10,6 +11,7 @@ import { makeFakeBackend } from "../../../ui-server/tests/helpers/fake-backend.j
 import { testPrincipal } from "../../../ui-server/tests/helpers/principal.js";
 import type { WSContext } from "../../../ui-server/src/ws/clients.js";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+const gemini = process.argv.includes("--gemini");
 const sent: Record<string, unknown>[] = [];
 let remote: Bun.ServerWebSocket<undefined> | undefined;
 let silence: ReturnType<typeof setInterval> | undefined;
@@ -17,7 +19,8 @@ const upstream = Bun.serve<undefined>({ hostname: "127.0.0.1", port: 0,
   fetch(req, server) { if (server.upgrade(req)) return; return new Response(null, { status: 400 }); },
   websocket: { open(ws) { remote = ws; }, message(ws, bytes) {
     const frame = JSON.parse(String(bytes)); sent.push(frame);
-    if (frame.type === "session.start") {
+    if (gemini && frame.setup) ws.send(JSON.stringify({ setupComplete: {} }));
+    if (!gemini && frame.type === "session.start") {
       ws.send(JSON.stringify({ type: "session.started", session: { id: "ithaca-live", model: "gpt-live-1", store: false } }));
       // GPT-Live keeps transporting silence between replies, without output-done.
       // Paced 100 ms PCM chunks share the adapter's one output ID for the epoch.
@@ -39,7 +42,7 @@ const backend = makeFakeBackend({ id: "fake", startTurn: async req => {
   req.bridge.emit({ type: "text_delta", text: "The departure note is ready." });
   req.bridge.emit({ type: "result", sessionId: "odysseus-ithaca", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
 } });
-const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: createGptLiveConversationProvider("keyless-odyssey-placeholder") });
+const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: (gemini ? createGeminiConversationProvider : createGptLiveConversationProvider)("keyless-odyssey-placeholder") });
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
