@@ -4,7 +4,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { BrowserContext, Page, Route } from "playwright";
 import type { BrowserCommand } from "vitest/node";
-import { hygieneReviewReadSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { closeHygieneContext } from "./hygiene-route-owner.ts";
 import { hygieneServer, hygieneServerOwners } from "./hygiene-server-command.ts";
 
@@ -300,6 +299,9 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
     if (options.duringUnroute) assert.equal(afterUnrouteActive, 1, "real callback remains owned across route-pattern update");
     const browser = await Promise.all(responses);
     assert.equal(browser.length, options.duringUnroute ? 1 : 3);
+    // Config discovery runs before workspace builds; load the real schema only
+    // when this native command validates its responses through ordinary exports.
+    const { hygieneReviewReadSchema } = await import("@schlessera/brain-ui-sdk/schemas");
     for (let i = 0; i < browser.length; i++) {
       assert.equal(native[i]!.status, 200, "original native HTTP response");
       assert.equal(browser[i]!.status, 200, "original browser response must remain 200");
