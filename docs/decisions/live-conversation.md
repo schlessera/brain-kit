@@ -194,3 +194,93 @@ and Google's [Live WebSocket reference](https://ai.google.dev/api/live) plus
 installed `FunctionResponse`/scheduling declarations. Delegation is metadata,
 not task text. The literal SpawnThinking instruction is prompt text, not an
 invented client event. These sources establish API fields, not live behavior.
+
+## Continuous conversation and audible recovery — 2026-10-29
+
+The [automatic-recovery ruling on #3053](https://github.com/schlessera/brain-kit/issues/3053#issuecomment-6483873750)
+selects automatic audible recovery as the product direction, beyond the earlier
+evaluation-only approval. The later **Latest continuous-conversation requirement
+and report — 2026-10-29** amendment in [#3053](https://github.com/schlessera/brain-kit/issues/3053)
+extends that direction: once explicitly entered, conversation keeps listening
+and conversing on both Gemini Live and GPT-Live. Capture may remain off only
+after manual Mute, manual Leave, or a drastic technical problem. Ordinary
+speaking, interruption, silence, task activity, result arrival and recoverable
+transitions must not require repeated Unmute/Resume.
+
+This supersedes the blanket capture-off/explicit-Resume choices for ordinary
+interruption, hide/background, disconnect and resync in the earlier interaction
+proposal and October 5 review. It does not assert that the browser can capture
+while suspended or a disconnected provider can receive audio. Temporary
+unavailability must be reported honestly; when the same consented scope is
+usable again, recoverable transitions should restore conversation without
+another unmute. Never buffer and replay disconnected microphone audio as new
+intent or replay host effects during recovery.
+
+### Consent and genuine failure boundaries
+
+Manual Mute remains authoritative across callbacks, timers, reconnects and new
+epochs until explicit Unmute. Manual Leave ends the conversation; no recovery
+path may restart it. Explicit Stop reply stops output and reconciles host work
+as applicable; it is not a manual microphone mute or Leave. Automatic adoption
+of the conversation's host task/session is routine activity, not renewed consent
+or a reason to stop listening. An explicit selection of another conversation
+must not silently transfer the microphone's scope or audio destination.
+
+A genuine failure is a concrete unavailable or unsafe prerequisite: revoked or
+denied microphone permission, an unavailable capture device, failed capture or
+transport that cannot recover safely, lost authentication/authorized scope, an
+unrecoverable capacity/correlation failure, or a changed service/audio
+destination requiring a fresh disclosure and Start. Stop safely and explain
+the actual prerequisite and recovery action. Visibility changes, a reconnect,
+ordinary host work or uncertain output cancellation alone are not blanket
+consent invalidation. Stale callbacks never establish scope or consent. No
+silent provider/destination switch is authorized by continuity.
+
+### Interruption and output recovery
+
+Retain consented capture, applicable conversation context and the initiating
+speech bytes. Cut all queued local playback immediately, suppress provider
+output while the user speaks, then attempt audible recovery using a bounded
+silence check. If that check times out, make output-muted status and an explicit
+manual **output recovery** action clear; this timeout is not permission to mute
+the microphone. Subsequent audible dialogue is the goal. Permanently muted
+output and today's repeated Resume fallback were rejected as the product goal.
+
+Occasional delayed audio from the interrupted answer is an accepted product
+tradeoff, conditional on qualification. A silence boundary is a local playback
+heuristic, never proof of remote cancellation, a completed answer, trustworthy
+per-answer attribution or host terminal state. Generated, locally played and
+unknown spoken portions remain distinct. The evaluation's 300 ms silence check
+and three-second deadline are starting points requiring qualification, not
+production guarantees; this ruling does not mandate exact-zero PCM as the
+production silence detector.
+
+Continuous capture does not authorize continuous execution. Preserve the
+[shared typed/live policy](voice-permission.md#live-conversation-policy-supersession--2026-10-28),
+screen grants, scoped refusal and acoustic-attribution guards, honest unassigned
+recognition/manual review, question binding, host-owned identities and
+serialization/cancellation. Do not dispatch a replacement mutating turn before
+the original work is safely reconciled. An output cut or speech disconnect
+cannot undo a completed effect, confirm a denial or settle an unknown outcome.
+Pending tasks, questions and approvals must not themselves disable capture.
+
+### Evidence and compatibility
+
+[#3053](https://github.com/schlessera/brain-kit/issues/3053) owns implementation
+and qualification: real browser capture/playback through adapter and host,
+initiating-speech retention, subsequent audible dialogue, delayed tails/stalls,
+silence/timeout, pending work/questions/permissions, task/session adoption,
+capacity, visibility, reconnect/resync and manual-Mute/Leave negative controls.
+Verify both providers independently; a Gemini report proves no GPT result.
+Applicable provider/device and speaker/headphone checks remain with #961/#114;
+keyless runtime evidence is not acoustic qualification. Neither the research
+PR #3054 nor evaluation prototype #3056 is approved for merge by this decision.
+
+This policy amendment changes no shipped code or normative wire text. The
+[shipped client contract](../integration-contract/wire.md#shipped-conversation-client-960)
+still describes the existing capture-off/Resume behavior. Its replacement
+belongs with #3053's implementation: same-commit normative contract update,
+`CONTRACT:` prefix/label, explicit compatibility/breaking assessment and any
+required prior ruling, appropriate changeset, current-candidate proof and normal
+release/merge review. Product direction alone supplies no qualification,
+capability promotion, paid-call authorization or release commitment.
