@@ -100,6 +100,92 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
 }
 
+// #3131 characterization: the peer scripts recognition/output and acknowledges
+// transport only. No assertion here establishes a provider's semantic recall.
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-result evidence: exact bytes, later references, interruption and replacement context`, async ctx => {
+  // Use the production Claude runner with scripted inference and a real read
+  // through the host bridge; identity and completion have separate barriers.
+  const s = await contextualScene(ctx, provider, "permitted", 390, true, true);
+  const fact = "The departure signal is a bronze owl.";
+  const recognize = (n: number, text: string) => provider === "gemini"
+    ? { serverContent: { inputTranscription: { text } } }
+    : { type: "session.input_transcript.delta", event_id: `recall-input-${n}`, delta: text, start_ms: n * 2000, end_ms: n * 2000 + 500 };
+  const reply = (n: number, text: string, seconds = 0.15) => provider === "gemini"
+    ? [{ serverContent: { outputTranscription: { text }, modelTurn: { parts: [{ inlineData: { data: outputPcm(seconds), mimeType: "audio/pcm;rate=24000" } }] }, turnComplete: true } }]
+    : [{ type: "session.output_transcript.delta", event_id: `recall-output-${n}`, delta: text, start_ms: n * 2000 + 600, end_ms: n * 2000 + 800 }, { type: "session.output_audio.delta", delta: outputPcm(seconds) }];
+  const native = provider === "gemini" ? { toolCall: { functionCalls: [{ id: "recall-research", name: "host_task" }] } }
+    : { type: "session.delegation.created", event_id: "recall-delegation", offset_ms: 500, delegation: { id: "recall-research", type: "delegation", target: "client" } };
+  const returns = () => s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => ({ native: r.id, text: r.response.output, scheduling: r.scheduling }))
+    : f.type === "session.thinking.append" || f.type === "session.commentary.append" ? [{ native: f.delegation_id, text: f.content, scheduling: f.type }] : []);
+  expect(JSON.stringify(s.upstream)).not.toContain("bronze owl");
+  await s.pump([recognize(0, "Find the departure signal note."), native]);
+  await s.pump([], false, true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.read; }).toContain(fact);
+  const firstEpoch = s.client.state.getState().profile!.epoch;
+  s.mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  await s.pump();
+  const spoken = async (n: number, text: string) => {
+    const audio = s.socket.frames("conversation_audio").length;
+    const endpoints = s.socket.frames("conversation_endpoint").length;
+    s.mic.speak();
+    await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(audio);
+    await s.pump([recognize(n, text)]);
+    s.mic.quiet();
+    await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBeGreaterThan(endpoints);
+    await s.pump();
+  };
+  for (let n = 1; n <= 2; n++) {
+    await spoken(n, n === 1 ? "Tell me about the route while we wait." : "And the harbour watch?");
+    await s.pump(reply(n, `Still waiting for the research ${n}.`));
+    await expect.poll(() => s.client.state.getState().playing).toBe(true);
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+    expect(s.evidence().tasks[0].completed).toBe(false);
+    expect(returns()).toHaveLength(0);
+  }
+  expect(s.host.textContent).not.toContain(fact);
+  expect(s.evidence().tasks[0].prompt).not.toContain("bronze owl");
+  await s.pump([], true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.completed; }).toBe(true);
+  await expect.poll(async () => { await s.pump(); return returns().length; }).toBe(1);
+  const exact = s.evidence().tasks[0].read + " The host task has finished.";
+  expect(returns()).toEqual([{ native: "recall-research", text: exact, scheduling: provider === "gemini" ? "WHEN_IDLE" : "session.commentary.append" }]);
+  const receipt = s.downstream.filter(f => f.type === "conversation_work" && f.nativeHandle === "recall-research").at(-1)!;
+  expect(receipt).toMatchObject({ provenance: "contextual", epoch: firstEpoch, state: "completed", delivery: provider === "gemini" ? "unknown" : "returned", taskId: expect.any(String), requestId: expect.any(String), turnId: expect.any(String) });
+  expect(s.downstream.filter(f => f.type === "text_delta" && (f as any).turnId === (receipt as any).turnId).map(f => (f as any).text).join("")).toBe(exact);
+  expect(s.client.state.getState().outputs.some(o => o.generated.includes(fact)), "backend rendering does not synthesize voice output").toBe(false);
+  await s.pump(reply(3, fact));
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+  expect(s.socket.frames("conversation_playback").some(f => f.playback === "played")).toBe(true);
+
+  // The peer deliberately ignores a delivered fact: transport acceptance alone
+  // permits no claim of comprehension. Then script incorporation and cut output.
+  await spoken(4, "What is it made of?");
+  await s.pump(reply(4, "I do not know."));
+  await expect.poll(() => s.client.state.getState().outputs.some(o => o.generated.includes("I do not know."))).toBe(true);
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().playing; }).toBe(false);
+  await spoken(5, "Which animal does the departure signal depict?");
+  await s.pump(reply(5, fact, 0.5));
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  s.client.stopReply();
+  await s.pump();
+  s.client.resume();
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile!.epoch; }).toBeGreaterThan(firstEpoch);
+  // stopReply is a normal replacement boundary when remote cancellation is
+  // unproven. Generated/retained UI text survives; provider fact context does not.
+  const replacement = provider === "gemini" ? s.upstream.filter(f => f.clientContent).at(-1)?.clientContent
+    : s.upstream.filter(f => f.type === "session.start").at(-1)?.session.input;
+  expect(JSON.stringify(replacement)).toContain("Previous task completed:");
+  expect(JSON.stringify(replacement)).toContain("Find the departure signal note.");
+  expect(JSON.stringify(replacement)).not.toContain("bronze owl");
+  expect(s.client.state.getState().outputs.some(o => o.generated.includes(fact))).toBe(true);
+  expect(s.socket.frames("conversation_playback").some(f => f.epoch === firstEpoch && f.playback === "unknown")).toBe(true);
+  expect(returns()).toHaveLength(1);
+  expect(s.evidence().tasks).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
 for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-finished", "finished-then-pcm"] as const) test(`${provider} automatic background task: initiating plus three subsequent exchanges, ${mode}, actual policy and exact result`, async ctx => {
   const s = await contextualScene(ctx, provider, "permitted", mode === "finished-then-pcm" ? 320 : 390, mode === "finished-then-pcm");
   const native = (id: string) => provider === "gemini" ? { toolCall: { functionCalls: [{ id, name: "host_task" }] } }

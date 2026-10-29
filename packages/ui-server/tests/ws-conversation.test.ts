@@ -142,6 +142,32 @@ function setup(options: {
   return { host, live, turns, connect };
 }
 
+// #3131 current-behavior witness, not a proposed result-summarization policy.
+test("research result bounds keep only the prefix while backend rendering keeps the novel conclusion", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect();
+  const c = await client.open({ contextualTasks: true });
+  await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Research the departure signal.", timing: { kind: "unavailable" } });
+  c.session.emit({ kind: "work_requested", handle: "signal-research" });
+  await until(() => s.turns.length === 1);
+  const prefix = "Odysseus reviews the harbour records. ".repeat(120);
+  const conclusion = "The departure signal is a bronze owl.";
+  expect(s.turns[0]!.req.prompt).not.toContain("bronze owl");
+  s.turns[0]!.answer(prefix + conclusion);
+  await until(() => c.session.returned.length === 1);
+  const handed = c.session.returned[0]!;
+  expect(handed.result.facts).toBe((prefix + conclusion).slice(0, CONVERSATION_LIMITS.maxFactChars - 1) + "…");
+  expect(handed.result.facts).toHaveLength(4_000);
+  expect(handed.result.facts).not.toContain(conclusion);
+  expect(handed.result).toEqual({ outcome: "completed", facts: prefix.slice(0, 3_999) + "…", delivery: "when-idle" });
+  expect(client.frames("text_delta").filter(f => f.turnId === handed.ref.turnId).map(f => f.text).join("")).toBe(prefix + conclusion);
+  const next = await client.open({ conversationId: c.id, contextualTasks: true });
+  expect(next.session.options.resync.work).toContainEqual(expect.objectContaining({ requestId: handed.ref.requestId, state: "completed" }));
+  expect(JSON.stringify(next.session.options.resync)).not.toContain(conclusion);
+  expect(s.turns).toHaveLength(1);
+});
+
 describe("semantic commit is the only admission", () => {
   test("recognized input and a native request run nothing until the client commits", async () => {
     const s = setup();
