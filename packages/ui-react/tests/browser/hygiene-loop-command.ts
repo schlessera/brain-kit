@@ -9,6 +9,7 @@ import type { Page } from "playwright";
 import type { BrowserCommand } from "vitest/node";
 import type { HygieneReviewRead, InboxActionItem } from "@schlessera/brain-ui-sdk/protocol";
 import { holdCompletionFrames, releaseCompletionFrames, waitForCompletionFrame } from "./hygiene-completion-frame.js";
+import { closeHygieneContext } from "./hygiene-route-owner.ts";
 import { hygieneCapture } from "./hygiene-capture.ts";
 
 type Finding = { id: string; category: string; path: string; sources: Array<{source: string}>; fingerprint: string; severity: string; firstSeen: string };
@@ -124,6 +125,20 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     await advance(item.id);
     return item;
   }
+  const cleanup = async () => {
+    closing = true;
+    const errors: unknown[] = [];
+    for (const cleanup of [
+      () => closeHygieneContext(context),
+      () => Promise.all([...pending]),
+      () => stop(),
+      () => rmSync(root, { recursive: true, force: true }),
+    ]) {
+      try { await cleanup(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length) throw new AggregateError(errors, "hygiene loop cleanup failed");
+  };
   try {
     // Keep the fixture-owned clocked CLI selected: a whole node_modules link
     // exposes .bin/brain, which the real server client prefers over scripts.
@@ -342,7 +357,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     for (const p of context.pages()) diagnostics.push((await p.locator("body").innerText()).slice(-2500));
     throw new Error(`${String(error)}\n${diagnostics.join("\n")}`);
   } finally {
-    closing = true; await context.close(); await Promise.all([...pending]); await stop(); rmSync(root, { recursive: true, force: true });
+    await cleanup();
   }
 };
 declare module "vitest/browser" {
