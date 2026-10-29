@@ -86,33 +86,19 @@ async function search(...args: string[]): Promise<string[]> {
 // lane (no query), which build their SQL separately.
 for (const [lane, query] of [["full-text", ["lantern", "--mode", "fts"]], ["filter-only", []]] as const) {
   describe(`${lane} lane`, () => {
-    test("--updated-since includes its own date", async () => {
-      expect(await search(...query, "--updated-since", "2026-08-10")).toContain("notes/lantern-b.md");
-    });
-    test("--updated-since excludes the day before", async () => {
-      expect(await search(...query, "--updated-since", "2026-08-10")).not.toContain("notes/lantern-a.md");
-    });
-    test("--updated-before includes its own date", async () => {
-      expect(await search(...query, "--updated-before", "2026-08-10")).toContain("notes/lantern-b.md");
-    });
-    test("--updated-before includes a timestamp on its own date", async () => {
-      expect(await search(...query, "--updated-before", "2026-08-10")).toContain("notes/lantern-timed.md");
-    });
-    test("--updated-before excludes the day after", async () => {
-      expect(await search(...query, "--updated-before", "2026-08-10")).not.toContain("notes/lantern-c.md");
-    });
-    test("--deadline-from includes its own date", async () => {
-      expect(await search(...query, "--deadline-from", "2026-10-10")).toContain("notes/lantern-b.md");
-    });
-    test("--deadline-from excludes the day before", async () => {
-      expect(await search(...query, "--deadline-from", "2026-10-10")).not.toContain("notes/lantern-a.md");
-    });
-    test("--deadline-to includes its own date", async () => {
-      expect(await search(...query, "--deadline-to", "2026-10-10")).toContain("notes/lantern-b.md");
-    });
-    test("--deadline-to excludes the day after", async () => {
-      expect(await search(...query, "--deadline-to", "2026-10-10")).not.toContain("notes/lantern-c.md");
-    });
+    // One immutable result owns all boundaries for its exact lane/flag query.
+    for (const [flag, date, included, excluded] of [
+      ["--updated-since", "2026-08-10", ["notes/lantern-b.md"], "notes/lantern-a.md"],
+      ["--updated-before", "2026-08-10", ["notes/lantern-b.md", "notes/lantern-timed.md"], "notes/lantern-c.md"],
+      ["--deadline-from", "2026-10-10", ["notes/lantern-b.md"], "notes/lantern-a.md"],
+      ["--deadline-to", "2026-10-10", ["notes/lantern-b.md"], "notes/lantern-c.md"],
+    ] as const) {
+      test(`${flag} includes its own date and excludes the adjacent day`, async () => {
+        const paths = await search(...query, flag, date);
+        for (const path of included) expect(paths).toContain(path);
+        expect(paths).not.toContain(excluded);
+      });
+    }
     test("a deadline filter excludes documents without a deadline", async () => {
       expect(await search(...query, "--deadline-to", "2099-12-31")).not.toContain("notes/lantern-timed.md");
     });
