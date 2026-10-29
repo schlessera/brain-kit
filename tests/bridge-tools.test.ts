@@ -40,7 +40,7 @@ type SnapshotEntry = {
 };
 /**
  * The four tools the snapshot fixtures were captured over. `show_block` came
- * later (D41) and has no "before"; its bytes are asserted by the contract
+ * later (D41); its bytes are asserted by the contract
  * tests below rather than by a fixture.
  */
 /** A worker's turn temp as the server reaches it (#1703); here a test directory. */
@@ -114,10 +114,10 @@ function stableResult(value: unknown, canonicalRoot?: string): string {
   return canonicalRoot ? stable.replaceAll(canonicalRoot, "<repo>") : stable;
 }
 
-function readSnapshot(name: "before" | "after"): Snapshot {
+function readSnapshot(): Snapshot {
   return JSON.parse(
     readFileSync(
-      join(import.meta.dir, "fixtures", `bridge-tools.${name}.json`),
+      join(import.meta.dir, "fixtures", "bridge-tools.after.json"),
       "utf8"
     )
   ) as Snapshot;
@@ -334,55 +334,8 @@ describe("bridge tool adapter identity", () => {
     }
   });
 
-  test("Claude preserves migration receipts except the additive roadblocks/remedy definition", async () => {
-    const before = readSnapshot("before");
-    const after = readSnapshot("after");
-    for (const name of SNAPSHOT_NAMES) {
-      if (name !== "query_activity") expect(after.claude[name]).toEqual(before.claude[name]);
-    }
-    expect(after.claude.query_activity.resultSha256).toBe(before.claude.query_activity.resultSha256);
-    expect(after.claude.query_activity.definitionSha256).not.toBe(before.claude.query_activity.definitionSha256);
-    expect((await currentSnapshot()).claude).toEqual(after.claude);
-  });
-
   test("the eight current adapter snapshots match the captured after fixture", async () => {
-    expect(await currentSnapshot()).toEqual(readSnapshot("after"));
-  });
-
-  test("the pi snapshot moves only in the intended definition/result categories", () => {
-    const before = readSnapshot("before").pi;
-    const after = readSnapshot("after").pi;
-    expect(after.ask_user.definitionSha256).not.toBe(before.ask_user.definitionSha256);
-    expect(after.ask_user.resultSha256).not.toBe(before.ask_user.resultSha256);
-    expect(after.get_current_location.definitionSha256).not.toBe(
-      before.get_current_location.definitionSha256
-    );
-    expect(after.get_current_location.resultSha256).toBe(
-      before.get_current_location.resultSha256
-    );
-    expect(after.request_image_mask.definitionSha256).not.toBe(
-      before.request_image_mask.definitionSha256
-    );
-    // The mask result DOES move, and only here: pi reported a sentence while
-    // every other payload tool serialised its payload into `output`, so a
-    // renderer could not parse any payload tool's result the same way. The
-    // paths inside it are unchanged — the assertions further down hold each
-    // symlink case to the same maskPath as before.
-    expect(after.request_image_mask.resultSha256).not.toBe(
-      before.request_image_mask.resultSha256
-    );
-    expect(after.request_image_mask.symlinkResultSha256).not.toBe(
-      before.request_image_mask.symlinkResultSha256
-    );
-    expect(after.request_image_mask.rootSymlinkResultSha256).not.toBe(
-      before.request_image_mask.rootSymlinkResultSha256
-    );
-    expect(after.query_activity.definitionSha256).not.toBe(
-      before.query_activity.definitionSha256
-    );
-    expect(after.query_activity.resultSha256).toBe(
-      before.query_activity.resultSha256
-    );
+    expect(await currentSnapshot()).toEqual(readSnapshot());
   });
 
   test("pi writes canonical masks; Claude delegates the unchanged lexical payload to the host", async () => {
