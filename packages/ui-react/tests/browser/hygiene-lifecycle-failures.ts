@@ -31,6 +31,7 @@ export const hygieneLifecycleFailures: BrowserCommand<[Options], unknown> = asyn
   const before = new Set(hygieneServerOwners().map(owner => owner.id));
   const browser = ctx.context.browser()!;
   const contexts: BrowserContext[] = [];
+  const registrations: Array<Parameters<Page["route"]>> = [];
   const holds: Array<ReturnType<typeof gate>> = [];
   const tasks: Array<Promise<{ value: unknown; error: unknown }>> = [];
   const primary = mode === "aggregate-primary" ? new AggregateError([new Error("original nested acquisition failure")], "original aggregate acquisition failure") : new Error("original context acquisition failure");
@@ -133,6 +134,7 @@ export const hygieneLifecycleFailures: BrowserCommand<[Options], unknown> = asyn
       return context;
     } : undefined);
     const page = delegate(ctx.page, key => key === "route" ? async (...args: Parameters<Page["route"]>) => {
+      registrations.push(args);
       await ctx.page.route(...args); routeCalls++; acquiredChildren = owned();
       if (mode === "late-fixture" || (mode === "late-first-command" && routeCalls === 2)) { await held(entered, release); }
     } : undefined);
@@ -173,6 +175,9 @@ export const hygieneLifecycleFailures: BrowserCommand<[Options], unknown> = asyn
     for (const context of contexts) try { await context.close(); } catch (error) { errors.push(error); }
     for (const child of owned()) try { await hygieneServer(ctx, { op: "stop", id: child.id }); } catch (error) { errors.push(error); }
     try { await hygieneLifecycleCleanup(ctx); } catch (error) { errors.push(error); }
+    // Broken old-source/mutation arms may lose the command's registration map.
+    // Retire only the exact public handlers this scoped harness registered.
+    for (const [pattern, handler] of registrations) try { await ctx.page.unroute(pattern, handler); } catch (error) { errors.push(error); }
     if (errors.length === 1) throw errors[0];
     if (errors.length) throw new AggregateError(errors, "native lifecycle failure and recovery failed");
     return outcome.value;
