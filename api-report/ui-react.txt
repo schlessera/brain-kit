@@ -352,6 +352,7 @@ signatures (every public export and the types it is made of)
         notice: string;
         announcement: string;
         playing: boolean;
+        outputRecovery: "audible" | "speaking" | "checking" | "muted";
         work: Record<string, ConversationWorkReceipt>;
         outputs: ConversationClientOutput[];
         unassigned: UnassignedRecognition[];
@@ -1303,6 +1304,7 @@ signatures (every public export and the types it is made of)
         checkRetryDelivery: (sessionId: string) => boolean;
         connect: () => () => void;
         conversation: {
+            attachControls(): () => void;
             commit: (own: number) => boolean;
             details(): void;
             discard(): void;
@@ -1326,6 +1328,7 @@ signatures (every public export and the types it is made of)
                     records: import("./voice/conversation-permissions.js").VoicePermissionReceipt[];
                 }>;
             };
+            recoverOutput(): void;
             resume(): void;
             reviewUnassigned(): boolean;
             start(): void;

@@ -276,11 +276,26 @@ Applicable provider/device and speaker/headphone checks remain with #961/#114;
 keyless runtime evidence is not acoustic qualification. Neither the research
 PR #3054 nor evaluation prototype #3056 is approved for merge by this decision.
 
-This policy amendment changes no shipped code or normative wire text. The
-[shipped client contract](../integration-contract/wire.md#shipped-conversation-client-960)
-still describes the existing capture-off/Resume behavior. Its replacement
-belongs with #3053's implementation: same-commit normative contract update,
-`CONTRACT:` prefix/label, explicit compatibility/breaking assessment and any
-required prior ruling, appropriate changeset, current-candidate proof and normal
-release/merge review. Product direction alone supplies no qualification,
-capability promotion, paid-call authorization or release commitment.
+The policy amendment itself changed no code or normative wire text. #3053's
+implementation replaces the [client lifecycle contract](../integration-contract/wire.md#shipped-conversation-client-960)
+in the same commit as the behavior. Replacing capture-off/Resume with retained
+consent changes documented meaning: a pre-1.0 breaking minor under the recorded
+October 29 ruling, with CONTRACT prefix/label, breaking label and a changeset
+naming the break. Product direction and keyless proof supply no live acoustic
+qualification, capability promotion, paid-call authorization or release commitment.
+
+The concrete client separates consent, actual capture and local output recovery.
+Visibility suspends local media while retaining a healthy provider epoch/context;
+transport loss closes the unavailable epoch and restores only after same-scope
+readiness and historical resync. Unavailable audio is dropped. Control-owner leases
+keep React effect replay or same-commit remount from impersonating manual Mute.
+Contextual recognition is recent bounded context, distinct from legacy retained
+manual review. Identity/replay ledgers keep their finite fail-closed boundaries;
+forgetting an identity to extend a session would weaken correlation/replay guards.
+
+The local output heuristic checks 300 ms without nonzero PCM after endpoint, with
+a fixed three-second deadline. Digital zero and absent packets permit the check;
+late nonzero output resets quiet evidence but never extends the deadline. This
+avoids making exact-zero provider packets a prerequisite, while accepting delayed
+old audio and possible fast-reply head loss. Neither a timer nor digital quiet
+proves an answer ended. Timeout exposes output recovery without revoking capture.

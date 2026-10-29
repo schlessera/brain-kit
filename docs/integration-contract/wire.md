@@ -1932,15 +1932,39 @@ commit. Single-question answers use the existing answer queue; other card kinds
 retain their own controls. Backend text, progress and tool/card events continue
 through the ordinary chat pipeline while asynchronous voice work waits.
 
-Leave, hide, disconnect and unmount stop capture and discard local audio; retained
-review text belongs to its original composer draft. Late capture, opening, input,
-output and Send callbacks cannot target a replacement scope. Reconnect/resync
-never opens a microphone without Resume. A local reply cut flushes every queued
-source before remote lifecycle resolution; it is not evidence of remote output
-cancellation. Generated words and submitted input stay distinct, and playback
-without proven alignment reads as spoken portion unknown. Host terminal state
-makes unanswered question controls inert even without a tool result; local
-playback must also drain or be discarded before voice work can appear settled.
+The October 29 continuous-conversation ruling (#3053) replaces the previous
+capture-off/Resume guarantee. After Start, consent persists through routine
+speech, interruption, background tasks, automatic session adoption, visibility
+loss and recoverable disconnect/resync. Hide temporarily suspends capture/output;
+returning to the same scope restores capture after readiness and resync. No
+unavailable-period PCM is buffered or replayed. A changed destination/service or
+agent disclosure requires a fresh Start. Manual Mute persists through every
+recovery; Leave, authentication loss, explicit session selection and actual
+control-owner unmount end capture. Failed device/permission, invalid correlation,
+unsafe capacity and failed opening remain visible genuine failure boundaries.
+Late callbacks cannot establish consent or transfer scope.
+
+Ordinary speech and explicit Stop reply flush all scheduled local sources without
+closing the speech epoch or cancelling host work. The triggering microphone PCM
+is forwarded in order. Provider interruption notifications likewise suppress
+output without muting capture. Output is dropped while the user speaks, then
+checked for 300 ms local quiet, with a fixed three-second deadline from endpoint.
+Nonzero PCM resets the quiet interval; digital zero and packet gaps do not.
+The qualifying interval is discarded, never queued. Timeout leaves **output**
+muted with explicit Recover reply audio; capture remains available. A new utterance
+starts a fresh check. These are bounded local heuristics, not qualified acoustic
+timings: fast reply heads can be dropped, and delayed interrupted audio can play
+after recovery. Silence is no remote cancellation acknowledgement, answer boundary,
+input attribution, or host completion. No provider capability is promoted.
+
+Generated words, submitted input and played samples stay distinct; missing
+alignment remains spoken portion unknown. Existing host serialization, real
+terminal receipts, question binding, screen permissions and unknown-attribution
+manual review remain authoritative. Contextual recognition is a bounded recent
+context window; it is not an indefinitely retained manual-review draft. Legacy
+unsubmitted review text is preserved on capacity failure. Identity/replay ledgers
+remain bounded and fail closed when exhausted; receipt eviction never permits
+replay. No host effect is replayed on reconnect.
 
 The 320 px strip retains 44 px controls and readable light/dark text. The shared
 working/pending row collapses during voice; on short screens it hides first when

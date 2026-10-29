@@ -24,6 +24,12 @@ no capture-policy or runtime change.
 > remains historical evidence. This correction supplies no actual-model recall
 > or listening qualification.
 
+The #3053 client implementation supersedes the historical Stop/Resume behavior.
+Current regressions distinguish a local output cut (same epoch, capture retained)
+from an actual provider closure (automatic same-scope recovery with the retained
+host facts delivered by #3141). The original Stop/Resume and missing-fact
+observations below remain evidence on their immutable recorded source.
+
 ## Causal result
 
 A replacement speech epoch has no copy of the completed research answer. The
@@ -114,8 +120,11 @@ messages refer to the result without repeating it:
 The first scripted reply deliberately says “I do not know.” despite transport
 acceptance; this is the negative control against treating acknowledgement as
 comprehension. The second scripts the fact and PCM output. Generated text and
-local playback are observed separately, then explicit Stop/Resume cuts
-playback with the spoken portion unknown and replaces the epoch. The test retains UI output but finds no
+local playback are observed separately. The original Stop/Resume witness cut
+playback with the spoken portion unknown and replaced the epoch. The current
+#3053 regression first proves Stop reply retains capture and allows subsequent
+playback in the same epoch, then uses a real provider-closure event to exercise
+replacement without manual Resume. It retains UI output but still finds no
 “bronze owl” in the new provider context. The task and result are each dispatched
 once. This is a byte/lifecycle witness, not a passing semantic recall trial.
 
