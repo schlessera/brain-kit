@@ -7,6 +7,9 @@ import type { BrainStores } from "./stores/create-stores.js";
 
 const RootContext = createContext<BrainUiRoot | null>(null);
 
+/** @internal Static render scope for an existing root, with no owned lifetime. */
+export const BrainUiRootScope = RootContext.Provider;
+
 /** Supply a root explicitly when its lifetime extends beyond this subtree. */
 export function BrainUiProvider({ root, children }: { root?: BrainUiRoot; children: ReactNode }) {
   const [owned] = useState(() => createBrainUiRoot());

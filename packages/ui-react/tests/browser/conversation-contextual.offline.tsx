@@ -1,10 +1,11 @@
 /// <reference types="@vitest/browser-playwright" />
+import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
 import { commands, userEvent, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
+import { SHOW_BLOCK_CONTRACT, visibleToolName } from "@schlessera/brain-ui-sdk/client";
 import { BLOCKS } from "../block-fixtures.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -26,7 +27,16 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     await page.viewport(width, 568);
     ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
   }
-  const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
+  const renderRequests: Array<{ content: string; contentType: string; format: string }> = [];
+  const network = installFaultNetwork({ routes: (url, init) => {
+    if (url.pathname.endsWith("/render")) {
+      renderRequests.push(JSON.parse(String(init.body)));
+      // Serialization proof stops at the real request boundary, with no server
+      // renderer, download or device share sheet involved.
+      return Response.json({ error: "Odysseus export fixture stops after serialization" }, { status: 503 });
+    }
+    return url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined;
+  },
     onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
   const ui = createBrainUiRoot({ storage: null, request: network.request });
   ui.stores.chat.getState().setActiveSession(SESSION);
@@ -49,7 +59,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const audio = socket.frames("conversation_audio").at(-1)!;
     event({ kind: "input_fragment", utteranceId: String(audio.utteranceId), sequence: 0, text, finalization, certainty: "unknown", origin: "unknown" }, epoch);
   };
-  return { ui, client, host, socket, deliver, network, button, event, opened, enter, start, input };
+  return { ui, client, host, socket, deliver, network, renderRequests, button, event, opened, enter, start, input };
 }
 
 function controlledMicrophone(ctx: TestContext) {
@@ -642,4 +652,118 @@ test("a growing Markdown table retains its first source anchor across speech", a
   expect(s.host.querySelectorAll(".brain-prose table")).toHaveLength(1);
   expect(first.compareDocumentPosition(s.host.querySelector("[data-conversation-output]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/Ithaca/g)).toHaveLength(1);
+});
+
+test("rich-text copy contains the entire interleaved answer", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("The bronze owl. "); s.speech(); s.delta("The watch is ready."); s.settle();
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  const descriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, "write");
+  let copied: ClipboardItem[] = [];
+  Object.defineProperty(navigator.clipboard, "write", { configurable: true, value: async (items: ClipboardItem[]) => { copied = items; } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(navigator.clipboard, "write", descriptor); else Reflect.deleteProperty(navigator.clipboard, "write"); });
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+  await userEvent.click(page.getByRole("menuitem", { name: /Copy as rich text/ }));
+  await expect.poll(() => copied.length).toBe(1);
+  const html = await (await copied[0]!.getType("text/html")).text();
+  const plain = await (await copied[0]!.getType("text/plain")).text();
+  expect(plain).toContain("The bronze owl.");
+  expect(plain).toContain("The watch is ready.");
+  expect(html).toContain("The bronze owl.");
+  expect(html).toContain("The watch is ready.");
+});
+
+for (const format of ["png", "pdf"] as const) for (const toolBacked of [false, true]) test(`arrival export preserves original classified and tool blocks: ${format}, tool-backed=${toolBacked}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const table = "| Island | Nights |\n| --- | ---: |\n| Ogygia | 2555 |";
+  s.delta(table);
+  if (toolBacked) {
+    s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-block", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude") });
+    s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-block", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude"), input: {} });
+    s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-block", output: JSON.stringify({ block: BLOCKS.quote }), isError: false });
+  }
+  s.speech(); s.delta("\n\nThe watch is ready.");
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(0);
+  s.settle();
+  s.deliver({ type: "message_blocks", sessionId: SESSION, turnId: "raft-projection-turn", blocks: [{partIndex:0,start:0,end:table.length,confidence:1,block:BLOCKS.table}] });
+  await expect.poll(() => s.host.querySelectorAll('[data-classified-block="table"]').length).toBe(1);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+  await userEvent.click(page.getByRole("menuitem", { name: format === "png" ? /Image \(PNG\)/ : /PDF/ }));
+  await expect.poll(() => s.renderRequests.length).toBe(1);
+  const request = s.renderRequests[0]!;
+  expect(request).toMatchObject({ format, contentType: "markdown" });
+  expect(request.content.match(/data-block="table"/g)).toHaveLength(1);
+  expect(request.content).toContain("Aeaea");
+  expect(request.content).not.toContain("| Island |");
+  expect(request.content).toContain("The watch is ready.");
+  if (toolBacked) {
+    expect(request.content.match(/data-block="quote"/g)).toHaveLength(1);
+    expect(request.content.indexOf('data-block="table"')).toBeLessThan(request.content.indexOf('data-block="quote"'));
+    expect(request.content.indexOf('data-block="quote"')).toBeLessThan(request.content.indexOf("The watch is ready."));
+  }
+  await expect.poll(() => s.host.querySelector('[title="Render failed (503): Odysseus export fixture stops after serialization"]')).not.toBeNull();
+  const descriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, "write");
+  let copied: ClipboardItem[] = [];
+  Object.defineProperty(navigator.clipboard, "write", { configurable: true, value: async (items: ClipboardItem[]) => { copied = items; } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(navigator.clipboard, "write", descriptor); else Reflect.deleteProperty(navigator.clipboard, "write"); });
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+  await userEvent.click(page.getByRole("menuitem", { name: /Copy as rich text/ }));
+  await expect.poll(() => copied.length).toBe(1);
+  const html = await (await copied[0]!.getType("text/html")).text();
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  expect(doc.querySelectorAll('[data-block="table"]')).toHaveLength(1);
+  expect(doc.body.textContent).toContain("Aeaea");
+  expect(doc.body.textContent).toContain("The watch is ready.");
+  if (toolBacked) expect(doc.querySelectorAll('[data-block="quote"]')).toHaveLength(1);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+
+test("all closing copy actions retain multi-arrival reference syntax and safe full-answer HTML", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("See [raft][note]. "); s.speech();
+  s.delta("The bronze owl. <script>globalThis.odysseusUnsafe = true</script>\n\n");
+  s.event({ kind: "output_transcript", outputId: "raft-projection-speech", sequence: 1, text: "The sea stays calm." });
+  s.delta("The watch is ready.\n\n[note]: notes/raft.md\n\n```text\n<b>Odysseus</b>\n```\n\n[unsafe](javascript:odysseusUnsafe())");
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(0);
+  s.settle();
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  const original = s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!;
+  const shares: ShareData[] = [];
+  const copied: ClipboardItem[] = [];
+  const descriptors = [
+    [navigator, "share"], [navigator, "canShare"], [navigator.clipboard, "write"],
+  ] as const;
+  for (const [owner, key] of descriptors) {
+    const descriptor = Object.getOwnPropertyDescriptor(owner, key);
+    ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(owner, key, descriptor); else Reflect.deleteProperty(owner, key); });
+  }
+  Object.defineProperty(navigator, "share", { configurable: true, value: async (data: ShareData) => { shares.push(data); } });
+  Object.defineProperty(navigator, "canShare", { configurable: true, value: () => true });
+  Object.defineProperty(navigator.clipboard, "write", { configurable: true, value: async (items: ClipboardItem[]) => { copied.push(...items); } });
+  const choose = async (name: RegExp) => {
+    await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+    await userEvent.click(page.getByRole("menuitem", { name }));
+  };
+  await choose(/Markdown source/);
+  await expect.poll(() => shares.length).toBe(1);
+  expect(await shares[0]!.files![0]!.text()).toBe(original.content);
+  await choose(/Plain text/);
+  await expect.poll(() => shares.length).toBe(2);
+  expect(shares[1]!.text).toContain("The bronze owl.");
+  expect(shares[1]!.text).toContain("The watch is ready.");
+  await choose(/Copy as rich text/);
+  await expect.poll(() => copied.length).toBe(1);
+  const html = await (await copied[0]!.getType("text/html")).text();
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  expect(doc.body.textContent).toContain("The bronze owl.");
+  expect(doc.body.textContent).toContain("The watch is ready.");
+  expect(doc.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
+  expect(doc.querySelectorAll("script,iframe,[onclick],[onerror]")).toHaveLength(0);
+  expect(doc.querySelector("code")!.textContent).toContain("<b>Odysseus</b>");
+  expect([...doc.querySelectorAll("a")].some(a => a.getAttribute("href")?.startsWith("javascript:"))).toBe(false);
+  expect(Reflect.get(globalThis, "odysseusUnsafe")).toBeUndefined();
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+  expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/The bronze owl/g)).toHaveLength(1);
 });

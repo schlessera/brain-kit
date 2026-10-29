@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { createBrainUiRoot } from "../src/root.js";
-import { createTranscriptTimeline, transcriptMessage, transcriptTimelineFor, type TranscriptEntry } from "../src/lib/transcript-timeline.js";
+import { createTranscriptTimeline, transcriptMessage, transcriptRange, transcriptTimelineFor, type TranscriptEntry } from "../src/lib/transcript-timeline.js";
 
 function entryText(e: TranscriptEntry) {
   if (e.kind === "speech") return e.output.generated;
@@ -135,5 +135,40 @@ test("multiple promoted edits retain both original arrival ranges", () => {
     chat.rewriteMessageLinks(null, [{ from: "notes/raft.md", to: "notes/odysseus-raft.md" }, { from: "notes/watch.md", to: "notes/harbour-watch.md" }], "two-links");
     expect(timeline.getState().entries.filter(e => e.kind === "message" && e.section === "answer").map(entryText)).toEqual(["See [raft](notes/odysseus-raft.md)", " then [watch](notes/harbour-watch.md)."]);
     expect(timeline.getState().entries.map(e => e.key)).toEqual(keys);
+  } finally { root.dispose(); }
+});
+
+
+test("each arrival keeps the complete current semantic source for actions, including replay", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    chat.addUserMessage("ithaca", "Find the watch note.", "voice-context");
+    chat.startAssistantMessage("ithaca", "watch-turn");
+    chat.appendText("ithaca", "The bronze owl. ");
+    root.connection.conversation.state.setState({ outputs: [{ conversationId: "ithaca", epoch: 1, outputId: "sea", sessionId: "ithaca", generated: "A quiet sea.", playback: "unknown" }] });
+    chat.startToolCall("ithaca", "watch-read", "Read");
+    chat.completeToolCall("ithaca", "watch-read", "Read", { path: "notes/watch.md" });
+    chat.setToolResult("ithaca", "watch-read", "The watch note.", false);
+    chat.appendText("ithaca", "The watch is ready.");
+    for (const settled of [false, true]) {
+      if (settled) chat.finishAssistantMessage("ithaca");
+      const original = root.stores.chat.getState().buffers.ithaca!.messages.at(-1)!;
+      const answers = transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e => e.kind === "message" && e.section === "answer");
+      expect(answers).toHaveLength(2);
+      for (const entry of answers) {
+        expect(transcriptRange(entry)!.source).toBe(original);
+        expect(transcriptRange(entry)!.source.parts.some(p => p.kind === "tool")).toBe(true);
+        expect(transcriptRange(entry)!.source.toolCalls[0]!.output).toBe("The watch note.");
+        expect(transcriptRange(entry)!.source.isStreaming).toBe(!settled);
+      }
+    }
+    const before = root.stores.chat.getState().buffers.ithaca!.messages;
+    chat.setMessages("ithaca", before.map((m, i) => i === before.length - 1 ? { ...m, content: "Recovered watch.", parts: [{ kind: "text", text: "Recovered watch." }] } : m));
+    const original = root.stores.chat.getState().buffers.ithaca!.messages.at(-1)!;
+    for (const entry of transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e => e.kind === "message" && e.section === "answer")) {
+      expect(transcriptRange(entry)!.source).toBe(original);
+      expect(transcriptRange(entry)!.source.content).toBe("Recovered watch.");
+    }
   } finally { root.dispose(); }
 });

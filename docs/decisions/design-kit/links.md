@@ -203,6 +203,13 @@ in the place it is easiest to produce.
 hidden-destination links until #558 is ruled. "Copy as rich text" copies the
 rendered DOM, so it inherits this treatment.
 
+Arrival-interleaved answers retain this policy for rich-text copy by rendering
+the complete original answer on demand, independently of the visible arrival
+range (`renderMessageRichText`,
+`packages/ui-react/src/components/chat/message-rich-text.tsx:15-36`). The copy
+includes earlier answer parts and data-only cards, without adding a second
+visible answer or trusting model-authored HTML.
+
 **Built 2026-09-28 (#551).** The presentation is the design comment on
 #551, approved there, and the build held to it and to the ruling above. What
 it found, and what neither said:

@@ -186,7 +186,13 @@ export function attachTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
 }
 
 
-export interface TranscriptRange { start: number; end: number; blocks?: ChatMessage["blocks"] }
+export interface TranscriptRange {
+  start: number;
+  end: number;
+  blocks?: ChatMessage["blocks"];
+  /** Complete current answer for semantic actions; projections are display only. */
+  source: ChatMessage;
+}
 const displayRanges = new WeakMap<ChatMessage, Map<string, TranscriptRange>>();
 /** Stable private props preserve the message bubble's memoization contract. */
 export function transcriptRange(entry: TranscriptEntry): TranscriptRange | undefined {
@@ -195,6 +201,6 @@ export function transcriptRange(entry: TranscriptEntry): TranscriptRange | undef
   if (!own) { own = new Map(); displayRanges.set(entry.message, own); }
   const key = `${entry.start}:${entry.end}`;
   let range = own.get(key);
-  if (!range) { range = { start: entry.start ?? 0, end: entry.end ?? Infinity, blocks: entry.message.blocks }; own.set(key, range); }
+  if (!range) { range = { start: entry.start ?? 0, end: entry.end ?? Infinity, blocks: entry.message.blocks, source: entry.message }; own.set(key, range); }
   return range;
 }

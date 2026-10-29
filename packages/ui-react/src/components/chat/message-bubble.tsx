@@ -362,7 +362,6 @@ function AssistantContent({
   closing: boolean;
 }) {
   const root = useBrainUiRoot();
-  const contentRef = useRef<HTMLDivElement>(null);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(() => new Set());
   const previousLive = useRef(message.isStreaming);
   useEffect(() => {
@@ -373,8 +372,7 @@ function AssistantContent({
     !message.isStreaming && !!message.content && message.content.trim().length > 0 && (!arrival || arrival.end >= message.content.length);
   const shareOptions = showShare
     ? buildMessageShareOptions(root, {
-        message,
-        renderedRef: contentRef,
+        message: arrival?.source ?? message,
       })
     : [];
 
@@ -454,10 +452,10 @@ function AssistantContent({
             const offset = message.parts.filter(p => p.kind === "text").slice(0, group.textIndex).reduce((n, p) => n + p.text.length, 0);
             const range = arrival ? { start: arrival.start - offset, end: arrival.end - offset } : undefined;
             if (range && (range.end <= 0 || range.start >= group.text.length)) return [];
-            // The final text block carries the share affordance; text/markdown
-            // share formats still use the full message content.
+            // Only the final arrival carries actions. Every format receives the
+            // complete source answer, independently of these display groups.
             return group.isLastText ? (
-              <div key={i} className="group relative" ref={contentRef}>
+              <div key={i} className="group relative">
                 {/* The share menu is deliberately OUTSIDE the skip-render
                     wrapper: content-visibility implies paint containment,
                     which would clip a dropdown that opens past the box. */}
@@ -465,7 +463,7 @@ function AssistantContent({
                   <MarkdownContent
                     content={group.text}
                     blocks={blocksFor(message, group.textIndex, arrival?.blocks)}
-                  range={range}
+                    range={range}
                     streaming={message.isStreaming && group.isLast}
                   />
                 </div>
