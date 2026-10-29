@@ -124,9 +124,12 @@ local playback are observed separately. The original Stop/Resume witness cut
 playback with the spoken portion unknown and replaced the epoch. The current
 #3053 regression first proves Stop reply retains capture and allows subsequent
 playback in the same epoch, then uses a real provider-closure event to exercise
-replacement without manual Resume. It retains UI output but still finds no
-“bronze owl” in the new provider context. The task and result are each dispatched
-once. This is a byte/lifecycle witness, not a passing semantic recall trial.
+replacement without manual Resume. The historical witness retained UI output
+but found no “bronze owl” in the replacement provider context. With #3141, the
+current combined regression requires the exact bounded host-result bytes in
+both replacement histories while retaining UI output. The task and result are
+each dispatched once. This is a byte/lifecycle witness, not a passing semantic
+recall trial.
 
 `research result bounds keep only the prefix` in
 `packages/ui-server/tests/ws-conversation.test.ts` independently releases a
