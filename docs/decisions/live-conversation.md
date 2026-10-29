@@ -304,3 +304,9 @@ late nonzero output resets quiet evidence but never extends the deadline. This
 avoids making exact-zero provider packets a prerequisite, while accepting delayed
 old audio and possible fast-reply head loss. Neither a timer nor digital quiet
 proves an answer ended. Timeout exposes output recovery without revoking capture.
+
+Manual Send, a reviewed question answer and Discard close the current input
+through that same endpoint transition before cancelling review timers. They do
+not cancel the output recovery deadline. Discard retires its reviewed fragments
+so a late final cannot restore discarded text or schedule a send. Mute also
+closes input before cancelling review timers, retaining manual capture intent.

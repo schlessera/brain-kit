@@ -306,7 +306,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   function endpoint(own: number) {
     if (!current(own) || !utterance || ended) return;
-    ended = true; silence = undefined;
+    ended = true; clearTimeout(silence); silence = undefined;
     const profile = scope()!;
     send({ type: "conversation_endpoint", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance });
     if (recovery.phase === "speaking") { recovery.endpoint(performance.now()); checkRecovery(); }
@@ -337,8 +337,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const s = state.getState();
     const profile = scope();
     if (!current(own) || !profile || !ready || resync || !s.text.trim() || !lastInput || s.interaction === "Checking whether the reply stopped") return false;
-    clearTimers();
-    if (!ended && utterance) { ended = true; send({ type: "conversation_endpoint", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance }); }
+    // Manual review ends speech through the same bounded recovery transition.
+    // Cancel review timers after endpoint(), which may have scheduled them.
+    endpoint(own); clearTimers();
     const text = s.text.trim();
     for (const id of fragments.keys()) retiredInputs.add(id);
     if (answer(s.sessionId, text)) { removeSavedDraft(); fragments.clear(); state.setState({ text: "", interaction: "Answering question" }); lastInput = undefined; return true; }
@@ -588,7 +589,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     start() { const profile = scope(); if (!profile) return; agreedDisclosure = disclosureKey(profile); consent = true; state.setState({ disclosureOpen: false }); void capture(); },
     details() { state.setState({ disclosureOpen: true }); },
     resume() { if (state.getState().disclosureOpen) return; consent = true; if (!ready) startEpoch(); void capture(); },
-    mute() { consent = false; clearTimers(); if (ready && mic) endpoint(generation); stopMic(); state.setState({ notice: "Microphone muted. Unmute to speak." }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
+    mute() { consent = false; if (ready && mic) endpoint(generation); clearTimers(); stopMic(); state.setState({ notice: "Microphone muted. Unmute to speak." }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
     commit,
     reviewUnassigned() {
       const s = state.getState();
@@ -603,7 +604,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), unassignedWork: 0 });
       return true;
     },
-    discard() { clearTimers(); removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh(); },
+    discard() {
+      if (ready && mic) endpoint(generation);
+      clearTimers();
+      for (const id of fragments.keys()) retiredInputs.add(id);
+      removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh();
+    },
     stopReply, leave,
     dispose() { leave(); disposed = true; unwatchChat(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); },
   };

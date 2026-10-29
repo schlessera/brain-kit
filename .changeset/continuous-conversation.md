@@ -14,3 +14,6 @@ buffer. Permission authority, host serialization and no-replay guards remain.
 Preserve effective agent-profile disclosure metadata across recovery and retain
 same-entry openings while hidden, without weakening stale-capture, Mute, Leave
 or authentication fences.
+
+Keep bounded reply recovery active when manual Send, a question answer, Discard
+or Mute ends interrupted speech, and retire discarded recognition identities.
