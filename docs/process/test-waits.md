@@ -131,10 +131,10 @@ The [source-bound measurements](evidence/runtime-test-costs-2793.json) record
 the profiling and mutation controls for [#2793](https://github.com/schlessera/brain-kit/issues/2793).
 
 The rendering helper (`finishRender`,
-`packages/ui-react/tests/connection-continuity-runtime.test.ts:376-401`) waits
+`packages/ui-react/tests/connection-continuity-runtime.test.ts:382-407`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
 claim arbitrary asynchronous work is finished. The negative-window helper
-(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:409-426`)
+(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:415-432`)
 uses explicit per-site native horizons and the original two animation frames.
 It does not add a wait for all finite animations at these negative-observation
 sites. The rationale and execution ownership for all seven sites are below.
