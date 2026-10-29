@@ -102,21 +102,24 @@ const failureText = (view: ReturnType<typeof render>) =>
   view.container.querySelector("[data-turn-failure]")?.textContent ?? "";
 
 describe("failed-turn outgoing class allowlist", () => {
-  test.each(["worker_host_unsupported", "auth_failure", "third_party_secret_class\nprivate details"])("review reports %s safely", (errorClass) => {
-    send();
-    failLive({ errorClass, message: "Odysseus: turn refused." });
-    const view = renderAssistant();
-    const expected = errorClass.startsWith("third_party") ? "unknown" : errorClass;
-    // A host refusal is the operator's to fix, so its card offers no Report (#1632); Copy still carries the class.
-    const actions = errorClass === "worker_host_unsupported" ? ["Copy details"] : ["Copy details", "Report a bug"];
-    if (errorClass === "worker_host_unsupported") expect(view.queryByRole("button", { name: "Report a bug" })).toBeNull();
-    for (const action of actions) {
-      fireEvent.click(view.getByRole("button", { name: action }));
-      const body = (view.getByRole("textbox", { name: "Exact outgoing text" }) as HTMLTextAreaElement).value;
-      expect(body).toBe(`brain-kit failed turn\nprotocol: 5\nclass: ${expected}`);
-      fireEvent.click(view.getByRole("button", { name: "Close review" }));
-    }
-  });
+  for (const backend of [undefined, "pi"] as const) {
+    test.each(["worker_host_unsupported", "auth_failure", "third_party_secret_class\nprivate details"])(`review reports %s safely (${backend ?? "no backend"})`, (errorClass) => {
+      send();
+      failLive({ errorClass, message: "Odysseus: turn refused." });
+      if (backend) useChatStore.setState({ backendIds: { [SESSION]: backend } });
+      const view = renderAssistant();
+      const expected = errorClass.startsWith("third_party") ? "unknown" : errorClass;
+      // A host refusal is the operator's to fix, so its card offers no Report (#1632); Copy still carries the class.
+      const actions = errorClass === "worker_host_unsupported" ? ["Copy details"] : ["Copy details", "Report a bug"];
+      if (errorClass === "worker_host_unsupported") expect(view.queryByRole("button", { name: "Report a bug" })).toBeNull();
+      for (const action of actions) {
+        fireEvent.click(view.getByRole("button", { name: action }));
+        const body = (view.getByRole("textbox", { name: "Exact outgoing text" }) as HTMLTextAreaElement).value;
+        expect(body).toBe(`brain-kit failed turn\nprotocol: 5\nclass: ${expected}${backend ? `\nbackend: ${backend}` : ""}`);
+        fireEvent.click(view.getByRole("button", { name: "Close review" }));
+      }
+    });
+  }
 });
 
 describe("a failed turn is visible the moment it ends", () => {
@@ -243,6 +246,8 @@ describe("an auth failure says what to do, per the #254 split", () => {
       failLive({ errorClass, message: "Failed to authenticate.", authAction: action });
       const liveView = renderAssistant();
       const live = failureText(liveView);
+      expect(liveView.getByRole("button", { name: "Copy instructions" })).toBeTruthy();
+      expect(liveView.queryByRole("button", { name: "Retry" })).toBeNull();
       const instruction = liveView.getByText(EXPECTED_AUTH_INSTRUCTIONS[action], { exact: true });
       expect(instruction).toBeTruthy();
       expect(live).toContain(EXPECTED_AUTH_INSTRUCTIONS[action].slice(0, 60));
@@ -262,6 +267,8 @@ describe("an auth failure says what to do, per the #254 split", () => {
       const replayView = renderAssistant();
       expect(replayView.getByText(EXPECTED_AUTH_INSTRUCTIONS[action], { exact: true })).toBeTruthy();
       expect(replayView.queryAllByRole("alert")).toHaveLength(0);
+      expect(replayView.getByRole("button", { name: "Copy instructions" })).toBeTruthy();
+      expect(replayView.queryByRole("button", { name: "Retry" })).toBeNull();
     });
   }
 });
@@ -352,4 +359,25 @@ test("save refusal card discloses partial persistence and scopes Retry to the re
   const older = render(<MessageBubble message={{ ...message, retryOfTurnId: "turn-ithaca" }} closing={false}
     onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} />);
   expect(older.queryByRole("button", { name: /^Retry$/ })).toBeNull();
+});
+
+test("generic pi authentication does not invent subscription instructions", () => {
+  send();
+  failLive({ errorClass: "authentication_failed", message: "Provider refuses" });
+  useChatStore.setState({ backendIds: { [SESSION]: "pi" } });
+  const view = renderAssistant();
+  expect(failureText(view)).not.toContain("setup-token");
+  expect(failureText(view)).not.toContain("Open Settings");
+  expect(view.getByRole("button", { name: "Copy details" })).toBeTruthy();
+});
+
+
+test.each(["relogin", "check_account", "check_config"] as const)("pi authentication_failed preserves %s instructions and actions", (authAction) => {
+  send();
+  failLive({ errorClass: "authentication_failed", authAction, message: "Provider refuses" });
+  useChatStore.setState({ backendIds: { [SESSION]: "pi" } });
+  const view = renderAssistant();
+  expect(view.getByText(EXPECTED_AUTH_INSTRUCTIONS[authAction], { exact: true })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Copy instructions" })).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Retry" })).toBeNull();
 });
