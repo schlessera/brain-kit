@@ -7,9 +7,7 @@ import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWi
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
-import { contrast, parse } from "../../../ui-kit/tests/_contrast.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
-import { createConversationPlayback } from "../../src/voice/conversation-pcm.js";
 import { hidePage } from "./offline/fake-microphone.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
 
