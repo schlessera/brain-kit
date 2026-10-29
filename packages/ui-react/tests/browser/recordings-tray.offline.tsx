@@ -12,6 +12,7 @@ import { createLocalWork } from "../../src/lib/local-work.js";
 import { createRecordingStore, type Recording } from "../../src/lib/recordings.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { READING_COLUMN_ATTR } from "../../src/lib/client-environment.js";
 import { RecordingsTray, ACCEPT_FAILED, SAVED_AUDIO_UNAVAILABLE } from "../../src/components/voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../../src/components/voice/local-recording-sheet.js";
 import { failIndexedDbWrites, holdIndexedDbWrite } from "./offline/indexeddb-faults.ts";
@@ -103,10 +104,18 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     chat.setMessages("ithaca", []);
     for (let i = 0; i < 24; i++) chat.addUserMessage("ithaca", `The fleet is crossing the harbour. Voyage note ${i}.`);
     c.mountChat(); await settled();
-    const scroll = c.host.querySelector<HTMLElement>("[data-transcript-anchor]")!.parentElement!;
-    const scroller = scroll.parentElement!;
+    // Arrival rows may wrap messages. Locate the actual scroll owner from
+    // the reading column rather than counting parents from a message.
+    const column = c.host.querySelector<HTMLElement>(`[${READING_COLUMN_ATTR}]`)!;
+    const scroller = column.parentElement!;
+    expect(getComputedStyle(scroller).overflowY, "the transcript owns scrolling").toBe("auto");
+    expect(scroller.scrollHeight - scroller.clientHeight, "the fixture has room to scroll away from the tail").toBeGreaterThan(240);
     scroller.scrollTop = 220;
+    expect(scroller.scrollTop, "the real scroll owner accepts the reading position").toBe(220);
     scroller.dispatchEvent(new Event("scroll")); await wait(50);
+    expect(scroller.scrollTop, "the reader is above the tail").toBeGreaterThan(0);
+    expect(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight, "the reader stays away from the tail").toBeGreaterThan(20);
+    expect(c.host.querySelector('[aria-label="Scroll to latest"]'), "reading mode disabled tailing").not.toBeNull();
     const anchor = [...c.host.querySelectorAll<HTMLElement>("[data-transcript-anchor]")].find(el => el.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top)!;
     const top = anchor.getBoundingClientRect().top;
     const requestsBefore = c.net.requests.length; const framesBefore = c.net.frames.length;
