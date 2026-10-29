@@ -1,6 +1,5 @@
 import { loadTrackDisplay } from "../../lib/track-display.js";
 import type { BrainUiRoot } from "../../root.js";
-import type { RefObject } from "react";
 import { renderAndShare, shareFile, shareText, copyRichText } from "../../lib/share.js";
 import { stripMarkdown } from "../../lib/strip-markdown.js";
 import { preRenderBrowserFences } from "../../lib/content-renderer-share.js";
@@ -10,11 +9,9 @@ import { renderBlockHtml, shareMarkdown } from "./share-document.js";
 
 interface BuildOpts {
   message: Pick<ChatMessage, "content" | "parts" | "toolCalls" | "blocks">;
-  /** Ref to the rendered message DOM. Used to grab outerHTML for rich-text copy. */
-  renderedRef: RefObject<HTMLElement | null>;
 }
 
-export function buildMessageShareOptions(root: BrainUiRoot, { message, renderedRef }: BuildOpts): ShareOption[] {
+export function buildMessageShareOptions(root: BrainUiRoot, { message }: BuildOpts): ShareOption[] {
   const { content } = message;
   const plain = () => stripMarkdown(content);
   // PNG and PDF draw the same document: the answer's text and its blocks in
@@ -70,19 +67,9 @@ export function buildMessageShareOptions(root: BrainUiRoot, { message, renderedR
       label: "Copy as rich text",
       hint: "Paste into Gmail / Docs",
       run: async () => {
-        const node = renderedRef.current;
-        const html = node?.innerHTML ?? `<p>${escapeHtml(plain())}</p>`;
-        return copyRichText(html, plain());
+        const { renderMessageRichText } = await import("./message-rich-text.js");
+        return copyRichText(await renderMessageRichText(root, message), plain());
       },
     },
   ];
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

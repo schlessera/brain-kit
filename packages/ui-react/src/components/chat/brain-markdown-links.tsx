@@ -263,7 +263,7 @@ interface PathMatch {
   label?: string;
 }
 
-function scanBarePaths(text: string): PathMatch[] {
+export function scanBarePaths(text: string): PathMatch[] {
   const out: PathMatch[] = [];
   BARE_FILE_RE.lastIndex = 0;
   let m: RegExpExecArray | null;

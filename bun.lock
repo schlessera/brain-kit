@@ -384,6 +384,7 @@
         "graphology-layout-forceatlas2": "^0.10.1",
         "lucide-react": "^0.460",
         "mermaid": "^11.12.0",
+        "micromark-util-decode-string": "2.0.1",
         "pdfjs-dist": "^6.3.289",
         "react-markdown": "^10.1.0",
         "rehype-highlight": "^7.0.2",

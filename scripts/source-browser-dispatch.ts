@@ -7,9 +7,9 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 // These two consumers import/re-export runStateForFrame only. They never
 // acquire the mutable chat handler map. Any consumer edit requires re-audit.
 const helperConsumers:Record<string,string>={
-  // Re-audited draft-adoption guard: still only imports/calls runStateForFrame;
-  // voice receipt/profile reads do not acquire or mutate chatFrameHandlers.
-  "packages/ui-react/src/connection.ts":"579180d79bb5a2ba71005f5d4cd06b8347266b0ebef4429cfb7017202c008d27",
+  // Re-audited arrival observer and pre-voice delta flush: still only imports
+  // runStateForFrame; no path acquires or mutates chatFrameHandlers.
+  "packages/ui-react/src/connection.ts":"9ed855a0fc25ed3925fe1cce52b56232b3df88855ab3e1440ec1af0cdae7ee76",
   "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
 };
 const declarations=[
