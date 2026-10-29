@@ -111,7 +111,8 @@ function injectFork(f: Awaited<ReturnType<typeof fixture>>): void {
     expect(fs.statSync(`/proc/${pid}/fd/${fd}`).isFIFO(), "REAL_FIFO_WRITER").toBe(true);
     expect(writer).toBe(fs.readlinkSync(`/proc/${f.outer.pid}/fd/${fd}`));
   }
-  receipt("fork-ack", { parent: f.o.parent, child: f.o.child, stdout: fs.readlinkSync(`/proc/${pid}/fd/1`), stderr: fs.readlinkSync(`/proc/${pid}/fd/2`) });
+  receipt("fork-ack", { parent: f.o.parent, child: f.o.child, stdout: fs.readlinkSync(`/proc/${pid}/fd/1`), stderr: fs.readlinkSync(`/proc/${pid}/fd/2`),
+    writers: [1, 2].map(fd => { const stat = fs.statSync(`/proc/${pid}/fd/${fd}`); return { fd, dev: stat.dev, ino: stat.ino, fifo: stat.isFIFO() }; }) });
 }
 const bind = (worker: Parameters<typeof cancellation.killWorker>[0]) => cancellation.registerWorker?.(worker);
 const complete = (worker: Parameters<typeof cancellation.killWorker>[0]) => cancellation.workerStopCompletion?.(worker) ?? Promise.resolve();
@@ -123,6 +124,19 @@ async function settled(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 test("snapshot fork ordering: first signal follows real fork acknowledgement", async () => {
+  const f = await fixture(); const signals: string[] = []; let heartbeat = false;
+  const worker = { pid: f.outer.pid, get exitCode() { return f.outer.exitCode; }, get signalCode() { return f.outer.signalCode; },
+    kill(signal?: NodeJS.Signals) { if (!signals.length) injectFork(f); signals.push(signal!); f.outer.kill(signal); } };
+  bind(worker); setTimeout(() => { heartbeat = true; }, 0);
+  cancellation.killWorker(worker);
+  await settled(f);
+  await complete(worker);
+  expect(heartbeat, "STOP_CONFIRMATION_MUST_YIELD").toBe(true);
+  expect(signals, "SHARED_STOP_PRESERVES_MONITOR").toEqual(["SIGSTOP", "SIGCONT"]);
+  expect(await f.outer.exited, "MONITOR_SELF_EXIT").toBe(37);
+});
+
+test("repeated cancellation shares one asynchronous stop and monitor exit", async () => {
   const f = await fixture(); const signals: string[] = []; let heartbeat = false;
   const worker = { pid: f.outer.pid, get exitCode() { return f.outer.exitCode; }, get signalCode() { return f.outer.signalCode; },
     kill(signal?: NodeJS.Signals) { if (!signals.length) injectFork(f); signals.push(signal!); f.outer.kill(signal); } };
