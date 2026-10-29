@@ -8,4 +8,4 @@ Preserve recovered replay prefixes and complete Markdown/link/classified-block s
 
 Copy and export complete original answers, including earlier arrivals and classified or tool-backed blocks, independently of transcript display filtering.
 
-Preserve latest-turn Retry actions and source ordered-list numbering across arrival ranges. Eagerly optimize the Markdown decoder before browser consumers start, keeping lazy sharing on one React module identity.
+Preserve latest-turn Retry actions and source ordered-list numbering across arrival ranges.
