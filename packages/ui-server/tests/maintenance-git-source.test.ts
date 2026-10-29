@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { collectOwnedGitAttributes, parseMaintenanceGitSources, parseMaintenanceGitFailure, reportMaintenanceGitFailure, reportOwnedGitFailure } from "../src/brain/maintenance-git-source.js";
@@ -172,21 +172,33 @@ test("the owner read refuses replaced identities, aliases, foreign roots and bou
     mkdirSync(join(root, "outer/private"), { recursive: true, mode: 0o700 });
     writeFileSync(join(root, "outer/private/.gitattributes"), "*.md odysseus=ithaca\n", { mode: 0o600 });
     let path = "outer/private", stamp = stampOf(join(root, path));
-    if (kind === "replaced") { rmSync(join(root, path), { recursive: true }); mkdirSync(join(root, path), { mode: 0o700 }); }
-    if (kind === "directory-alias") { symlinkSync(join(root, path), join(root, "alias")); path = "alias"; stamp = stampOf(join(root, "alias")); }
-    if (kind === "ancestor-alias") { symlinkSync(join(root, "outer"), join(root, "link")); path = "link/private"; }
-    if (kind === "attribute-alias") { rmSync(join(root, path, ".gitattributes")); symlinkSync(secret, join(root, path, ".gitattributes")); stamp = stampOf(join(root, path)); }
-    if (kind === "attribute-hardlink") { rmSync(join(root, path, ".gitattributes")); linkSync(secret, join(root, path, ".gitattributes")); stamp = stampOf(join(root, path)); }
-    let failure: unknown;
+    let held: number | undefined;
     try {
-      if (kind === "foreign-root") {
-        const info = lstatSync(home), foreign = `${info.dev}:${info.ino}`;
-        collectOwnedGitAttributes(home, { rootIdentity: foreign, repository: true, config: [], hookNames: [], attributes: [], withheld: [{ path, stamp }] }, 1024 ** 2, lstatSync(root).dev + ":" + lstatSync(root).ino);
-      } else owned(root, [{ path, stamp }], [], kind === "bound" ? 200 : 1024 ** 2);
-    } catch (error) { failure = error; }
-    expect(failure, `OWNER_READ_REFUSES_${kind}`).toBeInstanceOf(Error);
-    expect(String(failure), kind).toContain("Concrete Git source collection refused");
-    expect(JSON.stringify((failure as { diagnostic?: unknown }).diagnostic ?? null), kind).not.toContain("Odysseus private server sentinel");
+      if (kind === "replaced") {
+        const before = lstatSync(join(root, path));
+        held = openSync(join(root, path), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        expect(held, "OWNER_READ_ORIGINAL_DESCRIPTOR_RETAINED").toBeNumber();
+        expect(fstatSync(held).ino, "OWNER_READ_ORIGINAL_IDENTITY_HELD").toBe(before.ino);
+        rmSync(join(root, path), { recursive: true }); mkdirSync(join(root, path), { mode: 0o700 });
+        expect(lstatSync(join(root, path)).ino, "OWNER_READ_REPLACEMENT_COMPARED_INODE_DIFFERS").not.toBe(before.ino);
+        expect(stampOf(join(root, path)), "OWNER_READ_REPLACEMENT_STAMP_DIFFERS").not.toBe(stamp);
+      }
+      if (kind === "directory-alias") { symlinkSync(join(root, path), join(root, "alias")); path = "alias"; stamp = stampOf(join(root, "alias")); }
+      if (kind === "ancestor-alias") { symlinkSync(join(root, "outer"), join(root, "link")); path = "link/private"; }
+      if (kind === "attribute-alias") { rmSync(join(root, path, ".gitattributes")); symlinkSync(secret, join(root, path, ".gitattributes")); stamp = stampOf(join(root, path)); }
+      if (kind === "attribute-hardlink") { rmSync(join(root, path, ".gitattributes")); linkSync(secret, join(root, path, ".gitattributes")); stamp = stampOf(join(root, path)); }
+      let failure: unknown;
+      try {
+        if (kind === "foreign-root") {
+          const info = lstatSync(home), foreign = `${info.dev}:${info.ino}`;
+          collectOwnedGitAttributes(home, { rootIdentity: foreign, repository: true, config: [], hookNames: [], attributes: [], withheld: [{ path, stamp }] }, 1024 ** 2, lstatSync(root).dev + ":" + lstatSync(root).ino);
+        } else owned(root, [{ path, stamp }], [], kind === "bound" ? 200 : 1024 ** 2);
+      } catch (error) { failure = error; }
+      if (held !== undefined) expect(fstatSync(held).ino, "OWNER_READ_ORIGINAL_HELD_THROUGH_COLLECTION").toBe(Number(stamp.split(":")[1]));
+      expect(failure, `OWNER_READ_REFUSES_${kind}`).toBeInstanceOf(Error);
+      expect(String(failure), kind).toContain("Concrete Git source collection refused");
+      expect(JSON.stringify((failure as { diagnostic?: unknown }).diagnostic ?? null), kind).not.toContain("Odysseus private server sentinel");
+    } finally { if (held !== undefined) closeSync(held); }
   });
 });
 test("the receipt parser refuses withheld paths that escape, nest or carry malformed identities", () => {

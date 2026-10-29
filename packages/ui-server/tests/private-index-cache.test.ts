@@ -9,7 +9,7 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
-import { appendFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, cpSync, existsSync, fstatSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseNativeBrainDelta } from "../../ui-sdk/src/server/native-brain-delta";
@@ -674,6 +674,17 @@ test("an external build command is identified by its files, not only its name", 
   const identity: PrivateIndexIdentity = { brain: "/srv/odysseus", policyHash: null, folders: ["me"], maskPaths: [], command: [cli] };
   const key = privateIndexCacheKey(identity);
   expect(privateIndexCacheKey(identity), "STABLE").toBe(key);
-  rmSync(cli); writeFileSync(cli, "two");
-  expect(privateIndexCacheKey(identity), "A_REPLACED_COMMAND_IS_ANOTHER_IDENTITY").not.toBe(key);
+  const before = statSync(cli, { bigint: true });
+  // Keep the equal-length replacement distinguishable without relying on clock advancement.
+  const held = openSync(cli, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    expect(held, "COMMAND_ORIGINAL_DESCRIPTOR_RETAINED").toBeNumber();
+    expect(fstatSync(held, { bigint: true }).ino, "COMMAND_ORIGINAL_IDENTITY_HELD").toBe(before.ino);
+    rmSync(cli); writeFileSync(cli, "two");
+    const after = statSync(cli, { bigint: true });
+    expect(after.size, "COMMAND_REPLACEMENT_REMAINS_SAME_LENGTH").toBe(before.size);
+    expect(after.ino, "COMMAND_REPLACEMENT_COMPARED_INODE_DIFFERS").not.toBe(before.ino);
+    expect(privateIndexCacheKey(identity), "A_REPLACED_COMMAND_IS_ANOTHER_IDENTITY").not.toBe(key);
+    expect(fstatSync(held, { bigint: true }).ino, "COMMAND_ORIGINAL_HELD_THROUGH_KEY_CHECK").toBe(before.ino);
+  } finally { closeSync(held); }
 });

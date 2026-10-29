@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MaintenanceGitManifest, MaintenanceGitScaffoldReceipt } from "../src/server/maintenance-git-input.js";
@@ -47,10 +47,25 @@ for (const kind of ["existing", "symlink", "file", "wrong-mode", "inherited-setg
     if (kind === "inherited-setgid") chmodSync(path, 0o2700);
     if (kind === "nonempty") writeFileSync(join(path, "unexpected"), "Odysseus");
     if (kind === "wrong-mode" || kind === "inherited-setgid" || kind === "nonempty") input.scaffolds = [{ name: "modules", previous: stamp(path) }];
-    if (kind === "replaced") { const before = stamp(path); rmSync(path, { recursive: true }); mkdirSync(path, { mode: 0o700 }); input.scaffolds = [{ name: "modules", previous: before }]; }
-    const result = run(root, input);
-    expect(result.exitCode, `GIT_SCAFFOLD_${kind.toUpperCase()}_REFUSED`).not.toBe(0);
-    expect(result.stderr.toString()).toBe("Concrete maintenance Git input preparation refused\n");
+    let held: number | undefined;
+    try {
+      if (kind === "replaced") {
+        const before = stamp(path);
+        // Pin the unlinked inode: immediate recreation may otherwise reuse the entire compared tuple.
+        held = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        expect(held, "GIT_SCAFFOLD_ORIGINAL_DESCRIPTOR_RETAINED").toBeNumber();
+        expect(String(fstatSync(held, { bigint: true }).ino), "GIT_SCAFFOLD_ORIGINAL_IDENTITY_HELD").toBe(before.inode);
+        rmSync(path, { recursive: true }); mkdirSync(path, { mode: 0o700 });
+        const after = stamp(path);
+        expect(after.inode, "GIT_SCAFFOLD_REPLACEMENT_INODE_DIFFERS").not.toBe(before.inode);
+        expect(after.stamp, "GIT_SCAFFOLD_REPLACEMENT_STAMP_DIFFERS").not.toBe(before.stamp);
+        input.scaffolds = [{ name: "modules", previous: before }];
+      }
+      const result = run(root, input);
+      if (held !== undefined) expect(String(fstatSync(held, { bigint: true }).ino), "GIT_SCAFFOLD_ORIGINAL_HELD_THROUGH_INSTALLER").toBe(input.scaffolds![0]!.previous!.inode);
+      expect(result.exitCode, `GIT_SCAFFOLD_${kind.toUpperCase()}_REFUSED`).not.toBe(0);
+      expect(result.stderr.toString()).toBe("Concrete maintenance Git input preparation refused\n");
+    } finally { if (held !== undefined) closeSync(held); }
   }));
 test("fixed Git scaffold installer refuses a linked metadata parent", () => fixture(root => {
   rmSync(join(root, ".git"), { recursive: true }); mkdirSync(join(root, "foreign")); symlinkSync("foreign", join(root, ".git"));

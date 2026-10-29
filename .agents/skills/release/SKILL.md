@@ -88,6 +88,22 @@ inference call is needed.
    `tests/allowed-edges.ts`, with their rationale; `tests/dependency-edges.test.ts`
    rejects a package without an edge policy.
 
+## A replacement fixture accepts or keeps the old cache key
+
+Before interpreting a replacement-refusal failure, compare the actual identity
+fields used by the guard. Immediate removal/recreation can reuse an inode and
+leave the observed size and timestamps equal; equal-length file replacements
+have the same risk. An equal tuple does not establish a product guard defect
+or explain an earlier failure.
+
+Keep a no-follow descriptor to the original object open through the oracle
+(`O_DIRECTORY` for directories), assert that it holds the original inode, and
+assert that the replacement differs in the compared identity before checking
+refusal or cache invalidation. Close it unconditionally in `finally` or the
+fixture's cleanup hook. Preserve the original guards, assertions and deadlines;
+do not add sleeps, timestamp edits, forced inode values or retry loops. Use the
+actual guard's numeric or bigint fields without conflating their precision.
+
 ## Versioning
 
 ```sh
