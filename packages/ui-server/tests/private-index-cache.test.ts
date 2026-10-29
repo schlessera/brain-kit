@@ -8,6 +8,7 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { Database } from "bun:sqlite";
+import { privateIndexClock } from "./helpers/private-index-clock";
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
 import { appendFileSync, closeSync, constants, cpSync, existsSync, fstatSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -628,32 +629,53 @@ test("an advance whose update rewrote rows keeps the old base, and close stops a
 test("advances share one checkpoint, move bases without renewing them, and fail safe without one", async () => {
   const reports: string[] = [];
   const b = bench({ idleMs: 1500, report: message => reports.push(message) });
-  expect((await b.prepare("one")).kind).toBe("built");
-  expect((await b.prepare("two")).kind).toBe("built");
-  expect((await b.advance()).map(result => result.kind), "BOTH_BASES_ADVANCE").toEqual(["rebound", "rebound"]);
-  expect(b.state.acquired, "ONE_CHECKPOINT_FOR_EVERY_BASE").toBe(1);
-  expect(b.views.slice(0, 2).map(b.live), "A_REBOUND_BASE_RELEASES_ITS_OLD_CHECKPOINT_AT_ONCE").toEqual([false, false]);
-  // Advancing is not using: a base no turn uses still expires, rebound or
-  // promoted just before its time.
-  await Bun.sleep(900);
-  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
-  expect((await b.advance()).map(result => result.kind), "PROMOTED_TOO").toEqual(["updated", "updated"]);
-  await Bun.sleep(800);
-  await b.advance();
-  expect(b.bases(), "UNUSED_BASES_EXPIRE_THROUGH_ADVANCES").toEqual([]);
-  expect(b.views.map(b.live).filter(Boolean), "AND_RELEASE_THEIR_CHECKPOINTS").toEqual([]);
-  expect((await b.prepare("four")).kind).toBe("built");
-  await Bun.sleep(900);
-  expect((await b.advance()).map(result => result.kind)).toEqual(["rebound"]);
-  await Bun.sleep(800);
-  await b.advance();
-  expect(b.bases(), "A_REBOUND_BASE_IS_NOT_RENEWED").toEqual([]);
-  // No checkpoint: the bases stay as they are, bound to their own.
-  expect((await b.prepare("three")).kind).toBe("built");
-  b.state.failAcquire = true;
-  expect(await b.advance(), "NO_CHECKPOINT_NO_ADVANCE").toEqual([]);
-  expect(reports.some(report => report.includes("the manager is busy")), "REPORTED").toBe(true);
-  expect(b.bases().length, "THE_BASE_STAYS").toBe(1);
+  const clock = privateIndexClock();
+  try {
+    expect((await b.prepare("one")).kind).toBe("built");
+    expect((await b.prepare("two")).kind).toBe("built");
+    expect((await b.advance()).map(result => result.kind), "BOTH_BASES_ADVANCE").toEqual(["rebound", "rebound"]);
+    expect(b.state.acquired, "ONE_CHECKPOINT_FOR_EVERY_BASE").toBe(1);
+    expect(b.views.slice(0, 2).map(b.live), "A_REBOUND_BASE_RELEASES_ITS_OLD_CHECKPOINT_AT_ONCE").toEqual([false, false]);
+    // Advancing is not using: a base no turn uses still expires, rebound or
+    // promoted just before its time.
+    const expiry = clock.now + 1501;
+    expect(clock.deadlines(), "ORIGINAL_IDLE_TIMERS_REGISTERED").toEqual([expiry, expiry]);
+    await clock.advance(900);
+    writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+    expect((await b.advance()).map(result => result.kind), "PROMOTED_TOO").toEqual(["updated", "updated"]);
+    expect(clock.deadlines(), "PROMOTION_PRESERVES_IDLE_DEADLINES").toEqual([expiry, expiry]);
+    await clock.advance(599);
+    expect(b.bases().length, "PROMOTED_BASES_LIVE_BEFORE_EXPIRY").toBe(2);
+    await clock.advance(2);
+    expect(b.bases(), "UNUSED_BASES_EXPIRE_THROUGH_ADVANCES").toEqual([]);
+    expect(b.views.map(b.live).filter(Boolean), "AND_RELEASE_THEIR_CHECKPOINTS").toEqual([]);
+    expect(await b.advance(), "EXPIRED_BASES_CANNOT_ADVANCE").toEqual([]);
+    expect((await b.prepare("four")).kind).toBe("built");
+    const reboundExpiry = clock.now + 1501;
+    expect(clock.deadlines(), "REBOUND_IDLE_TIMER_REGISTERED").toEqual([reboundExpiry]);
+    await clock.advance(900);
+    expect(b.bases().length, "REBOUND_BASE_IS_LIVE").toBe(1);
+    expect(b.live(b.views.at(-1)!), "REBOUND_CHECKPOINT_IS_LIVE").toBe(true);
+    expect((await b.advance()).map(result => result.kind)).toEqual(["rebound"]);
+    expect(clock.deadlines(), "REBOUND_PRESERVES_IDLE_DEADLINE").toEqual([reboundExpiry]);
+    await clock.advance(599);
+    expect(b.bases().length, "REBOUND_BASE_LIVE_BEFORE_EXPIRY").toBe(1);
+    await clock.advance(2);
+    expect(b.bases(), "A_REBOUND_BASE_IS_NOT_RENEWED").toEqual([]);
+    expect(b.views.map(b.live).filter(Boolean), "REBOUND_EXPIRY_RELEASES_CHECKPOINTS").toEqual([]);
+    expect(await b.advance(), "EXPIRED_REBOUND_CANNOT_ADVANCE").toEqual([]);
+    expect(clock.deadlines(), "EXPIRY_DRAINS_OWNED_TIMERS").toEqual([]);
+    // No checkpoint: the bases stay as they are, bound to their own.
+    expect((await b.prepare("three")).kind).toBe("built");
+    b.state.failAcquire = true;
+    expect(await b.advance(), "NO_CHECKPOINT_NO_ADVANCE").toEqual([]);
+    expect(reports.some(report => report.includes("the manager is busy")), "REPORTED").toBe(true);
+    expect(b.bases().length, "THE_BASE_STAYS").toBe(1);
+    await b.cache.close();
+    expect(clock.deadlines(), "CLOSE_CANCELS_THE_REMAINING_IDLE_TIMER").toEqual([]);
+  } finally {
+    try { await b.cache.close(); } finally { clock.restore(); }
+  }
 });
 
 test("close stops an advance whose build is running", async () => {
