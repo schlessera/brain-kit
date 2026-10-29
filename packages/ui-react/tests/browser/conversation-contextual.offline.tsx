@@ -546,10 +546,11 @@ async function arrivalProjectionScene(ctx: TestContext) {
   return { ...s, delta, speech, settle };
 }
 
-test("arrival projection recovers a leading prefix through production history replay", async ctx => {
+for (const interleaved of [false, true]) test(`arrival projection recovers a leading prefix through production history replay, interleaved=${interleaved}`, async ctx => {
   const s = await arrivalProjectionScene(ctx);
-  s.delta("bronze owl");
-  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent).toBe("bronze owl");
+  if (interleaved) { s.delta("bronze"); s.speech(); s.delta(" owl"); } else s.delta("bronze owl");
+  const text = () => [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("");
+  await expect.poll(text).toBe("bronze owl");
   const snapshot = s.ui.stores.chat.getState().buffers[SESSION]!.messages;
   const id = snapshot.at(-1)!.id;
   s.deliver({ type: "session_history", sessionId: SESSION, messages: snapshot.map((m, i) => ({
@@ -557,7 +558,7 @@ test("arrival projection recovers a leading prefix through production history re
     turnId: m.turnId, toolCalls: [],
   })) });
   expect(s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!.id).toBe(id);
-  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent).toBe("The bronze owl");
+  await expect.poll(text).toBe("The bronze owl");
 });
 
 test("arrival projection preserves one complete Markdown link across speech and promotion", async ctx => {

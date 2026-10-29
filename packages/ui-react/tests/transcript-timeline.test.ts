@@ -119,3 +119,21 @@ test("classified source spans retain original text ordinals and tool bindings in
     expect(entries.filter(e => e.section === "progress").flatMap(e => transcriptMessage(e).parts).filter(p => p.kind === "tool")).toHaveLength(1);
   } finally { root.dispose(); }
 });
+
+
+test("multiple promoted edits retain both original arrival ranges", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    chat.addUserMessage(null, "Find the raft and watch notes.", "voice-context");
+    chat.startAssistantMessage(null, "two-links");
+    chat.appendText(null, "See [raft](notes/raft.md)");
+    root.connection.conversation.state.setState({ outputs: [{ conversationId: "ithaca", epoch: 1, outputId: "two-links", sessionId: null, generated: "The watch continues.", playback: "unknown" }] });
+    chat.appendText(null, " then [watch](notes/watch.md).");
+    const timeline = transcriptTimelineFor(root.stores.chat).state;
+    const keys = timeline.getState().entries.map(e => e.key);
+    chat.rewriteMessageLinks(null, [{ from: "notes/raft.md", to: "notes/odysseus-raft.md" }, { from: "notes/watch.md", to: "notes/harbour-watch.md" }], "two-links");
+    expect(timeline.getState().entries.filter(e => e.kind === "message" && e.section === "answer").map(entryText)).toEqual(["See [raft](notes/odysseus-raft.md)", " then [watch](notes/harbour-watch.md)."]);
+    expect(timeline.getState().entries.map(e => e.key)).toEqual(keys);
+  } finally { root.dispose(); }
+});
