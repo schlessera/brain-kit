@@ -6,7 +6,7 @@ import type { BrowserContext, Page, Route } from "playwright";
 import type { BrowserCommand } from "vitest/node";
 import { hygieneReviewReadSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { closeHygieneContext } from "./hygiene-route-owner.ts";
-import { hygieneServer } from "./hygiene-server-command.ts";
+import { hygieneServer, hygieneServerOwners } from "./hygiene-server-command.ts";
 
 function gate() {
   let release!: () => void;
@@ -90,7 +90,8 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
   const releases = [gate(), gate(), gate()];
   const bodies = [gate(), gate(), gate()];
   const admissionClosed = gate(), fenceHeld = gate(), fenceRemoved = gate(), releaseFence = gate();
-  let holdNextFence = false, stopSettled = false;
+  let holdNextFence = false, stopSettled = false, fenceOutstanding = false, killedWithFencePending = false;
+  let restoreKill: (() => void) | undefined;
   let foreignCalls = 0, producing = false, exerciseUnroute = false;
   let producer: Promise<void> | undefined;
   const foreign = async (route: Route) => { foreignCalls++; await route.fallback(); };
@@ -128,7 +129,8 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
             holdNextFence = false;
             return handler(new Proxy(route, { get(target, key) {
               if (key === "fallback") return async () => {
-                await target.fallback(); fenceHeld.release(); await releaseFence.promise;
+                await target.fallback(); fenceOutstanding = true; fenceHeld.release();
+                try { await releaseFence.promise; } finally { fenceOutstanding = false; }
               };
               const value = Reflect.get(target, key, target);
               return typeof value === "function" ? value.bind(target) : value;
@@ -219,11 +221,15 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
 
     // Expected injected stop failures were asserted in the command body.
     failure(errors.filter(error => error !== validatedStopFailure && error !== validatedBrowserFailure && error !== validatedRouteFailure), "native lifecycle cleanup failed");
-  }, () => { releases.forEach(g => g.release()); releaseFence.release(); clearTimeout(timeout); });
+  }, () => { releases.forEach(g => g.release()); releaseFence.release(); restoreKill?.(); clearTimeout(timeout); });
   return complete(cleanup, async () => {
     if (!options.duringUnroute) await cleanup.acquire(() => ctx.page.route("**/api/hygiene/**", foreign));
     await cleanup.acquire(async () => { fixture = await hygieneServer(commandContext, { op: "start" }) as typeof fixture; });
     assert.ok(fixture);
+    const child = hygieneServerOwners().find(owner => owner.id === fixture!.id)!.process;
+    const descriptor = Object.getOwnPropertyDescriptor(child, "kill"), kill = child.kill.bind(child);
+    child.kill = signal => { killedWithFencePending ||= fenceOutstanding; return kill(signal); };
+    restoreKill = () => { if (descriptor) Object.defineProperty(child, "kill", descriptor); else Reflect.deleteProperty(child, "kill"); };
     // Independent cancellation safety: a test timeout must release route holds
     // even when Vitest abandons this command's awaiting stack.
     timeout = setTimeout(() => { releases.forEach(g => g.release()); releaseFence.release(); }, 5000);
@@ -263,6 +269,7 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
       await arrived(fenceRemoved.promise, "fence admission closed");
       await new Promise<void>(resolve => setImmediate(resolve));
       assert.equal(stopSettled, false, "shutdown must join its removed fence callback");
+      assert.equal(killedWithFencePending, false, "native termination must join its removed fence callback");
       releaseFence.release();
     }
     const result = await stopping;
