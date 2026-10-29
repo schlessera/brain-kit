@@ -89,7 +89,8 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
   const frame = await ctx.frame();
   const releases = [gate(), gate(), gate()];
   const bodies = [gate(), gate(), gate()];
-  const admissionClosed = gate();
+  const admissionClosed = gate(), fenceHeld = gate(), fenceRemoved = gate(), releaseFence = gate();
+  let holdNextFence = false, stopSettled = false;
   let foreignCalls = 0, producing = false, exerciseUnroute = false;
   let producer: Promise<void> | undefined;
   const foreign = async (route: Route) => { foreignCalls++; await route.fallback(); };
@@ -115,12 +116,27 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
     responses.push(result);
     return result;
   };
+  const fences = new Map<(route: Route) => Promise<void>, (route: Route) => Promise<void>>();
   const registered = new Map<(route: Route) => Promise<void>, (route: Route) => Promise<void>>();
   const page = new Proxy(ctx.page, {
     get(target, key) {
       if (key === "route") return async (pattern: string, handler: (route: Route) => Promise<void>) => {
         assert.equal(pattern, "**/api/hygiene/**");
-        if (fixture) return target.route(pattern, handler);
+        if (fixture) {
+          const wrappedFence = (route: Route) => {
+            if (!holdNextFence) return handler(route);
+            holdNextFence = false;
+            return handler(new Proxy(route, { get(target, key) {
+              if (key === "fallback") return async () => {
+                await target.fallback(); fenceHeld.release(); await releaseFence.promise;
+              };
+              const value = Reflect.get(target, key, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            } }));
+          };
+          fences.set(handler, wrappedFence);
+          return target.route(pattern, wrappedFence);
+        }
         const wrappedHandler = (route: Route) => {
           const index = next++;
           const wrapped = new Proxy(route, {
@@ -151,7 +167,10 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
       };
       if (key === "unroute") return async (pattern: string, handler: (route: Route) => Promise<void>) => {
         const wrapped = registered.get(handler);
-        if (!wrapped) return target.unroute(pattern, handler);
+        if (!wrapped) {
+          await target.unroute(pattern, fences.get(handler) ?? handler);
+          fenceRemoved.release(); return;
+        }
         unrouteActive = owed.size;
         if (exerciseUnroute && !options.failRoute) {
           const indices = options.duringUnroute ? [0] : [1, 2];
@@ -200,14 +219,14 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
 
     // Expected injected stop failures were asserted in the command body.
     failure(errors.filter(error => error !== validatedStopFailure && error !== validatedBrowserFailure && error !== validatedRouteFailure), "native lifecycle cleanup failed");
-  }, () => { releases.forEach(g => g.release()); clearTimeout(timeout); });
+  }, () => { releases.forEach(g => g.release()); releaseFence.release(); clearTimeout(timeout); });
   return complete(cleanup, async () => {
     if (!options.duringUnroute) await cleanup.acquire(() => ctx.page.route("**/api/hygiene/**", foreign));
     await cleanup.acquire(async () => { fixture = await hygieneServer(commandContext, { op: "start" }) as typeof fixture; });
     assert.ok(fixture);
     // Independent cancellation safety: a test timeout must release route holds
     // even when Vitest abandons this command's awaiting stack.
-    timeout = setTimeout(() => { releases.forEach(g => g.release()); }, 5000);
+    timeout = setTimeout(() => { releases.forEach(g => g.release()); releaseFence.release(); }, 5000);
     if (!options.duringUnroute) {
       request();
       await arrived(bodies[0]!.promise, "first native body");
@@ -217,6 +236,7 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
       (): { error?: unknown } => ({}), (error: unknown): { error?: unknown } => ({ error })
     );
     stopResult = stopping;
+    void stopping.then(() => { stopSettled = true; });
     if (options.failRoute) releases[0]!.release();
     await arrived(admissionClosed.promise, "close admission before waiting for held native responses");
     if (!options.failRoute) assert.equal(unrouteActive, options.duringUnroute ? 0 : 1, "admission closes while the original response is still owed");
@@ -237,7 +257,13 @@ export const hygieneLifecycle: BrowserCommand<[{ duringUnroute?: boolean; failRo
       await arrived(continued.promise, "continued foreign fallback requests");
       assert.equal(next, options.duringUnroute ? 1 : 3, "post-boundary requests cannot re-enter the old forwarder");
       if (!options.duringUnroute) assert.ok(foreignCalls >= 3, "foreign fallback chain remains registered");
+      holdNextFence = true;
+      await arrived(fenceHeld.promise, "real delegating fence callback");
       releases.forEach(g => g.release());
+      await arrived(fenceRemoved.promise, "fence admission closed");
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(stopSettled, false, "shutdown must join its removed fence callback");
+      releaseFence.release();
     }
     const result = await stopping;
     producing = false;

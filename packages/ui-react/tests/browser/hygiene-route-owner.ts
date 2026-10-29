@@ -15,8 +15,8 @@ export function hygieneRouteOwner(forward: (route: Route) => Promise<void>) {
     pending.add(task);
     return task;
   };
-  const drain = async () => {
-    while (pending.size) await Promise.allSettled([...pending]);
+  const drain = async (tasks: Set<Promise<void>>) => {
+    while (tasks.size) await Promise.allSettled([...tasks]);
   };
   let closing: Promise<void> | undefined;
   return {
@@ -25,7 +25,16 @@ export function hygieneRouteOwner(forward: (route: Route) => Promise<void>) {
       return closing ??= (async () => {
         // Retain interception for owed responses while removing the original
         // registration closes admission. The temporary route delegates normally.
-        const fence = (route: Route) => route.fallback();
+        const fencePending = new Set<Promise<void>>();
+        let fenceFailure: { error: unknown } | undefined;
+        const fence = (route: Route) => {
+          const task = Promise.resolve().then(() => route.fallback()).catch(error => {
+            fenceFailure ??= { error };
+            throw error;
+          }).finally(() => { fencePending.delete(task); });
+          fencePending.add(task);
+          return task;
+        };
         const cleanup: unknown[] = [];
         try { await page.route(pattern, fence); } catch (error) { cleanup.push(error); }
         // Attempt removal even if the fence update failed; one cleanup failure
@@ -33,9 +42,12 @@ export function hygieneRouteOwner(forward: (route: Route) => Promise<void>) {
         try { await page.unroute(pattern, handler); } catch (error) { cleanup.push(error); }
         // Callbacks may enter during the real route update. Admission is now
         // closed, so this join has finite owned work even with continued traffic.
-        await drain();
+        await drain(pending);
         try { await page.unroute(pattern, fence); } catch (error) { cleanup.push(error); }
-        const errors = [...(failure ? [failure.error] : []), ...cleanup];
+        // The fence has its own closed admission boundary. Continued arrivals
+        // must never keep either owned join open.
+        await drain(fencePending);
+        const errors = [...(failure ? [failure.error] : []), ...(fenceFailure ? [fenceFailure.error] : []), ...cleanup];
         if (errors.length === 1) throw errors[0];
         if (errors.length) throw new AggregateError(errors, "fixture route shutdown failed");
       })();
