@@ -1,5 +1,6 @@
+import { transcriptMessage } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutputs } from "../voice/conversation-outputs.js";
+import { ConversationOutput, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -113,6 +114,8 @@ export function ChatPage() {
   const voiceOutputs = useStore(root.connection.conversation.state, (s) => s.outputs);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const hasVoicePermission = useStore(root.connection.conversation.permissions.state, s => s.records.some(r => r.sessionId === sessionId && !!r.word));
+  const timeline = useStore(root.connection.timeline.state, s => s.entries);
+  const entries = timeline.filter(entry => entry.sessionId === sessionId);
   const hasVoiceOutput = voiceOutputs.some((output) => output.sessionId === sessionId && output.generated);
 
   const clearMessages = useChatStore((s) => s.clearMessages);
@@ -185,8 +188,8 @@ export function ChatPage() {
     setWindowedSession(sessionId);
     setVisibleCount(WINDOW_SIZE);
   }
-  const hiddenCount = Math.max(0, messages.length - visibleCount);
-  const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+  const hiddenCount = Math.max(0, entries.length - visibleCount);
+  const visibleEntries = hiddenCount > 0 ? entries.slice(hiddenCount) : entries;
 
   // Revealing earlier messages prepends content, which would otherwise shove
   // the view down by the height of everything added. Remember the distance to
@@ -213,14 +216,14 @@ export function ChatPage() {
     if (el && autoScrollRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, voiceOutputs]);
 
   // Content that grows after it is committed (markdown that renders once
   // its parser has loaded, an image that has decoded) keeps a tailing
   // transcript at its latest turn too. Opening a tracked session relies on
   // it: the replayed history reaches its height a moment after the frame.
   const columnRef = useRef<HTMLDivElement>(null);
-  const hasColumn = messages.length > 0;
+  const hasColumn = messages.length > 0 || hasVoiceOutput;
   useEffect(() => {
     const column = columnRef.current;
     if (!column || typeof ResizeObserver === "undefined") return;
@@ -263,7 +266,7 @@ export function ChatPage() {
   }, []);
 
   // Scroll listener: disable tailing when user scrolls up, re-enable at bottom
-  const hasMessages = messages.length > 0;
+  const hasMessages = messages.length > 0 || hasVoiceOutput;
   // A selected session whose history has not arrived is not a new chat (#1328).
   const restoring = useChatStore((s) => restorationOf(s) !== null);
   const localWork = root.localWork;
@@ -327,7 +330,8 @@ export function ChatPage() {
       if (at.length === 0) { if (messages.length > ordinal) work.restore.setState({ scroll: null }); return; }
       ordinal = at.reduce((a, b) => (Math.abs(b - ordinal) < Math.abs(a - ordinal) ? b : a));
     }
-    if (ordinal < hiddenCount) { setVisibleCount(messages.length - ordinal); return; }
+    const entryIndex = entries.findIndex(entry => entry.kind === "message" && entry.index === ordinal && entry.section !== "answer");
+    if (entryIndex >= 0 && entryIndex < hiddenCount) { setVisibleCount(entries.length - entryIndex); return; }
     work.restore.setState({ scroll: null });
     autoScrollRef.current = false;
     const offset = pendingScroll.offset;
@@ -706,11 +710,16 @@ export function ChatPage() {
                         onClick={showEarlier} />
                     </div>
                   )}
-                  {visibleMessages.map((msg, index) => (
-                    <Fragment key={msg.id}>
+                  {visibleEntries.map((entry) => {
+                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} output={entry.output} />;
+                    const msg = transcriptMessage(entry);
+                    const index = entry.index;
+                    return (
+                    <Fragment key={entry.key}>
+                      {entry.section === "progress" && <ConversationTaskContext message={entry.message} sessionId={sessionId} />}
                       <MessageBubble
                         message={msg}
-                        journalVisible={!(msg.turnId ?? msg.streamTurnId) || !messages.slice(hiddenCount + index + 1).some(later => later.role === "assistant" && (later.turnId ?? later.streamTurnId) === (msg.turnId ?? msg.streamTurnId))}
+                        journalVisible={entry.section !== "answer" && (!(msg.turnId ?? msg.streamTurnId) || !messages.slice(index + 1).some(later => later.role === "assistant" && (later.turnId ?? later.streamTurnId) === (msg.turnId ?? msg.streamTurnId)))}
                         onToolApproval={handleToolApproval}
                         onAskUserSubmit={handleAskUserSubmit}
                         onAskUserCancel={handleAskUserCancel}
@@ -718,16 +727,16 @@ export function ChatPage() {
                         onAskUserListSubmit={handleAskUserListSubmit}
                         onAskUserRankSubmit={handleAskUserRankSubmit}
                         onAskUserFormSubmit={handleAskUserFormSubmit}
-                        closing={msg === messages[messages.length - 1]}
-                        anchor={String(hiddenCount + index)}
+                        closing={entry.section !== "progress" && entry.message === messages[messages.length - 1]}
+                        anchor={entry.section === "answer" ? undefined : String(index)}
                       />
                       {/* Where this conversation was continued elsewhere (#61). */}
                       {forward
-                        .filter((link) => markerAfter(link, messages) === hiddenCount + index + 1)
+                        .filter((link) => entry.section !== "answer" && markerAfter(link, messages) === index + 1)
                         .map((link) => <HandoffMarker key={link.sessionId} sessionId={link.sessionId} backendId={link.backendId} title={link.title} />)}
                     </Fragment>
-                  ))}
-                  <ConversationOutputs sessionId={sessionId} />
+                  ); })}
+                  <ConversationPermissionOutcomes sessionId={sessionId} />
                   {unlinked && <MarkAsSeen onMark={markSeen} />}
                   {/* Live frames drawn before the history arrived (#1328). */}
                   {restoring && <RestorationState onNewChat={clearMessages} />}

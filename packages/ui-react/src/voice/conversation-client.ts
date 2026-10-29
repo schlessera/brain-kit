@@ -7,6 +7,8 @@ import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
+  /** Received only as retained history, without a locally observed arrival position. */
+  restored?: true;
   conversationId: string;
   sessionId: string | null;
 }
@@ -136,12 +138,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     if (playbackState !== "played") state.setState({ notice: "spoken portion unknown" });
   }, () => refresh()); }
-  function updateOutput(epoch: number, outputId: string, patch: Partial<ConversationOutputRecord>) {
+  function updateOutput(epoch: number, outputId: string, patch: Partial<ConversationOutputRecord>, restored = false) {
     const s = state.getState();
     const p = scope();
     if (!p) return;
     const old = s.outputs.find((output) => output.conversationId === p.conversationId && output.epoch === epoch && output.outputId === outputId);
-    const next: ConversationClientOutput = { conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
+    const next: ConversationClientOutput = { conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...(restored && !old ? { restored: true as const } : {}), ...old, ...patch };
     state.setState({ outputs: old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next].slice(-128) });
   }
   function disclosureKey(profile: ServerConversationOpened) {
@@ -452,7 +454,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     const p = scope();
     if (!p || !("conversationId" in message) || message.conversationId !== p.conversationId) return null;
-    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message); if (resync > 0) resync--; refresh(); if (consent) void capture(); return null; }
+    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message, true); if (resync > 0) resync--; refresh(); if (consent) void capture(); return null; }
     if (!("epoch" in message) || message.epoch !== p.epoch) return null;
     if (message.type === "conversation_closed") {
       // An old epoch can close after explicit Resume has already requested

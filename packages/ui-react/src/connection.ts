@@ -1,3 +1,4 @@
+import { createTranscriptTimeline } from "./lib/transcript-timeline.js";
 import { createConversationClient } from "./voice/conversation-client.js";
 import { takeComposerTextAsAnswer } from "./lib/ask-user-typed.js";
 import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
@@ -74,6 +75,8 @@ export function createWebSocketClient(root: BrainUiServices) {
         }
       });
     }));
+
+  const timeline = createTranscriptTimeline(root.stores.chat, conversation.state);
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -332,6 +335,8 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleServerMessage(msg: ServerMessage) {
     if (disposed || root.authLock.state.getState().phase !== "active") return;
+    // Voice frames bypass handleFrame; flush earlier backend text before observing them.
+    if (msg.type.startsWith("conversation_")) flushDeltas();
     const routed = conversation.frame(msg);
     if (!routed) return;
     msg = routed;
@@ -977,6 +982,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   const client = {
     /** @internal Concrete live voice controller; the ordinary chat path stays independent. */
     conversation,
+    /** @internal Root-owned arrival order for the scrolling transcript. */
+    timeline,
     connect,
     send: sendClientMessage,
     retryTurn,
@@ -998,6 +1005,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       endedTurns.clear();
       if (disposed) return;
       disposed = true;
+      timeline.dispose();
       conversation.dispose();
       for (const timer of retryTimers.values()) clearTimeout(timer);
       retryTimers.clear();

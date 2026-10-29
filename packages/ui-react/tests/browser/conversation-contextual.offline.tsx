@@ -265,6 +265,11 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   await s.pump([], true);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks.length === 2 && s.evidence().tasks.every((task: any) => task.completed); }).toBe(true);
   await expect.poll(async () => { await s.pump(); return s.upstream.some(f => f.toolResponse || f.type === "session.commentary.append"); }).toBe(true);
+  // The result arrived after four continued exchanges, not at its request's position.
+  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent?.includes("bronze owl")).toBe(true);
+  const transcript = s.host.querySelector('[data-reading-column]') ?? s.host;
+  const order = transcript.textContent!;
+  expect(order.indexOf("The departure signal is a bronze owl."), "new backend answer follows the already displayed fourth exchange").toBeGreaterThan(order.indexOf("Continuing the voyage conversation 4."));
   expect(s.evidence().effect).toBe(true);
   expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
   const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
@@ -284,6 +289,11 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   expect(s.socket.frames("conversation_start")).toHaveLength(1);
   expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
   expect(s.client.state.getState().active).toBe(true);
+  const answers = [...s.host.querySelectorAll(".chat-message-body")].filter(node => node.textContent?.includes("The host task has finished."));
+  expect(answers).toHaveLength(2);
+  const spoken = [...s.host.querySelectorAll("[data-conversation-output]")].findLast(node => node.textContent?.includes("bronze owl"))!;
+  expect(answers.at(-1)!.compareDocumentPosition(spoken) & Node.DOCUMENT_POSITION_FOLLOWING, "later spoken incorporation follows both actual host answers, even with GPT's epoch-wide output ID").toBeTruthy();
+  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/ordered-${provider}-${mode}.png` });
 });
 
 for (const provider of ["gemini", "gpt"] as const) for (const decision of ["confirm", "deny"] as const) test(`${provider} ordinary screen ${decision} stays pending while capture and dialogue continue`, async ctx => {
@@ -460,4 +470,59 @@ for (const reconnect of [false, true]) test(`typed legacy identity after context
   socket.deliver({ type: "text_delta", sessionId: "odysseus-typed-harbour", text: "The sheltered harbour is Ithaca." });
   s.ui.connection.flushChatDeltas();
   expect(s.ui.stores.chat.getState().buffers["odysseus-typed-harbour"]?.messages.at(-1)?.content).toBe("The sheltered harbour is Ithaca.");
+});
+
+
+test("mixed transcript window, reading anchor, history resync and session isolation", async ctx => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  await s.start();
+  s.client.mute();
+  const chat = s.ui.stores.chat.getState();
+  chat.addUserMessage(SESSION, "Find the departure note.", "voice-context");
+  chat.startAssistantMessage(SESSION, "ithaca-task");
+  const output = (id: string, text: string, epoch = 1) => s.event({ kind: "output_transcript", outputId: id, sequence: 0, text }, epoch);
+  for (let i = 0; i < 45; i++) output(`voyage-${i}`, `Voyage exchange ${i}.`);
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(40);
+  const scroll = s.host.querySelector('[data-conversation-output]')!.parentElement!.parentElement as HTMLElement;
+  scroll.scrollTop = 0;
+  scroll.dispatchEvent(new Event("scroll"));
+  const anchor = s.host.querySelector('[data-output-id="voyage-5"]')!;
+  const top = anchor.getBoundingClientRect().top;
+  await userEvent.click(page.getByRole("button", { name: /Show .*earlier/ }));
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(45);
+  expect(Math.abs(anchor.getBoundingClientRect().top - top), "revealing earlier mixed entries preserves the reading anchor").toBeLessThan(2);
+  s.deliver({ type: "text_delta", sessionId: SESSION, text: "The bronze" });
+  // Same turn as the following voice frame: buffered backend text must flush first.
+  output("epoch-reused", "A continued discussion.");
+  s.deliver({ type: "text_delta", sessionId: SESSION, text: " owl." });
+  s.ui.connection.flushChatDeltas();
+  await expect.poll(() => s.host.textContent).toContain(" owl.");
+  const entries = [...s.host.querySelectorAll(".chat-message-body,[data-conversation-output]")].map(n => n.textContent!.trim());
+  expect(entries.findIndex(t => t === "The bronze")).toBeLessThan(entries.findIndex(t => t.includes("A continued discussion.")));
+  expect(entries.findIndex(t => t === "owl.")).toBeGreaterThan(entries.findIndex(t => t.includes("A continued discussion.")));
+  const keys = s.ui.connection.timeline.state.getState().entries.map(e => e.key);
+  s.deliver({ type: "session_history", sessionId: SESSION, messages: [
+    { role: "user", content: "Find the departure note.", source: "voice-context", toolCalls: [] },
+    { role: "assistant", content: "The bronze owl.", turnId: "ithaca-task", toolCalls: [] },
+  ] });
+  await expect.poll(() => s.ui.connection.timeline.state.getState().entries.map(e => e.key)).toEqual(keys);
+  s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "epoch-reused", generated: "A continued discussion.", playback: "unknown" });
+  output("stale", "A stale epoch must never appear.", 0);
+  expect(s.ui.connection.timeline.state.getState().entries.map(e => e.key)).toEqual(keys);
+  expect(s.host.textContent).not.toContain("A stale epoch");
+  s.ui.stores.chat.getState().setActiveSession("odysseus-pylos");
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(0);
+  s.ui.stores.chat.getState().setActiveSession(SESSION);
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
+  expect(s.ui.connection.timeline.state.getState().entries.map(e => e.key)).toEqual(keys);
+});
+
+
+test("cold restored speech explicitly has unknown original discussion position", async ctx => {
+  const s = await scene(ctx);
+  await s.enter();
+  s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
+  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("original discussion position unknown");
+  expect(s.client.state.getState().micOn).toBe(false);
 });

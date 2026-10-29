@@ -172,7 +172,7 @@ claim: `session_history` and scoped `status` update the chat store synchronously
 (`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
 `status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:400-412`). Native protocol
+"session_queue")`, `packages/ui-react/src/connection.ts:405-417`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
@@ -228,7 +228,7 @@ stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
 `flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
 `adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
 scroll listener schedules that work (`handleScroll`,
-`packages/ui-react/src/components/chat/chat-page.tsx:274-284`), as do draft,
+`packages/ui-react/src/components/chat/chat-page.tsx:277-287`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
 `packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
