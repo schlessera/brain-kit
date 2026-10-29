@@ -45,7 +45,7 @@ export function MarkdownContent({
   cuts.forEach((cut, i) => {
     const before = content.slice(cursor, cut.start);
     if (before.trim()) pieces.push(markdown(before, cursor, `md-${i}`));
-    if (!range || cut.end > range.start && cut.end <= range.end) pieces.push(
+    if (!range || cut.start >= range.start && cut.start < range.end) pieces.push(
       <div key={`block-${i}`} className="my-3" data-classified-block={cut.block.kind}>
         <BlockCard block={cut.block} />
       </div>

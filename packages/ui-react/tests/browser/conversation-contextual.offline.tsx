@@ -582,7 +582,7 @@ for (const precedingPart of [false, true]) test(`arrival projection retains a cl
     s.delta("The island watch follows.");
     s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", toolName: "Read" });
     s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", toolName: "Read", input: { path: "notes/raft.md" } });
-    s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", output: "The island watch note is ready." });
+    s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", output: "The island watch note is ready.", isError: false });
   }
   s.delta(table.slice(0, 24)); s.speech(); s.delta(table.slice(24)); s.settle();
   s.deliver({ type: "message_blocks", sessionId: SESSION, turnId: "raft-projection-turn", blocks: [{ partIndex: precedingPart ? 1 : 0, start: 0, end: table.length, confidence: 1, block: BLOCKS.table }] });
@@ -606,7 +606,7 @@ for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "sha
     autolink: { text: "See https://example.org/raft before sailing.", at: 16, words: "See" },
     escape: { text: "Bronze &amp; olive \\*watch\\*.", at: 10, words: "Bronze & olive *watch*." },
     code: { text: "Use `notes/raft.md` for the watch.", at: 12, words: "Use notes/raft.md for the watch." },
-    share: { text: '<share format="text" title="Raft">A bronze owl.</share>', at: 39, words: "A bronze owl." },
+    share: { text: '<share format="text" title="Raft">A bronze owl. <script>globalThis.odysseusRangeExecuted = true</script></share>', at: 39, words: "A bronze owl." },
   };
   const sample = cases[shape];
   s.delta(sample.text.slice(0, sample.at)); s.speech(); s.delta(sample.text.slice(sample.at)); s.settle();
@@ -614,6 +614,23 @@ for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "sha
   if (shape === "emphasis") expect([...s.host.querySelectorAll(".chat-message-body strong")].map(n => n.textContent).join("")).toBe("bronze owl");
   if (shape === "reference" || shape === "code") expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
   if (shape === "autolink") expect(s.host.querySelectorAll('a[href="https://example.org/raft"]')).toHaveLength(1);
-  if (shape === "share") expect(s.host.querySelectorAll('[aria-label="Share as plain text"]')).toHaveLength(1);
+  if (shape === "share") {
+    expect(page.getByRole("button", { name: "Share as plain text", exact: true }).elements()).toHaveLength(1);
+    expect(s.host.querySelectorAll(".chat-message-body script")).toHaveLength(0);
+    expect((globalThis as typeof globalThis & { odysseusRangeExecuted?: boolean }).odysseusRangeExecuted).toBeUndefined();
+  }
   expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+
+test("a growing Markdown table retains its first source anchor across speech", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("| Island | Watch |\n| --- | --- |\n| Ithaca | Dawn |\n");
+  await expect.poll(() => s.host.querySelectorAll(".brain-prose table").length).toBe(1);
+  const first = s.host.querySelector(".brain-prose table")!.closest(".chat-message-body")!;
+  s.speech(); s.delta("| Pylos | Dusk |\n"); s.settle();
+  await expect.poll(() => first.textContent).toContain("Dusk");
+  expect(s.host.querySelectorAll(".brain-prose table")).toHaveLength(1);
+  expect(first.compareDocumentPosition(s.host.querySelector("[data-conversation-output]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/Ithaca/g)).toHaveLength(1);
 });

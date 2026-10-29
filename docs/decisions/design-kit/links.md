@@ -145,7 +145,7 @@ issue, so this entry fixes the behaviour and not the look.
 
 **Question.** D48 puts every model-authored link card behind `classifyLink`.
 A markdown link in the answer's prose gets none of it. The `a` override
-(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:162-173`)
+(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:163-174`)
 draws every link that is not a repo path as a bare
 `<a target="_blank" rel="noopener noreferrer">`. The only filter is
 react-markdown's default `urlTransform`, which strips `javascript:` and
@@ -239,7 +239,7 @@ it found, and what neither said:
   Chrome test asserts.
 - **Link text is never linkified, accepted or withheld.** The text passes
   that turn repo paths and wikilinks into links stand down inside any prose
-  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:46-56`),
+  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:47-57`),
   because an anchor inside an anchor is not HTML either. The same wrapper
   had been writing react-markdown's `node` object into the DOM as
   `node="[object Object]"`, and no longer does.

@@ -144,7 +144,7 @@ function projectTranscriptMessage(entry: Extract<TranscriptEntry, { kind: "messa
     // the arrival range after parsing, and assigns an indivisible block once.
     const blocks = m.blocks?.filter(block => {
       const at = offsets[block.partIndex];
-      return at !== undefined && at + block.end > start && at + block.end <= end;
+      return at !== undefined && at + block.start >= start && at + block.start < end;
     });
     return {
       ...m, parts, content: parts.map(p => p.text).join(""), blocks, thinking: undefined,

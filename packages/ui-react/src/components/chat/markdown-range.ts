@@ -14,11 +14,13 @@ interface MarkdownNode {
 
 /** Indivisible constructs keep their complete syntax, destination and actions. */
 const ATOMIC = new Set(["link", "linkReference", "image", "imageReference", "inlineCode", "code", "table", "html", "footnoteReference", "break"]);
-const ESCAPE = /\\[!-/:-@[-`{-~]|&(?:#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});|\r\n/gi;
+// Growing code/tables retain the anchor where their content first appeared.
+const START_ANCHORED = new Set(["inlineCode", "code", "table"]);
+const ESCAPE = /\\[!-/:-@[-`{-~]|&(?:#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});|\r\n|[\uD800-\uDBFF][\uDC00-\uDFFF]/gi;
 
 /**
  * Text offsets refer to Markdown source, not its decoded value. Keep an escape,
- * character reference or CRLF indivisible and assign it at its source end.
+ * character reference CRLF or Unicode scalar indivisible and assign it at its source end.
  */
 function textInRange(raw: string, value: string, offset: number, range: MarkdownRange): string {
   let at = 0, decoded = "", selected = "";
@@ -45,7 +47,8 @@ function textInRange(raw: string, value: string, offset: number, range: Markdown
 /**
  * Select rendered content, not substrings to parse independently. Structural
  * wrappers retain inline/list context. Definitions remain available to resolve
- * references; links, code, tables and images occur once at their source end.
+ * references; held links/images appear at completion, while growing code/tables
+ * keep their original source anchor. Each construct has one render owner.
  * No HTML is executed and the existing renderer still owns all components.
  */
 export function remarkMarkdownRange({ source, start, end }: MarkdownRange & { source: string }) {
@@ -54,7 +57,9 @@ export function remarkMarkdownRange({ source, start, end }: MarkdownRange & { so
       if (node.type === "definition" || node.type === "footnoteDefinition") return node;
       const from = node.position?.start.offset, to = node.position?.end.offset;
       if (node.type !== "root" && (from === undefined || to === undefined || to <= start || from >= end)) return null;
-      if (ATOMIC.has(node.type)) return to! > start && to! <= end ? node : null;
+      if (ATOMIC.has(node.type)) return START_ANCHORED.has(node.type)
+        ? from! >= start && from! < end ? node : null
+        : to! > start && to! <= end ? node : null;
       if (node.type === "text") {
         const value = textInRange(source.slice(from, to), node.value ?? "", from!, { start, end });
         return value ? { ...node, value } : null;
