@@ -1,10 +1,10 @@
-import { transcriptMessage } from "../../lib/transcript-timeline.js";
+import { transcriptMessage, transcriptTimelineFor } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
 import { ConversationOutput, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
@@ -114,8 +114,8 @@ export function ChatPage() {
   const voiceOutputs = useStore(root.connection.conversation.state, (s) => s.outputs);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const hasVoicePermission = useStore(root.connection.conversation.permissions.state, s => s.records.some(r => r.sessionId === sessionId && !!r.word));
-  const timeline = useStore(root.connection.timeline.state, s => s.entries);
-  const entries = timeline.filter(entry => entry.sessionId === sessionId);
+  const timeline = useStore(transcriptTimelineFor(root.stores.chat).state, s => s.entries);
+  const entries = useMemo(() => timeline.filter(entry => entry.sessionId === sessionId), [timeline, sessionId]);
   const hasVoiceOutput = voiceOutputs.some((output) => output.sessionId === sessionId && output.generated);
 
   const clearMessages = useChatStore((s) => s.clearMessages);
@@ -200,7 +200,7 @@ export function ChatPage() {
     const el = scrollRef.current;
     scrollAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
     setVisibleCount((n) => n + WINDOW_STEP);
-  }, []);
+  }, [setVisibleCount]);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const anchor = scrollAnchorRef.current;
@@ -358,7 +358,7 @@ export function ChatPage() {
     // Consuming the restore re-runs this effect; only leaving the page ends the hold early.
     holdRef.current?.();
     holdRef.current = stop;
-  }, [root, pendingScroll, sessionId, messages, hiddenCount]);
+  }, [root, pendingScroll, sessionId, messages, hiddenCount, entries]);
 
   // A tracker for this session clears only once its latest turn is
   // actually on screen (D52 §4); selecting the session is not enough.
@@ -711,7 +711,7 @@ export function ChatPage() {
                     </div>
                   )}
                   {visibleEntries.map((entry) => {
-                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} output={entry.output} />;
+                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} output={entry.output} restored={entry.restored} />;
                     const msg = transcriptMessage(entry);
                     const index = entry.index;
                     return (
@@ -727,7 +727,7 @@ export function ChatPage() {
                         onAskUserListSubmit={handleAskUserListSubmit}
                         onAskUserRankSubmit={handleAskUserRankSubmit}
                         onAskUserFormSubmit={handleAskUserFormSubmit}
-                        closing={entry.section !== "progress" && entry.message === messages[messages.length - 1]}
+                        closing={entry.section !== "progress" && entry.message === messages[messages.length - 1] && (entry.section !== "answer" || entry.end === entry.message.parts.filter(p => p.kind === "text").reduce((n, p) => n + p.text.length, 0))}
                         anchor={entry.section === "answer" ? undefined : String(index)}
                       />
                       {/* Where this conversation was continued elsewhere (#61). */}

@@ -7,8 +7,6 @@ import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
-  /** Received only as retained history, without a locally observed arrival position. */
-  restored?: true;
   conversationId: string;
   sessionId: string | null;
 }
@@ -46,6 +44,15 @@ export interface ConversationClientState {
   outputs: ConversationClientOutput[];
   unassigned: UnassignedRecognition[];
   unassignedWork: number;
+}
+
+// Local presentation metadata is neither wire state nor a public output field.
+const restoredOutputs = new WeakSet<ConversationClientOutput>();
+export const isRestoredConversationOutput = (output: ConversationClientOutput) => restoredOutputs.has(output);
+function outputInSession(output: ConversationClientOutput, sessionId: string) {
+  const next = { ...output, sessionId };
+  if (restoredOutputs.has(output)) restoredOutputs.add(next);
+  return next;
 }
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
@@ -143,7 +150,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const p = scope();
     if (!p) return;
     const old = s.outputs.find((output) => output.conversationId === p.conversationId && output.epoch === epoch && output.outputId === outputId);
-    const next: ConversationClientOutput = { conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...(restored && !old ? { restored: true as const } : {}), ...old, ...patch };
+    const next: ConversationClientOutput = { conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
+    if (restored && !old || old && restoredOutputs.has(old)) restoredOutputs.add(next);
     state.setState({ outputs: old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next].slice(-128) });
   }
   function disclosureKey(profile: ServerConversationOpened) {
@@ -373,7 +381,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       || p?.conversationId !== work.conversationId || p.epoch !== work.epoch
       || s.sessionId !== null || root.stores.chat.getState().activeSessionId !== null) return;
     state.setState({ sessionId,
-      outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? { ...o, sessionId } : o),
+      outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? outputInSession(o, sessionId) : o),
       unassigned: s.unassigned.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
     });
     // This task has no reviewed composer draft. Materialize its own buffer so
@@ -394,7 +402,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
-        state.setState({ sessionId: message.sessionId, outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? { ...output, sessionId: message.sessionId } : output) });
+        state.setState({ sessionId: message.sessionId, outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
     }

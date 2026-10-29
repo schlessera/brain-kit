@@ -15,11 +15,11 @@ export function ConversationPermissionOutcomes({ sessionId }: { sessionId: strin
 }
 
 /** A display segment retains the engine's output identity and playback evidence. */
-export function ConversationOutput({ output }: { output: ConversationClientOutput }) {
+export function ConversationOutput({ output, restored = false }: { output: ConversationClientOutput; restored?: boolean }) {
   return <div className="py-4" data-conversation-output="" data-output-id={output.outputId}>
     <TurnHeader who="Brain" tone="brain" />
     <p className="whitespace-pre-wrap">{output.generated}</p>
-    <p className="mt-2 text-xs text-muted-foreground">{output.restored ? "Restored generated speech · original discussion position unknown · " : "Generated speech · "}{output.playback === "played" ? "received audio chunks played; spoken portion unknown" : output.playback === "discarded" ? "rest of reply · not spoken" : "spoken portion unknown"}</p>
+    <p className="mt-2 text-xs text-muted-foreground">{restored ? "Restored generated speech · original discussion position unknown · " : "Generated speech · "}{output.playback === "played" ? "received audio chunks played; spoken portion unknown" : output.playback === "discarded" ? "rest of reply · not spoken" : "spoken portion unknown"}</p>
   </div>;
 }
 

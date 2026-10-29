@@ -1,10 +1,12 @@
+import { isRestoredConversationOutput } from "../voice/conversation-client.js";
+import { rewriteTexts } from "./promoted-links.js";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ChatMessage, ChatState } from "../stores/chat-state.js";
 import type { ConversationClientState, ConversationClientOutput } from "../voice/conversation-client.js";
 
 export type TranscriptEntry =
   | { key: string; sessionId: string | null; kind: "message"; message: ChatMessage; index: number; section: "whole" | "progress" | "answer"; start?: number; end?: number }
-  | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput };
+  | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean };
 
 /**
  * Display order is first observation, not a clock or inferred voice/turn pairing.
@@ -24,15 +26,43 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
   };
   const split = new Set<string>();
   const runs = new Map<string, Array<{ key: string; start: number; end: number }>>();
-  let latest = "";
-  const segments = (key: string, length: number) => {
+  const textBefore = new Map<string, string>();
+  const latest = new Map<string | null, string>();
+  const segments = (key: string, text: string, sessionId: string | null, links?: Record<string, string>) => {
     const own = runs.get(key) ?? [];
+    const old = textBefore.get(key) ?? "";
+    if (text === old) return own;
+    const length = text.length;
+    textBefore.set(key, text);
+    if (own.length && !text.startsWith(old)) {
+      // Link promotion supplies exact edits. Other replacement snapshots have
+      // no new arrival evidence: rebase the existing contiguous ranges in place.
+      const rewrite = links ? rewriteTexts([old], links)[0] : undefined;
+      let edits = rewrite?.text === text ? rewrite.edits : undefined;
+      if (!edits) {
+        let start = 0, suffix = 0;
+        while (start < Math.min(old.length, length) && old[start] === text[start]) start++;
+        while (suffix < Math.min(old.length, length) - start && old[old.length - suffix - 1] === text[length - suffix - 1]) suffix++;
+        edits = [{ start, end: old.length - suffix, length: length - suffix - start }];
+      }
+      const rebase = (at: number) => {
+        let shift = 0;
+        for (const edit of edits) {
+          if (edit.end <= at) shift += edit.length - (edit.end - edit.start);
+          else if (edit.start < at) return edit.start + shift + edit.length;
+          else break;
+        }
+        return at + shift;
+      };
+      for (const run of own) { run.start = rebase(run.start); run.end = rebase(run.end); }
+      return own;
+    }
     const tail = own.at(-1);
     if (length > (tail?.end ?? 0)) {
-      if (tail && latest === tail.key) tail.end = length;
+      if (tail && latest.get(sessionId) === tail.key) tail.end = length;
       else {
         const segment = { key: JSON.stringify([key, own.length]), start: tail?.end ?? 0, end: length };
-        own.push(segment); position(segment.key); latest = segment.key;
+        own.push(segment); position(segment.key); latest.set(sessionId, segment.key);
       }
       runs.set(key, own);
     }
@@ -52,7 +82,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
         if (message.role === "user") contextual = message.source === "voice-context";
         const add = (section: "whole" | "progress" | "answer") => {
           const key = JSON.stringify(["message", message.id]);
-          if (!positions.has(key)) latest = key;
+          if (!positions.has(key)) latest.set(sessionId, key);
           position(key);
           entries.push({ kind: "message", key, sessionId, message, index, section });
         };
@@ -64,7 +94,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
           const text = message.parts.filter(p => p.kind === "text").map(p => p.text).join("");
           const key = JSON.stringify(["answer", message.id]);
           liveRuns.add(key);
-          for (const run of segments(key, text.length)) {
+          for (const run of segments(key, text, sessionId, message.linkRewrite?.links)) {
             entries.push({ kind: "message", sessionId, message, index, section: "answer", ...run });
           }
         } else add("whole");
@@ -74,8 +104,8 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       if (!output.generated) continue;
       const key = JSON.stringify(["speech", output.conversationId, output.epoch, output.outputId]);
       liveRuns.add(key);
-      for (const run of segments(key, output.generated.length)) {
-        entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", output: { ...output, generated: output.generated.slice(run.start, run.end) } });
+      for (const run of segments(key, output.generated, output.sessionId)) {
+        entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: isRestoredConversationOutput(output), output: { ...output, generated: output.generated.slice(run.start, run.end) } });
       }
     }
     entries.sort((a, b) => position(a.key) - position(b.key));
@@ -84,9 +114,11 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     if (!buffers.some(([, buffer]) => buffer?.replay)) {
       const liveKeys = new Set(entries.map(e => e.key));
       for (const key of positions.keys()) if (!liveKeys.has(key)) positions.delete(key);
-      for (const key of runs.keys()) if (!liveRuns.has(key)) runs.delete(key);
+      for (const key of runs.keys()) if (!liveRuns.has(key)) { runs.delete(key); textBefore.delete(key); }
       for (const id of split) if (!liveMessages.has(id)) split.delete(id);
     }
+    latest.clear();
+    for (const entry of entries) latest.set(entry.sessionId, entry.key);
     state.setState({ entries });
   };
   // Changes in selection, timers and microphone state need no transcript scan.
@@ -95,11 +127,11 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
   });
   const stopVoice = voice.subscribe((next, old) => { if (next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId) sync(); });
   sync();
-  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); runs.clear(); split.clear(); } };
+  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
 }
 
 /** Data-only display projections. Text ordinals stay intact for classified blocks. */
-export function transcriptMessage(entry: Extract<TranscriptEntry, { kind: "message" }>): ChatMessage {
+function projectTranscriptMessage(entry: Extract<TranscriptEntry, { kind: "message" }>): ChatMessage {
   const m = entry.message;
   if (entry.section === "whole") return m;
   if (entry.section === "answer") {
@@ -116,11 +148,39 @@ export function transcriptMessage(entry: Extract<TranscriptEntry, { kind: "messa
     });
     return {
       ...m, parts, content: parts.map(p => p.text).join(""), blocks, thinking: undefined,
-      toolCalls: [], askUserExchanges: undefined, journal: undefined, journalLive: undefined,
+      toolCalls: m.toolCalls, askUserExchanges: undefined, journal: undefined, journalLive: undefined,
       failure: undefined, retry: undefined,
     };
   }
   return {
     ...m, content: "", parts: m.parts.filter(p => p.kind !== "text"), blocks: undefined,
   };
+}
+
+
+const projections = new WeakMap<ChatMessage, Map<string, ChatMessage>>();
+/** Keep memoized message bubbles stable when only another arrival changes. */
+export function transcriptMessage(entry: Extract<TranscriptEntry, { kind: "message" }>): ChatMessage {
+  if (entry.section === "whole") return entry.message;
+  let own = projections.get(entry.message);
+  if (!own) { own = new Map(); projections.set(entry.message, own); }
+  const key = `${entry.section}:${entry.start}:${entry.end}`;
+  let projected = own.get(key);
+  if (!projected) { projected = projectTranscriptMessage(entry); own.set(key, projected); }
+  return projected;
+}
+
+
+// Concrete display state is private to the chat store's root, not a new public
+// connection API or a persisted transcript schema.
+const timelines = new WeakMap<StoreApi<ChatState>, ReturnType<typeof createTranscriptTimeline>>();
+export function transcriptTimelineFor(chat: StoreApi<ChatState>) {
+  const timeline = timelines.get(chat);
+  if (!timeline) throw new Error("Transcript timeline is not attached");
+  return timeline;
+}
+export function attachTranscriptTimeline(chat: StoreApi<ChatState>, voice: StoreApi<ConversationClientState>) {
+  const timeline = createTranscriptTimeline(chat, voice);
+  timelines.set(chat, timeline);
+  return { dispose() { timeline.dispose(); } };
 }

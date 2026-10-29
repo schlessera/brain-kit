@@ -1,4 +1,4 @@
-import { createTranscriptTimeline } from "./lib/transcript-timeline.js";
+import { attachTranscriptTimeline } from "./lib/transcript-timeline.js";
 import { createConversationClient } from "./voice/conversation-client.js";
 import { takeComposerTextAsAnswer } from "./lib/ask-user-typed.js";
 import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
@@ -76,7 +76,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       });
     }));
 
-  const timeline = createTranscriptTimeline(root.stores.chat, conversation.state);
+  const timeline = attachTranscriptTimeline(root.stores.chat, conversation.state);
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -982,8 +982,6 @@ export function createWebSocketClient(root: BrainUiServices) {
   const client = {
     /** @internal Concrete live voice controller; the ordinary chat path stays independent. */
     conversation,
-    /** @internal Root-owned arrival order for the scrolling transcript. */
-    timeline,
     connect,
     send: sendClientMessage,
     retryTurn,

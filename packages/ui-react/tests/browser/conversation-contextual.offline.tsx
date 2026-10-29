@@ -4,6 +4,7 @@ import { commands, userEvent, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -497,25 +498,25 @@ test("mixed transcript window, reading anchor, history resync and session isolat
   output("epoch-reused", "A continued discussion.");
   s.deliver({ type: "text_delta", sessionId: SESSION, text: " owl." });
   s.ui.connection.flushChatDeltas();
-  await expect.poll(() => s.host.textContent).toContain(" owl.");
+  await expect.poll(() => s.host.textContent).toContain("owl.");
   const entries = [...s.host.querySelectorAll(".chat-message-body,[data-conversation-output]")].map(n => n.textContent!.trim());
   expect(entries.findIndex(t => t === "The bronze")).toBeLessThan(entries.findIndex(t => t.includes("A continued discussion.")));
   expect(entries.findIndex(t => t === "owl.")).toBeGreaterThan(entries.findIndex(t => t.includes("A continued discussion.")));
-  const keys = s.ui.connection.timeline.state.getState().entries.map(e => e.key);
-  s.deliver({ type: "session_history", sessionId: SESSION, messages: [
-    { role: "user", content: "Find the departure note.", source: "voice-context", toolCalls: [] },
-    { role: "assistant", content: "The bronze owl.", turnId: "ithaca-task", toolCalls: [] },
-  ] });
-  await expect.poll(() => s.ui.connection.timeline.state.getState().entries.map(e => e.key)).toEqual(keys);
+  const keys = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key);
+  const snapshot = s.ui.stores.chat.getState().buffers[SESSION]!.messages;
+  s.deliver({ type: "session_history", sessionId: SESSION, messages: snapshot.map(m => ({
+    role: m.role, content: m.content, source: m.source, turnId: m.turnId, toolCalls: [],
+  })) });
+  await expect.poll(() => transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "epoch-reused", generated: "A continued discussion.", playback: "unknown" });
   output("stale", "A stale epoch must never appear.", 0);
-  expect(s.ui.connection.timeline.state.getState().entries.map(e => e.key)).toEqual(keys);
+  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
   expect(s.host.textContent).not.toContain("A stale epoch");
   s.ui.stores.chat.getState().setActiveSession("odysseus-pylos");
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(0);
   s.ui.stores.chat.getState().setActiveSession(SESSION);
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
-  expect(s.ui.connection.timeline.state.getState().entries.map(e => e.key)).toEqual(keys);
+  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
 });
 
 
