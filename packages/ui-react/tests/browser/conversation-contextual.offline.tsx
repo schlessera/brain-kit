@@ -1,9 +1,12 @@
 /// <reference types="@vitest/browser-playwright" />
+import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
 import { commands, userEvent, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { SHOW_BLOCK_CONTRACT, visibleToolName } from "@schlessera/brain-ui-sdk/client";
+import { BLOCKS, SUGGESTIONS } from "../block-fixtures.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -24,7 +27,16 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     await page.viewport(width, 568);
     ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
   }
-  const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
+  const renderRequests: Array<{ content: string; contentType: string; format: string }> = [];
+  const network = installFaultNetwork({ routes: (url, init) => {
+    if (url.pathname.endsWith("/render")) {
+      renderRequests.push(JSON.parse(String(init.body)));
+      // Serialization proof stops at the real request boundary, with no server
+      // renderer, download or device share sheet involved.
+      return Response.json({ error: "Odysseus export fixture stops after serialization" }, { status: 503 });
+    }
+    return url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined;
+  },
     onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
   const ui = createBrainUiRoot({ storage: null, request: network.request });
   ui.stores.chat.getState().setActiveSession(SESSION);
@@ -47,7 +59,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const audio = socket.frames("conversation_audio").at(-1)!;
     event({ kind: "input_fragment", utteranceId: String(audio.utteranceId), sequence: 0, text, finalization, certainty: "unknown", origin: "unknown" }, epoch);
   };
-  return { ui, client, host, socket, deliver, network, button, event, opened, enter, start, input };
+  return { ui, client, host, socket, deliver, network, renderRequests, button, event, opened, enter, start, input };
 }
 
 function controlledMicrophone(ctx: TestContext) {
@@ -265,6 +277,11 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   await s.pump([], true);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks.length === 2 && s.evidence().tasks.every((task: any) => task.completed); }).toBe(true);
   await expect.poll(async () => { await s.pump(); return s.upstream.some(f => f.toolResponse || f.type === "session.commentary.append"); }).toBe(true);
+  // The result arrived after four continued exchanges, not at its request's position.
+  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent?.includes("bronze owl")).toBe(true);
+  const transcript = s.host.querySelector('[data-reading-column]') ?? s.host;
+  const order = transcript.textContent!;
+  expect(order.indexOf("The departure signal is a bronze owl."), "new backend answer follows the already displayed fourth exchange").toBeGreaterThan(order.indexOf("Continuing the voyage conversation 4."));
   expect(s.evidence().effect).toBe(true);
   expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
   const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
@@ -284,6 +301,11 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   expect(s.socket.frames("conversation_start")).toHaveLength(1);
   expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
   expect(s.client.state.getState().active).toBe(true);
+  const answers = [...s.host.querySelectorAll(".chat-message-body")].filter(node => node.textContent?.includes("The host task has finished."));
+  expect(answers).toHaveLength(2);
+  const spoken = [...s.host.querySelectorAll("[data-conversation-output]")].findLast(node => node.textContent?.includes("bronze owl"))!;
+  expect(answers.at(-1)!.compareDocumentPosition(spoken) & Node.DOCUMENT_POSITION_FOLLOWING, "later spoken incorporation follows both actual host answers, even with GPT's epoch-wide output ID").toBeTruthy();
+  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/ordered-${provider}-${mode}.png` });
 });
 
 for (const provider of ["gemini", "gpt"] as const) for (const decision of ["confirm", "deny"] as const) test(`${provider} ordinary screen ${decision} stays pending while capture and dialogue continue`, async ctx => {
@@ -460,4 +482,376 @@ for (const reconnect of [false, true]) test(`typed legacy identity after context
   socket.deliver({ type: "text_delta", sessionId: "odysseus-typed-harbour", text: "The sheltered harbour is Ithaca." });
   s.ui.connection.flushChatDeltas();
   expect(s.ui.stores.chat.getState().buffers["odysseus-typed-harbour"]?.messages.at(-1)?.content).toBe("The sheltered harbour is Ithaca.");
+});
+
+
+test("mixed transcript window, reading anchor, history resync and session isolation", async ctx => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  await s.start();
+  s.client.mute();
+  const chat = s.ui.stores.chat.getState();
+  chat.addUserMessage(SESSION, "Find the departure note.", "voice-context");
+  chat.startAssistantMessage(SESSION, "ithaca-task");
+  const output = (id: string, text: string, epoch = 1) => s.event({ kind: "output_transcript", outputId: id, sequence: 0, text }, epoch);
+  for (let i = 0; i < 45; i++) output(`voyage-${i}`, `Voyage exchange ${i}.`);
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(40);
+  const scroll = s.host.querySelector('[data-conversation-output]')!.parentElement!.parentElement as HTMLElement;
+  scroll.scrollTop = 0;
+  scroll.dispatchEvent(new Event("scroll"));
+  const anchor = s.host.querySelector('[data-output-id="voyage-5"]')!;
+  const top = anchor.getBoundingClientRect().top;
+  await userEvent.click(page.getByRole("button", { name: /Show .*earlier/ }));
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(45);
+  expect(Math.abs(anchor.getBoundingClientRect().top - top), "revealing earlier mixed entries preserves the reading anchor").toBeLessThan(2);
+  s.deliver({ type: "text_delta", sessionId: SESSION, text: "The bronze" });
+  // Same turn as the following voice frame: buffered backend text must flush first.
+  output("epoch-reused", "A continued discussion.");
+  s.deliver({ type: "text_delta", sessionId: SESSION, text: " owl." });
+  s.ui.connection.flushChatDeltas();
+  await expect.poll(() => s.host.textContent).toContain("owl.");
+  const entries = [...s.host.querySelectorAll(".chat-message-body,[data-conversation-output]")].map(n => n.textContent!.trim());
+  expect(entries.findIndex(t => t === "The bronze")).toBeLessThan(entries.findIndex(t => t.includes("A continued discussion.")));
+  expect(entries.findIndex(t => t === "owl.")).toBeGreaterThan(entries.findIndex(t => t.includes("A continued discussion.")));
+  const keys = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key);
+  const snapshot = s.ui.stores.chat.getState().buffers[SESSION]!.messages;
+  s.deliver({ type: "session_history", sessionId: SESSION, messages: snapshot.map(m => ({
+    role: m.role, content: m.content, source: m.source, turnId: m.turnId, toolCalls: [],
+  })) });
+  await expect.poll(() => transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
+  s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "epoch-reused", generated: "A continued discussion.", playback: "unknown" });
+  output("stale", "A stale epoch must never appear.", 0);
+  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
+  expect(s.host.textContent).not.toContain("A stale epoch");
+  s.ui.stores.chat.getState().setActiveSession("odysseus-pylos");
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(0);
+  s.ui.stores.chat.getState().setActiveSession(SESSION);
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
+  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
+});
+
+
+test("cold restored speech explicitly has unknown original discussion position", async ctx => {
+  const s = await scene(ctx);
+  await s.enter();
+  s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
+  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("original discussion position unknown");
+  expect(s.client.state.getState().micOn).toBe(false);
+});
+
+
+async function arrivalProjectionScene(ctx: TestContext, contextual = true) {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  await s.start(); s.client.mute();
+  const chat = s.ui.stores.chat.getState();
+  chat.addUserMessage(SESSION, "Find the raft note.", contextual ? "voice-context" : undefined);
+  chat.startAssistantMessage(SESSION, "raft-projection-turn");
+  const delta = (text: string) => {
+    s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "raft-projection-turn", text });
+    s.ui.connection.flushChatDeltas();
+  };
+  const speech = () => s.event({ kind: "output_transcript", outputId: "raft-projection-speech", sequence: 0, text: "A calm sea while the task continues." });
+  const settle = () => s.deliver({ type: "status", sessionId: SESSION, turnId: "raft-projection-turn", status: "idle" });
+  return { ...s, delta, speech, settle };
+}
+
+for (const interleaved of [false, true]) test(`arrival projection recovers a leading prefix through production history replay, interleaved=${interleaved}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  if (interleaved) { s.delta("bronze"); s.speech(); s.delta(" owl"); } else s.delta("bronze owl");
+  const text = () => [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("");
+  await expect.poll(text).toBe("bronze owl");
+  const snapshot = s.ui.stores.chat.getState().buffers[SESSION]!.messages;
+  const id = snapshot.at(-1)!.id;
+  s.deliver({ type: "session_history", sessionId: SESSION, messages: snapshot.map((m, i) => ({
+    role: m.role, source: m.source, content: i === snapshot.length - 1 ? "The bronze owl" : m.content,
+    turnId: m.turnId, toolCalls: [],
+  })) });
+  expect(s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!.id).toBe(id);
+  await expect.poll(text).toBe("The bronze owl");
+});
+
+test("arrival projection preserves one complete Markdown link across speech and promotion", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("See [raft](");
+  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent).toBe("See");
+  s.speech();
+  s.delta("notes/raft.md) before sailing."); s.settle();
+  await expect.poll(() => s.host.querySelectorAll('a[href="#/files/notes/raft.md"]').length).toBe(1);
+  expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join(" ")).not.toContain("notes/raft.md)");
+  const link = s.host.querySelector('a[href="#/files/notes/raft.md"]')!;
+  expect(s.host.querySelector("[data-conversation-output]")!.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  s.deliver({ type: "message_links", sessionId: SESSION, turnId: "raft-projection-turn", links: [{ from: "notes/raft.md", to: "notes/odysseus-raft.md" }] });
+  await expect.poll(() => s.host.querySelectorAll('a[href="#/files/notes/odysseus-raft.md"]').length).toBe(1);
+  expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(0);
+});
+
+for (const precedingPart of [false, true]) test(`arrival projection retains a classified table spanning speech exactly once, preceding part=${precedingPart}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const table = "| Island | Nights |\n| --- | ---: |\n| Ogygia | 2555 |";
+  if (precedingPart) {
+    s.delta("The island watch follows.");
+    s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", toolName: "Read" });
+    s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", toolName: "Read", input: { path: "notes/raft.md" } });
+    s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", output: "The island watch note is ready.", isError: false });
+  }
+  s.delta(table.slice(0, 24)); s.speech(); s.delta(table.slice(24)); s.settle();
+  s.deliver({ type: "message_blocks", sessionId: SESSION, turnId: "raft-projection-turn", blocks: [{ partIndex: precedingPart ? 1 : 0, start: 0, end: table.length, confidence: 1, block: BLOCKS.table }] });
+  await expect.poll(() => s.host.querySelectorAll('[data-classified-block="table"]').length).toBe(1);
+  expect(s.host.querySelector('[data-classified-block="table"]')!.textContent).toContain("Aeaea");
+  expect(s.host.querySelector('[data-classified-block="table"]')!.textContent).toContain("Ogygia");
+  expect(s.host.querySelectorAll(".chat-message-body .brain-prose table")).toHaveLength(0);
+  const words = [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("");
+  expect(words.match(/Aeaea/g)).toHaveLength(1);
+  expect(words.match(/Ogygia/g)).toHaveLength(1);
+  expect(words).not.toContain("| Island |");
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+
+for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "share", "footnotes", "bare", "wiki"] as const) test(`arrival Markdown context across speech: ${shape}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const cases = {
+    footnotes: { text: "Odysseus[^watch] and Penelope[^watch].\n\n[^watch]: Bronze owl.", at: 16, words: "Bronze owl." },
+    bare: { text: "See notes/raft.md before sailing.", at: 12, words: "See notes/raft.md before sailing." },
+    wiki: { text: "See [[notes/raft.md|raft]] before sailing.", at: 15, words: "See raft before sailing." },
+    emphasis: { text: "Before **bronze owl** after.", at: 15, words: "Before bronze owl after." },
+    reference: { text: "See [raft][note].\n\n[note]: notes/raft.md", at: 10, words: "See raft." },
+    autolink: { text: "See https://example.org/raft before sailing.", at: 16, words: "See" },
+    escape: { text: "Bronze &amp; olive \\*watch\\*.", at: 10, words: "Bronze & olive *watch*." },
+    code: { text: "Use `notes/raft.md` for the watch.", at: 12, words: "Use notes/raft.md for the watch." },
+    share: { text: '<share format="text" title="Raft">A bronze owl. <script>globalThis.odysseusRangeExecuted = true</script></share>', at: 39, words: "A bronze owl." },
+  };
+  const sample = cases[shape];
+  s.delta(sample.text.slice(0, sample.at)); s.speech(); s.delta(sample.text.slice(sample.at)); s.settle();
+  await expect.poll(() => [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("")).toContain(sample.words);
+  if (shape === "emphasis") expect([...s.host.querySelectorAll(".chat-message-body strong")].map(n => n.textContent).join("")).toBe("bronze owl");
+  if (shape === "reference" || shape === "code" || shape === "bare" || shape === "wiki") expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
+  if (shape === "autolink") expect(s.host.querySelectorAll('a[href="https://example.org/raft"]')).toHaveLength(1);
+  if (shape === "footnotes") {
+    expect(s.host.querySelectorAll("[data-footnotes]")).toHaveLength(1);
+    expect(s.host.querySelectorAll('[id="user-content-fn-watch"]')).toHaveLength(1);
+    expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/Bronze owl\./g)).toHaveLength(1);
+  }
+  if (shape === "share") {
+    expect(page.getByRole("button", { name: "Share as plain text", exact: true }).elements()).toHaveLength(1);
+    expect(s.host.querySelectorAll(".chat-message-body script")).toHaveLength(0);
+    expect((globalThis as typeof globalThis & { odysseusRangeExecuted?: boolean }).odysseusRangeExecuted).toBeUndefined();
+  }
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+
+test("a growing Markdown table retains its first source anchor across speech", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("| Island | Watch |\n| --- | --- |\n| Ithaca | Dawn |\n");
+  await expect.poll(() => s.host.querySelectorAll(".brain-prose table").length).toBe(1);
+  const first = s.host.querySelector(".brain-prose table")!.closest(".chat-message-body")!;
+  s.speech(); s.delta("| Pylos | Dusk |\n"); s.settle();
+  await expect.poll(() => first.textContent).toContain("Dusk");
+  expect(s.host.querySelectorAll(".brain-prose table")).toHaveLength(1);
+  expect(first.compareDocumentPosition(s.host.querySelector("[data-conversation-output]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/Ithaca/g)).toHaveLength(1);
+});
+
+test("rich-text copy contains the entire interleaved answer", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("The bronze owl. "); s.speech(); s.delta("The watch is ready."); s.settle();
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  const descriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, "write");
+  let copied: ClipboardItem[] = [];
+  Object.defineProperty(navigator.clipboard, "write", { configurable: true, value: async (items: ClipboardItem[]) => { copied = items; } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(navigator.clipboard, "write", descriptor); else Reflect.deleteProperty(navigator.clipboard, "write"); });
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+  await userEvent.click(page.getByRole("menuitem", { name: /Copy as rich text/ }));
+  await expect.poll(() => copied.length).toBe(1);
+  const html = await (await copied[0]!.getType("text/html")).text();
+  const plain = await (await copied[0]!.getType("text/plain")).text();
+  expect(plain).toContain("The bronze owl.");
+  expect(plain).toContain("The watch is ready.");
+  expect(html).toContain("The bronze owl.");
+  expect(html).toContain("The watch is ready.");
+});
+
+for (const format of ["png", "pdf"] as const) for (const toolBacked of [false, true]) test(`arrival export preserves original classified and tool blocks: ${format}, tool-backed=${toolBacked}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const table = "| Island | Nights |\n| --- | ---: |\n| Ogygia | 2555 |";
+  s.delta(table);
+  if (toolBacked) {
+    s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-block", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude") });
+    s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-block", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude"), input: {} });
+    s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-block", output: JSON.stringify({ block: BLOCKS.quote }), isError: false });
+  }
+  s.speech(); s.delta("\n\nThe watch is ready.");
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(0);
+  s.settle();
+  s.deliver({ type: "message_blocks", sessionId: SESSION, turnId: "raft-projection-turn", blocks: [{partIndex:0,start:0,end:table.length,confidence:1,block:BLOCKS.table}] });
+  await expect.poll(() => s.host.querySelectorAll('[data-classified-block="table"]').length).toBe(1);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+  await userEvent.click(page.getByRole("menuitem", { name: format === "png" ? /Image \(PNG\)/ : /PDF/ }));
+  await expect.poll(() => s.renderRequests.length).toBe(1);
+  const request = s.renderRequests[0]!;
+  expect(request).toMatchObject({ format, contentType: "markdown" });
+  expect(request.content.match(/data-block="table"/g)).toHaveLength(1);
+  expect(request.content).toContain("Aeaea");
+  expect(request.content).not.toContain("| Island |");
+  expect(request.content).toContain("The watch is ready.");
+  if (toolBacked) {
+    expect(request.content.match(/data-block="quote"/g)).toHaveLength(1);
+    expect(request.content.indexOf('data-block="table"')).toBeLessThan(request.content.indexOf('data-block="quote"'));
+    expect(request.content.indexOf('data-block="quote"')).toBeLessThan(request.content.indexOf("The watch is ready."));
+  }
+  await expect.poll(() => s.host.querySelector('[title="Render failed (503): Odysseus export fixture stops after serialization"]')).not.toBeNull();
+  const descriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, "write");
+  let copied: ClipboardItem[] = [];
+  Object.defineProperty(navigator.clipboard, "write", { configurable: true, value: async (items: ClipboardItem[]) => { copied = items; } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(navigator.clipboard, "write", descriptor); else Reflect.deleteProperty(navigator.clipboard, "write"); });
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+  await userEvent.click(page.getByRole("menuitem", { name: /Copy as rich text/ }));
+  await expect.poll(() => copied.length).toBe(1);
+  const html = await (await copied[0]!.getType("text/html")).text();
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  expect(doc.querySelectorAll('[data-block="table"]')).toHaveLength(1);
+  expect(doc.body.textContent).toContain("Aeaea");
+  expect(doc.body.textContent).toContain("The watch is ready.");
+  if (toolBacked) expect(doc.querySelectorAll('[data-block="quote"]')).toHaveLength(1);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+
+test("all closing copy actions retain multi-arrival reference syntax and safe full-answer HTML", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("See [raft][note]. "); s.speech();
+  s.delta("The bronze owl. <script>globalThis.odysseusUnsafe = true</script>\n\n");
+  s.event({ kind: "output_transcript", outputId: "raft-projection-speech", sequence: 1, text: "The sea stays calm." });
+  s.delta("The watch is ready.\n\n[note]: notes/raft.md\n\n```text\n<b>Odysseus</b>\n```\n\n[unsafe](javascript:odysseusUnsafe())");
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(0);
+  s.settle();
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  const original = s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!;
+  const shares: ShareData[] = [];
+  const copied: ClipboardItem[] = [];
+  const descriptors = [
+    [navigator, "share"], [navigator, "canShare"], [navigator.clipboard, "write"],
+  ] as const;
+  for (const [owner, key] of descriptors) {
+    const descriptor = Object.getOwnPropertyDescriptor(owner, key);
+    ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(owner, key, descriptor); else Reflect.deleteProperty(owner, key); });
+  }
+  Object.defineProperty(navigator, "share", { configurable: true, value: async (data: ShareData) => { shares.push(data); } });
+  Object.defineProperty(navigator, "canShare", { configurable: true, value: () => true });
+  Object.defineProperty(navigator.clipboard, "write", { configurable: true, value: async (items: ClipboardItem[]) => { copied.push(...items); } });
+  const choose = async (name: RegExp) => {
+    await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Share message"]')!);
+    await userEvent.click(page.getByRole("menuitem", { name }));
+  };
+  await choose(/Markdown source/);
+  await expect.poll(() => shares.length).toBe(1);
+  expect(await shares[0]!.files![0]!.text()).toBe(original.content);
+  await choose(/Plain text/);
+  await expect.poll(() => shares.length).toBe(2);
+  expect(shares[1]!.text).toContain("The bronze owl.");
+  expect(shares[1]!.text).toContain("The watch is ready.");
+  await choose(/Copy as rich text/);
+  await expect.poll(() => copied.length).toBe(1);
+  const html = await (await copied[0]!.getType("text/html")).text();
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  expect(doc.body.textContent).toContain("The bronze owl.");
+  expect(doc.body.textContent).toContain("The watch is ready.");
+  expect(doc.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
+  expect(doc.querySelectorAll("script,iframe,[onclick],[onerror]")).toHaveLength(0);
+  expect(doc.querySelector("code")!.textContent).toContain("<b>Odysseus</b>");
+  expect([...doc.querySelectorAll("a")].some(a => a.getAttribute("href")?.startsWith("javascript:"))).toBe(false);
+  expect(Reflect.get(globalThis, "odysseusUnsafe")).toBeUndefined();
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+  expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/The bronze owl/g)).toHaveLength(1);
+});
+
+
+for (const contextual of [false, true]) test(`closing follow-ups use original answer identity and preserve voice-context suppression: ${contextual}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx, contextual);
+  s.delta("The bronze owl. ");
+  s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-next", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude") });
+  s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-next", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude"), input: {} });
+  s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-next", output: JSON.stringify({ block: SUGGESTIONS }), isError: false });
+  s.speech(); s.delta("The watch is ready.");
+  expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
+  s.settle();
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
+  s.client.leave();
+  await expect.poll(() => s.ui.stores.voice.getState().mode).toBe("idle");
+  if (contextual) {
+    expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
+  } else {
+    await expect.poll(() => s.host.querySelectorAll('[aria-label="Suggested follow-ups"]').length).toBe(1);
+    await userEvent.click(page.getByRole("button", { name: SUGGESTIONS.items[0]!.label }));
+    await expect.poll(() => [...s.host.querySelectorAll("textarea")].some(node => node.value.includes(SUGGESTIONS.items[0]!.label))).toBe(true);
+    expect(s.socket.frames("chat_message")).toHaveLength(0);
+  }
+});
+
+for (const initial of [1,3]) test(`ordered steps keep their source ordinals across speech, start=${initial}`, async ctx => {
+  const s=await arrivalProjectionScene(ctx);
+  s.delta(`${initial}. Inspect the bronze owl.\n`); s.speech(); s.delta(`${initial+1}. Raise the olive branch.`); s.settle();
+  await expect.poll(()=>s.host.querySelectorAll('.chat-message-body ol > li').length).toBe(2);
+  const items=[...s.host.querySelectorAll<HTMLLIElement>('.chat-message-body ol > li')];
+  const ordinals=items.map(li=>li.hasAttribute('value') ? li.value : (li.parentElement as HTMLOListElement).start+[...li.parentElement!.children].indexOf(li));
+  expect(ordinals).toEqual([initial,initial+1]);
+});
+
+for (const split of [false,true]) for (const partial of [false,true]) test(`latest failed turn retains Retry after Leave: split=${split}, partial=${partial}`, async ctx => {
+  const s=split ? await arrivalProjectionScene(ctx,false) : await scene(ctx,390,true);
+  if(!split) { s.ui.stores.chat.getState().addUserMessage(SESSION,"Find the raft note."); s.ui.stores.chat.getState().startAssistantMessage(SESSION,"raft-projection-turn"); }
+  if(partial) {s.deliver({type:"text_delta",sessionId:SESSION,turnId:"raft-projection-turn",text:"The bronze owl."});s.ui.connection.flushChatDeltas();}
+  s.deliver({type:"status",sessionId:SESSION,turnId:"raft-projection-turn",status:"idle"});
+  s.deliver({type:"result",sessionId:SESSION,turnId:"raft-projection-turn",outcome:"error",isError:true,durationMs:800,numTurns:1,retryOfTurnId:"raft-projection-turn",failure:{errorClass:"server_error",status:529,message:"The storm interrupted the watch."}});
+  if(split) s.client.leave();
+  await expect.poll(()=>s.host.querySelectorAll('[data-turn-failure="server_error"]').length).toBe(1);
+  const original=s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!;
+  expect(original.retryOfTurnId).toBe("raft-projection-turn");
+  expect([...s.host.querySelectorAll('[role="button"],button')].filter(n=>n.textContent==='Retry')).toHaveLength(1);
+  await userEvent.click(page.getByRole("button", { name: "Retry", exact: true }));
+  await expect.poll(() => s.socket.frames("retry_turn").length).toBe(1);
+  expect(s.socket.frames("retry_turn")[0]).toMatchObject({ sessionId: SESSION, failedTurnId: "raft-projection-turn", requestId: expect.any(String) });
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+
+test("projected failure actions remain scoped to the latest original turn and selected session", async ctx => {
+  const s = await arrivalProjectionScene(ctx, false);
+  s.delta("The bronze owl."); s.speech(); s.delta(" The watch."); s.settle();
+  s.deliver({ type: "result", sessionId: SESSION, turnId: "raft-projection-turn", outcome: "error", isError: true, durationMs: 800, numTurns: 1, retryOfTurnId: "raft-projection-turn", failure: { errorClass: "server_error", status: 529, message: "The storm interrupted the watch." } });
+  s.client.leave();
+  const retries = () => [...s.host.querySelectorAll('[role="button"],button')].filter(n => n.textContent === "Retry");
+  await expect.poll(() => retries().length, { message: "initial latest failure offers Retry" }).toBe(1);
+  const chat = s.ui.stores.chat.getState();
+  chat.setActiveSession("pylos-watch");
+  await expect.poll(() => s.host.querySelectorAll("[data-turn-failure]").length).toBe(0);
+  expect(s.ui.connection.retryTurn("raft-projection-turn")).toBe("refused");
+  chat.setActiveSession(SESSION);
+  await expect.poll(() => retries().length, { message: "returning to the original session retains Retry" }).toBe(1);
+  chat.addUserMessage(SESSION, "Count the ships instead.");
+  await expect.poll(() => retries().length).toBe(0);
+  expect(s.host.querySelectorAll("[data-turn-failure]")).toHaveLength(1);
+  expect(s.ui.connection.retryTurn("raft-projection-turn")).toBe("refused");
+  expect(s.socket.frames("retry_turn")).toHaveLength(0);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+for (const nested of [false, true]) test(`ordered list metadata survives nested and independent lists across three arrivals: ${nested}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const chunks = nested ? ["3. Inspect the bronze owl.\n\n   5. Check the watch.\n", "   6. Raise the olive branch.\n4. Sail home.\n\nAnother watch:\n\n8. Count ships.\n", "9. Mark the harbour."]
+    : ["4. Inspect the bronze ", "owl.\n5. Raise the branch.\n\nAnother watch:\n\n8. Count ships.\n", "9. Mark the harbour."];
+  s.delta(chunks[0]!); s.speech(); s.delta(chunks[1]!);
+  s.event({ kind: "output_transcript", outputId: "raft-projection-speech", sequence: 1, text: "The sea stays calm." });
+  s.delta(chunks[2]!); s.settle();
+  const numbered = () => [...s.host.querySelectorAll<HTMLLIElement>(".chat-message-body ol > li")].filter(li => {
+    const own = li.cloneNode(true) as HTMLElement;
+    own.querySelectorAll("ol,ul").forEach(n => n.remove());
+    return !!own.textContent?.trim();
+  }).map(li => li.hasAttribute("value") ? li.value : (li.parentElement as HTMLOListElement).start + [...li.parentElement!.children].indexOf(li));
+  await expect.poll(numbered).toEqual(nested ? [3, 5, 6, 4, 8, 9] : [4, 4, 5, 8, 9]);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
 });

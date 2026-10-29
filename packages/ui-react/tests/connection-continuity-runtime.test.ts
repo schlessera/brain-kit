@@ -1000,6 +1000,10 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       // proof (#1854); a synchronous status receipt is not a storage drain.
       await settle(page, "releasedSnapshot");
       expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the delayed snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
+      const anchors = await page.locator("[data-reading-column] [data-transcript-anchor]").evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("data-transcript-anchor"))));
+      // A failed read need not recover the peer's user yet. Any rows it does
+      // prove must follow the store's source order, not their delivery order.
+      expect(anchors, "recovered user rows precede the live answer without changing its node").toEqual(anchors.toSorted((a, b) => a - b));
       expect(advance.has(activePrompt)).toBe(true); advance.get(activePrompt)!();
       await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
       expect(await page.evaluate(() => {
