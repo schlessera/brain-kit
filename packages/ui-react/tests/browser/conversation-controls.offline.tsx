@@ -179,7 +179,13 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   const controls = page.getByRole("button", { name: "Resume microphone" }).element().getBoundingClientRect();
   expect(diagnosticBounds.top).toBeGreaterThanOrEqual(s.strip().getBoundingClientRect().top);
   expect(diagnosticBounds.bottom, "the complete device notice fits above sticky controls").toBeLessThanOrEqual(controls.top);
-  if (scale === 2) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`notice-review-${theme}`);
+  if (scale === 2) {
+    // The reference captures hover plus keyboard focus. Pin both inputs:
+    // earlier permission-card clicks move when transcript arrival layout changes.
+    await userEvent.hover(details);
+    expect(details.matches(":hover")).toBe(true);
+    await expect(page.elementLocator(s.strip())).toMatchScreenshot(`notice-review-${theme}`);
+  }
   await s.capture("notice-review-permission");
   await userEvent.click(page.getByRole("button", { name: /^Deny/ }));
   expect(s.network.socket()!.frames("tool_denial")).toHaveLength(1);
