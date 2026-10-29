@@ -1,0 +1,69 @@
+name: Temporary reference-pool measurements 3129 (never merge)
+on:
+  push:
+    branches: [diag/3129-hosted-reference-pool]
+permissions:
+  contents: read
+concurrency:
+  group: diag-3129-hosted-reference-pool
+  cancel-in-progress: false
+jobs:
+  sample:
+    if: github.event_name == 'push' && github.event.created == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      DIAG_SHARD: ${{ matrix.shard }}
+      DIAG_SAMPLES: "4"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Exact source and kernel admission
+        run: |
+          python3 .diagnostic/hosted.py init
+          python3 .diagnostic/hosted.py admit
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Independent frozen dependencies
+        run: bun install --frozen-lockfile --backend=copyfile
+      - name: Original native prerequisites
+        timeout-minutes: 12
+        run: bash scripts/ci-runtime-setup.sh --native
+      - name: Actual tool and destination admission
+        run: python3 .diagnostic/hosted.py environment
+      - name: At most four fresh full reference fixtures
+        timeout-minutes: 11
+        run: bash .diagnostic/sample.sh
+      - name: Preserve all started outcomes and hash every payload file
+        if: always()
+        run: sudo --preserve-env=GITHUB_STEP_SUMMARY python3 .diagnostic/hosted.py finalize
+      - name: All diagnostic and original reference-pool receipts
+        id: evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diag-3129-shard-${{ matrix.shard }}
+          path: |
+            tmp/diag-3129/
+            tmp/reference-pool-proof/
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+      - name: Retain service archive digest
+        if: always()
+        env:
+          DIAG_ARCHIVE_SHA256: ${{ steps.evidence.outputs.artifact-digest }}
+          DIAG_ARTIFACT_ID: ${{ steps.evidence.outputs.artifact-id }}
+        run: |
+          [[ "$DIAG_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'DIAGNOSTIC_ARCHIVE_DIGEST_MISSING' >&2; exit 1; }
+          [[ "$DIAG_ARTIFACT_ID" =~ ^[0-9]+$ ]] || { echo 'DIAGNOSTIC_ARTIFACT_ID_MISSING' >&2; exit 1; }
+          printf 'Diagnostic artifact %s SHA-256 %s\n' "$DIAG_ARTIFACT_ID" "$DIAG_ARCHIVE_SHA256" >> "$GITHUB_STEP_SUMMARY"

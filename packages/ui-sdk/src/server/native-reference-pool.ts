@@ -454,8 +454,8 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     }
   } catch (error) { index.close(); closeSync(stateFd); throw error; }
 
-  async function observe(signal?: AbortSignal): Promise<PoolObservation> {
-    const result = await helper(["observe", pool.storePath, pool.fsid, String(4 * pool.maxIdentities + 64)], signal);
+  async function observe(signal?: AbortSignal, diagnostic?: { operation: string; id: string; from: string }): Promise<PoolObservation> {
+    const result = await helper(["observe", pool.storePath, pool.fsid, String(4 * pool.maxIdentities + 64), JSON.stringify(diagnostic ?? null)], signal);
     return parsePoolObservation(result.value);
   }
   async function physical(signal?: AbortSignal): Promise<NonNullable<NativePoolStatus["physical"]>> {
@@ -557,8 +557,8 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   function emergencyAllocated(dataFactor: number): number {
     try { return lstatSync(emergency).blocks * 512 * dataFactor; } catch { return 0; }
   }
-  async function measure(signal?: AbortSignal) {
-    const observation = await observe(signal), places = { viewDirIds: viewDirIds(), accessDirIds: accessDirIds() };
+  async function measure(signal?: AbortSignal, diagnostic?: { operation: string; id: string; from: string }) {
+    const observation = await observe(signal, diagnostic), places = { viewDirIds: viewDirIds(), accessDirIds: accessDirIds() };
     await reconcile(observation, places, signal);
     const result = referencePoolAccounting({ observation, intents: [...intents.values()], limits: pool, rootsDirId, ...places,
       emergencyAllocatedBytes: emergencyAllocated(profileFactor(observation.spaces.data.profiles[0] ?? "") || 1) });
@@ -805,7 +805,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     const worktree = intents.get(request.from);
     if (!worktree || worktree.purpose !== "worktree" || worktree.state !== "writable")
       throw new NativeBrainManagerError("unknown", "A worktree checkpoint requires one retained writable worktree root.");
-    const measured = await measure(signal), refreshed = intents.get(request.id);
+    const measured = await measure(signal, { operation: "poolCheckpoint", id: request.id, from: request.from }), refreshed = intents.get(request.id);
     if (refreshed?.state === "sealed") return checkpointRecord(refreshed, signal);
     if (measured.refusal) throw new NativeBrainManagerError(measured.refusal.code === "changing" ? "unavailable" : measured.refusal.code === "capacity" ? "capacity" : measured.refusal.code === "unsupported" ? "unsupported" : "unknown", measured.refusal.message);
     if (!refreshed) {

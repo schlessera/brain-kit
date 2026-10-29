@@ -75,17 +75,17 @@ command=sys.argv[1]
 if command=="observe":
  pool,fsid,limit=sys.argv[2],sys.argv[3],int(sys.argv[4])
  if not re.fullmatch(r"[0-9a-f-]{36}",fsid): raise RuntimeError("invalid pool fsid")
- fd=opendir(pool); base="/sys/fs/btrfs/"+fsid
+ fd=opendir(pool); base="/sys/fs/btrfs/"+fsid; exec(compile(open("/repo/.diagnostic/recorder.py",encoding="utf8").read(),"/repo/.diagnostic/recorder.py","exec"))
  try:
   # A committed transaction runs delayed references, so the squota counters
   # and space_info totals describe one settled state unless writers race it.
-  fcntl.ioctl(fd,SYNC)
+  _diag.sync_start=time.monotonic_ns(); fcntl.ioctl(fd,SYNC); _diag.sync_done=time.monotonic_ns()
   reads=0
   for _ in range(4):
    first=snapshot(fd,base,limit); second=snapshot(fd,base,limit); reads+=2
    if first==second: print(json.dumps({"stable":True,"reads":reads,**first})); break
   else: print(json.dumps({"stable":False,"reads":reads,**second}))
- finally: os.close(fd)
+ finally: _diag.finish(globals()); os.close(fd)
 elif command=="inspect": print(json.dumps(info(sys.argv[2])))
 elif command=="create":
  parent,name,limit,qgroup,source=sys.argv[2],sys.argv[3],int(sys.argv[4]),int(sys.argv[5]),sys.argv[6]

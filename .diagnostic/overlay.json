@@ -1,0 +1,20 @@
+{
+  "files": [
+    ".diagnostic/SHA256SUMS",
+    ".diagnostic/fixture_admit.py",
+    ".diagnostic/hosted.py",
+    ".diagnostic/overlay.json",
+    ".diagnostic/recorder.py",
+    ".diagnostic/sample.sh",
+    ".diagnostic/source-inventory.json",
+    ".github/workflows/diag-3129.yml",
+    "packages/ui-sdk/src/server/native-reference-pool-helper.ts",
+    "packages/ui-sdk/src/server/native-reference-pool.ts",
+    "scripts/native-proof/reference-pool-fixture.py",
+    "scripts/native-proof/reference-pool.native.ts"
+  ],
+  "matrixJobs": 4,
+  "maximumFullScripts": 16,
+  "maximumPerJob": 4,
+  "temporaryBranch": "diag/3129-hosted-reference-pool"
+}

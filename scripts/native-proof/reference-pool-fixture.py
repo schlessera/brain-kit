@@ -78,7 +78,7 @@ try:
     (BACKING / "ledger").mkdir(mode=0o755)
     record("provisioned", store=str(STORE), pool=str(POOL), mode=pathlib.Path("/sys/fs/btrfs").joinpath(
         subprocess.check_output(["btrfs", "filesystem", "show", "--raw", str(POOL)]).decode().split("uuid: ")[1].split()[0], "qgroups/mode").read_text().strip())
-    env = dict(os.environ, BRAIN_REFERENCE_POOL_ARTIFACTS=str(ROOT))
+    exec(compile(pathlib.Path("/repo/.diagnostic/fixture_admit.py").read_text(),"/repo/.diagnostic/fixture_admit.py","exec"),globals()); env = dict(os.environ, BRAIN_REFERENCE_POOL_ARTIFACTS=str(ROOT))
     run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/" + PROOF], timeout=PROOFS[PROOF], env=env)
 except BaseException as error:
     failure = error

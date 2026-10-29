@@ -649,7 +649,7 @@ const shapes = await create("staging", 32 * MIB);
     expect((await records()).find(record => record.id === edited.id)?.access, "REFERENCE_WORKTREE_NATIVE_PARKED_AFTER_TURN").toBeNull();
     expect((await records()).filter(record => record.purpose === "checkpoint" && record.state === "sealed" && record.from === edited.id).length,
       "REFERENCE_WORKTREE_NATIVE_JOURNAL_CHECKPOINTS_RELEASED").toBe(1);
-    const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id });
+    writeFileSync("/proof/diagnostic-arm.json", JSON.stringify({ phase: "case18-edited-release", worktreeId: edited.id, wall: Date.now() }), { flag: "wx", mode: 0o600 }); const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id }); unlinkSync("/proof/diagnostic-arm.json");
     note("worktree-released", { cleanup: released.cleanup });
     expect(released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 3, eligible: false,
       sample: ["odyssey", "odyssey/argos.md", "odyssey/book-0/line-0.md"] });
