@@ -11,8 +11,8 @@ export default defineConfig({
   resolve: { dedupe: ["react", "react-dom"] },
   optimizeDeps: {
     // Bundle ui-react dependencies before browser tests start. In particular,
-    // late PDF discovery can invalidate React URLs while a lazy graph imports
+    // late PDF or Markdown decoder discovery can invalidate React URLs while a lazy graph imports
     // into an executing test (#1897). Dedupe alone cannot preserve that identity.
-    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "saxes", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "rehype-highlight", "remark-gfm", "tailwind-merge", "pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"],
+    include: ["react", "react-dom", "react-dom/client", "react-dom/server", "zustand", "zustand/vanilla", "zustand/react/shallow", "zod", "saxes", "lucide-react", "mermaid", "clsx", "framer-motion", "react-markdown", "micromark-util-decode-string", "rehype-highlight", "remark-gfm", "tailwind-merge", "pdfjs-dist/legacy/build/pdf.mjs", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"],
   },
 });

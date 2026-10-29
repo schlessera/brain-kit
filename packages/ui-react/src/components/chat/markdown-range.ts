@@ -88,8 +88,29 @@ export function rehypeMarkdownRange({ source, start, end, fileLinks }: MarkdownR
         return value ? { ...node, value } : null;
       }
       if (node.children) {
-        const children = node.children.flatMap(child => { const kept = select(child, from ?? parentStart); return kept ? [kept] : []; });
-        return children.length || node.type === "root" ? { ...node, children } : null;
+        const ordered = node.tagName === "ol";
+        const reversed = node.properties?.reversed === true;
+        const startValue = Number(node.properties?.start);
+        let ordinal = Number.isFinite(startValue) ? startValue : reversed ? node.children.filter(child => child.tagName === "li").length : 1;
+        let firstOrdinal: number | undefined;
+        const children: MarkdownNode[] = [];
+        for (const child of node.children) {
+          const item = ordered && child.tagName === "li";
+          const explicit = Number(child.properties?.value);
+          if (item && Number.isFinite(explicit)) ordinal = explicit;
+          const kept = select(child, from ?? parentStart);
+          if (kept) {
+            if (item) {
+              firstOrdinal ??= ordinal;
+              // Keep source numbering even if earlier siblings were selected
+              // in another arrival, or an explicit item value resets the count.
+              children.push({ ...kept, properties: { ...kept.properties, value: ordinal } });
+            } else children.push(kept);
+          }
+          if (item) ordinal += reversed ? -1 : 1;
+        }
+        const properties = firstOrdinal === undefined ? node.properties : { ...node.properties, start: firstOrdinal };
+        return children.length || node.type === "root" ? { ...node, properties, children } : null;
       }
       return ownsEnd(to!) ? node : null;
     };

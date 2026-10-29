@@ -791,3 +791,67 @@ for (const contextual of [false, true]) test(`closing follow-ups use original an
     expect(s.socket.frames("chat_message")).toHaveLength(0);
   }
 });
+
+for (const initial of [1,3]) test(`ordered steps keep their source ordinals across speech, start=${initial}`, async ctx => {
+  const s=await arrivalProjectionScene(ctx);
+  s.delta(`${initial}. Inspect the bronze owl.\n`); s.speech(); s.delta(`${initial+1}. Raise the olive branch.`); s.settle();
+  await expect.poll(()=>s.host.querySelectorAll('.chat-message-body ol > li').length).toBe(2);
+  const items=[...s.host.querySelectorAll<HTMLLIElement>('.chat-message-body ol > li')];
+  const ordinals=items.map(li=>li.hasAttribute('value') ? li.value : (li.parentElement as HTMLOListElement).start+[...li.parentElement!.children].indexOf(li));
+  expect(ordinals).toEqual([initial,initial+1]);
+});
+
+for (const split of [false,true]) for (const partial of [false,true]) test(`latest failed turn retains Retry after Leave: split=${split}, partial=${partial}`, async ctx => {
+  const s=split ? await arrivalProjectionScene(ctx,false) : await scene(ctx,390,true);
+  if(!split) { s.ui.stores.chat.getState().addUserMessage(SESSION,"Find the raft note."); s.ui.stores.chat.getState().startAssistantMessage(SESSION,"raft-projection-turn"); }
+  if(partial) {s.deliver({type:"text_delta",sessionId:SESSION,turnId:"raft-projection-turn",text:"The bronze owl."});s.ui.connection.flushChatDeltas();}
+  s.deliver({type:"status",sessionId:SESSION,turnId:"raft-projection-turn",status:"idle"});
+  s.deliver({type:"result",sessionId:SESSION,turnId:"raft-projection-turn",outcome:"error",isError:true,durationMs:800,numTurns:1,retryOfTurnId:"raft-projection-turn",failure:{errorClass:"server_error",status:529,message:"The storm interrupted the watch."}});
+  if(split) s.client.leave();
+  await expect.poll(()=>s.host.querySelectorAll('[data-turn-failure="server_error"]').length).toBe(1);
+  const original=s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!;
+  expect(original.retryOfTurnId).toBe("raft-projection-turn");
+  expect([...s.host.querySelectorAll('[role="button"],button')].filter(n=>n.textContent==='Retry')).toHaveLength(1);
+  await userEvent.click(page.getByRole("button", { name: "Retry", exact: true }));
+  await expect.poll(() => s.socket.frames("retry_turn").length).toBe(1);
+  expect(s.socket.frames("retry_turn")[0]).toMatchObject({ sessionId: SESSION, failedTurnId: "raft-projection-turn", requestId: expect.any(String) });
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+
+test("projected failure actions remain scoped to the latest original turn and selected session", async ctx => {
+  const s = await arrivalProjectionScene(ctx, false);
+  s.delta("The bronze owl."); s.speech(); s.delta(" The watch."); s.settle();
+  s.deliver({ type: "result", sessionId: SESSION, turnId: "raft-projection-turn", outcome: "error", isError: true, durationMs: 800, numTurns: 1, retryOfTurnId: "raft-projection-turn", failure: { errorClass: "server_error", status: 529, message: "The storm interrupted the watch." } });
+  s.client.leave();
+  const retries = () => [...s.host.querySelectorAll('[role="button"],button')].filter(n => n.textContent === "Retry");
+  await expect.poll(() => retries().length, { message: "initial latest failure offers Retry" }).toBe(1);
+  const chat = s.ui.stores.chat.getState();
+  chat.setActiveSession("pylos-watch");
+  await expect.poll(() => s.host.querySelectorAll("[data-turn-failure]").length).toBe(0);
+  expect(s.ui.connection.retryTurn("raft-projection-turn")).toBe("refused");
+  chat.setActiveSession(SESSION);
+  await expect.poll(() => retries().length, { message: "returning to the original session retains Retry" }).toBe(1);
+  chat.addUserMessage(SESSION, "Count the ships instead.");
+  await expect.poll(() => retries().length).toBe(0);
+  expect(s.host.querySelectorAll("[data-turn-failure]")).toHaveLength(1);
+  expect(s.ui.connection.retryTurn("raft-projection-turn")).toBe("refused");
+  expect(s.socket.frames("retry_turn")).toHaveLength(0);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+for (const nested of [false, true]) test(`ordered list metadata survives nested and independent lists across three arrivals: ${nested}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const chunks = nested ? ["3. Inspect the bronze owl.\n\n   5. Check the watch.\n", "   6. Raise the olive branch.\n4. Sail home.\n\nAnother watch:\n\n8. Count ships.\n", "9. Mark the harbour."]
+    : ["4. Inspect the bronze ", "owl.\n5. Raise the branch.\n\nAnother watch:\n\n8. Count ships.\n", "9. Mark the harbour."];
+  s.delta(chunks[0]!); s.speech(); s.delta(chunks[1]!);
+  s.event({ kind: "output_transcript", outputId: "raft-projection-speech", sequence: 1, text: "The sea stays calm." });
+  s.delta(chunks[2]!); s.settle();
+  const numbered = () => [...s.host.querySelectorAll<HTMLLIElement>(".chat-message-body ol > li")].filter(li => {
+    const own = li.cloneNode(true) as HTMLElement;
+    own.querySelectorAll("ol,ul").forEach(n => n.remove());
+    return !!own.textContent?.trim();
+  }).map(li => li.hasAttribute("value") ? li.value : (li.parentElement as HTMLOListElement).start + [...li.parentElement!.children].indexOf(li));
+  await expect.poll(numbered).toEqual(nested ? [3, 5, 6, 4, 8, 9] : [4, 4, 5, 8, 9]);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});

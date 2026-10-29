@@ -728,6 +728,7 @@ export function ChatPage() {
                         onAskUserListSubmit={handleAskUserListSubmit}
                         onAskUserRankSubmit={handleAskUserRankSubmit}
                         onAskUserFormSubmit={handleAskUserFormSubmit}
+                        latestTurn={entry.section !== "answer" && entry.message === messages[messages.length - 1]}
                         closing={entry.section !== "progress" && entry.message === messages[messages.length - 1] && (entry.section !== "answer" || entry.end === entry.message.parts.filter(p => p.kind === "text").reduce((n, p) => n + p.text.length, 0))}
                         anchor={entry.section === "answer" ? undefined : String(index)}
                       />

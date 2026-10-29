@@ -71,6 +71,7 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserRankSubmit,
   onAskUserFormSubmit,
   closing = false,
+  latestTurn = closing,
   anchor,
   journalVisible = true,
   arrival,
@@ -103,6 +104,8 @@ export const MessageBubble = memo(function MessageBubble({
    * closing row (#40). False for every other message, so the memo holds.
    */
   closing?: boolean;
+  /** Latest original turn eligibility, independent of the closing answer row. */
+  latestTurn?: boolean;
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
@@ -160,6 +163,7 @@ export const MessageBubble = memo(function MessageBubble({
           onAskUserRankSubmit={onAskUserRankSubmit}
           onAskUserFormSubmit={onAskUserFormSubmit}
           closing={closing}
+          latestTurn={latestTurn}
         />
       )}
       {journalVisible && !isUser && !message.localExchange && <TurnJournal turnId={message.turnId ?? message.streamTurnId} summary={message.journal} live={message.journalLive} />}
@@ -338,6 +342,7 @@ function AssistantContent({
   onAskUserRankSubmit,
   onAskUserFormSubmit,
   closing,
+  latestTurn,
 }: {
   message: ChatMessage;
   arrival?: TranscriptRange;
@@ -360,6 +365,7 @@ function AssistantContent({
     notes?: Record<string, string>
   ) => void;
   closing: boolean;
+  latestTurn: boolean;
 }) {
   const root = useBrainUiRoot();
   const semanticMessage = arrival?.source ?? message;
@@ -492,7 +498,7 @@ function AssistantContent({
 
       {/* The failure that ended the turn (#575), after whatever it answered
           first, live and on replay alike. */}
-      {message.failure && !message.isStreaming ? <TurnError message={message} latest={closing} /> : null}
+      {message.failure && !message.isStreaming ? <TurnError message={message} latest={latestTurn} /> : null}
 
       {(message.isStreaming || approval?.restored) && (message.retry ? (
         <TurnStatus message={message} mode="retry" />
