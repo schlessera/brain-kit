@@ -8,6 +8,7 @@ import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { hidePage } from "./offline/fake-microphone.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
 
 const SESSION = "odysseus-ithaca";
@@ -84,8 +85,9 @@ function controlledMicrophone(ctx: TestContext) {
     }
   } });
   let opens = 0;
-  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; return destination.stream; } });
-  ctx.onTestFinished(() => { Object.defineProperty(globalThis, "AudioWorkletNode", workletDescriptor); if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); void context.close(); });
+  const streams: MediaStream[] = [];
+  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; const stream = destination.stream.clone(); streams.push(stream); return stream; } });
+  ctx.onTestFinished(() => { Object.defineProperty(globalThis, "AudioWorkletNode", workletDescriptor); if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); streams.forEach(stream => stream.getTracks().forEach(track => track.stop())); destination.stream.getTracks().forEach(track => track.stop()); void context.close(); });
   return { captured, targetRate, opens: () => opens, quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
 }
 
@@ -189,5 +191,44 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} audible int
   expect(s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.evidence().tasks).toHaveLength(1);
+  expect(s.evidence().effect).toBe(false);
+});
+
+for (const provider of ["gemini", "gpt"] as const) for (const ending of ["recover", "mute", "leave"] as const) test(`${provider} hidden actual replacement ${ending}: retained host conversation, no replay and truthful capture`, async ctx => {
+  const s = await contextualScene(ctx, provider);
+  const conversationId = s.client.state.getState().profile!.conversationId;
+  const firstEpoch = s.client.state.getState().profile!.epoch;
+  await s.pump([provider === "gemini" ? { goAway: {} } : { type: "session.closed", reason: "remote_hangup" }]);
+  await expect.poll(async () => { if (s.socket.frames("conversation_start").length < 2) await s.pump(); return s.socket.frames("conversation_start").length; }).toBe(2);
+  const hidden = hidePage(); ctx.onTestFinished(() => hidden.show());
+  if (ending === "mute") s.client.mute();
+  if (ending === "leave") s.client.leave();
+  await s.pump();
+  if (ending !== "leave") {
+    expect(s.socket.frames("conversation_stop").filter(f => f.resumable !== true), "HIDDEN_OPENING_RETAINS_REAL_HOST_CONVERSATION").toHaveLength(0);
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile?.epoch; }).toBeGreaterThan(firstEpoch);
+    await s.pump();
+    expect(s.client.state.getState().profile?.conversationId).toBe(conversationId);
+    expect(s.client.state.getState().micOn).toBe(false);
+    expect(s.mic.opens()).toBe(1);
+    expect(s.socket.frames("conversation_stop").filter(f => f.resumable !== true), "HIDDEN_OPENING_RETAINS_REAL_HOST_CONVERSATION").toHaveLength(0);
+    expect(s.downstream.filter(f => f.type === "error" && f.code === "CONVERSATION_UNKNOWN")).toHaveLength(0);
+  }
+  hidden.show();
+  if (ending === "recover") {
+    await expect.poll(async () => { await s.pump(); return s.client.state.getState().micOn; }).toBe(true);
+    s.mic.speak();
+    await expect.poll(() => s.socket.frames("conversation_audio").some(f => Number(f.epoch) > firstEpoch)).toBe(true);
+    await s.pump();
+    expect(s.mic.opens()).toBe(2);
+    expect(s.downstream.filter(f => f.type === "conversation_closed" && f.reason === "correlation")).toHaveLength(0);
+  } else {
+    await s.pump();
+    expect(s.client.state.getState().micOn).toBe(false);
+    expect(s.mic.opens()).toBe(1);
+    expect(s.socket.frames("conversation_audio").some(f => Number(f.epoch) > firstEpoch)).toBe(false);
+  }
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.evidence().tasks).toHaveLength(0);
   expect(s.evidence().effect).toBe(false);
 });

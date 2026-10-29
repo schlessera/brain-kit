@@ -289,6 +289,11 @@ Visibility suspends local media while retaining a healthy provider epoch/context
 transport loss closes the unavailable epoch and restores only after same-scope
 readiness and historical resync. Unavailable audio is dropped. Control-owner leases
 keep React effect replay or same-commit remount from impersonating manual Mute.
+Opening ownership follows explicit entry/Leave rather than the PCM callback
+counter, so hiding cannot turn a valid replacement response into destructive
+teardown. Disclosure compares the entry's effective profile and its current
+metadata, not a later UI picker pin: task adoption remains routine, while
+same-ID backend/model changes or removal require a fresh disclosure and Start.
 Contextual recognition is recent bounded context, distinct from legacy retained
 manual review. Identity/replay ledgers keep their finite fail-closed boundaries;
 forgetting an identity to extend a session would weaken correlation/replay guards.

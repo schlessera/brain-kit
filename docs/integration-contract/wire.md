@@ -1938,13 +1938,24 @@ speech, interruption, background tasks, automatic session adoption, visibility
 loss and recoverable disconnect/resync. Hide temporarily suspends capture/output;
 returning to the same scope restores capture after readiness and resync. The
 entry routing remains fixed when its task adopts a session; resolving the UI
-provider selection is not a new audio destination. No
+provider selection is not a new audio destination. Effective entry-profile
+metadata remains part of consent, including backend/model identity and removal
+from the roster. A genuine change stops capture and requires fresh disclosure
+and Start, even under the same profile ID. The host's echoed agent profile ID,
+when present, takes precedence over the effective pinned/selected profile at
+entry; later UI picker pins do not change that binding. No
 unavailable-period PCM is buffered or replayed. A changed destination/service or
 agent disclosure requires a fresh Start. Manual Mute persists through every
 recovery; Leave, authentication loss, explicit session selection and actual
 control-owner unmount end capture. Failed device/permission, invalid correlation,
 unsafe capacity and failed opening remain visible genuine failure boundaries.
-Late callbacks cannot establish consent or transfer scope.
+Late callbacks cannot establish consent or transfer scope. A pending opening
+belongs to its explicit entry, independently of microphone-callback generation.
+Hiding may retire PCM callbacks while the same-entry opened/ready/resync frames
+remain valid with capture off. Foreground recovery reuses that conversation;
+Leave/auth loss retires the entry. Foreign, duplicate or stale responses cannot
+consume the current opening request or authorize capture. Mute emits an endpoint
+only for a ready live microphone, never for an ended epoch during replacement.
 
 Ordinary speech and explicit Stop reply flush all scheduled local sources without
 closing the speech epoch or cancelling host work. The triggering microphone PCM
