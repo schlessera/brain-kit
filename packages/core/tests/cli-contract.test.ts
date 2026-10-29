@@ -720,12 +720,15 @@ describe("stats", () => {
     for (const field of ["byType", "byStatus", "byRelevance"]) {
       expect(typeof out[field]).toBe("object");
       expect(out[field]).not.toBeNull();
+      expect(Array.isArray(out[field])).toBe(false);
     }
 
-    for (const field of ["brokenLinkRate", "embeddingCoverage"]) {
-      // A ratio is a number or, when it cannot be known, null — never 0.
-      expect(["number", "object"]).toContain(typeof out.health[field]);
-    }
+    // This link-bearing fixture has a known numeric ratio; malformed JSON
+    // values (including a missing field) must fail at the machine boundary.
+    expect(out.health.brokenLinkRate).toBeCloseTo(2 / 37, 10);
+    // The keyless fixture has no embedding coverage. Full coverage and the
+    // absent/empty-table null states also remain in cli-vector-stats.test.ts.
+    expect(out.health.embeddingCoverage).toBeNull();
     for (const field of ["stale", "orphans", "untagged"]) {
       expect(typeof out.health[field]).toBe("number");
     }
