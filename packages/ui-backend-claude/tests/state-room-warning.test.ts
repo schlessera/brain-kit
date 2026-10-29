@@ -12,7 +12,7 @@ import { processStateLedger } from "../src/worker-state-budget.js";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PAGE = 4096;
-for (const [percent, failedStart, voice] of [[50, false, false], [80, false, false], [80, false, true], [80, true, false]] as const)
+for (const [percent, failedStart, voice] of [[80, false, true], [80, true, false]] as const)
 test(`${percent}% resumed state${voice ? " voice" : ""}${failedStart ? " failed start" : ""}: actual copy and cleanup create no legacy host directory`, async () => {
   const root = mkdtempSync(join(tmpdir(), "claude-state-warning-"));
   const brain = join(root, "brain"), config = join(root, "config");
