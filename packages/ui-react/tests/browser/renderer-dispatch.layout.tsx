@@ -12,6 +12,7 @@ import { FileViewer } from "../../src/components/files/file-viewer.js";
 import { ContentRendererDeclarations, ContentRendererSurface } from "../../src/components/content-renderer.js";
 
 let host: HTMLDivElement, renderer: Root, root: BrainUiRoot, styles: HTMLStyleElement;
+let importerStarts = 0;
 const originalTheme = document.documentElement.dataset.theme;
 beforeAll(async () => { styles=document.createElement("style");styles.textContent=await commands.formConsumerStyles();document.head.append(styles); });
 afterAll(()=>{styles.remove();});
@@ -25,18 +26,29 @@ function mount(content: string, theme: "light"|"dark"="light", file?: string) {
 }
 function render(content: string, file=false) { flushSync(()=>renderer.render(<BrainUiProvider root={root}><ContentRendererDeclarations.Provider value={[{fences:["absent"],extensions:[".absent"]}]}>{file?<FileViewer/>:<BrainMarkdown content={content}/>}</ContentRendererDeclarations.Provider></BrainUiProvider>)); }
 function register() {
-  const Component=lazy(()=>import("./renderer-demo-chunk.js"));
+  importerStarts=0;
+  const importChunk=()=>{importerStarts++;return import("./renderer-demo-chunk.js");};
+  const Component=lazy(importChunk);
   registerContentRenderers({renderers:[{languages:["demo"],extensions:[".demo",".figure.md"],needsBrowser:false,Component,toStatic:async()=>""}]});
 }
 test("pack chunk is requested only when its matching fence first appears", async()=>{
   await commands.startRequestLog();register();mount("Odysseus waits.");
+  // The native boundary observes registration-time dispatch, including a
+  // modulepreload that never invokes React's importer. An empty snapshot alone
+  // races Chromium. Importer initiation is a separate, synchronous observation.
+  const unmatchedRequests = await commands.requestLog({settle:true});
+  expect(unmatchedRequests.some(url=>new URL(url).searchParams.has("request-log-boundary"))).toBe(true);
+  expect(unmatchedRequests.filter(url=>url.includes("renderer-demo-chunk")), "unmatched content must not acquire the renderer chunk").toEqual([]);
+  expect(importerStarts, "unmatched content must not initiate the renderer importer").toBe(0);
   expect((await commands.requestLog()).filter(url=>url.includes("renderer-demo-chunk"))).toEqual([]);
   render("```demo\nThe homecoming relay\n```");
   expect(host.querySelector('[data-kit-code-block]')?.textContent).toContain("The homecoming relay");
   await expect.poll(()=>host.querySelector("figure")?.textContent).toBe("The homecoming relay");
+  expect(importerStarts, "first matching fence initiates the renderer importer once").toBe(1);
   const chunkRequests=(await commands.requestLog()).filter(url=>url.includes("renderer-demo-chunk"));expect(chunkRequests.length).toBeGreaterThan(0);
   render("```demo\nTelemachus returns\n```\n\n```demo\nThe fleet returns\n```");
   await expect.poll(()=>host.querySelectorAll("figure").length).toBe(2);
+  expect(importerStarts, "two later figures reuse the renderer importer").toBe(1);
   expect((await commands.requestLog()).filter(url=>url.includes("renderer-demo-chunk"))).toEqual(chunkRequests);
   expect(host.querySelector("figure")?.getAttribute("data-renderer-mode")).toBe("chat");
   document.documentElement.dataset.theme="dark";root.stores.ui.setState({theme:"dark"});
