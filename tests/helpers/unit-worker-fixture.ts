@@ -113,7 +113,7 @@ test("${index === 0 ? "Odysseus" : "Penelope"} owns build, lease and maintenance
   ${options.failAfterDiagnostics ? `writeFileSync(join(shared,"diagnostics-${index}.ready"),"ready");const stop=Date.now()+5000;while(!existsSync(join(shared,"diagnostics-${1-index}.ready"))&&Date.now()<stop)await Bun.sleep(5);expect(existsSync(join(shared,"diagnostics-${1-index}.ready")),"BOTH_DIAGNOSTIC_WRITERS_FINISHED").toBe(true);expect(false,"PLANNED_WORKER_FAILURE_AFTER_DIAGNOSTICS").toBe(true);` : ""}
 });\n`);
   const git = (...args: string[]) => {
-    const child = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_AUTHOR_DATE: "2026-07-12T00:00:00Z", GIT_COMMITTER_DATE: "2026-07-12T00:00:00Z" } });
+    const child = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_AUTHOR_DATE: "2026-07-12T00:00:00Z", GIT_COMMITTER_DATE: "2026-07-12T00:00:00Z" } });
     if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr));
   };
   git("init", "--quiet"); git("add", ".");

@@ -137,7 +137,7 @@ test("focused and full local CLI refuse setup before downstream proof while plan
       return original(argv,options);});
     Bun.spawn=()=>{throw new Error("DOWNSTREAM_PROOF_REACHED_BEFORE_SANDBOX_REFUSAL");};`);
   const git = (...args: string[]) => {
-    const result = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
     if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
     return new TextDecoder().decode(result.stdout).trim();
   };
@@ -360,7 +360,7 @@ function importFixture() {
   writeFileSync(join(dir, "tests/imported.test.ts"), `import {test,expect} from "bun:test"; import {value} from "../packages/fixture/src/value"; test("IMPORTED_CASE",()=>{expect(value).toBeGreaterThan(0);console.log("RAN_"+"IMPORTED");});`);
   writeFileSync(join(dir, "tests/unrelated.test.ts"), `import {test} from "bun:test"; test("UNRELATED_CASE",()=>console.log("RAN_"+"UNRELATED"));`);
   const git = (...args: string[]) => {
-    const result = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
     if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
     return new TextDecoder().decode(result.stdout).trim();
   };
