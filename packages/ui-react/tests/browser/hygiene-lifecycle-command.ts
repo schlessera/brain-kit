@@ -373,6 +373,7 @@ export const hygieneContextLifecycle: BrowserCommand<[], unknown> = async (ctx) 
         const response = await browser!;
         assert.equal(response.status, 200, "native context browser response remains 200");
         assert.equal(response.body, nativeBody, "native context browser retains original body");
+        const { hygieneReviewReadSchema } = await import("@schlessera/brain-ui-sdk/schemas");
         assert.equal(hygieneReviewReadSchema.parse(JSON.parse(response.body)).review.status, "idle");
         await context!.close();
       },
