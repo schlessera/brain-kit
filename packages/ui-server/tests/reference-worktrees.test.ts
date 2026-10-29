@@ -458,8 +458,10 @@ describe("changing pool release assessment", () => {
     const notes: { kind: string; facts: Record<string, unknown> }[] = [];
     const settled = await settledWorktreeRelease({ db, worktrees, records: async () => [...pool.records.values()],
       note: (kind, facts) => { notes.push({ kind, facts }); } }, before, released.cleanup, "REFERENCE_WORKTREE_CHANGING_POOL");
+    // inventory/fixtureDelta (helpers/native-journal-fixture.ts) omit directory timestamps/size.
+    // This double reports two files; native Btrfs directory metadata still requires the original three-path proof.
     expect(settled, "REFERENCE_WORKTREE_CHANGING_POOL_REASSESSED").toMatchObject(edited
-      ? { owner: "none", work: "unpreserved", changedPaths: 3, unverifiedPaths: 0, sample: ["odyssey", "odyssey/argos.md", "odyssey/book-0/line-0.md"], eligible: false, error: null }
+      ? { owner: "none", work: "unpreserved", changedPaths: 2, unverifiedPaths: 0, sample: ["odyssey/argos.md", "odyssey/book-0/line-0.md"], eligible: false, error: null }
       : { owner: "none", work: "none", changedPaths: 0, unverifiedPaths: 0, sample: [], eligible: true, error: null });
     expect(pool.records.get(tree.id), "REFERENCE_WORKTREE_CHANGING_POOL_PREVIEW_DOES_NOT_REMOVE").toEqual(before.record);
     expect(worktrees.inventory().find(entry => entry.row.id === tree.id)?.cleanup).toBeNull();
