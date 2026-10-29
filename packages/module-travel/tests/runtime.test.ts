@@ -177,24 +177,19 @@ describe("real travel module and CLI", () => {
         for (const flags of [[], ["--dry-run"]]) {
           const result = await runCli(root, ["travel", "migrate", ...flags, "--json"]);
           expect(result.code).toBe(1);
+          // Assert the corrected action separately: filename and refusal already
+          // worked before this diagnostic repair and cannot prove its guidance.
+          expect(result.stderr).toContain("Review canonical config and saved settings precedence");
+          expect(result.stderr).toContain("manual upgrade");
+          expect(result.stderr).toContain("packages/module-travel/README.md");
+          expect(result.stderr).toContain("Upgrade from speaking");
+          expect(result.stderr).not.toContain("module-settings migration");
+          expect(result.stderr).not.toContain("brain module settings travel --migrate");
           expect(result.stderr).toContain(filename);
           expect(result.stderr).toContain("no changes made");
           expect(result.stdout).toBe("");
           expect(snapshot()).toEqual(before);
         }
-      });
-
-      test(`${label} refusal names the reviewed manual upgrade instead of an unavailable planner`, async () => {
-        const { root } = refusalFixture();
-        const result = await runCli(root, ["travel", "migrate", "--json"]);
-        // Assert the corrected action separately: filename and refusal already
-        // worked before this diagnostic repair and cannot prove its guidance.
-        expect(result.stderr).toContain("Review canonical config and saved settings precedence");
-        expect(result.stderr).toContain("manual upgrade");
-        expect(result.stderr).toContain("packages/module-travel/README.md");
-        expect(result.stderr).toContain("Upgrade from speaking");
-        expect(result.stderr).not.toContain("module-settings migration");
-        expect(result.stderr).not.toContain("brain module settings travel --migrate");
       });
     }
   }
