@@ -19,7 +19,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   // This hold is presentation only: PCM capture and interruption use the
   // client's instantaneous playing state, never this display state.
   const [replyToken, setReplyToken] = useState<number | null>(null);
-  const canShowReply = s.active && s.connection === "Connected" && !s.disclosureOpen && s.interaction !== "Checking whether the reply stopped";
+  const canShowReply = s.active && s.connection === "Connected" && s.outputRecovery === "audible" && !s.disclosureOpen && s.interaction !== "Checking whether the reply stopped";
   const replyVisible = canShowReply && (s.playing || replyToken === s.token);
   const interaction = replyVisible ? "Speaking" : s.interaction;
   useEffect(() => {
@@ -30,19 +30,13 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   }, [canShowReply, s.playing, s.token]);
   const frame = useRef<HTMLDivElement>(null);
   const wasOn = useRef(false);
-  const lifetime = useRef(0);
   useEffect(() => {
     if (s.micOn && !wasOn.current) frame.current?.querySelector<HTMLElement>('[aria-label="Mute mic"]')?.focus();
     wasOn.current = s.micOn;
   }, [s.micOn]);
-  // The component is a capture owner: a panel unmount cannot leave the mic live.
-  useEffect(() => {
-    const own = ++lifetime.current;
-    return () => {
-      client.mute();
-      queueMicrotask(() => { if (lifetime.current === own) client.leave(); });
-    };
-  }, [client]);
+  // Root-owned leases distinguish a true unmount from StrictMode or same-task
+  // remounts. Component cleanup must never impersonate a manual Mute.
+  useEffect(() => client.attachControls(), [client]);
   if (!s.active) return null;
   const profile = s.profile;
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
@@ -57,6 +51,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
+    {s.outputRecovery === "muted" && <Button label="Recover reply audio" tone="ghost" style={button} onClick={client.recoverOutput} />}
     {s.notice && <div role="status" aria-label="Voice notice" style={{ fontSize: 12, lineHeight: 1.3 }}>{s.notice}</div>}
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
       <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="" tabIndex={0} role="region" aria-label="Unsent voice transcript" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]">

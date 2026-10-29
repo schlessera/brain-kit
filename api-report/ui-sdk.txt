@@ -6028,6 +6028,13 @@ signatures (every public export and the types it is made of)
   ConversationResync (packages/ui-sdk/src/server/conversation.ts)
     export interface ConversationResync {
         work: readonly ConversationWorkReceipt[];
+        results?: readonly {
+            conversationId: string;
+            epoch: number;
+            requestId: string;
+            turnId: string;
+            facts: string;
+        }[];
     }
   ConversationScope (packages/ui-sdk/src/server/conversation.ts)
     export interface ConversationScope {

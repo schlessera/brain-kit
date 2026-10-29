@@ -59,6 +59,13 @@ The binding constraints are:
 
 ## Three independent states
 
+> **2026-10-29 — Superseded capture transitions.** The loss/manual-restart
+> transitions below describe the earlier proposal. The
+> [continuous-conversation decision](../decisions/live-conversation.md#continuous-conversation-and-audible-recovery--2026-10-29)
+> requires recovery without repeated Unmute/Resume for routine transitions;
+> actual capture availability must still be shown truthfully. Manual Mute,
+> Leave and genuine technical/privacy failures retain their distinct boundaries.
+
 A connected service is not proof of an open microphone. The UI reports three
 facts independently: connection (`connecting`, `ready`, `lost`), capture
 (`off`, `opening`, `on`) and interaction (below). "Listening · mic on" appears
@@ -152,6 +159,14 @@ announcement from an old connection. Reconciled resolved cards lose their live
 controls before the user resumes. A speech-only failure can leave the ordinary
 chat transport usable; report the two connections separately.
 
+> **2026-10-29 — Superseded lifecycle consent rule.** The blanket hide,
+> transport-loss and explicit-Resume requirements immediately above are historical.
+> The [continuous-conversation decision](../decisions/live-conversation.md#consent-and-genuine-failure-boundaries)
+> distinguishes recoverable transitions from genuine unavailable/unsafe
+> prerequisites. Preserve manual Mute/Leave and disclosure/scope boundaries;
+> ordinary transitions recover without repeated unmuting. Retain the no-replay
+> and unknown-host-outcome rules. Stop reply is not a microphone mute.
+
 ## Turn boundaries and correction
 
 Proposed automatic endpoint: after detected user speech, require 700 ms of
@@ -169,6 +184,12 @@ sending" with capture off; it does not promote a partial transcript to a send.
 A provider without trustworthy endpoint/finalization support gets manual send
 with this limitation announced on entry, or phase-1 dictation if it cannot
 meet the other conversation requirements. It is not advertised as automatic.
+
+> **2026-10-29 — Superseded capture-off consequence.** Uncertain recognition
+> and missing finalization still require honest review; the timeout above is
+> not by itself a reason to leave the microphone off. The
+> [continuous-conversation decision](../decisions/live-conversation.md#continuous-conversation-and-audible-recovery--2026-10-29)
+> separates input admission from capture continuity.
 
 Before commit, words are provisional and produce neither a chat message nor a
 tool call. A cough, noise-only detection or empty final creates no turn. An
@@ -209,6 +230,16 @@ mic on", not "Turn complete". A permission announcement does not hand over the
 floor for an approval answer.
 
 ## Speech ownership and interruption
+
+> **2026-10-29 — Superseded interruption fallback.** The mic-off reconciliation
+> below is the earlier choice. The
+> [audible-recovery decision](../decisions/live-conversation.md#interruption-and-output-recovery)
+> retains capture/context and triggering speech, cuts local output and selects
+> bounded automatic audible recovery with an explicit output-recovery action
+> on timeout. Delayed interrupted audio is an accepted, qualification-dependent
+> risk; silence proves neither remote cancellation nor host completion. Host
+> serialization, pending question/approval binding and permission authority
+> still hold. The shipped contract changes only with the later implementation.
 
 One output owner at a time. User speech has priority, followed at the next
 quiet boundary by denial/failure feedback, an unannounced approval request,

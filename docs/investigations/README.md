@@ -19,6 +19,7 @@ with their harnesses; their authored cases are kept in
 | [audit-capability-investigation.md](audit-capability-investigation.md) | Audit suggestion and executable repair evidence. | [#841](https://github.com/schlessera/brain-kit/issues/841) |
 | [haiku-5-5-current-path-investigation.md](haiku-5-5-current-path-investigation.md) | Haiku 5.5 reruns of every Sonnet-measured #838 current path, plus two effort sweeps. | [#1611](https://github.com/schlessera/brain-kit/issues/1611) |
 | [live-conversation-investigation.md](live-conversation-investigation.md) | Two-engine live voice qualification and interface specification. | [#317](https://github.com/schlessera/brain-kit/issues/317) |
+| [live-result-recall.md](live-result-recall.md) | Exact result handover, bounded text and replacement-epoch context loss; no live semantic recall measurement. | [#3131](https://github.com/schlessera/brain-kit/issues/3131) |
 | [note-disposition-investigation.md](note-disposition-investigation.md) | Measured proposal comparison and classifier adoption no-go. | [#840](https://github.com/schlessera/brain-kit/issues/840) |
 | [public-website-investigation.md](public-website-investigation.md) | Static website comparison and dated publishing measurements. | [#611](https://github.com/schlessera/brain-kit/issues/611) |
 | [turn-surface-routing-investigation.md](turn-surface-routing-investigation.md) | Tool and skill surface inventory and routing mechanics. | [#587](https://github.com/schlessera/brain-kit/issues/587) |

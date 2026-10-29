@@ -43,6 +43,7 @@ import type { WSContext } from "./clients.js";
 import type { ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
 import type { HostWork, HostWorkOutcome } from "./turns.js";
+import { MAX_RETAINED_RESULT_CHARS } from "./conversation-storage.js";
 import { handleChatMessage } from "./run-session.js";
 
 /** Conversations kept for resumption, live or detached, per host. */
@@ -166,7 +167,7 @@ export class ConversationHost {
             found = { id: stored.id, principalId, lastEpoch: stored.epoch,
               ...(stored.sessionId ? { sessionId: stored.sessionId } : {}), ...(stored.agentProviderId ? { agentProviderId: stored.agentProviderId } : {}),
               connection: null, ws: null, epoch: null, receipts: [], byRequestId: new Map(), usedRequestIds: new Set(stored.requestIds), queue: [], running: null, outputs: new Map(), announced: new Set() };
-            for (const receipt of stored.receipts) this.retainReceipt(found, { receipt, nativeHandle: receipt.nativeHandle, withdrawn: true, facts: "", settled: true, sawResult: receipt.state === "completed", durableReady: true });
+            for (const receipt of stored.receipts) this.retainReceipt(found, { receipt, nativeHandle: receipt.nativeHandle, withdrawn: true, facts: stored.results?.find(r => r.requestId === receipt.requestId)?.facts ?? "", settled: true, sawResult: receipt.state === "completed", durableReady: true });
             this.conversations.set(found.id, found);
           }
         } catch { this.refuse(ws, "CONVERSATION_STORAGE", "Conversation recovery is unavailable. No work was replayed."); return; }
@@ -250,7 +251,10 @@ export class ConversationHost {
       session = await this.provider.open(scope, {
         signal: epoch.abort.signal,
         contextualTasks: epoch.contextualTasks,
-        resync: { work: conversation.receipts.map((work) => ({ ...work.receipt })) },
+        resync: { work: conversation.receipts.map((work) => ({ ...work.receipt })),
+          results: conversation.receipts.flatMap(({ receipt, facts }) => receipt.state === "completed" && receipt.turnId && facts
+            ? [{ conversationId: conversation.id, epoch: receipt.epoch, requestId: receipt.requestId, turnId: receipt.turnId, facts }] : []),
+        },
       });
       assertLiveConversationSession(session);
       if (epoch.contextualTasks && (!session.bindContextualWork || !session.refuseContextualWork)) throw new Error("Contextual provider did not expose exact task binding");
@@ -523,10 +527,13 @@ export class ConversationHost {
         if (event.sequence !== epoch.unassignedCount) {
           this.endEpoch(conversation, "correlation", "Unassigned recognition arrived out of sequence.", epoch); return;
         }
-        if (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars) {
+        if (!epoch.contextualTasks && (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars)) {
           this.endEpoch(conversation, "backpressure", "Unassigned recognition is full. Review the retained text before restarting voice.", epoch); return;
         }
-        epoch.unassignedCount++; epoch.unassignedChars += event.text.length;
+        epoch.unassignedCount++;
+        // Contextual text is already bounded by collectContext. Cumulative
+        // manual-review capacity must not end an ongoing contextual dialogue.
+        if (!epoch.contextualTasks) epoch.unassignedChars += event.text.length;
         this.collectContext(epoch, `unassigned:${event.sequence}`, "recognition", event.text);
         this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text,
           ...(event.sessionInterval ? { sessionInterval: { ...event.sessionInterval } } : { timing: { kind: "unavailable" as const } }),
@@ -835,6 +842,7 @@ export class ConversationHost {
       }
     }
     if (outcome === "refused" && conversation.epoch?.number === work.receipt.epoch) this.terminateRefusedNative(conversation, conversation.epoch, work);
+    this.trimResultContext(conversation);
     this.deliver(conversation, work);
     this.sendReceipt(conversation, work);
     // Next request on a fresh task: settle can run inside handleChatMessage.
@@ -972,6 +980,17 @@ export class ConversationHost {
     return false;
   }
 
+  /** Keep only bounded completed host text, newest admitted tasks first. */
+  private trimResultContext(conversation: Conversation): void {
+    let retained = 0;
+    for (const work of [...conversation.receipts].reverse()) {
+      if (!work.settled) continue;
+      if (work.receipt.state !== "completed") { work.facts = ""; continue; }
+      retained += work.facts.length;
+      if (retained > MAX_RETAINED_RESULT_CHARS) work.facts = "";
+    }
+  }
+
   private retainReceipt(conversation: Conversation, work: Work): void {
     conversation.receipts.push(work);
     conversation.byRequestId.set(work.receipt.requestId, work);
@@ -1063,7 +1082,7 @@ export class ConversationHost {
 
   private sendReceipt(conversation: Conversation, work: Work): void {
     if (work.receipt.provenance === "contextual" && work.durableReady) {
-      void this.host.catalog.saveConversationTask!(conversation.principalId, { ...work.receipt }).catch(() => {
+      void this.host.catalog.saveConversationTask!(conversation.principalId, { ...work.receipt }, work.facts).catch(() => {
         this.endEpoch(conversation, "provider_error", "Task outcome persistence is unavailable. Do not replay uncertain work.");
       });
     }
