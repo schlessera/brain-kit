@@ -59,8 +59,9 @@ function controlledMicrophone(ctx: TestContext) {
   const media = navigator.mediaDevices;
   const descriptor = Object.getOwnPropertyDescriptor(media, "getUserMedia");
   let opens = 0;
-  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; return destination.stream; } });
-  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); void context.close(); });
+  const streams: MediaStream[] = [];
+  Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { opens++; const stream = destination.stream.clone(); streams.push(stream); return stream; } });
+  ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); oscillator.stop(); streams.forEach(stream => stream.getTracks().forEach(track => track.stop())); void context.close(); });
   return { opens: () => opens, quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
 }
 
@@ -170,10 +171,22 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
   s.client.stopReply();
   await s.pump();
-  s.client.resume();
+  expect(s.client.state.getState().profile!.epoch, "local Stop reply retains the healthy epoch").toBe(firstEpoch);
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  await expect.poll(() => s.client.state.getState().outputRecovery).toBe("audible");
+  await s.pump(reply(6, "The conversation continues after the local cut."));
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  await expect.poll(() => s.client.state.getState().playing).toBe(false);
+  // #3142's historical Stop/Resume receipts characterize the old client.
+  // A real provider closure now supplies the independent replacement witness;
+  // retained research facts from #3141 must accompany the replacement.
+  await s.pump([provider === "gemini" ? { goAway: {} } : { type: "session.closed", reason: "remote_hangup" }]);
   await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile!.epoch; }).toBeGreaterThan(firstEpoch);
-  // stopReply is a normal replacement boundary when remote cancellation is
-  // unproven. Retained host facts reach the replacement independently of generated UI text.
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().micOn; }).toBe(true);
+  s.mic.speak();
+  await expect.poll(() => s.socket.frames("conversation_audio").some(frame => Number(frame.epoch) > firstEpoch)).toBe(true);
+  s.mic.quiet();
   const replacement = provider === "gemini" ? s.upstream.filter(f => f.clientContent).at(-1)?.clientContent
     : s.upstream.filter(f => f.type === "session.start").at(-1)?.session.input;
   expect(JSON.stringify(replacement)).toContain("completed");
