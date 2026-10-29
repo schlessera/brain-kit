@@ -7,9 +7,12 @@ Catalog discovery may ask or be permitted by policy; a newly selected Actor
 should be reviewed. These requirements bind the implementation of
 [#3157](https://github.com/schlessera/brain-kit/issues/3157).
 
-The investigation in [#3158](https://github.com/schlessera/brain-kit/issues/3158)
-proposes the concrete contract below. **The proposed transport, policy fields
-and initial executable subset require the maintainer's ruling on that issue.**
+The maintainer selected **bounded paid execution (option A)** on 2026-10-29
+in [#3158](https://github.com/schlessera/brain-kit/issues/3158#issuecomment-6506956383). The concrete
+contract below implements that choice: catalog discovery can be allowed by
+policy, new Actors ask by default, and paid execution requires a vetted build,
+known pricing and enforceable bounds. Unknown or unbounded external spend
+refuses; existing inference unknown-price behavior is unchanged.
 This record does not activate Apify, change a supported schema, qualify a real
 account or authorize a paid experiment. Implementation readiness lives in the
 issues, not in this document.
@@ -88,7 +91,7 @@ pricing experiment or execution of upstream repository code was performed.
 - Restricted autonomous authority and voice grant restrictions do not expand.
   Enabling a provider does not enable an unattended workflow.
 
-## Recommended architecture
+## Selected architecture
 
 Use a **bounded combination**: host-owned remote MCP for catalog discovery and
 formatted inspection, direct REST for authoritative build/schema/pricing
@@ -131,10 +134,10 @@ preventing all new paid runs. Deleting credentials may leave an explicitly
 unresolved remote run; do not promise successful cleanup after account access
 has been revoked.
 
-## Proposed policy and consent contract
+## Selected policy and consent contract
 
 Add a strict optional `apify` governance block; it is absent/disabled by default.
-Names below are proposed supported configuration, not existing parser input.
+Names below are selected future configuration, not existing parser input.
 Unknown fields refuse validation. Policy is data-only and remains unwritable by
 agent runtimes. No default numeric spending entitlement is created.
 
@@ -199,14 +202,14 @@ schema, profile, price or authority invalidates the proposal. Redirect aliases
 and similar Actor names do not match. Provider enablement and tool-level grants
 are additional checks, never substitutes for this concrete admission.
 
-## Proposed stable machine operations
+## Selected stable machine operations
 
 All inputs are strict objects. Identifiers returned by the host are opaque,
 unforgeable references bound to brain/account/principal/session; users and
 workers cannot substitute raw remote dataset/run IDs. CLI words map directly to
 these operations with `--json`; core MCP names are shown below.
 
-| CLI / MCP | Proposed input | Result data |
+| CLI / MCP | Selected input | Result data |
 | --- | --- | --- |
 | `discover` / `brain_apify_discover` | `{query: string, limit?: integer}` | Bounded candidate summaries and opaque candidate references; no execution grant. |
 | `inspect` / `brain_apify_inspect` | `{candidate: string}` | Exact Actor metadata/schema plus eligibility and limitations, marked untrusted. |
@@ -233,9 +236,9 @@ Disabled or revoked capabilities refuse at execution time. No upstream direct
 Actor tools, tools/list changes, arbitrary URLs, bearer tokens, webhook targets,
 connector IDs or arbitrary REST/MCP method forwarding are accepted.
 
-## Proposed execution eligibility and monetary enforcement
+## Selected execution eligibility and monetary enforcement
 
-Recommend an initial **qualified batch Actor profile** for each executable
+Use an initial **qualified batch Actor profile** for each executable
 build. Public discovery remains broad, but a discovered Actor without a profile
 can be inspected and proposed for review, not run. A profile is concrete trusted
 integration code/data for this provider, not an extension seam. It validates the
@@ -256,9 +259,9 @@ reads and retention charges. If current tariffs cannot bound those additional
 charges, refuse or offer already-retained results; do not advertise an all-cost
 hard cap. Existing turn/session/day enforcement uses the same attributed costs
 once, with separate Apify units rather than synthetic tokens. Unknown model
-prices keep their existing inference behavior. The proposed additional rule is
+prices keep their existing inference behavior. The selected additional rule is
 that **an external operation without a defensible monetary upper bound does not
-start**; this needs the explicit ruling below.
+start**; the maintainer selected this in the ruling below.
 
 Compute effective limits as the intersection of global, provider, Actor grant,
 proposal and remaining aggregate limits. Count pending reservations as spend
@@ -322,16 +325,16 @@ as brain Markdown uses existing governed ingestion, not authoritative `brain.db`
 state. Session forks and resume cannot inherit an account or result grant merely
 by copying an opaque string; explicit ownership transfer must be qualified.
 
-## Alternatives and decision requested
+## Selected scope and alternatives
 
-**Recommended A: bounded initial execution.** Approve the combined transport,
-token-first host ownership, concrete qualified profiles and the proposed
-external-spend rule above. Discovery can ask or be allowed by policy; new Actors
+**Selected A: bounded initial execution.** The combined transport,
+token-first host ownership, concrete qualified profiles and the external-spend
+rule above implement the maintainer's bounded paid-execution choice. Discovery can ask or be allowed by policy; new Actors
 ask by default. An Actor outside the executable subset remains discoverable but
 unavailable until separately qualified. Unknown/unbounded external spend refuses
 without changing inference unknown-price behavior.
 
-**B: discovery first.** Deliver only opted-in catalog discovery/inspection and
+**Alternative B: discovery first, not selected.** Deliver only opted-in catalog discovery/inspection and
 leave all paid execution unavailable until billing coverage and remote target
 controls have a broader accepted design. This is smaller but does not yet serve
 website extraction requests.
@@ -341,11 +344,12 @@ This is more flexible, but cannot claim the requested monetary or remote-routing
 boundary. Accepting that residual risk would need an explicit separate ruling
 and honest capability copy; this investigation does not grant it.
 
-A maintainer reply selecting A or B, with any changes to the proposed policy,
-is the completion evidence for the unresolved policy criterion in #3158. Record
-that ruling here and in the affected issue bodies before making implementation
-ready. Neither an agent-authored recommendation nor merging this investigation
-counts as the ruling.
+The maintainer selected A in response to the explicit scope question on
+2026-10-29. That selection resolves the external-spend policy criterion in
+#3158. It authorizes planning and implementation of this boundary, not provider
+enablement, live account qualification or a paid experiment. The MCP/REST cap
+coverage and remote-target constraints remain qualification requirements for
+individual executable profiles; the ruling does not waive them.
 
 ## Implementation ownership and proof
 
@@ -372,5 +376,5 @@ restoring it. Existing provider-history guards must remain unchanged.
 This investigation adds no runtime and therefore supplies source evidence, not
 passing Actor-execution tests. Implementation updates supported configuration,
 CLI/MCP schemas, error envelopes, wire/receipts and their integration-contract
-components in the same `CONTRACT:` commit, with changesets. The proposal itself
+components in the same `CONTRACT:` commit, with changesets. This design record
 does not change today's integration contract or package contents.
