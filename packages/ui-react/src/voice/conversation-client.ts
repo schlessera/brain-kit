@@ -141,9 +141,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     state.setState({ outputs: old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next].slice(-128) });
   }
   function disclosureKey(profile: ServerConversationOpened) {
-    const providers = root.stores.provider.getState();
-    const selected = providers.pinnedId ?? providers.selectedId;
-    return JSON.stringify([profile.providerId, profile.disclosure, root.apiBase(), selected, providers.available.find((provider) => provider.id === selected)]);
+    // The host pins this conversation's routing at entry. Adopting its task
+    // resolves the UI selection; it must not impersonate a destination change.
+    return JSON.stringify([profile.providerId, profile.disclosure, root.apiBase(), state.getState().agentProviderId]);
   }
   function refresh() {
     const s = state.getState();

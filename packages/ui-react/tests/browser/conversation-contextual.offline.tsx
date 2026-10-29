@@ -183,8 +183,10 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
   // retained research facts from #3141 must accompany the replacement.
   await s.pump([provider === "gemini" ? { goAway: {} } : { type: "session.closed", reason: "remote_hangup" }]);
   await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile!.epoch; }).toBeGreaterThan(firstEpoch);
-  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().micOn; }).toBe(true);
+  s.mic.speak();
   await expect.poll(() => s.socket.frames("conversation_audio").some(frame => Number(frame.epoch) > firstEpoch)).toBe(true);
+  s.mic.quiet();
   const replacement = provider === "gemini" ? s.upstream.filter(f => f.clientContent).at(-1)?.clientContent
     : s.upstream.filter(f => f.type === "session.start").at(-1)?.session.input;
   expect(JSON.stringify(replacement)).toContain("completed");

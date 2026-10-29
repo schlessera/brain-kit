@@ -1936,7 +1936,9 @@ The October 29 continuous-conversation ruling (#3053) replaces the previous
 capture-off/Resume guarantee. After Start, consent persists through routine
 speech, interruption, background tasks, automatic session adoption, visibility
 loss and recoverable disconnect/resync. Hide temporarily suspends capture/output;
-returning to the same scope restores capture after readiness and resync. No
+returning to the same scope restores capture after readiness and resync. The
+entry routing remains fixed when its task adopts a session; resolving the UI
+provider selection is not a new audio destination. No
 unavailable-period PCM is buffered or replayed. A changed destination/service or
 agent disclosure requires a fresh Start. Manual Mute persists through every
 recovery; Leave, authentication loss, explicit session selection and actual
