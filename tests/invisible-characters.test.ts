@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "path";
+import { execFileSync } from "child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 
 import { scanRepo, scanText } from "../scripts/check-invisibles";
 
 // Built numerically so this test file never contains the characters it asserts
-// on — otherwise the repo-wide scan below would flag the test itself.
+// on — lint scans this test file too.
 const NUL = String.fromCharCode(0x00);
 const ZWSP = String.fromCharCode(0x200b);
 const NBSP = String.fromCharCode(0x00a0);
@@ -49,11 +52,35 @@ describe("scanText", () => {
 });
 
 describe("repository", () => {
-  test("no tracked file contains raw control or invisible characters", () => {
-    const findings = scanRepo(resolve(import.meta.dir, ".."));
-    const report = findings
-      .map((f) => `${f.file}:${f.line}:${f.column} ${f.name}`)
-      .join("\n");
-    expect(report).toBe("");
+  test("scans tracked text while excluding binary, deleted, ignored and untracked files", () => {
+    const root = mkdtempSync(join(tmpdir(), "invisibles-gate-"));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
+    try {
+      git("init", "--quiet");
+      mkdirSync(join(root, "nested"));
+      writeFileSync(join(root, ".gitignore"), "ignored.ts\n");
+      writeFileSync(join(root, "clean.ts"), 'const hero = "Odysseus";\n');
+      writeFileSync(join(root, "nested/dirty.ts"), `clean\nx${NUL}y\n`);
+      writeFileSync(join(root, "image.png"), NUL);
+      writeFileSync(join(root, "deleted.ts"), NUL);
+      git("add", ".");
+      rmSync(join(root, "deleted.ts"));
+      writeFileSync(join(root, "ignored.ts"), NUL);
+      writeFileSync(join(root, "untracked.ts"), NUL);
+      expect(scanRepo(root)).toEqual([
+        { file: "nested/dirty.ts", line: 2, column: 2, name: "NUL", codepoint: 0 },
+      ]);
+      const child = Bun.spawnSync({
+        cmd: [process.execPath, resolve(import.meta.dir, "../scripts/check-invisibles.ts"), root],
+        stdout: "pipe", stderr: "pipe",
+      });
+      expect(child.exitCode).toBe(1);
+      expect(child.stderr.toString()).toContain("nested/dirty.ts:2:2: NUL");
+      expect(child.stderr.toString()).toContain("write it as " + String.fromCharCode(92) + "u0000 instead");
+      writeFileSync(join(root, "nested/dirty.ts"), "clean\n");
+      expect(scanRepo(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

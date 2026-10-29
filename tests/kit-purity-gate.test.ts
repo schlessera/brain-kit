@@ -5,18 +5,16 @@
  * that is misconfigured, and this one guards a rule with no other enforcement:
  * a kit component that reaches for a store compiles, renders, and passes every
  * other check in the repo. So each rule gets a fixture that must trip it, and
- * the real kit sources must trip none.
+ * bounded filesystem fixtures prove source discovery. Lint owns the real kit.
  *
- * Fixtures are strings rather than files on disk: the scanner takes source
- * text, and a file full of deliberate violations sitting in packages/ would be
- * a violation.
+ * Deliberate violations stay in strings or temporary trees outside the repo.
  */
 
 import { describe, expect, test } from "bun:test";
-import { resolve } from "path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join, resolve } from "path";
 import { scanKit, scanSource } from "../scripts/check-kit-purity.ts";
-
-const ROOT = resolve(import.meta.dir, "..");
 
 const VIOLATIONS: [string, number, string][] = [
   ["zustand import", 1, `import { create } from "zustand";\nexport const s = create(() => ({}));\n`],
@@ -51,7 +49,32 @@ describe("ui-kit purity gate", () => {
     expect(scanSource("packages/ui-kit/src/c.ts", source)).toEqual([]);
   });
 
-  test("the real kit sources are clean", () => {
-    expect(scanKit(ROOT)).toEqual([]);
+  test("discovers nested kit TS and TSX violations while excluding other sources", () => {
+    const root = mkdtempSync(join(tmpdir(), "kit-purity-gate-"));
+    const files = ["packages/ui-kit/src/nested/a.ts", "packages/ui-kit/src/nested/b.tsx"];
+    const write = (file: string, text: string) => {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), text);
+    };
+    try {
+      for (const file of files) write(file, '\nfetch("/api/x");\n');
+      write("packages/ui-kit/src/clean.tsx", "export const C = () => <div />;");
+      for (const file of ["packages/ui-react/src/a.ts", "packages/ui-kit/tests/a.ts",
+        "packages/ui-kit/src/a.js"]) write(file, 'fetch("/api/x");');
+      const findings = scanKit(root);
+      expect(findings.map(({ file, line, column, rule, symbol }) => ({ file, line, column, rule, symbol })))
+        .toEqual(files.map(file => ({ file, line: 2, column: 1, rule: 2, symbol: "fetch" })));
+      for (const finding of findings) expect(finding.message).toContain("prop");
+      const child = Bun.spawnSync({
+        cmd: [process.execPath, resolve(import.meta.dir, "../scripts/check-kit-purity.ts"), root],
+        stdout: "pipe", stderr: "pipe",
+      });
+      expect(child.exitCode).toBe(1);
+      expect(child.stderr.toString()).toContain("packages/ui-kit/src/nested/a.ts:2:1: [rule 2] fetch");
+      for (const file of files) write(file, "export {};\n");
+      expect(scanKit(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

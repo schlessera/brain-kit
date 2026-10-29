@@ -5,8 +5,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join, resolve } from "path";
 import { scanSource, scanTree } from "../scripts/check-frontmatter-parse";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -63,8 +64,7 @@ describe("rule 2: inside a designated file, only literal-options calls", () => {
   const imported = 'import matter from "gray-matter";\n';
 
   test("the shipped helper and serializer pass", () => {
-    // Only these two files: the whole-tree scan below already covers the rest,
-    // and a second one doubled this file's parse cost (#1561).
+    // Focused designated-file proof; lint owns the repository-wide scan.
     for (const file of [HELPER, SERIALIZER]) {
       expect(scanSource(file, readFileSync(resolve(ROOT, file), "utf8"))).toEqual([]);
     }
@@ -116,7 +116,38 @@ describe("rule 2: inside a designated file, only literal-options calls", () => {
 });
 
 describe("the tree", () => {
-  test("is clean", () => {
-    expect(scanTree(ROOT)).toEqual([]);
+  test("discovers violations across source roots and excludes generated and unrelated files", () => {
+    const root = mkdtempSync(join(tmpdir(), "frontmatter-gate-"));
+    const dirty = 'const heading = "Odysseus";\nimport matter from "gray-matter";\n';
+    const files = [
+      "packages/core/src/nested/a.ts", "packages/core/tests/a.tsx",
+      "packages/core/scripts/a.js", "scripts/nested/a.mjs",
+      "tests/nested/a.cjs", "experiments/nested/a.ts",
+    ];
+    const write = (file: string, text: string) => {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), text);
+    };
+    try {
+      for (const file of files) write(file, dirty);
+      write(HELPER, 'import matter from "gray-matter";\nmatter(input, {});\n');
+      write("packages/core/src/clean.ts", 'export const hero = "Odysseus";');
+      for (const file of ["packages/core/src/dist/a.ts", "tests/node_modules/a.ts",
+        "docs/a.ts", "packages/core/src/a.md"]) write(file, dirty);
+      const findings = scanTree(root);
+      expect(findings.map(({ file, line, column, rule }) => ({ file, line, column, rule })))
+        .toEqual([...files].sort().map(file => ({ file, line: 2, column: 1, rule: 1 })));
+      for (const finding of findings) expect(finding.message).toContain("gray-matter loaded outside");
+      const child = Bun.spawnSync({
+        cmd: [process.execPath, resolve(import.meta.dir, "../scripts/check-frontmatter-parse.ts"), root],
+        stdout: "pipe", stderr: "pipe",
+      });
+      expect(child.exitCode).toBe(1);
+      expect(child.stderr.toString()).toContain("packages/core/src/nested/a.ts:2:1: [rule 1]");
+      for (const file of files) write(file, "export {};\n");
+      expect(scanTree(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
