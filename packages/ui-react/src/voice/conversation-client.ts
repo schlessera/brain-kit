@@ -673,8 +673,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     discard() {
       if (ready && mic) endpoint(generation);
       clearTimers();
-      for (const id of fragments.keys()) retiredInputs.add(id);
-      removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState(s => ({ text: "", recognition: s.recognition.filter(f => f.kind !== "input_fragment" || !retiredInputs.has(f.utteranceId)) })); refresh();
+      // Replay retirement spans the epoch; deletion owns only this draft.
+      // Earlier submitted/consumed input must keep its retained display evidence.
+      const discardedInputs = new Set(fragments.keys());
+      for (const id of discardedInputs) retiredInputs.add(id);
+      removeSavedDraft(); fragments.clear(); lastInput = undefined;
+      state.setState(s => ({ text: "", recognition: s.recognition.filter(f => f.kind !== "input_fragment" || !discardedInputs.has(f.utteranceId)) }));
+      refresh();
     },
     stopReply, leave,
     dispose() { leave(); disposed = true; unwatchChat(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); },
