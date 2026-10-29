@@ -47,6 +47,7 @@ let port = 0;
 let origin = "";
 let sequence = 0;
 let diagnosticSequence = 0;
+let previousFinalization: FinalizationDelay | undefined;
 // One deliberately overlapped read, sampled at the original terminal and
 // delivered after its queued successor. Later reads use ordinary fresh history.
 type LateHistory = { sessionId: string; mode: "stale" | "fresh"; promise: Promise<void>; release(): void;
@@ -233,7 +234,8 @@ beforeAll(async () => {
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
 }, 240_000);
 
-afterEach(() => {
+afterEach(async () => {
+  const owned = [...(app?.wsHost.turnTasks ?? [])];
   lateHistory?.release();
   lateHistory = undefined;
   lifecycle.length = 0;
@@ -244,6 +246,8 @@ afterEach(() => {
   missed.clear();
   for (const waiting of historyWaiters.values()) waiting.release();
   historyWaiters.clear();
+  if (previousFinalization) await previousFinalization.entered;
+  await joinOwnedTurns(owned);
 });
 
 afterAll(async () => {
@@ -252,7 +256,9 @@ afterAll(async () => {
   await browser?.close();
   server?.stop(true);
   app?.cancelActiveTurns();
+  previousFinalization?.release();
   await app?.close();
+  if (previousFinalization) expect(previousFinalization.restored(), "unfinished scene restores the recorder descriptor").toBe(true);
   if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
@@ -491,7 +497,33 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   await page.getByText("Setting out: Sail past the Sirens").first().waitFor();
   await send(page, `Then bind me to the mast ${tag}`);
   await page.locator('[data-row-half="right"] [data-pill]').first().waitFor();
-  expect(await drawn(cell, page), "B is tracked").toEqual([B]);
+  const previous = previousFinalization;
+  try {
+    expect(await drawn(cell, page), "B is tracked").toEqual([B]);
+    if (previous) {
+      expect(previous.acknowledged(), "the previous scene exercised real recorder settlement").toBe(true);
+      expect(previous.restored(), "the previous recorder's complete descriptor is restored").toBe(true);
+      expect(app!.wsHost.coordinator.bySession.has(previous.sessionId), "the previous B left its host slot before this scene").toBe(false);
+    }
+  } catch (error) {
+    // Preserve the original assertion while retaining the case/host/wire owner
+    // evidence needed to diagnose a future extra tracker at preparation time.
+    try {
+      const path = `tmp/connection-continuity-preparation-${cell.width}-${++diagnosticSequence}-probe.json`;
+      await mkdir(resolve(repo, "tmp"), { recursive: true });
+      await writeFile(resolve(repo, path), JSON.stringify({ cell, A, B,
+        previous: previous ? { sessionId: previous.sessionId, acknowledged: previous.acknowledged(), restored: previous.restored() } : null,
+        slots: [...app!.wsHost.coordinator.running].map(turn => ({ sessionId: turn.sessionId, turnId: turn.turnId, backendStarted: turn.backendStarted, lastResult: turn.lastResult })),
+        turnTasks: app!.wsHost.turnTasks.size, lifecycle: lifecycle.slice(-256), transport: net.trace.slice(-64),
+        client: await page.evaluate(() => (window as any).__continuity.diagnostic()),
+      }, null, 2));
+      console.error("CONTINUITY_PREPARATION", path);
+    } catch (captureError) { console.error("CONTINUITY_PREPARATION capture failed", String(captureError)); }
+    throw error;
+  } finally {
+    previous?.release();
+    if (previousFinalization === previous) previousFinalization = undefined;
+  }
 
   // A's draft: words, an image and a track whose upload has not landed (#951).
   const draft = `Steer west of Scylla toward Ithaca ${tag}`;
@@ -1131,6 +1163,9 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         expect(await page.evaluate(() => (window as unknown as { __events: Array<{ type: string }> }).__events.map((e) => e.type)), "nothing blurred the field").toEqual([]);
         await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
         await finishRecoveredTurn(s, cell);
+        // #2932: a backend result is not host settlement. Hold B at that real
+        // boundary; the following IME scene retains its original tracker check.
+        if (cell.width === 320) previousFinalization = delayFinalization(s.B);
       } finally {
         await closeContext(s.context);
       }
@@ -1212,4 +1247,58 @@ async function closeContext(context: BrowserContext | undefined) {
       if (disposal) expect(disposal, "reconnect clock restores complete timer descriptors").toEqual({ restored: true, errors: 0 });
     }
   } finally { await context.close(); }
+}
+
+/** All turns in this app belong to the current fixture, including offscreen B. */
+async function joinOwnedTurns(owned: readonly Promise<void>[]) {
+  const outcomes = await Promise.allSettled(owned);
+  const failures = outcomes.flatMap(outcome => outcome.status === "rejected" ? [outcome.reason] : []);
+  if (failures.length) throw new AggregateError(failures, "Continuity fixture turn cleanup failed");
+}
+
+type FinalizationDelay = {
+  sessionId: string;
+  entered: Promise<void>;
+  acknowledged(): boolean;
+  restored(): boolean;
+  release(): void;
+};
+
+/**
+ * Acknowledged post-result fault input, not a sleep used to declare cleanup
+ * successful. The join must await the real task; removing it lets the next
+ * browser receive this old B's scoped snapshot and fail `B is tracked`.
+ */
+function delayFinalization(sessionId: string): FinalizationDelay {
+  const recorder = app!.wsHost.coordinator.bySession.get(sessionId)?.recorder;
+  expect(recorder, "offscreen B still owns its actual recorder").toBeDefined();
+  if (!recorder) throw new Error("Offscreen B lost its recorder before the finalization control");
+  const descriptor = Object.getOwnPropertyDescriptor(recorder!, "settled")!;
+  expect(typeof descriptor.value, "the real recorder has an owned settlement method").toBe("function");
+  let acknowledge!: () => void, release!: () => void;
+  let acknowledged = false;
+  const entered = new Promise<void>(resolve => { acknowledge = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  Object.defineProperty(recorder, "settled", { ...descriptor, value: async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Reflect.apply(descriptor.value, recorder, []);
+      acknowledged = true;
+      // Finite controlled delay starts only after real native writes settle.
+      // Existing product/test deadlines and all observation horizons stay put.
+      timer = setTimeout(release, 15_000);
+      acknowledge();
+      await gate;
+    } finally {
+      clearTimeout(timer);
+      Object.defineProperty(recorder, "settled", descriptor);
+      acknowledge(); // A rejected native settlement must not strand teardown.
+    }
+  } });
+  return { sessionId, entered, acknowledged: () => acknowledged, release,
+    restored: () => {
+      const actual = Object.getOwnPropertyDescriptor(recorder!, "settled");
+      return actual !== undefined && (["value", "writable", "get", "set", "enumerable", "configurable"] as const)
+        .every(key => actual[key] === descriptor[key]);
+    } };
 }
