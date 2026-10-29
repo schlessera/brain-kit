@@ -2,4 +2,4 @@
 "@schlessera/brain-ui-sdk": patch
 ---
 
-Keep maintenance cancellation from missing a newly forked worker child, with launch identity checks and confirmed process stopping before child enumeration.
+Use held pidfd authority and confirmed process stopping before maintenance child enumeration. When the host cannot hold a pidfd for the worker, cancellation is reported unconfirmed and keeps the worker's admission.

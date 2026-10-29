@@ -80,7 +80,11 @@ f=os.open(root+'/go',os.O_RDONLY)
 os.read(f,1)
 child=os.fork()
 if child==0:
- open(root+'/child-ready','w').write(str(os.getpid()))
+ t=root+'/child-ready.tmp';b=(str(os.getpid())+'\n').encode()
+ f=os.open(t,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+ if os.write(f,b)!=len(b):os._exit(90)
+ os.close(f)
+ os.rename(t,root+'/child-ready')
  while True:signal.pause()
 open(root+'/forked','w').write(str(child))
 os.waitpid(child,0)
@@ -151,17 +155,24 @@ async function fixture(threaded = false, command?: (root: string, go: number) =>
 }
 function injectFork(f: Awaited<ReturnType<typeof fixture>>): void {
   fs.writeSync(f.go, Buffer.from("g"));
-  const deadline = performance.now() + 500;
-  while (!fs.existsSync(join(f.o.root!, "child-ready")) && performance.now() < deadline) Bun.sleepSync(1);
-  expect(fs.existsSync(join(f.o.root!, "child-ready")), "FORK_ACK_REQUIRED").toBe(true);
-  const pid = Number(fs.readFileSync(join(f.o.root!, "child-ready"), "utf8"));
-  f.o.child = identity(pid); expect(f.o.child, "FORK_IDENTITY_REQUIRED").toBeDefined();
-  expect(fs.readFileSync(`/proc/${f.outer.pid}/task/${f.outer.pid}/children`, "utf8").trim().split(/\s+/)).toContain(String(pid));
+  const ack = join(f.o.root!, "child-ready"), deadline = performance.now() + 500;
+  while (!fs.existsSync(ack) && performance.now() < deadline) Bun.sleepSync(1);
+  expect(fs.existsSync(ack), "FORK_ACK_REQUIRED").toBe(true);
+  const raw = fs.readFileSync(ack, "utf8");
+  receipt("fork-ack-bytes", { raw });
+  const match = /^([1-9]\d{0,9})\n$/.exec(raw);
+  expect(match?.[0], "FORK_ACK_ATOMIC").toBe(raw);
+  const pid = Number(match![1]);
+  const child = identity(pid); expect(child, "FORK_IDENTITY_REQUIRED").toBeDefined();
+  expect(fs.readFileSync(`/proc/${f.outer.pid}/task/${f.outer.pid}/children`, "utf8").trim().split(/\s+/), "FORK_NOT_OUTER_CHILD").toContain(String(pid));
+  // Adopt only a verified child; a rejected ack still uses owned-child discovery.
+  f.o.child = child;
   for (const fd of [1, 2]) {
     const writer = fs.readlinkSync(`/proc/${pid}/fd/${fd}`);
     expect(fs.statSync(`/proc/${pid}/fd/${fd}`).isFIFO(), "REAL_FIFO_WRITER").toBe(true);
     expect(writer).toBe(fs.readlinkSync(`/proc/${f.outer.pid}/fd/${fd}`));
   }
+  expect(alive(f.o.child!), "FORK_IDENTITY_STABLE").toBe(true);
   receipt("fork-ack", { parent: f.o.parent, child: f.o.child, stdout: fs.readlinkSync(`/proc/${pid}/fd/1`), stderr: fs.readlinkSync(`/proc/${pid}/fd/2`),
     writers: [1, 2].map(fd => { const stat = fs.statSync(`/proc/${pid}/fd/${fd}`); return { fd, dev: stat.dev, ino: stat.ino, fifo: stat.isFIFO() }; }) });
 }
@@ -248,6 +259,7 @@ test("empty outer terminates and a fork request while stopped cannot create a ch
   });
   bind(worker); cancellation.killWorker(worker); await settled(f); await complete(worker);
   expect(fs.existsSync(join(f.o.root!, "child-ready")), "STOPPED_OUTER_CANNOT_FORK").toBe(false);
+  expect(fs.existsSync(join(f.o.root!, "child-ready.tmp")), "STOPPED_OUTER_CANNOT_BEGIN_ACK").toBe(false);
   expect(signals).toEqual(["SIGSTOP", "SIGKILL"]);
 });
 
