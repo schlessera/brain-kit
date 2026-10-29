@@ -191,6 +191,18 @@ inputs. Use an isolated checkout with its own frozen dependencies, completed
 build and no generated `packages/ui-kit/node_modules/.vite/**` cache. Run from
 the repository root, using the pinned offline runner and its locked fonts:
 
+The permanent shared-button owners are the three native rail projects. For
+this diagnostic's partial layout cache only, create the temporary file
+`remaining-buttons-pdf-probe.layout.tsx` in `packages/ui-react/tests/browser/`:
+
+```tsx
+import { remainingButtonCases } from "./remaining-buttons.cases.js";
+remainingButtonCases(() => "fine");
+```
+
+Remove that temporary leaf after the diagnostic, including on failure. It is
+not part of ordinary layout discovery or the retained proof inventory.
+
 1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
    only the `ui-react-layout` project's discovery array with
    `["../ui-react/tests/browser/graph-labels.layout.tsx"]`.
@@ -206,7 +218,7 @@ the repository root, using the pinned offline runner and its locked fonts:
    separately, even when the first fails:
 
    ```sh
-   timeout --signal=TERM --kill-after=10s 180s node scripts/visual.mjs --project=ui-react-layout --filter=remaining-buttons.layout
+   timeout --signal=TERM --kill-after=10s 180s node scripts/visual.mjs --project=ui-react-layout --filter=remaining-buttons-pdf-probe.layout
    ```
 
 The corrected seed already contains both PDF modules. Both target invocations
