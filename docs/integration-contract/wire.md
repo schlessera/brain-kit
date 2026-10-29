@@ -1331,6 +1331,42 @@ invalid one closes the epoch. `assertLiveConversationProvider` and
 `assertLiveConversationSession` are the registration checks. Client
 capture/playback and live qualification remain separate from this host contract.
 
+**Retained host results (additive, #3141).** The experimental SDK
+`ConversationResync` gains optional `results`, an array of
+`{ conversationId, epoch, requestId, turnId, facts }`. Existing providers may
+ignore it; callers omitting it retain receipt-only behavior. No client frame,
+wire schema, protocol revision, capability or receipt field changes. Result
+text stays host-only until supplied as historical input to a new provider
+session; `conversation_opened.resync` remains counts, not result text.
+
+The host retains completed backend text independently of generated voice
+paraphrases, original delivery acknowledgement and local playback. Each result
+keeps the existing 4,000 UTF-16 character bound (the live host uses prefix plus
+ellipsis); at most 16,000 characters survive per conversation. Oldest admitted
+completed results are evicted whole when this budget is exceeded. Receipt
+eviction also removes their result text; identity tombstones remain. No backend
+transcript is loaded to fill an absent or evicted result. In-progress, cancelled,
+error, refused and unknown outcomes supply state/reason only, never successful
+result facts. A completed effect with discarded or unknown delivery still has
+historical facts; that does not establish original speech, acceptance or
+comprehension.
+
+Both first-party adapters join facts only to an exact conversation/epoch/request/
+turn receipt from an earlier epoch, bound the input again and serialize it as
+historical data in the new session's user input. They send no old native response
+or executable task. Resync never changes earlier provider messages or repeats
+work. Host authorization and principal/conversation ownership checks govern
+resumption; native IDs may repeat in a later epoch without sharing task facts.
+
+Internal UI database migration `070_conversation_result_facts.sql` adds nullable
+`conversation_tasks.result_facts`. Existing rows recover without result context;
+new writes persist only completed, bounded text under the task's stored identity.
+Recovery applies the same budget and identity checks and preserves unknown
+acceptance after a pending delivery. This is an additive minor SDK change and
+internal storage upgrade; it changes no legacy client's required input.
+Provider semantic recall, actual audibility and device qualification remain
+separate evidence through #961/#3131.
+
 **Gemini adapter (additive, #958).**
 `createGeminiConversationProvider(apiKey: string): LiveConversationProvider`
 is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
