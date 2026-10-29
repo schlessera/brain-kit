@@ -33,14 +33,14 @@ for (const source of [undefined, "voice-context"] as const) for (const chunked o
     if (chunked) chat.appendMessages("ithaca", replay.slice(-1));
     chat.finishHistoryReplay("ithaca", true);
     expect(root.stores.chat.getState().buffers.ithaca!.messages.at(-1)!.id).toBe(answer.id);
-    const primary = rows().filter(e => e.kind === "message" && e.section !== "answer");
+    const primary = rows().filter(e => e.kind === "message").filter(e => e.section !== "answer");
     expect(primary.map(e => e.index)).toEqual([0, 1, 2, 3]);
     expect(rows().findIndex(e => e.key === answerKey)).toBeLessThan(rows().findIndex(e => e.key === speechKey));
     expect(rows().findIndex(e => e.kind === "message" && e.message.id === user.id)).toBeLessThan(rows().findIndex(e => e.key === answerKey));
     chat.appendText("ithaca", " Rowing again.");
     const retained = rows().find(e => e.key === answerKey);
     expect(retained?.kind === "message" && retained.message.id).toBe(answer.id);
-    expect(rows().filter(e => e.kind === "message" && e.section !== "answer").map(e => e.index)).toEqual([0, 1, 2, 3]);
+    expect(rows().filter(e => e.kind === "message").filter(e => e.section !== "answer").map(e => e.index)).toEqual([0, 1, 2, 3]);
   } finally { root.dispose(); }
 });
 
