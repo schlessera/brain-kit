@@ -15,10 +15,17 @@ type NativeLibrary = { symbols: {
   __errno_location(): Pointer | null;
 } };
 let nativeLibrary: NativeLibrary | undefined;
+type SignalFn = NativeLibrary["symbols"]["pidfd_send_signal"];
+let signalHook: ((fd: number, signal: number, info: null, flags: number, real: SignalFn) => number) | undefined;
+let dlopenHook: (() => void) | undefined;
+function hookSignal(hook: NonNullable<typeof signalHook>) {
+  signalHook = hook; restores.push(() => { signalHook = undefined; });
+}
 const observers = new Map<number, { before(signal: NodeJS.Signals): void; after(signal: NodeJS.Signals): void }>();
 const nativeRestores: (() => void)[] = [];
 const nativeDlopen = ffi.dlopen;
 const loader = spyOn(ffi, "dlopen").mockImplementation(((...args: unknown[]) => {
+  dlopenHook?.();
   const library = Reflect.apply(nativeDlopen, ffi, args);
   if (typeof args[1] === "object" && args[1] !== null && "pidfd_open" in args[1]) {
     nativeLibrary = library as unknown as NativeLibrary;
@@ -27,13 +34,17 @@ const loader = spyOn(ffi, "dlopen").mockImplementation(((...args: unknown[]) => 
       let observer: ReturnType<typeof observers.get>;
       let name: NodeJS.Signals | undefined;
       if (signal) {
-        const text = fs.readFileSync(`/proc/self/fdinfo/${fd}`, "utf8");
-        const pid = Number(/^Pid:\s+(\d+)/m.exec(text)?.[1]);
-        observer = observers.get(pid);
+        try {
+          const text = fs.readFileSync(`/proc/self/fdinfo/${fd}`, "utf8");
+          const pid = Number(/^Pid:\s+(\d+)/m.exec(text)?.[1]);
+          observer = observers.get(pid);
+        } catch (error) {
+          if (!["ENOENT", "EBADF"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+        }
         name = Object.entries(osConstants.signals).find(([, number]) => number === signal)?.[0] as NodeJS.Signals;
         if (observer && name) observer.before(name);
       }
-      const result = original(fd, signal, info, flags);
+      const result = signalHook ? signalHook(fd, signal, info, flags, original) : original(fd, signal, info, flags);
       if (observer && name && result === 0) observer.after(name);
       return result;
     });
@@ -156,13 +167,13 @@ function injectFork(f: Awaited<ReturnType<typeof fixture>>): void {
 }
 function observed(f: Awaited<ReturnType<typeof fixture>>, beforeFirst?: (signal: NodeJS.Signals) => void,
   afterSignal?: (signal: NodeJS.Signals) => void) {
-  const signals: NodeJS.Signals[] = [];
+  const signals: NodeJS.Signals[] = [], delivered: NodeJS.Signals[] = [];
   const observer = { before(signal: NodeJS.Signals) { if (!signals.length) beforeFirst?.(signal); signals.push(signal); },
-    after(signal: NodeJS.Signals) { afterSignal?.(signal); } };
+    after(signal: NodeJS.Signals) { delivered.push(signal); afterSignal?.(signal); } };
   observers.set(f.outer.pid, observer);
   const worker = { pid: f.outer.pid, get exitCode() { return f.outer.exitCode; }, get signalCode() { return f.outer.signalCode; },
     get exited() { return f.outer.exited; }, kill(signal: NodeJS.Signals = "SIGTERM") { observer.before(signal); f.outer.kill(signal); observer.after(signal); } };
-  return { worker, signals };
+  return { worker, signals, delivered };
 }
 const bind = (worker: Parameters<typeof cancellation.killWorker>[0]) => cancellation.registerWorker?.(worker);
 const complete = (worker: Parameters<typeof cancellation.killWorker>[0]) => cancellation.workerStopCompletion?.(worker) ?? Promise.resolve();
@@ -348,9 +359,8 @@ test("native pidfd authority is held and closes once after actual exit and stop"
   let reused = false;
   for (let i = 0; i < 64; i++) { const fd = fs.openSync("/dev/null", "r"); f.o.fds.push(fd); if (fd === state.fd) { reused = true; break; } if (fd > state.fd) break; }
   expect(reused, "OWNED_DESCRIPTOR_REUSE_PREMISE").toBe(true);
-  const realSignal = nativeLibrary!.symbols.pidfd_send_signal;
   let calls = 0;
-  const signals = spyOn(nativeLibrary!.symbols, "pidfd_send_signal").mockImplementation((...args) => { calls++; return realSignal(...args); }); restores.push(() => signals.mockRestore());
+  hookSignal((fd, signal, info, flags, real) => { calls++; return real(fd, signal, info, flags); });
   cancellation.killWorker(f.outer); await complete(f.outer);
   expect(calls, "CLOSED_AUTHORITY_MUST_NOT_SIGNAL_REUSED_FD").toBe(0);
   expect(fs.fstatSync(state.fd).isCharacterDevice(), "REUSED_OWNED_FD_REMAINS_OPEN").toBe(true);
@@ -399,22 +409,28 @@ test("changed registration parent cannot acquire authority", async () => {
 for (const fault of ["stop", "scan", "child", "resume"] as const) {
   test(`proc observation ${fault} failure cannot leave the owned outer frozen`, async () => {
     await primeNative(); const f = await fixture(); injectFork(f);
-    const { worker, signals } = observed(f); bind(worker);
-    const original = fs.readFileSync; let hit = 0;
+    const { worker, signals, delivered } = observed(f); bind(worker);
+    const original = fs.readFileSync; let hit = 0, afterResume = 0, measuring = true;
     const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...args: unknown[]) => {
       const name = String(path);
+      if (fault === "resume" && measuring && (signals.includes("SIGKILL") || signals.includes("SIGCONT")) &&
+        name.startsWith("/proc/") && !name.startsWith("/proc/self/")) afterResume++;
       const selected = fault === "child" ? name === `/proc/${f.o.child!.pid}/stat`
         : fault === "scan" ? name.startsWith(`/proc/${f.outer.pid}/task/`) && name.endsWith("/children")
-        : name.startsWith(`/proc/${f.outer.pid}/task/`) && (fault === "resume" || name.endsWith("/stat"));
+        : name.startsWith(`/proc/${f.outer.pid}/task/`) && name.endsWith("/stat");
       if (selected && signals.includes("SIGSTOP")) { hit++; throw Object.assign(Error("owned proc observation fault"), { code: fault === "scan" ? "EACCES" : "EMFILE" }); }
       return Reflect.apply(original, fs, [path, ...args]);
     }) as typeof fs.readFileSync); restores.push(() => spy.mockRestore());
     cancellation.killWorker(worker);
     let failure: unknown; try { await complete(worker); } catch (error) { failure = error; }
+    measuring = false;
+    receipt("proc-fault", { fault, hit, signals, delivered, afterResume });
+    expect(afterResume, "RESUME_MUST_NOT_READ_PROC").toBe(0);
     expect(hit, "PROC_FAULT_MUST_BE_REACHED").toBeGreaterThan(0);
     expect((failure as { cleanupUnconfirmed?: boolean })?.cleanupUnconfirmed, "PROC_FAILURE_MUST_RETAIN_OWNERSHIP").toBe(true);
     expect(await until(() => f.o.exited), "PROC_FAILURE_OUTER_MUST_EXIT").toBe(true);
     expect(alive(f.o.parent!), "PROC_FAILURE_OUTER_MUST_NOT_STAY_FROZEN").toBe(false);
+    expect(signals, "PROC_FAILURE_PIDFD_SEQUENCE").toEqual(["SIGSTOP", "SIGKILL", "SIGCONT"]);
     // A pre-handshake child need not die with its outer. Retain and clean the
     // actual owned child independently; never turn that fallback into clean proof.
     spy.mockRestore();
@@ -424,16 +440,18 @@ for (const fault of ["stop", "scan", "child", "resume"] as const) {
 }
 
 test("unexpected pidfd errno falls back and stays unconfirmed", async () => {
-  const api = await primeNative(), f = await fixture(); const { worker, signals } = observed(f); bind(worker);
-  const original = api.symbols.pidfd_send_signal; let injected = false;
-  const spy = spyOn(api.symbols, "pidfd_send_signal").mockImplementation((fd, signal, info, flags) => {
+  const api = await primeNative(), f = await fixture(); const { worker, signals, delivered } = observed(f); bind(worker);
+  let injected = false;
+  hookSignal((fd, signal, info, flags, real) => {
     if (signal === osConstants.signals.SIGSTOP && !injected) { injected = true; return errorNumber(api, 22); }
-    return original(fd, signal, info, flags);
-  }); restores.push(() => spy.mockRestore());
+    return real(fd, signal, info, flags);
+  });
   cancellation.killWorker(worker); await settled(f);
   let failure: unknown; try { await complete(worker); } catch (error) { failure = error; }
   expect(injected, "UNEXPECTED_ERRNO_PREMISE").toBe(true);
-  expect(signals, "FAILED_STOP_USES_BASELINE_TERMINATION").toEqual(["SIGKILL"]);
+  receipt("unexpected-errno", { hit: injected, signals, delivered, afterResume: 0 });
+  expect(signals, "UNEXPECTED_ERRNO_ATTEMPTS").toEqual(["SIGSTOP", "SIGKILL"]);
+  expect(delivered, "FAILED_STOP_NOT_DELIVERED").toEqual(["SIGKILL"]);
   expect((failure as { cleanupUnconfirmed?: boolean })?.cleanupUnconfirmed, "UNEXPECTED_ERRNO_REMAINS_UNCONFIRMED").toBe(true);
 });
 
@@ -447,22 +465,23 @@ test("actual ESRCH after reap stops all further pidfd signals", async () => {
     finish(await f.outer.exited); await complete(wrapper);
   });
   bind(wrapper);
-  const original = api.symbols.pidfd_send_signal, originalRead = fs.readFileSync;
+  const originalRead = fs.readFileSync;
   let stopped = false, esrch = false, after = 0;
-  const spy = spyOn(api.symbols, "pidfd_send_signal").mockImplementation((fd, signal, info, flags) => {
+  hookSignal((fd, signal, info, flags, real) => {
     if (esrch) after++;
-    const result = original(fd, signal, info, flags);
+    const result = real(fd, signal, info, flags);
     const errno = result < 0 ? ffi.read.i32(api.symbols.__errno_location()!, 0) : 0;
     if (errno === 3) esrch = true;
     if (signal === osConstants.signals.SIGSTOP && !stopped) { stopped = true; f.outer.kill("SIGKILL"); }
     return result;
-  }); restores.push(() => spy.mockRestore());
+  });
   const read = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...args: unknown[]) => {
     const value = Reflect.apply(originalRead, fs, [path, ...args]);
     if (String(path).startsWith(`/proc/${f.outer.pid}/task/`) && String(path).endsWith("/stat") && typeof value === "string") return value.replace(/\) Z /, ") S ");
     return value;
   }) as typeof fs.readFileSync); restores.push(() => read.mockRestore());
   cancellation.killWorker(wrapper); await settled(f); await complete(wrapper);
+  receipt("actual-esrch", { hit: esrch, stopped, after });
   expect(esrch, "ACTUAL_REAP_MUST_RETURN_ESRCH").toBe(true);
   expect(after, "NO_SIGNAL_AFTER_ESRCH").toBe(0);
   finish(await f.outer.exited); await complete(wrapper);
@@ -551,14 +570,75 @@ for (const scenario of ["open-normal", "proc-normal", "cancel"] as const) {
 }
 
 test("unavailable lazy FFI remains an unconfirmed no-stop cancellation", async () => {
-  const url = new URL("../src/server/maintenance-worker-kill.ts", import.meta.url); url.search = "?no-native-api";
-  const isolated = await import(url.href) as typeof cancellation;
+  const isolatedPath = "../src/server/maintenance-worker-kill.ts?no-native-api";
+  const isolated = await import(isolatedPath) as typeof cancellation;
+  expect(isolated.registerWorker !== cancellation.registerWorker, "FRESH_LOADER_ISOLATION").toBe(true);
   const f = await fixture(); const { worker, signals } = observed(f); let hit = false;
-  const spy = spyOn(ffi, "dlopen").mockImplementation(() => { hit = true; throw Error("unavailable FFI fixture"); }); restores.push(() => spy.mockRestore());
-  isolated.registerWorker(worker); isolated.killWorker(worker);
+  dlopenHook = () => { hit = true; throw Error("unavailable FFI fixture"); };
+  restores.push(() => { dlopenHook = undefined; });
+  const before = pidfds(f.outer.pid);
+  isolated.registerWorker(worker);
+  expect(pidfds(f.outer.pid), "UNAVAILABLE_FFI_MUST_NOT_BIND").toEqual(before);
+  isolated.killWorker(worker);
   expect(hit, "LAZY_FFI_FAILURE_PREMISE").toBe(true);
   expect(signals, "UNAVAILABLE_FFI_MUST_NOT_STOP").toEqual(["SIGKILL"]);
   let failure: unknown; try { await isolated.workerStopCompletion(worker); } catch (error) { failure = error; }
   expect((failure as { cleanupUnconfirmed?: boolean })?.cleanupUnconfirmed, "UNAVAILABLE_FFI_REMAINS_UNCONFIRMED").toBe(true);
   await settled(f);
+});
+
+for (const ignored of [false, true]) {
+  test(`no-authority requested SIGTERM ${ignored ? "can later escalate" : "preserves the requested signal"}`, async () => {
+    const api = await primeNative();
+    const program = ignored ? outerProgram.replace("root=sys.argv[1]", "signal.signal(signal.SIGTERM, signal.SIG_IGN)\nroot=sys.argv[1]") : outerProgram;
+    const f = await fixture(false, root => ["python3", "-I", "-S", "-c", program, root]);
+    expect(await until(() => fs.existsSync(join(f.o.root!, "ready")), 3000), "NO_AUTHORITY_TERM_READY").toBe(true);
+    const { worker, signals, delivered } = observed(f);
+    failOpen(api); bind(worker);
+    cancellation.killWorker(worker, "SIGTERM");
+    let failure: unknown; try { await complete(worker); } catch (error) { failure = error; }
+    expect(signals, "NO_AUTHORITY_REQUESTED_SIGNAL").toEqual(["SIGTERM"]);
+    expect((failure as { cleanupUnconfirmed?: boolean })?.cleanupUnconfirmed, "NO_AUTHORITY_TERM_REMAINS_UNCONFIRMED").toBe(true);
+    if (ignored) {
+      expect(alive(f.o.parent!), "NO_AUTHORITY_IGNORED_TERM_STILL_LIVE").toBe(true);
+      cancellation.killWorker(worker, "SIGKILL");
+      try { await complete(worker); } catch { /* The first unconfirmed result remains authoritative. */ }
+    }
+    await settled(f);
+    expect(f.outer.signalCode, "NO_AUTHORITY_FINAL_REQUESTED_SIGNAL").toBe(ignored ? "SIGKILL" : "SIGTERM");
+    expect(signals, "NO_AUTHORITY_ESCALATION_SEQUENCE").toEqual(ignored ? ["SIGTERM", "SIGKILL"] : ["SIGTERM"]);
+    receipt("no-authority-request", { ignored, signals, delivered, unconfirmed: true });
+  });
+}
+
+test("negative pidfd open with zero errno cannot bind or signal an invalid descriptor", async () => {
+  const api = await primeNative(), f = await fixture();
+  let hit = 0, invalidSignals = 0;
+  const open = spyOn(api.symbols, "pidfd_open").mockImplementation(() => { hit++; return errorNumber(api, 0); });
+  restores.push(() => open.mockRestore());
+  hookSignal((fd, signal, info, flags, real) => { if (fd < 0) invalidSignals++; return real(fd, signal, info, flags); });
+  const { worker, signals } = observed(f); bind(worker);
+  expect(hit, "ZERO_ERRNO_OPEN_FAULT_REACHED").toBe(1);
+  expect(invalidSignals, "NEGATIVE_OPEN_MUST_NOT_SIGNAL").toBe(0);
+  cancellation.killWorker(worker); await settled(f);
+  let failure: unknown; try { await complete(worker); } catch (error) { failure = error; }
+  expect(signals, "NEGATIVE_OPEN_MUST_NOT_STOP").toEqual(["SIGKILL"]);
+  expect((failure as { cleanupUnconfirmed?: boolean })?.cleanupUnconfirmed, "NEGATIVE_OPEN_REMAINS_UNCONFIRMED").toBe(true);
+  receipt("zero-errno-open", { hit, invalidSignals, signals });
+});
+
+test("negative pidfd signal with zero errno is a failed delivery", async () => {
+  const api = await primeNative(), f = await fixture(); const { worker, signals, delivered } = observed(f); bind(worker);
+  let hit = 0;
+  hookSignal((fd, signal, info, flags, real) => {
+    if (signal === osConstants.signals.SIGSTOP) { hit++; return errorNumber(api, 0); }
+    return real(fd, signal, info, flags);
+  });
+  cancellation.killWorker(worker); await settled(f);
+  let failure: unknown; try { await complete(worker); } catch (error) { failure = error; }
+  expect(hit, "ZERO_ERRNO_SIGNAL_FAULT_REACHED").toBe(1);
+  expect(signals, "NEGATIVE_SIGNAL_MUST_NOT_COUNT_AS_SENT").toEqual(["SIGSTOP", "SIGKILL"]);
+  expect(delivered, "NEGATIVE_SIGNAL_NOT_DELIVERED").toEqual(["SIGKILL"]);
+  expect((failure as { cleanupUnconfirmed?: boolean })?.cleanupUnconfirmed, "NEGATIVE_SIGNAL_REMAINS_UNCONFIRMED").toBe(true);
+  receipt("zero-errno-signal", { hit, signals, delivered });
 });

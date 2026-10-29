@@ -29,13 +29,13 @@ function libc(): Native | undefined {
     native = {
       open(pid) {
         const fd = api.symbols.pidfd_open(pid, 0);
-        const error = fd < 0 ? read.i32(errno, 0) : 0;
+        const error = fd < 0 ? (read.i32(errno, 0) || -1) : 0;
         if (error) throw Object.assign(Error("Maintenance pidfd registration failed"), { errno: error });
         return fd;
       },
       signal(fd, signal) {
         const result = api.symbols.pidfd_send_signal(fd, signal, null, 0);
-        return result < 0 ? read.i32(errno, 0) : 0;
+        return result < 0 ? (read.i32(errno, 0) || -1) : 0;
       },
     };
   } catch { /* Unavailable libc/FFI leaves cancellation explicitly unconfirmed. */ }
@@ -90,15 +90,15 @@ export function registerWorker(worker: Worker): void {
     closeAuthority(stop);
   }).catch(error => { stop.registrationError ??= error; if (stop.signal) stop.failure ??= unconfirmed(error); });
 }
-function baselineKill(worker: Worker, stop: Stop): void {
+function baselineKill(worker: Worker, stop: Stop, signal: NodeJS.Signals = "SIGKILL"): void {
   // Baseline only: no PID-reuse or descendant-termination guarantee without authority.
-  if (!stop.ended && !stop.gone && !exited(worker)) worker.kill("SIGKILL");
+  if (!stop.ended && !stop.gone && !exited(worker)) worker.kill(signal);
 }
 function signalOuter(worker: Worker, stop: Stop, signal: NodeJS.Signals): boolean {
   if (stop.ended || stop.gone || exited(worker)) return false;
   if (stop.fd === undefined || !stop.api) {
     stop.failure ??= unconfirmed(stop.registrationError ?? "No stable maintenance authority");
-    baselineKill(worker, stop); return false;
+    baselineKill(worker, stop, signal); return false;
   }
   const number: number | undefined = (constants.signals as Readonly<Record<string, number | undefined>>)[signal];
   if (number === undefined) throw Error("Unsupported maintenance signal");
