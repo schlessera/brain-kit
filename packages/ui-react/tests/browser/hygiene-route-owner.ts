@@ -47,7 +47,7 @@ export function hygieneRouteOwner(forward: (route: Route) => Promise<void>) {
         // The fence has its own closed admission boundary. Continued arrivals
         // must never keep either owned join open.
         await drain(fencePending);
-        const errors = [...(failure ? [failure.error] : []), ...(fenceFailure ? [fenceFailure.error] : []), ...cleanup];
+        const errors = [...new Set([...(failure ? [failure.error] : []), ...(fenceFailure ? [fenceFailure.error] : []), ...cleanup])];
         if (errors.length === 1) throw errors[0];
         if (errors.length) throw new AggregateError(errors, "fixture route shutdown failed");
       })();
