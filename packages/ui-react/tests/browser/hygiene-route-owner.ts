@@ -18,29 +18,27 @@ export function hygieneRouteOwner(forward: (route: Route) => Promise<void>) {
   const drain = async () => {
     while (pending.size) await Promise.allSettled([...pending]);
   };
+  let closing: Promise<void> | undefined;
   return {
     handler,
-    async close(page: Pick<Page, "route" | "unroute">, pattern: string) {
-      // Keep interception enabled while removing this handler closes admission.
-      // Disabling the last pattern can release paused requests before fulfill.
-      // This temporary route delegates normally; it supplies no fixture response.
-      const fence = (route: Route) => route.fallback();
-      const cleanup: unknown[] = [];
-      try {
-        await page.route(pattern, fence);
-        await drain();
-        await page.unroute(pattern, handler);
-      } catch (error) {
-        cleanup.push(error);
-      } finally {
-        // A callback can enter during the pattern update. It still owes its
-        // original response, even though new requests no longer reach handler.
+    close(page: Pick<Page, "route" | "unroute">, pattern: string) {
+      return closing ??= (async () => {
+        // Retain interception for owed responses while removing the original
+        // registration closes admission. The temporary route delegates normally.
+        const fence = (route: Route) => route.fallback();
+        const cleanup: unknown[] = [];
+        try { await page.route(pattern, fence); } catch (error) { cleanup.push(error); }
+        // Attempt removal even if the fence update failed; one cleanup failure
+        // must not leave the forwarder admitting requests during the join.
+        try { await page.unroute(pattern, handler); } catch (error) { cleanup.push(error); }
+        // Callbacks may enter during the real route update. Admission is now
+        // closed, so this join has finite owned work even with continued traffic.
         await drain();
         try { await page.unroute(pattern, fence); } catch (error) { cleanup.push(error); }
-      }
-      const errors = [...(failure ? [failure.error] : []), ...cleanup];
-      if (errors.length === 1) throw errors[0];
-      if (errors.length) throw new AggregateError(errors, "fixture route shutdown failed");
+        const errors = [...(failure ? [failure.error] : []), ...cleanup];
+        if (errors.length === 1) throw errors[0];
+        if (errors.length) throw new AggregateError(errors, "fixture route shutdown failed");
+      })();
     },
   };
 }

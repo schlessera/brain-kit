@@ -319,3 +319,8 @@ declare module "vitest/browser" {
     hygieneServer: (op: Op) => Promise<unknown>;
   }
 }
+
+/** Regression sentinels retain exact child identities, never provider state. */
+export function hygieneServerOwners() {
+  return [...servers].map(([id, server]) => ({ id, url: server.url, process: server.process }));
+}

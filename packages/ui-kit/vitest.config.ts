@@ -7,6 +7,7 @@ import { artifactParityRoute } from "./tests/visual/artifact-parity-route.ts";
 import { storageServer } from "../ui-react/tests/browser/storage-server-command.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
+import { hygieneLifecycleFailures } from "../ui-react/tests/browser/hygiene-lifecycle-failures.ts";
 import { hygieneContextLifecycle, hygieneLifecycle, hygieneLifecycleCleanup } from "../ui-react/tests/browser/hygiene-lifecycle-command.ts";
 import { hygieneServer } from "../ui-react/tests/browser/hygiene-server-command.ts";
 import { dispatchActions } from "../ui-react/tests/browser/dispatch-actions-command.ts";
@@ -169,7 +170,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
@@ -195,7 +196,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
