@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
+import { BLOCKS } from "../block-fixtures.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -526,4 +527,93 @@ test("cold restored speech explicitly has unknown original discussion position",
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
   await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("original discussion position unknown");
   expect(s.client.state.getState().micOn).toBe(false);
+});
+
+
+async function arrivalProjectionScene(ctx: TestContext) {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  await s.start(); s.client.mute();
+  const chat = s.ui.stores.chat.getState();
+  chat.addUserMessage(SESSION, "Find the raft note.", "voice-context");
+  chat.startAssistantMessage(SESSION, "raft-projection-turn");
+  const delta = (text: string) => {
+    s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "raft-projection-turn", text });
+    s.ui.connection.flushChatDeltas();
+  };
+  const speech = () => s.event({ kind: "output_transcript", outputId: "raft-projection-speech", sequence: 0, text: "A calm sea while the task continues." });
+  const settle = () => s.deliver({ type: "status", sessionId: SESSION, turnId: "raft-projection-turn", status: "idle" });
+  return { ...s, delta, speech, settle };
+}
+
+test("arrival projection recovers a leading prefix through production history replay", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("bronze owl");
+  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent).toBe("bronze owl");
+  const snapshot = s.ui.stores.chat.getState().buffers[SESSION]!.messages;
+  const id = snapshot.at(-1)!.id;
+  s.deliver({ type: "session_history", sessionId: SESSION, messages: snapshot.map((m, i) => ({
+    role: m.role, source: m.source, content: i === snapshot.length - 1 ? "The bronze owl" : m.content,
+    turnId: m.turnId, toolCalls: [],
+  })) });
+  expect(s.ui.stores.chat.getState().buffers[SESSION]!.messages.at(-1)!.id).toBe(id);
+  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent).toBe("The bronze owl");
+});
+
+test("arrival projection preserves one complete Markdown link across speech and promotion", async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  s.delta("See [raft](");
+  await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent).toBe("See");
+  s.speech();
+  s.delta("notes/raft.md) before sailing."); s.settle();
+  await expect.poll(() => s.host.querySelectorAll('a[href="#/files/notes/raft.md"]').length).toBe(1);
+  expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join(" ")).not.toContain("notes/raft.md)");
+  const link = s.host.querySelector('a[href="#/files/notes/raft.md"]')!;
+  expect(s.host.querySelector("[data-conversation-output]")!.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  s.deliver({ type: "message_links", sessionId: SESSION, turnId: "raft-projection-turn", links: [{ from: "notes/raft.md", to: "notes/odysseus-raft.md" }] });
+  await expect.poll(() => s.host.querySelectorAll('a[href="#/files/notes/odysseus-raft.md"]').length).toBe(1);
+  expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(0);
+});
+
+for (const precedingPart of [false, true]) test(`arrival projection retains a classified table spanning speech exactly once, preceding part=${precedingPart}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const table = "| Island | Nights |\n| --- | ---: |\n| Ogygia | 2555 |";
+  if (precedingPart) {
+    s.delta("The island watch follows.");
+    s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", toolName: "Read" });
+    s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", toolName: "Read", input: { path: "notes/raft.md" } });
+    s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-read", output: "The island watch note is ready." });
+  }
+  s.delta(table.slice(0, 24)); s.speech(); s.delta(table.slice(24)); s.settle();
+  s.deliver({ type: "message_blocks", sessionId: SESSION, turnId: "raft-projection-turn", blocks: [{ partIndex: precedingPart ? 1 : 0, start: 0, end: table.length, confidence: 1, block: BLOCKS.table }] });
+  await expect.poll(() => s.host.querySelectorAll('[data-classified-block="table"]').length).toBe(1);
+  expect(s.host.querySelector('[data-classified-block="table"]')!.textContent).toContain("Aeaea");
+  expect(s.host.querySelector('[data-classified-block="table"]')!.textContent).toContain("Ogygia");
+  expect(s.host.querySelectorAll(".chat-message-body .brain-prose table")).toHaveLength(0);
+  const words = [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("");
+  expect(words.match(/Aeaea/g)).toHaveLength(1);
+  expect(words.match(/Ogygia/g)).toHaveLength(1);
+  expect(words).not.toContain("| Island |");
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+
+for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "share"] as const) test(`arrival Markdown context across speech: ${shape}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx);
+  const cases = {
+    emphasis: { text: "Before **bronze owl** after.", at: 15, words: "Before bronze owl after." },
+    reference: { text: "See [raft][note].\n\n[note]: notes/raft.md", at: 10, words: "See raft." },
+    autolink: { text: "See https://example.org/raft before sailing.", at: 16, words: "See" },
+    escape: { text: "Bronze &amp; olive \\*watch\\*.", at: 10, words: "Bronze & olive *watch*." },
+    code: { text: "Use `notes/raft.md` for the watch.", at: 12, words: "Use notes/raft.md for the watch." },
+    share: { text: '<share format="text" title="Raft">A bronze owl.</share>', at: 39, words: "A bronze owl." },
+  };
+  const sample = cases[shape];
+  s.delta(sample.text.slice(0, sample.at)); s.speech(); s.delta(sample.text.slice(sample.at)); s.settle();
+  await expect.poll(() => [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("")).toContain(sample.words);
+  if (shape === "emphasis") expect([...s.host.querySelectorAll(".chat-message-body strong")].map(n => n.textContent).join("")).toBe("bronze owl");
+  if (shape === "reference" || shape === "code") expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
+  if (shape === "autolink") expect(s.host.querySelectorAll('a[href="https://example.org/raft"]')).toHaveLength(1);
+  if (shape === "share") expect(s.host.querySelectorAll('[aria-label="Share as plain text"]')).toHaveLength(1);
+  expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
 });

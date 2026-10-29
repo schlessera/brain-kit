@@ -1,4 +1,4 @@
-import { transcriptMessage, transcriptTimelineFor } from "../../lib/transcript-timeline.js";
+import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
 import { ConversationOutput, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
@@ -719,6 +719,7 @@ export function ChatPage() {
                       {entry.section === "progress" && <ConversationTaskContext message={entry.message} sessionId={sessionId} />}
                       <MessageBubble
                         message={msg}
+                        arrival={transcriptRange(entry)}
                         journalVisible={entry.section !== "answer" && (!(msg.turnId ?? msg.streamTurnId) || !messages.slice(index + 1).some(later => later.role === "assistant" && (later.turnId ?? later.streamTurnId) === (msg.turnId ?? msg.streamTurnId)))}
                         onToolApproval={handleToolApproval}
                         onAskUserSubmit={handleAskUserSubmit}

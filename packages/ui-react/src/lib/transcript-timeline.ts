@@ -54,7 +54,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
         }
         return at + shift;
       };
-      for (const run of own) { run.start = rebase(run.start); run.end = rebase(run.end); }
+      for (const [index, run] of own.entries()) { run.start = index === 0 ? 0 : rebase(run.start); run.end = index === own.length - 1 ? length : rebase(run.end); }
       return own;
     }
     const tail = own.at(-1);
@@ -136,15 +136,15 @@ function projectTranscriptMessage(entry: Extract<TranscriptEntry, { kind: "messa
   if (entry.section === "whole") return m;
   if (entry.section === "answer") {
     const start = entry.start ?? 0, end = entry.end ?? Infinity;
+    const parts = m.parts.filter(p => p.kind === "text");
+    const offsets: number[] = [];
     let offset = 0;
-    const blocks: NonNullable<ChatMessage["blocks"]> = [];
-    const parts = m.parts.filter(p => p.kind === "text").map((p, partIndex) => {
-      const from = Math.max(0, start - offset), to = Math.min(p.text.length, end - offset);
-      offset += p.text.length;
-      for (const block of m.blocks ?? []) if (block.partIndex === partIndex && block.start >= from && block.end <= to) {
-        blocks.push({ ...block, start: block.start - from, end: block.end - from });
-      }
-      return { ...p, text: to > from ? p.text.slice(from, to) : "" };
+    for (const part of parts) { offsets.push(offset); offset += part.text.length; }
+    // Keep full source syntax and original block coordinates. Rendering selects
+    // the arrival range after parsing, and assigns an indivisible block once.
+    const blocks = m.blocks?.filter(block => {
+      const at = offsets[block.partIndex];
+      return at !== undefined && at + block.end > start && at + block.end <= end;
     });
     return {
       ...m, parts, content: parts.map(p => p.text).join(""), blocks, thinking: undefined,
@@ -183,4 +183,18 @@ export function attachTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
   const timeline = createTranscriptTimeline(chat, voice);
   timelines.set(chat, timeline);
   return { dispose() { timeline.dispose(); } };
+}
+
+
+export interface TranscriptRange { start: number; end: number; blocks?: ChatMessage["blocks"] }
+const displayRanges = new WeakMap<ChatMessage, Map<string, TranscriptRange>>();
+/** Stable private props preserve the message bubble's memoization contract. */
+export function transcriptRange(entry: TranscriptEntry): TranscriptRange | undefined {
+  if (entry.kind !== "message" || entry.section !== "answer") return;
+  let own = displayRanges.get(entry.message);
+  if (!own) { own = new Map(); displayRanges.set(entry.message, own); }
+  const key = `${entry.start}:${entry.end}`;
+  let range = own.get(key);
+  if (!range) { range = { start: entry.start ?? 0, end: entry.end ?? Infinity, blocks: entry.message.blocks }; own.set(key, range); }
+  return range;
 }
