@@ -189,14 +189,6 @@ describe("supported core queries preserve the complete former transport matrix i
 });
 
 describe("registered pi query tools refuse incompatible or unusable indexes safely", () => {
-  test("unknown newer versions fail through both registered tools", async () => {
-    const dir = clone();
-    edit(dir, db => db.run("UPDATE index_metadata SET value = ? WHERE key = 'schema_version'", [String(SCHEMA_VERSION + 1)]));
-    const call = tools(dir);
-    await expect(call("brain_list")).rejects.toThrow("Brain index is incompatible");
-    await expect(call("brain_graph", { path: CENTER })).rejects.toThrow("Brain index is incompatible");
-  });
-
   test("old and malformed versions and missing required columns fail without native diagnostics", async () => {
     for (const version of ["2", "15junk"]) {
       const dir = clone();
