@@ -779,12 +779,15 @@ for (const contextual of [false, true]) test(`closing follow-ups use original an
   expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
   s.settle();
   await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
+  s.client.leave();
+  await expect.poll(() => s.ui.stores.voice.getState().mode).toBe("idle");
   if (contextual) {
     expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
   } else {
     await expect.poll(() => s.host.querySelectorAll('[aria-label="Suggested follow-ups"]').length).toBe(1);
     await userEvent.click(page.getByRole("button", { name: SUGGESTIONS.items[0]!.label }));
     await expect.poll(() => [...s.host.querySelectorAll("textarea")].some(node => node.value.includes(SUGGESTIONS.items[0]!.label))).toBe(true);
-    expect(s.socket.frames("chat")).toHaveLength(0);
+    expect(s.socket.frames("chat_message")).toHaveLength(0);
   }
 });
