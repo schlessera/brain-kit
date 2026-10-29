@@ -20,8 +20,21 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
   const state = createStore<{ entries: TranscriptEntry[] }>(() => ({ entries: [] }));
   let sequence = 0;
   const positions = new Map<string, number>();
-  const position = (key: string) => {
-    if (!positions.has(key)) positions.set(key, sequence++);
+  const position = (key: string, before?: string) => {
+    if (!positions.has(key)) {
+      const successor = before === undefined ? undefined : positions.get(before);
+      if (successor === undefined) positions.set(key, sequence++);
+      else {
+        // A replay can prove a missing predecessor of an already drawn row
+        // (for example the user of a peer's live answer). This is source order,
+        // not a new arrival after that answer. Keep every existing key and its
+        // relative place, inserting immediately before the known successor.
+        // Integer ranks avoid fractional-position exhaustion on long histories.
+        for (const [existing, at] of positions) if (at >= successor) positions.set(existing, at + 1);
+        positions.set(key, successor);
+        sequence++;
+      }
+    }
     return positions.get(key)!;
   };
   const split = new Set<string>();
@@ -77,13 +90,20 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     const buffers = [...Object.entries(s.buffers), ...Object.entries(s.detachedDrafts), [null, s.draft]] as const;
     for (const [sessionId, buffer] of buffers) {
       let contextual = false;
+      const successors: Array<string | undefined> = [];
+      let successor: string | undefined;
+      for (let index = (buffer?.messages.length ?? 0) - 1; index >= 0; index--) {
+        successors[index] = successor;
+        const key = JSON.stringify(["message", buffer!.messages[index]!.id]);
+        if (positions.has(key)) successor = key;
+      }
       buffer?.messages.forEach((message, index) => {
         liveMessages.add(message.id);
         if (message.role === "user") contextual = message.source === "voice-context";
         const add = (section: "whole" | "progress" | "answer") => {
           const key = JSON.stringify(["message", message.id]);
-          if (!positions.has(key)) latest.set(sessionId, key);
-          position(key);
+          if (!positions.has(key) && !successors[index]) latest.set(sessionId, key);
+          position(key, successors[index]);
           entries.push({ kind: "message", key, sessionId, message, index, section });
         };
         const speakingHere = v.active && v.sessionId === sessionId;

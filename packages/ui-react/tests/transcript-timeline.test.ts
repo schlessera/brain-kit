@@ -8,6 +8,42 @@ function entryText(e: TranscriptEntry) {
   return e.section === "answer" ? message.content.slice(e.start, e.end) : message.content;
 }
 
+for (const source of [undefined, "voice-context"] as const) for (const chunked of [false, true]) test(`recovered peer user precedes its retained ${source ?? "ordinary"} answer (${chunked ? "chunked" : "whole"} history)`, () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    const timeline = transcriptTimelineFor(root.stores.chat).state;
+    const rows = () => timeline.getState().entries.filter(e => e.sessionId === "ithaca");
+    chat.addUserMessage("ithaca", "Sail past the Sirens.");
+    chat.startAssistantMessage("ithaca", "old-turn");
+    chat.appendText("ithaca", "The wax held.");
+    chat.finishAssistantMessage("ithaca");
+    const prefix = root.stores.chat.getState().buffers.ithaca!.messages;
+    if (source) root.connection.conversation.state.setState({ active: true, sessionId: "ithaca" });
+    // A peer's live frames precede the history that proves its user message.
+    chat.startAssistantMessage("ithaca", "peer-turn");
+    chat.appendText("ithaca", "The crew rowed.");
+    const answer = root.stores.chat.getState().buffers.ithaca!.messages.at(-1)!;
+    const answerKey = rows().at(-1)!.key;
+    root.connection.conversation.state.setState({ outputs: [{ conversationId: "ithaca", epoch: 1, outputId: "sea", sessionId: "ithaca", generated: "A steady wind.", playback: "unknown" }] });
+    const speechKey = rows().at(-1)!.key;
+    const user = { ...prefix[0]!, id: "recovered-peer-user", content: "Bind me to the mast.", parts: [{ kind: "text" as const, text: "Bind me to the mast." }], source };
+    const replay = [...prefix, user, { ...answer, id: "recovered-peer-answer", source }];
+    chat.setMessages("ithaca", chunked ? replay.slice(0, -1) : replay);
+    if (chunked) chat.appendMessages("ithaca", replay.slice(-1));
+    chat.finishHistoryReplay("ithaca", true);
+    expect(root.stores.chat.getState().buffers.ithaca!.messages.at(-1)!.id).toBe(answer.id);
+    const primary = rows().filter(e => e.kind === "message" && e.section !== "answer");
+    expect(primary.map(e => e.index)).toEqual([0, 1, 2, 3]);
+    expect(rows().findIndex(e => e.key === answerKey)).toBeLessThan(rows().findIndex(e => e.key === speechKey));
+    expect(rows().findIndex(e => e.kind === "message" && e.message.id === user.id)).toBeLessThan(rows().findIndex(e => e.key === answerKey));
+    chat.appendText("ithaca", " Rowing again.");
+    const retained = rows().find(e => e.key === answerKey);
+    expect(retained?.kind === "message" && retained.message.id).toBe(answer.id);
+    expect(rows().filter(e => e.kind === "message" && e.section !== "answer").map(e => e.index)).toEqual([0, 1, 2, 3]);
+  } finally { root.dispose(); }
+});
+
 test("arrival runs preserve streamed text across tasks, adoption, replay and selection without clock pairing", () => {
   const root = createBrainUiRoot({ storage: null });
   const chat = root.stores.chat;
