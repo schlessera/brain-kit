@@ -173,12 +173,15 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
   s.client.resume();
   await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile!.epoch; }).toBeGreaterThan(firstEpoch);
   // stopReply is a normal replacement boundary when remote cancellation is
-  // unproven. Generated/retained UI text survives; provider fact context does not.
+  // unproven. Retained host facts reach the replacement independently of generated UI text.
   const replacement = provider === "gemini" ? s.upstream.filter(f => f.clientContent).at(-1)?.clientContent
     : s.upstream.filter(f => f.type === "session.start").at(-1)?.session.input;
-  expect(JSON.stringify(replacement)).toContain("Previous task completed:");
+  expect(JSON.stringify(replacement)).toContain("completed");
   expect(JSON.stringify(replacement)).toContain("Find the departure signal note.");
-  expect(JSON.stringify(replacement)).not.toContain("bronze owl");
+  expect(JSON.stringify(replacement)).toContain("bronze owl");
+  const historicalText = provider === "gemini" ? replacement.turns[0].parts[0].text : replacement[0].content[0].text;
+  const historical = JSON.parse(historicalText.slice(historicalText.indexOf("[")));
+  expect(historical).toContainEqual(expect.objectContaining({ request: "Find the departure signal note.", outcome: "completed", delivery: provider === "gemini" ? "unknown" : "returned", hostResult: exact }));
   expect(s.client.state.getState().outputs.some(o => o.generated.includes(fact))).toBe(true);
   expect(s.socket.frames("conversation_playback").some(f => f.epoch === firstEpoch && f.playback === "unknown")).toBe(true);
   expect(returns()).toHaveLength(1);

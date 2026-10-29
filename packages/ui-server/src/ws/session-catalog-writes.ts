@@ -178,7 +178,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
       db.prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
     },
     conversationEpoch: (state: import("./conversation-storage.js").StoredConversationEpoch) => saveConversationEpoch(db, state),
-    conversationTask: (principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt) => saveConversationTask(db, principalId, receipt),
+    conversationTask: (principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string) => saveConversationTask(db, principalId, receipt, facts),
     localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => saveLocalExchange(db, sessionId, exchange, delivered, at),
     exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => markLocalExchangesDelivered(db, sessionId, exchangeIds, at),
     addCost(sessionId: string, costUsd: number) {
