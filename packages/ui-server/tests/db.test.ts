@@ -80,20 +80,16 @@ describe("database migrations", () => {
     ).toThrow();
   });
 
-  test("cron_runs index works for job lookup", () => {
-    const base = Date.now();
-    for (let i = 0; i < 5; i++) {
-      db.prepare(
-        "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'success')"
-      ).run("sync", base + i * 1000);
-    }
-
-    const latest = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = 'sync' ORDER BY started_at DESC LIMIT 1"
-      )
-      .get() as any;
-    expect(latest.started_at).toBe(base + 4000);
+  test("cron_runs declares job_name ASC, started_at DESC lookup index keys", () => {
+    const indexes = db.query("PRAGMA index_list('cron_runs')").all() as { name: string }[];
+    expect(indexes.map((index) => index.name)).toContain("idx_cron_runs_job");
+    const columns = db.query("PRAGMA index_xinfo('idx_cron_runs_job')").all() as {
+      name: string | null; desc: number; key: number;
+    }[];
+    // SQLite also reports an implicit rowid payload; only key entries define
+    // the lookup order. index_info alone would miss the DESC requirement.
+    expect(columns.filter((column) => column.key === 1).map(({ name, desc }) => ({ name, desc })))
+      .toEqual([{ name: "job_name", desc: 0 }, { name: "started_at", desc: 1 }]);
   });
 
   test("_migrations table tracks applied migrations", () => {
