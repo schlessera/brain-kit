@@ -237,10 +237,10 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   await userEvent.keyboard("{Tab}");
   expect(document.activeElement).toBe(targets[1]);
   await userEvent.keyboard("{Enter}");
-  expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
-  expect(s.strip().children[1].textContent, "explicit stop feedback takes precedence immediately").toContain("Checking whether the reply stopped");
+  expect(s.client.state.getState().outputRecovery).not.toBe("audible");
+  expect(s.strip().children[1].textContent, "explicit output stop takes precedence immediately").not.toContain("Speaking");
   expect(targets[1].getAttribute("aria-disabled")).toBe("true");
-  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.client.state.getState().micOn, "Stop reply preserves microphone intent").toBe(true);
   expect(s.network.socket()!.frames("conversation_audio")).toHaveLength(0);
   expect(s.network.socket()!.frames("conversation_commit")).toHaveLength(0);
 });

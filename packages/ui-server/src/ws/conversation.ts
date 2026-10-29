@@ -527,10 +527,13 @@ export class ConversationHost {
         if (event.sequence !== epoch.unassignedCount) {
           this.endEpoch(conversation, "correlation", "Unassigned recognition arrived out of sequence.", epoch); return;
         }
-        if (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars) {
+        if (!epoch.contextualTasks && (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars)) {
           this.endEpoch(conversation, "backpressure", "Unassigned recognition is full. Review the retained text before restarting voice.", epoch); return;
         }
-        epoch.unassignedCount++; epoch.unassignedChars += event.text.length;
+        epoch.unassignedCount++;
+        // Contextual text is already bounded by collectContext. Cumulative
+        // manual-review capacity must not end an ongoing contextual dialogue.
+        if (!epoch.contextualTasks) epoch.unassignedChars += event.text.length;
         this.collectContext(epoch, `unassigned:${event.sequence}`, "recognition", event.text);
         this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text,
           ...(event.sessionInterval ? { sessionInterval: { ...event.sessionInterval } } : { timing: { kind: "unavailable" as const } }),
