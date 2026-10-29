@@ -15,6 +15,15 @@ observations below characterize the inspected shipped source, not the selected
 future behavior. #3053 owns that production implementation; this report makes
 no capture-policy or runtime change.
 
+
+> **2026-10-29 — Retained-result correction.** The source trace and absence
+> receipts below describe the inspected commit, with verified immutable source
+> links. #3141 adds [bounded historical host results](../integration-contract/wire.md#live-conversation-additive-957)
+> to replacement/resumed sessions on both engines. The active browser witness
+> now requires exact retained fact bytes; the original failing-first absence
+> remains historical evidence. This correction supplies no actual-model recall
+> or listening qualification.
+
 ## Causal result
 
 A replacement speech epoch has no copy of the completed research answer. The
@@ -40,44 +49,44 @@ use of the fact.
 
 1. The host concatenates all observed `text_delta` text, including any progress
    prose, within a 4,000-character limit (`private hostWork`,
-   `packages/ui-server/src/ws/conversation.ts:776-808`). Overflow retains 3,999
+   [packages/ui-server/src/ws/conversation.ts lines 776–808](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/ws/conversation.ts#L776-L808)). Overflow retains 3,999
    characters plus an ellipsis (`function bounded`,
-   `packages/ui-server/src/ws/conversation.ts:138-140`). A conclusion after the
+   [packages/ui-server/src/ws/conversation.ts lines 138–140](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/ws/conversation.ts#L138-L140)). A conclusion after the
    bound can be visible in ordinary chat yet absent from voice facts. This is
    the existing documented bound, not evidence of an empty result or a newly
    introduced truncation bug. No semantic summarization occurs.
 2. Completed/error work passes current epoch, connection authorization, turn
    identity and native binding checks before handover. Success uses `when-idle`;
    error uses bounded reason text and `quiet` (`private deliver`,
-   `packages/ui-server/src/ws/conversation.ts:845-902`). No host audio-idle check
+   [packages/ui-server/src/ws/conversation.ts lines 845–902](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/ws/conversation.ts#L845-L902)). No host audio-idle check
    delays this handover; provider scheduling and client playback are separate.
 3. Gemini sends `host_task`'s exact function id, completed/error output,
    `WHEN_IDLE`/`SILENT` and `willContinue:false` (`async returnWork`,
-   `packages/ui-server/src/voice/gemini-conversation.ts:266-276`). In contextual
+   [packages/ui-server/src/voice/gemini-conversation.ts lines 266–276](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/voice/gemini-conversation.ts#L266-L276)). In contextual
    mode it reports unknown acceptance. GPT sends exact `delegation_id` chunks
    with matching append acknowledgement tracking (`async returnWork`,
-   `packages/ui-server/src/voice/gpt-live-conversation.ts:252-283`); UTF-8 chunks
+   [packages/ui-server/src/voice/gpt-live-conversation.ts lines 252–283](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/voice/gpt-live-conversation.ts#L252-L283)); UTF-8 chunks
    are at most 500 bytes (`function chunks`,
-   `packages/ui-server/src/voice/gpt-live-conversation.ts:49-59`). Quiet thinking
+   [packages/ui-server/src/voice/gpt-live-conversation.ts lines 49–59](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/voice/gpt-live-conversation.ts#L49-L59)). Quiet thinking
    precedes the final commentary chunk. No acknowledgement proves speech.
 4. Replacement passes only receipt copies (`resync: { work:`,
-   `packages/ui-server/src/ws/conversation.ts:253-253`). Durable recovery also
+   [packages/ui-server/src/ws/conversation.ts lines 253–253](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/ws/conversation.ts#L253)). Durable recovery also
    reconstructs work with empty facts (`for (const receipt`,
-   `packages/ui-server/src/ws/conversation.ts:169-169`). Neither retained output
+   [packages/ui-server/src/ws/conversation.ts lines 169–169](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/ws/conversation.ts#L169)). Neither retained output
    records nor ordinary backend history is passed as result context to these
    voice sessions.
 5. Gemini sends historical state plus `(recognized || submitted).slice(0,500)`
    (`if (options.resync.work.length)`,
-   `packages/ui-server/src/voice/gemini-conversation.ts:168-172`). GPT constructs
+   [packages/ui-server/src/voice/gemini-conversation.ts lines 168–172](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/voice/gemini-conversation.ts#L168-L172)). GPT constructs
    the same request-only history (`const history`,
-   `packages/ui-server/src/voice/gpt-live-conversation.ts:122-127`). Histories
+   [packages/ui-server/src/voice/gpt-live-conversation.ts lines 122–127](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-server/src/voice/gpt-live-conversation.ts#L122-L127)). Histories
    take at most 64 receipts and a 4,000-character text prefix. A completed
    receipt establishes completion of a request, not what its answer was.
 6. Explicit Stop reply closes the current epoch and clears capture consent
    (`function stopReply`,
-   `packages/ui-react/src/voice/conversation-client.ts:292-299`). Its stopped
+   [packages/ui-react/src/voice/conversation-client.ts lines 292–299](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-react/src/voice/conversation-client.ts#L292-L299)). Its stopped
    receipt starts a replacement while capture remains off (`if (message.reason === "stopped")`,
-   `packages/ui-react/src/voice/conversation-client.ts:394-396`); Resume restores
+   [packages/ui-react/src/voice/conversation-client.ts lines 394–396](https://github.com/schlessera/brain-kit/blob/e2da56a732246faf566dfd2d3e7709fd41bcf516/packages/ui-react/src/voice/conversation-client.ts#L394-L396)); Resume restores
    capture. The same stop function is also reached by the existing audible
    interruption path. This investigation exercises explicit Stop/Resume and
    makes no claim to qualify ordinary speech interruption; #3053 and #3109

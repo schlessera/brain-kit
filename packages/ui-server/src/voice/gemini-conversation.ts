@@ -1,4 +1,5 @@
 /** Gemini Developer API raw-wire adapter. Authority stays in ConversationHost. */
+import { conversationHistory } from "./conversation-history.js";
 import { z } from "zod";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationAudioFormat } from "@schlessera/brain-ui-sdk/protocol";
@@ -165,10 +166,8 @@ async function openGemini(
         if (ready) throw new Error();
         ready = true; clearTimeout(timer);
         // Only bounded historical host state, no native handles or replayed calls.
-        if (options.resync.work.length) send({ clientContent: { turns: [{ role: "user", parts: [{ text:
-          "Historical host outcomes (context only; do not repeat work): " + options.resync.work.slice(-64)
-            .map(w => `Previous task ${w.state}: ${(w.recognized || w.submitted).slice(0, 500)}`).join("\n").slice(0, CONVERSATION_LIMITS.maxFactChars),
-        }] }], turnComplete: false } });
+        const history = conversationHistory(scope, options.resync);
+        if (history) send({ clientContent: { turns: [{ role: "user", parts: [{ text: history }] }], turnComplete: false } });
         emit({ kind: "ready", model: MODEL, api: "Gemini Developer API v1beta BidiGenerateContent", input: INPUT, output: OUTPUT });
         resolveReady();
       }

@@ -117,6 +117,17 @@ export type LiveConversationEvent = ConversationScope &
  */
 export interface ConversationResync {
   work: readonly ConversationWorkReceipt[];
+  /** Optional bounded completed host results, never generated voice paraphrases.
+   * Join only to the exact historical receipt; no native response is replayed.
+   * Absent means unavailable (including storage written by older hosts).
+   */
+  results?: readonly {
+    conversationId: string;
+    epoch: number;
+    requestId: string;
+    turnId: string;
+    facts: string;
+  }[];
 }
 
 /** @experimental Part of the `LiveConversationProvider` seam. */

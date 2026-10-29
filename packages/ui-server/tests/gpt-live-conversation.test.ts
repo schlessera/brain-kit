@@ -434,3 +434,50 @@ test("contextual refusal requires exact scope and binding and permanently consum
   expect(() => f.session.bindContextualWork!(binding)).toThrow();
   await expect(f.session.returnWork({ ...ref, provenance: "contextual", turnId: "unrelated" }, result)).rejects.toThrow();
 });
+
+
+test("replacement context carries exact host facts with identity fences and honest outcomes", async () => {
+  const f = await fixture();
+  await f.session.close();
+  const fact = 'The departure signal is a bronze owl.\n"Keep the blue sail."';
+  const receipt = { conversationId: "ithaca", epoch: 1, utteranceId: "u1", requestId: "r1", turnId: "t1", state: "completed" as const, delivery: "unknown" as const, recognized: "Find the signal.", submitted: "Find the signal." };
+  const resync = { work: [receipt,
+    { ...receipt, requestId: "r2", turnId: "t2", state: "error" as const, reason: "The read failed." },
+    ...(["cancelled", "refused"] as const).map(state => ({ ...receipt, requestId: state, state, delivery: "discarded" as const })),
+    { ...receipt, conversationId: "troy", requestId: "foreign", recognized: "Foreign request." },
+    { ...receipt, epoch: 2, requestId: "future", recognized: "Future request." },
+  ], results: [
+    { conversationId: "ithaca", epoch: 1, requestId: "r1", turnId: "wrong-turn", facts: "Wrong turn facts." },
+    { conversationId: "ithaca", epoch: 2, requestId: "r1", turnId: "t1", facts: "Wrong epoch facts." },
+    { conversationId: "troy", epoch: 1, requestId: "r1", turnId: "t1", facts: "Foreign facts." },
+    { conversationId: "ithaca", epoch: 1, requestId: "r1", turnId: "t1", facts: fact },
+    { conversationId: "ithaca", epoch: 1, requestId: "r2", turnId: "t2", facts: "Partial output cannot imply success." },
+  ] };
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync });
+  const text = f.sent.filter(m => m.type === "session.start").at(-1).session.input[0].content[0].text;
+  expect(f.sent.some(m => m.type === "session.thinking.append" || m.type === "session.commentary.append")).toBe(false);
+  expect(text).toContain("bronze owl");
+  const entries = JSON.parse(text.slice(text.indexOf("[")));
+  expect(entries).toEqual([
+    { request: "Find the signal.", outcome: "completed", delivery: "unknown", hostResult: fact },
+    { request: "Find the signal.", outcome: "error", delivery: "unknown", reason: "The read failed." },
+    { request: "Find the signal.", outcome: "cancelled", delivery: "discarded" },
+    { request: "Find the signal.", outcome: "refused", delivery: "discarded" },
+  ]);
+  expect(text).not.toContain("nativeHandle");
+  await expect(next.returnWork(ref(), result)).rejects.toThrow("correlation");
+  await next.close();
+});
+
+
+test("replacement context enforces per-result and aggregate limits on the real socket", async () => {
+  const f = await fixture(); await f.session.close();
+  const work = Array.from({ length: 6 }, (_, i) => ({ conversationId: "ithaca", epoch: 1, utteranceId: `u${i}`, requestId: `r${i}`, turnId: `t${i}`, state: "completed" as const, delivery: "discarded" as const, recognized: `Find signal ${i}.`, submitted: `Find signal ${i}.` }));
+  const results = work.map((w, i) => ({ conversationId: w.conversationId, epoch: w.epoch, requestId: w.requestId, turnId: w.turnId, facts: String(i).repeat(i === 5 ? 3900 : i < 2 ? 500 : 4100) }));
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync: { work, results } });
+  const text = f.sent.filter(m => m.type === "session.start").at(-1).session.input[0].content[0].text;
+  const entries = JSON.parse(text.slice(text.indexOf("[")));
+  expect(entries.flatMap((e: { hostResult?: string }) => e.hostResult ? [e.hostResult] : [])).toEqual([2, 3, 4, 5].map(i => String(i).repeat(i === 5 ? 3900 : 4000)));
+  expect(entries.every((e: { delivery: string }) => e.delivery === "discarded")).toBe(true);
+  await next.close();
+});

@@ -42,7 +42,7 @@ import { createGovernanceWrites, type GovernanceWrites } from "../governance/eve
 export interface SessionCatalog {
   /** Host identity persistence, never an executable replay queue. */
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
-  saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt): Promise<void>;
+  saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
   loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
   /** Claude cumulative totals are evidence only; returns this turn's priced
    * completed responses and retains newly measured unstreamed usage once. */
@@ -261,7 +261,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const invalidatedRetries = new Set<string>();
   return {
     saveConversationEpoch: state => submit("conversationEpoch", state),
-    saveConversationTask: (principalId, receipt) => submit("conversationTask", principalId, receipt),
+    saveConversationTask: (principalId, receipt, facts) => submit("conversationTask", principalId, receipt, facts),
     async loadConversation(id, principalId) { await tail; return loadConversation(db(), id, principalId); },
     async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {

@@ -1353,6 +1353,7 @@ test("a fresh host instance recovers scoped outcomes into a later epoch without 
   const resumed = await s.connect();
   const next = await resumed.open({ conversationId: c.id, contextualTasks: true });
   expect(next.epoch).toBe(2);
+  expect(next.session.options.resync).toMatchObject({ results: [{ requestId: expect.any(String), facts: "The signal is a bronze owl." }] });
   expect(next.opened.resync.work).toBe(1);
   expect(resumed.frames("conversation_work").at(-1)).toMatchObject({ provenance: "contextual", nativeHandle: "durable-task", state: "completed" });
   expect(next.session.returned).toHaveLength(0);
@@ -1418,4 +1419,59 @@ test("concurrent durable recovery has one owner and monotonically distinct epoch
   expect(loser.returned).toHaveLength(0);
   expect(winner.returned[0]!.ref).toMatchObject({ epoch: 3, nativeHandle: "winner-task" });
   expect((await load(c.id, testPrincipal().id))?.epoch).toBe(3);
+});
+
+
+test("replacement during result submission retains exact facts with unknown acceptance", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" }, holdReturns: true });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  c.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the departure signal.", timing: { kind: "unavailable" } });
+  c.session.emit({ kind: "work_requested", handle: "same-native" });
+  await until(() => s.turns.length === 1);
+  const facts = "The departure signal is a bronze owl.";
+  s.turns[0]!.answer(facts);
+  await until(() => c.session.returned.length === 1);
+  const ref = c.session.returned[0]!.ref;
+  const next = await client.open({ conversationId: c.id, contextualTasks: true });
+  expect(next.session.options.resync.results).toEqual([{ conversationId: c.id, epoch: 1, requestId: ref.requestId, turnId: ref.turnId, facts }]);
+  expect(next.session.options.resync.work[0]).toMatchObject({ state: "completed", delivery: "unknown", requestId: ref.requestId });
+  expect(next.session.returned).toEqual([]);
+  expect(s.turns).toHaveLength(1);
+  await until(() => !s.host.coordinator.isTurnActive());
+  await client.capture(next);
+  next.session.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Find the watch signal.", timing: { kind: "unavailable" } });
+  next.session.emit({ kind: "work_requested", handle: "same-native" });
+  await until(() => s.turns.length === 2);
+  s.turns[1]!.answer("The watch signal is a blue sail.");
+  await until(() => next.session.returned.length === 1);
+  const nextRef = next.session.returned[0]!.ref;
+  expect(nextRef).toMatchObject({ epoch: 2, nativeHandle: "same-native" });
+  expect(nextRef.requestId).not.toBe(ref.requestId);
+  expect(nextRef.turnId).not.toBe(ref.turnId);
+  const third = await client.open({ conversationId: c.id, contextualTasks: true });
+  expect(third.session.options.resync.results).toEqual([
+    { conversationId: c.id, epoch: 1, requestId: ref.requestId, turnId: ref.turnId, facts },
+    { conversationId: c.id, epoch: 2, requestId: nextRef.requestId, turnId: nextRef.turnId, facts: "The watch signal is a blue sail." },
+  ]);
+  expect(third.session.returned).toHaveLength(0);
+  expect(s.turns).toHaveLength(2);
+});
+
+
+test("in-memory replacement evicts oldest facts while preserving exact original native returns", async () => {
+  const s = setup({ capabilities: { contextualTasks: "supported" } });
+  const client = await s.connect(); const c = await client.open({ contextualTasks: true }); await client.capture(c);
+  for (let i = 0; i < 6; i++) {
+    c.session.emit({ kind: "unassigned_input_fragment", sequence: i, text: `Find signal ${i}.`, sessionInterval: { startMs: i * 100, endMs: i * 100 + 20 } });
+    c.session.emit({ kind: "work_requested", handle: `signal-${i}` });
+    await until(() => s.turns.length === i + 1);
+    s.turns[i]!.answer(String(i).repeat(CONVERSATION_LIMITS.maxFactChars));
+    await until(() => c.session.returned.length === i + 1 && !s.host.coordinator.isTurnActive());
+    expect(c.session.returned[i]!.result.facts).toBe(String(i).repeat(CONVERSATION_LIMITS.maxFactChars));
+  }
+  const next = await client.open({ conversationId: c.id, contextualTasks: true });
+  expect(next.session.options.resync.results?.map(r => r.facts)).toEqual([2, 3, 4, 5].map(i => String(i).repeat(CONVERSATION_LIMITS.maxFactChars)));
+  expect(next.session.options.resync.work).toHaveLength(6);
+  expect(next.session.returned).toHaveLength(0);
+  expect(s.turns).toHaveLength(6);
 });
