@@ -446,7 +446,7 @@ test("unexpected pidfd errno falls back and stays unconfirmed", async () => {
     if (signal === osConstants.signals.SIGSTOP && !injected) { injected = true; return errorNumber(api, 22); }
     return real(fd, signal, info, flags);
   });
-  cancellation.killWorker(worker); await settled(f);
+  cancellation.killWorker(worker, "SIGTERM"); await settled(f);
   let failure: unknown; try { await complete(worker); } catch (error) { failure = error; }
   expect(injected, "UNEXPECTED_ERRNO_PREMISE").toBe(true);
   receipt("unexpected-errno", { hit: injected, signals, delivered, afterResume: 0 });
@@ -467,11 +467,14 @@ test("actual ESRCH after reap stops all further pidfd signals", async () => {
   bind(wrapper);
   const originalRead = fs.readFileSync;
   let stopped = false, esrch = false, after = 0;
+  const signals: number[] = [], delivered: number[] = [];
   hookSignal((fd, signal, info, flags, real) => {
     if (esrch) after++;
+    signals.push(signal);
     const result = real(fd, signal, info, flags);
     const errno = result < 0 ? ffi.read.i32(api.symbols.__errno_location()!, 0) : 0;
     if (errno === 3) esrch = true;
+    if (result === 0) delivered.push(signal);
     if (signal === osConstants.signals.SIGSTOP && !stopped) { stopped = true; f.outer.kill("SIGKILL"); }
     return result;
   });
@@ -481,7 +484,7 @@ test("actual ESRCH after reap stops all further pidfd signals", async () => {
     return value;
   }) as typeof fs.readFileSync); restores.push(() => read.mockRestore());
   cancellation.killWorker(wrapper); await settled(f); await complete(wrapper);
-  receipt("actual-esrch", { hit: esrch, stopped, after });
+  receipt("actual-esrch", { hit: esrch, stopped, after, signals, delivered, afterResume: 0 });
   expect(esrch, "ACTUAL_REAP_MUST_RETURN_ESRCH").toBe(true);
   expect(after, "NO_SIGNAL_AFTER_ESRCH").toBe(0);
   finish(await f.outer.exited); await complete(wrapper);
@@ -489,8 +492,9 @@ test("actual ESRCH after reap stops all further pidfd signals", async () => {
 
 test("non-SIGKILL visible child keeps normal monitor exit", async () => {
   await primeNative(); const f = await fixture(); injectFork(f); const { worker, signals } = observed(f); bind(worker);
-  cancellation.killWorker(worker, "SIGTERM"); await settled(f); await complete(worker);
+  cancellation.killWorker(worker, "SIGTERM"); await complete(worker);
   expect(signals, "VISIBLE_CHILD_MONITOR_SEMANTICS").toEqual(["SIGSTOP", "SIGCONT"]);
+  await settled(f);
   expect(await f.outer.exited).toBe(37);
 });
 
