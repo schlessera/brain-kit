@@ -1,5 +1,6 @@
 import { createContext } from "react";
 import { decodeString } from "micromark-util-decode-string";
+import { scanBarePaths } from "./brain-markdown-links.js";
 
 /** Internal source coordinates, applied after the ordinary Markdown parse. */
 export interface MarkdownRange { start: number; end: number }
@@ -8,28 +9,30 @@ export const MarkdownRangeContext = createContext<MarkdownRange | null>(null);
 interface MarkdownNode {
   type: string;
   value?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
   children?: MarkdownNode[];
   position?: { start: { offset?: number }; end: { offset?: number } };
 }
 
 /** Indivisible constructs keep their complete syntax, destination and actions. */
-const ATOMIC = new Set(["link", "linkReference", "image", "imageReference", "inlineCode", "code", "table", "html", "footnoteReference", "break"]);
+const ATOMIC = new Set(["a", "img", "code", "pre", "table", "sup", "input", "br", "hr"]);
 // Growing code/tables retain the anchor where their content first appeared.
-const START_ANCHORED = new Set(["inlineCode", "code", "table"]);
+const START_ANCHORED = new Set(["code", "pre", "table", "input"]);
 const ESCAPE = /\\[!-/:-@[-`{-~]|&(?:#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});|\r\n|[\uD800-\uDBFF][\uDC00-\uDFFF]/gi;
 
 /**
  * Text offsets refer to Markdown source, not its decoded value. Keep an escape,
  * character reference CRLF or Unicode scalar indivisible and assign it at its source end.
  */
-function textInRange(raw: string, value: string, offset: number, range: MarkdownRange): string {
-  let at = 0, decoded = "", selected = "";
+function textInRange(raw: string, value: string, offset: number, range: MarkdownRange, fileLinks: boolean): string {
+  let at = 0, decoded = "";
+  const starts: number[] = [], ends: number[] = [];
   const append = (text: string, from: number, to: number, atomic: boolean) => {
     decoded += text;
-    if (atomic) {
-      if (to > range.start && to <= range.end) selected += text;
-    } else {
-      selected += text.slice(Math.max(0, range.start - from), Math.max(0, Math.min(text.length, range.end - from)));
+    for (let i = 0; i < text.length; i++) {
+      starts.push(atomic ? from : from + i);
+      ends.push(atomic ? to : from + i + 1);
     }
   };
   for (const match of raw.matchAll(ESCAPE)) {
@@ -39,36 +42,56 @@ function textInRange(raw: string, value: string, offset: number, range: Markdown
     at = match.index + match[0].length;
   }
   append(raw.slice(at), offset + at, offset + raw.length, false);
-  // A future parser normalization must never lose or duplicate its text. An
-  // unfamiliar indivisible value uses the same once-only source-end owner.
-  return decoded === value ? selected : offset + raw.length > range.start && offset + raw.length <= range.end ? value : "";
+  if (decoded !== value) return offset + raw.length > range.start && offset + raw.length <= range.end ? value : "";
+  const paths = fileLinks ? scanBarePaths(value) : [];
+  let selected = "", pathIndex = 0;
+  for (let i = 0; i < value.length;) {
+    const path = paths[pathIndex];
+    let end = i + 1;
+    if (path?.start === i) { end = path.end; pathIndex++; }
+    else while (end < value.length && starts[end] === starts[i] && ends[end] === ends[i]) end++;
+    if (ends[end - 1]! > range.start && ends[end - 1]! <= range.end) selected += value.slice(i, end);
+    i = end;
+  }
+  return selected;
 }
 
 /**
- * Select rendered content, not substrings to parse independently. Structural
- * wrappers retain inline/list context. Definitions remain available to resolve
- * references; held links/images appear at completion, while growing code/tables
- * keep their original source anchor. Each construct has one render owner.
- * No HTML is executed and the existing renderer still owns all components.
+ * Select the fully resolved HTML tree, not independent Markdown substrings.
+ * The ordinary parser, reference/footnote resolution and raw-href guard run
+ * first. Growing code/tables keep their original anchor; held links/images and
+ * post-parse path tokens appear once at completion. No HTML is executed, and
+ * existing components retain their behavior and tool/action bindings.
  */
-export function remarkMarkdownRange({ source, start, end }: MarkdownRange & { source: string }) {
+export function rehypeMarkdownRange({ source, start, end, fileLinks }: MarkdownRange & { source: string; fileLinks: boolean }) {
   return (tree: MarkdownNode) => {
-    const select = (node: MarkdownNode): MarkdownNode | null => {
-      if (node.type === "definition" || node.type === "footnoteDefinition") return node;
+    const ownsStart = (at: number) => at >= start && at < end;
+    const ownsEnd = (at: number) => at > start && at <= end;
+    const footnoteAnchor = (node: MarkdownNode): number => {
+      if (node.tagName === "li" && node.position?.start.offset !== undefined) return node.position.start.offset;
+      return Math.min(...(node.children ?? []).map(footnoteAnchor), Infinity);
+    };
+    const select = (node: MarkdownNode, parentStart = 0): MarkdownNode | null => {
+      // Convert the complete document first: numbering, IDs and every backref
+      // remain correct even when references straddle several arrival ranges.
+      if (node.properties?.dataFootnotes) {
+        const at = footnoteAnchor(node);
+        return ownsStart(Number.isFinite(at) ? at : Math.max(0, source.length - 1)) ? node : null;
+      }
       const from = node.position?.start.offset, to = node.position?.end.offset;
-      if (node.type !== "root" && (from === undefined || to === undefined || to <= start || from >= end)) return null;
-      if (ATOMIC.has(node.type)) return START_ANCHORED.has(node.type)
-        ? from! >= start && from! < end ? node : null
-        : to! > start && to! <= end ? node : null;
+      if (node.type !== "root" && (from === undefined || to === undefined)) return ownsStart(parentStart) ? node : null;
+      if (node.type !== "root" && (to! <= start || from! >= end)) return null;
+      if (node.type === "raw" || ATOMIC.has(node.tagName ?? "")) return START_ANCHORED.has(node.tagName ?? "")
+        ? ownsStart(from!) ? node : null : ownsEnd(to!) ? node : null;
       if (node.type === "text") {
-        const value = textInRange(source.slice(from, to), node.value ?? "", from!, { start, end });
+        const value = textInRange(source.slice(from, to), node.value ?? "", from!, { start, end }, fileLinks);
         return value ? { ...node, value } : null;
       }
       if (node.children) {
-        const children = node.children.flatMap(child => { const kept = select(child); return kept ? [kept] : []; });
+        const children = node.children.flatMap(child => { const kept = select(child, from ?? parentStart); return kept ? [kept] : []; });
         return children.length || node.type === "root" ? { ...node, children } : null;
       }
-      return to! > start && to! <= end ? node : null;
+      return ownsEnd(to!) ? node : null;
     };
     tree.children = select(tree)?.children ?? [];
   };

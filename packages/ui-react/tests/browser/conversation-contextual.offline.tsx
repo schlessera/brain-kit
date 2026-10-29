@@ -599,9 +599,12 @@ for (const precedingPart of [false, true]) test(`arrival projection retains a cl
 });
 
 
-for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "share"] as const) test(`arrival Markdown context across speech: ${shape}`, async ctx => {
+for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "share", "footnotes", "bare", "wiki"] as const) test(`arrival Markdown context across speech: ${shape}`, async ctx => {
   const s = await arrivalProjectionScene(ctx);
   const cases = {
+    footnotes: { text: "Odysseus[^watch] and Penelope[^watch].\n\n[^watch]: Bronze owl.", at: 16, words: "Bronze owl." },
+    bare: { text: "See notes/raft.md before sailing.", at: 12, words: "See notes/raft.md before sailing." },
+    wiki: { text: "See [[notes/raft.md|raft]] before sailing.", at: 15, words: "See raft before sailing." },
     emphasis: { text: "Before **bronze owl** after.", at: 15, words: "Before bronze owl after." },
     reference: { text: "See [raft][note].\n\n[note]: notes/raft.md", at: 10, words: "See raft." },
     autolink: { text: "See https://example.org/raft before sailing.", at: 16, words: "See" },
@@ -613,8 +616,13 @@ for (const shape of ["emphasis", "reference", "autolink", "escape", "code", "sha
   s.delta(sample.text.slice(0, sample.at)); s.speech(); s.delta(sample.text.slice(sample.at)); s.settle();
   await expect.poll(() => [...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("")).toContain(sample.words);
   if (shape === "emphasis") expect([...s.host.querySelectorAll(".chat-message-body strong")].map(n => n.textContent).join("")).toBe("bronze owl");
-  if (shape === "reference" || shape === "code") expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
+  if (shape === "reference" || shape === "code" || shape === "bare" || shape === "wiki") expect(s.host.querySelectorAll('a[href="#/files/notes/raft.md"]')).toHaveLength(1);
   if (shape === "autolink") expect(s.host.querySelectorAll('a[href="https://example.org/raft"]')).toHaveLength(1);
+  if (shape === "footnotes") {
+    expect(s.host.querySelectorAll("[data-footnotes]")).toHaveLength(1);
+    expect(s.host.querySelectorAll('[id="user-content-fn-watch"]')).toHaveLength(1);
+    expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/Bronze owl\./g)).toHaveLength(1);
+  }
   if (shape === "share") {
     expect(page.getByRole("button", { name: "Share as plain text", exact: true }).elements()).toHaveLength(1);
     expect(s.host.querySelectorAll(".chat-message-body script")).toHaveLength(0);

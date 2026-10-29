@@ -1,4 +1,4 @@
-import { MarkdownRangeContext, remarkMarkdownRange } from "./markdown-range.js";
+import { MarkdownRangeContext, rehypeMarkdownRange } from "./markdown-range.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import React, { memo, useContext, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
@@ -93,10 +93,10 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
   const root = useBrainUiRoot();
   const processed = entityTags ? renderEntityTags(content) : content;
   const range = useContext(MarkdownRangeContext);
-  const remarkPlugins = useMemo(() => range ? [...REMARK_PLUGINS, [remarkMarkdownRange, { source: processed, start: range.start, end: range.end }] as [typeof remarkMarkdownRange, { source: string; start: number; end: number }]] : REMARK_PLUGINS, [processed, range]);
   const ensureWikilinks = useFileStore((s) => s.ensureWikilinks);
   // Entity-tag rendering emits its own markup and must not be re-highlighted.
   const rehypePlugins = useRehypePlugins(!entityTags);
+  const projectedPlugins = useMemo(() => range ? [[rehypeMarkdownRange, { source: processed, start: range.start, end: range.end, fileLinks }] as [typeof rehypeMarkdownRange, { source: string; start: number; end: number; fileLinks: boolean }], ...rehypePlugins] : rehypePlugins, [processed, range, fileLinks, rehypePlugins]);
 
   useEffect(() => {
     if (fileLinks) void ensureWikilinks();
@@ -177,13 +177,13 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
 
   return (
     <div className={className ?? "brain-prose"}>
-      <Markdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
+      <MarkdownRangeContext.Provider value={null}><Markdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={projectedPlugins}
         components={components}
       >
         {processed}
-      </Markdown>
+      </Markdown></MarkdownRangeContext.Provider>
     </div>
   );
 });
