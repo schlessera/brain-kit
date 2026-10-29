@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { SHOW_BLOCK_CONTRACT, visibleToolName } from "@schlessera/brain-ui-sdk/client";
-import { BLOCKS } from "../block-fixtures.js";
+import { BLOCKS, SUGGESTIONS } from "../block-fixtures.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -540,12 +540,12 @@ test("cold restored speech explicitly has unknown original discussion position",
 });
 
 
-async function arrivalProjectionScene(ctx: TestContext) {
+async function arrivalProjectionScene(ctx: TestContext, contextual = true) {
   controlledMicrophone(ctx);
   const s = await scene(ctx, 390, true);
   await s.start(); s.client.mute();
   const chat = s.ui.stores.chat.getState();
-  chat.addUserMessage(SESSION, "Find the raft note.", "voice-context");
+  chat.addUserMessage(SESSION, "Find the raft note.", contextual ? "voice-context" : undefined);
   chat.startAssistantMessage(SESSION, "raft-projection-turn");
   const delta = (text: string) => {
     s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "raft-projection-turn", text });
@@ -766,4 +766,25 @@ test("all closing copy actions retain multi-arrival reference syntax and safe fu
   expect(Reflect.get(globalThis, "odysseusUnsafe")).toBeUndefined();
   expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
   expect([...s.host.querySelectorAll(".chat-message-body")].map(n => n.textContent).join("").match(/The bronze owl/g)).toHaveLength(1);
+});
+
+
+for (const contextual of [false, true]) test(`closing follow-ups use original answer identity and preserve voice-context suppression: ${contextual}`, async ctx => {
+  const s = await arrivalProjectionScene(ctx, contextual);
+  s.delta("The bronze owl. ");
+  s.deliver({ type: "tool_use_start", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-next", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude") });
+  s.deliver({ type: "tool_use_complete", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-next", toolName: visibleToolName(SHOW_BLOCK_CONTRACT.name, "claude"), input: {} });
+  s.deliver({ type: "tool_result", sessionId: SESSION, turnId: "raft-projection-turn", toolUseId: "watch-next", output: JSON.stringify({ block: SUGGESTIONS }), isError: false });
+  s.speech(); s.delta("The watch is ready.");
+  expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
+  s.settle();
+  await expect.poll(() => s.host.querySelectorAll('[aria-label="Share message"]').length).toBe(1);
+  if (contextual) {
+    expect(s.host.querySelectorAll('[aria-label="Suggested follow-ups"]')).toHaveLength(0);
+  } else {
+    await expect.poll(() => s.host.querySelectorAll('[aria-label="Suggested follow-ups"]').length).toBe(1);
+    await userEvent.click(page.getByRole("button", { name: SUGGESTIONS.items[0]!.label }));
+    await expect.poll(() => [...s.host.querySelectorAll("textarea")].some(node => node.value.includes(SUGGESTIONS.items[0]!.label))).toBe(true);
+    expect(s.socket.frames("chat")).toHaveLength(0);
+  }
 });

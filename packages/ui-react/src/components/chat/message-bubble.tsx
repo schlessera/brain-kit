@@ -362,6 +362,7 @@ function AssistantContent({
   closing: boolean;
 }) {
   const root = useBrainUiRoot();
+  const semanticMessage = arrival?.source ?? message;
   const [expandedTools, setExpandedTools] = useState<Set<string>>(() => new Set());
   const previousLive = useRef(message.isStreaming);
   useEffect(() => {
@@ -372,7 +373,7 @@ function AssistantContent({
     !message.isStreaming && !!message.content && message.content.trim().length > 0 && (!arrival || arrival.end >= message.content.length);
   const shareOptions = showShare
     ? buildMessageShareOptions(root, {
-        message: arrival?.source ?? message,
+        message: semanticMessage,
       })
     : [];
 
@@ -503,7 +504,7 @@ function AssistantContent({
 
       {/* One closing row per answer (D37 §8, D50): the follow-ups the model
           offered, after everything else, until the next user message. */}
-      {closing && <AnswerSuggestions message={message} />}
+      {closing && <AnswerSuggestions message={semanticMessage} />}
     </div>
   );
 }
