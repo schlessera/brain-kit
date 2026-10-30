@@ -40,7 +40,7 @@ export function ConversationTaskContext({ message, sessionId, result, entries = 
     && ((message.turnId ?? message.streamTurnId) ? w.turnId === (message.turnId ?? message.streamTurnId) : !!message.requestId && w.requestId === message.requestId));
   if (!receipt && (result || message.source !== "voice-context")) return null;
   const linked = receipt && entries.find(e => e.kind === "message" && e.sessionId === owner
-    && e.message.role === (result ? "user" : "assistant") && (!result || e.message.source === "voice-context")
+    && e.message.role === (result ? "user" : "assistant") && (result ? e.message.source === "voice-context" : e.section !== "progress" && e.message.parts.some(p => p.kind === "text" && p.text.length > 0))
     && (e.message.requestId === receipt.requestId || !!receipt.turnId && (e.message.turnId ?? e.message.streamTurnId) === receipt.turnId));
   const states: Record<string, string> = { queued: "Queued", running: "Running", completed: "Complete", error: "Failed", refused: "Refused", unknown: "State unknown", cancelled: "Cancelled", denied: "Denied", withdrawn: "Withdrawn" };
   return <div className="py-2 text-sm text-foreground" data-conversation-task={result ? undefined : ""} data-conversation-task-result={result ? "" : undefined} style={{ overflowWrap: "anywhere" }}>

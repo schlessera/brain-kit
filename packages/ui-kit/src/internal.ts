@@ -5,4 +5,4 @@
  */
 export { mapViewBounds } from "./blocks/MapView.js";
 export { LIGHT_TOKENS, PRINT_TOKENS, TOKENS, canvas, printThemeCss, type TokenName } from "./tokens.js";
-export { TranscriptQualifiers, TranscriptSymbols, type TranscriptQualifiersProps } from "./conversation/TranscriptQualifiers.js";
+export { TranscriptQualifiers, TranscriptSymbols, TranscriptReadingScope, type TranscriptQualifiersProps } from "./conversation/TranscriptQualifiers.js";

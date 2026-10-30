@@ -314,6 +314,7 @@ export "./internal" (./src/internal.ts)
   type TokenName
   TranscriptQualifiers
   type TranscriptQualifiersProps
+  TranscriptReadingScope
   TranscriptSymbols
   canvas
   mapViewBounds

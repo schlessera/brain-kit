@@ -1454,6 +1454,11 @@ The same closed vocabulary distinguishes generated text, actual local playback
 Restoration proves neither playback nor receipt by the currently selected engine.
 One control covers each existing contiguous logical blurb, not every delta or
 fragment; glyphs are decorative and metadata adds no live announcements.
+An active details/legend reader retains at most its one canonical source row
+in addition to the ordinary display window. Closing restores its opener; leaving
+that reading row releases the temporary pin. Actual source removal closes the
+surface onto a surviving transcript anchor, never a guessed newest reply.
+Request and result actions reveal only their exact retained host identities.
 Internal host instruction/JSON remains collapsed technical evidence, while readable
 task state, exact request/result navigation, errors, consent and permission controls
 remain visible. No permission, playback or provider capability is promoted by these

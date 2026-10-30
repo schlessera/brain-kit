@@ -1,8 +1,21 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Overlay } from "../chrome/Overlay.js";
 import { TextButton } from "../primitives/TextButton.js";
+
+interface TranscriptReadingScopeProps {
+  onRead: (opener: HTMLElement) => void;
+  returnFocus: () => HTMLElement | null;
+  children: ReactNode;
+}
+const ReadingOwner = createContext<Omit<TranscriptReadingScopeProps, "children"> | null>(null);
+
+/** Concrete transcript lifetime coordination; canonical entries stay in the host timeline. */
+export function TranscriptReadingScope({ onRead, returnFocus, children }: TranscriptReadingScopeProps) {
+  const owner = useMemo(() => ({ onRead, returnFocus }), [onRead, returnFocus]);
+  return <ReadingOwner.Provider value={owner}>{children}</ReadingOwner.Provider>;
+}
 
 /** Closed first-party display vocabulary. This is evidence, never an action or authority. */
 const vocabulary = {
@@ -49,6 +62,7 @@ function Details({ open, onClose, title, children, returnFocus, dialogId }: { di
 
 /** One native focus stop per logical blurb, with equivalent hover, focus and tap access. */
 export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
+  const owner = useContext(ReadingOwner);
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const tooltip = useRef<HTMLDivElement>(null);
@@ -93,7 +107,7 @@ export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
     doc.addEventListener("keydown", escape, true);
     return () => { win.removeEventListener("resize", place); doc.removeEventListener("scroll", place, true); doc.removeEventListener("keydown", escape, true); };
   }, [shown]);
-  const returnFocus = () => trigger.current?.isConnected ? trigger.current : anchor.current?.isConnected ? anchor.current : null;
+  const returnFocus = () => trigger.current?.isConnected ? trigger.current : anchor.current?.isConnected ? anchor.current : owner?.returnFocus() ?? null;
   const portal = trigger.current?.ownerDocument.body;
   return <>
     <button
@@ -102,8 +116,8 @@ export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
       aria-label={name} aria-haspopup="dialog" aria-expanded={open} aria-controls={`${id}-details`} aria-describedby={shown ? `${id}-tooltip` : undefined}
       onPointerEnter={event => { if (event.pointerType !== "touch") { hovered.current = true; enter(); } }}
       onPointerLeave={() => { hovered.current = false; leave(); }}
-      onFocus={() => { if (skipFocus.current) { skipFocus.current = false; return; } enter(); }} onBlur={leave}
-      onClick={() => { hide(); suppressed.current = true; anchor.current = trigger.current?.closest<HTMLElement>("[data-arrival-key],[data-transcript-anchor]") ?? null; setOpen(true); }}>
+      onFocus={() => { if (trigger.current) owner?.onRead(trigger.current); if (skipFocus.current) { skipFocus.current = false; return; } enter(); }} onBlur={leave}
+      onClick={() => { hide(); suppressed.current = true; anchor.current = trigger.current?.closest<HTMLElement>("[data-arrival-key],[data-transcript-anchor]") ?? null; if (trigger.current) owner?.onRead(trigger.current); setOpen(true); }}>
       <span className="bk-transcript-glyphs" aria-hidden="true">{keys.map(key => <Icon key={key} icon={vocabulary[key].icon} size={14} />)}</span>
     </button>
     {portal && shown && createPortal(<div id={`${id}-tooltip`} ref={tooltip} role="tooltip" className="bk-transcript-tooltip" style={{ ...position, colorScheme: getComputedStyle(trigger.current!).colorScheme }}
@@ -125,11 +139,12 @@ export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
 
 /** One discoverable legend per existing voice-entry introduction. */
 export function TranscriptSymbols() {
+  const owner = useContext(ReadingOwner);
   const [open, setOpen] = useState(false);
   const holder = useRef<HTMLSpanElement>(null);
-  const focus = () => holder.current?.querySelector<HTMLButtonElement>("button") ?? null;
-  return <span ref={holder}>
-    <TextButton label="Transcript symbols" tone="meta" onClick={() => setOpen(true)} />
+  const focus = () => holder.current?.querySelector<HTMLButtonElement>("button") ?? owner?.returnFocus() ?? null;
+  return <span ref={holder} onFocus={() => { const opener = focus(); if (opener) owner?.onRead(opener); }}>
+    <TextButton label="Transcript symbols" tone="meta" onClick={() => { const opener = focus(); if (opener) owner?.onRead(opener); setOpen(true); }} />
     {open && <Details title="Transcript symbols" open={open} onClose={() => setOpen(false)} returnFocus={focus}>
       <dl>{Object.entries(vocabulary).map(([key, value]) => <div key={key}><dt><span aria-hidden="true"><Icon icon={value.icon} size={16} /></span> {"role" in value ? value.role : key === "restored" ? "Restored evidence" : `Playback ${key}`}</dt><dd>{value.copy}</dd></div>)}</dl>
       <p>Source names identify the original service, not the speaker. Matching text or received order does not establish a question/reply pair. Permission and recovery controls remain separate.</p>

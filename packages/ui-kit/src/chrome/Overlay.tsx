@@ -45,10 +45,18 @@ export type OverlayProps = OverlayName & {
   children: ReactNode;
 } & DataAttributes;
 
-const TABBABLE = 'button, a[href], input, select, textarea, [tabindex], [contenteditable="true"]';
+const TABBABLE = 'button, a[href], input, select, textarea, details > summary:first-of-type, [tabindex], [contenteditable="true"]';
 function stops(surface: HTMLElement): HTMLElement[] {
   return [...surface.querySelectorAll<HTMLElement>(TABBABLE)].filter(element =>
-    element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0,
+    element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0
+    // A collapsed disclosure's descendants can retain layout rects. Only its
+    // first native summary remains reachable; check every collapsed ancestor.
+    && (() => {
+      for (let details = element.parentElement?.closest("details:not([open])"); details; details = details.parentElement?.closest("details:not([open])")) {
+        if (!details.querySelector(":scope > summary")?.contains(element)) return false;
+      }
+      return true;
+    })(),
   );
 }
 

@@ -6,7 +6,7 @@ import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type {
   ChatMessage,
@@ -76,8 +76,11 @@ export const MessageBubble = memo(function MessageBubble({
   anchor,
   journalVisible = true,
   arrival,
+  taskContext,
 }: {
   message: ChatMessage;
+  /** Exact host request/result navigation supplied by the owning transcript. */
+  taskContext?: ReactNode;
   arrival?: TranscriptRange;
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
@@ -137,7 +140,7 @@ export const MessageBubble = memo(function MessageBubble({
       {isUser && message.source === "handoff" ? (
         <HandoffCard content={message.content} />
       ) : isUser && message.source === "voice-context" ? (
-        <ConversationTaskContext message={message} />
+        taskContext ?? <ConversationTaskContext message={message} />
       ) : isUser ? (
         <UserTurn>
           <UserAttachments message={message} />

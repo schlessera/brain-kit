@@ -933,6 +933,8 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   expect(document.activeElement).toBe(trigger);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/inline-enlarged-${theme}-${width}.png` });
   enlarged.remove();
+  // End active qualifier reading before measuring the ordinary 40-row tail.
+  trigger.closest<HTMLElement>("[data-reading-column]")!.focus();
   for (let n = 2; n < 47; n++) {
     s.event({ kind: "output_transcript", outputId: `inline-window-${n}`, sequence: 0, text: `The watch continues ${n}.` });
     input(n, `Repeated question ${n}.`);

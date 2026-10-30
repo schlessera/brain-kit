@@ -218,7 +218,7 @@ The suffix geometry checks compare the recovered drawing to that case's own
 baseline; they do not assert an absolute theme-specific message size. Both
 responsive branches still execute with the actual consumer stylesheet. The
 user path in (`MessageBubble`,
-`packages/ui-react/src/components/chat/message-bubble.tsx:65-169`) uses
+`packages/ui-react/src/components/chat/message-bubble.tsx:65-172`) uses
 (`UserTurn`, `packages/ui-react/src/components/chat/transcript-turn.tsx:61-69`)
 and the kit's user bubble. Its consumer padding, text wrapping and header
 layout do not branch on theme; the consumer `.chat-message-body` rule likewise
