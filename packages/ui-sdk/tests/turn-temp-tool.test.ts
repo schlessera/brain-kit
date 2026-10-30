@@ -167,7 +167,10 @@ describe("turn_temp purge (#1703)", () => {
     cleanups.push(() => { worker.kill("SIGKILL"); worker.turnTemp?.close(); worker.state?.close(); });
     const output = new Response(worker.stdout as unknown as ReadableStream).text();
     const deadline = Date.now() + 5_000;
-    while (!existsSync(join(worker.state!.root, "transcript.jsonl")) && Date.now() < deadline) await Bun.sleep(10);
+    const ready = () => existsSync(join(worker.state!.root, "transcript.jsonl"))
+      && existsSync(join(worker.turnTemp!.root, "scratchpad.txt"));
+    while (!ready() && Date.now() < deadline) await Bun.sleep(10);
+    expect(ready(), "worker created both transcript and scratchpad before purge").toBe(true);
     const access: TurnTempAccess = { root: () => worker.turnTemp!.root, allowanceBytes: 8 * MIB, scratch: WORKER_SCRATCH,
       exclude: [], keep: [WORKER_SCRATCH], linkedText: () => "" };
     const all = purgeTurnTemp(access, { all: true });
