@@ -13,6 +13,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createBunWebSocket } from "hono/bun";
+import { Hono } from "hono";
 
 import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
 
@@ -477,29 +478,84 @@ describe("turn lifecycle is observable", () => {
     close = () => db.close();
     const observability = createRecordingObservability();
     const backend = makeFakeBackend({ id: "fake" });
+    const sessionId = "odysseus-ithaca";
+    const catalog = createSessionCatalog(() => db);
+    catalog.persistSessionStub(sessionId, "Odysseus plans the voyage.", null, backend.id);
+    await catalog.settled?.();
+    expect(catalog.hasSession!(sessionId), "KNOWN_CHAT_EXISTS_BEFORE_INDUCED_HISTORY_FAILURE").toBe(true);
+    let reads = 0;
     backend.getHistory = async () => {
+      reads++;
       throw new Error("transcript unreadable");
     };
     const host = new WsHost({
       registry: createStaticBackendRegistry([backend], backend.id),
-      catalog: createSessionCatalog(() => db),
+      catalog,
       observability,
     });
+    const socket = fakeSocket();
     createWsHandlers(host).onMessage(
-      { data: JSON.stringify({ type: "session_resume", sessionId: "gone" }) } as MessageEvent,
-      fakeSocket()
+      { data: JSON.stringify({ type: "session_resume", sessionId }) } as MessageEvent,
+      socket
     );
 
     await until(
       () => observability.metrics.value("turns.failed", { code: "SESSION_LOAD_ERROR" }) === 1
     );
+    expect(reads, "KNOWN_CHAT_REACHES_ITS_HISTORY_READER").toBe(1);
+    expect(socket.sent.map(raw => JSON.parse(raw))).toContainEqual({
+      type: "error", code: "SESSION_LOAD_ERROR", sessionId, message: "transcript unreadable",
+    });
     const [failed] = observability.logs.find({ body: "turn failed" });
-    expect(failed.attributes["session.id"]).toBe("gone");
+    expect(failed.attributes["session.id"]).toBe(sessionId);
     expect(failed.attributes.error).toBe("transcript unreadable");
     // #1328: the resume itself is one line, with its outcome.
     const resumes = observability.logs.find({ body: "session resume" });
     expect(resumes).toHaveLength(1);
-    expect(resumes[0]!.attributes).toMatchObject({ "session.id": "gone", outcome: "error", error: "transcript unreadable" });
+    expect(resumes[0]!.attributes).toMatchObject({ "session.id": sessionId, outcome: "error", error: "transcript unreadable" });
+  });
+
+  test("native socket distinguishes a known history failure from a genuinely missing chat", async () => {
+    const db = createUiDb(":memory:");
+    const observability = createRecordingObservability();
+    const sessionId = "odysseus-ithaca", missingId = "odysseus-missing";
+    const reads: string[] = [];
+    const backend = makeFakeBackend({ id: "fake", getHistory: async id => {
+      reads.push(id);
+      if (id === sessionId) throw new Error("transcript unreadable");
+      return [];
+    } });
+    const catalog = createSessionCatalog(() => db);
+    catalog.persistSessionStub(sessionId, "Odysseus plans the voyage.", null, backend.id);
+    await catalog.settled?.();
+    expect(catalog.hasSession!(sessionId), "SOCKET_FIXTURE_KNOWN_CHAT_IS_REGISTERED").toBe(true);
+    expect(catalog.hasSession!(missingId), "SOCKET_FIXTURE_MISSING_CHAT_IS_ABSENT").toBe(false);
+    const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog, observability });
+    const { upgradeWebSocket, websocket } = createBunWebSocket();
+    const app = new Hono(); app.get("/ws", upgradeWebSocket(() => createWsHandlers(host)));
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket });
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    const frames: Array<{ type: string; code?: string; sessionId?: string; message?: string }> = [];
+    socket.onmessage = event => { frames.push(JSON.parse(String(event.data))); };
+    const closed = new Promise<void>(resolve => { socket.onclose = () => resolve(); });
+    try {
+      await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("Odysseus fixture socket failed")); });
+      socket.send(JSON.stringify({ type: "session_resume", sessionId }));
+      await until(() => frames.some(frame => frame.type === "error" && frame.sessionId === sessionId));
+      expect(frames.find(frame => frame.type === "error" && frame.sessionId === sessionId), "KNOWN_HISTORY_FAILURE_KEEPS_ITS_ERROR_CODE").toMatchObject({ code: "SESSION_LOAD_ERROR", message: "transcript unreadable" });
+      expect(observability.metrics.value("turns.failed", { code: "SESSION_LOAD_ERROR" }), "SOCKET_HISTORY_FAILURE_RECORDS_ORIGINAL_METRIC").toBe(1);
+      socket.send(JSON.stringify({ type: "session_resume", sessionId: missingId }));
+      await until(() => frames.some(frame => frame.type === "error" && frame.sessionId === missingId));
+      expect(frames.find(frame => frame.type === "error" && frame.sessionId === missingId), "MISSING_CHAT_IS_NOT_A_KNOWN_HISTORY_LOAD_FAILURE").toMatchObject({ code: "SESSION_NOT_FOUND" });
+      expect(observability.metrics.total("turns.failed"), "MISSING_REFUSAL_ADDS_NO_KNOWN_LOAD_FAILURE").toBe(1);
+      expect(observability.logs.find({ body: "turn failed" })).toHaveLength(1);
+      expect(observability.logs.find({ body: "session resume" })).toHaveLength(2);
+      expect(frames.some(frame => frame.type === "session_info" && frame.sessionId === missingId)).toBe(false);
+      expect(catalog.hasSession!(missingId), "REFUSAL_NEVER_CREATES_THE_MISSING_CHAT").toBe(false);
+      expect(reads).toEqual([sessionId, missingId]);
+    } finally {
+      socket.close(); server.stop(true); await closed; host.close(); db.close();
+    }
   });
 
   test("a loaded session resume logs one line with its session and outcome (#1328)", async () => {

@@ -369,7 +369,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:182-237`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:2122-2131`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:2125-2134`).
 
 - Composer draft/acknowledgement: [`const [input, setInput] = useState("");`](https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L62-L85), before #951 moved the draft into the root's draft store (`stores/draft-state.ts`).
 
@@ -377,7 +377,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:95-106`).
 
-- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:488-562`).
+- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:495-569`).
 
 - History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-448`).
 
@@ -385,7 +385,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:126-191`).
 
-- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:629-683`).
+- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:630-689`).
 
 - Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:377-384`).
 

@@ -3,12 +3,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import type { BrowserCommand } from "vitest/node";
-type Op = { op: "start"; contextual?: boolean; delayedIdentity?: boolean; provider?: "gemini" | "gpt"; action?: "permitted" | "confirm" | "deny" } | { op: "step"; id: string; client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean } | { op: "stop"; id: string };
+type Op = { op: "start"; contextual?: boolean; holdOpening?: boolean; holdValidation?: boolean; missingSession?: boolean; delayedIdentity?: boolean; provider?: "gemini" | "gpt"; action?: "permitted" | "confirm" | "deny" } | { op: "step"; id: string; client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; failHistory?: boolean; releaseOpening?: boolean; releaseValidation?: boolean } | { op: "stop"; id: string };
 const servers = new Map<string, { process: ChildProcess; url: string; diagnostics: () => string }>();
 /** Native byte witnesses come from a real loopback server inside the pinned offline container. */
 export const conversationServer: BrowserCommand<[Op], unknown> = async (_ctx, input) => {
   if (input.op === "start") {
-    const child = spawn(process.env.BUN_BIN ?? "bun", ["--preload", resolve("../../scripts/test-network-child-preload.ts"), resolve(input.contextual ? "../ui-react/tests/fixtures/contextual-conversation-browser-server.ts" : "../ui-react/tests/fixtures/conversation-browser-server.ts"), ...(input.contextual ? [input.provider ?? "gpt", input.action ?? "permitted", input.delayedIdentity ? "delayed-identity" : "immediate-identity"] : [])],
+    const child = spawn(process.env.BUN_BIN ?? "bun", ["--preload", resolve("../../scripts/test-network-child-preload.ts"), resolve(input.contextual ? "../ui-react/tests/fixtures/contextual-conversation-browser-server.ts" : "../ui-react/tests/fixtures/conversation-browser-server.ts"), ...(input.contextual ? [input.provider ?? "gpt", input.action ?? "permitted", input.delayedIdentity ? "delayed-identity" : "immediate-identity", input.missingSession ? "missing-session" : "known-session", input.holdOpening ? "held-opening" : "immediate-opening", input.holdValidation ? "held-validation" : "immediate-validation"] : [])],
       { cwd: resolve("../.."), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = ""; child.stderr!.on("data", bytes => { stderr += String(bytes); });
     const url = await new Promise<string>((resolve, reject) => {
@@ -21,7 +21,7 @@ export const conversationServer: BrowserCommand<[Op], unknown> = async (_ctx, in
   }
   const server = servers.get(input.id); if (!server) throw new Error("Unknown conversation fixture");
   if (input.op === "step") {
-    const response = await fetch(`${server.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: input.client, provider: input.provider, release: input.release, identify: input.identify }) });
+    const response = await fetch(`${server.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: input.client, provider: input.provider, release: input.release, identify: input.identify, failHistory: input.failHistory, releaseOpening: input.releaseOpening, releaseValidation: input.releaseValidation }) });
     if (!response.ok) throw new Error(`Conversation fixture failed: ${response.status} ${server.diagnostics()}`);
     return response.json();
   }

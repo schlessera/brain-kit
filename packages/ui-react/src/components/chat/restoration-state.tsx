@@ -37,16 +37,18 @@ export function RestorationState({ onNewChat }: { onNewChat: () => void }) {
         <EmptyState
           icon="failed"
           tone="red"
-          title={"Couldn’t restore this conversation"}
-          body={reason === "timeout"
+          title={reason === "missing" ? "Conversation unavailable" : "Couldn’t restore this conversation"}
+          body={reason === "missing"
+            ? "This conversation is not available on this host. Start a New conversation; your unsent text is kept in Drafts. Earlier work will not be resent."
+            : reason === "timeout"
             ? "Its earlier messages did not arrive. Sending stays paused so nothing goes into a conversation you cannot see; your draft is kept."
             : "The host could not load its earlier messages. Sending stays paused so nothing goes into a conversation you cannot see; your draft is kept."}
           meta=""
-          primaryLabel="Retry"
-          primaryIcon="retry"
-          secondaryLabel="New chat"
-          onPrimary={() => { if (sessionId) retry(sessionId); }}
-          onSecondary={onNewChat}
+          primaryLabel={reason === "missing" ? "New conversation" : "Retry"}
+          primaryIcon={reason === "missing" ? "compose" : "retry"}
+          secondaryLabel={reason === "missing" ? "Retry" : "New chat"}
+          onPrimary={reason === "missing" ? onNewChat : () => { if (sessionId) retry(sessionId); }}
+          onSecondary={reason === "missing" ? () => { if (sessionId) retry(sessionId); } : onNewChat}
         />
       )}
     </div>

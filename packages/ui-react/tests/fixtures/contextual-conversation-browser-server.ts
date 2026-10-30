@@ -27,9 +27,19 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 const engine = process.argv[2] === "gemini" ? "gemini" : "gpt";
 const action = process.argv[3] ?? "permitted";
 const delayedIdentity = process.argv[4] === "delayed-identity";
+const missingSession = process.argv[5] === "missing-session";
+const holdOpening = process.argv[6] === "held-opening";
+const holdValidation = process.argv[7] === "held-validation";
+let validationCalls = 0, validationHeld = false;
+let releaseValidation!: () => void;
+const validationReady = new Promise<void>(resolve => { releaseValidation = resolve; });
+let opening = false, providerOpens = 0, providerCloses = 0;
+let releaseOpening!: () => void;
+const pendingHistory: Array<(error: Error) => void> = [];
+const openingReady = new Promise<void>(resolve => { releaseOpening = resolve; });
 let identify!: () => void;
 const identityReady = new Promise<void>(resolve => { identify = resolve; });
-const backendSession = delayedIdentity ? "odysseus-pylos" : "odysseus-ithaca";
+const backendSession = (delayedIdentity || missingSession) ? "odysseus-pylos" : "odysseus-ithaca";
 const root = mkdtempSync(join(tmpdir(), "odysseus-context-task-"));
 cpSync(resolve("packages/core/fixtures/corpus"), root, { recursive: true });
 writeFileSync(join(root, "brain.config.ts"), readFileSync(join(root, "brain.config.ts"), "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
@@ -96,23 +106,50 @@ if (delayedIdentity) {
   const start = production.startTurn.bind(production);
   production.startTurn = req => { activeRequest = req; return start(req); };
 }
-const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db),
+if (holdOpening) backend.getHistory = () => new Promise((_, reject) => { pendingHistory.push(reject); });
+const provider = engine === "gemini" ? createGeminiConversationProvider("keyless-odyssey-placeholder") : createGptLiveConversationProvider("keyless-odyssey-placeholder");
+const open = provider.open.bind(provider);
+provider.open = async (...args) => {
+  if (holdOpening && !opening) { opening = true; await openingReady; }
+  const session = await open(...args); providerOpens++;
+  const close = session.close.bind(session);
+  session.close = () => { providerCloses++; return close(); };
+  return session;
+};
+const catalog = createSessionCatalog(() => db);
+if (!missingSession) {
+  catalog.persistSessionStub("odysseus-ithaca", "Odysseus prepares the voyage.", null, backend.id);
+  await catalog.settled?.();
+}
+if (holdValidation) {
+  const settled = catalog.settled!.bind(catalog);
+  catalog.settled = async () => {
+    // Root resume and live start are independently admitted commands. Hold only
+    // the latter; the first missing-history response can retire its old entry.
+    if (++validationCalls === 2) { validationHeld = true; await validationReady; }
+    await settled();
+  };
+}
+const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog,
   applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: root, dbPath: join(state, "ui.db"), nativeManager: createNativeBrainManagerClient(native.nativeBrain) })), isPrincipalAuthorized: () => true,
-  conversationProvider: engine === "gemini" ? createGeminiConversationProvider("keyless-odyssey-placeholder") : createGptLiveConversationProvider("keyless-odyssey-placeholder") });
+  conversationProvider: provider });
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
 await handlers.onOpen(undefined as never, ws); frames.length = 0;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (req.method !== "POST") return new Response(null, { status: 405 });
-  const body = await req.json() as { client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean };
+  const body = await req.json() as { client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; failHistory?: boolean; releaseOpening?: boolean; releaseValidation?: boolean };
   for (const frame of body.client) handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
   await Bun.sleep(10); // transport drain only; task completion requires the explicit barrier
   for (const frame of body.provider) remote!.send(JSON.stringify(frame));
+  if (body.failHistory) for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history is temporarily unreadable."));
+  if (body.releaseOpening) releaseOpening();
+  if (body.releaseValidation) releaseValidation();
   if (body.identify) identify();
   if (body.release) release();
   await Bun.sleep(10);
-  return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, effect: existsSync(join(root, "notes/contextual-raft.md")) });
+  return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, opening, validationHeld, validationCalls, historyPending: pendingHistory.length > 0, providerOpens, providerCloses, missingChatExists: catalog.hasSession!("odysseus-ithaca"), effect: existsSync(join(root, "notes/contextual-raft.md")) });
 } });
-process.on("SIGTERM", async () => { release(); host.coordinator.reset(); host.close(); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
+process.on("SIGTERM", async () => { releaseValidation(); releaseOpening(); release(); host.coordinator.reset(); host.close(); for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history fixture closed.")); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
