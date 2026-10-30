@@ -457,7 +457,30 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
     }
+    const openingRejected = message.type === "error" && !!openingId && message.requestId === openingId
+      && !message.turnId && !message.failure
+      && (message.code === "SESSION_NOT_FOUND" || message.code === "SESSION_LOAD_ERROR" || message.code.startsWith("CONVERSATION_"));
+    if (openingRejected && (!state.getState().active || openingEntry !== entryLifetime)) {
+      // Settle the request that owns this rejection even after selection/entry
+      // changed. It never opened a provider and cannot retire the new entry.
+      openingId = undefined; requested = false;
+      if (state.getState().active) queueMicrotask(startEpoch);
+      return null;
+    }
+    if (message.type === "error" && (!message.requestId || message.requestId === openingId) && !message.turnId && !message.failure
+      && (message.code === "SESSION_NOT_FOUND" || (message.code === "SESSION_LOAD_ERROR" && openingId !== undefined))
+      && message.sessionId === state.getState().sessionId) {
+      // A history read and provider opening can overlap. Only the opening's
+      // own rejection consumes its request; otherwise keep the token so a late
+      // provider response is stopped by the retired-entry path below.
+      if (openingRejected) openingId = undefined;
+      leave(); state.setState({ profile: null, notice: message.message });
+      // Opening correlation is not a backend task request. Let ordinary chat
+      // restoration handle the selected chat failure after consuming it here.
+      return openingRejected ? { ...message, requestId: undefined } : message;
+    }
     if (message.type === "error" && message.code.startsWith("CONVERSATION_")) {
+      if (message.requestId && message.requestId !== openingId) return null;
       openingId = undefined; pause(true, true, false);
       state.setState({ notice: message.message, ...(message.code === "CONVERSATION_UNKNOWN" ? { profile: null } : {}) });
       return null;

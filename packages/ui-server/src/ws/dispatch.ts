@@ -1,3 +1,4 @@
+import { requireKnownSession } from "./session-recovery.js";
 import { resolveChatFiles, withTrackFiles } from "../tracks/read.js";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { estimateDecodedBase64Bytes } from "./attachments.js";
@@ -627,6 +628,11 @@ export async function handleClientMessage(
     }
 
     case "session_resume": {
+      if (!await requireKnownSession(host, ws, connection, msg.sessionId, true)) {
+        host.reportSessionResume(msg.sessionId, connection.authorization.valid ? "error" : "unauthorized",
+          { error: "Session could not be verified" });
+        return;
+      }
       host.sendMessage(ws, {
         type: "session_info",
         sessionId: msg.sessionId,
