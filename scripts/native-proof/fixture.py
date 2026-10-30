@@ -44,6 +44,13 @@ def run(argv, timeout=20):
         raise RuntimeError("Native proof command failed: " + repr(argv))
     return output
 
+# Absolute repo path also works for generated fixture variants.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("owned_remove", "/repo/scripts/native-proof/owned-remove.py")
+owned_remove = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(owned_remove)
+node_identity = entry_identity = entry = None
+remove_receipt = {}
 control = loop = image = None
 created = attached = mounted = False
 failure = None
@@ -68,7 +75,10 @@ try:
     if info.st_blocks * 512 < CAPACITY: raise RuntimeError("Native proof backing must be fully allocated")
     control = os.open("/dev/loop-control", os.O_RDWR)
     fcntl.ioctl(control, 0x4c80, MINOR); created = True
+    entry = pathlib.Path("/sys/dev/block/7:1790").resolve(strict=True)
+    entry_identity = owned_remove.identity(entry)
     os.mknod(DEVICE, stat.S_IFBLK | 0o600, os.makedev(7, MINOR))
+    node_identity = owned_remove.identity(DEVICE)
     loop = os.open(DEVICE, os.O_RDWR)
     fcntl.ioctl(loop, 0x4c00, image); attached = True
     kernel = bytearray(232); fcntl.ioctl(loop, 0x4c05, kernel, True)
@@ -108,7 +118,9 @@ finally:
         except BaseException as error: errors.append(str(error))
     if loop is not None: os.close(loop)
     if created and not attached:
-        try: fcntl.ioctl(control, 0x4c81, MINOR); created = False
+        try:
+            owned_remove.remove_owned(control, DEVICE, node_identity, entry, entry_identity, remove_receipt)
+            created = False
         except BaseException as error: errors.append(str(error))
     if control is not None: os.close(control)
     if image is not None: os.close(image)
@@ -116,6 +128,6 @@ finally:
     after_quota = pathlib.Path("/proc/sys/user/max_user_namespaces").read_text()
     record("parent-userns-quota", before=outer_quota, after=after_quota, unchanged=outer_quota == after_quota)
     if outer_quota != after_quota: errors.append("NATIVE_CONTAINER_USERNS_QUOTA_UNCHANGED")
-    record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors)
+    record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors, removeReceipt=remove_receipt)
     if errors and failure is None: failure = RuntimeError("Native proof cleanup failed")
 if failure is not None: raise failure
