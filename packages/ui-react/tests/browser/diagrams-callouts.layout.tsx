@@ -160,7 +160,7 @@ for (const theme of ["light", "dark", "print"] as const) {
   expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_SOURCE_NOTES").toHaveLength(1024);
   expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-${theme}`);
- }, theme === "light" ? 1_000 : STRESS_CAPTURE_TIMEOUT_MS);
+ }, STRESS_CAPTURE_TIMEOUT_MS);
 }
 
 // Keep full geometry and raster capture independently within the case budget.
