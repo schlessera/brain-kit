@@ -21,7 +21,7 @@ issues, not in this document.
 
 Brain-kit source was checked at `76192ea488c96569a22a8b1ac87006940d0607e2`.
 The existing provider catalog only configures Pi's upstream search extension
-(`WEB_SEARCH_PROVIDERS`, `packages/ui-sdk/src/server/web-search.ts:52-125`).
+(`WEB_SEARCH_PROVIDERS`, `packages/ui-sdk/src/server/web-search.ts:52-153`).
 It is not an Apify adapter. Existing policy has turn/session/day budgets,
 egress, outward rules and recipient restrictions, but no discovery or Actor grant
 fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`).
