@@ -1,6 +1,6 @@
 /// <reference types="@vitest/browser-playwright" />
-import { test, expect, beforeAll, afterAll, type TestContext } from "vitest";
-import { commands } from "vitest/browser";
+import { test, expect, beforeAll, afterAll, vi, type TestContext } from "vitest";
+import { commands, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -902,4 +902,37 @@ for(const quota of [false,true])test(`typed result after Leave retains its full 
  expect(notices,"BACKEND_TAIL_POSITION_ONLY").toHaveLength(quota?1:0);
  expect(s.element.textContent).not.toContain("Voice history may be incomplete");
  expect(s.element.querySelector('[data-transcript-qualifiers][aria-label*="unsaved"]')).toBeNull();
+});
+
+
+function r6Date(ctx:TestContext){vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-07-12T12:00:00Z"));ctx.onTestFinished(()=>{vi.useRealTimers();});}
+
+for(const provider of ["gemini","gpt"] as const)for(const legacy of [false,true])test(`R6 ${provider}: typed-only chat has no invented voice history legacy=${legacy}`,async ctx=>{
+ r6Date(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ const s=await view(ctx,null);let cursor=0,result:any,completed=0;
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
+ await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
+ if(legacy)await pump({seedLegacyVoice:true});s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
+ const body=s.element.textContent??"";
+ if(legacy){expect(body,"GENUINE_PRE_RETENTION_VOICE_IS_QUALIFIED").toContain("Earlier spoken dialogue was not saved.");expect(body).not.toContain("Show latest conversation");}
+ else{expect(body,"TYPED_ONLY_NO_LEGACY_NOTICE").not.toContain("Earlier spoken dialogue was not saved.");expect(body,"TYPED_ONLY_NO_LATEST_VOICE_BUTTON").not.toContain("Show latest conversation");}
+ expect(result.rows).toEqual([]);expect(result.tasks).toBe(1);
+ await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r6-typed-${provider}-legacy-${legacy}.png`});
+});
+
+for(const provider of ["gemini","gpt"] as const)test(`R6 ${provider}: first voice mid typed answer keeps true offsets and healthy active coverage`,async ctx=>{
+ r6Date(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
+ await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({backendPrefix:"Part one. "});
+ await expect.poll(()=>s.element.textContent).toContain("Part one.");s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
+ expect(s.ui.connection.conversation.state.getState().dialogue["odysseus-ithaca"]!.coverage,"HEALTHY_ACTIVE_READ_WITHOUT_NEXT_DELTA").toBe("complete");
+ expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(s.element.textContent).not.toContain("Earlier spoken dialogue was not saved");
+ await pump({release:true,resultText:"Part two."});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
+ const ranges=result.rows.map((r:any)=>JSON.parse(r.payload)).filter((r:any)=>r.kind==="backend");expect(ranges,"NO_PRE_OWNER_BACKFILL").toHaveLength(1);expect(ranges[0],"MIDTURN_ACTUAL_HOST_OFFSET").toMatchObject({start:10,end:19,text:"Part two."});
+ s.ui.connection.conversation.leave();await pump();s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true});s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain("Part two.");
+ const answer=s.ui.stores.chat.getState().buffers["odysseus-ithaca"]!.messages.find(m=>m.role==="assistant")!;expect(answer.content,"FULL_NATIVE_PREFIX_AND_SUFFIX").toBe("Part one. Part two.");
+ await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r6-midturn-${provider}.png`});
+ expect(s.element.textContent).not.toContain("Earlier spoken dialogue was not saved");expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(s.element.querySelector('[data-transcript-qualifiers][aria-label*="unsaved"]')).toBeNull();
 });

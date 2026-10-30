@@ -2227,8 +2227,12 @@ convey no authority. Each indexed page holds at most 200 records/128 KiB.
 Unavailable reads return `DIALOGUE_UNAVAILABLE`, not successful empty history.
 Missing session reads use the same known-chat check as opening/resume and return
 `SESSION_NOT_FOUND` with their request ID; absence is not legacy coverage.
-A chat predating retained dialogue receives `legacy` coverage, never invented
-spoken words reconstructed from its task prompt, JSON, draft or paraphrase.
+A known chat without a journal receives an empty `complete` snapshot, with no
+spoken-history warning or latest-conversation control. A session ID alone is not
+evidence of prior voice use. `legacy` requires principal/session-scoped native
+voice recovery evidence without a matching journal conversation. Missing old
+recovery metadata cannot reconstruct speech or prove it existed. No spoken words
+are invented from task prompts, JSON, drafts or paraphrases.
 
 The host commits exact deltas and their position together through the existing
 operational database's FULL write worker. A single committed sequence orders
@@ -2236,7 +2240,11 @@ recognized/generated evidence, task request positions and backend text-range
 witnesses. Range copies are only exact-content witnesses for backend-owned
 answers, never a second answer authority or native transcript rewrite. Invalid
 or missing native joins retain readable source text with unknown cross-stream
-position, after the native turn completes. While native text is still streaming,
+position, after the native turn completes. If the first voice owner opens during
+a typed answer, retained suffix ranges keep their true pre-owner character
+offsets; the earlier native prefix is not backfilled into the journal. Numeric
+turn offsets count observed deltas independently of journal ownership and are
+released at result or turn retirement. While native text is still streaming,
 its not-yet-final length is not a loss witness. Backend mismatch qualifies only
 position: the complete native answer remains authoritative. Healthy exact joins
 add no warning. Approximate provider intervals never determine display order.
@@ -2269,6 +2277,12 @@ a crash can lose an uncommitted tail, not acknowledged retained text. Reads
 derive conditional partial voice coverage from a prior unclosed epoch, even
 before a new live open and without requiring a successful recovery UPDATE.
 This means voice history may be incomplete, not proof that bytes were lost.
+Successful opens in the current catalog instance identify live epochs only by
+exact conversation, owner, principal, epoch and generation. Such a healthy live
+epoch is not classified as interrupted merely because its close is still open;
+a failed owner is never masked. This authority is internal, not a wire target or
+a caller-supplied exception. A newly opened catalog has no inherited liveness,
+so a prior unclosed epoch is still conservatively qualified before Start.
 Failure notices latch once per owner/open episode; shutdown still reports the
 aggregate writer failure. Draining a failed epoch cannot close its replacement.
 

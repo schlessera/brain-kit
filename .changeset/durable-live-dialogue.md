@@ -14,3 +14,5 @@ Separate saved and unsaved recognition groups, bound projection work per session
 Integrate canonical reading/focus and stale-session recovery, qualify unsaved rows accessibly, preserve surviving source anchors during paging, and clear volatile evidence across principal replacement.
 
 Drain task-persistence failures against the exact failed epoch, reject missing-chat reads without inventing legacy history, and qualify unclosed voice history separately from incomplete backend position witnesses.
+
+Keep ordinary typed chats free of invented legacy-voice warnings, preserve true backend suffix offsets when voice starts mid-turn, and distinguish healthy active epochs from unclosed history after restart.

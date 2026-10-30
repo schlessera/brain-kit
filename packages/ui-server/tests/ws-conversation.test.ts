@@ -1774,5 +1774,5 @@ test("missing dialogue reads cannot invent legacy history or journal owners", as
  s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
  client.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"known-page"});
  await until(()=>client.frames("dialogue_history").some(f=>f.requestId==="known-page"));
- expect(client.frames("dialogue_history").at(-1)).toMatchObject({coverage:"legacy",records:[]});
+ expect(client.frames("dialogue_history").at(-1)).toMatchObject({coverage:"complete",records:[]});
 });

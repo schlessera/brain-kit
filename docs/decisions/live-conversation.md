@@ -368,3 +368,17 @@ whole native answer and qualifies its original discussion position. It does not
 assert lost voice text. An unclosed voice epoch is separately read as possibly
 incomplete before reopening, including when recovery writes cannot commit.
 Healthy completed joins require no caution marker.
+
+
+A typed chat does not acquire a voice-loss warning merely because its session
+exists. Legacy qualification needs retained evidence of a prior unjournaled
+voice conversation; empty known-chat snapshots stay quiet. Runtime catalog opens
+identify healthy active epochs with exact principal/owner/generation/epoch
+checks, while restart reads still qualify a prior unclosed source. Failure
+coverage takes precedence over that runtime liveness.
+
+A first voice entry during a typed answer begins only the suffix position
+witness: pre-owner text contributes its actual character offset, but no invented
+archive copy. The complete native answer remains authoritative; missing prefix
+position evidence may still qualify original discussion order. Numeric offsets
+are retired with each result or backend turn and do not retain prior typed text.

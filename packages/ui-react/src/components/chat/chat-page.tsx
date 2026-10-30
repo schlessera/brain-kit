@@ -739,7 +739,7 @@ export function ChatPage() {
                   {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
                   {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
                   {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
-                  {dialoguePage && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}
+                  {dialoguePage && (dialoguePage.records.length > 0 || dialoguePage.through > 0) && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}
                   {hiddenCount > 0 && (
                     <div className="flex justify-center py-3">
                       <Button

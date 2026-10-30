@@ -1,4 +1,4 @@
-import { dialogueOwner, readDialogue, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
+import { dialogueOwner, readDialogue, hasUnretainedVoice, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
 import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -266,6 +266,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   };
   // Invalidation counts at submission, even if its worker DELETE fails.
   // Only a new successfully retained request in this generation can reset it.
+  const activeDialogueEpochs = new Map<string, ActiveDialogueEpoch>();
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
   return {
@@ -278,11 +279,36 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       const row = db().query("SELECT principal_id FROM dialogue_owners WHERE session_id=?").get(sessionId) as {principal_id:string}|null;
       return row ? dialogueOwner(db(),{sessionId},row.principal_id) : null;
     },
-    dialogueClose: (conversationId,principalId,epoch,partial) => submit("dialogueClose",conversationId,principalId,epoch,partial),
-    dialogueOpen: input => submit("dialogueOpen", input),
+    dialogueClose: (conversationId,principalId,epoch,partial) => {
+      const active=activeDialogueEpochs.get(conversationId);
+      if(active?.epoch===epoch && active.owner.principal_id===principalId) activeDialogueEpochs.delete(conversationId);
+      return submit("dialogueClose",conversationId,principalId,epoch,partial);
+    },
+    dialogueOpen: async input => {
+      const owner=await submit<DialogueOwner>("dialogueOpen", input);
+      activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
+      return owner;
+    },
     dialogueAppend: input => submit("dialogueAppend", input),
-    dialogueBind: (conversationId, principalId, sessionId) => submit("dialogueBind", conversationId, principalId, sessionId),
-    async dialogueRead(principalId, target) { await tail; return readDialogue(db(), principalId, target); },
+    dialogueBind: async (conversationId, principalId, sessionId) => {
+      const owner=await submit<DialogueOwner | null>("dialogueBind", conversationId, principalId, sessionId);
+      const active=activeDialogueEpochs.get(conversationId);
+      if(owner && active && active.owner.principal_id===principalId) {
+        // Pending callbacks still hold this object across adoption. Replacing
+        // it would hide their genuine failure behind a fresh healthy owner.
+        const partial=active.owner.coverage === "partial";
+        Object.assign(active.owner,owner);
+        if(partial) active.owner.coverage="partial";
+        return active.owner;
+      }
+      return owner;
+    },
+    async dialogueRead(principalId, target) {
+      await tail;
+      const page=readDialogue(db(), principalId, target, activeDialogueEpochs);
+      if(page || !target.sessionId || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
+      return {ownerId:target.sessionId,sessionId:target.sessionId,generation:1,through:0,records:[],coverage:"legacy"};
+    },
     saveConversationEpoch: state => submit("conversationEpoch", state),
     saveConversationTask: (principalId, receipt, facts) => submit("conversationTask", principalId, receipt, facts),
     async loadConversation(id, principalId) { await tail; return loadConversation(db(), id, principalId); },

@@ -538,3 +538,66 @@ test("backend append failure after Leave does not falsely mark retained voice as
   expect(page.records[0]!.evidence).toEqual(fragment(0,"Saved spoken prefix.").evidence);
  }finally{await journal.settled();await q.close();await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+
+for(const priorVoice of [false,true])test(`R6 legacy coverage requires real pre-retention voice evidence priorVoice=${priorVoice}`,async()=>{
+ const db=createUiDb(":memory:"),writer=openSqliteWriter(db),c=writer.channel({url:writes.url,setup:writes.setup},{});
+ try{
+ if(priorVoice)await c.call("conversationEpoch",{id:"old-voice",principalId:"odysseus",epoch:1,sessionId:"voyage"});
+ const owner=await c.call("dialogueOpen",{...opening,sessionId:"voyage"}) as import("../src/ws/dialogue-storage.js").DialogueOwner;
+ expect(owner.coverage,"TYPED_SESSION_IS_NOT_PRIOR_VOICE").toBe(priorVoice?"legacy":"complete");
+ }finally{await c.close();await writer.close();db.close();}
+});
+
+for(const earlySession of [undefined,"voyage"])test(`R6 midturn first voice retains the actual pre-owner backend offset earlySession=${earlySession}`,async()=>{
+ const {DialogueJournal}=await import("../src/ws/dialogue.js");
+ const db=createUiDb(":memory:"),writer=openSqliteWriter(db),c=writer.channel({url:writes.url,setup:writes.setup},{});
+ const journal=new DialogueJournal({dialogueOpen:(input:DialogueOpen)=>c.call("dialogueOpen",input),dialogueOwnerForSession:(sessionId:string)=>dialogueOwner(db,{sessionId},"odysseus"),dialogueAppend:(input:DialogueAppend)=>c.call("dialogueAppend",input)} as import("../src/ws/session-catalog.js").SessionCatalog,()=>{},()=>{});
+ try{
+ journal.backend({type:"text_delta",...(earlySession?{sessionId:earlySession}:{}),turnId:"typed-turn",text:"Part one. "});
+ await journal.open({...opening,sessionId:"voyage"});
+ journal.backend({type:"text_delta",sessionId:"voyage",turnId:"typed-turn",text:"Part two."});await journal.settled();
+ const page=readDialogue(db,"odysseus",{sessionId:"voyage"})!;
+ expect(page.records[0]!.evidence,"MIDTURN_START_OFFSET").toMatchObject({kind:"backend",start:10,end:19,text:"Part two."});
+ journal.retireTurn("typed-turn");expect((journal as unknown as {offsets:Map<string,number>}).offsets.size,"RETIREMENT_RELEASES_OFFSET").toBe(0);
+ for(let i=0;i<300;i++){journal.backend({type:"text_delta",sessionId:"pylos",turnId:`typed-${i}`,text:"A mast note."});const terminal={type:"result" as const,sessionId:"pylos",turnId:`typed-${i}`,outcome:"success" as const,isError:false,durationMs:1,numTurns:1};journal.backend(terminal);}
+ expect((journal as unknown as {offsets:Map<string,number>}).offsets.size,"TYPED_ONLY_RESULTS_RELEASE_OFFSETS").toBe(0);
+ }finally{await journal.settled();await c.close();await writer.close();db.close();}
+});
+
+for(const legacy of [false,true])test(`R6 healthy active catalog reads stay honest across reopen legacy=${legacy}`,async()=>{
+ const {createSessionCatalog}=await import("../src/ws/session-catalog.js");
+ const {createOffloopActivityStore}=await import("../src/activity/store-writes.js");
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-active-dialogue-")),path=join(dir,"ui.db");
+ const db=createUiDb(path),writer=openSqliteWriter(db);
+ const make=()=>createSessionCatalog(()=>db,undefined,undefined,{writer,pricing:{resolve:()=>null},store:createOffloopActivityStore(db,writer)});
+ const catalog=make();try{
+ if(legacy)await catalog.saveConversationEpoch!({id:"old-voice",principalId:"odysseus",epoch:1,sessionId:"voyage"});
+ const owner=await catalog.dialogueOpen!({...opening,sessionId:"voyage"});
+ expect((await catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"HEALTHY_ACTIVE_READ_HAS_NO_FALSE_PARTIAL").toBe(legacy?"legacy":"complete");
+ if(!legacy){
+ const generation=owner.generation;owner.generation++;
+ expect((await catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"ACTIVE_GENERATION_MUST_MATCH").toBe("partial");owner.generation=generation;
+ const principal=owner.principal_id;owner.principal_id="penelope";
+ expect((await catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"ACTIVE_PRINCIPAL_MUST_MATCH").toBe("partial");owner.principal_id=principal;
+ }
+ owner.coverage="partial";
+ expect((await catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"FAILED_ACTIVE_OWNER_IS_NOT_MASKED").toBe("partial");
+ owner.coverage=legacy?"legacy":"complete";
+ const reopened=make();expect((await reopened.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"REOPEN_BEFORE_START_IS_PARTIAL").toBe(legacy?"legacy":"partial");
+ }finally{await catalog.settled?.();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test("R6 adoption does not detach failed queued voice from active coverage",async()=>{
+ const {createSessionCatalog}=await import("../src/ws/session-catalog.js");const {createOffloopActivityStore}=await import("../src/activity/store-writes.js");const {DialogueJournal}=await import("../src/ws/dialogue.js");
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-adoption-coverage-")),path=join(dir,"ui.db"),db=createUiDb(path),writer=openSqliteWriter(db);
+ const controls=await import("./helpers/dialogue-test-writes.js"),q=writer.channel({url:controls.url,setup:controls.setup},{});
+ const catalog=createSessionCatalog(()=>db,undefined,undefined,{writer,pricing:{resolve:()=>null},store:createOffloopActivityStore(db,writer)}),journal=new DialogueJournal(catalog,()=>{},()=>{});
+ try{await journal.open(opening);await q.call("quota");journal.bind("ithaca","odysseus","voyage");
+ for(let i=0;i<30;i++){const e=fragment(i,"mast ".repeat(390)).evidence;if(e.kind!=="voice")throw Error("voice required");journal.voice("ithaca",e,()=>{});}
+ await journal.settled();let full=false;try{await journal.settled(true);}catch(error){full=error instanceof Error && /full/i.test(error.message);}expect(full,"ACTUAL_ADOPTION_QUOTA_FAILURE").toBe(true);
+ expect(db.query("SELECT coverage FROM dialogue_owners").get()).toEqual({coverage:"complete"});
+ expect((await catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"QUEUED_PRE_ADOPTION_FAILURE_REMAINS_PARTIAL").toBe("partial");
+ }finally{await journal.settled();await q.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
+});

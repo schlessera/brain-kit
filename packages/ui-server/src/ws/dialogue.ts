@@ -98,6 +98,7 @@ export class DialogueJournal {
   }
   retireTurn(turnId: string): void {
     this.adopting.delete(turnId);
+    this.offsets.delete(turnId);
   }
   backend(msg: ServerMessage): void {
     if (
@@ -110,7 +111,14 @@ export class DialogueJournal {
       sessionId?: string;
       turnId?: string;
     };
-    if (!sessionId || !turnId) return;
+    if (!turnId) return;
+    // Count every observed backend character, even before the first voice
+    // owner exists. These numbers are positions, never retained prefix text.
+    const start = this.offsets.get(turnId) ?? 0;
+    const end = msg.type === "text_delta" ? start + msg.text.length : start;
+    if(msg.type === "text_delta") this.offsets.set(turnId,end);
+    if(msg.type === "result") this.offsets.delete(turnId);
+    if (!sessionId) return;
     const adopting = this.adopting.get(turnId);
     if (msg.type === "session_info" && adopting) {
       this.conversations.set(adopting.id, adopting);
@@ -130,9 +138,6 @@ export class DialogueJournal {
         ...(msg.requestId ? { requestId: msg.requestId } : {}),
       });
     if (msg.type === "text_delta") {
-      const start = this.offsets.get(turnId) ?? 0,
-        end = start + msg.text.length;
-      this.offsets.set(turnId, end);
       for (let offset = start; offset < end; offset += 2000) {
         const text = msg.text.slice(offset - start, offset - start + 2000);
         this.append(owner, `text:${turnId}:${offset}`, {
@@ -145,7 +150,6 @@ export class DialogueJournal {
         });
       }
     }
-    if (msg.type === "result") this.offsets.delete(turnId);
   }
   close(
     conversationId: string,

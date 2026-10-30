@@ -903,6 +903,7 @@ async function runRetainedSession(
         turnEgress?.stop();
         // The session's next turn reads these hosts back as contacted (G6).
         await turnEgress?.settled();
+        host.dialogue.retireTurn(turn.turnId);
         if (referenceTurn) host.referenceTools?.end(turn.turnId);
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});

@@ -636,7 +636,7 @@ export async function handleClientMessage(
         if (connection.closed || !connection.authorization.valid) break;
         if (page) host.sendMessage(ws, { type: "dialogue_history", requestId: msg.requestId, ...page });
         else if (msg.sessionId) host.sendMessage(ws, { type: "dialogue_history", requestId: msg.requestId,
-          ownerId: msg.sessionId, sessionId: msg.sessionId, generation: 1, through: 0, records: [], coverage: "legacy" });
+          ownerId: msg.sessionId, sessionId: msg.sessionId, generation: 1, through: 0, records: [], coverage: "complete" });
         else throw new Error("Dialogue owner unavailable");
       } catch {
         if (!connection.closed && connection.authorization.valid) host.sendMessage(ws, { type: "error", code: "DIALOGUE_UNAVAILABLE", requestId: msg.requestId,

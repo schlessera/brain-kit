@@ -33,6 +33,7 @@ const frames: ServerMessage[] = [],
 let tasks = 0;
 let quotaApplied = false, pressureApplied = false;
 let complete: (() => void) | undefined;
+let emitPrefix: ((text:string)=>void) | undefined;
 const history: SessionHistoryMessage[] = [];
 let backendTailQuota = false, multipart = false;
 let FACT = "The departure signal is a bronze owl.";
@@ -46,6 +47,7 @@ const backend = makeFakeBackend({
       isNew: !req.sessionId,
     });
     history.push({ role: "user", content: req.prompt, toolCalls: [] });
+    let prefix=""; emitPrefix=text=>{prefix+=text;req.bridge.emit({type:"text_delta",text});};
     await new Promise<void>((resolve) => {
       complete = resolve;
     });
@@ -66,7 +68,7 @@ const backend = makeFakeBackend({
       const {buildSessionHistory} = await import("../../../ui-backend-claude/src/history.js");
       const getNative = (async () => [{type:"assistant",uuid:"mast-native-answer",message:{content:[{type:"text",text:first},{type:"tool_use",id:"mast-read",name:"Read",input:{path:"notes/mast.md"}},{type:"text",text:reply}]}}]) as unknown as Parameters<typeof buildSessionHistory>[1];
       history.push(...await buildSessionHistory("odysseus-ithaca",getNative,root));
-    } else history.push({ role: "assistant", content: reply, toolCalls: [] });
+    } else history.push({ role: "assistant", content: prefix+reply, toolCalls: [] });
     req.bridge.emit({
       type: "result",
       sessionId: "odysseus-ithaca",
@@ -179,6 +181,8 @@ const server = Bun.serve({
       resultText?: string;
       backendTailQuota?: boolean;
       multipart?: boolean;
+      backendPrefix?: string;
+      seedLegacyVoice?: boolean;
       restart?: boolean;
       engine?: string;
     };
@@ -197,6 +201,8 @@ const server = Bun.serve({
     for (const frame of body.client ?? [])
       handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
     await Bun.sleep(10);
+    if(body.backendPrefix) emitPrefix?.(body.backendPrefix);
+    if(body.seedLegacyVoice) await host.catalog.saveConversationEpoch!({id:"old-voice",principalId:testPrincipal().id,epoch:1,sessionId:"odysseus-ithaca"});
     let releaseQuota: (() => Promise<void>) | undefined;
     if (body.pressure) pressureApplied=true;
     if (body.quota || body.pressure) {

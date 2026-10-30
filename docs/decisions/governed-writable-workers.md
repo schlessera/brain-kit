@@ -1520,7 +1520,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:933`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1899,7 +1899,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:406`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:432`)
   must not feed any budget.
 
 **Enforcement:**

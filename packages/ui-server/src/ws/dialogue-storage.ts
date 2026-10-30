@@ -56,6 +56,16 @@ export function dialogueOwner(
     throw new Error("Dialogue generation changed");
   return owner;
 }
+/** Retained native voice recovery is evidence; an ordinary session ID is not. */
+export function hasUnretainedVoice(db: Database, principalId: string, sessionId: string): boolean {
+  return !!db.query(`SELECT 1 FROM conversation_epochs e
+    WHERE e.principal_id=? AND e.session_id=?
+    AND NOT EXISTS (SELECT 1 FROM dialogue_conversations c WHERE c.id=e.id) LIMIT 1`).get(principalId, sessionId);
+}
+export interface ActiveDialogueEpoch {
+  owner: DialogueOwner;
+  epoch: number;
+}
 export function openDialogue(db: Database, input: DialogueOpen): DialogueOwner {
   return db
     .transaction(() => {
@@ -101,7 +111,7 @@ export function openDialogue(db: Database, input: DialogueOpen): DialogueOwner {
           id,
           input.principalId,
           input.sessionId ?? null,
-          input.sessionId ? "legacy" : "complete",
+          input.sessionId && hasUnretainedVoice(db, input.principalId, input.sessionId) ? "legacy" : "complete",
           Date.now()
         );
         owner = dialogueOwner(db, { ownerId: id }, input.principalId)!;
@@ -244,7 +254,8 @@ export function appendDialogue(
 export function readDialogue(
   db: Database,
   principalId: string,
-  target: DialogueTarget
+  target: DialogueTarget,
+  activeEpochs?: ReadonlyMap<string, ActiveDialogueEpoch>
 ): DialoguePage | null {
   const owner = dialogueOwner(db, target, principalId);
   if (!owner) return null;
@@ -314,6 +325,14 @@ export function readDialogue(
     records.push(record);
     bytes += size;
   }
+  // One more row than live scopes proves interruption without a lifetime scan.
+  const unclosed = db.query("SELECT id,epoch FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+1) as Array<{id:string;epoch:number}>;
+  const exactActive = (row: {id:string;epoch:number}) => {
+    const active=activeEpochs?.get(row.id);
+    return active && active.epoch===row.epoch && active.owner.id===owner.id
+      && active.owner.principal_id===principalId && active.owner.generation===owner.generation ? active : undefined;
+  };
+  const failedActive=unclosed.some(row=>exactActive(row)?.owner.coverage === "partial");
   const more = rows.length > records.length;
   return {
     ownerId: owner.id,
@@ -337,7 +356,9 @@ export function readDialogue(
     // An unclosed voice source cannot prove its final observations survived a
     // crash, even if a recovery UPDATE cannot commit. Backend text completeness
     // is reconciled against native messages by the existing range projection.
-    coverage: owner.coverage === "complete" && db.query("SELECT 1 FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT 1").get(owner.id) ? "partial" : owner.coverage,
+    // The catalog supplies only successfully opened, exact runtime scopes;
+    // wire targets cannot supply liveness or override a failed owner.
+    coverage: failedActive || owner.coverage === "complete" && unclosed.some(row=>!exactActive(row)) ? "partial" : owner.coverage,
   };
 }
 
