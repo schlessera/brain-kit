@@ -2,6 +2,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { ownedCleanupComplete } from "./verify-owned-remove.js";
+
 function requireFact(value: unknown, name: string): asserts value {
   if (!value) throw new Error(`NATIVE_INDEX_RELEASE_REPRO_${name}`);
 }
@@ -18,7 +20,7 @@ export function verifyIndexReleaseReproduction(directory: string, exitCode: numb
   requireFact(/\b1 fail\b/.test(test.stderr) && outcomes.filter(row => !row.passed).map(row => row.name).join("\n") === "native hosted pi uid 0 first/warm admission, health, WebSocket, Stop and cancellation"
     && ["descriptor records", "cwd records", "descriptor released just after its delete"].every(name => outcomes.some(row => row.passed && row.name.includes(name))), "ONLY_INTENDED_CASE_FAILED");
   const cleanup = fixture.at(-1);
-  requireFact(cleanup?.kind === "cleanup" && cleanup.mounted === false && cleanup.attached === false && cleanup.loopCreated === false && cleanup.backingExists === false && cleanup.errors?.length === 0, "OWNED_CLEANUP");
+  requireFact(ownedCleanupComplete(cleanup), "OWNED_CLEANUP");
   requireFact(fixture.some(row => row.kind === "parent-userns-quota" && row.unchanged === true) && read(join(directory, "runner-quota.json")).unchanged === true, "QUOTAS_UNCHANGED");
   const run = join(directory, "run"), lifetime = read(join(run, "index-descendant-lifetime.json")), pin = lifetime.pinned;
   requireFact(lifetime.truncated === false && pin?.closedReason === "native-sync-failed", "EXACT_HANDLE_CLOSED");
