@@ -13,7 +13,7 @@ function changedFixture() {
   const fixture = unitWorkerFixture();
   const { root } = fixture;
   const git = (...args: string[]) => {
-    const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
     if (result.exitCode) throw new Error(new TextDecoder().decode(result.stderr));
     return new TextDecoder().decode(result.stdout).trim();
   };
@@ -100,8 +100,8 @@ test("changed queues accept empty selections and empty shards without hiding mis
     expect(Object.keys(JSON.parse(readFileSync(join(reports, "unit-timings.json"), "utf8")).files)).toHaveLength(5);
     const empty = join(root, "tmp/no-selection");
     // Capture current staged/unstaged/untracked inputs into a fixture commit.
-    const staged = Bun.spawnSync(["git", "-C", root, "add", "."]); expect(staged.exitCode).toBe(0);
-    const commit = Bun.spawnSync(["git", "-C", root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Current inputs"]); expect(commit.exitCode).toBe(0);
+    const staged = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, "add", "."]); expect(staged.exitCode).toBe(0);
+    const commit = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Current inputs"]); expect(commit.exitCode).toBe(0);
     await runUnitWorkers(root, [], undefined, empty, { changed: "HEAD", workers: 2, preparedTree: false });
     const summary = JSON.parse(readFileSync(join(empty, "unit-worker-summary.json"), "utf8"));
     expect(summary.selectedFiles).toBe(0);
@@ -152,7 +152,7 @@ test("a new HEAD invalidates unit input identity even when the worktree stays cl
   const fixture = unitWorkerFixture();
   try {
     const before = unitInputKey(fixture.root);
-    const commit = Bun.spawnSync(["git", "-C", fixture.root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "--allow-empty", "-qm", "New invocation input identity"]);
+    const commit = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", fixture.root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "--allow-empty", "-qm", "New invocation input identity"]);
     expect(commit.exitCode).toBe(0);
     expect(unitInputKey(fixture.root)).not.toBe(before);
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
@@ -221,7 +221,7 @@ test("${name} keeps copied output, source, lease and generation private",async()
   }
   write("tests/unrelated.test.ts", 'import {test} from "bun:test";test("UNRELATED_MUST_NOT_RUN",()=>{throw Error("UNRELATED_MUST_NOT_RUN")});\n');
   const git = (...args: string[]) => {
-    const child = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
     return new TextDecoder().decode(child.stdout).trim();
   };

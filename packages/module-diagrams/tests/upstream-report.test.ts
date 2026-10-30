@@ -9,12 +9,12 @@ const REFERENCES = "skills/diagram-design/references/";
 test("a local two-commit clone produces the pinned grouped report without running clone code", () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-upstream-"));
   const git = (...args: string[]) => {
-    const child = Bun.spawnSync(["git", "-C", root, ...args], {
+    const child = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, ...args], {
       env: { ...process.env, GIT_AUTHOR_NAME: "Odysseus", GIT_AUTHOR_EMAIL: "odysseus@example.invalid", GIT_COMMITTER_NAME: "Odysseus", GIT_COMMITTER_EMAIL: "odysseus@example.invalid",
         GIT_AUTHOR_DATE: "2026-07-12T00:00:00Z", GIT_COMMITTER_DATE: "2026-07-12T00:00:00Z" },
       stdout: "pipe", stderr: "pipe",
     });
-    expect(child.exitCode).toBe(0);
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
     return child.stdout.toString().trim();
   };
   const put = (path: string, text: string) => { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), text); };
