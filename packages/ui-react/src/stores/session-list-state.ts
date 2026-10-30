@@ -42,10 +42,18 @@ export function createSessionListStore(env: Pick<StoreEnvironment, "api">, onLis
       set({ loading: true });
       try {
         const data = await env.api.sessions();
+        const retained = [...(data.retainedConversations ?? [])];
+        let cursor = data.retainedAfter;
+        while (cursor && mine === latest) {
+          const next = await env.api.sessions(cursor);
+          retained.push(...(next.retainedConversations ?? []));
+          if (next.retainedAfter === cursor) throw new Error("Repeated history cursor");
+          cursor = next.retainedAfter;
+        }
         if (mine !== latest) return;
         onList?.(data.sessions);
         set({
-          sessions: data.sessions,
+          sessions: [...data.sessions,...retained.map(h=>({id:`dialogue:${h.id}`,title:"Voice conversation",createdAt:h.created_at,lastActiveAt:h.created_at,totalCostUsd:0,numTurns:0,historyOwnerId:h.id}))],
           loaded: true,
           warning: data.unavailableBackends?.length
             ? "Some session histories are unavailable. Showing available sessions."

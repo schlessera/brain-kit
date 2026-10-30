@@ -4029,3 +4029,22 @@ output recovery rather than leaving `outputRecovery` in `speaking`. Discard
 retires the reviewed input identities; late recognition cannot restore them.
 These actions and Mute cancel pending automatic review timers, while output recovery
 remains independent of microphone consent.
+
+### Retained dialogue data (#3177)
+
+The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
+`ClientDialogueRead` and `ServerDialogueHistory`, with runtime schemas in the
+existing schemas entry. These are data-only retained history, not provider-native
+messages or task admission. Their identities/bounds/coverage and the breaking
+retention supersession are defined in the [wire component](wire.md#durable-live-dialogue-breaking-retention-supersession-3177).
+Optional history-owner metadata on conversation open/start and plain chat input
+is additive; legacy backend session IDs and native provider guards keep their
+meaning. No provider history-selection API is delivered by this slice.
+
+
+Failed-write live text exposes optional `ServerConversationEvent.retention` and
+`ServerError.historyOwnerId`, plus the existing client projection's explicit
+unsaved recognition/output fields (#3177). These are additive evidence and
+failure-scoping data. `DialogueJournal.voice` reports commit success to its
+callback; current-epoch text remains observable when the callback reports a
+failed write. No provider-facing history or authority interface changes.

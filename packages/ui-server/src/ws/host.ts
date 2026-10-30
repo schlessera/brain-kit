@@ -1,3 +1,4 @@
+import { DialogueJournal } from "./dialogue.js";
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
 import { FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
@@ -355,6 +356,7 @@ export class WsHost {
   >;
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
   /** Only outstanding reads are retained; no transcript or per-session cache. */
+  readonly dialogue: DialogueJournal;
   private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
@@ -397,6 +399,15 @@ export class WsHost {
     this.conversations = options.conversationProvider
       ? new ConversationHost(this, options.conversationProvider)
       : null;
+    this.dialogue = new DialogueJournal(this.catalog, (page, principalId) => {
+      this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);
+    }, (owner, cause, kind) => {
+      const finish=this.conversations?.storageFailing(owner.id);
+      const message=kind === "backend" ? "Original discussion position could not be saved. The complete answer remains in chat history. Check storage before restarting voice." : cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
+      this.clients.broadcast({type:"error",code:cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",owner.principal_id);
+      // Drain already observed text before closing its epoch, preserving the unsaved tail.
+      void this.dialogue.settled().then(() => finish?.(message));
+    });
     this.classifier = options.classifier ?? null;
     this.labels = options.labeller?.enabled
       ? createPillLabels({ labeller: options.labeller, catalog: this.catalog, coordinator: this.coordinator })
@@ -602,7 +613,7 @@ export class WsHost {
    * @internal Host wiring.
    */
   async historySettled(): Promise<void> {
-    await Promise.all([this.catalog.settled?.(), this.policyProposals?.settled(), this.classifier?.settled?.()]);
+    await Promise.all([this.dialogue.settled(), this.catalog.settled?.(), this.policyProposals?.settled(), this.classifier?.settled?.()]);
   }
 
   /**
@@ -690,6 +701,7 @@ export class WsHost {
    */
   sendToClients(msg: ServerMessage): void {
     this.observeHistoryProgress(msg);
+    if (!this.closing) this.dialogue.backend(msg);
     this.clients.broadcast(msg, () => {
       // Outbound counterpart of reportDroppedFrame: the peer never saw this
       // frame. Counted only — a dead socket would otherwise WARN per frame
@@ -781,13 +793,14 @@ export class WsHost {
   }
 
   /** Stop host-owned timers during application/test teardown. */
-  close(): void {
+  close(): Promise<void> {
     this.closing = true;
     this.coordinator.cancelAll("Server shutting down");
     clearInterval(this.authorizationExpiryTimer);
     this.scope?.close();
     this.inbox?.close();
     this.conversations?.closeAll();
+    return this.dialogue.settled(true);
   }
 
   /**

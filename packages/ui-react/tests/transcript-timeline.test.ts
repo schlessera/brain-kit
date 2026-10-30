@@ -3,6 +3,7 @@ import { createBrainUiRoot } from "../src/root.js";
 import { createTranscriptTimeline, transcriptMessage, transcriptRange, transcriptTimelineFor, type TranscriptEntry } from "../src/lib/transcript-timeline.js";
 
 function entryText(e: TranscriptEntry) {
+  if (e.kind === "history-notice") return e.label;
   if (e.kind === "voice-boundary") return "";
   if (e.kind === "recognition") return e.fragments.map(f => f.text).join("");
   if (e.kind === "speech") return e.output.generated;
@@ -250,4 +251,122 @@ test("finish-only evidence keeps its arrival position between contiguous deltas"
     expect(entryText(row)).toBe("Which note?");
     expect(row.kind === "recognition" && row.fragments.map(f => f.sequence)).toEqual([0, 1, 2]);
   } finally { root.dispose(); }
+});
+
+test("durable positions reconstruct mixed text without changing full semantic source or provider provenance",()=>{
+ const root=createBrainUiRoot({storage:null});
+ try{
+  const chat=root.stores.chat.getState();chat.addUserMessage("ithaca","Research the mast.","voice-context",undefined,{requestId:"request"});chat.startAssistantMessage("ithaca","turn");
+  const first="1. [Mast](notes/mast.md)\n",last="2. Sail\n";chat.appendText("ithaca",first+last);chat.finishAssistantMessage("ithaca");
+  const voice=root.connection.conversation.state;
+  const recognition=(sequence:number,text:string)=>({sequence,identity:`rec-${sequence}`,evidence:{kind:"voice" as const,conversationId:"original",epoch:1,providerId:"gemini-live",event:{kind:"unassigned_input_fragment" as const,sequence,text,timing:{kind:"unavailable" as const}}}});
+  voice.setState({dialogue:{ithaca:{ownerId:"original",sessionId:"ithaca",generation:1,through:7,coverage:"complete",records:[
+   recognition(1,"Find the mast."),
+   {sequence:2,identity:"request",evidence:{kind:"request",requestId:"request",turnId:"turn"}},
+   {sequence:3,identity:"range-1",evidence:{kind:"backend",turnId:"turn",start:0,end:first.length,text:first,digest:"a".repeat(64)}},
+   recognition(4,"While we wait."),
+   {sequence:5,identity:"range-2",evidence:{kind:"backend",turnId:"turn",start:first.length,end:first.length+last.length,text:last,digest:"b".repeat(64)}},
+   {sequence:6,identity:"output-1",evidence:{kind:"voice",conversationId:"original",epoch:1,providerId:"gemini-live",event:{kind:"output_transcript",outputId:"reply",sequence:0,text:"The mast "}}},
+   {sequence:7,identity:"output-2",evidence:{kind:"voice",conversationId:"original",epoch:1,providerId:"gemini-live",event:{kind:"output_transcript",outputId:"reply",sequence:1,text:"is ready."}}},
+  ]}},dialogueRestoredThrough:{ithaca:7}});
+  const entries=transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.sessionId==="ithaca");
+  expect(entries.map(entryText).filter(Boolean)).toEqual(["Find the mast.","Research the mast.",first,"While we wait.",last,"The mast is ready."]);
+  const answers=entries.filter(e=>e.kind==="message"&&e.section==="answer");expect(answers).toHaveLength(2);
+  const progressIndex=entries.findIndex(e=>e.kind==="message"&&e.section==="progress");
+  expect(progressIndex).toBeGreaterThan(0);expect(progressIndex).toBeLessThan(entries.indexOf(answers[0]!));
+  for(const e of answers){expect(transcriptRange(e)?.source.content).toBe(first+last);}
+  const reply=entries.find(e=>e.kind==="speech");expect(reply?.kind==="speech"&&reply.output.providerId).toBe("gemini-live");expect(reply?.kind==="speech"&&reply.restored).toBe(true);
+  voice.setState(current=>({dialogue:{...current.dialogue,ithaca:{...current.dialogue.ithaca!,records:current.dialogue.ithaca!.records.filter(r=>r.sequence!==5)}}}));
+  const partial=transcriptTimelineFor(root.stores.chat).state.getState().entries;
+  expect(partial.filter(e=>e.kind==="message").map(entryText).join("\n")).toContain(first+last);
+  expect(partial.some(e=>e.kind==="history-notice"&&e.label==="Original discussion position unknown.")).toBe(true);
+
+ }finally{root.dispose();}
+});
+
+
+test("an observed unsaved tail stays after its committed prefix across later commits and older paging",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  const voice=root.connection.conversation.state;
+  const event=(sequence:number,text:string)=>({kind:"unassigned_input_fragment" as const,sequence,text,timing:{kind:"unavailable" as const}});
+  const record=(sequence:number,inputSequence:number,text:string)=>({sequence,identity:`source-${inputSequence}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId:"gpt-live",event:event(inputSequence,text)}});
+  const first=record(1001,0,"First."),second=record(1002,1,"Second."),later=record(1003,3,"Later."),older=record(999,4,"Earlier.");
+  const page={ownerId:"ithaca",sessionId:"voyage",generation:1,through:1002,coverage:"partial" as const,records:[first,second]};
+  voice.setState({dialogue:{voyage:page}});
+  voice.setState({recognition:[{...event(2,"Unsaved."),conversationId:"ithaca",epoch:1,providerId:"gpt-live",sessionId:"voyage",activation:1,contextual:true,unsaved:true}]});
+  const texts=()=>transcriptTimelineFor(root.stores.chat).state.getState().entries.map(entryText);
+  expect(texts().join("")).toBe("First.Second.Unsaved.");
+  voice.setState({dialogue:{voyage:{...page,through:1003,records:[first,second,later]}}});
+  expect(texts().join("")).toBe("First.Second.Unsaved.Later.");
+  voice.setState({dialogue:{voyage:{...page,through:1003,records:[older,first,second,later]}}});
+  expect(texts().join("")).toBe("Earlier.First.Second.Unsaved.Later.");
+  voice.setState({dialogue:{voyage:{...page,through:1003,records:[later]}}});
+  expect(texts().join("")).toBe("Unsaved.Later.");
+ }finally{root.dispose();}
+});
+
+
+test("generated committed prefix and unsaved tail keep separate retention qualifiers",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  root.connection.conversation.state.setState({dialogue:{voyage:{ownerId:"ithaca",sessionId:"voyage",generation:1,through:1,coverage:"partial",records:[{sequence:1,identity:"reply-0",evidence:{kind:"voice",conversationId:"ithaca",epoch:1,providerId:"gpt-live",event:{kind:"output_transcript",outputId:"reply",sequence:0,text:"Saved."}}}]}},outputs:[{conversationId:"ithaca",epoch:1,providerId:"gpt-live",outputId:"reply",sessionId:"voyage",generated:"Saved.",unsavedGenerated:"Unsaved.",unsavedFragments:1,playback:"unknown"}]});
+  const rows=transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.kind==="speech");
+  expect(rows.map(entryText)).toEqual(["Saved.","Unsaved."]);
+  expect(rows.map(e=>e.output.unsaved)).toEqual([undefined,true]);
+  expect(rows[0]!.output.unsavedGenerated).toBeUndefined();
+ }finally{root.dispose();}
+});
+
+for (const providerId of ["gpt-live", "gemini-live"]) for (const kind of ["input_fragment", "unassigned_input_fragment"] as const)
+ test(`${providerId} ${kind}: retention splits readable groups and finish-only attachment`,()=>{
+  const root=createBrainUiRoot({storage:null});try{
+   const voice=root.connection.conversation.state;
+   const event=(sequence:number,text:string)=>kind==="input_fragment" ? {kind,utteranceId:"mast",sequence,text,finalization:"final" as const,certainty:"unknown" as const,origin:"unknown" as const} : {kind,sequence,text,timing:{kind:"unavailable" as const}};
+   const record=(sequence:number,text:string)=>({sequence:sequence+1,identity:`source-${sequence}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId,event:event(sequence,text)}});
+   const fragment=(sequence:number,text:string)=>({...event(sequence,text),conversationId:"ithaca",epoch:1,providerId,sessionId:"voyage",activation:1,contextual:true,unsaved:true as const});
+   voice.setState({dialogue:{voyage:{ownerId:"ithaca",sessionId:"voyage",generation:1,through:2,coverage:"partial",records:[record(0,"Saved."),record(1,"")]}},recognition:[fragment(2,"Unsaved."),fragment(3,"")]});
+   const rows=transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.kind==="recognition");
+   expect(rows.map(entryText)).toEqual(["Saved.","Unsaved."]);
+   expect(rows.map(e=>e.fragments.map(f=>f.sequence))).toEqual([[0,1],[2,3]]);
+   expect(rows.map(e=>e.fragments.every(f=>!!f.unsaved===!!e.fragments[0]!.unsaved))).toEqual([true,true]);
+   voice.setState({recognition:[fragment(2,"")]});
+   const saved=transcriptTimelineFor(root.stores.chat).state.getState().entries.find(e=>e.kind==="recognition");
+   expect(saved?.kind==="recognition" && saved.fragments.map(f=>f.sequence)).toEqual([0,1]);
+  }finally{root.dispose();}
+ });
+
+test("projection computes each session's observed prefix with linear archive visits",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  let sequenceReads=0;
+  const records=Array.from({length:200},(_,i)=>({get sequence(){sequenceReads++;return i+1;},identity:`source-${i}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId:"gpt-live",event:{kind:"unassigned_input_fragment" as const,sequence:i,text:"Saved.",timing:{kind:"unavailable" as const}}}}));
+  root.connection.conversation.state.setState({dialogue:{voyage:{ownerId:"ithaca",sessionId:"voyage",generation:1,through:200,coverage:"partial",records}},recognition:Array.from({length:200},(_,i)=>({kind:"unassigned_input_fragment" as const,sequence:i+200,text:"Unsaved.",conversationId:"ithaca",providerId:"gpt-live",epoch:1,sessionId:"voyage",activation:1,contextual:true,unsaved:true as const})),outputs:Array.from({length:200},(_,i)=>({conversationId:"ithaca",epoch:1,outputId:`reply-${i}`,sessionId:"voyage",generated:"Reply.",playback:"unknown" as const}))});
+  expect(sequenceReads).toBeLessThan(6000);
+  expect(transcriptTimelineFor(root.stores.chat).state.getState().entries.map(entryText).join("")).toContain("Unsaved.");
+ }finally{root.dispose();}
+});
+
+
+for(const kind of ["recognition","speech"] as const)test(`older paging preserves a surviving ${kind} canonical reading key`,()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  const record=(sequence:number)=>({sequence,identity:`source-${sequence}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId:"gemini-live",event:kind==="speech"?{kind:"output_transcript" as const,outputId:"mast",sequence,text:`Mast ${sequence}.`}:{kind:"unassigned_input_fragment" as const,sequence,text:`Mast ${sequence}.`,timing:{kind:"unavailable" as const}}}});
+  const voice=root.connection.conversation.state, page={ownerId:"ithaca",sessionId:"voyage",generation:1,through:100,coverage:"complete" as const,records:[record(100)]};
+  voice.setState({dialogue:{voyage:page},dialogueRestoredThrough:{voyage:100}});
+  const rows=()=>transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.kind===kind);
+  const key=rows()[0]!.key;
+  voice.setState({dialogue:{voyage:{...page,records:[record(99),record(100)]}}});
+  expect(rows()).toHaveLength(1);expect(rows()[0]!.key,"PAGING_PRESERVES_SOURCE_ANCHOR").toBe(key);
+  expect(entryText(rows()[0]!)).toBe("Mast 99.Mast 100.");
+ }finally{root.dispose();}
+});
+
+
+test("backend position qualification waits for completed native text",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+ const chat=root.stores.chat.getState();chat.addUserMessage("ithaca","Read the mast note.");chat.startAssistantMessage("ithaca","mast-turn");chat.appendText("ithaca","The mast is ready. Tail.");
+ root.connection.conversation.state.setState({dialogue:{ithaca:{ownerId:"mast",sessionId:"ithaca",generation:1,coverage:"complete",through:1,records:[{sequence:1,identity:"range",evidence:{kind:"backend",turnId:"mast-turn",start:0,end:19,text:"The mast is ready. ",digest:"a".repeat(64)}}]}}});
+ const rows=()=>transcriptTimelineFor(root.stores.chat).state.getState().entries;
+ expect(rows().filter(e=>e.kind==="history-notice"),"STREAMING_LENGTH_IS_NOT_A_LOSS_WITNESS").toHaveLength(0);
+ chat.finishAssistantMessage("ithaca");
+ expect(rows().filter(e=>e.kind==="history-notice"),"FINAL_LENGTH_RECONCILES_POSITION").toHaveLength(1);
+ expect(rows().filter(e=>e.kind==="message").map(entryText).join("\n")).toContain("The mast is ready. Tail.");
+ }finally{root.dispose();}
 });

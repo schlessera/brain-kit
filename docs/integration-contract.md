@@ -885,3 +885,12 @@ described in
 Their shared contracts, `BackendBridge.referenceAccess`, the native manager's
 `poolView` and the worker's read-only source views are described in
 [the package API](integration-contract/package-api.md#reference-and-worktree-tools-additive-0440-2432).
+
+## Durable live dialogue (breaking retention supersession, #3177)
+
+The October 30 maintainer ruling replaces temporary recognition/no-reload
+semantics with chat-owned retained text evidence. Draft Discard does not erase
+archived discussion. Optional negotiated history paging/provenance fields are
+additive; the retention/privacy meaning change is a pre-1.0 breaking minor.
+See [durable dialogue](integration-contract/wire.md#durable-live-dialogue-breaking-retention-supersession-3177).
+Historical provider input remains separate #3178 work.

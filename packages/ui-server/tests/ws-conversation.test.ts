@@ -36,9 +36,9 @@ interface Turn {
   answer: (text: string) => void;
 }
 
-let cleanup: (() => void) | null = null;
-afterEach(() => {
-  cleanup?.();
+let cleanup: (() => void | Promise<void>) | null = null;
+afterEach(async () => {
+  await cleanup?.();
   cleanup = null;
 });
 
@@ -77,10 +77,10 @@ function setup(options: {
     ...(options.wsRate ? { wsRate: options.wsRate } : {}),
     ...(options.conversation === false ? {} : { conversationProvider: live.provider }),
   });
-  cleanup = () => {
+  cleanup = async () => {
     for (const turn of turns) turn.answer("");
     host.coordinator.reset();
-    host.close();
+    await host.close();
     db.close();
   };
 
@@ -139,7 +139,7 @@ function setup(options: {
       },
     };
   }
-  return { host, live, turns, connect };
+  return { host, live, turns, connect, db, backend };
 }
 
 // #3131 current-behavior witness, not a proposed result-summarization policy.
@@ -569,7 +569,7 @@ describe("second review pass: identity, resync and retry", () => {
     expect(s.turns).toHaveLength(12);
   }, 20_000);
 
-  test("recognized text beyond the per-utterance bound closes the epoch instead of being clipped", async () => {
+  test("recognized text beyond the review bound remains captured but cannot become an incomplete commit", async () => {
     const s = setup();
     const client = await s.connect();
     const conversation = await client.open();
@@ -578,7 +578,12 @@ describe("second review pass: identity, resync and retry", () => {
       conversation.session.emit({ kind: "input_fragment", utteranceId: "u1", sequence, text: "x".repeat(CONVERSATION_LIMITS.maxFragmentChars), finalization: "interim", certainty: "unknown", origin: "user" });
     }
     await settle();
-    expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: "backpressure" });
+    expect(client.frames("conversation_closed")).toEqual([]);
+    expect(client.frames("conversation_event").filter(f=>f.event.kind==="input_fragment")).toHaveLength(9);
+    client.commit(conversation,"u1","incomplete","Bounded tail");
+    await until(()=>client.receipts("incomplete").length>0);
+    expect(client.last("incomplete")).toMatchObject({state:"refused",reason:"Only bounded task context remains for this input. Review the retained dialogue and send typed text instead."});
+    expect(s.turns).toHaveLength(0);
   });
 
   test("a failed live turn offers no client Retry, which could not restore its host identity", async () => {
@@ -595,7 +600,7 @@ describe("second review pass: identity, resync and retry", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -634,7 +639,7 @@ describe("third review pass: failure, metering and teardown", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -675,7 +680,7 @@ describe("third review pass: failure, metering and teardown", () => {
     const client = await s.connect();
     const conversation = await client.open();
     expect(conversation.session.closed).toBe(false);
-    s.host.close();
+    await s.host.close();
     await settle();
     expect(conversation.session.closed).toBe(true);
     expect(conversation.session.options.signal.aborted).toBe(true);
@@ -798,7 +803,7 @@ describe("fifth review pass: cancellation and follow-up boundaries", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { for (const t of turns) t.answer(""); host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { for (const t of turns) t.answer(""); host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -972,7 +977,7 @@ describe("permission authority stays with the host", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -1019,7 +1024,7 @@ describe("permission authority stays with the host", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -1153,7 +1158,7 @@ test("a live screen denial publishes one host outcome; backend denial events can
   expect(s.host.coordinator.pendingApprovals.size).toBe(0);
 });
 
-for (const boundary of ["count", "chars", "sequence", "delegations"] as const) test(`unassigned recognition has a visible ${boundary} boundary`, async () => {
+for (const boundary of ["count", "chars", "sequence", "delegations"] as const) test(`unassigned recognition separates ${boundary} context from capture`, async () => {
   const s = setup(); const client = await s.connect(); const conversation = await client.open();
   if (boundary === "delegations") {
     for (let i = 0; i <= CONVERSATION_LIMITS.maxPendingNativeRequests; i++) conversation.session.emit({ kind: "unassigned_delegation", handle: `unassigned-${i}`, offsetMs: i * 1000 });
@@ -1162,6 +1167,12 @@ for (const boundary of ["count", "chars", "sequence", "delegations"] as const) t
   } else {
     const count = boundary === "count" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance + 1 : 9;
     for (let i = 0; i < count; i++) conversation.session.emit({ kind: "unassigned_input_fragment", sequence: i, text: boundary === "chars" ? "x".repeat(2000) : "x", sessionInterval: { startMs: i * 1000, endMs: i * 1000 + 100 } });
+  }
+  if (boundary === "count" || boundary === "chars") {
+    const expected=boundary === "count" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance+1 : 9;
+    await until(()=>client.frames("conversation_event").filter(f=>f.event.kind==="unassigned_input_fragment").length===expected);
+    expect(client.frames("conversation_closed")).toEqual([]);
+    expect(s.turns).toHaveLength(0);return;
   }
   await until(() => client.frames("conversation_closed").length > 0);
   expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: boundary === "sequence" ? "correlation" : "backpressure" });
@@ -1480,6 +1491,41 @@ test("in-memory replacement evicts oldest facts while preserving exact original 
 });
 
 
+test("correlated contextual recognition archives beyond review bounds without creating a truncated reviewed request",async()=>{
+ const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect();
+ const c=await client.open({contextualTasks:true});await client.capture(c,"mast-input");
+ const texts=Array.from({length:140},(_,i)=>`Observation ${i}: ${"mast ".repeat(40)}`);
+ for(const [sequence,text] of texts.entries())c.session.emit({kind:"input_fragment",utteranceId:"mast-input",sequence,text,finalization:"unknown",certainty:"unknown",origin:"unknown"});
+ await until(()=>client.frames("conversation_event").filter(f=>f.event.kind==="input_fragment").length===texts.length);
+ expect(client.frames("conversation_closed")).toEqual([]);
+ const page=await s.host.catalog.dialogueRead!(testPrincipal().id,{ownerId:c.id});
+ expect(page!.records.map(r=>r.evidence.kind==="voice"?r.evidence.event.text:"")).toEqual(texts);
+ client.commit(c,"mast-input","review-tail","Use only the last recognition.");
+ await until(()=>client.frames("conversation_work").some(f=>f.requestId==="review-tail"));
+ expect(client.frames("conversation_work").find(f=>f.requestId==="review-tail")).toMatchObject({state:"refused",reason:expect.stringContaining("bounded task context")});
+ expect(s.turns).toHaveLength(0);
+ c.session.emit({kind:"work_requested",handle:"bounded-context"});
+ await until(()=>s.turns.length===1);
+ expect(s.turns[0]!.req.prompt).not.toContain("Observation 0:");
+ expect(s.turns[0]!.req.prompt).toContain("Observation 139:");
+ s.turns[0]!.answer("The mast is ready.");
+});
+
+
+test("out-of-order correlated review eviction follows source sequence without stopping exact events",async()=>{
+ const s=setup();const client=await s.connect();const conversation=await client.open();await client.capture(conversation,"mast");
+ const sequences=[139,...Array.from({length:139},(_,i)=>i)];
+ for(const sequence of sequences)conversation.session.emit({kind:"input_fragment",utteranceId:"mast",sequence,text:`mast-${sequence}`,finalization:"unknown",certainty:"unknown",origin:"unknown"});
+ await until(()=>client.frames("conversation_event").filter(f=>f.event.kind==="input_fragment").length===140);
+ const host=s.host.conversations as unknown as {conversations:Map<string,{epoch:{utterances:Map<string,{fragments:Map<number,unknown>;reviewIncomplete?:boolean}>}}>};
+ const review=host.conversations.get(conversation.id)!.epoch.utterances.get("mast")!;
+ expect([...review.fragments.keys()].sort((a,b)=>a-b)).toEqual(Array.from({length:128},(_,i)=>i+12));
+ expect(review.reviewIncomplete).toBe(true);
+ expect(client.frames("conversation_closed")).toEqual([]);
+ client.commit(conversation,"mast","incomplete-order","Typed tail");await until(()=>client.receipts("incomplete-order").length>0);
+ expect(client.last("incomplete-order").state).toBe("refused");expect(s.turns).toHaveLength(0);
+});
+
 test("a stale retained chat cannot open live voice or masquerade as an empty resumed chat", async () => {
   const s = setup();
   const client = await s.connect();
@@ -1690,4 +1736,74 @@ test("a host rejection of the retired chat unblocks explicit new conversation", 
   } finally {
     releaseValidation?.(); root.dispose(); Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
   }
+});
+
+
+test("a drained storage failure cannot close a replacement epoch for the same owner",async()=>{
+ const s=setup();const client=await s.connect();const first=await client.open();
+ const finish=s.host.conversations!.storageFailing(first.id);
+ const second=await client.open({conversationId:first.id});
+ expect(second.epoch).toBe(2);
+ finish("Earlier storage drain completed.");
+ await settle();
+ expect(client.frames("conversation_closed").filter(f=>f.epoch===second.epoch),"OLD_STORAGE_DRAIN_CANNOT_CLOSE_NEW_EPOCH").toEqual([]);
+});
+
+
+test("storage drain freezes queued host admission while an already running task completes",async()=>{
+ const s=setup();const client=await s.connect();const c=await client.open();
+ await client.speak(c,"mast-one","Research the mast.");client.commit(c,"mast-one","mast-first","Research the mast.");await until(()=>s.turns.length===1);
+ await client.speak(c,"mast-two","Research the sail.");client.commit(c,"mast-two","mast-queued","Research the sail.");await until(()=>client.receipts("mast-queued").some(r=>r.state==="queued"));
+ s.host.conversations!.storageFailing(c.id);s.turns[0]!.answer("The mast is ready.");await settle();
+ expect(s.turns,"STORAGE_DRAIN_STOPS_NEW_HOST_ADMISSION").toHaveLength(1);
+});
+
+
+test("missing dialogue reads cannot invent legacy history or journal owners", async () => {
+ const s=setup(), client=await s.connect();
+ client.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ client.send({type:"dialogue_read",sessionId:"odysseus-missing",requestId:"missing-page"});
+ await until(()=>client.frames("error").some(f=>f.requestId==="missing-page") || client.frames("dialogue_history").length>0);
+ expect(client.frames("dialogue_history"),"MISSING_CHAT_IS_NOT_LEGACY").toHaveLength(0);
+ expect(client.frames("error")).toContainEqual(expect.objectContaining({code:"SESSION_NOT_FOUND",requestId:"missing-page"}));
+ client.send({type:"conversation_start",sessionId:"odysseus-missing",requestId:"missing-open"});
+ await until(()=>client.frames("error").some(f=>f.requestId==="missing-open"));
+ expect(s.db.query("SELECT count(*) AS n FROM dialogue_owners").get()).toEqual({n:0});
+ expect(s.db.query("SELECT count(*) AS n FROM dialogue_conversations").get()).toEqual({n:0});
+ expect(s.turns).toHaveLength(0);expect(s.live.sessions).toHaveLength(0);
+ s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
+ client.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"known-page"});
+ await until(()=>client.frames("dialogue_history").some(f=>f.requestId==="known-page"));
+ expect(client.frames("dialogue_history").at(-1)).toMatchObject({coverage:"complete",records:[]});
+});
+
+
+test("R7 device takeover retains complete coverage through actual host socket handlers",async()=>{
+ const s=setup(),a=await s.connect();s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
+ const first=await a.open({sessionId:"odysseus-known",contextualTasks:true});const b=await s.connect();b.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ b.send({type:"conversation_start",conversationId:first.id,contextualTasks:true,requestId:"takeover"});await until(()=>b.frames("conversation_opened").length===1);
+ b.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"after-takeover"});await until(()=>b.frames("dialogue_history").some(p=>p.requestId==="after-takeover"));
+ expect(s.db.query("SELECT coverage FROM dialogue_owners").get(),"HOST_TAKEOVER_DB_COMPLETE").toEqual({coverage:"complete"});expect(b.frames("dialogue_history").at(-1).coverage,"HOST_TAKEOVER_READ_COMPLETE").toBe("complete");
+ expect(b.frames("conversation_opened")[0].epoch).toBe(2);expect(s.turns).toHaveLength(0);
+});
+
+
+test("R8 concurrent different conversation starts for one known chat remain complete through host handlers",async()=>{
+ const s=setup(),a=await s.connect(),b=await s.connect();s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
+ for(const client of [a,b])client.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ a.send({type:"conversation_start",sessionId:"odysseus-known",contextualTasks:true,requestId:"ithaca-start"});
+ b.send({type:"conversation_start",sessionId:"odysseus-known",contextualTasks:true,requestId:"pylos-start"});
+ await until(()=>a.frames("conversation_opened").length===1&&b.frames("conversation_opened").length===1);
+ expect(a.frames("conversation_opened")[0].conversationId).not.toBe(b.frames("conversation_opened")[0].conversationId);
+ b.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"parallel-read"});await until(()=>b.frames("dialogue_history").some(p=>p.requestId==="parallel-read"));
+ expect(s.db.query("SELECT coverage FROM dialogue_owners").get(),"HOST_CONCURRENT_CHAT_OPENS_DB_COMPLETE").toEqual({coverage:"complete"});expect(b.frames("dialogue_history").at(-1).coverage,"HOST_CONCURRENT_CHAT_OPENS_READ_COMPLETE").toBe("complete");
+ expect(s.db.query("SELECT COUNT(*) AS n FROM dialogue_conversations WHERE closed=0").get()).toEqual({n:2});expect(s.turns).toHaveLength(0);
+});
+
+
+test("retained dialogue support is advertised only when the catalog can read it",async()=>{
+ const supported=setup(),a=await supported.connect(),capabilities=a.frames("server_hello")[0].capabilities;
+ expect(capabilities.sessionDialogue).toBe(true);const {sessionDialogue,...legacy}=capabilities;expect(sessionDialogue).toBe(true);await cleanup?.();
+ const unsupported=setup();unsupported.host.catalog.dialogueRead=undefined;const b=await unsupported.connect();
+ expect(b.frames("server_hello")[0].capabilities).toEqual(legacy);
 });

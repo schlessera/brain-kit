@@ -1,3 +1,4 @@
+import { openDialogue, appendDialogue, bindDialogue, closeDialogue } from "./dialogue-storage.js";
 /**
  * Session catalog writes off the event loop (#2850). The hosted server's app
  * connection no longer commits the session row, accepted work, turn
@@ -177,6 +178,10 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     label(sessionId: string, label: string, source: string) {
       db.prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
     },
+    dialogueClose: (conversationId:string,principalId:string,epoch:number,partial:boolean) => closeDialogue(db,conversationId,principalId,epoch,partial),
+    dialogueOpen: (input: import("./dialogue-storage.js").DialogueOpen, activeEpochs?:ReadonlyMap<string,import("./dialogue-storage.js").ActiveDialogueEpoch>, pending?:readonly import("./dialogue-storage.js").PendingDialogueEpoch[]) => openDialogue(db, input, activeEpochs, pending),
+    dialogueAppend: (input: import("./dialogue-storage.js").DialogueAppend) => appendDialogue(db, input),
+    dialogueBind: (conversationId: string, principalId: string, sessionId: string) => bindDialogue(db, conversationId, principalId, sessionId),
     conversationEpoch: (state: import("./conversation-storage.js").StoredConversationEpoch) => saveConversationEpoch(db, state),
     conversationTask: (principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string) => saveConversationTask(db, principalId, receipt, facts),
     localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => saveLocalExchange(db, sessionId, exchange, delivered, at),

@@ -333,8 +333,9 @@ counter, so hiding cannot turn a valid replacement response into destructive
 teardown. Disclosure compares the entry's effective profile and its current
 metadata, not a later UI picker pin: task adoption remains routine, while
 same-ID backend/model changes or removal require a fresh disclosure and Start.
-Contextual recognition is recent bounded context, distinct from legacy retained
-manual review. Identity/replay ledgers keep their finite fail-closed boundaries;
+Recognition review/context caches are bounded independently of the durable
+text evidence described below. Incomplete review cannot become an automatic
+draft/commit; archival capture continues in either task mode. Identity/replay ledgers keep their finite fail-closed boundaries;
 forgetting an identity to extend a session would weaken correlation/replay guards.
 
 The local output heuristic checks 300 ms without nonzero PCM after endpoint, with
@@ -349,3 +350,96 @@ through that same endpoint transition before cancelling review timers. They do
 not cancel the output recovery deadline. Discard retires its reviewed fragments
 so a late final cannot restore discarded text or schedule a send. Mute also
 closes input before cancelling review timers, retaining manual capture intent.
+
+## Retained discussion — 2026-10-30 (#3177)
+
+The maintainer requires the complete recognized/generated discussion to remain
+visible when reopening its chat, on both Gemini Live and GPT Live, including
+same-chat engine changes. This explicitly supersedes #3050's temporary client
+presentation/no-durable-reload guarantee. Preserve exact uncertain evidence,
+not authenticated quotes or inferred input/reply pairs; generated and played
+remain independent. Draft editing/Discard controls the separate draft candidate.
+
+Dialogue stays with its chat. Display pages, provider context and pending-write
+memory have finite bounds; those are not permission to expire old dialogue or
+routinely stop ongoing conversation at a small archive cap. Actual storage/quota
+failure or actual pending-write pressure preserves the committed prefix and exposes the unsaved tail and cause-specific recovery
+prerequisite. No general whole-chat deletion feature exists at this source;
+#3180 records that explicit lifecycle design rather than inventing expiry/UI.
+
+The existing operational catalog/write worker owns evidence and order metadata;
+the existing root timeline projects it. Native provider transcripts stay intact.
+Reopening history is read-only and conveys no native replay, tool admission or
+microphone consent. #3178 owns the separately authorized, bounded historical-data
+projection into a new provider epoch, preserving the same-conversation/earlier-
+epoch result guard. Rendering restored text proves no model receipt or recall.
+
+This is a recorded pre-1.0 breaking retention/privacy meaning change with additive
+negotiated fields, as specified in the integration contract. No paid qualification,
+provider capability promotion or release commitment follows from this ruling.
+
+
+The retained-discussion UI uses the existing closed transcript vocabulary and
+reading scope. Unsaved recognized/generated segments have their own compact
+qualifier, independent of restoration, original service and local playback.
+Known host order never receives an ambiguous-order label. Paging preserves a
+surviving canonical member key; it does not create another display authority.
+Principal replacement clears volatile failure evidence as well as archive pages.
+
+The fictional browser examples show [compact saved/unsaved evidence](../assets/durable-dialogue-3177/tail-light-320-1.png),
+[200% text reflow](../assets/durable-dialogue-3177/tail-dark-320-2.png),
+[readable unsaved details](../assets/durable-dialogue-3177/unsaved-details-light-1280-1.png),
+and the [text-retention disclosure](../assets/durable-dialogue-3177/consent-retention-gpt-live.png).
+They illustrate evidence states using scripted text, not live model output.
+
+
+Backend range evidence establishes position only after exact reconciliation with
+completed native text: start zero, contiguous offsets, final native length and
+exact bytes. A failed final background append after Leave therefore keeps the
+whole native answer and qualifies its original discussion position. It does not
+assert lost voice text. An unclosed voice epoch is separately read as possibly
+incomplete before reopening, including when recovery writes cannot commit.
+Healthy completed joins require no caution marker.
+
+
+A typed chat does not acquire a voice-loss warning merely because its session
+exists. Legacy qualification needs retained evidence of a prior unjournaled
+voice conversation; empty known-chat snapshots stay quiet. Runtime catalog opens
+identify healthy active epochs with exact principal/owner/generation/epoch
+checks, while restart reads still qualify a prior unclosed source. Failure
+coverage takes precedence over that runtime liveness.
+
+A first voice entry during a typed answer begins only the suffix position
+witness: pre-owner text contributes its actual character offset, but no invented
+archive copy. The complete native answer remains authoritative; missing prefix
+position evidence may still qualify original discussion order. Numeric offsets
+are retired with each result or backend turn and do not retain prior typed text.
+
+
+Device takeover orders each native conversation's close before its next open,
+including pending-open replacements. The journal drains that owner's observed
+callbacks, not unrelated owners, before writing the terminal marker. Close
+failure propagates to the waiting open; genuine interrupted/failing coverage is
+not suppressed. Other exact healthy live native IDs use the existing catalog
+liveness evidence at the write-worker boundary as well as on reads. A same-ID
+open cannot use that exemption to bypass a missing close.
+
+Concurrent opens for distinct native IDs of the same chat must also see earlier
+pending writer submissions. Their exact committed identities, including the
+original engine and generation, prove current liveness without waiting for a
+worker acknowledgement. Pre-existing unclosed epochs and same-ID no-close
+reopens stay conservative. Reservations retire on settlement and cannot be
+revived after an exact close. Canonical adoption keeps sibling live scope
+references aligned without clearing genuine failure coverage.
+
+Pending provisional rows remain live after adoption, including adoption before
+an open acknowledgement. Classification follows their committed canonical
+identity, not the owner's former unbound state. New provisional admissions
+still validate that state in their own transaction; no admission rule changes.
+
+Provider diagnostics can contain private content unrelated to the readable
+conversation. The client therefore derives close notices from local reason
+classes and storage notices from known scoped error codes, never remote message
+text. Storage copy describes a failed journal write without inferring loss of a
+native answer. Bounded review rollover does not revoke continuous capture;
+actual write/unsaved-buffer failure remains a separate visible failure boundary.

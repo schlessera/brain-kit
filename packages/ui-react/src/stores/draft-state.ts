@@ -147,7 +147,7 @@ export interface DraftStoreState {
    */
   resolveId(draftId: string): string;
   /** Associate retained composer content with the session created by an accepted voice request. */
-  associateVoice(draftId: string, sessionId: string, requestId: string): void;
+  associateVoice(draftId: string, sessionId: string, requestId: string, sourceSessionId?: string): void;
   /** Resolve a late write's identity and session together, including retired drafts. */
   resolveTarget(draftId: string, sessionId: string | null): { draftId: string; sessionId: string | null };
   /** The first id of a draft's line of rotations: what its staged tracks are kept under. */
@@ -440,9 +440,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       resolveId: resolve,
-      associateVoice(requested, sessionId, requestId) {
+      associateVoice(requested, sessionId, requestId, sourceSessionId) {
         const d = get().drafts[resolve(requested)];
-        if (!d || (d.sessionId !== null && d.sessionId !== sessionId)) return;
+        if (!d || (d.sessionId !== null && d.sessionId !== sessionId && d.sessionId !== sourceSessionId)) return;
         put({ ...d, sessionId, ...(d.host ? { bind: { sessionId, requestId } } : {}) });
       },
       resolveTarget,

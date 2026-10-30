@@ -426,6 +426,11 @@ export function createWebSocketClient(root: BrainUiServices) {
       if (msg.type === "status") root.stores.followUp.getState().markAccepted(msg.requestId);
       // Before the demux below: a new conversation's draft must already be
       // its session's when the view follows the session there.
+      if (msg.type === "session_info") {
+        const pending = root.stores.drafts.getState().sends[msg.requestId];
+        if (pending?.sessionId && conversation.historyOwnerFor(pending.sessionId))
+          root.stores.drafts.getState().associateVoice(pending.draftId,msg.sessionId,msg.requestId,pending.sessionId);
+      }
       if (drafts.receipt(msg.requestId, "accepted", msg.sessionId)) state.clearChatReceipt(msg.requestId);
       // A follow-up sent as the session went idle runs at once, never queued:
       // its turn is starting now, so it is the agent's (#1002).
@@ -874,6 +879,11 @@ export function createWebSocketClient(root: BrainUiServices) {
     // seen (#1328), whichever surface sends it.
     const into = msg.type === "chat_message" || msg.type === "local_exchange" || msg.type === "retry_turn" ? msg.sessionId : undefined;
     if (into && restorationOf(root.stores.chat.getState())?.sessionId === into) return false;
+    if(msg.type === "chat_message" && msg.sessionId && conversation.historyOwnerFor(msg.sessionId)) msg={...msg,historyOwnerId:conversation.historyOwnerFor(msg.sessionId),sessionId:undefined};
+    if (msg.type === "session_resume" && conversation.historyOwnerFor(msg.sessionId)) {
+      conversation.loadDialogue(msg.sessionId);
+      return true;
+    }
     if (msg.type === "session_resume") {
       const restoring = restorationOf(root.stores.chat.getState())?.sessionId === msg.sessionId;
       // Opening a session asks for it, and so does the restoration it starts:
@@ -889,7 +899,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     // A message that starts a conversation takes the draft's local exchanges
     // with it (#582), whichever surface sent it, so /stats run before the
     // first message becomes part of the session that message creates.
-    if (msg.type === "chat_message" && !msg.sessionId) {
+    if (msg.type === "chat_message" && !msg.sessionId && !msg.historyOwnerId) {
       const chat = root.stores.chat.getState();
       const exchanges = localExchangesForDraft(chat);
       if (exchanges.length > 0) {

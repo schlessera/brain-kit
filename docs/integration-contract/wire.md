@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1036-1051`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1046-1061`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3775-3781`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1841-1843`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3795-3801`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1875-1877`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -1469,12 +1469,15 @@ inserted spaces. Duplicate provider event IDs are ignored. Late, overlapping,
 out-of-order timeline intervals and gaps remain evidence, never captured-input
 ownership, speaker certainty, completion, or permission authority. Host sequence
 gaps close `correlation`. Recognition is separate from `input_fragment` and
-cannot satisfy `conversation_commit` admission. The host forwards at most
-`maxFragmentsPerUtterance` fragments and `maxUtteranceChars` characters per epoch;
-an exceeding event closes `backpressure` with a fixed review diagnostic.
-The client also bounds retained recognition across epochs by those limits,
-retaining the boundary-crossing fragment before stopping (at most one extra
-`maxFragmentChars` fragment). Restart waits for explicit review when full.
+cannot satisfy `conversation_commit` admission. Under #3177's retention
+supersession, `maxFragmentsPerUtterance` and `maxUtteranceChars` bound transient
+review/context caches, not lifetime capture or the archive. The host journals
+exact observations before bounded review eviction in either task mode. The
+client's volatile unassigned-recognition display may retain one extra fragment;
+its review window stays bounded and reports rollover without stopping consented
+capture or erasing archived evidence. Explicit review transfers only the retained
+review window, never an implied complete reconstruction. Actual pending-write
+or unsaved-buffer exhaustion remains a visible technical failure boundary.
 Recognition retained across reconnect keeps its original epoch and session
 intervals; old-epoch wire frames are ignored. Recognition is not replayed as
 new input or seeded into provider history.
@@ -1505,15 +1508,16 @@ Internal host instruction/JSON remains collapsed technical evidence, while reada
 task state, exact request/result navigation, errors, consent and permission controls
 remain visible. No permission, playback or provider capability is promoted by these
 presentation changes (#3179).
-This adds client presentation only: no wire event, authenticated user message,
-provider history, input/output pairing or durable recognition transcript is created.
+The original #3050 slice added client presentation only. #3177 now retains
+text evidence under the durable-dialogue contract below; it still creates no
+authenticated user message, provider history or inferred input/output pairing.
 Unassigned `(conversationId, epoch, sequence)` and captured
 `(conversationId, epoch, utteranceId, sequence)` evidence have separate identity
 namespaces. The React root's transitive client state adds `recognition` evidence,
 `voiceDraft` provenance for the exact local draft revision, and optional source
 identity metadata. These are additive TypeScript state fields, recorded in the
-API report; no connection method, wire field or persisted transcript schema is
-added. Display ranks remain private to the root-owned timeline.
+API report. #3177 separately adds negotiated archival fields and committed
+host positions; the existing root-owned timeline remains the display projection.
 Equal words and overlapping/late session intervals do not deduplicate
 or reorder content. Exact deltas append without inserted spaces; after intervening
 content a new arrival segment retains provenance. Duplicates do not append.
@@ -1521,13 +1525,13 @@ Empty finish markers stay in recognition details without an empty bubble; native
 finish evidence is neither user finality nor permission authority. Timing unavailable
 and approximate provider intervals retain their actual meaning.
 
-Display evidence uses the existing fragment/character budgets, remains temporary,
-and is cleared on auth teardown; it is not restored from generated speech or
-inferred from a recovered draft. Explicit transfer/discard releases the corresponding
-text projection. Actual interim evidence does not survive Leave. Source eviction
-also releases display text and local anchors. UI windowing is separate from source
-retention. Stable local recognition anchors survive session adoption while retained,
-but have no durable deep-link guarantee. Both kinds of speech use the same Chat
+Live review/context caches retain their existing fragment/character budgets
+and clear on auth teardown. The separate #3177 archive retains exact observed
+evidence, including provisional interim text, without promoting finality or
+reconstructing recognition from generated speech/drafts. Draft transfer/Discard
+affects the candidate; it does not erase the archive. UI windowing and transient
+cache eviction are separate from durable retention. Canonical archive identities
+survive adoption/reload; no new public shared deep-link guarantee is added. Both kinds of speech use the same Chat
 window, reading order and tail-follow controls as backend entries. Host result
 backlinks use exact request/turn evidence only and reveal retained windowed requests;
 missing request evidence is labelled unavailable.
@@ -2225,3 +2229,260 @@ continue dialogue and wait for verified facts. These source configurations and
 keyless three-turn browser fixtures establish implementation behavior only.
 Live provider/account, audio, device and physical interruption qualification
 remain separate.
+
+### Durable live dialogue (breaking retention supersession, #3177)
+
+The October 30 maintainer ruling replaces #3050's temporary/no-reload promise:
+recognized text evidence and independently generated replies remain with their
+chat across Leave, selection, reload and host restart. Recognition (including
+provisional/interim evidence) is not authenticated operator text, final intent,
+a grant or a paired reply. Legacy draft editing/Discard/transfer still controls
+the draft candidate; it does not erase the archived discussion. Audio is not
+retained. This documented-meaning/privacy change is a pre-1.0 breaking minor.
+
+`server_hello.capabilities.sessionDialogue: true` advertises this support. Only
+connections declaring that flag receive `dialogue_history`. `dialogue_read`
+contains `requestId` and exactly one of `sessionId` or `ownerId`, with optional
+`generation` and opaque `cursor`. The response contains `ownerId`, optional
+backend `sessionId`, `generation`, snapshot high-water `through`, ordered
+`records`, `coverage` (`complete | legacy | partial`) and optional `before`/
+`cursor` for an earlier page. Numeric `before` alone is not a paging capability.
+Cursors bind owner, principal authorization, generation and high-water; they
+convey no authority. Each indexed page holds at most 200 records/128 KiB.
+Unavailable reads return `DIALOGUE_UNAVAILABLE`, not successful empty history.
+Missing session reads use the same known-chat check as opening/resume and return
+`SESSION_NOT_FOUND` with their request ID; absence is not legacy coverage.
+A known chat without a journal receives an empty `complete` snapshot, with no
+spoken-history warning or latest-conversation control. A session ID alone is not
+evidence of prior voice use. `legacy` requires principal/session-scoped native
+voice recovery evidence without a matching journal conversation. Missing old
+recovery metadata cannot reconstruct speech or prove it existed. No spoken words
+are invented from task prompts, JSON, drafts or paraphrases.
+
+The host commits exact deltas and their position together through the existing
+operational database's FULL write worker. A single committed sequence orders
+recognized/generated evidence, task request positions and backend text-range
+witnesses. Range copies are only exact-content witnesses for backend-owned
+answers, never a second answer authority or native transcript rewrite. Invalid
+or missing native joins retain readable source text with unknown cross-stream
+position, after the native turn completes. If the first voice owner opens during
+a typed answer, retained suffix ranges keep their true pre-owner character
+offsets; the earlier native prefix is not backfilled into the journal. Numeric
+turn offsets count observed deltas independently of journal ownership and are
+released at result or turn retirement. While native text is still streaming,
+its not-yet-final length is not a loss witness. Backend mismatch qualifies only
+position: the complete native answer remains authoritative. Healthy exact joins
+add no warning. Approximate provider intervals never determine display order.
+Captured and unassigned evidence retain separate identities. Original provider,
+observed model/API, conversation, epoch, output/utterance and delta sequence
+remain attached after engine switching. Empty finish evidence creates no empty
+speech row; generated text does not establish playback.
+
+The new client merges a correlated snapshot with already received live records
+above its high-water, deduplicating by committed identity/sequence. Earlier
+pages never execute tasks, play audio, grant permission, start capture or enter
+provider history. One root-owned transcript projection groups contiguous text
+and retains full semantic source for Markdown/classification/sharing/Retry.
+Each active archive cache holds up to 2,000 records, with at most eight chat
+pages; paging is separate from durable retention. Routine qualifiers use the
+shared transcript presentation; material missing/unsaved history stays readable.
+
+There is no automatic age expiry, rolling archive eviction or per-chat lifetime
+character cap. Old native conversation/receipt/output cache bounds do not prune
+this archive. Pending writes are limited to 256 observations/1 MiB per owner;
+individual archive payloads are at most 32 KiB. Actual no-space/quota or bounded
+queue failure stops the unsafe live path with an unsaved-tail explanation.
+`DIALOGUE_STORAGE` means a storage operation failed; `DIALOGUE_PENDING_PRESSURE`
+means observations outpaced the bounded pending-write queue, without implying
+that SQLite failed. Both stop new capture while already observed callbacks drain,
+retain their cause-specific recovery copy through epoch closure, and retain the
+committed prefix. It neither marks a manual
+mute nor claims host effects were undone. Clean close drains admitted writes;
+a crash can lose an uncommitted tail, not acknowledged retained text. Reads
+derive conditional partial voice coverage from a prior unclosed epoch, even
+before a new live open and without requiring a successful recovery UPDATE.
+This means voice history may be incomplete, not proof that bytes were lost.
+Successful opens in the current catalog instance identify live epochs only by
+exact conversation, owner, principal, epoch and generation. Such a healthy live
+epoch is not classified as interrupted merely because its close is still open;
+a failed owner is never masked. This authority is internal, not a wire target or
+a caller-supplied exception. A newly opened catalog has no inherited liveness,
+so a prior unclosed epoch is still conservatively qualified before Start.
+Failure notices latch once per owner/open episode; shutdown still reports the
+aggregate writer failure. Draining a failed epoch cannot close its replacement.
+
+Before a backend names a session, a principal-owned host history owner retains
+the evidence without creating a backend turn. `conversation_opened` adds optional
+`historyOwnerId`/`historyGeneration`. A new `conversation_start.historyOwnerId`
+reopens such history without using it as a backend session ID. Exact host task
+adoption binds it atomically to the actual named session; aliases preserve issued
+owner references. A new plain `chat_message.historyOwnerId` supports the first
+typed task of a host-only history. It cannot accompany `sessionId`, share intake
+or handoff. Existing native ID/epoch/admission guards remain unchanged.
+
+`GET /api/sessions?includeRetainedConversations=true` adds an optional separate
+`retainedConversations` list of authenticated-owner host-only histories. Legacy
+`sessions` remains backend-resumable. New React clients give these histories a
+UI-only `dialogue:` key; that key is never submitted as a backend session ID.
+Opening retained history alone runs no task. Changed engine/destination still
+requires the ordinary disclosure and Start. Operational restore advances history
+generations; old cursors fail and generation changes invalidate capture consent.
+
+Migration `071_session_dialogue.sql` adds operational owners, source mappings,
+records and aliases, independent of `brain.db` and native provider history.
+Operational backup retains the archive under its exact-schema compatibility
+rules. Re-indexing Markdown cannot rebuild it. No current general chat-deletion
+route is invented: #3180 owns the unified explicit deletion lifecycle. Clearing
+browser state on authentication teardown does not delete retained chat history.
+
+#3178 separately owns authorized bounded historical provider input. This feature
+supplies canonical read/provenance data; it does not claim that the new engine
+received history, retained a result, comprehended it or replayed native work.
+
+
+For the first typed task from a provisional dialogue view, the client sends
+`historyOwnerId` instead of a fabricated backend session ID. Independent new-chat
+local exchanges remain in their draft. Once the authorized real task names its
+session, the host settles only the exact provisional composer draft: its current
+revision is consumed, while newer edits move with that same chat under a new
+revision. The separate unbound draft is untouched. This extends the existing
+draft acceptance/binding machinery; saving a draft grants no adoption authority.
+The UI-only target `dialogue:<ownerId>` is never a native backend session ID.
+
+
+Epoch-close metadata waits for observations already submitted at Leave. Any
+failed or over-bound pending observation marks that owner partial before close
+can commit; a closed epoch is never evidence that an unsaved tail was retained.
+SQLite evidence and sequence allocation are atomic. Provider/backend effects and
+operational text commits do not form a distributed transaction: the committed
+prefix is the durability boundary, and history reads never replay external work.
+
+An incomplete or mismatched backend position witness never truncates the native
+answer. Its complete semantic source group remains readable with unknown
+cross-stream position until the missing history page or evidence is available.
+
+
+### Failed-write text and contextual capture (additive, #3177)
+
+A text `conversation_event` may carry `retention: "unsaved"` only when the host
+observed that exact text but its SQLite write failed or exceeded the pending
+write bound. It retains the original current conversation/epoch/source identity;
+it is not a durable-history record, replay token, permission or task admission.
+`DIALOGUE_STORAGE` and `DIALOGUE_PENDING_PRESSURE` errors carry optional `historyOwnerId` to scope capture shutdown
+to the affected owner. A foreign owner's failure must not mute the current chat.
+
+Storage failure freezes new host ingress/admission and stops local capture and
+consent without clearing readiness for already observed, same-epoch text callbacks.
+Those callbacks drain in observation order before ordinary epoch closure. Existing
+Leave, authorization, current-epoch, captured-input, retired-input and disclosure
+fences still apply. Failed-write text is display evidence only: it does not enter
+review automation, permission speech, model history, tasks or playback.
+
+The existing client recognition/output arrays preserve a bounded volatile unsaved
+tail separately from their ordinary rolling caches: at most 256 observations and
+1 MiB of UTF-8 text in total. This matches the pending-write failure boundary,
+not durable retention or an ordinary capture limit. Actual exhaustion of that
+failure buffer is explicitly reported as unavailable unsaved text. Reload cannot
+recover unsaved text and must show only the committed prefix/known partial state.
+The projection exposes `ConversationRecognition.unsaved` and output
+`unsaved` (for the projected segment) and `unsavedGenerated`/`unsavedFragments`; qualifiers remain the shared presentation
+owner's concern. No per-fragment metadata line or alternate timeline is added.
+
+The existing root timeline's first-observation position records the committed
+prefix visible when a transient tail arrived. Sorting compares that prefix anchor
+with canonical host sequences; older pages and later commits do not place a tail
+before its already observed prefix. This is a display projection, not another
+archive or source of native chronology.
+
+For contextual capture, correlated recognition also uses a rolling task/review
+cache rather than treating 128 fragments or 16k characters as lifetime recording
+limits. Exact deltas continue to the archive. Eviction marks the review cache
+incomplete; it cannot be committed as a complete reviewed utterance. The separate
+contextual-task tail stays bounded to its existing 12 entries / 6,000 serialized
+characters. Legacy reviewed-input limits, exact command correlation, native-ID
+and epoch replay fences, transport queues and native-request capacity guards are
+unchanged. Gemini contextual recognition remains unassigned; GPT correlation uses
+only its actual append-command identity, never timing or arrival guesses.
+
+
+The pending observation/byte bounds are centralized as
+`CONVERSATION_LIMITS.maxPendingDialogueObservations` (256) and
+`maxPendingDialogueBytes` (1,048,576). These optional advertised limit fields
+are additive: older opened profiles remain valid. The journal counts serialized
+evidence bytes; the client failure buffer counts UTF-8 text bytes. Neither is a
+lifetime archive limit. Per-utterance 128-fragment/16,000-character limits bound
+review context in both contextual and reviewed-only modes. Eviction marks
+correlated review incomplete and forbids a partial reviewed commit, rather than
+stopping archival capture. The client also bounds manual draft context by the
+commit-text budget, removes its incomplete automatic draft candidate and requires
+typed review; unassigned manual context rolls with an explicit review notice.
+This also applies when the catalog omits optional native task/epoch recovery.
+Recognition groups and finish-only attachment use source stream plus saved/unsaved
+state, so a failed mid-utterance suffix cannot inherit the prefix's retention claim.
+
+
+The shared `TranscriptQualifiers` vocabulary includes **unsaved evidence** for
+an exact observed segment whose durable write failed or exceeded the pending
+queue. Recognition and generated-reply rows pass their own unsaved state; the
+current picker, playback status and global notice never supply it. One existing
+qualifier control per contiguous blurb carries the icon, accessible name and
+hover/focus/tap explanation: “Unsaved text evidence. These words are not saved
+and are unavailable after reload.” Saved and unsaved segments remain separate.
+Restored evidence with known committed sequence order does not claim ambiguous
+order; legacy unknown-order evidence keeps its visible explanation.
+
+Paging may prepend members of a contiguous source blurb. Its existing canonical
+member key survives while that exact source remains in the projected group, so
+the shared reading scope can retain its one reader without an alternate timeline.
+True source removal closes details onto the existing reading-column fallback.
+A changed authenticated principal clears both archive pages and volatile unsaved
+input/replies and retires capture/opening identities before playback cleanup;
+no old identity is sent on the new principal's connection. Leave/history errors
+preserve already observed local evidence for the same chat, without granting new
+capture consent or admitting a missing backend session.
+
+
+Same-native-conversation open/close transitions are ordered in the concrete
+journal. Reopening waits for that conversation's prior close and already
+observed owner callbacks, including a close requested while an earlier open is
+still waiting on storage. A failed close is not overtaken or treated as a clean
+boundary. Different owners are not serialized by this journal barrier; global
+shutdown still drains all admitted observations and reports aggregate failure.
+
+A write-worker open may use an internal snapshot of the catalog's exact healthy
+live identities to distinguish another currently live native ID for this chat
+from an interrupted source. Owner, principal, generation and epoch must all
+match, and failed scopes are not exempt. The same native ID always needs its
+actual close-before-open boundary. This internal writer argument is not a wire
+field, provider-history input or caller-controlled admission exception.
+
+Simultaneous opens for different native IDs of one chat include earlier
+host-submitted, not-yet-acknowledged opens in that internal snapshot. A pending
+identity counts only if the earlier transaction's committed row matches its
+native ID, new epoch, original engine, principal, owner target and generation.
+It cannot exempt a pre-existing unclosed epoch or a same-ID reopen without
+close. Pending reservations retire on success/failure; an exact close prevents
+late acknowledgement from restoring liveness. Adoption updates every current
+scope of the adopted owner while preserving each failure overlay. A writer
+snapshot taken before adoption acknowledgement may resolve the committed owner
+alias, with the original generation and principal fences unchanged. These are
+bounded in-flight/runtime identities, never retained history or admission data.
+
+A pending provisional admission is classified by its exact committed identity,
+not by rechecking whether its owner is still provisional after adoption. Both
+in-place binding and canonical merge can happen before acknowledgement. The
+original owner ID resolves through the durable alias; principal, generation,
+native ID/epoch and target identity fences remain. This liveness classification
+never admits a new `historyOwnerId` entry into an already bound chat: the open
+transaction still requires a provisional owner for that new admission.
+
+Conversation-close diagnostics retain only fixed local reason classes. Arbitrary
+remote `conversation_closed.message` text never enters client notice state or
+rendered diagnostics, including failed openings and recovery closes. Known
+`DIALOGUE_UNAVAILABLE`, `DIALOGUE_STORAGE` and `DIALOGUE_PENDING_PRESSURE` codes
+select fixed local copy as well; their remote message bodies are not retained.
+A failure cause may carry across close only for its exact conversation and epoch.
+A journal write failure alone does not prove that a complete native answer was
+lost. Review-buffer eviction remains separate from archive retention and does
+not stop consented capture; a genuine bounded unsaved-buffer exhaustion still
+stops capture and exposes the unavailable tail honestly.

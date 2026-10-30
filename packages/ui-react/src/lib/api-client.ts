@@ -468,9 +468,11 @@ export function createBrainApi(
       method: "POST", body: "{}",
     }),
 
-    sessions: () =>
+    sessions: (retainedAfter?: string) =>
       fetchJson<{
         unavailableBackends?: string[];
+        retainedConversations?: {id:string;created_at:number}[];
+        retainedAfter?: string;
         sessions: Array<{
           id: string;
           title: string | null;
@@ -479,11 +481,12 @@ export function createBrainApi(
           totalCostUsd: number;
           numTurns: number;
           backendId?: string;
+          historyOwnerId?: string;
           handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
           /** The host's few-word pill label (#1004); trackers fall back to `title`. */
           label?: string;
         }>;
-      }>("/sessions"),
+      }>(`/sessions?includeRetainedConversations=true${retainedAfter ? `&retainedAfter=${encodeURIComponent(retainedAfter)}` : ""}`),
 
     /** Whether a brain-relative path exists and what it is; for handoff references (#61). */
     fileResolve: (path: string) =>

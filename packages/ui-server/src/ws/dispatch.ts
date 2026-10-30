@@ -175,6 +175,7 @@ export async function handleClientMessage(
       await handleChatMessage(host, ws, {
         authorization: connection.authorization,
         text: msg.text,
+        ...(msg.historyOwnerId && !shareSessionId ? {historyOwnerId:msg.historyOwnerId} : {}),
         ...(msg.shareId ? { shareId: msg.shareId } : {}),
         sessionId: shareSessionId,
         attachments: attachmentResult.attachments,
@@ -623,6 +624,23 @@ export async function handleClientMessage(
         case "conversation_commit": conversations.commit(ws, connection, msg); break;
         case "conversation_playback": conversations.playback(ws, connection, msg); break;
         case "conversation_stop": conversations.stop(ws, connection, msg); break;
+      }
+      break;
+    }
+
+    case "dialogue_read": {
+      if (!connection.authorization.valid || !connection.capabilities?.sessionDialogue || !catalog.dialogueRead) break;
+      if (msg.sessionId && !await requireKnownSession(host, ws, connection, msg.sessionId, true, msg.requestId)) break;
+      try {
+        const page = await catalog.dialogueRead(connection.authorization.principalId, msg);
+        if (connection.closed || !connection.authorization.valid) break;
+        if (page) host.sendMessage(ws, { type: "dialogue_history", requestId: msg.requestId, ...page });
+        else if (msg.sessionId) host.sendMessage(ws, { type: "dialogue_history", requestId: msg.requestId,
+          ownerId: msg.sessionId, sessionId: msg.sessionId, generation: 1, through: 0, records: [], coverage: "complete" });
+        else throw new Error("Dialogue owner unavailable");
+      } catch {
+        if (!connection.closed && connection.authorization.valid) host.sendMessage(ws, { type: "error", code: "DIALOGUE_UNAVAILABLE", requestId: msg.requestId,
+          ...(msg.sessionId ? {sessionId: msg.sessionId} : {}), message: "Conversation history unavailable. Try opening this chat again." });
       }
       break;
     }

@@ -364,8 +364,8 @@ describe("the client hello", () => {
       type: "client_hello",
       protocolRev: PROTOCOL_REV,
       // Rev 5 (#910): this client reads ask-answer receipts. #1002: and
-      // pending follow-up reports.
-      capabilities: { askReceipts: true, followUpQueue: true, toolResolution: true },
+      // pending follow-up reports. #3177: retained-dialogue history frames.
+      capabilities: { askReceipts: true, followUpQueue: true, toolResolution: true, sessionDialogue: true },
     });
   });
 });
@@ -407,4 +407,12 @@ describe("form turn echo", () => {
     ]);
     client.close();
   });
+});
+
+
+const legacyHostCapabilities: Record<string,boolean>[]=[{}, {multiSession:true}, {sessionDialogue:false}];
+for(const capabilities of legacyHostCapabilities)test("client dialogue support does not fabricate an old host capability "+JSON.stringify(capabilities),()=>{
+ const {client,socket}=setup({});socket.deliver({type:"server_hello",protocolRev:PROTOCOL_REV,capabilities});
+ expect(client.capabilities).toEqual(capabilities);
+ expect(JSON.parse(socket.sent[0])).toEqual({type:"client_hello",protocolRev:PROTOCOL_REV,capabilities:{askReceipts:true,followUpQueue:true,toolResolution:true,sessionDialogue:true}});
 });

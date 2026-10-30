@@ -131,6 +131,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
       onLeave?.();
     },
     onResume: (id) => {
+      root.stores.chat.getState().setHistoryOwner(id,sessions.find(s=>s.id===id)?.historyOwnerId ?? null);
       onResume(id);
       onLeave?.();
     },

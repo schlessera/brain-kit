@@ -555,7 +555,7 @@ key or SSE resumption promise exists.
 All are protected; access is to the shared server record, not solely the
 calling principal's runs or sessions.
 
-**GET /api/sessions.** No inputs. Returns `{ sessions: ChatSession[],
+**GET /api/sessions.** Optional `includeRetainedConversations=true` adds principal-owned host-only conversation metadata in `retainedConversations` (`id`, `created_at`), without fabricating backend sessions or tasks. At most 200 metadata rows are returned; `retainedAfter` is the exclusive ID cursor for the next page. Omit it for the first page. Dialogue itself uses the separately negotiated bounded WebSocket history protocol. Returns `{ sessions: ChatSession[],
 unavailableBackends?: string[] }`, newest lastActiveAt first. Each session has
 id, nullable title, createdAt, lastActiveAt, totalCostUsd, numTurns and
 backendId. Stored nonzero accounting supplements a backend's zero figures.

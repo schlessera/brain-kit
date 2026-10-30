@@ -17,3 +17,10 @@ test("server-rendered legend remains a discoverable native action without copyin
   expect(html).toContain("Transcript symbols");
   expect(html).not.toContain("Received audio chunks played");
 });
+
+
+test("unsaved evidence uses the shared single-focus qualifier independently of playback",()=>{
+ const html=renderToStaticMarkup(<TranscriptQualifiers kind="generated" source="Gemini Live" playback="unknown" unsaved evidenceLabel="Technical evidence"><p>Collapsed evidence</p></TranscriptQualifiers>);
+ expect(html).toContain("playback unknown; unsaved. Transcript details.");expect(html.match(/<button/g)).toHaveLength(1);
+ expect(html).not.toContain("Collapsed evidence");expect(html).not.toContain("aria-live");
+});

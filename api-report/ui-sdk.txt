@@ -78,6 +78,7 @@ export "." (./src/index.ts)
   type ClientConversationPlayback
   type ClientConversationStart
   type ClientConversationStop
+  type ClientDialogueRead
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -119,6 +120,9 @@ export "." (./src/index.ts)
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   DRAFT_PREVIEW_CHARS
+  type DialogueEvidence
+  type DialoguePage
+  type DialogueRecord
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -262,6 +266,7 @@ export "." (./src/index.ts)
   type ServerConversationOutput
   type ServerConversationPermission
   type ServerConversationWork
+  type ServerDialogueHistory
   type ServerError
   type ServerHandoffDraft
   type ServerHandoffReceipt
@@ -518,6 +523,7 @@ export "./client" (./src/client/index.ts)
   type ClientConversationPlayback
   type ClientConversationStart
   type ClientConversationStop
+  type ClientDialogueRead
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -565,6 +571,9 @@ export "./client" (./src/client/index.ts)
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   DRAFT_PREVIEW_CHARS
+  type DialogueEvidence
+  type DialoguePage
+  type DialogueRecord
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -775,6 +784,7 @@ export "./client" (./src/client/index.ts)
   type ServerConversationOutput
   type ServerConversationPermission
   type ServerConversationWork
+  type ServerDialogueHistory
   type ServerError
   type ServerFrameHandlers
   type ServerHandoffDraft
@@ -1327,6 +1337,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientConversationPlayback
   type ClientConversationStart
   type ClientConversationStop
+  type ClientDialogueRead
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -1366,6 +1377,9 @@ export "./protocol" (./src/protocol.ts)
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   DRAFT_PREVIEW_CHARS
+  type DialogueEvidence
+  type DialoguePage
+  type DialogueRecord
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -1503,6 +1517,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerConversationOutput
   type ServerConversationPermission
   type ServerConversationWork
+  type ServerDialogueHistory
   type ServerError
   type ServerHandoffDraft
   type ServerHandoffReceipt
@@ -1679,6 +1694,7 @@ export "./schemas" (./src/schemas.ts)
   clientConversationPlaybackSchema
   clientConversationStartSchema
   clientConversationStopSchema
+  clientDialogueReadSchema
   clientEnvironmentSchema
   clientHandoffPrepareCancelSchema
   clientHandoffPrepareSchema
@@ -1709,6 +1725,9 @@ export "./schemas" (./src/schemas.ts)
   conversationSampleRateSchema
   conversationWireEventSchema
   conversationWorkReceiptSchema
+  dialogueEvidenceSchema
+  dialoguePageSchema
+  dialogueRecordSchema
   draftAttachmentSchema
   draftListResponseSchema
   draftRefSchema
@@ -1763,6 +1782,7 @@ export "./schemas" (./src/schemas.ts)
   serverConversationOutputSchema
   serverConversationPermissionSchema
   serverConversationWorkSchema
+  serverDialogueHistorySchema
   serverErrorSchema
   serverHandoffDraftSchema
   serverHandoffReceiptSchema
@@ -1959,6 +1979,7 @@ export "./server" (./src/server/index.ts)
   type ClientConversationPlayback
   type ClientConversationStart
   type ClientConversationStop
+  type ClientDialogueRead
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -2014,6 +2035,9 @@ export "./server" (./src/server/index.ts)
   DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
   DRAFT_PREVIEW_CHARS
+  type DialogueEvidence
+  type DialoguePage
+  type DialogueRecord
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -2245,6 +2269,7 @@ export "./server" (./src/server/index.ts)
   type ServerConversationOutput
   type ServerConversationPermission
   type ServerConversationWork
+  type ServerDialogueHistory
   type ServerError
   type ServerHandoffDraft
   type ServerHandoffReceipt
@@ -5515,6 +5540,8 @@ signatures (every public export and the types it is made of)
         readonly maxFragmentsPerUtterance: 128;
         readonly maxGeneratedChars: 16000;
         readonly maxOutputs: 32;
+        readonly maxPendingDialogueBytes: 1048576;
+        readonly maxPendingDialogueObservations: 256;
         readonly maxPendingNativeRequests: 8;
         readonly maxQueuedWork: 4;
         readonly maxUtteranceChars: 16000;
@@ -5634,6 +5661,7 @@ signatures (every public export and the types it is made of)
     }
   ClientChatMessage (packages/ui-sdk/src/protocol.ts)
     export interface ClientChatMessage {
+        historyOwnerId?: string;
         shareId?: string;
         type: "chat_message";
         text: string;
@@ -5691,6 +5719,7 @@ signatures (every public export and the types it is made of)
     }
   ClientConversationStart (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationStart {
+        historyOwnerId?: string;
         contextualTasks?: boolean;
         type: "conversation_start";
         requestId?: string;
@@ -5703,6 +5732,17 @@ signatures (every public export and the types it is made of)
         type: "conversation_stop";
         conversationId: string;
         resumable?: boolean;
+    }
+  ClientDialogueRead (packages/ui-sdk/src/protocol.ts)
+    export interface ClientDialogueRead {
+        cursor?: string;
+        type: "dialogue_read";
+        requestId: string;
+        sessionId?: string;
+        ownerId?: string;
+        before?: number;
+        through?: number;
+        generation?: number;
     }
   ClientEnvironment (packages/ui-sdk/src/protocol.ts)
     export interface ClientEnvironment {
@@ -5804,7 +5844,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
   ClientPing (packages/ui-sdk/src/protocol.ts)
     export interface ClientPing {
         type: "ping";
@@ -6010,7 +6050,9 @@ signatures (every public export and the types it is made of)
     }
   ConversationLimits (packages/ui-sdk/src/protocol.ts)
     export type ConversationLimits = {
-        -readonly [K in keyof typeof CONVERSATION_LIMITS]: number;
+        -readonly [K in Exclude<keyof typeof CONVERSATION_LIMITS, PendingDialogueLimit>]: number;
+    } & {
+        [K in PendingDialogueLimit]?: number;
     };
   ConversationOutputRecord (packages/ui-sdk/src/protocol.ts)
     export interface ConversationOutputRecord {
@@ -6158,6 +6200,46 @@ signatures (every public export and the types it is made of)
     const DOWNSCALE_MAX_EDGE: 1568;
   DRAFT_PREVIEW_CHARS (packages/ui-sdk/src/protocol.ts)
     const DRAFT_PREVIEW_CHARS: 200;
+  DialogueEvidence (packages/ui-sdk/src/protocol.ts)
+    export type DialogueEvidence = {
+        kind: "voice";
+        conversationId: string;
+        epoch: number;
+        providerId: string;
+        model?: string;
+        api?: string;
+        event: Extract<ConversationWireEvent, {
+            kind: "input_fragment" | "unassigned_input_fragment" | "output_transcript";
+        }>;
+    } | {
+        kind: "request";
+        turnId: string;
+        requestId?: string;
+    } | {
+        kind: "backend";
+        turnId: string;
+        start: number;
+        end: number;
+        digest: string;
+        text: string;
+    };
+  DialoguePage (packages/ui-sdk/src/protocol.ts)
+    export interface DialoguePage {
+        cursor?: string;
+        ownerId: string;
+        sessionId?: string;
+        generation: number;
+        through: number;
+        records: DialogueRecord[];
+        before?: number;
+        coverage: "complete" | "legacy" | "partial";
+    }
+  DialogueRecord (packages/ui-sdk/src/protocol.ts)
+    export interface DialogueRecord {
+        sequence: number;
+        identity: string;
+        evidence: DialogueEvidence;
+    }
   Draft (packages/ui-sdk/src/protocol.ts)
     export interface Draft {
         draftId: string;
@@ -7366,6 +7448,8 @@ signatures (every public export and the types it is made of)
         transports: string[] | null;
         aaguid: string | null;
     }
+  PendingDialogueLimit (packages/ui-sdk/src/protocol.ts)
+    type PendingDialogueLimit = "maxPendingDialogueObservations" | "maxPendingDialogueBytes";
   PermissionDecision (packages/ui-sdk/src/server/backend.ts)
     export type PermissionDecision = {
         behavior: "allow";
@@ -9416,6 +9500,7 @@ signatures (every public export and the types it is made of)
     }
   ServerConversationEvent (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationEvent {
+        retention?: "unsaved";
         type: "conversation_event";
         conversationId: string;
         epoch: number;
@@ -9423,6 +9508,8 @@ signatures (every public export and the types it is made of)
     }
   ServerConversationOpened (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationOpened {
+        historyGeneration?: number;
+        historyOwnerId?: string;
         type: "conversation_opened";
         requestId?: string;
         agentProviderId?: string;
@@ -9458,8 +9545,14 @@ signatures (every public export and the types it is made of)
     export type ServerConversationWork = ConversationWorkReceipt & {
         type: "conversation_work";
     };
+  ServerDialogueHistory (packages/ui-sdk/src/protocol.ts)
+    export interface ServerDialogueHistory extends DialoguePage {
+        type: "dialogue_history";
+        requestId?: string;
+    }
   ServerError (packages/ui-sdk/src/protocol.ts)
     export interface ServerError extends SessionScoped {
+        historyOwnerId?: string;
         type: "error";
         code: string;
         message: string;
@@ -9521,7 +9614,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage;
+    export type ServerMessage = ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -11245,6 +11338,7 @@ signatures (every public export and the types it is made of)
             references: z.ZodArray<z.ZodString>;
             sourceSessionId: z.ZodString;
         }, z.core.$loose>>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         localExchanges: z.ZodOptional<z.ZodArray<z.ZodObject<{
             answer: z.ZodUnknown;
             command: z.ZodString;
@@ -11315,6 +11409,7 @@ signatures (every public export and the types it is made of)
         agentProviderId: z.ZodOptional<z.ZodString>;
         contextualTasks: z.ZodOptional<z.ZodBoolean>;
         conversationId: z.ZodOptional<z.ZodString>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
@@ -11324,6 +11419,17 @@ signatures (every public export and the types it is made of)
         conversationId: z.ZodString;
         resumable: z.ZodOptional<z.ZodBoolean>;
         type: z.ZodLiteral<"conversation_stop">;
+    }, z.core.$loose>;
+  clientDialogueReadSchema (packages/ui-sdk/src/schemas.ts)
+    const clientDialogueReadSchema: z.ZodObject<{
+        before: z.ZodOptional<z.ZodNumber>;
+        cursor: z.ZodOptional<z.ZodString>;
+        generation: z.ZodOptional<z.ZodNumber>;
+        ownerId: z.ZodOptional<z.ZodString>;
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        through: z.ZodOptional<z.ZodNumber>;
+        type: z.ZodLiteral<"dialogue_read">;
     }, z.core.$loose>;
   clientEnvironmentSchema (packages/ui-sdk/src/schemas.ts)
     const clientEnvironmentSchema: z.ZodObject<{
@@ -11522,6 +11628,7 @@ signatures (every public export and the types it is made of)
             references: z.ZodArray<z.ZodString>;
             sourceSessionId: z.ZodString;
         }, z.core.$loose>>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         localExchanges: z.ZodOptional<z.ZodArray<z.ZodObject<{
             answer: z.ZodUnknown;
             command: z.ZodString;
@@ -11718,9 +11825,19 @@ signatures (every public export and the types it is made of)
             queue: "queue";
         }>;
     }, z.core.$strict>, z.ZodObject<{
+        before: z.ZodOptional<z.ZodNumber>;
+        cursor: z.ZodOptional<z.ZodString>;
+        generation: z.ZodOptional<z.ZodNumber>;
+        ownerId: z.ZodOptional<z.ZodString>;
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        through: z.ZodOptional<z.ZodNumber>;
+        type: z.ZodLiteral<"dialogue_read">;
+    }, z.core.$loose>, z.ZodObject<{
         agentProviderId: z.ZodOptional<z.ZodString>;
         contextualTasks: z.ZodOptional<z.ZodBoolean>;
         conversationId: z.ZodOptional<z.ZodString>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
@@ -11888,6 +12005,8 @@ signatures (every public export and the types it is made of)
         maxFragmentsPerUtterance: z.ZodNumber;
         maxGeneratedChars: z.ZodNumber;
         maxOutputs: z.ZodNumber;
+        maxPendingDialogueBytes: z.ZodOptional<z.ZodNumber>;
+        maxPendingDialogueObservations: z.ZodOptional<z.ZodNumber>;
         maxPendingNativeRequests: z.ZodNumber;
         maxQueuedWork: z.ZodNumber;
         maxUtteranceChars: z.ZodNumber;
@@ -12030,6 +12149,33 @@ signatures (every public export and the types it is made of)
   describeRetry (packages/ui-sdk/src/protocol-helpers.ts)
     export function describeRetry(retry: TurnRetry): string;
   detailFor (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  dialogueEvidenceSchema (packages/ui-sdk/src/schemas.ts)
+    const dialogueEvidenceSchema: z.ZodType<DialogueEvidence, unknown, z.core.$ZodTypeInternals<DialogueEvidence, unknown>>;
+  dialoguePageSchema (packages/ui-sdk/src/schemas.ts)
+    const dialoguePageSchema: z.ZodObject<{
+        before: z.ZodOptional<z.ZodNumber>;
+        coverage: z.ZodEnum<{
+            complete: "complete";
+            legacy: "legacy";
+            partial: "partial";
+        }>;
+        cursor: z.ZodOptional<z.ZodString>;
+        generation: z.ZodNumber;
+        ownerId: z.ZodString;
+        records: z.ZodArray<z.ZodObject<{
+            evidence: z.ZodType<DialogueEvidence, unknown, z.core.$ZodTypeInternals<DialogueEvidence, unknown>>;
+            identity: z.ZodString;
+            sequence: z.ZodNumber;
+        }, z.core.$strip>>;
+        sessionId: z.ZodOptional<z.ZodString>;
+        through: z.ZodNumber;
+    }, z.core.$strip>;
+  dialogueRecordSchema (packages/ui-sdk/src/schemas.ts)
+    const dialogueRecordSchema: z.ZodObject<{
+        evidence: z.ZodType<DialogueEvidence, unknown, z.core.$ZodTypeInternals<DialogueEvidence, unknown>>;
+        identity: z.ZodString;
+        sequence: z.ZodNumber;
+    }, z.core.$strip>;
   draftAttachmentSchema (packages/ui-sdk/src/schemas.ts)
     const draftAttachmentSchema: z.ZodObject<{
         attachmentId: z.ZodString;
@@ -14992,6 +15138,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"interrupted">;
             outputId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>]>;
+        retention: z.ZodOptional<z.ZodLiteral<"unsaved">>;
         type: z.ZodLiteral<"conversation_event">;
     }, z.core.$loose>;
   serverConversationOpenedSchema (packages/ui-sdk/src/schemas.ts)
@@ -15045,6 +15192,8 @@ signatures (every public export and the types it is made of)
             voiceService: z.ZodString;
         }, z.core.$loose>;
         epoch: z.ZodNumber;
+        historyGeneration: z.ZodOptional<z.ZodNumber>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         limits: z.ZodObject<{
             maxAudioChunkBytes: z.ZodNumber;
             maxCommitChars: z.ZodNumber;
@@ -15054,6 +15203,8 @@ signatures (every public export and the types it is made of)
             maxFragmentsPerUtterance: z.ZodNumber;
             maxGeneratedChars: z.ZodNumber;
             maxOutputs: z.ZodNumber;
+            maxPendingDialogueBytes: z.ZodOptional<z.ZodNumber>;
+            maxPendingDialogueObservations: z.ZodOptional<z.ZodNumber>;
             maxPendingNativeRequests: z.ZodNumber;
             maxQueuedWork: z.ZodNumber;
             maxUtteranceChars: z.ZodNumber;
@@ -15183,6 +15334,27 @@ signatures (every public export and the types it is made of)
         type: "conversation_work";
         utteranceId?: string | undefined;
     }>>;
+  serverDialogueHistorySchema (packages/ui-sdk/src/schemas.ts)
+    const serverDialogueHistorySchema: z.ZodObject<{
+        before: z.ZodOptional<z.ZodNumber>;
+        coverage: z.ZodEnum<{
+            complete: "complete";
+            legacy: "legacy";
+            partial: "partial";
+        }>;
+        cursor: z.ZodOptional<z.ZodString>;
+        generation: z.ZodNumber;
+        ownerId: z.ZodString;
+        records: z.ZodArray<z.ZodObject<{
+            evidence: z.ZodType<DialogueEvidence, unknown, z.core.$ZodTypeInternals<DialogueEvidence, unknown>>;
+            identity: z.ZodString;
+            sequence: z.ZodNumber;
+        }, z.core.$strip>>;
+        requestId: z.ZodOptional<z.ZodString>;
+        sessionId: z.ZodOptional<z.ZodString>;
+        through: z.ZodNumber;
+        type: z.ZodLiteral<"dialogue_history">;
+    }, z.core.$strip>;
   serverErrorSchema (packages/ui-sdk/src/schemas.ts)
     const serverErrorSchema: z.ZodObject<{
         code: z.ZodString;
@@ -15203,6 +15375,7 @@ signatures (every public export and the types it is made of)
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             status: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         message: z.ZodString;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -16000,6 +16173,7 @@ signatures (every public export and the types it is made of)
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             status: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         message: z.ZodString;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -18084,6 +18258,25 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         type: z.ZodLiteral<"session_queue">;
     }, z.core.$loose>, z.ZodObject<{
+        before: z.ZodOptional<z.ZodNumber>;
+        coverage: z.ZodEnum<{
+            complete: "complete";
+            legacy: "legacy";
+            partial: "partial";
+        }>;
+        cursor: z.ZodOptional<z.ZodString>;
+        generation: z.ZodNumber;
+        ownerId: z.ZodString;
+        records: z.ZodArray<z.ZodObject<{
+            evidence: z.ZodType<DialogueEvidence, unknown, z.core.$ZodTypeInternals<DialogueEvidence, unknown>>;
+            identity: z.ZodString;
+            sequence: z.ZodNumber;
+        }, z.core.$strip>>;
+        requestId: z.ZodOptional<z.ZodString>;
+        sessionId: z.ZodOptional<z.ZodString>;
+        through: z.ZodNumber;
+        type: z.ZodLiteral<"dialogue_history">;
+    }, z.core.$strip>, z.ZodObject<{
         agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
             contextualTasks: z.ZodOptional<z.ZodEnum<{
@@ -18133,6 +18326,8 @@ signatures (every public export and the types it is made of)
             voiceService: z.ZodString;
         }, z.core.$loose>;
         epoch: z.ZodNumber;
+        historyGeneration: z.ZodOptional<z.ZodNumber>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         limits: z.ZodObject<{
             maxAudioChunkBytes: z.ZodNumber;
             maxCommitChars: z.ZodNumber;
@@ -18142,6 +18337,8 @@ signatures (every public export and the types it is made of)
             maxFragmentsPerUtterance: z.ZodNumber;
             maxGeneratedChars: z.ZodNumber;
             maxOutputs: z.ZodNumber;
+            maxPendingDialogueBytes: z.ZodOptional<z.ZodNumber>;
+            maxPendingDialogueObservations: z.ZodOptional<z.ZodNumber>;
             maxPendingNativeRequests: z.ZodNumber;
             maxQueuedWork: z.ZodNumber;
             maxUtteranceChars: z.ZodNumber;
@@ -18254,6 +18451,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"interrupted">;
             outputId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>]>;
+        retention: z.ZodOptional<z.ZodLiteral<"unsaved">>;
         type: z.ZodLiteral<"conversation_event">;
     }, z.core.$loose>, z.ZodPipe<z.ZodObject<{
         conversationId: z.ZodString;

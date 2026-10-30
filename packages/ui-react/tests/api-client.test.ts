@@ -216,14 +216,22 @@ describe("API client response shape contracts", () => {
   test("sessions response shape", async () => {
     const fixture = {
       sessions: [
-        { id: "s1", title: "Chat", createdAt: Date.now(), lastActiveAt: Date.now() },
+        { id: "s1", title: "Chat", createdAt: Date.now(), lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 },
       ],
     };
     const cap = captureUrl(fixture);
     const response = await api.sessions();
-    expect(cap.urls).toEqual(["/api/sessions"]);
-    expect(response.sessions).toBeArray();
-    expect(response.sessions[0]).toHaveProperty("id");
-    expect(response.sessions[0]).toHaveProperty("title");
+    expect(cap.urls).toEqual(["/api/sessions?includeRetainedConversations=true"]);
+    // A pre-retention host may ignore the new query and return only sessions.
+    expect(response).toEqual(fixture);
   });
+});
+
+
+test("retained session listing opts in and encodes its exclusive cursor without changing either payload",async()=>{
+ const at=Date.parse("2026-07-12T12:00:00Z");
+ const fixture={sessions:[{id:"voyage",title:"The mast",createdAt:at,lastActiveAt:at,totalCostUsd:0,numTurns:1}],retainedConversations:[{id:"ithaca",created_at:at}],retainedAfter:"pylos"};
+ const cap=captureUrl(fixture),response=await api.sessions("ithaca /?&");
+ expect(cap.urls).toEqual(["/api/sessions?includeRetainedConversations=true&retainedAfter=ithaca%20%2F%3F%26"]);
+ expect(response).toEqual(fixture);
 });

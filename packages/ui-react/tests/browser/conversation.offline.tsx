@@ -966,18 +966,31 @@ test("unassigned review preserves captured and typed drafts exactly once", async
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
 
-test("full unassigned recognition stops visibly and retains text until explicit review", async ctx => {
+test("bounded unassigned review keeps capture continuous and transfers only the retained review", async ctx => {
   const s = await scene(ctx); await s.start();
-  for (let sequence = 0; sequence < CONVERSATION_LIMITS.maxFragmentsPerUtterance; sequence++) s.event({ kind: "unassigned_input_fragment", sequence, text: " note", sessionInterval: { startMs: sequence * 1000, endMs: sequence * 1000 + 100 } });
-  expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.client.state.getState().notice).toContain("Recognition is full");
+  const count=CONVERSATION_LIMITS.maxFragmentsPerUtterance+5;
+  const text=(sequence:number)=>` note ${sequence}`;
+  for (let sequence=0;sequence<count;sequence++)s.event({kind:"unassigned_input_fragment",sequence,text:text(sequence),timing:{kind:"unavailable"}});
+  expect(s.client.state.getState().micOn,"REVIEW_EVICTION_DOES_NOT_STOP_CAPTURE").toBe(true);
+  expect(s.client.state.getState().notice).toContain("Only recent recognition remains in the review buffer");
   expect(s.client.state.getState().unassigned).toHaveLength(CONVERSATION_LIMITS.maxFragmentsPerUtterance);
-  const starts = s.socket.frames("conversation_start").length;
-  s.client.resume();
-  expect(s.socket.frames("conversation_start")).toHaveLength(starts);
+  expect(s.client.state.getState().recognition).toHaveLength(CONVERSATION_LIMITS.maxFragmentsPerUtterance+1);
+  expect(s.client.state.getState().unassigned.map(f=>f.sequence)).toEqual(Array.from({length:CONVERSATION_LIMITS.maxFragmentsPerUtterance},(_,i)=>i+5));
+  expect(s.socket.frames("chat_message")).toHaveLength(0);expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.client.reviewUnassigned()).toBe(true);
-  expect(s.ui.stores.voice.getState().reviewText).toBe(" note".repeat(CONVERSATION_LIMITS.maxFragmentsPerUtterance));
+  expect(s.ui.stores.voice.getState().reviewText).toBe(Array.from({length:CONVERSATION_LIMITS.maxFragmentsPerUtterance},(_,i)=>text(i+5)).join(""));
+  expect(s.client.state.getState().micOn).toBe(false);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("volatile unsaved evidence has its own finite budget after review eviction",async ctx=>{
+ const s=await scene(ctx);await s.start();
+ for(let sequence=0;sequence<CONVERSATION_LIMITS.maxFragmentsPerUtterance+5;sequence++)s.event({kind:"unassigned_input_fragment",sequence,text:" mast",timing:{kind:"unavailable"}});
+ const start=CONVERSATION_LIMITS.maxFragmentsPerUtterance+5;
+ for(let i=0;i<=CONVERSATION_LIMITS.maxPendingDialogueObservations;i++)s.deliver({type:"conversation_event",conversationId:PROFILE.conversationId,epoch:1,retention:"unsaved",event:{kind:"unassigned_input_fragment",sequence:start+i,text:" sail",timing:{kind:"unavailable"}}});
+ expect(s.client.state.getState().recognition.filter(f=>f.unsaved),"UNSAVED_BUDGET_IS_SEPARATE_FROM_REVIEW").toHaveLength(CONVERSATION_LIMITS.maxPendingDialogueObservations);
+ expect(s.client.state.getState().dialogueNotice,"FINITE_UNSAVED_OVERFLOW_IS_VISIBLE").toContain("exceeded this device's temporary buffer");
+ expect(s.client.state.getState().micOn).toBe(false);expect(s.socket.frames("conversation_commit")).toHaveLength(0);expect(s.socket.frames("chat_message")).toHaveLength(0);
 });
 
 
@@ -1195,6 +1208,50 @@ for (const muted of [false, true]) test(`visibility recovery retains ${muted ? "
   if (muted) expect(s.socket.frames("conversation_audio")).toHaveLength(frames);
 });
 
+for (const reason of ["disconnected", "provider_closed"] as const) test(`recoverable active ${reason} never publishes remote diagnostics, including blocked restart`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  s.input("Ask Nestor about the ships");
+  const published: string[] = [];
+  const unsubscribe = s.client.state.subscribe(next => published.push(JSON.stringify(next)));
+  ctx.onTestFinished(unsubscribe);
+  const assertPrivate = () => expect(published.join("\n"), "R7PROBE_REMOTE_NEVER_PUBLISHED").not.toContain(REMOTE_CLOSE_TEXT);
+
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason, message: REMOTE_CLOSE_TEXT });
+  // suspend publishes before startEpoch clears its notice. Inspect every
+  // notification, not only the final state after automatic recovery starts.
+  assertPrivate();
+  expect(published.some(snapshot => snapshot.includes(CLOSE_DIAGNOSTICS[reason])), "RECOVERABLE_CLOSE_PUBLISHED_FIXED_REASON").toBe(true);
+  expect(s.socket.frames("conversation_start")).toHaveLength(2);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  expect(s.client.state.getState().text).toBe("Ask Nestor about the ships");
+  // Withhold the replacement receipt: consent alone cannot reopen capture.
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assertPrivate();
+  expect(mic.opens()).toBe(1);
+  s.opened(2);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(2);
+  expect(s.client.state.getState().text).toBe("");
+
+  const hidden = hidePage(); ctx.onTestFinished(() => hidden.show());
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 2, reason, message: REMOTE_CLOSE_TEXT });
+  assertPrivate();
+  expect(s.client.state.getState().notice).toContain(CLOSE_DIAGNOSTICS[reason]);
+  expect(s.socket.frames("conversation_start")).toHaveLength(2);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(2);
+  hidden.show();
+  await expect.poll(() => s.socket.frames("conversation_start").length).toBe(3);
+  s.opened(3);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  assertPrivate();
+  expect(mic.opens()).toBe(3);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
 for (const muted of [false, true]) test(`recoverable provider closure preserves ${muted ? "manual mute" : "consent"} and never retains remote content`, async ctx => {
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx); await s.start();
@@ -1277,4 +1334,27 @@ test("same-commit control remount retains capture; a true last-owner unmount lea
   await expect.poll(() => s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+});
+
+
+for(const [code,copy] of [
+ ["DIALOGUE_UNAVAILABLE","Conversation history unavailable. Try opening this chat again."],
+ ["DIALOGUE_STORAGE","Conversation history writes failed. Restore storage before restarting voice."],
+ ["DIALOGUE_PENDING_PRESSURE","Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. Any unsaved text is unavailable after reload. Let pending writes finish and check storage before restarting voice."],
+] as const)test(`dialogue diagnostic: ${code} retains only fixed local cause`,async ctx=>{
+ const s=await scene(ctx);await s.start();s.input("The mast is ready.");
+ s.deliver({type:"error",sessionId:SESSION,code,message:REMOTE_CLOSE_TEXT});
+ expect(JSON.stringify(s.client.state.getState()),"REMOTE_DIALOGUE_ERROR_NOT_RETAINED").not.toContain(REMOTE_CLOSE_TEXT);
+ expect(s.client.state.getState().dialogueNotice,"LOCAL_DIALOGUE_CAUSE_COPY").toBe(copy);
+ expect(s.client.state.getState().text).toBe("The mast is ready.");
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);expect(s.socket.frames("chat_message")).toHaveLength(0);
+ await expect.poll(()=>s.host.textContent).toContain(copy);
+ expect(s.host.textContent).not.toContain(REMOTE_CLOSE_TEXT);
+ await page.screenshot({element:s.host,path:`../../.vitest-attachments/durable-dialogue/r11-${code.toLowerCase()}.png`});
+ if(code!=="DIALOGUE_UNAVAILABLE"){
+  expect(s.client.state.getState().micOn).toBe(false);
+  s.deliver({type:"conversation_closed",conversationId:PROFILE.conversationId,epoch:1,reason:"provider_error",message:REMOTE_CLOSE_TEXT});
+  expect(s.client.state.getState().notice,"SCOPED_STORAGE_CAUSE_SURVIVES_CLOSE").toBe(copy);
+  expect(JSON.stringify(s.client.state.getState())).not.toContain(REMOTE_CLOSE_TEXT);
+ }else expect(s.client.state.getState().micOn).toBe(true);
 });

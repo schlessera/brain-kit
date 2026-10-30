@@ -189,3 +189,12 @@ test("unassigned evidence carries exactly one real provider interval or explicit
     expect(parseLiveConversationEvent({ ...scope, ...invalid }).ok).toBe(false);
   }
 });
+
+
+test("pending dialogue limits are additive to older opened profiles",()=>{
+ const {maxPendingDialogueObservations,maxPendingDialogueBytes,...legacy}=CONVERSATION_LIMITS;
+ const base={type:"conversation_opened",conversationId:"ithaca",epoch:1,providerId:"fake-live",capabilities,disclosure,resync:{work:0,outputs:0}};
+ expect(server({...base,limits:legacy}).ok).toBe(true);
+ expect(server({...base,limits:{...legacy,maxPendingDialogueObservations,maxPendingDialogueBytes}}).ok).toBe(true);
+ expect(server({...base,limits:{...legacy,maxPendingDialogueBytes:-1}}).ok).toBe(false);
+});

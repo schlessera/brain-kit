@@ -81,6 +81,7 @@ import type {
   ServerLocationRequest,
   ServerMaskRequest,
   ServerMessage,
+  DialogueEvidence, DialogueRecord, DialoguePage, ClientDialogueRead, ServerDialogueHistory,
   ServerResultMessage,
   MessageBlock,
   MessageSource,
@@ -393,6 +394,7 @@ export const draftRefSchema = z.looseObject({
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
+  historyOwnerId:id.optional(),
     shareId: z.string().uuid().optional(),
   profileDraftId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
     text: z.string().max(MAX_PROMPT_CHARS),
@@ -415,6 +417,7 @@ export const clientChatMessageSchema = z
       MAX_TOTAL_IMAGE_BYTES,
     { message: `attachments exceed ${MAX_TOTAL_IMAGE_BYTES} total decoded bytes` }
   )
+  .refine(m=>!m.historyOwnerId || (!m.sessionId && !m.shareId && !m.handoff), {message:"Retained conversation adoption requires a new plain chat"})
   .refine(m => !(m.shareId && m.handoff), { message: "A share start cannot also create a handoff" }) satisfies z.ZodType<ClientChatMessage>;
 
 const approvalChannelSchema = z.enum(["card", "voice"]) satisfies z.ZodType<ApprovalChannel>;
@@ -782,8 +785,14 @@ const sampleRangeSchema = z
   .looseObject({ start: z.number().int().min(0), end: z.number().int().min(0) })
   .refine((r) => r.end >= r.start, { message: "end must not precede start" });
 
+export const clientDialogueReadSchema = z.looseObject({
+  type: z.literal("dialogue_read"), requestId: id, cursor:z.string().max(2048).optional(), sessionId: id.optional(), ownerId: id.optional(),
+  before: conversationSequence.optional(), through: conversationSequence.optional(), generation: conversationEpoch.optional(),
+}).refine(v => !!v.sessionId !== !!v.ownerId) satisfies z.ZodType<ClientDialogueRead>;
+
 export const clientConversationStartSchema = z.looseObject({
   type: z.literal("conversation_start"),
+  historyOwnerId: id.optional(),
   contextualTasks: z.boolean().optional(),
   requestId: id.optional(),
   agentProviderId: id.optional(),
@@ -864,6 +873,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientHandoffPrepareCancelSchema,
   clientHandoffStatusSchema,
   clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
+  clientDialogueReadSchema,
   clientConversationStartSchema,
   clientConversationAudioSchema,
   clientConversationEndpointSchema,
@@ -1282,6 +1292,7 @@ export const serverResultSchema = z.looseObject({
 }) satisfies z.ZodType<ServerResultMessage>;
 
 export const serverErrorSchema = z.looseObject({
+  historyOwnerId: id.optional(),
   type: z.literal("error"),
   code: z.string(),
   message: z.string(),
@@ -1747,6 +1758,8 @@ export const conversationLimitsSchema = z.looseObject({
   maxFragmentChars: limitValue,
   maxUtteranceChars: limitValue,
   maxGeneratedChars: limitValue,
+  maxPendingDialogueObservations: limitValue.optional(),
+  maxPendingDialogueBytes: limitValue.optional(),
   maxCommitChars: limitValue,
   maxQueuedWork: limitValue,
   maxPendingNativeRequests: limitValue,
@@ -1755,8 +1768,28 @@ export const conversationLimitsSchema = z.looseObject({
   maxConversationsPerConnection: limitValue,
 }) satisfies z.ZodType<ConversationLimits>;
 
+export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("voice"), conversationId: id, epoch: conversationEpoch, providerId: id, model:z.string().max(256).optional(),api:z.string().max(256).optional(),
+    event: z.discriminatedUnion("kind", [
+      z.object({kind:z.literal("input_fragment"),utteranceId:id,sequence:conversationSequence,text:z.string().max(2000),interval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional(),finalization:z.enum(["interim","final","unknown"]),certainty:z.enum(["known","unknown"]),confidence:z.number().min(0).max(1).optional(),origin:z.enum(["user","assistant","unknown"])}),
+      z.object({kind:z.literal("unassigned_input_fragment"),sequence:conversationSequence,text:z.string().max(2000),sessionInterval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional(),timing:z.object({kind:z.literal("unavailable")}).optional(),finalization:z.enum(["final","unknown"]).optional()}),
+      z.object({kind:z.literal("output_transcript"),outputId:id,sequence:conversationSequence,text:z.string().max(2000),interval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional()}),
+    ]) }),
+  z.object({ kind: z.literal("request"), turnId: id, requestId: id.optional() }),
+  z.object({ kind: z.literal("backend"), turnId: id, start: conversationSequence, end: conversationSequence, digest: z.string().regex(/^[a-f0-9]{64}$/), text: z.string().max(2000) }),
+]).refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
+  : e.event.kind !== "unassigned_input_fragment" || !!e.event.sessionInterval !== !!e.event.timing), "Invalid dialogue evidence certainty or timing") as z.ZodType<DialogueEvidence>;
+export const dialogueRecordSchema = z.object({ sequence: conversationEpoch, identity: z.string().min(1).max(2048), evidence: dialogueEvidenceSchema }) satisfies z.ZodType<DialogueRecord>;
+export const dialoguePageSchema = z.object({ cursor:z.string().max(2048).optional(), ownerId: id, sessionId: id.optional(), generation: conversationEpoch,
+  through: conversationSequence, records: z.array(dialogueRecordSchema).max(200), before: conversationSequence.optional(),
+  coverage: z.enum(["complete", "legacy", "partial"]),
+}) satisfies z.ZodType<DialoguePage>;
+export const serverDialogueHistorySchema = dialoguePageSchema.extend({ type: z.literal("dialogue_history"), requestId: id.optional() }) satisfies z.ZodType<ServerDialogueHistory>;
+
 export const serverConversationOpenedSchema = z.looseObject({
   type: z.literal("conversation_opened"),
+  historyGeneration:conversationEpoch.optional(),
+  historyOwnerId: id.optional(),
   requestId: id.optional(),
   agentProviderId: id.optional(),
   conversationId: id,
@@ -1779,6 +1812,7 @@ export const serverConversationClosedSchema = z.looseObject({
 }) satisfies z.ZodType<ServerConversationClosed>;
 
 export const serverConversationEventSchema = z.looseObject({
+  retention: z.literal("unsaved").optional(),
   type: z.literal("conversation_event"),
   conversationId: id,
   epoch: conversationEpoch,
@@ -1884,6 +1918,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   inboxSnapshotSchema, inboxDeltaSchema,
   serverToolResolutionSchema,
   serverSessionQueueSchema,
+  serverDialogueHistorySchema,
   serverConversationOpenedSchema,
   serverConversationClosedSchema,
   serverConversationEventSchema,
