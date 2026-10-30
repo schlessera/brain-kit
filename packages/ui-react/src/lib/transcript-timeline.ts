@@ -128,10 +128,12 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     const archive = Object.entries(v.dialogue ?? {}).flatMap(([key,page]) => page.records.map(record => ({record,restored:record.sequence <= (v.dialogueRestoredThrough?.[key] ?? -1),sessionId:page.sessionId ?? (v.profile?.historyOwnerId === page.ownerId ? v.sessionId : key)})));
     // The existing first-observation slot retains the durable prefix visible
     // when a transient tail arrived. Paging cannot move that tail before it.
-    const observedThrough = (sessionId:string|null):number|undefined => {
-      const seen=archive.filter(item=>item.sessionId===sessionId).map(item=>item.record.sequence);
-      return seen.length ? Math.max(...seen) : v.active && v.sessionId===sessionId && v.profile?.historyOwnerId ? 0 : undefined;
-    };
+    const observedPrefixes = new Map<string | null, number>();
+    for (const {sessionId,record} of archive) {
+      observedPrefixes.set(sessionId, Math.max(observedPrefixes.get(sessionId) ?? 0, record.sequence));
+    }
+    const observedThrough = (sessionId:string|null):number|undefined =>
+      observedPrefixes.get(sessionId) ?? (v.active && v.sessionId===sessionId && v.profile?.historyOwnerId ? 0 : undefined);
     const archivedRecognition = new Set<string>();
     const archivedOutput = new Set<string>();
     const ordered = new Map<string,number>();
@@ -229,7 +231,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     };
     const compareKeys=(a:string,b:string) => {const x=rank(a),y=rank(b);return x[0]!-y[0]! || x[1]!-y[1]! || x[2]!-y[2]!;};
     entries.sort((a, b) => compareKeys(a.key,b.key));
-    const stream = (f: ConversationRecognition) => JSON.stringify([f.conversationId, f.epoch, f.kind, f.kind === "input_fragment" ? f.utteranceId : null]);
+    const stream = (f: ConversationRecognition) => JSON.stringify([f.conversationId, f.epoch, f.kind, f.kind === "input_fragment" ? f.utteranceId : null, !!f.unsaved]);
     const grouped: TranscriptEntry[] = [];
     for (const entry of entries) {
       const tail = grouped.at(-1);

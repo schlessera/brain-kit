@@ -1758,6 +1758,8 @@ export const conversationLimitsSchema = z.looseObject({
   maxFragmentChars: limitValue,
   maxUtteranceChars: limitValue,
   maxGeneratedChars: limitValue,
+  maxPendingDialogueObservations: limitValue.optional(),
+  maxPendingDialogueBytes: limitValue.optional(),
   maxCommitChars: limitValue,
   maxQueuedWork: limitValue,
   maxPendingNativeRequests: limitValue,

@@ -106,7 +106,6 @@ interface Epoch {
   nativePending: Map<string, { utteranceId?: string }>;
   lastAudioSequence: number;
   unassignedCount: number;
-  unassignedChars: number;
   unassignedHandles: Set<string>;
   /** Utterance ids this epoch evicted; one never comes back as new input. */
   retiredUtterances: Set<string>;
@@ -243,7 +242,7 @@ export class ConversationHost {
       closed: false,
       utterances: new Map(),
       nativePending: new Map(),
-      unassignedCount: 0, unassignedChars: 0, unassignedHandles: new Set(),
+      unassignedCount: 0, unassignedHandles: new Set(),
       lastAudioSequence: -1,
       retiredUtterances: new Set(),
     };
@@ -540,13 +539,8 @@ export class ConversationHost {
         if (event.sequence !== epoch.unassignedCount) {
           this.endEpoch(conversation, "correlation", "Unassigned recognition arrived out of sequence.", epoch); return;
         }
-        if (!epoch.contextualTasks && (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars)) {
-          this.endEpoch(conversation, "backpressure", "Unassigned recognition is full. Review the retained text before restarting voice.", epoch); return;
-        }
+        // Sequence is an epoch fence, not a lifetime review/capture budget.
         epoch.unassignedCount++;
-        // Contextual text is already bounded by collectContext. Cumulative
-        // manual-review capacity must not end an ongoing contextual dialogue.
-        if (!epoch.contextualTasks) epoch.unassignedChars += event.text.length;
         this.collectContext(epoch, `unassigned:${event.sequence}`, "recognition", event.text);
         this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text,
           ...(event.sessionInterval ? { sessionInterval: { ...event.sessionInterval } } : { timing: { kind: "unavailable" as const } }),
@@ -572,26 +566,13 @@ export class ConversationHost {
           this.endEpoch(conversation, "correlation", "The voice service reported input for an utterance it was never sent.", epoch);
           return;
         }
-        if (!epoch.contextualTasks && !utterance.fragments.has(event.sequence) && utterance.fragments.size >= CONVERSATION_LIMITS.maxFragmentsPerUtterance) {
-          this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxFragmentsPerUtterance} fragments for one utterance.`, epoch);
-          return;
-        }
-        // The receipt joins fragments with single spaces; bound that join.
-        let joined = event.text.length;
-        for (const fragment of utterance.fragments.values()) {
-          if (fragment.sequence !== event.sequence) joined += fragment.text.length + 1;
-        }
-        if (!epoch.contextualTasks && joined > CONVERSATION_LIMITS.maxUtteranceChars) {
-          this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxUtteranceChars} recognized characters for one utterance.`, epoch);
-          return;
-        }
         this.collectContext(epoch, `input:${event.utteranceId}:${event.sequence}`, event.origin === "assistant" ? "generated" : "recognition", event.text);
         utterance.fragments.set(event.sequence, { sequence: event.sequence, text: event.text, origin: event.origin });
-        if (epoch.contextualTasks) {
-          // This is bounded task/review context, not the durable text record.
+        {
+          // This is bounded task/review context in either mode, not the durable text record.
           let chars = [...utterance.fragments.values()].reduce((n,f)=>n+f.text.length+1,0);
           while (utterance.fragments.size > CONVERSATION_LIMITS.maxFragmentsPerUtterance || chars > CONVERSATION_LIMITS.maxUtteranceChars) {
-            const first = utterance.fragments.keys().next().value!;
+            const first = Math.min(...utterance.fragments.keys());
             chars -= utterance.fragments.get(first)!.text.length+1;
             utterance.fragments.delete(first); utterance.reviewIncomplete = true;
           }
@@ -1123,9 +1104,9 @@ export class ConversationHost {
     }
   }
 
-  storageFailed(ownerId: string): void {
+  storageFailed(ownerId: string, message: string): void {
     for (const conversation of this.conversations.values()) if (conversation.historyOwnerId === ownerId) {
-      this.endEpoch(conversation, "provider_error", "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.");
+      this.endEpoch(conversation, "provider_error", message);
     }
   }
 

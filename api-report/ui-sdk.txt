@@ -5540,6 +5540,8 @@ signatures (every public export and the types it is made of)
         readonly maxFragmentsPerUtterance: 128;
         readonly maxGeneratedChars: 16000;
         readonly maxOutputs: 32;
+        readonly maxPendingDialogueBytes: 1048576;
+        readonly maxPendingDialogueObservations: 256;
         readonly maxPendingNativeRequests: 8;
         readonly maxQueuedWork: 4;
         readonly maxUtteranceChars: 16000;
@@ -6048,7 +6050,9 @@ signatures (every public export and the types it is made of)
     }
   ConversationLimits (packages/ui-sdk/src/protocol.ts)
     export type ConversationLimits = {
-        -readonly [K in keyof typeof CONVERSATION_LIMITS]: number;
+        -readonly [K in Exclude<keyof typeof CONVERSATION_LIMITS, PendingDialogueLimit>]: number;
+    } & {
+        [K in PendingDialogueLimit]?: number;
     };
   ConversationOutputRecord (packages/ui-sdk/src/protocol.ts)
     export interface ConversationOutputRecord {
@@ -7444,6 +7448,8 @@ signatures (every public export and the types it is made of)
         transports: string[] | null;
         aaguid: string | null;
     }
+  PendingDialogueLimit (packages/ui-sdk/src/protocol.ts)
+    type PendingDialogueLimit = "maxPendingDialogueObservations" | "maxPendingDialogueBytes";
   PermissionDecision (packages/ui-sdk/src/server/backend.ts)
     export type PermissionDecision = {
         behavior: "allow";
@@ -11999,6 +12005,8 @@ signatures (every public export and the types it is made of)
         maxFragmentsPerUtterance: z.ZodNumber;
         maxGeneratedChars: z.ZodNumber;
         maxOutputs: z.ZodNumber;
+        maxPendingDialogueBytes: z.ZodOptional<z.ZodNumber>;
+        maxPendingDialogueObservations: z.ZodOptional<z.ZodNumber>;
         maxPendingNativeRequests: z.ZodNumber;
         maxQueuedWork: z.ZodNumber;
         maxUtteranceChars: z.ZodNumber;
@@ -15195,6 +15203,8 @@ signatures (every public export and the types it is made of)
             maxFragmentsPerUtterance: z.ZodNumber;
             maxGeneratedChars: z.ZodNumber;
             maxOutputs: z.ZodNumber;
+            maxPendingDialogueBytes: z.ZodOptional<z.ZodNumber>;
+            maxPendingDialogueObservations: z.ZodOptional<z.ZodNumber>;
             maxPendingNativeRequests: z.ZodNumber;
             maxQueuedWork: z.ZodNumber;
             maxUtteranceChars: z.ZodNumber;
@@ -18327,6 +18337,8 @@ signatures (every public export and the types it is made of)
             maxFragmentsPerUtterance: z.ZodNumber;
             maxGeneratedChars: z.ZodNumber;
             maxOutputs: z.ZodNumber;
+            maxPendingDialogueBytes: z.ZodOptional<z.ZodNumber>;
+            maxPendingDialogueObservations: z.ZodOptional<z.ZodNumber>;
             maxPendingNativeRequests: z.ZodNumber;
             maxQueuedWork: z.ZodNumber;
             maxUtteranceChars: z.ZodNumber;

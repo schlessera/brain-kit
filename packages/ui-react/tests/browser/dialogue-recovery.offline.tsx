@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
+import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
 let styles: HTMLStyleElement;
@@ -499,12 +500,15 @@ for (const provider of ["gemini", "gpt"] as const)
   });
 
 for (const provider of ["gpt", "gemini"] as const)
+  for (const nativeHistory of [true, false])
+  for (const correlated of [true, false])
   for (const bound of ["fragments", "characters"] as const)
-    test(`${provider}: correlated capture separates the ${bound} review bound from durable discussion`, async (ctx) => {
+    test(`${provider} nativeHistory=${nativeHistory} correlated=${correlated}: correlated capture separates the ${bound} review bound from durable discussion`, async (ctx) => {
       microphone(ctx);
       const fixture = (await commands.conversationServer({
         op: "start",
         durable: true,
+        nativeHistory,
         provider,
       })) as { id: string };
       ctx.onTestFinished(async () => {
@@ -560,7 +564,7 @@ for (const provider of ["gpt", "gemini"] as const)
             ? {
                 type: "session.input_transcript.delta",
                 event_id: `captured-${i}`,
-                client_event_id: audio.event_id,
+                ...(correlated ? {client_event_id: audio.event_id} : {}),
                 delta,
                 start_ms: i * 1000,
                 end_ms: i * 1000 + 500,
@@ -581,12 +585,25 @@ for (const provider of ["gpt", "gemini"] as const)
         events.filter(
           (f) =>
             f.event.kind ===
-            (provider === "gpt"
+            (provider === "gpt" && correlated || provider === "gemini" && !nativeHistory
               ? "input_fragment"
               : "unassigned_input_fragment")
         )
       ).toHaveLength(text.length);
-      expect(s.ui.connection.conversation.state.getState().micOn).toBe(true);
+      const state=s.ui.connection.conversation.state.getState();
+      expect(state.micOn).toBe(true);
+      expect(state.profile!.capabilities.contextualTasks).toBe(nativeHistory ? "supported" : "unsupported");
+      if (!nativeHistory) {
+        expect(state.unassigned.length).toBeLessThanOrEqual(128);
+        expect(state.unassigned.reduce((n,f)=>n+f.text.length,0)).toBeLessThanOrEqual(16000);
+        if(provider==="gemini" || correlated) {
+          expect(state.text.length).toBeLessThanOrEqual(8000);
+          const before=s.socket.frames("conversation_commit").length;
+          expect(s.ui.connection.conversation.commit(state.token)).toBe(false);
+          expect(s.socket.frames("conversation_commit")).toHaveLength(before);
+          expect(s.element.textContent).toContain("Only bounded recognition context remains");
+        }
+      }
       expect(received.filter((f) => f.type === "conversation_closed")).toEqual(
         []
       );
@@ -765,3 +782,40 @@ for (const provider of ["gpt", "gemini"] as const)
     expect(result.tasks).toBe(0);
     expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
   });
+
+
+for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota", "pressure"] as const)
+ test(`${provider}: contiguous recognition splits the saved prefix from ${failure} tail`,async(ctx)=>{
+  microphone(ctx);
+  const fixture=await commands.conversationServer({op:"start",durable:true,provider}) as {id:string};
+  ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+  const s=await view(ctx,null);let cursor=0,result:any;const received:ServerMessage[]=[];
+  const pump=async(providerFrames:unknown[]=[],fault=false)=>{
+   const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;
+   result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:providerFrames,...(fault ? {[failure]:true} : {})});
+   for(const frame of result.frames){received.push(frame);s.socket.deliver(frame);}
+  };
+  await pump();s.ui.connection.conversation.enter();
+  await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+  s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+  const audio=result.sent.find((m:any)=>m.type==="session.input_audio.append");
+  const input=(i:number)=>provider==="gemini" ? {serverContent:{inputTranscription:{text:`Observation ${i}: ${failure==="quota" ? "mast ".repeat(390) : "mast."}`}}} : {type:"session.input_transcript.delta",event_id:`split-${i}`,client_event_id:audio.event_id,delta:`Observation ${i}: ${failure==="quota" ? "mast ".repeat(390) : "mast."}`,start_ms:i*1000,end_ms:i*1000+500};
+  await pump([input(0)]);
+  await pump(Array.from({length:failure==="quota"?30:270},(_,i)=>input(i+1)),true);
+  const events=received.filter((f):f is Extract<ServerMessage,{type:"conversation_event"}>=>f.type==="conversation_event"&&(f.event.kind==="input_fragment"||f.event.kind==="unassigned_input_fragment"));
+  const rows=transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.filter(e=>e.kind==="recognition");
+  expect(rows).toHaveLength(2);
+  expect(rows.map(e=>!!e.fragments[0]!.unsaved)).toEqual([false,true]);
+  expect(rows.flatMap(e=>e.fragments.map(f=>f.text))).toEqual(events.map(f=>"text" in f.event ? f.event.text : ""));
+  expect(result.rows).toHaveLength(events.filter(f=>f.retention!=="unsaved").length);
+  expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
+  const errors=received.filter((f):f is Extract<ServerMessage,{type:"error"}>=>f.type==="error"&&f.code.startsWith("DIALOGUE_"));
+  expect(errors.map(f=>f.code)).toContain(failure==="quota"?"DIALOGUE_STORAGE":"DIALOGUE_PENDING_PRESSURE");
+  if(failure==="pressure"){
+   expect(s.element.textContent).toContain("arriving faster than it can be saved");
+   expect(errors.some(f=>f.code==="DIALOGUE_STORAGE")).toBe(false);
+   expect(result.rows).toHaveLength(257); // initial saved observation plus the finite pending queue
+   expect(events.at(-1)!.retention).toBe("unsaved");
+  }else expect(s.element.textContent).toContain("could not be saved");
+  expect(result.tasks).toBe(0);s.ui.connection.conversation.leave();await pump();
+ });

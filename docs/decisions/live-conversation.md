@@ -323,7 +323,7 @@ remain independent. Draft editing/Discard controls the separate draft candidate.
 Dialogue stays with its chat. Display pages, provider context and pending-write
 memory have finite bounds; those are not permission to expire old dialogue or
 routinely stop ongoing conversation at a small archive cap. Actual storage/quota
-failure preserves the committed prefix and exposes the unsaved tail and recovery
+failure or actual pending-write pressure preserves the committed prefix and exposes the unsaved tail and cause-specific recovery
 prerequisite. No general whole-chat deletion feature exists at this source;
 #3180 records that explicit lifecycle design rather than inventing expiry/UI.
 

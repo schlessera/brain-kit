@@ -141,7 +141,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const retiredInputs = new Set<string>();
   const capturedInputs = new Set<string>();
   const manualReview = new Set<string>();
+  const incompleteReview = new Set<string>();
   const fragments = new Map<string, Map<number, Extract<ConversationWireEvent, { kind: "input_fragment" }>>>();
+  const reviewIsIncomplete = () => [...fragments.keys()].some(id=>incompleteReview.has(id));
   const requests = new Map<string, { draftCorrelation?: string; composerDraftId: string | null; sessionId: string | null; conversationId: string; epoch: number; text: string }>();
   const restoredRequests = new Set<string>();
   const scope = () => state.getState().profile;
@@ -195,7 +197,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const current = state.getState();
     const words = [...current.recognition.filter(f=>f.unsaved).map(f=>f.text),...current.outputs.map(o=>o.unsavedGenerated ?? "")];
     const count = current.recognition.filter(f=>f.unsaved).length + current.outputs.reduce((n,o)=>n+(o.unsavedFragments ?? 0),0);
-    if (count >= 256 || words.reduce((n,t)=>n+new TextEncoder().encode(t).length,0)+new TextEncoder().encode(text).length > 1024*1024) {
+    if (count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || words.reduce((n,t)=>n+new TextEncoder().encode(t).length,0)+new TextEncoder().encode(text).length > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
       unsavedOverflow = true;
       state.setState({dialogueNotice:"Some unsaved conversation text exceeded this device's temporary buffer and is unavailable. Restore storage before restarting voice."});
       return false;
@@ -289,7 +291,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   function clearTimers() { clearTimeout(silence); clearTimeout(hold); clearTimeout(finalization); silence = hold = finalization = undefined; }
   function stopMic() { mic?.stop(); mic = undefined; state.setState({ micOn: false }); }
   function saveDraft() {
-    if (!draftId) return;
+    if (!draftId || reviewIsIncomplete()) return;
     // Interim recognition is never retained. Unknown finality is the explicit
     // manual-review candidate, as required by the GPT-Live profile.
     const text = [...fragments.values()].flatMap((items) => [...items.values()].filter((f) => f.finalization !== "interim").sort((a, b) => a.sequence - b.sequence).map((f) => f.text)).join(" ").trim();
@@ -369,10 +371,6 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   function startEpoch() {
     if (disposed || !state.getState().active || requested || openingId || (typeof document !== "undefined" && document.hidden) || root.stores.connection.getState().wsStatus !== "connected") return;
-    const retained = state.getState().unassigned.filter(f => !f.taskContext);
-    if (retained.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || retained.reduce((n, f) => n + f.text.length, 0) >= CONVERSATION_LIMITS.maxUtteranceChars) {
-      state.setState({ notice: "Recognition is full. Review it in the composer before restarting voice." }); return;
-    }
     clearClosedNotice();
     requested = true; ready = false; resync = 0; generation++; state.setState({ token: generation });
     sequence = 0; utterance = null; ended = false; clearTimers(); resetRecovery();
@@ -455,6 +453,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     refresh();
   }
   function commit(own: number) {
+    if (reviewIsIncomplete()) {
+      state.setState({notice:"Only bounded recognition context remains. Review retained dialogue and send typed text instead."}); return false;
+    }
     const s = state.getState();
     const profile = scope();
     if (!current(own) || !profile || !ready || resync || !s.text.trim() || !lastInput || s.interaction === "Checking whether the reply stopped") return false;
@@ -556,9 +557,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
       return null;
     }
-    if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE")) {
+    if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE")) {
       if (message.requestId) dialogueReads.delete(message.requestId);
-      if (message.code === "DIALOGUE_STORAGE" && state.getState().active && (message.historyOwnerId ? message.historyOwnerId === scope()?.historyOwnerId : !message.sessionId || message.sessionId === state.getState().sessionId)) {
+      if ((message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE") && state.getState().active && (message.historyOwnerId ? message.historyOwnerId === scope()?.historyOwnerId : !message.sessionId || message.sessionId === state.getState().sessionId)) {
         // Stop new capture/automation, not the already observed current-epoch tail.
         // The host closes the epoch after these callbacks drain. Ready and all
         // identity/disclosure fences remain intact until that ordinary close.
@@ -628,7 +629,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "conversation_opened") {
       if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return null;
       clearClosedNotice();
-      generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); unassignedThrough = -1; seenRecognition.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); lastInput = undefined;
+      generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); unassignedThrough = -1; seenRecognition.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); incompleteReview.clear(); lastInput = undefined;
       state.setState({ profile: message, connection: "Connected", text: "", interaction: "Listening", disclosureOpen: agreedDisclosure !== disclosureKey(message) });
       if (agreedDisclosure !== disclosureKey(message)) consent = false;
       resync = message.resync.work + message.resync.outputs;
@@ -672,14 +673,15 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (!retainRecognition(event)) return null;
       const retained = state.getState().unassigned;
       if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && !f.utteranceId && f.sequence === event.sequence)) return null;
-      // Retain the boundary-crossing fragment before stopping. Never truncate
-      // it or merge approximate session intervals into captured utterances.
+      // Review context is separate from exact archived recognition. Never merge
+      // approximate session intervals into captured utterances.
       const unassigned = [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event }];
       if (p.capabilities.contextualTasks === "supported") { retainContext(unassigned.at(-1)!); return null; }
-      state.setState({ unassigned });
-      if (unassigned.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || unassigned.reduce((n, f) => n + f.text.length, 0) >= CONVERSATION_LIMITS.maxUtteranceChars) {
-        pause(); state.setState({ notice: "Recognition is full. Review it in the composer before restarting voice." });
+      let reviewChars=unassigned.reduce((n,f)=>n+f.text.length,0), trimmed=false;
+      while (unassigned.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance || reviewChars > CONVERSATION_LIMITS.maxUtteranceChars) {
+        reviewChars-=unassigned.shift()!.text.length; trimmed=true;
       }
+      state.setState({unassigned,...(trimmed ? {notice:"Only recent recognition remains in the review buffer. Review retained dialogue before sending typed text."} : {})});
       return null;
     }
     if (event.kind === "unassigned_delegation") {
@@ -705,12 +707,21 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (event.certainty !== "known" || event.origin !== "user" || (event.confidence ?? 0) < 0.9) manualReview.add(event.utteranceId);
       finalAfterSpeech = event.finalization === "final";
       items.set(event.sequence, event); fragments.set(event.utteranceId, items); lastInput = event;
+      let reviewChars=[...fragments.values()].reduce((n,f)=>n+[...f.values()].reduce((sum,item)=>sum+item.text.length+1,0),0);
+      while (items.size > CONVERSATION_LIMITS.maxFragmentsPerUtterance || reviewChars > p.limits.maxCommitChars) {
+        const oldest=Math.min(...items.keys()); const removed=items.get(oldest);
+        if (!removed) break;
+        reviewChars-=removed.text.length+1; items.delete(oldest);
+        incompleteReview.add(event.utteranceId); manualReview.add(event.utteranceId);
+      }
       const text = [...fragments.values()].flatMap((f) => [...f.values()].sort((a, b) => a.sequence - b.sequence).map((f) => f.text)).join(" ").trim();
       state.setState({ text, notice: event.certainty === "unknown" || event.origin !== "user" ? "I couldn't hear that clearly. Review before sending." : s.notice });
-      saveDraft();
-      if (text.length > p.limits.maxCommitChars) {
-        pause(); state.setState({ notice: "The recognized text is too long. Leave voice and review the complete draft." }); return null;
+      if (reviewIsIncomplete()) {
+        removeSavedDraft(); clearTimeout(hold); hold=undefined;
+        state.setState({notice:"Only bounded recognition context remains. Review retained dialogue and send typed text instead."});
+        refresh(); return null;
       }
+      saveDraft();
       maybeHold(generation); refresh();
     } else if (event.kind === "output_transcript") {
       const old = state.getState().outputs.find((output) => output.conversationId === p.conversationId && output.epoch === p.epoch && output.outputId === event.outputId);

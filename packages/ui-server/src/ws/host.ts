@@ -401,11 +401,12 @@ export class WsHost {
       : null;
     this.dialogue = new DialogueJournal(this.catalog, (page, principalId) => {
       this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);
-    }, owner => {
+    }, (owner, cause) => {
       this.conversations?.storageFailing(owner.id);
-      this.clients.broadcast({type:"error",code:"DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:"Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice."},undefined,"sessionDialogue",owner.principal_id);
+      const message=cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
+      this.clients.broadcast({type:"error",code:cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",owner.principal_id);
       // Drain already observed text before closing its epoch, preserving the unsaved tail.
-      void this.dialogue.settled().then(() => this.conversations?.storageFailed(owner.id));
+      void this.dialogue.settled().then(() => this.conversations?.storageFailed(owner.id, message));
     });
     this.classifier = options.classifier ?? null;
     this.labels = options.labeller?.enabled

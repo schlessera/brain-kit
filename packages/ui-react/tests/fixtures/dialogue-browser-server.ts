@@ -31,7 +31,7 @@ const frames: ServerMessage[] = [],
   sent: unknown[] = [],
   ingress: unknown[] = [];
 let tasks = 0;
-let quotaApplied = false;
+let quotaApplied = false, pressureApplied = false;
 let complete: (() => void) | undefined;
 const history: SessionHistoryMessage[] = [];
 const FACT = "The departure signal is a bronze owl.";
@@ -122,14 +122,18 @@ Object.defineProperty(globalThis, "WebSocket", {
   },
 });
 function makeHost() {
+  const catalog = createSessionCatalog(() => db, undefined, undefined, {
+    writer, store: createOffloopActivityStore(db, writer), pricing: { resolve: () => null },
+  });
+  // Exercise an actual durable catalog without optional task/epoch recovery.
+  if (process.argv[5] === "no-native-history") {
+    catalog.saveConversationTask = undefined;
+    catalog.saveConversationEpoch = undefined;
+  }
   return new WsHost({
     brainPath: root,
     registry: createStaticBackendRegistry([backend], "fake"),
-    catalog: createSessionCatalog(() => db, undefined, undefined, {
-      writer,
-      store: createOffloopActivityStore(db, writer),
-      pricing: { resolve: () => null },
-    }),
+    catalog,
     isPrincipalAuthorized: () => true,
     conversationProvider:
       engine === "gemini"
@@ -153,13 +157,14 @@ const server = Bun.serve({
       provider?: unknown[];
       release?: boolean;
       quota?: boolean;
+      pressure?: boolean;
       restart?: boolean;
       engine?: string;
     };
     if (body.restart) {
       await closeHost();
       await writer.close();
-      quotaApplied = false;
+      quotaApplied = false; pressureApplied = false;
       db.close();
       db = createUiDb(dbPath);
       writer = openSqliteWriter(db);
@@ -172,7 +177,8 @@ const server = Bun.serve({
       handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
     await Bun.sleep(10);
     let releaseQuota: (() => Promise<void>) | undefined;
-    if (body.quota) {
+    if (body.pressure) pressureApplied=true;
+    if (body.quota || body.pressure) {
       const controls = await import(
         "../../../ui-server/tests/helpers/dialogue-test-writes.js"
       );
@@ -180,8 +186,7 @@ const server = Bun.serve({
         { url: controls.url, setup: controls.setup },
         {}
       );
-      await q.call("quota");
-      quotaApplied = true;
+      if (body.quota) { await q.call("quota"); quotaApplied = true; }
       const control = new Int32Array(new SharedArrayBuffer(8));
       const hold = q.call("hold", control);
       const deadline = Date.now() + 2000;
@@ -199,7 +204,10 @@ const server = Bun.serve({
     }
     for (const frame of body.provider ?? []) {
       ingress.push(frame);
-      remote!.send(JSON.stringify(frame));
+      if (remote?.readyState === WebSocket.OPEN) remote.send(JSON.stringify(frame));
+      // Pace transport consumption while the real writer remains held, so
+      // pressure reaches the journal rather than the adapter's event queue.
+      if (body.pressure) await Bun.sleep(1);
     }
     if (body.release) complete?.();
     await Bun.sleep(20);
@@ -224,12 +232,9 @@ async function closeHost() {
   try {
     await host.close();
   } catch (error) {
-    if (
-      !quotaApplied ||
-      !(error instanceof Error) ||
-      !/full/i.test(error.message)
-    )
-      throw error;
+    const expected = error instanceof Error &&
+      (quotaApplied && /full/i.test(error.message) || pressureApplied && error.message === "Dialogue pending writes exceeded their bound");
+    if (!expected) throw error;
   }
 }
 process.on("SIGTERM", async () => {

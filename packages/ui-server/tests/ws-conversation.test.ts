@@ -568,7 +568,7 @@ describe("second review pass: identity, resync and retry", () => {
     expect(s.turns).toHaveLength(12);
   }, 20_000);
 
-  test("recognized text beyond the per-utterance bound closes the epoch instead of being clipped", async () => {
+  test("recognized text beyond the review bound remains captured but cannot become an incomplete commit", async () => {
     const s = setup();
     const client = await s.connect();
     const conversation = await client.open();
@@ -577,7 +577,12 @@ describe("second review pass: identity, resync and retry", () => {
       conversation.session.emit({ kind: "input_fragment", utteranceId: "u1", sequence, text: "x".repeat(CONVERSATION_LIMITS.maxFragmentChars), finalization: "interim", certainty: "unknown", origin: "user" });
     }
     await settle();
-    expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: "backpressure" });
+    expect(client.frames("conversation_closed")).toEqual([]);
+    expect(client.frames("conversation_event").filter(f=>f.event.kind==="input_fragment")).toHaveLength(9);
+    client.commit(conversation,"u1","incomplete","Bounded tail");
+    await until(()=>client.receipts("incomplete").length>0);
+    expect(client.last("incomplete")).toMatchObject({state:"refused",reason:"Only bounded task context remains for this input. Review the retained dialogue and send typed text instead."});
+    expect(s.turns).toHaveLength(0);
   });
 
   test("a failed live turn offers no client Retry, which could not restore its host identity", async () => {
@@ -1150,7 +1155,7 @@ test("a live screen denial publishes one host outcome; backend denial events can
   expect(s.host.coordinator.pendingApprovals.size).toBe(0);
 });
 
-for (const boundary of ["count", "chars", "sequence", "delegations"] as const) test(`unassigned recognition has a visible ${boundary} boundary`, async () => {
+for (const boundary of ["count", "chars", "sequence", "delegations"] as const) test(`unassigned recognition separates ${boundary} context from capture`, async () => {
   const s = setup(); const client = await s.connect(); const conversation = await client.open();
   if (boundary === "delegations") {
     for (let i = 0; i <= CONVERSATION_LIMITS.maxPendingNativeRequests; i++) conversation.session.emit({ kind: "unassigned_delegation", handle: `unassigned-${i}`, offsetMs: i * 1000 });
@@ -1159,6 +1164,12 @@ for (const boundary of ["count", "chars", "sequence", "delegations"] as const) t
   } else {
     const count = boundary === "count" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance + 1 : 9;
     for (let i = 0; i < count; i++) conversation.session.emit({ kind: "unassigned_input_fragment", sequence: i, text: boundary === "chars" ? "x".repeat(2000) : "x", sessionInterval: { startMs: i * 1000, endMs: i * 1000 + 100 } });
+  }
+  if (boundary === "count" || boundary === "chars") {
+    const expected=boundary === "count" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance+1 : 9;
+    await until(()=>client.frames("conversation_event").filter(f=>f.event.kind==="unassigned_input_fragment").length===expected);
+    expect(client.frames("conversation_closed")).toEqual([]);
+    expect(s.turns).toHaveLength(0);return;
   }
   await until(() => client.frames("conversation_closed").length > 0);
   expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: boundary === "sequence" ? "correlation" : "backpressure" });
@@ -1495,4 +1506,19 @@ test("correlated contextual recognition archives beyond review bounds without cr
  expect(s.turns[0]!.req.prompt).not.toContain("Observation 0:");
  expect(s.turns[0]!.req.prompt).toContain("Observation 139:");
  s.turns[0]!.answer("The mast is ready.");
+});
+
+
+test("out-of-order correlated review eviction follows source sequence without stopping exact events",async()=>{
+ const s=setup();const client=await s.connect();const conversation=await client.open();await client.capture(conversation,"mast");
+ const sequences=[139,...Array.from({length:139},(_,i)=>i)];
+ for(const sequence of sequences)conversation.session.emit({kind:"input_fragment",utteranceId:"mast",sequence,text:`mast-${sequence}`,finalization:"unknown",certainty:"unknown",origin:"unknown"});
+ await until(()=>client.frames("conversation_event").filter(f=>f.event.kind==="input_fragment").length===140);
+ const host=s.host.conversations as unknown as {conversations:Map<string,{epoch:{utterances:Map<string,{fragments:Map<number,unknown>;reviewIncomplete?:boolean}>}}>};
+ const review=host.conversations.get(conversation.id)!.epoch.utterances.get("mast")!;
+ expect([...review.fragments.keys()].sort((a,b)=>a-b)).toEqual(Array.from({length:128},(_,i)=>i+12));
+ expect(review.reviewIncomplete).toBe(true);
+ expect(client.frames("conversation_closed")).toEqual([]);
+ client.commit(conversation,"mast","incomplete-order","Typed tail");await until(()=>client.receipts("incomplete-order").length>0);
+ expect(client.last("incomplete-order").state).toBe("refused");expect(s.turns).toHaveLength(0);
 });

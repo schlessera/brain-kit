@@ -501,7 +501,7 @@ signatures (every public export and the types it is made of)
     }
   DialogueJournal (packages/ui-server/src/ws/dialogue.ts)
     export class DialogueJournal {
-        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner) => void);
+        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error") => void);
         open(input: DialogueOpen): Promise<DialogueOwner | undefined>;
         bind(conversationId: string, principalId: string, sessionId: string): void;
         voice(conversationId: string, evidence: Extract<DialogueEvidence, {

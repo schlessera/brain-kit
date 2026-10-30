@@ -400,6 +400,7 @@ for (const pendingCount of [200, 300])
     let visible: number[] = [],
       failures = 0,
       published = 0;
+    const causes:string[]=[];
     const journal = new DialogueJournal(
       {
         dialogueOpen: (input: DialogueOpen) => c.call("dialogueOpen", input),
@@ -414,7 +415,7 @@ for (const pendingCount of [200, 300])
           c.call("dialogueClose", conversationId, principalId, epoch, partial),
       } as import("../src/ws/session-catalog.js").SessionCatalog,
       () => published++,
-      () => failures++
+      (_owner,cause) => {failures++;causes.push(cause);}
     );
     try {
       await journal.open(opening);
@@ -441,6 +442,8 @@ for (const pendingCount of [200, 300])
         Array.from({ length: pendingCount }, (_, i) => i)
       );
       expect(failures).toBeGreaterThan(0);
+      expect(causes).toContain("storage_error");
+      expect(causes.includes("queue_pressure")).toBe(pendingCount>256);
       const rows = db
         .query("SELECT sequence FROM dialogue_records ORDER BY sequence")
         .all() as { sequence: number }[];
@@ -464,3 +467,26 @@ for (const pendingCount of [200, 300])
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+
+test("native pending pressure is distinct from storage failure and keeps its finite committed prefix", async()=>{
+ const {DialogueJournal}=await import("../src/ws/dialogue.js");
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-dialogue-pressure-"));
+ const db=createUiDb(join(dir,"ui.db")), writer=openSqliteWriter(db);
+ const c=writer.channel({url:writes.url,setup:writes.setup},{});
+ const controls=await import("./helpers/dialogue-test-writes.js");
+ const q=writer.channel({url:controls.url,setup:controls.setup},{});
+ const control=new Int32Array(new SharedArrayBuffer(8));
+ let hold:Promise<unknown>|undefined;const causes:string[]=[],visible:boolean[]=[];
+ const journal=new DialogueJournal({dialogueOpen:(input:DialogueOpen)=>c.call("dialogueOpen",input),dialogueAppend:(input:DialogueAppend)=>c.call("dialogueAppend",input)} as import("../src/ws/session-catalog.js").SessionCatalog,()=>{},(_owner,cause)=>causes.push(cause));
+ try{
+  await journal.open(opening);hold=q.call("hold",control);
+  const deadline=Date.now()+2000;while(!Atomics.load(control,1)){if(Date.now()>deadline)throw Error("writer did not hold");await Bun.sleep(1);}
+  for(let i=0;i<257;i++){const e=fragment(i).evidence;if(e.kind!=="voice")throw Error("voice required");journal.voice("ithaca",e,saved=>visible.push(saved));}
+  expect(causes).toEqual(["queue_pressure"]);
+  Atomics.store(control,0,1);Atomics.notify(control,0);await hold;await journal.settled();
+  expect(visible).toEqual([...Array(256).fill(true),false]);
+  expect(db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({n:256});
+  expect(causes).toEqual(["queue_pressure"]);
+ }finally{Atomics.store(control,0,1);Atomics.notify(control,0);await hold;await journal.settled();await q.close();await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
+});

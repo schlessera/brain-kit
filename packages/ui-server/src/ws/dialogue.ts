@@ -1,4 +1,5 @@
 /** Concrete host journal. Submission order is the shared SQLite writer's commit order. */
+import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   DialogueEvidence,
   DialoguePage,
@@ -18,7 +19,7 @@ export class DialogueJournal {
   constructor(
     private readonly catalog: SessionCatalog,
     private readonly publish: (page: DialoguePage, principalId: string) => void,
-    private readonly failed: (owner: DialogueOwner) => void
+    private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error") => void
   ) {}
   async open(input: DialogueOpen): Promise<DialogueOwner | undefined> {
     if (!this.catalog.dialogueOpen) return;
@@ -175,7 +176,7 @@ export class DialogueJournal {
     if (!this.catalog.dialogueAppend) return;
     const q = this.queues.get(owner.id) ?? { count: 0, bytes: 0 };
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
-    if (q.count >= 256 || q.bytes + bytes > 1024 * 1024) {
+    if (q.count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || q.bytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
       owner.coverage = "partial";
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"
@@ -183,7 +184,7 @@ export class DialogueJournal {
       const prior = [...this.pending];
       const done = Promise.allSettled(prior).then(() => after?.(false));
       this.track(done, owner);
-      this.failed(owner);
+      this.failed(owner, "queue_pressure");
       return;
     }
     q.count++;
@@ -233,7 +234,7 @@ export class DialogueJournal {
         this.failure ??= error;
         owner.coverage = "partial";
         this.pending.delete(done);
-        this.failed(owner);
+        this.failed(owner, "storage_error");
       }
     );
   }

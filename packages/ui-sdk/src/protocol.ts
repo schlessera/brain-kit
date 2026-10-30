@@ -1913,7 +1913,9 @@ export interface ConversationAudioFormat {
 }
 
 /**
- * Fixed per-conversation bounds. Exceeding one is never a silent drop: the
+ * Fixed working-memory bounds, separate from durable retention. Exceeding a review
+ * bound rolls its cache and prevents incomplete reviewed commits. Other bounds
+ * are never a silent drop: the
  * host refuses the commit with a `refused` work receipt, or closes the epoch
  * with reason `backpressure`, and says so.
  */
@@ -1930,6 +1932,10 @@ export const CONVERSATION_LIMITS = {
   maxUtteranceChars: 16_000,
   /** Characters of generated transcript one output record keeps. */
   maxGeneratedChars: 16_000,
+  /** Observations awaiting durable writes, or held as a volatile unsaved tail. Never a lifetime retention limit. */
+  maxPendingDialogueObservations: 256,
+  /** UTF-8 bytes awaiting durable writes (serialized evidence) or held as unsaved text. */
+  maxPendingDialogueBytes: 1_048_576,
   /** Characters of reviewed text in one `conversation_commit`. */
   maxCommitChars: 8_000,
   /** Committed work held by one conversation, the running item included. */
@@ -1945,7 +1951,9 @@ export const CONVERSATION_LIMITS = {
 } as const;
 
 /** The limits a host applies, as published on `conversation_opened`. */
-export type ConversationLimits = { -readonly [K in keyof typeof CONVERSATION_LIMITS]: number };
+type PendingDialogueLimit = "maxPendingDialogueObservations" | "maxPendingDialogueBytes";
+export type ConversationLimits = { -readonly [K in Exclude<keyof typeof CONVERSATION_LIMITS, PendingDialogueLimit>]: number }
+  & { [K in PendingDialogueLimit]?: number };
 
 /** Milliseconds from the start of an utterance or output stream. */
 export interface ConversationInterval {

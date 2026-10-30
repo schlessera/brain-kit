@@ -315,3 +315,31 @@ test("generated committed prefix and unsaved tail keep separate retention qualif
   expect(rows[0]!.output.unsavedGenerated).toBeUndefined();
  }finally{root.dispose();}
 });
+
+for (const providerId of ["gpt-live", "gemini-live"]) for (const kind of ["input_fragment", "unassigned_input_fragment"] as const)
+ test(`${providerId} ${kind}: retention splits readable groups and finish-only attachment`,()=>{
+  const root=createBrainUiRoot({storage:null});try{
+   const voice=root.connection.conversation.state;
+   const event=(sequence:number,text:string)=>kind==="input_fragment" ? {kind,utteranceId:"mast",sequence,text,finalization:"final" as const,certainty:"unknown" as const,origin:"unknown" as const} : {kind,sequence,text,timing:{kind:"unavailable" as const}};
+   const record=(sequence:number,text:string)=>({sequence:sequence+1,identity:`source-${sequence}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId,event:event(sequence,text)}});
+   const fragment=(sequence:number,text:string)=>({...event(sequence,text),conversationId:"ithaca",epoch:1,providerId,sessionId:"voyage",activation:1,contextual:true,unsaved:true as const});
+   voice.setState({dialogue:{voyage:{ownerId:"ithaca",sessionId:"voyage",generation:1,through:2,coverage:"partial",records:[record(0,"Saved."),record(1,"")]}},recognition:[fragment(2,"Unsaved."),fragment(3,"")]});
+   const rows=transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.kind==="recognition");
+   expect(rows.map(entryText)).toEqual(["Saved.","Unsaved."]);
+   expect(rows.map(e=>e.fragments.map(f=>f.sequence))).toEqual([[0,1],[2,3]]);
+   expect(rows.map(e=>e.fragments.every(f=>!!f.unsaved===!!e.fragments[0]!.unsaved))).toEqual([true,true]);
+   voice.setState({recognition:[fragment(2,"")]});
+   const saved=transcriptTimelineFor(root.stores.chat).state.getState().entries.find(e=>e.kind==="recognition");
+   expect(saved?.kind==="recognition" && saved.fragments.map(f=>f.sequence)).toEqual([0,1]);
+  }finally{root.dispose();}
+ });
+
+test("projection computes each session's observed prefix with linear archive visits",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  let sequenceReads=0;
+  const records=Array.from({length:200},(_,i)=>({get sequence(){sequenceReads++;return i+1;},identity:`source-${i}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId:"gpt-live",event:{kind:"unassigned_input_fragment" as const,sequence:i,text:"Saved.",timing:{kind:"unavailable" as const}}}}));
+  root.connection.conversation.state.setState({dialogue:{voyage:{ownerId:"ithaca",sessionId:"voyage",generation:1,through:200,coverage:"partial",records}},recognition:Array.from({length:200},(_,i)=>({kind:"unassigned_input_fragment" as const,sequence:i+200,text:"Unsaved.",conversationId:"ithaca",providerId:"gpt-live",epoch:1,sessionId:"voyage",activation:1,contextual:true,unsaved:true as const})),outputs:Array.from({length:200},(_,i)=>({conversationId:"ithaca",epoch:1,outputId:`reply-${i}`,sessionId:"voyage",generated:"Reply.",playback:"unknown" as const}))});
+  expect(sequenceReads).toBeLessThan(6000);
+  expect(transcriptTimelineFor(root.stores.chat).state.getState().entries.map(entryText).join("")).toContain("Unsaved.");
+ }finally{root.dispose();}
+});

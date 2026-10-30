@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3787-3793`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1873-1875`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3795-3801`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1875-1877`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2217,8 +2217,12 @@ There is no automatic age expiry, rolling archive eviction or per-chat lifetime
 character cap. Old native conversation/receipt/output cache bounds do not prune
 this archive. Pending writes are limited to 256 observations/1 MiB per owner;
 individual archive payloads are at most 32 KiB. Actual no-space/quota or bounded
-queue failure stops the unsafe live path with `DIALOGUE_STORAGE` and an unsaved-
-tail explanation, retaining the last committed prefix. It neither marks a manual
+queue failure stops the unsafe live path with an unsaved-tail explanation.
+`DIALOGUE_STORAGE` means a storage operation failed; `DIALOGUE_PENDING_PRESSURE`
+means observations outpaced the bounded pending-write queue, without implying
+that SQLite failed. Both stop new capture while already observed callbacks drain,
+retain their cause-specific recovery copy through epoch closure, and retain the
+committed prefix. It neither marks a manual
 mute nor claims host effects were undone. Clean close drains admitted writes;
 a crash can lose an uncommitted tail, not acknowledged retained text.
 
@@ -2279,7 +2283,7 @@ A text `conversation_event` may carry `retention: "unsaved"` only when the host
 observed that exact text but its SQLite write failed or exceeded the pending
 write bound. It retains the original current conversation/epoch/source identity;
 it is not a durable-history record, replay token, permission or task admission.
-`DIALOGUE_STORAGE` errors carry optional `historyOwnerId` to scope capture shutdown
+`DIALOGUE_STORAGE` and `DIALOGUE_PENDING_PRESSURE` errors carry optional `historyOwnerId` to scope capture shutdown
 to the affected owner. A foreign owner's failure must not mute the current chat.
 
 Storage failure freezes new host ingress/admission and stops local capture and
@@ -2314,3 +2318,19 @@ characters. Legacy reviewed-input limits, exact command correlation, native-ID
 and epoch replay fences, transport queues and native-request capacity guards are
 unchanged. Gemini contextual recognition remains unassigned; GPT correlation uses
 only its actual append-command identity, never timing or arrival guesses.
+
+
+The pending observation/byte bounds are centralized as
+`CONVERSATION_LIMITS.maxPendingDialogueObservations` (256) and
+`maxPendingDialogueBytes` (1,048,576). These optional advertised limit fields
+are additive: older opened profiles remain valid. The journal counts serialized
+evidence bytes; the client failure buffer counts UTF-8 text bytes. Neither is a
+lifetime archive limit. Per-utterance 128-fragment/16,000-character limits bound
+review context in both contextual and reviewed-only modes. Eviction marks
+correlated review incomplete and forbids a partial reviewed commit, rather than
+stopping archival capture. The client also bounds manual draft context by the
+commit-text budget, removes its incomplete automatic draft candidate and requires
+typed review; unassigned manual context rolls with an explicit review notice.
+This also applies when the catalog omits optional native task/epoch recovery.
+Recognition groups and finish-only attachment use source stream plus saved/unsaved
+state, so a failed mid-utterance suffix cannot inherit the prefix's retention claim.
