@@ -1331,6 +1331,42 @@ invalid one closes the epoch. `assertLiveConversationProvider` and
 `assertLiveConversationSession` are the registration checks. Client
 capture/playback and live qualification remain separate from this host contract.
 
+**Retained host results (additive, #3141).** The experimental SDK
+`ConversationResync` gains optional `results`, an array of
+`{ conversationId, epoch, requestId, turnId, facts }`. Existing providers may
+ignore it; callers omitting it retain receipt-only behavior. No client frame,
+wire schema, protocol revision, capability or receipt field changes. Result
+text stays host-only until supplied as historical input to a new provider
+session; `conversation_opened.resync` remains counts, not result text.
+
+The host retains completed backend text independently of generated voice
+paraphrases, original delivery acknowledgement and local playback. Each result
+keeps the existing 4,000 UTF-16 character bound (the live host uses prefix plus
+ellipsis); at most 16,000 characters survive per conversation. Oldest admitted
+completed results are evicted whole when this budget is exceeded. Receipt
+eviction also removes their result text; identity tombstones remain. No backend
+transcript is loaded to fill an absent or evicted result. In-progress, cancelled,
+error, refused and unknown outcomes supply state/reason only, never successful
+result facts. A completed effect with discarded or unknown delivery still has
+historical facts; that does not establish original speech, acceptance or
+comprehension.
+
+Both first-party adapters join facts only to an exact conversation/epoch/request/
+turn receipt from an earlier epoch, bound the input again and serialize it as
+historical data in the new session's user input. They send no old native response
+or executable task. Resync never changes earlier provider messages or repeats
+work. Host authorization and principal/conversation ownership checks govern
+resumption; native IDs may repeat in a later epoch without sharing task facts.
+
+Internal UI database migration `070_conversation_result_facts.sql` adds nullable
+`conversation_tasks.result_facts`. Existing rows recover without result context;
+new writes persist only completed, bounded text under the task's stored identity.
+Recovery applies the same budget and identity checks and preserves unknown
+acceptance after a pending delivery. This is an additive minor SDK change and
+internal storage upgrade; it changes no legacy client's required input.
+Provider semantic recall, actual audibility and device qualification remain
+separate evidence through #961/#3131.
+
 **Gemini adapter (additive, #958).**
 `createGeminiConversationProvider(apiKey: string): LiveConversationProvider`
 is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
@@ -1408,7 +1444,37 @@ It is displayed as an unsubmitted advisory request, bounded by
 `maxPendingNativeRequests` per epoch; capacity closes visibly. Explicit matched
 delegations retain their existing work path. Explicit mismatches still close.
 
-Unassigned recognition has a separate client review panel. “Review in composer”
+Recognized speech is readable by default in Chat's shared arrival timeline,
+labelled **Recognized speech · [actual service] · unverified**, separately from
+voice-service generated replies, contextual host tasks and reviewed submissions.
+This adds client presentation only: no wire event, authenticated user message,
+provider history, input/output pairing or durable recognition transcript is created.
+Unassigned `(conversationId, epoch, sequence)` and captured
+`(conversationId, epoch, utteranceId, sequence)` evidence have separate identity
+namespaces. The React root's transitive client state adds `recognition` evidence,
+`voiceDraft` provenance for the exact local draft revision, and optional source
+identity metadata. These are additive TypeScript state fields, recorded in the
+API report; no connection method, wire field or persisted transcript schema is
+added. Display ranks remain private to the root-owned timeline.
+Equal words and overlapping/late session intervals do not deduplicate
+or reorder content. Exact deltas append without inserted spaces; after intervening
+content a new arrival segment retains provenance. Duplicates do not append.
+Empty finish markers stay in recognition details without an empty bubble; native
+finish evidence is neither user finality nor permission authority. Timing unavailable
+and approximate provider intervals retain their actual meaning.
+
+Display evidence uses the existing fragment/character budgets, remains temporary,
+and is cleared on auth teardown; it is not restored from generated speech or
+inferred from a recovered draft. Explicit transfer/discard releases the corresponding
+text projection. Actual interim evidence does not survive Leave. Source eviction
+also releases display text and local anchors. UI windowing is separate from source
+retention. Stable local recognition anchors survive session adoption while retained,
+but have no durable deep-link guarantee. Both kinds of speech use the same Chat
+window, reading order and tail-follow controls as backend entries. Host result
+backlinks use exact request/turn evidence only and reveal retained windowed requests;
+missing request evidence is labelled unavailable.
+
+The optional review controls remain separate from task admission. “Review in composer”
 leaves voice and appends the exact text to the existing voice review area,
 preserving typed/captured draft text and prior review text. This explicit action
 sends nothing, fabricates no correlated commit and never associates a native
@@ -1896,15 +1962,52 @@ commit. Single-question answers use the existing answer queue; other card kinds
 retain their own controls. Backend text, progress and tool/card events continue
 through the ordinary chat pipeline while asynchronous voice work waits.
 
-Leave, hide, disconnect and unmount stop capture and discard local audio; retained
-review text belongs to its original composer draft. Late capture, opening, input,
-output and Send callbacks cannot target a replacement scope. Reconnect/resync
-never opens a microphone without Resume. A local reply cut flushes every queued
-source before remote lifecycle resolution; it is not evidence of remote output
-cancellation. Generated words and submitted input stay distinct, and playback
-without proven alignment reads as spoken portion unknown. Host terminal state
-makes unanswered question controls inert even without a tool result; local
-playback must also drain or be discarded before voice work can appear settled.
+The October 29 continuous-conversation ruling (#3053) replaces the previous
+capture-off/Resume guarantee. After Start, consent persists through routine
+speech, interruption, background tasks, automatic session adoption, visibility
+loss and recoverable disconnect/resync. Hide temporarily suspends capture/output;
+returning to the same scope restores capture after readiness and resync. The
+entry routing remains fixed when its task adopts a session; resolving the UI
+provider selection is not a new audio destination. Effective entry-profile
+metadata remains part of consent, including backend/model identity and removal
+from the roster. A genuine change stops capture and requires fresh disclosure
+and Start, even under the same profile ID. The host's echoed agent profile ID,
+when present, takes precedence over the effective pinned/selected profile at
+entry; later UI picker pins do not change that binding. No
+unavailable-period PCM is buffered or replayed. A changed destination/service or
+agent disclosure requires a fresh Start. Manual Mute persists through every
+recovery; Leave, authentication loss, explicit session selection and actual
+control-owner unmount end capture. Failed device/permission, invalid correlation,
+unsafe capacity and failed opening remain visible genuine failure boundaries.
+Late callbacks cannot establish consent or transfer scope. A pending opening
+belongs to its explicit entry, independently of microphone-callback generation.
+Hiding may retire PCM callbacks while the same-entry opened/ready/resync frames
+remain valid with capture off. Foreground recovery reuses that conversation;
+Leave/auth loss retires the entry. Foreign, duplicate or stale responses cannot
+consume the current opening request or authorize capture. Mute emits an endpoint
+only for a ready live microphone, never for an ended epoch during replacement.
+
+Ordinary speech and explicit Stop reply flush all scheduled local sources without
+closing the speech epoch or cancelling host work. The triggering microphone PCM
+is forwarded in order. Provider interruption notifications likewise suppress
+output without muting capture. Output is dropped while the user speaks, then
+checked for 300 ms local quiet, with a fixed three-second deadline from endpoint.
+Nonzero PCM resets the quiet interval; digital zero and packet gaps do not.
+The qualifying interval is discarded, never queued. Timeout leaves **output**
+muted with explicit Recover reply audio; capture remains available. A new utterance
+starts a fresh check. These are bounded local heuristics, not qualified acoustic
+timings: fast reply heads can be dropped, and delayed interrupted audio can play
+after recovery. Silence is no remote cancellation acknowledgement, answer boundary,
+input attribution, or host completion. No provider capability is promoted.
+
+Generated words, submitted input and played samples stay distinct; missing
+alignment remains spoken portion unknown. Existing host serialization, real
+terminal receipts, question binding, screen permissions and unknown-attribution
+manual review remain authoritative. Contextual recognition is a bounded recent
+context window; it is not an indefinitely retained manual-review draft. Legacy
+unsubmitted review text is preserved on capacity failure. Identity/replay ledgers
+remain bounded and fail closed when exhausted; receipt eviction never permits
+replay. No host effect is replayed on reconnect.
 
 The 320 px strip retains 44 px controls and readable light/dark text. The shared
 working/pending row collapses during voice; on short screens it hides first when

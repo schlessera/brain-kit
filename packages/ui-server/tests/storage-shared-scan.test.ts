@@ -39,26 +39,87 @@ function running(pid: number, start: string) {
   if (!processAlive(pid, start)) return false;
   try { const value = readFileSync(`/proc/${pid}/stat`, "utf8"); return value.slice(value.lastIndexOf(")") + 2).split(" ")[0] !== "Z"; } catch { return false; }
 }
+function collectingChild(root: string, mode = "collect", barrier = "") {
+  const process = child(root, mode, barrier);
+  let output = "";
+  const reader = (async () => { for await (const bytes of process.stdout) output += Buffer.from(bytes).toString("utf8"); })();
+  const errors = new Response(process.stderr).text();
+  const deadline = Date.now() + 10_000;
+  return {
+    process,
+    async waitFor(predicate: () => boolean) {
+      while (!predicate() && process.exitCode === null && Date.now() < deadline) await sleep(10);
+      expect(predicate(), "STORAGE_SHARED_CALLER_STATE").toBe(true);
+    },
+    ready() { return output.includes("READY\n"); },
+    started() { return output.includes('"started":'); },
+    start() { process.stdin.write("collect\n"); process.stdin.end(); },
+    async result() {
+      expect(await process.exited, await errors).toBe(0); await reader;
+      return JSON.parse(output.trim().split("\n").at(-1)!) as { requested: string; id: string; collections: number; names: string[]; failure: unknown };
+    },
+    async close() {
+      if (process.exitCode === null) { process.kill("SIGTERM"); process.stdin.end(); }
+      const timeout = setTimeout(() => { if (process.exitCode === null) process.kill("SIGKILL"); }, 1500);
+      try { await process.exited; await Promise.allSettled([reader, errors]); }
+      finally { clearTimeout(timeout); }
+    },
+  };
+}
+function released(f: ReturnType<typeof fixture>) {
+  expect(f.db.query("SELECT job_id, workers_json FROM storage_scan_leases").get()).toEqual({ job_id: null, workers_json: "[]" });
+}
 test("two native processes share one collection and the same complete cached pages", async () => {
-  const f = fixture(), children = [child(f.root, "collect"), child(f.root, "collect")];
-  const outputs: string[] = ["", ""], readers = children.map((value, index) => (async () => { for await (const bytes of value.stdout) outputs[index] += Buffer.from(bytes).toString("utf8"); })());
-  const errors = children.map(value => new Response(value.stderr).text());
+  const f = fixture(), barrier = join(f.root, "release-owner");
+  const owner = collectingChild(f.root, "collect-held", barrier), follower = collectingChild(f.root);
   try {
-    const deadline = Date.now() + 10_000;
-    while (!outputs.every(value => value.includes("READY\n")) && Date.now() < deadline) await sleep(10);
-    expect(outputs.every(value => value.includes("READY\n")), "STORAGE_SHARED_BOTH_CALLERS_READY").toBe(true);
-    for (const value of children) { value.stdin.write("collect\n"); value.stdin.end(); }
-    const exits = await Promise.all(children.map(value => value.exited)); await Promise.all(readers);
-    expect(exits, (await Promise.all(errors)).join("\n")).toEqual([0, 0]);
-    const results = outputs.map(value => JSON.parse(value.trim().split("\n").at(-1)!));
+    await owner.waitFor(() => owner.ready()); await follower.waitFor(() => follower.ready());
+    owner.start(); await owner.waitFor(() => owner.started());
+    const lease = f.db.query("SELECT job_id, pid, shared FROM storage_scan_leases").get() as { job_id: string; pid: number; shared: number };
+    expect(lease.job_id).toBeString(); expect(lease.pid).toBe(owner.process.pid); expect(lease.shared).toBe(0);
+    follower.start(); await follower.waitFor(() => follower.started());
+    expect(f.db.query("SELECT job_id, pid, shared FROM storage_scan_leases").get(), "STORAGE_SHARED_FOLLOWER_JOINED_BEFORE_RELEASE").toEqual({ ...lease, shared: 1 });
+    writeFileSync(barrier, "release\n");
+    const results = await Promise.all([owner.result(), follower.result()]);
     expect(results[0].id, "STORAGE_SHARED_ONE_COLLECTION").toBe(results[1].id);
     expect(results.map(value => value.collections).reduce((sum, value) => sum + value, 0)).toBe(1);
+    expect(results.map(value => value.requested)).toEqual(results.map(value => value.id));
+    expect(results.map(value => value.failure)).toEqual([null, null]);
     expect(results[0].names).toEqual(results[1].names); expect(results[0].names).toContain("Odysseus.md");
-    expect(f.db.query("SELECT job_id, workers_json FROM storage_scan_leases").get()).toEqual({ job_id: null, workers_json: "[]" });
-  } finally {
-    for (const value of children) if (value.exitCode === null) value.kill("SIGKILL");
-    await Promise.all(children.map(value => value.exited)); await Promise.allSettled([...readers, ...errors]);
-  }
+    released(f);
+  } finally { await Promise.all([owner.close(), follower.close()]); }
+});
+test("serial native forced scans create distinct collections with complete matching pages", async () => {
+  const f = fixture(), first = collectingChild(f.root), second = collectingChild(f.root);
+  try {
+    await first.waitFor(() => first.ready()); await second.waitFor(() => second.ready());
+    first.start(); const before = await first.result(); released(f);
+    second.start(); const after = await second.result();
+    expect(before.id, "STORAGE_SERIAL_FORCED_SCANS_ARE_FRESH").not.toBe(after.id);
+    expect([before.collections, after.collections]).toEqual([1, 1]);
+    expect([before.requested, after.requested]).toEqual([before.id, after.id]);
+    expect([before.failure, after.failure]).toEqual([null, null]);
+    expect(before.names).toEqual(after.names); expect(before.names).toContain("Odysseus.md");
+    released(f);
+  } finally { await Promise.all([first.close(), second.close()]); }
+});
+test("cancelling a native owner held at the overlap barrier joins it and releases its lease", async () => {
+  const f = fixture(), owner = collectingChild(f.root, "collect-held", join(f.root, "never-release"));
+  try {
+    await owner.waitFor(() => owner.ready()); owner.start(); await owner.waitFor(() => owner.started());
+    expect(f.db.query("SELECT pid FROM storage_scan_leases WHERE job_id IS NOT NULL").get()).toEqual({ pid: owner.process.pid });
+    await owner.close();
+    expect(owner.process.exitCode).not.toBe(0);
+    released(f);
+  } finally { await owner.close(); }
+});
+test("an unreleased native overlap barrier times out and releases its lease", async () => {
+  const f = fixture(), owner = collectingChild(f.root, "collect-held", join(f.root, "never-release"));
+  try {
+    await owner.waitFor(() => owner.ready()); owner.start(); await owner.waitFor(() => owner.started());
+    expect(await owner.process.exited).not.toBe(0);
+    released(f);
+  } finally { await owner.close(); }
 });
 test("uncontended and joined in-process operation requests take one scan without a transfer cache", async () => {
   const f = fixture(); let collected = 0;

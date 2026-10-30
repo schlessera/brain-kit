@@ -81,7 +81,7 @@ test("a changed foreign leaf retains browser inputs; shared specs and every sour
   write(root, layout, "// changed layout-only assertion\n"); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).fingerprint).toBe(first.fingerprint);
   const baseline = checkout(root).sha;
-  for (const file of [visual, shared, "scripts/ci-proof.ts", "packages/core/fixtures/corpus/input.md", "bun.lock"]) {
+  for (const file of [visual, shared, "packages/ui-kit/vite.config.ts", "scripts/ci-proof.ts", "packages/core/fixtures/corpus/input.md", "bun.lock"]) {
     write(root, file, "changed\n"); commit(root);
     expect(proofInputs(root, "browser", inventory, runner).fingerprint, file).not.toBe(first.fingerprint);
     git(root, "reset", "--hard", baseline); git(root, "clean", "-fd");

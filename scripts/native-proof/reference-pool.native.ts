@@ -8,6 +8,8 @@ import { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server
 import { reservePhysical } from "../../packages/ui-sdk/src/server/native-reference-pool.js";
 import type { NativePoolRecord, NativePoolStatus } from "../../packages/ui-sdk/src/server/native-brain-manager-protocol.js";
 
+import { settledWorktreeRelease } from "./reference-worktree-release.js";
+
 const MIB = 1024 ** 2, POOL = "/reference-pool", ARTIFACTS = process.env.BRAIN_REFERENCE_POOL_ARTIFACTS ?? "/proof";
 const LEDGER = "/native-backing/ledger/headroom.json";
 const receipts: unknown[] = [];
@@ -649,9 +651,14 @@ const shapes = await create("staging", 32 * MIB);
     expect((await records()).find(record => record.id === edited.id)?.access, "REFERENCE_WORKTREE_NATIVE_PARKED_AFTER_TURN").toBeNull();
     expect((await records()).filter(record => record.purpose === "checkpoint" && record.state === "sealed" && record.from === edited.id).length,
       "REFERENCE_WORKTREE_NATIVE_JOURNAL_CHECKPOINTS_RELEASED").toBe(1);
+    const receipt = (id: string) => db.query("SELECT state, trigger FROM reference_worktree_cleanups WHERE worktree_id = ?").get(id) as { state: string; trigger: string } | null;
+    const beforeRelease = async (id: string) => ({ record: (await records()).find(record => record.id === id)!, row: worktrees.inventory().find(entry => entry.row.id === id)!.row });
+    const settleRelease = (before: Awaited<ReturnType<typeof beforeRelease>>, cleanup: Parameters<typeof settledWorktreeRelease>[2], label: string) =>
+      settledWorktreeRelease({ db, worktrees, records, note }, before, cleanup, label);
+    const editedBefore = await beforeRelease(edited.id);
     const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id });
     note("worktree-released", { cleanup: released.cleanup });
-    expect(released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 3, eligible: false,
+    expect(await settleRelease(editedBefore, released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED"), "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 3, eligible: false,
       sample: ["odyssey", "odyssey/argos.md", "odyssey/book-0/line-0.md"] });
     // Reading is not work: access-time updates never make a worktree ineligible.
     const read = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
@@ -661,10 +668,10 @@ const shapes = await create("staging", 32 * MIB);
     await journal.finish("turn-18-read");
     expect(rows("turn-18-read"), "REFERENCE_WORKTREE_NATIVE_READS_NOT_JOURNALED").toEqual([]);
     await worktrees.closeGeneration(second.id);
-    expect((await worktrees.release({ worktreeId: read.id, principalId: penelope.id })).cleanup, "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK")
+    const readBefore = await beforeRelease(read.id);
+    expect(await settleRelease(readBefore, (await worktrees.release({ worktreeId: read.id, principalId: penelope.id })).cleanup, "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK"), "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK")
       .toMatchObject({ owner: "none", work: "none", changedPaths: 0, eligible: true });
     // #2431: release removed the clean worktree, credited only on the pool's observed reclamation.
-    const receipt = (id: string) => db.query("SELECT state, trigger FROM reference_worktree_cleanups WHERE worktree_id = ?").get(id) as { state: string; trigger: string } | null;
     for (let attempt = 0; attempt < 10 && receipt(read.id)?.state !== "reclaimed"; attempt++) { sync(); await client.poolStatus(); await worktrees.reconcile(); }
     note("worktree-clean-removed", { receipt: receipt(read.id), record: (await records()).find(record => record.id === read.id) });
     expect({ receipt: receipt(read.id), state: (await records()).find(record => record.id === read.id)?.state }, "REFERENCE_WORKTREE_NATIVE_CLEAN_REMOVED")
@@ -677,9 +684,10 @@ const shapes = await create("staging", 32 * MIB);
     expect(sandbox(third.path, `cd /tmp/brain-worktrees/${swapped.id}/odyssey && mv book-2 swap && mv book-3 book-2 && mv swap book-3 && echo SWAPPED`).trim(), "REFERENCE_WORKTREE_NATIVE_SWAPPED").toBe("SWAPPED");
     await journal.finish("turn-18-swap");
     await worktrees.closeGeneration(third.id);
+    const swappedBefore = await beforeRelease(swapped.id);
     const swapFacts = (await worktrees.release({ worktreeId: swapped.id, principalId: penelope.id })).cleanup;
     note("worktree-swap", { cleanup: swapFacts });
-    expect(swapFacts, "REFERENCE_WORKTREE_NATIVE_SWAP_IS_WORK").toMatchObject({ owner: "none", work: "unpreserved", eligible: false });
+    expect(await settleRelease(swappedBefore, swapFacts, "REFERENCE_WORKTREE_NATIVE_SWAP_IS_WORK"), "REFERENCE_WORKTREE_NATIVE_SWAP_IS_WORK").toMatchObject({ owner: "none", work: "unpreserved", eligible: false });
     // #2431: retained work waits for human review, which removes exactly the reviewed worktree.
     const { createReferenceWorktreeHygiene } = await import("../../packages/ui-server/src/brain/reference-worktree-hygiene.js");
     const { createHygieneReview } = await import("../../packages/ui-server/src/inbox/hygiene-review.js");

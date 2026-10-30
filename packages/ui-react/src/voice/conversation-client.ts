@@ -1,3 +1,4 @@
+import { createConversationRecovery } from "./conversation-recovery.js";
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
@@ -6,11 +7,13 @@ import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
+  providerId?: string;
   conversationId: string;
   sessionId: string | null;
 }
 
 export interface UnassignedRecognition {
+  utteranceId?: string;
   /** Ephemeral task context, separate from retained manual-review candidates. */
   taskContext?: boolean;
   sessionId: string | null;
@@ -21,6 +24,24 @@ export interface UnassignedRecognition {
   sessionInterval?: { startMs: number; endMs: number };
   timing?: { kind: "unavailable" };
   finalization?: "final" | "unknown";
+}
+
+/** Bounded local source evidence; never a submitted chat message or persisted history. */
+export type ConversationRecognition = Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }> & {
+  sessionId: string | null;
+  conversationId: string;
+  epoch: number;
+  providerId: string;
+  activation: number;
+  moved?: true;
+  contextual: boolean;
+};
+export function recognitionIdentity(f: ConversationRecognition) {
+  return JSON.stringify(["recognition", f.conversationId, f.epoch, f.kind,
+    f.kind === "input_fragment" ? f.utteranceId : null, f.sequence]);
+}
+export function conversationService(providerId: string) {
+  return providerId === "gemini-live" ? "Gemini Live" : providerId === "gpt-live" ? "GPT-Live" : providerId;
 }
 
 export interface ConversationClientState {
@@ -35,29 +56,44 @@ export interface ConversationClientState {
   sessionId: string | null;
   agentProviderId: string | null;
   text: string;
+  voiceDraft: { id: string; edit: number } | null;
   notice: string;
   announcement: string;
   playing: boolean;
+  outputRecovery: "audible" | "speaking" | "checking" | "muted";
   work: Record<string, ConversationWorkReceipt>;
   outputs: ConversationClientOutput[];
   unassigned: UnassignedRecognition[];
+  recognition: ConversationRecognition[];
   unassignedWork: number;
+}
+
+// Local presentation metadata is neither wire state nor a public output field.
+const restoredOutputs = new WeakSet<ConversationClientOutput>();
+export const isRestoredConversationOutput = (output: ConversationClientOutput) => restoredOutputs.has(output);
+function outputInSession(output: ConversationClientOutput, sessionId: string) {
+  const next = { ...output, sessionId };
+  if (restoredOutputs.has(output)) restoredOutputs.add(next);
+  return next;
 }
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
 export function createConversationClient(root: BrainUiServices, send: (message: ClientMessage) => boolean, answer: (sessionId: string | null, text: string) => boolean) {
-  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, sessionId: null, agentProviderId: null, text: "", notice: "", announcement: "", playing: false, work: {}, outputs: [], unassigned: [], unassignedWork: 0 }));
+  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0 }));
   let generation = 0;
   let disposed = false;
   let requested = false;
   let closedNotice = "";
   let openingId: string | undefined;
-  let openingGeneration = 0;
+  // Capture callbacks and opening ownership have different lifetimes: hiding
+  // retires a microphone callback, never a same-entry opening request.
+  let entryLifetime = 0;
+  let openingEntry = 0;
+  let entryProfileId: string | null = null;
   let ready = false;
   let resync = 0;
   let consent = false;
   let agreedDisclosure: string | undefined;
-  let stopFence = false;
   let draftId: string | null = null;
   let savedVoice = "";
   let mic: ReturnType<typeof openConversationMicrophone> | undefined;
@@ -69,6 +105,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let hold: ReturnType<typeof setTimeout> | undefined;
   let finalization: ReturnType<typeof setTimeout> | undefined;
   let lastInput: Extract<ConversationWireEvent, { kind: "input_fragment" }> | undefined;
+  // The host forwards unassigned sequence in strict arrival order. One scalar
+  // fences evicted replay without an ever-growing contextual-epoch identity set.
+  let unassignedThrough = -1;
+  // Captured identities keep the existing finite capture/fragment limits.
+  const seenRecognition = new Set<string>();
   const retiredInputs = new Set<string>();
   const capturedInputs = new Set<string>();
   const manualReview = new Set<string>();
@@ -80,6 +121,60 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const announce = (announcement: string) => state.setState({ announcement });
   const localTones = new Set<string>();
   let playback = makePlayback();
+  const recovery = createConversationRecovery();
+  let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  let controlOwners = 0;
+  function resetRecovery() {
+    clearTimeout(recoveryTimer); recoveryTimer = undefined;
+    recovery.reset(); state.setState({ outputRecovery: "audible" });
+  }
+  function checkRecovery() {
+    clearTimeout(recoveryTimer); recoveryTimer = undefined;
+    const phase = recovery.poll(performance.now());
+    state.setState({ outputRecovery: phase });
+    if (phase === "audible") {
+      state.setState({ notice: "Reply audio recovered; delayed interrupted audio may still play." });
+      playback.quiet(true);
+    } else if (phase === "muted") {
+      state.setState({ notice: "Reply audio is muted. Recover reply audio to listen; the microphone is unchanged." });
+    } else if (phase === "checking") recoveryTimer = setTimeout(checkRecovery, 25);
+  }
+  function suppressOutput(speaking = false) {
+    clearTimeout(recoveryTimer); recoveryTimer = undefined;
+    recovery.suppress(speaking, performance.now());
+    state.setState({ outputRecovery: recovery.phase, notice: "Reply audio paused locally; remote reply outcome is unknown." });
+    // Flush, never retire an epoch-wide output identity or cancel host work.
+    playback.flush(); playback.quiet(false);
+    if (!speaking) recoveryTimer = setTimeout(checkRecovery, 25);
+  }
+  function retainContext(fragment: UnassignedRecognition) {
+    const old = state.getState().unassigned;
+    const review = old.filter(f => !f.taskContext);
+    const context = [...old.filter(f => f.taskContext), fragment];
+    let chars = context.reduce((n, f) => n + f.text.length, 0);
+    while (context.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance || chars > CONVERSATION_LIMITS.maxUtteranceChars) chars -= context.shift()!.text.length;
+    state.setState({ unassigned: [...review, ...context] });
+  }
+  function retainRecognition(event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }>) {
+    const s = state.getState(), p = scope()!;
+    const fragment: ConversationRecognition = { ...event, sessionId: s.sessionId, conversationId: p.conversationId,
+      epoch: p.epoch, providerId: p.providerId, activation: entryLifetime, contextual: p.capabilities.contextualTasks === "supported" };
+    const key = recognitionIdentity(fragment);
+    if (event.kind === "unassigned_input_fragment") {
+      if (event.sequence <= unassignedThrough) return false;
+      unassignedThrough = event.sequence;
+    } else {
+      if (seenRecognition.has(key)) return false;
+      seenRecognition.add(key);
+    }
+    const recognition = [...s.recognition, fragment];
+    let chars = recognition.reduce((n, f) => n + f.text.length, 0);
+    const allowance = event.kind === "unassigned_input_fragment" && !fragment.contextual ? 1 : 0;
+    while (recognition.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance + allowance
+      || chars > CONVERSATION_LIMITS.maxUtteranceChars + allowance * CONVERSATION_LIMITS.maxFragmentChars) chars -= recognition.shift()!.text.length;
+    state.setState({ recognition });
+    return true;
+  }
   const permissions = createConversationPermissions(root, send, () => ({ active: state.getState().active, sessionId: state.getState().sessionId, micOn: state.getState().micOn, isolated: scope()?.capabilities.echoIsolatedInput === "supported", quiet: !state.getState().micOn || ended && !hold }), () => {
     playback.flush();
     const outputId = crypto.randomUUID(); localTones.add(outputId);
@@ -97,19 +192,36 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     if (playbackState !== "played") state.setState({ notice: "spoken portion unknown" });
   }, () => refresh()); }
-  function updateOutput(epoch: number, outputId: string, patch: Partial<ConversationOutputRecord>) {
+  function updateOutput(epoch: number, outputId: string, patch: Partial<ConversationOutputRecord>, restored = false) {
     const s = state.getState();
     const p = scope();
     if (!p) return;
     const old = s.outputs.find((output) => output.conversationId === p.conversationId && output.epoch === epoch && output.outputId === outputId);
-    const next: ConversationClientOutput = { conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
+    const next: ConversationClientOutput = { providerId: p.providerId, conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
+    if (restored && !old || old && restoredOutputs.has(old)) restoredOutputs.add(next);
     state.setState({ outputs: old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next].slice(-128) });
   }
   function disclosureKey(profile: ServerConversationOpened) {
-    const providers = root.stores.provider.getState();
-    const selected = providers.pinnedId ?? providers.selectedId;
-    return JSON.stringify([profile.providerId, profile.disclosure, root.apiBase(), selected, providers.available.find((provider) => provider.id === selected)]);
+    // Compare the effective profile disclosed at entry, not a later picker pin
+    // from automatic task/session adoption. Same-ID metadata changes and removal
+    // still invalidate consent. Sort fields so roster serialization order does not.
+    const effectiveId = profile.agentProviderId ?? entryProfileId;
+    const entryProfile = root.stores.provider.getState().available.find(p => p.id === effectiveId);
+    return JSON.stringify([profile.providerId, profile.disclosure, root.apiBase(), entryProfileId, effectiveId,
+      entryProfile ? Object.entries(entryProfile).sort(([a], [b]) => a.localeCompare(b)) : null]);
   }
+  function requireCurrentDisclosure() {
+    const profile = scope();
+    if (!state.getState().active || !profile || agreedDisclosure === undefined || agreedDisclosure === disclosureKey(profile)) return false;
+    consent = false;
+    if (ready && mic) endpoint(generation);
+    clearTimers(); resetRecovery();
+    generation++; state.setState({ token: generation }); stopMic(); saveDraft();
+    playback.flush(); playback.quiet(false);
+    state.setState({ disclosureOpen: true, notice: "The voice disclosure changed. Review it and select Start. Microphone off." });
+    return true;
+  }
+
   function refresh() {
     const s = state.getState();
     const chat = root.stores.chat.getState();
@@ -117,10 +229,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const working = !!buffer?.isStreaming || Object.values(s.work).some((work) => work.state === "queued" || work.state === "running");
     const question = buffer?.askUser;
     const answering = question && !question.cancelled && !question.answers && !question.order && !question.formAnswers && question.questions.length === 1 && !question.list && !question.rank && !question.form;
-    if (stopFence && ready && resync === 0 && !working) stopFence = false;
     const playing = playback.playingIds().some(id => !localTones.has(id));
-    state.setState({ playing, interaction: stopFence ? "Checking whether the reply stopped"
-      : playing ? "Speaking" : answering ? "Answering question" : s.text ? (hold ? "Sending soon" : "Review before sending") : working || playback.pending() ? "Working" : "Listening" });
+    state.setState({ playing, interaction: playing ? "Speaking" : answering ? "Answering question" : s.text ? (hold ? "Sending soon" : "Review before sending") : working || playback.pending() ? "Working" : "Listening" });
   }
   function clearTimers() { clearTimeout(silence); clearTimeout(hold); clearTimeout(finalization); silence = hold = finalization = undefined; }
   function stopMic() { mic?.stop(); mic = undefined; state.setState({ micOn: false }); }
@@ -135,6 +245,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const prefix = savedVoice && old.endsWith(savedVoice) ? old.slice(0, -savedVoice.length).trimEnd() : old;
     const next = [prefix, text].filter(Boolean).join("\n\n");
     if (next !== old) drafts.edit(id, state.getState().sessionId, { text: next });
+    const retained = root.stores.drafts.getState().drafts[id];
+    state.setState({ voiceDraft: text && retained ? { id, edit: retained.edit } : null });
     savedVoice = text;
   }
   function removeSavedDraft() {
@@ -144,11 +256,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const old = drafts.drafts[id]?.text ?? "";
     if (old.endsWith(savedVoice)) drafts.edit(id, state.getState().sessionId, { text: old.slice(0, -savedVoice.length).trimEnd() });
     savedVoice = "";
+    state.setState({ voiceDraft: null });
   }
   function pause(lost = false, resumable = true, notify = true) {
     generation++; state.setState({ token: generation });
     permissions.lost();
-    clearTimers();
+    clearTimers(); resetRecovery();
     stopMic();
     saveDraft();
     playback.cut();
@@ -158,6 +271,16 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     ready = false; consent = false; requested = false;
     state.setState({ connection: lost ? "Speech lost" : "Reconnecting", notice: closedNotice || (lost ? "Speech lost. Microphone off; reply outcome unknown until reconnect." : "Microphone off. Resume when voice is ready.") });
     announce(lost ? "Speech lost. Chat is still connected." : "Microphone off");
+  }
+  // Suspend the unavailable transport, never consent. Drop PCM rather than
+  // accumulating disconnected speech for replay. A new disclosed epoch gates capture.
+  function suspend() {
+    if (!state.getState().active) return;
+    const retainedConsent = consent;
+    pause(true);
+    openingId = undefined;
+    consent = retainedConsent;
+    state.setState({ notice: closedNotice || (retainedConsent ? "Voice temporarily unavailable. Listening will recover in the same disclosed scope." : "Voice temporarily unavailable. Microphone remains muted.") });
   }
   function closeDiagnostic(reason: ServerConversationClosed["reason"]) {
     // Only local fixed classes survive an epoch closure. Remote message text
@@ -178,32 +301,33 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   function leave() {
     clearClosedNotice();
     if (!state.getState().active) return;
+    entryLifetime++;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
-    state.setState({ active: false, text: "", disclosureOpen: false });
+    state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.finalization !== "interim") }));
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
   }
   function startEpoch() {
-    if (disposed || !state.getState().active || requested || openingId || root.stores.connection.getState().wsStatus !== "connected") return;
-    const retained = state.getState().unassigned;
+    if (disposed || !state.getState().active || requested || openingId || (typeof document !== "undefined" && document.hidden) || root.stores.connection.getState().wsStatus !== "connected") return;
+    const retained = state.getState().unassigned.filter(f => !f.taskContext);
     if (retained.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || retained.reduce((n, f) => n + f.text.length, 0) >= CONVERSATION_LIMITS.maxUtteranceChars) {
       state.setState({ notice: "Recognition is full. Review it in the composer before restarting voice." }); return;
     }
     clearClosedNotice();
     requested = true; ready = false; resync = 0; generation++; state.setState({ token: generation });
-    sequence = 0; utterance = null; ended = false; clearTimers();
+    sequence = 0; utterance = null; ended = false; clearTimers(); resetRecovery();
     const s = state.getState();
-    openingId = crypto.randomUUID(); openingGeneration = generation;
+    openingId = crypto.randomUUID(); openingEntry = entryLifetime;
     send({ type: "conversation_start", contextualTasks: true, requestId: openingId, ...(!s.sessionId && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId ? { sessionId: s.sessionId } : {}) });
   }
   async function capture() {
     const profile = scope();
-    if (!state.getState().active || !consent || !profile || mic) return;
+    if (requireCurrentDisclosure()) return;
+    if (!state.getState().active || !consent || !profile || mic || (typeof document !== "undefined" && document.hidden)) return;
     const reason = state.getState().disclosureOpen ? "Review the voice service disclosure. Microphone off."
       : state.getState().connection !== "Connected" ? "Waiting for the voice connection. Microphone off."
       : !ready ? "Waiting for voice readiness. Microphone off."
-      : resync !== 0 ? "Synchronizing voice. Microphone off."
-      : stopFence ? "Checking whether the reply stopped. Microphone off." : "";
+      : resync !== 0 ? "Synchronizing voice. Microphone off." : "";
     if (reason) { state.setState({ notice: reason }); return; }
     const own = generation;
     const input = inputFormat;
@@ -215,7 +339,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         finalAfterSpeech = false;
         lastSpeech = performance.now();
         clearTimeout(hold); hold = undefined;
-        if (playback.playingIds().some(id => !localTones.has(id))) { stopReply(); return; }
+        if (playback.playingIds().some(id => !localTones.has(id)) || recovery.phase !== "audible") suppressOutput(true);
         if (playback.pending()) playback.flush();
         playback.quiet(false);
         if (!utterance || ended) { if (capturedInputs.size >= 4096) { pause(true); state.setState({ notice: "Restart voice to continue this long conversation." }); return; } utterance = crypto.randomUUID(); capturedInputs.add(utterance); ended = false; }
@@ -225,7 +349,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (!utterance || ended) return;
       let binary = "";
       for (const byte of pcm) binary += String.fromCharCode(byte);
-      if (!send({ type: "conversation_audio", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance, sequence: sequence++, rate: input.sampleRate, pcm: btoa(binary) })) pause(true);
+      if (!send({ type: "conversation_audio", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance, sequence: sequence++, rate: input.sampleRate, pcm: btoa(binary) })) { suspend(); startEpoch(); }
     }, () => {
       if (!current(own) || mic !== captureSession) return;
       state.setState({ micOn: true, notice: "" }); playback.quiet(true); announce("Microphone on"); refresh();
@@ -242,10 +366,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   function endpoint(own: number) {
     if (!current(own) || !utterance || ended) return;
-    ended = true; silence = undefined;
+    ended = true; clearTimeout(silence); silence = undefined;
     const profile = scope()!;
     send({ type: "conversation_endpoint", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance });
-    playback.quiet(!trustworthy());
+    if (recovery.phase === "speaking") { recovery.endpoint(performance.now()); checkRecovery(); }
+    else if (recovery.phase === "audible") playback.quiet(!trustworthy());
     if (profile.capabilities.contextualTasks !== "supported") maybeHold(own);
     permissions.quiet();
     const endedUtterance = utterance;
@@ -272,8 +397,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const s = state.getState();
     const profile = scope();
     if (!current(own) || !profile || !ready || resync || !s.text.trim() || !lastInput || s.interaction === "Checking whether the reply stopped") return false;
-    clearTimers();
-    if (!ended && utterance) { ended = true; send({ type: "conversation_endpoint", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance }); }
+    // Manual review ends speech through the same bounded recovery transition.
+    // Cancel review timers after endpoint(), which may have scheduled them.
+    endpoint(own); clearTimers();
     const text = s.text.trim();
     for (const id of fragments.keys()) retiredInputs.add(id);
     if (answer(s.sessionId, text)) { removeSavedDraft(); fragments.clear(); state.setState({ text: "", interaction: "Answering question" }); lastInput = undefined; return true; }
@@ -282,7 +408,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const chat = root.stores.chat.getState();
     const draftCorrelation = s.sessionId ? undefined : chat.startDraftTurn();
     requests.set(requestId, { sessionId: s.sessionId, composerDraftId: draftId, conversationId: profile.conversationId, epoch: profile.epoch, text, ...(draftCorrelation ? { draftCorrelation } : {}) });
-    if (!send({ type: "conversation_commit", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: lastInput.utteranceId, requestId, text })) { pause(true); return false; }
+    if (!send({ type: "conversation_commit", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: lastInput.utteranceId, requestId, text })) { suspend(); startEpoch(); return false; }
     if (s.sessionId) root.stores.followUp.getState().addLocal(s.sessionId, { requestId, text, source: "voice-conversation", queuedAt: Date.now() });
     else { chat.addUserMessage(null, text, "voice-conversation", undefined, { requestId }); chat.startAssistantMessage(null, undefined, requestId); }
     removeSavedDraft(); fragments.clear(); lastInput = undefined;
@@ -290,13 +416,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     return true;
   }
   function stopReply() {
-    // Closing the speech epoch is the supported remote stop operation. The
-    // local flush happens synchronously; no remote acknowledgement is invented.
-    pause();
-    stopFence = true;
-    state.setState({ interaction: "Checking whether the reply stopped", notice: "Microphone off while checking the reply stop. Resume when voice is ready." });
-    announce("Checking whether the reply stopped");
+    // Explicit output control is neither microphone revocation nor cancellation
+    // of a host task. Ordinary host receipts/serialization remain authoritative.
+    suppressOutput(!!mic && !ended && !!utterance);
+    refresh();
   }
+
   // Adopt only a task admitted in the live epoch. Update voice before selecting
   // its transcript: the chat subscription still treats other selections as leave.
   function adoptContextualSession(work: ConversationWorkReceipt, sessionId: string) {
@@ -306,7 +431,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       || p?.conversationId !== work.conversationId || p.epoch !== work.epoch
       || s.sessionId !== null || root.stores.chat.getState().activeSessionId !== null) return;
     state.setState({ sessionId,
-      outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? { ...o, sessionId } : o),
+      recognition: s.recognition.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
+      outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? outputInSession(o, sessionId) : o),
       unassigned: s.unassigned.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
     });
     // This task has no reviewed composer draft. Materialize its own buffer so
@@ -327,7 +453,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
-        state.setState({ sessionId: message.sessionId, outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? { ...output, sessionId: message.sessionId } : output) });
+        state.setState({ sessionId: message.sessionId, recognition: state.getState().recognition.map(f => f.conversationId === request.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId } : f), outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
     }
@@ -339,8 +465,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (!message.type.startsWith("conversation_")) return message;
     const s = state.getState();
     if ((message.type === "conversation_opened" || message.type === "conversation_closed") && openingId && message.requestId === openingId) {
+      // A duplicate/foreign response cannot consume the valid pending request.
+      if (s.active && openingEntry === entryLifetime && s.profile
+        && (message.conversationId !== s.profile.conversationId || message.epoch <= s.profile.epoch)) return null;
       openingId = undefined;
-      if (!s.active || openingGeneration !== generation) {
+      if (!s.active || openingEntry !== entryLifetime) {
         requested = false;
         send({ type: "conversation_stop", conversationId: message.conversationId });
         if (s.active) queueMicrotask(startEpoch);
@@ -375,15 +504,16 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "conversation_opened") {
       if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return null;
       clearClosedNotice();
-      generation++; state.setState({ token: generation }); stopMic(); playback.dispose(); playback = makePlayback(); fragments.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); lastInput = undefined;
-      state.setState({ profile: message, connection: "Connected", text: "", interaction: stopFence ? "Checking whether the reply stopped" : "Listening", disclosureOpen: agreedDisclosure !== disclosureKey(message) });
+      generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); unassignedThrough = -1; seenRecognition.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); lastInput = undefined;
+      state.setState({ profile: message, connection: "Connected", text: "", interaction: "Listening", disclosureOpen: agreedDisclosure !== disclosureKey(message) });
+      if (agreedDisclosure !== disclosureKey(message)) consent = false;
       resync = message.resync.work + message.resync.outputs;
       ready = false;
       return null;
     }
     const p = scope();
     if (!p || !("conversationId" in message) || message.conversationId !== p.conversationId) return null;
-    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message); if (resync > 0) resync--; refresh(); if (consent) void capture(); return null; }
+    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message, true); if (resync > 0) resync--; refresh(); if (consent) void capture(); return null; }
     if (!("epoch" in message) || message.epoch !== p.epoch) return null;
     if (message.type === "conversation_closed") {
       // An old epoch can close after explicit Resume has already requested
@@ -392,7 +522,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (openingId && requested) return null;
       requested = false;
       if (message.reason === "stopped") {
-        if (typeof document === "undefined" || !document.hidden) startEpoch();
+        suspend(); startEpoch();
+      } else if (message.reason === "disconnected" || message.reason === "provider_closed") {
+        closedNotice = closeDiagnostic(message.reason); suspend(); startEpoch();
       } else { closedNotice = closeDiagnostic(message.reason); pause(true); }
       return null;
     }
@@ -401,11 +533,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (event.kind === "ready") { inputFormat = event.input; ready = true; refresh(); if (consent) void capture(); return null; }
     if (!ready) return null;
     if (event.kind === "unassigned_input_fragment") {
+      if (!retainRecognition(event)) return null;
       const retained = state.getState().unassigned;
-      if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && f.sequence === event.sequence)) return null;
+      if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && !f.utteranceId && f.sequence === event.sequence)) return null;
       // Retain the boundary-crossing fragment before stopping. Never truncate
       // it or merge approximate session intervals into captured utterances.
       const unassigned = [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event }];
+      if (p.capabilities.contextualTasks === "supported") { retainContext(unassigned.at(-1)!); return null; }
       state.setState({ unassigned });
       if (unassigned.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || unassigned.reduce((n, f) => n + f.text.length, 0) >= CONVERSATION_LIMITS.maxUtteranceChars) {
         pause(); state.setState({ notice: "Recognition is full. Review it in the composer before restarting voice." });
@@ -417,18 +551,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     if (event.kind === "input_fragment") {
       if (!capturedInputs.has(event.utteranceId) || retiredInputs.has(event.utteranceId)) return null;
+      // Display deduplication must not intercept the existing permission or
+      // manual-review path, including its attribution/finality validation.
+      const newRecognition = retainRecognition(event);
       if (permissions.input(event)) {
         retiredInputs.add(event.utteranceId); fragments.delete(event.utteranceId); lastInput = undefined;
         state.setState({ text: [...fragments.values()].flatMap(items => [...items.values()].map(f => f.text)).join(" ").trim() });
         saveDraft(); refresh(); return null;
       }
       if (p.capabilities.contextualTasks === "supported") {
-        const retained = state.getState().unassigned;
-        // Captured identity is evidence only; never manufacture a user message or edit a manual draft.
-        if (retained.length >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || retained.reduce((n, f) => n + f.text.length, 0) + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars) {
-          pause(); state.setState({ notice: "Recognition is full. Review it before restarting voice." }); return null;
-        }
-        state.setState({ unassigned: [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: true, sequence: retained.length, text: event.text, timing: { kind: "unavailable" }, finalization: event.finalization === "final" ? "final" : "unknown" }] });
+        if (!newRecognition) return null;
+        // Bounded ephemeral context, never a manual-review draft or grant.
+        retainContext({ sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: true, utteranceId: event.utteranceId, sequence: event.sequence, text: event.text, timing: { kind: "unavailable" }, finalization: event.finalization === "final" ? "final" : "unknown" });
         return null;
       }
       const items = fragments.get(event.utteranceId) ?? new Map();
@@ -446,9 +580,19 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const old = state.getState().outputs.find((output) => output.conversationId === p.conversationId && output.epoch === p.epoch && output.outputId === event.outputId);
       updateOutput(p.epoch, event.outputId, { generated: ((old?.generated ?? "") + event.text).slice(0, p.limits.maxGeneratedChars) });
     } else if (event.kind === "audio") {
-      try { playback.enqueue(event.outputId, Uint8Array.from(atob(event.pcm), (c) => c.charCodeAt(0)), event.format); }
+      try {
+        const pcm = Uint8Array.from(atob(event.pcm), c => c.charCodeAt(0));
+        if (state.getState().disclosureOpen || typeof document !== "undefined" && document.hidden) { updateOutput(p.epoch, event.outputId, { playback: "unknown" }); return null; }
+        if (recovery.phase !== "audible") {
+          recovery.observe(pcm, performance.now());
+          updateOutput(p.epoch, event.outputId, { playback: "unknown" });
+          // Poll before the next event; never enqueue a suppressed chunk.
+          return null;
+        }
+        playback.enqueue(event.outputId, pcm, event.format);
+      }
       catch { pause(true); }
-    } else if (event.kind === "interrupted") stopReply();
+    } else if (event.kind === "interrupted") { suppressOutput(!!mic && !ended && !!utterance); refresh(); }
     return null;
   }
   const unwatchChat = root.stores.chat.subscribe((next, previous) => {
@@ -456,16 +600,43 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (next.activeSessionId !== previous.activeSessionId && next.activeSessionId !== state.getState().sessionId) leave();
     else refresh();
   });
+  const unwatchProvider = root.stores.provider.subscribe(() => { requireCurrentDisclosure(); });
   const unwatchConnection = root.stores.connection.subscribe((next, previous) => {
     if (!state.getState().active || next.wsStatus === previous.wsStatus) return;
-    if (next.wsStatus !== "connected") pause(true);
-    else { state.setState({ connection: "Reconnecting" }); startEpoch(); announce("Reconnected. Microphone off."); }
+    if (next.wsStatus !== "connected") suspend();
+    else { state.setState({ connection: "Reconnecting" }); startEpoch(); announce(consent ? "Reconnected. Restoring listening." : "Reconnected. Microphone off."); }
   });
-  const hidden = () => { if (document.hidden && state.getState().active) pause(); else if (state.getState().active && !requested) startEpoch(); };
+  const hidden = () => {
+    if (!state.getState().active) return;
+    if (document.hidden) {
+      // Visibility is local unavailability, not a broken provider connection.
+      // End the current capture interval, retain the epoch/context and consent.
+      if (ready && mic) endpoint(generation);
+      clearTimers(); resetRecovery();
+      generation++; state.setState({ token: generation }); stopMic(); saveDraft();
+      playback.flush(); playback.quiet(false);
+      if (!closedNotice) state.setState({ notice: "Voice is paused while this page is hidden. Microphone intent is unchanged." });
+    } else if (!requested) startEpoch();
+    else if (consent) void capture();
+  };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
-  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; stopFence = false; permissions.clear(); localTones.clear(); state.setState({ profile: null, work: {}, outputs: [], unassigned: [], unassignedWork: 0, available: false }); });
+  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
   return {
     state, frame, permissions,
+    attachControls() {
+      controlOwners++;
+      let attached = true;
+      return () => {
+        if (!attached) return;
+        attached = false; controlOwners--;
+        queueMicrotask(() => { if (!controlOwners) leave(); });
+      };
+    },
+    recoverOutput() {
+      if (!state.getState().active || !ready || state.getState().disclosureOpen || recovery.phase !== "muted") return;
+      resetRecovery(); playback.flush(); playback.quiet(true);
+      state.setState({ notice: "Reply audio recovered manually; delayed interrupted audio may still play." });
+    },
     enter() {
       if (disposed || state.getState().active || root.stores.voice.getState().mode !== "idle" || root.stores.voice.getState().local !== "idle") return;
       const sessionId = root.stores.chat.getState().activeSessionId;
@@ -473,8 +644,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       draftId = root.stores.drafts.getState().idFor(sessionId); savedVoice = "";
       const providers = root.stores.provider.getState();
       const agentProviderId = providers.available.some((provider) => provider.id === providers.selectedId) ? providers.selectedId : null;
-      state.setState({ active: true, sessionId, agentProviderId, unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
-      stopFence = false;
+      entryLifetime++;
+      entryProfileId = providers.pinnedId ?? agentProviderId;
+      state.setState({ active: true, sessionId, agentProviderId, recognition: state.getState().recognition.filter(f => !f.contextual || f.sessionId === sessionId), unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       // A new entry needs Start even when the service matches the last visit.
       agreedDisclosure = undefined;
       root.stores.voice.getState().setMode("conversation");
@@ -483,7 +655,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     start() { const profile = scope(); if (!profile) return; agreedDisclosure = disclosureKey(profile); consent = true; state.setState({ disclosureOpen: false }); void capture(); },
     details() { state.setState({ disclosureOpen: true }); },
     resume() { if (state.getState().disclosureOpen) return; consent = true; if (!ready) startEpoch(); void capture(); },
-    mute() { consent = false; clearTimers(); endpoint(generation); stopMic(); state.setState({ notice: "Microphone muted. Unmute to speak." }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
+    mute() { consent = false; if (ready && mic) endpoint(generation); clearTimers(); stopMic(); state.setState({ notice: "Microphone muted. Unmute to speak." }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
     commit,
     reviewUnassigned() {
       const s = state.getState();
@@ -495,11 +667,21 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       leave();
       const voice = root.stores.voice.getState();
       voice.setReviewText([voice.reviewText, text].filter(Boolean).join("\n\n"));
-      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), unassignedWork: 0 });
+      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), recognition: state.getState().recognition.map(f => selected.some(r => r.conversationId === f.conversationId && r.epoch === f.epoch && r.sequence === f.sequence && (f.kind === "input_fragment" ? r.utteranceId === f.utteranceId : !r.utteranceId)) ? { ...f, text: "", moved: true as const } : f), unassignedWork: 0 });
       return true;
     },
-    discard() { clearTimers(); removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh(); },
+    discard() {
+      if (ready && mic) endpoint(generation);
+      clearTimers();
+      // Replay retirement spans the epoch; deletion owns only this draft.
+      // Earlier submitted/consumed input must keep its retained display evidence.
+      const discardedInputs = new Set(fragments.keys());
+      for (const id of discardedInputs) retiredInputs.add(id);
+      removeSavedDraft(); fragments.clear(); lastInput = undefined;
+      state.setState(s => ({ text: "", recognition: s.recognition.filter(f => f.kind !== "input_fragment" || !discardedInputs.has(f.utteranceId)) }));
+      refresh();
+    },
     stopReply, leave,
-    dispose() { leave(); disposed = true; unwatchChat(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); },
+    dispose() { leave(); disposed = true; unwatchChat(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); },
   };
 }

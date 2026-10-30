@@ -1748,7 +1748,7 @@ recorded.
 **One identity inspector per manager.** The manager starts one
 `python3 -I -S` interpreter and sends it each inspection as one JSON line
 (`export function createNativeIdentityInspector`,
-`packages/ui-sdk/src/server/native-identity-inspector.ts:79-173`). The root
+`packages/ui-sdk/src/server/native-identity-inspector.ts:79-178`). The root
 and loop-device programs are byte-identical to the ones each fresh launch ran,
 which a test pins by hash. The interpreter compiles them once and runs one in
 fresh globals per request, with the path as its only argument, and answers
@@ -1761,7 +1761,9 @@ nothing is cached between requests. An interrupted, timed-out, oversized or
 malformed exchange, or one with an interpreter that died, kills the
 interpreter and fails that request with the outcome a killed launch had; the
 next inspection starts a new interpreter. A refused startup and `close()`
-stop it.
+stop it. A broken stdin pipe reports `unavailable` only after interpreter
+retirement is joined; an overlapping cancellation retains `unknown` precedence.
+The failed inspection is never replayed.
 
 **2026-10-28 — Diagnostic source correction (#3062).** Python 3.14's
 command-string source cache identifies code by filename, qualified name and
@@ -2261,7 +2263,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:241-319`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:242-324`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -2269,7 +2271,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:96-114`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:97-115`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created

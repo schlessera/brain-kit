@@ -1,3 +1,4 @@
+import type { TranscriptRange } from "../../lib/transcript-timeline.js";
 import { AttachmentRow } from "@schlessera/brain-ui-kit";
 import { trackRowProps } from "../../lib/track-attachment.js";
 import { HandoffCard } from "./handoff-links.js";
@@ -70,10 +71,13 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserRankSubmit,
   onAskUserFormSubmit,
   closing = false,
+  latestTurn = closing,
   anchor,
   journalVisible = true,
+  arrival,
 }: {
   message: ChatMessage;
+  arrival?: TranscriptRange;
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
   journalVisible?: boolean;
@@ -100,6 +104,8 @@ export const MessageBubble = memo(function MessageBubble({
    * closing row (#40). False for every other message, so the memo holds.
    */
   closing?: boolean;
+  /** Latest original turn eligibility, independent of the closing answer row. */
+  latestTurn?: boolean;
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
@@ -148,6 +154,7 @@ export const MessageBubble = memo(function MessageBubble({
       ) : (
         <AssistantContent
           message={message}
+          arrival={arrival}
           onToolApproval={onToolApproval}
           onAskUserSubmit={onAskUserSubmit}
           onAskUserCancel={onAskUserCancel}
@@ -156,6 +163,7 @@ export const MessageBubble = memo(function MessageBubble({
           onAskUserRankSubmit={onAskUserRankSubmit}
           onAskUserFormSubmit={onAskUserFormSubmit}
           closing={closing}
+          latestTurn={latestTurn}
         />
       )}
       {journalVisible && !isUser && !message.localExchange && <TurnJournal turnId={message.turnId ?? message.streamTurnId} summary={message.journal} live={message.journalLive} />}
@@ -317,14 +325,15 @@ function groupParts(
 }
 
 /** The classified blocks anchored to the n-th text part, or nothing. */
-function blocksFor(message: ChatMessage, textIndex: number) {
-  if (!message.blocks || message.blocks.length === 0) return undefined;
-  const own = message.blocks.filter((b) => b.partIndex === textIndex);
+function blocksFor(message: ChatMessage, textIndex: number, source = message.blocks) {
+  if (!source || source.length === 0) return undefined;
+  const own = source.filter((b) => b.partIndex === textIndex);
   return own.length ? own : undefined;
 }
 
 function AssistantContent({
   message,
+  arrival,
   onToolApproval,
   onAskUserSubmit,
   onAskUserCancel,
@@ -333,8 +342,10 @@ function AssistantContent({
   onAskUserRankSubmit,
   onAskUserFormSubmit,
   closing,
+  latestTurn,
 }: {
   message: ChatMessage;
+  arrival?: TranscriptRange;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
   onAskUserSubmit: (
     requestId: string,
@@ -354,9 +365,10 @@ function AssistantContent({
     notes?: Record<string, string>
   ) => void;
   closing: boolean;
+  latestTurn: boolean;
 }) {
   const root = useBrainUiRoot();
-  const contentRef = useRef<HTMLDivElement>(null);
+  const semanticMessage = arrival?.source ?? message;
   const [expandedTools, setExpandedTools] = useState<Set<string>>(() => new Set());
   const previousLive = useRef(message.isStreaming);
   useEffect(() => {
@@ -364,11 +376,10 @@ function AssistantContent({
     previousLive.current = message.isStreaming;
   }, [message.isStreaming]);
   const showShare =
-    !message.isStreaming && !!message.content && message.content.trim().length > 0;
+    !message.isStreaming && !!message.content && message.content.trim().length > 0 && (!arrival || arrival.end >= message.content.length);
   const shareOptions = showShare
     ? buildMessageShareOptions(root, {
-        message,
-        renderedRef: contentRef,
+        message: semanticMessage,
       })
     : [];
 
@@ -444,18 +455,22 @@ function AssistantContent({
             return <BlockCard key={i} {...group.payload} />;
           case "askUser":
             return renderExchange(group.exchange, i);
-          case "text":
-            // The final text block carries the share affordance; text/markdown
-            // share formats still use the full message content.
+          case "text": {
+            const offset = message.parts.filter(p => p.kind === "text").slice(0, group.textIndex).reduce((n, p) => n + p.text.length, 0);
+            const range = arrival ? { start: arrival.start - offset, end: arrival.end - offset } : undefined;
+            if (range && (range.end <= 0 || range.start >= group.text.length)) return [];
+            // Only the final arrival carries actions. Every format receives the
+            // complete source answer, independently of these display groups.
             return group.isLastText ? (
-              <div key={i} className="group relative" ref={contentRef}>
+              <div key={i} className="group relative">
                 {/* The share menu is deliberately OUTSIDE the skip-render
                     wrapper: content-visibility implies paint containment,
                     which would clip a dropdown that opens past the box. */}
                 <div className="chat-message-body">
                   <MarkdownContent
                     content={group.text}
-                    blocks={blocksFor(message, group.textIndex)}
+                    blocks={blocksFor(message, group.textIndex, arrival?.blocks)}
+                    range={range}
                     streaming={message.isStreaming && group.isLast}
                   />
                 </div>
@@ -469,11 +484,13 @@ function AssistantContent({
               <div key={i} className="chat-message-body">
                 <MarkdownContent
                   content={group.text}
-                  blocks={blocksFor(message, group.textIndex)}
+                  blocks={blocksFor(message, group.textIndex, arrival?.blocks)}
+                  range={range}
                   streaming={message.isStreaming && group.isLast}
                 />
               </div>
             );
+          }
         }
       })}
 
@@ -481,7 +498,7 @@ function AssistantContent({
 
       {/* The failure that ended the turn (#575), after whatever it answered
           first, live and on replay alike. */}
-      {message.failure && !message.isStreaming ? <TurnError message={message} latest={closing} /> : null}
+      {message.failure && !message.isStreaming ? <TurnError message={message} latest={latestTurn} /> : null}
 
       {(message.isStreaming || approval?.restored) && (message.retry ? (
         <TurnStatus message={message} mode="retry" />
@@ -493,7 +510,7 @@ function AssistantContent({
 
       {/* One closing row per answer (D37 §8, D50): the follow-ups the model
           offered, after everything else, until the next user message. */}
-      {closing && <AnswerSuggestions message={message} />}
+      {closing && <AnswerSuggestions message={semanticMessage} />}
     </div>
   );
 }

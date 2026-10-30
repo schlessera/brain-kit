@@ -175,7 +175,10 @@ for (const size of sizes.filter(size => size.width === 320 || size.width === 880
     expect(content.textContent).toContain("Odysseus's voyage note 1:");
     // The header is readable content too. Measuring only the user bubble
     // misses a removed spacer: its extra header gap can still clear the disc.
-    const header = column.firstElementChild!.firstElementChild!;
+    // Arrival rows wrap the message shell. Measure the actual header that
+    // owns the turn time, not an ancestor's padded box.
+    const firstMessage = column.querySelector<HTMLElement>('[data-transcript-anchor="0"]')!;
+    const header = firstMessage.querySelector<HTMLElement>("[data-turn-time]")!.parentElement!;
     expect(header.textContent).toContain("You");
     expect(header.getBoundingClientRect().top, "first message header clears target bottom")
       .toBeGreaterThanOrEqual(target.getBoundingClientRect().bottom);

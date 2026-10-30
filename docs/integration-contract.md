@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Continuous conversation (breaking, #3053)
+
+The October 29 [maintainer policy](decisions/live-conversation.md#continuous-conversation-and-audible-recovery--2026-10-29)
+replaces the documented capture-off/explicit-Resume behavior for routine
+interruption and recoverable lifecycle transitions. Manual Mute/Leave, scope,
+authentication and genuine failure fences remain. Output cut/recovery is separate
+from microphone intent and host-work cancellation. This is a pre-1.0 breaking
+minor; consumers must no longer interpret Stop reply or reconnect as microphone
+revocation. No frame shape changes. See the [client contract](integration-contract/wire.md#shipped-conversation-client-960)
+for bounded recovery, delayed-output limitations and remaining qualification.
+
 ## Live task policy parity (breaking, #3070/#3071)
 
 Live-conversation host work now uses the same ordinary backend/session/principal

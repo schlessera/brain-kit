@@ -52,7 +52,10 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const audio = socket.frames("conversation_audio").at(-1)!;
     event({ kind: "input_fragment", utteranceId: String(audio.utteranceId), sequence: 0, text, finalization, certainty: "unknown", origin: "unknown" }, epoch);
   };
-  return { ui, client, host, socket, deliver, network, button, event, opened, enter, start, input, dispose };
+  return { ui, client, host, socket, deliver, network, button, event, opened, enter, start, input, dispose,
+    remountControls() { flushSync(() => renderer.render(<BrainUiProvider root={ui}><ChatPage key="odysseus-remount" /></BrainUiProvider>)); },
+    unmountControls() { flushSync(() => renderer.render(null)); },
+  };
 }
 
 test("capture truth and disclosure: a ready speech session cannot mark an unopened microphone on", async (ctx) => {
@@ -73,7 +76,7 @@ test("commit only: GPT-Live fragments remain NOT SENT while ordinary progress an
   await s.start();
   s.input("Find the departure note");
   expect(s.socket.frames("conversation_commit"), "unknown fragments cannot commit themselves").toHaveLength(0);
-  await expect.poll(() => s.host.textContent).toContain("NOT SENT");
+  await expect.poll(() => s.host.textContent).toContain("NOT SUBMITTED AS A BRAIN TASK");
   s.deliver({ type: "text_delta", sessionId: SESSION, text: "Looking through the voyage notes" });
   s.deliver({ type: "tool_use_start", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search" });
   s.deliver({ type: "tool_use_complete", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search", input: { query: "departure" } });
@@ -117,7 +120,7 @@ function controlledMicrophone(ctx: TestContext, freshStreams = false) {
   return { streams, opens: () => opens, quiet: () => { gain.gain.value = 0; }, speak: () => { gain.gain.value = 0.15; }, stream: destination.stream };
 }
 
-for (const ending of ["leave", "hide", "disconnect"] as const) test(`${ending}: capture closes synchronously, finalized text stays with its original draft, and reconnect never opens it`, async (ctx) => {
+for (const ending of ["leave", "hide", "disconnect"] as const) test(`${ending}: capture suspends synchronously and finalized text stays with its original draft`, async (ctx) => {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start(); s.input("Remember the harbour meeting", "final");
   let hidden: ReturnType<typeof hidePage> | undefined;
@@ -157,7 +160,7 @@ test("hold: 700 ms silence and 500 ms hold require fresh final evidence; speech 
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
 
-test("barge-in flush: Stop reply discards every queued PCM chunk and blocks replacement input until resync", async (ctx) => {
+test("barge-in flush: Stop reply discards every queued PCM chunk without revoking microphone intent", async (ctx) => {
   const descriptor = Object.getOwnPropertyDescriptor(BaseAudioContext.prototype, "createBufferSource")!;
   const original = descriptor.value as BaseAudioContext["createBufferSource"];
   const ended: boolean[] = [];
@@ -179,7 +182,8 @@ test("barge-in flush: Stop reply discards every queued PCM chunk and blocks repl
   expect(ended).toHaveLength(3);
   await expect.poll(() => ended.every(Boolean), { timeout: 500, message: "every real scheduled audio source ended at the cut, including future chunks" }).toBe(true);
   expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
+  expect(s.client.state.getState().outputRecovery).toBe("checking");
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
   expect(s.socket.frames("conversation_playback").at(-1)?.playback).toBe("unknown");
   expect(s.client.state.getState().outputs[0]?.playback).toBe("unknown");
   s.event({ kind: "audio", outputId: "late-reply", sequence: 0, format: { encoding: "pcm16", sampleRate: 24000, channels: 1 }, pcm: btoa(binary) });
@@ -203,7 +207,7 @@ test("epoch guard: stale transcript and an old Send callback cannot consume a ne
   const s = await scene(ctx); await s.start(); s.input("Old departure note");
   const oldToken = s.client.state.getState().token;
   const oldId = String(s.socket.frames("conversation_audio").at(-1)!.utteranceId);
-  s.client.stopReply();
+  s.client.mute();
   s.socket.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" });
   s.opened(2);
   expect(s.client.state.getState().micOn).toBe(false);
@@ -455,16 +459,18 @@ for (const receipt of ["output", "work"] as const) test(`Start before ready wait
   expect(s.client.state.getState().notice).toBe("");
 });
 
-test("barge-in from actual PCM speech cuts output and leaves capture off until host resync", async (ctx) => {
+test("barge-in from actual PCM speech cuts output and retains capture and initiating PCM", async (ctx) => {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start(); mic.quiet();
   await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
   s.event({ kind: "audio", outputId: "ithaca-barge", sequence: 0, pcm: outputPcm(), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  const before = s.socket.frames("conversation_audio").length;
   mic.speak();
   await expect.poll(() => s.client.state.getState().playing).toBe(false);
-  expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.client.state.getState().interaction).toBe("Checking whether the reply stopped");
+  expect(s.client.state.getState().micOn, "INTERRUPTION_RETAINS_CAPTURE").toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(before);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
 
@@ -719,7 +725,7 @@ test("replacement epoch rejects old PCM but plays the new epoch output identity"
   controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start();
   s.client.mute();
-  s.client.stopReply(); s.client.resume(); s.opened(2);
+  s.client.mute(); s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" }); s.client.resume(); s.opened(2);
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   s.client.mute();
   const audio = (epoch: number) => s.event({ kind: "audio", outputId: `output-${epoch}`, sequence: 0, pcm: outputPcm(0.3), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, epoch);
@@ -783,18 +789,19 @@ test("Resume before a replacement disclosure cannot authorize a changed voice se
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start();
   expect(mic.opens()).toBe(1);
-  s.client.stopReply();
+  s.client.mute();
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" });
   s.client.resume();
   s.socket.deliver({ ...PROFILE, epoch: 2, disclosure: { voiceService: "Changed Odysseus voice fixture", destinations: ["Changed fixture destination. Retention: unknown."] }, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
   s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, 2);
   expect(s.client.state.getState().disclosureOpen).toBe(true);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(mic.opens()).toBe(1);
-  expect(s.client.state.getState().notice).toContain("Review the voice service disclosure");
+  expect(mic.stream.getAudioTracks().every(track => track.readyState === "ended")).toBe(true);
 });
 
-test("reconnect and its ready event keep capture closed until explicit Resume", async (ctx) => {
-  const mic = controlledMicrophone(ctx);
+test("reconnect and its ready event restore consented capture automatically", async (ctx) => {
+  const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx); await s.start();
   s.network.drop({ announce: true });
   await expect.poll(() => s.client.state.getState().micOn).toBe(false);
@@ -804,9 +811,7 @@ test("reconnect and its ready event keep capture closed until explicit Resume", 
   await expect.poll(() => replacement.frames("conversation_start").length).toBe(1);
   replacement.deliver({ ...PROFILE, epoch: 2, requestId: replacement.frames("conversation_start").at(-1)?.requestId });
   replacement.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch: 2, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
-  expect(s.client.state.getState().micOn).toBe(false);
-  expect(mic.opens()).toBe(1);
-  s.client.resume();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   expect(mic.opens()).toBe(2);
 });
 
@@ -814,7 +819,7 @@ for (const reason of ["stopped", "replaced"] as const) test(`Resume before the o
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.start();
   const previousRequest = s.socket.frames("conversation_start")[0]?.requestId;
-  s.client.stopReply(); s.client.resume();
+  s.client.mute(); s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" }); s.client.resume();
   expect(s.socket.frames("conversation_start")).toHaveLength(2);
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId: String(previousRequest), reason });
   s.opened(2);
@@ -902,13 +907,13 @@ for (const width of [390, 320]) test(`missing-ID conversation stays live and rev
   expect(s.client.state.getState().unassignedWork).toBe(3);
   const outputs = s.downstream.flatMap(f => f.type === "conversation_event" && f.event.kind === "audio" ? [f.event.outputId] : []);
   expect(new Set(outputs)).toEqual(new Set(["output-1"]));
-  const summary = s.host.querySelector('[aria-label="Unassigned voice recognition"] summary') as HTMLElement;
+  const summary = s.host.querySelector('[aria-label="Voice review controls"] summary') as HTMLElement;
   await userEvent.click(summary);
-  await expect.poll(() => s.host.querySelector('[data-unassigned-recognition]')?.textContent).toBe(parts.join(""));
+  await expect.poll(() => [...s.host.querySelectorAll("[data-recognized-text]")].map(n => n.textContent).join("")).toBe(parts.join(""));
   expect(s.client.state.getState().unassigned.map(f => f.sessionInterval?.startMs)).toEqual([600, 10200, 19000]);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/unassigned-${width}.png` });
   expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
-  expect(s.host.querySelector('[aria-label="Unassigned voice recognition"]')!.getBoundingClientRect().bottom).toBeLessThanOrEqual(s.host.getBoundingClientRect().bottom + 1);
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')!.getBoundingClientRect().bottom).toBeLessThanOrEqual(s.host.getBoundingClientRect().bottom + 1);
   await userEvent.click(s.button("Review in composer"));
   expect(s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
@@ -1033,7 +1038,7 @@ test("root refresh: dispose releases physical capture and a fresh root requires 
   expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
 });
 
-test("reconnect: one live physical microphone requires explicit Resume after readiness", async ctx => {
+test("reconnect: one live physical microphone recovers automatically after readiness", async ctx => {
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx); await s.start();
   s.network.drop({ announce: true });
@@ -1045,9 +1050,6 @@ test("reconnect: one live physical microphone requires explicit Resume after rea
   await expect.poll(() => replacement.frames("conversation_start").length).toBe(1);
   replacement.deliver({ ...PROFILE, epoch: 2, requestId: replacement.frames("conversation_start")[0]?.requestId });
   replacement.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch: 2, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
-  expect(s.client.state.getState().micOn).toBe(false);
-  expect(mic.opens()).toBe(1);
-  await userEvent.click(s.button("Resume microphone"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   expect(mic.opens()).toBe(2);
   expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
@@ -1085,7 +1087,7 @@ for (const reason of Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAGN
   expect(s.client.state.getState().notice, "OPENING_CLOSE_SURVIVES_PAUSE").toContain(CLOSE_DIAGNOSTICS[reason]);
 });
 
-for (const reason of (Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAGNOSTICS)[]).filter(reason => reason !== "stopped")) test(`close diagnostic: active ${reason} survives pause with review intact`, async ctx => {
+for (const reason of (Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAGNOSTICS)[]).filter(reason => !["stopped", "disconnected", "provider_closed"].includes(reason))) test(`close diagnostic: active ${reason} survives pause with review intact`, async ctx => {
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx); await s.start();
   s.input("Ask Nestor about the ships");
@@ -1111,14 +1113,17 @@ for (const reason of (Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAG
   ctx.onTestFinished(() => hidden.restore());
   Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+  const endpointsBeforeHide = s.socket.frames("conversation_endpoint").length;
   document.dispatchEvent(new Event("visibilitychange"));
+  expect(s.socket.frames("conversation_endpoint"), "hiding a failed epoch never sends a stale endpoint").toHaveLength(endpointsBeforeHide);
   expect(s.client.state.getState().notice, "ACTIVE_CLOSE_SURVIVES_PAUSE").toContain(CLOSE_DIAGNOSTICS[reason]);
   expect(mic.opens()).toBe(1);
   hidden.restore();
+  s.client.resume();
   expect(s.client.state.getState().notice, "NEW_START_CLEARS_CLOSE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS[reason]);
   s.opened(2);
   expect(s.client.state.getState().notice).not.toContain(CLOSE_DIAGNOSTICS[reason]);
-  expect(mic.opens()).toBe(1);
+  expect(mic.opens()).toBe(2);
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "refused", message: REMOTE_CLOSE_TEXT });
   expect(s.client.state.getState().notice, "STALE_EPOCH_CANNOT_RESTORE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.refused);
 });
@@ -1168,4 +1173,108 @@ test("close diagnostic: abandoned opening refusal cannot contaminate fresh entry
   expect(s.client.state.getState().profile?.conversationId).toBe(PROFILE.conversationId);
   expect(JSON.stringify(s.client.state.getState())).not.toContain(REMOTE_CLOSE_TEXT);
   expect(mic.opens()).toBe(0);
+});
+
+for (const muted of [false, true]) test(`visibility recovery retains ${muted ? "manual Mute" : "consent"} and the same healthy epoch without replay`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  if (muted) s.client.mute();
+  const hidden = hidePage(); ctx.onTestFinished(() => hidden.show());
+  expect(s.client.state.getState().micOn).toBe(false);
+  const frames = s.socket.frames("conversation_audio").length;
+  s.event({ kind: "audio", outputId: "hidden-reply", sequence: 0, pcm: outputPcm(0.2), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  expect(s.client.state.getState().playing).toBe(false);
+  hidden.show();
+  if (!muted) await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  else expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(muted ? 1 : 2);
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  expect(s.client.state.getState().profile?.epoch).toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  if (muted) expect(s.socket.frames("conversation_audio")).toHaveLength(frames);
+});
+
+for (const muted of [false, true]) test(`recoverable provider closure preserves ${muted ? "manual mute" : "consent"} and never retains remote content`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  if (muted) s.client.mute();
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed", message: REMOTE_CLOSE_TEXT });
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(JSON.stringify(s.client.state.getState())).not.toContain(REMOTE_CLOSE_TEXT);
+  expect(s.socket.frames("conversation_start")).toHaveLength(2);
+  s.opened(2);
+  if (!muted) await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  else expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(muted ? 1 : 2);
+});
+
+test("output recovery timeout never mutes capture; manual output recovery and Leave are separate", async ctx => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx, 320, true); await s.start(); mic.quiet();
+  await expect.poll(() => s.socket.frames("conversation_endpoint").length).toBe(1);
+  s.event({ kind: "interrupted", outputId: "output-1" });
+  const timer = setInterval(() => s.event({ kind: "audio", outputId: "output-1", sequence: 0, pcm: outputPcm(0.1), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }), 100);
+  ctx.onTestFinished(() => clearInterval(timer));
+  await expect.poll(() => s.client.state.getState().outputRecovery, { timeout: 4500 }).toBe("muted");
+  clearInterval(timer);
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().playing).toBe(false);
+  await page.screenshot({ element: s.host, path: "../../.vitest-attachments/conversation/output-recovery-320.png" });
+  await userEvent.click(s.button("Recover reply audio"));
+  s.event({ kind: "audio", outputId: "output-1", sequence: 1, pcm: outputPcm(0.2), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
+  await expect.poll(() => s.client.state.getState().playing).toBe(true);
+  expect(mic.opens()).toBe(1);
+  s.event({ kind: "interrupted", outputId: "output-1" });
+  s.client.leave();
+  expect(s.client.state.getState().micOn).toBe(false);
+  // A real audio clock boundary lets an erroneously retained recovery timer fire.
+  const clock = new AudioContext(); ctx.onTestFinished(() => { void clock.close(); });
+  const source = clock.createBufferSource(); source.buffer = clock.createBuffer(1, 12000, 24000); source.connect(clock.destination);
+  await clock.resume(); await new Promise<void>(resolve => { source.onended = () => resolve(); source.start(); });
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.client.state.getState().playing).toBe(false);
+  expect(mic.opens()).toBe(1);
+});
+
+test("send-before-disconnect race preserves consent and discards unavailable-period PCM", async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  // Native sockets can stop accepting sends before the queued close callback.
+  s.socket.readyState = 2;
+  await expect.poll(() => s.client.state.getState().micOn).toBe(false);
+  expect(s.ui.stores.connection.getState().wsStatus).toBe("connected");
+  const sent = s.socket.frames("conversation_audio").length;
+  s.socket.readyState = 1; s.network.drop({ announce: true });
+  s.network.recover(); s.ui.connection.reconnectNow();
+  await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  const replacement = s.network.socket()!;
+  await expect.poll(() => replacement.frames("conversation_start").length).toBe(1);
+  replacement.deliver({ ...PROFILE, epoch: 2, requestId: replacement.frames("conversation_start")[0]?.requestId, resync: { work: 0, outputs: 1 } });
+  replacement.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch: 2, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(replacement.frames("conversation_audio")).toHaveLength(0);
+  replacement.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "previous-reply", generated: "Earlier voyage context", playback: "unknown" });
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => replacement.frames("conversation_audio").length).toBeGreaterThan(0);
+  expect(replacement.frames("conversation_audio")[0]?.sequence).toBe(0);
+  expect(s.socket.frames("conversation_audio")).toHaveLength(sent);
+  expect(mic.opens()).toBe(2);
+  expect(replacement.frames("conversation_commit")).toHaveLength(0);
+});
+
+
+test("same-commit control remount retains capture; a true last-owner unmount leaves voice", async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  s.remountControls();
+  await Promise.resolve();
+  expect(s.client.state.getState().active).toBe(true);
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(1);
+  expect(s.socket.frames("conversation_stop")).toHaveLength(0);
+  s.unmountControls();
+  await expect.poll(() => s.client.state.getState().active).toBe(false);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
 });

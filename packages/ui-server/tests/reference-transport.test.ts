@@ -8,6 +8,7 @@ import { createReferenceGrant, referenceRepository } from "../src/db/reference-g
 import { createReferenceSources } from "../src/brain/reference-source";
 import { createReferenceTransport, REFERENCE_GIT_CONFIG } from "../src/brain/reference-transport";
 import { referencePoolDouble } from "./helpers/reference-pool-double";
+import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const TOKEN = "fixture-reference-token-never-for-source-evaluation";
@@ -80,6 +81,7 @@ const files = (directory: string): number => readdirSync(directory, { withFileTy
   .reduce((sum, entry) => sum + (entry.name === ".git" ? 0 : entry.isDirectory() ? files(join(directory, entry.name)) : 1), 0);
 
 test("the transport resolves public revisions anonymously and private ones only with the granted credential", async () => {
+  if (await privateMaintenanceTest(import.meta.path, "the transport resolves public revisions anonymously and private ones only with the granted credential", 60000)) return;
   const transport = createReferenceTransport({ brainPath: brain });
   const ithaca = referenceRepository(url("public", "ithaca")), loom = referenceRepository(url("private", "loom"));
   const head = git(join(fixture, "srv", "ithaca.git"), "rev-parse", "main");
@@ -92,6 +94,7 @@ test("the transport resolves public revisions anonymously and private ones only 
 }, 60_000);
 
 test("acquisition publishes a complete thousand-file checkout and keeps the credential out of source evaluation", async () => {
+  if (await privateMaintenanceTest(import.meta.path, "acquisition publishes a complete thousand-file checkout and keeps the credential out of source evaluation", 180000)) return;
   const db = createUiDb(":memory:");
   const pool = referencePoolDouble(join(fixture, "pool"));
   const original = Bun.spawn;

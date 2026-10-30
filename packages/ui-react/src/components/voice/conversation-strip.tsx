@@ -1,3 +1,4 @@
+import { DraftSaveLine } from "../chat/draft-save-line.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -19,7 +20,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   // This hold is presentation only: PCM capture and interruption use the
   // client's instantaneous playing state, never this display state.
   const [replyToken, setReplyToken] = useState<number | null>(null);
-  const canShowReply = s.active && s.connection === "Connected" && !s.disclosureOpen && s.interaction !== "Checking whether the reply stopped";
+  const canShowReply = s.active && s.connection === "Connected" && s.outputRecovery === "audible" && !s.disclosureOpen && s.interaction !== "Checking whether the reply stopped";
   const replyVisible = canShowReply && (s.playing || replyToken === s.token);
   const interaction = replyVisible ? "Speaking" : s.interaction;
   useEffect(() => {
@@ -30,19 +31,13 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   }, [canShowReply, s.playing, s.token]);
   const frame = useRef<HTMLDivElement>(null);
   const wasOn = useRef(false);
-  const lifetime = useRef(0);
   useEffect(() => {
     if (s.micOn && !wasOn.current) frame.current?.querySelector<HTMLElement>('[aria-label="Mute mic"]')?.focus();
     wasOn.current = s.micOn;
   }, [s.micOn]);
-  // The component is a capture owner: a panel unmount cannot leave the mic live.
-  useEffect(() => {
-    const own = ++lifetime.current;
-    return () => {
-      client.mute();
-      queueMicrotask(() => { if (lifetime.current === own) client.leave(); });
-    };
-  }, [client]);
+  // Root-owned leases distinguish a true unmount from StrictMode or same-task
+  // remounts. Component cleanup must never impersonate a manual Mute.
+  useEffect(() => client.attachControls(), [client]);
   if (!s.active) return null;
   const profile = s.profile;
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
@@ -57,11 +52,14 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
+    {s.outputRecovery === "muted" && <Button label="Recover reply audio" tone="ghost" style={button} onClick={client.recoverOutput} />}
     {s.notice && <div role="status" aria-label="Voice notice" style={{ fontSize: 12, lineHeight: 1.3 }}>{s.notice}</div>}
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
       <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="" tabIndex={0} role="region" aria-label="Unsent voice transcript" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]">
-        <div className="font-mono text-[10px]">NOT SENT · SAVED AS DRAFT</div>
+        <div className="font-mono text-[10px]">VOICE DRAFT · NOT SUBMITTED AS A BRAIN TASK</div>
+        {s.voiceDraft && <DraftSaveLine draftId={s.voiceDraft.id} />}
         <div>{s.text}</div>
+        <div>The voice service already received audio. A voice reply does not submit this draft.</div>
         <div>{needsScreen ? "This question needs the screen" : s.interaction === "Sending soon" ? "Sending soon" : "Review before sending"}</div>
       </div>
       <div className="w-full min-[900px]:w-[220px]" style={{ minHeight: 46, display: "flex", gap: 4 }}>
@@ -73,7 +71,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
       <summary className="min-h-11 cursor-pointer">Background tasks</summary>
       <ul>{Object.values(s.work).filter(w => w.provenance === "contextual").slice(-8).map(w => <li key={w.requestId} className="py-1">
         <p>Context: {w.recognized.slice(-160)}</p>
-        Conversation task · {w.state} · {w.delivery === "returned" ? "result accepted by voice service" : w.delivery === "unknown" ? "result acceptance unknown; no replay" : w.delivery === "pending" ? "result pending" : "result withheld"}
+        Conversation task · {w.state} · {w.delivery === "returned" ? "result accepted by voice service; playback unknown" : w.delivery === "unknown" ? "result acceptance unknown; no automatic replay" : w.delivery === "pending" ? "result pending" : "result withheld"}
         {w.reason && <p>{w.reason}</p>}
       </li>)}</ul>
     </details>}
@@ -92,6 +90,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         {profile?.capabilities.contextualTasks === "supported"
           ? <p>Brain can start permitted background tasks from the conversation and share results while you keep talking. Actions that need confirmation use the same screen cards as typed requests. Recognition may be uncertain; speech cannot approve an action.</p>
           : profile?.capabilities.finalTranscript !== "supported" && <p>Automatic tasks aren't available with this service. Review recognized text and use Send now.</p>}
+        <p>Live recognition is temporary and may be unavailable after reload.</p>
         <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
         {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}
         {s.notice && <p>{s.notice}</p>}

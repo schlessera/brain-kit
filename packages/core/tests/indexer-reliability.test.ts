@@ -191,7 +191,11 @@ test("embedding lock excludes another process and recovers after its owner dies"
     import { openDatabase } from ${JSON.stringify(import.meta.resolve("../src/lib/db.ts"))};
     import { acquireEmbeddingLock } from ${JSON.stringify(import.meta.resolve("../src/lib/indexer/embedding-lock.ts"))};
     const db = openDatabase(process.argv[1]);
-    acquireEmbeddingLock(db);
+    // The release closure owns the SQLite handle. Keep it reachable until
+    // this process dies, including through GC before announcing ownership.
+    globalThis.releaseEmbeddingLock = acquireEmbeddingLock(db);
+    Bun.gc(true);
+    Bun.gc(true);
     console.log("ready");
     setInterval(() => {}, 1000);
   `, join(root, ".brain-index", "brain.db")], { stdout: "pipe", stderr: "pipe" });
@@ -200,10 +204,11 @@ test("embedding lock excludes another process and recovers after its owner dies"
     const ready = await reader.read();
     reader.releaseLock();
     expect(new TextDecoder().decode(ready.value).trim()).toBe("ready");
+    expect(child.exitCode).toBeNull();
     expect(() => acquireEmbeddingLock(db)).toThrow("already active");
   } finally {
     child.kill("SIGKILL");
-    await child.exited;
+    expect(await child.exited).toBe(137);
   }
   const release = acquireEmbeddingLock(db);
   release();

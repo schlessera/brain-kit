@@ -4007,3 +4007,19 @@ evidence instead of a provider interval. Exhaustive consumers must handle unknow
 work/delivery and `voice-context` message provenance. These pre-1.0 breaking
 changes ship in a minor under the October 28 #3070 ruling; see the normative
 [wire amendment](wire.md#contextual-conversation-tasks-3070-october-28-ruling).
+
+
+### Conversation output recovery and control ownership (#3053)
+
+The React root's conversation client exposes `outputRecovery` independently of
+`micOn` and `recoverOutput()` for an output-only timeout. `attachControls()`
+returns an idempotent release callback; a same-commit control remount retains
+ownership, while releasing the last owner ends conversation at the microtask
+boundary. Cleanup is not a manual Mute. The [client lifecycle](wire.md#shipped-conversation-client-960)
+defines the breaking semantic change from repeated Resume to continuous consent.
+
+Manual Send, reviewed question answers and Discard end input through bounded
+output recovery rather than leaving `outputRecovery` in `speaking`. Discard
+retires the reviewed input identities; late recognition cannot restore them.
+These actions and Mute cancel pending automatic review timers, while output recovery
+remains independent of microphone consent.
