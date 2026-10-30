@@ -2018,6 +2018,7 @@ export "./server" (./src/server/index.ts)
   type ConversationDelivery
   type ConversationDisclosure
   type ConversationEvidence
+  type ConversationHistoryEnvelope
   type ConversationInterval
   type ConversationLimits
   type ConversationOutputRecord
@@ -2089,6 +2090,9 @@ export "./server" (./src/server/index.ts)
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
+  type HistoricalItem
+  type HistoricalResultRef
+  type HistoryGapReason
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
@@ -6043,6 +6047,15 @@ signatures (every public export and the types it is made of)
     }
   ConversationEvidence (packages/ui-sdk/src/protocol.ts)
     export type ConversationEvidence = "supported" | "unsupported" | "unproven";
+  ConversationHistoryEnvelope (packages/ui-sdk/src/server/conversation.ts)
+    export interface ConversationHistoryEnvelope {
+        version: 1;
+        coverage: {
+            state: "complete" | "bounded" | "partial" | "unavailable";
+            reasons: readonly HistoryGapReason[];
+        };
+        items: readonly HistoricalItem[];
+    }
   ConversationInterval (packages/ui-sdk/src/protocol.ts)
     export interface ConversationInterval {
         startMs: number;
@@ -6617,6 +6630,50 @@ signatures (every public export and the types it is made of)
     }
   HelloState (packages/ui-sdk/src/client/ws-client.ts)
     export type HelloState = "pending" | "received" | "absent";
+  HistoricalItem (packages/ui-sdk/src/server/conversation.ts)
+    export type HistoricalItem = {
+        ref: string;
+    } & ({
+        kind: "typed";
+        role: "user" | "assistant";
+        text: string;
+        source?: "voice-conversation" | "voice-dictate";
+    } | {
+        kind: "recognized";
+        text: string;
+        finalization: "interim" | "final" | "unknown";
+        provenance: {
+            providerId: string;
+            conversationId: string;
+            epoch: number;
+        };
+    } | {
+        kind: "generated";
+        text: string;
+        provenance: {
+            providerId: string;
+            conversationId: string;
+            epoch: number;
+        };
+    } | {
+        kind: "host_fact";
+        text: string;
+        outcome: "completed";
+        result: HistoricalResultRef;
+        completeness: "retained_bounded" | "complete_source";
+    } | {
+        kind: "gap";
+        reason: Exclude<HistoryGapReason, "older_omitted">;
+    });
+  HistoricalResultRef (packages/ui-sdk/src/server/conversation.ts)
+    export interface HistoricalResultRef {
+        conversationId: string;
+        epoch: number;
+        requestId: string;
+        turnId: string;
+    }
+  HistoryGapReason (packages/ui-sdk/src/server/conversation.ts)
+    export type HistoryGapReason = "older_omitted" | "pre_upgrade" | "write_gap" | "source_unavailable" | "ambiguous_order";
   HygieneAction (packages/ui-sdk/src/protocol.ts)
     export interface HygieneAction {
         findingId: string;
@@ -7093,6 +7150,7 @@ signatures (every public export and the types it is made of)
         signal: AbortSignal;
         contextualTasks?: boolean;
         resync: ConversationResync;
+        history?: ConversationHistoryEnvelope;
     }
   LiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
     export interface LiveConversationProvider {
@@ -7103,6 +7161,10 @@ signatures (every public export and the types it is made of)
     }
   LiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
     export interface LiveConversationSession {
+        historyCoverage?: {
+            state: "complete" | "bounded" | "partial" | "unavailable";
+            tailOmitted: boolean;
+        };
         events: AsyncIterable<LiveConversationEvent>;
         appendAudio(chunk: LiveConversationAudioChunk): void;
         markEndpoint(utteranceId: string): void;
@@ -9508,6 +9570,10 @@ signatures (every public export and the types it is made of)
     }
   ServerConversationOpened (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationOpened {
+        historyCoverage?: {
+            state: "complete" | "bounded" | "partial" | "unavailable";
+            tailOmitted: boolean;
+        };
         historyGeneration?: number;
         historyOwnerId?: string;
         type: "conversation_opened";
@@ -15192,6 +15258,15 @@ signatures (every public export and the types it is made of)
             voiceService: z.ZodString;
         }, z.core.$loose>;
         epoch: z.ZodNumber;
+        historyCoverage: z.ZodOptional<z.ZodObject<{
+            state: z.ZodEnum<{
+                bounded: "bounded";
+                complete: "complete";
+                partial: "partial";
+                unavailable: "unavailable";
+            }>;
+            tailOmitted: z.ZodBoolean;
+        }, z.core.$strip>>;
         historyGeneration: z.ZodOptional<z.ZodNumber>;
         historyOwnerId: z.ZodOptional<z.ZodString>;
         limits: z.ZodObject<{
@@ -18326,6 +18401,15 @@ signatures (every public export and the types it is made of)
             voiceService: z.ZodString;
         }, z.core.$loose>;
         epoch: z.ZodNumber;
+        historyCoverage: z.ZodOptional<z.ZodObject<{
+            state: z.ZodEnum<{
+                bounded: "bounded";
+                complete: "complete";
+                partial: "partial";
+                unavailable: "unavailable";
+            }>;
+            tailOmitted: z.ZodBoolean;
+        }, z.core.$strip>>;
         historyGeneration: z.ZodOptional<z.ZodNumber>;
         historyOwnerId: z.ZodOptional<z.ZodString>;
         limits: z.ZodObject<{

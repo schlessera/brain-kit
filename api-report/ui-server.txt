@@ -1783,7 +1783,7 @@ signatures (every public export and the types it is made of)
             files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
         }): void;
         recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
-        attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
         recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): Promise<boolean>;
         takePendingLocalExchanges?(sessionId: string): LocalExchange[];
         loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];

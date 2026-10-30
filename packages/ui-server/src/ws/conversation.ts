@@ -1,3 +1,4 @@
+import { readLiveHistory } from "./live-history.js";
 import { requireKnownSession } from "./session-recovery.js";
 /**
  * Host orchestration for live conversations (#957).
@@ -256,6 +257,12 @@ export class ConversationHost {
     };
     conversation.epoch = epoch;
     const scope = { conversationId: conversation.id, epoch: epoch.number };
+    const authorized = () => {
+      if (connection.authorization.expiresAt <= Date.now()) this.host.expireAuthorizationContexts();
+      return !this.host.closing && !epoch.closed && !connection.closed && connection.authorization.valid
+        && connection.authorization.principalId === principalId && conversation.epoch === epoch
+        && this.byConnection.get(connection) === conversation && this.conversations.get(conversation.id) === conversation;
+    };
     let session: LiveConversationSession;
     try {
       const owner = await this.host.dialogue.open({ conversationId: conversation.id, principalId, epoch: epoch.number, providerId: this.provider.id,
@@ -265,7 +272,11 @@ export class ConversationHost {
       await this.host.catalog.saveConversationEpoch?.({ id: conversation.id, principalId, epoch: epoch.number,
         ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}) });
       if (epoch.closed || connection.closed || !connection.authorization.valid) return;
+      const history = await readLiveHistory(this.host, principalId,
+        conversation.sessionId ? { sessionId: conversation.sessionId } : { ownerId: conversation.historyOwnerId }, authorized);
+      if (!authorized()) return;
       session = await this.provider.open(scope, {
+        ...(history ? { history } : {}),
         signal: epoch.abort.signal,
         contextualTasks: epoch.contextualTasks,
         resync: { work: conversation.receipts.map((work) => ({ ...work.receipt })),
@@ -281,10 +292,10 @@ export class ConversationHost {
         body: "live conversation failed to open",
         attributes: { "provider.id": this.provider.id, error: err instanceof Error ? err.message : String(err) },
       });
-      this.endEpoch(conversation, "provider_error", "The voice service could not be opened.", epoch);
+      this.endEpoch(conversation, "provider_error", "The voice service or prior chat context could not be opened. No work was replayed. Restore access before restarting voice.", epoch);
       return;
     }
-    if (epoch.closed || conversation.epoch !== epoch) {
+    if (!authorized()) {
       // Replaced or stopped while opening: this session was never live.
       void session.close().catch(() => {});
       return;
@@ -292,6 +303,7 @@ export class ConversationHost {
     epoch.session = session;
     this.send(conversation, {
       type: "conversation_opened",
+      ...(session.historyCoverage ? { historyCoverage: session.historyCoverage } : {}),
       ...(conversation.historyOwnerId ? { historyOwnerId: conversation.historyOwnerId,historyGeneration:conversation.historyGeneration } : {}),
       ...(epoch.requestId ? { requestId: epoch.requestId } : {}),
       conversationId: conversation.id,

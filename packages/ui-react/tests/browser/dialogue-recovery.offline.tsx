@@ -110,10 +110,13 @@ for (const first of ["gemini", "gpt"] as const)
       ctx.onTestFinished(async () => {
         await commands.conversationServer({ op: "stop", id: fixture.id });
       });
-      let s = await view(ctx, null),
+      await commands.conversationServer({op:"step",id:fixture.id,client:[],provider:[],seedTypedHistory:true});
+      let s = await view(ctx, "odysseus-ithaca"),
         cursor = 0;
       let result: any;
+      const distinctiveFact = ("The departure signal is a bronze owl. " + "Athena marked the third oar; keep the blue sail ready. ".repeat(30)).slice(0,1067);
       const observed: ServerMessage[] = [];
+      const providerSent: any[] = [];
       const pump = async (
         provider: unknown[] = [],
         release = false,
@@ -130,9 +133,11 @@ for (const first of ["gemini", "gpt"] as const)
           client,
           provider,
           release,
+          resultText: release ? distinctiveFact : undefined,
           restart,
           engine,
         })) as any;
+        providerSent.push(...result.sent);
         for (const frame of result.frames as ServerMessage[]) {
           observed.push(frame);
           s.socket.deliver(frame);
@@ -203,6 +208,8 @@ for (const first of ["gemini", "gpt"] as const)
                 target: "client",
               },
             };
+      expect(JSON.stringify(providerSent), "INITIAL_CONTEXT_INCLUDES_EXISTING_TYPED_CHAT").toContain("Plan Telemachus's crossing.");
+      expect(JSON.stringify(providerSent), "INITIAL_CONTEXT_HAS_NO_DEFERRED_FACT").not.toContain("bronze owl");
       await pump([...ingress, request]);
       await expect
         .poll(async () => {
@@ -231,12 +238,14 @@ for (const first of ["gemini", "gpt"] as const)
         .toContain("The departure signal is a bronze owl.");
       await pump([input(3, "What was that signal?")]);
       const expected = [
+        "Plan Telemachus's crossing.",
+        "Keep the blue sail ready.",
         "Where is the departure note?",
         "We can look for it.",
         "Research the departure signal.",
         "Explain the mast while that runs.",
         "The mast supports the sail.",
-        "The departure signal is a bronze owl.",
+        distinctiveFact,
         "What was that signal?",
       ];
       const exact = () =>
@@ -296,6 +305,7 @@ for (const first of ["gemini", "gpt"] as const)
       );
       expect(result.tasks).toBe(1);
       expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
+      providerSent.length = 0;
       s.ui.connection.conversation.enter();
       await expect
         .poll(async () => {
@@ -323,8 +333,16 @@ for (const first of ["gemini", "gpt"] as const)
       expect(result.tasks).toBe(1);
       s.ui.connection.conversation.leave();
       await pump();
-      // #3178 separately supplies provider history. Visible restoration makes no
-      // claim that a new engine received or understood these prior words.
+      const startup = providerSent.flatMap(m => second === "gemini"
+        ? (m.clientContent?.turns ?? []).flatMap((t:any)=>t.parts.map((p:any)=>p.text))
+        : m.type === "session.start" ? m.session.input.map((i:any)=>i.content[0].text) : []);
+      const seed = startup.join("\n");
+      for (const text of expected) expect(seed,"PROVIDER_RECEIVES_COMPLETE_PRIOR_DISCUSSION_AND_FACT").toContain(text);
+      expect(seed.split(distinctiveFact).length-1,"WHOLE_1067_CHARACTER_FACT_ONCE").toBe(1);
+      expect(seed,"TASK_WRAPPER_NEVER_AUTHENTICATED_DIALOGUE").not.toContain("Determine the task requested by this recent conversation context");
+      expect(providerSent.some(m=>m.toolResponse || m.type==="session.thinking.append" || m.type==="session.commentary.append"),"NO_NATIVE_RESULT_REPLAY").toBe(false);
+      expect(result.tasks,"OPENING_HISTORY_DOES_NOT_EXECUTE_WORK").toBe(1);
+      // Actual transport receipt, independently from UI restoration; no recall claim.
     });
 
 for (const provider of ["gemini", "gpt"] as const)

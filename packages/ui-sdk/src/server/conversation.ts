@@ -130,6 +130,40 @@ export interface ConversationResync {
   }[];
 }
 
+/** Host-side identity of one retained completed host result (#3141 join key). */
+/** @experimental Frozen historical data, never native handles or admission authority. */
+export interface HistoricalResultRef {
+  conversationId: string;
+  epoch: number;
+  requestId: string;
+  turnId: string;
+}
+
+export type HistoryGapReason = "older_omitted" | "pre_upgrade" | "write_gap" | "source_unavailable" | "ambiguous_order";
+
+/**
+ * One historical source item, in source order (oldest first). `ref` is the
+ * host's exact immutable source identity; it and every provenance field stay
+ * host-side and are never serialized for the model.
+ */
+export type HistoricalItem = { ref: string } & (
+  | { kind: "typed"; role: "user" | "assistant"; text: string; source?: "voice-conversation" | "voice-dictate" }
+  | { kind: "recognized"; text: string; finalization: "interim" | "final" | "unknown";
+      provenance: { providerId: string; conversationId: string; epoch: number } }
+  | { kind: "generated"; text: string;
+      provenance: { providerId: string; conversationId: string; epoch: number } }
+  | { kind: "host_fact"; text: string; outcome: "completed"; result: HistoricalResultRef;
+      completeness: "retained_bounded" | "complete_source" }
+  | { kind: "gap"; reason: Exclude<HistoryGapReason, "older_omitted"> }
+);
+
+/** @experimental Frozen historical data, never native handles or admission authority. */
+export interface ConversationHistoryEnvelope {
+  version: 1;
+  coverage: { state: "complete" | "bounded" | "partial" | "unavailable"; reasons: readonly HistoryGapReason[] };
+  items: readonly HistoricalItem[];
+}
+
 /** @experimental Part of the `LiveConversationProvider` seam. */
 export interface LiveConversationOpenOptions {
   /** Aborted when the host ends this epoch. */
@@ -137,6 +171,8 @@ export interface LiveConversationOpenOptions {
   /** Enabled only when both client and provider support contextual host tasks. */
   contextualTasks?: boolean;
   resync: ConversationResync;
+  /** Authorized chat snapshot, fixed before capture and never rebuilt in this epoch. */
+  history?: ConversationHistoryEnvelope;
 }
 
 /**
@@ -145,6 +181,8 @@ export interface LiveConversationOpenOptions {
  * @experimental Part of the `LiveConversationProvider` seam.
  */
 export interface LiveConversationSession {
+  /** Actual bounded historical seed coverage, when the adapter supports it. */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
   events: AsyncIterable<LiveConversationEvent>;
   appendAudio(chunk: LiveConversationAudioChunk): void;
   markEndpoint(utteranceId: string): void;

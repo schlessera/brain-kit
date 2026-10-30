@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Existing-chat live context (additive, 0.44.0, #3178)
+
+`LiveConversationOpenOptions.history` and its exported historical-data types
+carry an optional authorized, frozen chat snapshot, separately from native
+same-conversation resync. `LiveConversationSession.historyCoverage` and
+`conversation_opened.historyCoverage` optionally report the actual startup
+selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
+`tailOmitted`. This is data receipt/selection evidence, never a guarantee of
+semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
+and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
+
 ## Continuous conversation (breaking, #3053)
 
 The October 29 [maintainer policy](decisions/live-conversation.md#continuous-conversation-and-audible-recovery--2026-10-29)

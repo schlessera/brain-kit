@@ -118,3 +118,16 @@ test("missing dialogue read purges its page and principal replacement rejects a 
  expect(s.host.textContent).not.toContain("Old principal mast note.");
  expect(s.host.querySelector("dialog[open]")).toBeNull();
 });
+
+for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(`live history coverage disclosure ${theme} ${width}`,async ctx=>{
+ const s=await scene(ctx,width,theme);s.ui.stores.provider.setState({available:[{id:"athena",label:"Athena",backendId:"local"}],selectedId:"athena",loaded:true});
+ flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",profile:{...profile("gpt-live"),historyCoverage:{state:"bounded",tailOmitted:true}},disclosureOpen:true}));
+ const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
+ expect(dialog.textContent).toContain("Starting voice sends bounded prior chat text and completed results to this voice service, including when you switch services.");
+ expect(dialog.textContent).toContain("The newest prior item was not included.");
+ expect(dialog.textContent).toContain("does not prove the service understood or recalled it");
+ const paragraph=[...dialog.querySelectorAll("p")].find(p=>p.textContent?.startsWith("Starting voice sends"))!;
+ paragraph.scrollIntoView({block:"center"});
+ expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth+1);
+ await page.screenshot({element:dialog,path:`../../.vitest-attachments/live-history/coverage-${theme}-${width}.png`});
+});

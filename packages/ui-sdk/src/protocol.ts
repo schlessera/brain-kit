@@ -2161,6 +2161,8 @@ export interface ClientConversationStop {
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
 export interface ServerConversationOpened {
+  /** Actual bounded startup text coverage; no semantic recall guarantee. */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
   historyGeneration?: number;
   historyOwnerId?: string;
   type: "conversation_opened";

@@ -183,6 +183,7 @@ const server = Bun.serve({
       multipart?: boolean;
       backendPrefix?: string;
       seedLegacyVoice?: boolean;
+      seedTypedHistory?: boolean;
       takeover?: boolean;
       parallelStarts?: boolean;
       parallelLeave?: boolean;
@@ -210,6 +211,12 @@ const server = Bun.serve({
     if(body.parallelLeave && parallel){const opened=parallel.frames.find(f=>f.type==="conversation_opened");if(opened?.type!=="conversation_opened")throw Error("Parallel conversation did not open");parallel.handlers.onMessage({data:JSON.stringify({type:"conversation_stop",conversationId:opened.conversationId})} as MessageEvent,parallel.ws);}
     await Bun.sleep(10);
     if(body.backendPrefix) emitPrefix?.(body.backendPrefix);
+    if (body.seedTypedHistory) {
+      if (history.length) throw Error("Typed history fixture must be seeded once before work");
+      history.push({role:"user",content:"Plan Telemachus's crossing.",toolCalls:[]}, {role:"assistant",content:"Keep the blue sail ready.",toolCalls:[]});
+      host.catalog.persistSessionStub("odysseus-ithaca","Plan Telemachus's crossing.",null,"fake");
+      await host.catalog.settled?.();
+    }
     if(body.seedLegacyVoice) await host.catalog.saveConversationEpoch!({id:"old-voice",principalId:testPrincipal().id,epoch:1,sessionId:"odysseus-ithaca"});
     let releaseQuota: (() => Promise<void>) | undefined;
     if (body.pressure) pressureApplied=true;

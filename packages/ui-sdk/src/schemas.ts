@@ -1787,6 +1787,7 @@ export const dialoguePageSchema = z.object({ cursor:z.string().max(2048).optiona
 export const serverDialogueHistorySchema = dialoguePageSchema.extend({ type: z.literal("dialogue_history"), requestId: id.optional() }) satisfies z.ZodType<ServerDialogueHistory>;
 
 export const serverConversationOpenedSchema = z.looseObject({
+  historyCoverage: z.object({ state: z.enum(["complete", "bounded", "partial", "unavailable"]), tailOmitted: z.boolean() }).optional(),
   type: z.literal("conversation_opened"),
   historyGeneration:conversationEpoch.optional(),
   historyOwnerId: id.optional(),

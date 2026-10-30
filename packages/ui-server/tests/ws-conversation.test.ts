@@ -1623,7 +1623,10 @@ test("a history failure retires the late host opening before explicit retry", as
   await s.host.catalog.settled?.();
   let rejectHistory!: (error: Error) => void;
   const [backend] = await s.host.registry.getBackends();
-  backend!.getHistory = () => new Promise((_, reject) => { rejectHistory = reject; });
+  let historyReads = 0;
+  backend!.getHistory = () => ++historyReads === 1
+    ? new Promise((_, reject) => { rejectHistory = reject; })
+    : Promise.resolve([]); // Independent live startup snapshot succeeds while UI replay is delayed.
   let releaseOpen!: () => void, opening = false;
   const open = s.live.provider.open.bind(s.live.provider);
   s.live.provider.open = async (...args) => {
@@ -1806,4 +1809,33 @@ test("retained dialogue support is advertised only when the catalog can read it"
  expect(capabilities.sessionDialogue).toBe(true);const {sessionDialogue,...legacy}=capabilities;expect(sessionDialogue).toBe(true);await cleanup?.();
  const unsupported=setup();unsupported.host.catalog.dialogueRead=undefined;const b=await unsupported.connect();
  expect(b.frames("server_hello")[0].capabilities).toEqual(legacy);
+});
+
+for (const source of ["journal", "native", "provenance"] as const) test(`live startup ${source} failure refuses before provider open without replay`, async () => {
+  const s = setup(), client = await s.connect();
+  const sessionId = "odysseus-history-failure";
+  s.host.catalog.persistSessionStub(sessionId, "Plan the crossing.", null, "fake");
+  await s.host.catalog.settled?.();
+  const fail = () => { throw Error("PRIVATE_SOURCE_FAILURE_MUST_NOT_SURFACE"); };
+  if (source === "journal") s.host.catalog.dialogueRead = async () => fail();
+  else if (source === "native") s.backend.getHistory = async () => fail();
+  else s.host.catalog.attachMessageSources = fail;
+  client.send({type:"conversation_start",sessionId});
+  await until(() => client.frames("conversation_closed").length > 0 || client.frames("conversation_opened").length > 0);
+  expect(s.live.sessions,"SOURCE_FAILURE_NEVER_OPENS_CONTEXT_FREE_PROVIDER").toHaveLength(0);
+  expect(s.turns,"SOURCE_FAILURE_NEVER_REPLAYS_WORK").toHaveLength(0);
+  expect(client.frames("conversation_closed").at(-1)).toMatchObject({reason:"provider_error"});
+  expect(JSON.stringify(client.frames())).not.toContain("PRIVATE_SOURCE_FAILURE_MUST_NOT_SURFACE");
+});
+
+test("connection teardown during canonical startup read fences a stale snapshot before provider open", async () => {
+  const s=setup(),client=await s.connect();
+  const sessionId="odysseus-history-wait";
+  s.host.catalog.persistSessionStub(sessionId,"Plan the crossing.",null,"fake");await s.host.catalog.settled?.();
+  const read=s.host.catalog.dialogueRead!.bind(s.host.catalog);
+  let release!:()=>void,entered=false;
+  s.host.catalog.dialogueRead=async(...args)=>{const page=await read(...args);entered=true;await new Promise<void>(r=>{release=r;});return page;};
+  client.send({type:"conversation_start",sessionId});await until(()=>entered);client.close();release();await settle();
+  expect(s.live.sessions,"STALE_CANONICAL_SNAPSHOT_NEVER_REACHES_PROVIDER").toHaveLength(0);
+  expect(s.turns).toHaveLength(0);
 });

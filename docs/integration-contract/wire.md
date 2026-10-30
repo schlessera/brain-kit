@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3795-3801`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1875-1877`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3797-3803`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1876-1878`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2486,3 +2486,28 @@ A journal write failure alone does not prove that a complete native answer was
 lost. Review-buffer eviction remains separate from archive retention and does
 not stop consented capture; a genuine bounded unsaved-buffer exhaustion still
 stops capture and exposes the unavailable tail honestly.
+
+## Existing-chat live context (#3178)
+
+`conversation_opened` optionally carries `historyCoverage: {state, tailOmitted}`,
+with state `complete`, `bounded`, `partial` or `unavailable`. It describes selected
+historical text at startup, independently of retained display history, generated
+speech and playback. Details disclose partial sources/order, context omissions
+and an omitted newest item without claiming the model understood the text.
+
+Starting live mode in an existing authorized chat supplies prior chat text,
+canonical retained spoken evidence and exact completed host facts on both
+Gemini Live and GPT Live, including new native IDs, Leave/re-entry, reload,
+restart and engine switches. The existing disclosure/explicit Start guards
+remain: prior text is transferred to the selected voice service; raw audio is
+not retained by this feature. Historical text is data, not a new task or grant.
+Same-conversation earlier-epoch/native-binding fences and effect counts are
+unchanged. There is no native response or tool replay.
+
+GPT uses only startup `session.start.session.input` user `input_text` data blocks,
+and waits for `session.started`. Gemini enables ordered initial client history
+only for nonempty context, then sends `clientContent` with `turnComplete:true`
+after `setupComplete`, before PCM. Under that documented initial-history mode,
+seeding makes no extra model call. No native resume is configured. Future resume
+must avoid double-seeding already retained native history. Vendor acceptance,
+semantic recall and acoustic/device behavior remain separately qualified.

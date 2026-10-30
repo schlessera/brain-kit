@@ -443,3 +443,21 @@ classes and storage notices from known scoped error codes, never remote message
 text. Storage copy describes a failed journal write without inferring loss of a
 native answer. Bounded review rollover does not revoke continuous capture;
 actual write/unsaved-buffer failure remains a separate visible failure boundary.
+
+
+## New live epochs receive existing chat text — 2026-10-31 (#3178)
+
+The separately authorized historical-data envelope consumes #3177's canonical
+journal and backend-owned native text. It does not widen native resync identity
+fences. Opening reads a bounded authorized snapshot and freezes it once for the
+native session; read failures stop startup. Typed discussion, uncertain voice
+evidence and exact completed facts remain separate data sources. Internal task
+wrappers cannot stand in for prior authenticated dialogue. No history read or
+seed dispatches work, replays a native response or grants permission.
+
+The [startup selection contract](../integration-contract/package-api.md#existing-chat-live-context-3178)
+records dynamic actual-byte allocation, whole-item omissions and honest source
+coverage. The additive wire field reports actual bounded selection independently
+of restored UI text. Start disclosure covers prior-chat text transfer to either
+selected voice service, including engine changes. Captured provider input proves
+transport assembly only; #3131/#961 retain semantic/acoustic/device qualification.
