@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -300,4 +301,29 @@ test("missing JavaScript still preserves real Bun TypeScript source-extension su
   const child=Bun.spawnSync([process.execPath,join(root,"entry.ts")],{cwd:root,stdout:"pipe",stderr:"pipe"});expect(child.exitCode,new TextDecoder().decode(child.stderr)).toBe(0);expect(new TextDecoder().decode(child.stdout).trim()).toBe("Odysseus");
   const closure=discoverInputClosure(root,["entry.ts"]);expect(closure.files).toContain(`reader.${source}`);expect(closure.unresolved).toEqual([]);
  }
+});
+
+
+test("the browser optimizer eagerly owns the direct Markdown decoder before lazy sharing loads React", () => {
+  const root = resolve(import.meta.dir, "..");
+  const path = "packages/ui-kit/vite.config.ts";
+  const ast = ts.createSourceFile(path, readFileSync(join(root, path), "utf8"), ts.ScriptTarget.Latest, true);
+  const lists: string[][] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isPropertyAssignment(node) && node.name.getText(ast) === "optimizeDeps" && ts.isObjectLiteralExpression(node.initializer)) {
+      const include = node.initializer.properties.find(p => ts.isPropertyAssignment(p) && p.name.getText(ast) === "include");
+      expect(include && ts.isPropertyAssignment(include) && ts.isArrayLiteralExpression(include.initializer)).toBe(true);
+      if (include && ts.isPropertyAssignment(include) && ts.isArrayLiteralExpression(include.initializer)) {
+        expect(include.initializer.elements.every(ts.isStringLiteral)).toBe(true);
+        lists.push(include.initializer.elements.filter(ts.isStringLiteral).map(n => n.text));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  expect(lists).toHaveLength(1);
+  expect(lists[0]).toContain("micromark-util-decode-string");
+  expect(lists[0]).toContain("react-dom/server");
+  const closure = discoverInputClosure(root, [path]);
+  expect(closure.files).toContain(path);
 });

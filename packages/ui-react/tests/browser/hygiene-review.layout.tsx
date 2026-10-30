@@ -929,6 +929,7 @@ for (const theme of ["dark", "light"])
     await captureCard(`c2734-${theme}-320-changed.png`);
     // Invalidation while focus is inside moves it to the card title.
     refresh.focus();
+    expect(document.activeElement, "Refresh holds focus").toBe(refresh);
     socket!.close();
     await expect.poll(() => document.activeElement).toBe(title());
     expect(region()?.hidden).toBe(true);

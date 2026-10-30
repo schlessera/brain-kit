@@ -57,15 +57,19 @@ Object.assign(window, {
     sizes: () => root.partitions!.sizes(),
     /**
      * The first message in view and its top's distance from the transcript's
-     * top, measured on the transcript's own rows (each message is one row of
-     * the reading column), not on anything the code under test adds.
+     * top, measured on message-shell geometry and visual ordinal, independently
+     * of the product's saved-anchor attribute. Arrival rows may wrap a shell.
      */
     firstVisible: () => {
       const column = document.querySelector<HTMLElement>("[data-reading-column]");
       const el = column?.closest<HTMLElement>(".overflow-y-auto");
       if (!column || !el) return null;
       const top = el.getBoundingClientRect().top;
-      const rows = [...column.children].filter((n): n is HTMLElement => n instanceof HTMLElement && n.classList.contains("py-4"));
+      const rows = [...column.children].flatMap(node => {
+        if (!(node instanceof HTMLElement)) return [];
+        const shell = node.classList.contains("py-4") ? node : node.querySelector<HTMLElement>(":scope > .py-4");
+        return shell ? [shell] : [];
+      });
       for (const [i, node] of rows.entries()) {
         const box = node.getBoundingClientRect();
         if (box.bottom > top) return { anchor: String(i), offset: box.top - top, scrollTop: el.scrollTop };
