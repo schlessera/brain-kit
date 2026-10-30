@@ -103,7 +103,7 @@ if (import.meta.main) {
       values.set(key, value);
     }
     const issues = values.has("--issues") ? values.get("--issues")!.split(",") : [];
-    if (issues.some(value => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/.test(value)) || issues.length > 20) throw new Error("Invalid delivered issue identities");
+    if (issues.some(value => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/.test(value)) || issues.length > 100) throw new Error("Invalid delivered issue identities");
     repository = await gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner");
     const user = JSON.parse(await gh("api", "user")); actor = user.id;
     store = new GitReservationStore(process.cwd());
