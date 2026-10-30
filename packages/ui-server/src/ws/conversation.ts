@@ -809,7 +809,9 @@ export class ConversationHost {
           work.receipt.sessionId = frame.sessionId;
           conversation.sessionId ??= frame.sessionId;
           this.host.dialogue.bind(conversation.id, conversation.principalId, frame.sessionId);
-          this.sendReceipt(conversation, work);
+          // Reserve journal routing before the frame, but publish the updated
+          // task receipt only after session_info reaches the same client.
+          queueMicrotask(() => { if (!work.settled) this.sendReceipt(conversation, work); });
         } else if (frame.type === "text_delta") {
           work.facts = bounded(work.facts + frame.text, CONVERSATION_LIMITS.maxFactChars);
         } else if (frame.type === "result") {

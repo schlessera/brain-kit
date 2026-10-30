@@ -707,7 +707,7 @@ export function ChatPage() {
                 <DiscButton name="New chat" icon="compose" tone="ink" label="New chat" onClick={clearMessages} />
               </DiscRow>
             )}
-            {messages.length === 0 && restoring ? (
+            {messages.length === 0 && !hasVoiceOutput && !hasVoicePermission && restoring ? (
               <div className="h-full overflow-y-auto">
                 <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />

@@ -203,7 +203,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       const key = JSON.stringify([output.unsavedGenerated ? "unsaved-speech" : "speech", output.conversationId, output.epoch, output.outputId]);
       liveRuns.add(key);
       for (const run of segments(key, generated, output.sessionId,undefined,observedThrough(output.sessionId))) {
-        entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: isRestoredConversationOutput(output), output: { ...output, generated: generated.slice(run.start, run.end), ...(output.unsavedGenerated ? {playback:"unknown" as const,unsaved:true as const} : {}) } });
+        entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: !output.unsavedGenerated && isRestoredConversationOutput(output), output: { ...output, generated: generated.slice(run.start, run.end), ...(output.unsavedGenerated ? {playback:"unknown" as const,unsaved:true as const,orderUnknown:false} : {}) } });
       }
     }
     // Preserve actual fragment identities before projection. Provider intervals
@@ -233,12 +233,13 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     entries.sort((a, b) => compareKeys(a.key,b.key));
     const stream = (f: ConversationRecognition) => JSON.stringify([f.conversationId, f.epoch, f.kind, f.kind === "input_fragment" ? f.utteranceId : null, !!f.unsaved]);
     const grouped: TranscriptEntry[] = [];
+    const members = new Map<TranscriptEntry, Set<string>>();
     for (const entry of entries) {
       const tail = grouped.at(-1);
-      if (entry.kind === "recognition" && tail?.kind === "recognition" && stream(entry.fragments[0]!) === stream(tail.fragments[0]!)) tail.fragments.push(...entry.fragments);
-      else if (entry.kind === "speech" && tail?.kind === "speech" && entry.sessionId === tail.sessionId && entry.output.conversationId === tail.output.conversationId && entry.output.epoch === tail.output.epoch && entry.output.outputId === tail.output.outputId && entry.restored === tail.restored && entry.output.unsaved === tail.output.unsaved) tail.output = {...tail.output,generated:tail.output.generated+entry.output.generated};
-      else if (entry.kind === "message" && entry.section === "answer" && tail?.kind === "message" && tail.section === "answer" && entry.message === tail.message && tail.end === entry.start) tail.end=entry.end;
-      else grouped.push(entry);
+      if (entry.kind === "recognition" && tail?.kind === "recognition" && stream(entry.fragments[0]!) === stream(tail.fragments[0]!)) { tail.fragments.push(...entry.fragments); members.get(tail)!.add(entry.key); }
+      else if (entry.kind === "speech" && tail?.kind === "speech" && entry.sessionId === tail.sessionId && entry.output.conversationId === tail.output.conversationId && entry.output.epoch === tail.output.epoch && entry.output.outputId === tail.output.outputId && entry.restored === tail.restored && entry.output.unsaved === tail.output.unsaved) { tail.output = {...tail.output,generated:tail.output.generated+entry.output.generated}; members.get(tail)!.add(entry.key); }
+      else if (entry.kind === "message" && entry.section === "answer" && tail?.kind === "message" && tail.section === "answer" && entry.message === tail.message && tail.end === entry.start) { tail.end=entry.end; members.get(tail)!.add(entry.key); }
+      else { grouped.push(entry); members.set(entry,new Set([entry.key])); }
     }
     for (const {fragment,sequence} of emptyArchive) {
       const own = grouped.findLast(e=>e.kind === "recognition" && stream(e.fragments[0]!) === stream(fragment) && (ordered.get(e.key) ?? Infinity) < sequence);
@@ -251,6 +252,18 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       if (own?.kind === "recognition") own.fragments.push(fragment);
     }
     for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => compareKeys(recognitionIdentity(a),recognitionIdentity(b)));
+    // A page can prepend members of a contiguous blurb. Keep an existing
+    // canonical member as its DOM key while that exact source still survives.
+    // Membership comes only from this projection; it creates no extra order.
+    const previous = new Map(state.getState().entries.map((entry,index)=>[entry.key,{entry,index}]));
+    for (const entry of grouped) {
+      let surviving: {entry:TranscriptEntry;index:number}|undefined;
+      for (const key of members.get(entry)!) {
+        const old=previous.get(key);
+        if (old && old.entry.kind===entry.kind && old.entry.sessionId===entry.sessionId && (!surviving || old.index<surviving.index)) surviving=old;
+      }
+      if (surviving) entry.key=surviving.entry.key;
+    }
     // Preserve positions across partial history chunks, but do not retain the
     // identities of evicted sessions/outputs for the lifetime of a mounted app.
     if (!buffers.some(([, buffer]) => buffer?.replay)) {

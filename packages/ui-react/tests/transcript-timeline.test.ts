@@ -343,3 +343,17 @@ test("projection computes each session's observed prefix with linear archive vis
   expect(transcriptTimelineFor(root.stores.chat).state.getState().entries.map(entryText).join("")).toContain("Unsaved.");
  }finally{root.dispose();}
 });
+
+
+for(const kind of ["recognition","speech"] as const)test(`older paging preserves a surviving ${kind} canonical reading key`,()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  const record=(sequence:number)=>({sequence,identity:`source-${sequence}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId:"gemini-live",event:kind==="speech"?{kind:"output_transcript" as const,outputId:"mast",sequence,text:`Mast ${sequence}.`}:{kind:"unassigned_input_fragment" as const,sequence,text:`Mast ${sequence}.`,timing:{kind:"unavailable" as const}}}});
+  const voice=root.connection.conversation.state, page={ownerId:"ithaca",sessionId:"voyage",generation:1,through:100,coverage:"complete" as const,records:[record(100)]};
+  voice.setState({dialogue:{voyage:page},dialogueRestoredThrough:{voyage:100}});
+  const rows=()=>transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.kind===kind);
+  const key=rows()[0]!.key;
+  voice.setState({dialogue:{voyage:{...page,records:[record(99),record(100)]}}});
+  expect(rows()).toHaveLength(1);expect(rows()[0]!.key,"PAGING_PRESERVES_SOURCE_ANCHOR").toBe(key);
+  expect(entryText(rows()[0]!)).toBe("Mast 99.Mast 100.");
+ }finally{root.dispose();}
+});

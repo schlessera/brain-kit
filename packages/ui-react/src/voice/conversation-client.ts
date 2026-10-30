@@ -357,7 +357,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   function leave() {
     clearClosedNotice();
     if (!state.getState().active) return;
-    const retainedOwner = scope()?.historyOwnerId;
+    const leaving = scope();
+    const retainedOwner = leaving?.historyOwnerId;
     entryLifetime++;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
@@ -366,6 +367,14 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (retainedOwner && !state.getState().sessionId) {
       const key = `dialogue:${retainedOwner}`;
       root.stores.chat.getState().setHistoryOwner(key, retainedOwner);
+      // This is the existing host-only UI target, never a backend session.
+      // Move this source's volatile evidence with its owner before selection;
+      // a later missing-native-history error must not orphan its unsaved tail.
+      state.setState(current=>({sessionId:key,
+        recognition:current.recognition.map(f=>f.sessionId===null && f.conversationId===leaving?.conversationId ? {...f,sessionId:key} : f),
+        outputs:current.outputs.map(o=>o.sessionId===null && o.conversationId===leaving?.conversationId ? outputInSession(o,key) : o),
+        unassigned:current.unassigned.map(f=>f.sessionId===null && f.conversationId===leaving?.conversationId ? {...f,sessionId:key} : f),
+      }));
       root.stores.chat.getState().setActiveSession(key);
     }
   }
@@ -503,11 +512,25 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     // ordinary session_info routing cannot adopt the independent typed draft.
     root.stores.chat.getState().setActiveSession(sessionId);
   }
+  /** Principal/auth boundaries drop all volatile evidence and old callback identities. */
+  function clearPrivateDialogue() {
+    entryLifetime++; generation++; consent=false; ready=false; requested=false; openingId=undefined;
+    // Retire the source before cutting playback: no old identity is sent on a new principal socket.
+    state.setState({active:false,profile:null});
+    clearTimers(); resetRecovery(); stopMic(); playback.cut();
+    unsavedOverflow=false; storageFailedScope=undefined; dialogueReads.clear();
+    requests.clear(); restoredRequests.clear(); agreedDisclosure=undefined;
+    permissions.clear(); localTones.clear(); fragments.clear(); capturedInputs.clear(); retiredInputs.clear();
+    manualReview.clear(); incompleteReview.clear(); unassignedThrough=-1; seenRecognition.clear();
+    lastInput=undefined; utterance=null; draftId=null; savedVoice="";
+    state.setState({active:false,token:generation,profile:null,voiceDraft:null,dialogue:{},dialogueRestoredThrough:{},dialogueNotice:"",work:{},outputs:[],unassigned:[],recognition:[],unassignedWork:0,available:false});
+    if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
+  }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
   function frame(message: ServerMessage): ServerMessage | null {
     permissions.frame(message);
     if (message.type === "server_hello") {
-      if(dialoguePrincipalKey !== undefined && dialoguePrincipalKey !== message.principalKey){dialogueReads.clear();state.setState({dialogue:{},dialogueRestoredThrough:{},dialogueNotice:""});}
+      if(dialoguePrincipalKey !== undefined && dialoguePrincipalKey !== message.principalKey) clearPrivateDialogue();
       dialoguePrincipalKey=message.principalKey;
       durableAvailable = message.capabilities?.sessionDialogue === true;
     }
@@ -791,7 +814,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     else if (consent) void capture();
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
-  const unwatchAuth = root.authLock.registerStop(async () => { leave(); unsavedOverflow=false; storageFailedScope=undefined; requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, dialogue: {}, dialogueRestoredThrough: {}, dialogueNotice: "", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
+  const unwatchAuth = root.authLock.registerStop(async () => { leave(); clearPrivateDialogue(); });
   return {
     loadDialogue, historyOwnerFor,
     state, frame, permissions,

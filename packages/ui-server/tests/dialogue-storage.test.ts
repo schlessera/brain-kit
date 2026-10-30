@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -489,4 +489,23 @@ test("native pending pressure is distinct from storage failure and keeps its fin
   expect(db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({n:256});
   expect(causes).toEqual(["queue_pressure"]);
  }finally{Atomics.store(control,0,1);Atomics.notify(control,0);await hold;await journal.settled();await q.close();await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test("complete operational backup and restore preserve exact durable dialogue without replay state",async()=>{
+ const {exportInboxSnapshot,restoreInboxSnapshot}=await import("../src/inbox/snapshot.js");
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-dialogue-backup-")),source=join(dir,"source"),target=join(dir,"target");mkdirSync(source);mkdirSync(target);
+ const db=createUiDb(join(source,"ui.db")),writer=openSqliteWriter(db),c=writer.channel({url:writes.url,setup:writes.setup},{});
+ try{
+  await c.call("dialogueOpen",opening);await c.call("dialogueAppend",fragment(0,"The mast is ready."));await c.call("dialogueClose","ithaca","odysseus",1,false);
+  const original=readDialogue(db,"odysseus",{ownerId:"ithaca"})!;
+  const snapshot=await exportInboxSnapshot(db,source);
+  await restoreInboxSnapshot(snapshot,join(target,"ui.db"),target);
+  const restored=createUiDb(join(target,"ui.db"));try{
+   expect(readDialogue(restored,"odysseus",{ownerId:"ithaca"}),"OPERATIONAL_BACKUP_PRESERVES_DIALOGUE").toEqual({...original,generation:original.generation+1,coverage:"partial"});
+   expect(()=>readDialogue(restored,"odysseus",{ownerId:"ithaca",generation:original.generation})).toThrow("generation");
+   expect(()=>readDialogue(restored,"penelope",{ownerId:"ithaca"})).toThrow("ownership");
+   expect(restored.query("SELECT COUNT(*) AS n FROM conversation_tasks").get()).toEqual({n:0});
+  }finally{restored.close();}
+ }finally{await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
 });

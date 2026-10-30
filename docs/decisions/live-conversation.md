@@ -301,8 +301,9 @@ counter, so hiding cannot turn a valid replacement response into destructive
 teardown. Disclosure compares the entry's effective profile and its current
 metadata, not a later UI picker pin: task adoption remains routine, while
 same-ID backend/model changes or removal require a fresh disclosure and Start.
-Contextual recognition is recent bounded context, distinct from legacy retained
-manual review. Identity/replay ledgers keep their finite fail-closed boundaries;
+Recognition review/context caches are bounded independently of the durable
+text evidence described below. Incomplete review cannot become an automatic
+draft/commit; archival capture continues in either task mode. Identity/replay ledgers keep their finite fail-closed boundaries;
 forgetting an identity to extend a session would weaken correlation/replay guards.
 
 The local output heuristic checks 300 ms without nonzero PCM after endpoint, with
@@ -344,3 +345,17 @@ epoch result guard. Rendering restored text proves no model receipt or recall.
 This is a recorded pre-1.0 breaking retention/privacy meaning change with additive
 negotiated fields, as specified in the integration contract. No paid qualification,
 provider capability promotion or release commitment follows from this ruling.
+
+
+The retained-discussion UI uses the existing closed transcript vocabulary and
+reading scope. Unsaved recognized/generated segments have their own compact
+qualifier, independent of restoration, original service and local playback.
+Known host order never receives an ambiguous-order label. Paging preserves a
+surviving canonical member key; it does not create another display authority.
+Principal replacement clears volatile failure evidence as well as archive pages.
+
+The fictional browser examples show [compact saved/unsaved evidence](../assets/durable-dialogue-3177/tail-light-320-1.png),
+[200% text reflow](../assets/durable-dialogue-3177/tail-dark-320-2.png),
+[readable unsaved details](../assets/durable-dialogue-3177/unsaved-details-light-1280-1.png),
+and the [text-retention disclosure](../assets/durable-dialogue-3177/consent-retention-gpt-live.png).
+They illustrate evidence states using scripted text, not live model output.

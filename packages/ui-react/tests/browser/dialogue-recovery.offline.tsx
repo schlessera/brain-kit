@@ -271,7 +271,7 @@ for (const first of ["gemini", "gpt"] as const)
       await pump();
       const retained =
         s.ui.connection.conversation.state.getState().dialogue[sessionId]!;
-      s.ui.stores.chat.getState().setActiveSession("other-chat");
+      flushSync(()=>s.ui.stores.chat.getState().setActiveSession("other-chat"));
       s.socket.deliver({ type: "dialogue_history", ...retained });
       await expect
         .poll(() => s.element.textContent)
@@ -738,6 +738,7 @@ for (const provider of ["gpt", "gemini"] as const)
     }
     const rendered = () => s.element.textContent!;
     for (const item of source) expect(rendered()).toContain(item.text);
+    expect([...s.element.querySelectorAll('[data-transcript-qualifiers="generated"]')].some(q=>q.getAttribute("aria-label")?.includes("unsaved")),"UNSAVED_REPLY_QUALIFIER").toBe(true);
     const offsets = source.map((item) => rendered().indexOf(item.text));
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
     expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
@@ -764,6 +765,21 @@ for (const provider of ["gpt", "gemini"] as const)
       event: { ...stale.event, text: "Stopped callback must stay absent." },
     });
     expect(rendered()).not.toContain("Stopped callback must stay absent.");
+    const selected=s.ui.stores.chat.getState().activeSessionId!;
+    flushSync(()=>s.socket.deliver({type:"error",code:"SESSION_NOT_FOUND",sessionId:selected,message:"This conversation is not available on this host. Your observed text is kept locally."}));
+    // Leave adopts the host-only UI target and starts that chat's normal
+    // finite reading window. Reveal its earlier rows before checking all text.
+    for(let n=0;n<5;n++){
+      const earlier=[...s.element.querySelectorAll<HTMLElement>('button,[role="button"]')].find(b=>b.textContent?.includes("earlier message"));
+      if(!earlier)break;flushSync(()=>earlier.click());
+    }
+
+    for(const item of source) expect(rendered(),"MISSING_HISTORY_PRESERVES_OBSERVED_TAIL").toContain(item.text);
+    flushSync(()=>s.ui.stores.chat.getState().setActiveSession("other-chat"));
+    expect(rendered()).not.toContain(source.at(-1)!.text);
+    flushSync(()=>s.ui.stores.chat.getState().setActiveSession(selected));
+    expect(rendered()).toContain(source.at(-1)!.text);
+
 
     expect(result.tasks).toBe(0);
     s.close();
@@ -806,6 +822,12 @@ for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota
   const rows=transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.filter(e=>e.kind==="recognition");
   expect(rows).toHaveLength(2);
   expect(rows.map(e=>!!e.fragments[0]!.unsaved)).toEqual([false,true]);
+  const qualifiers=[...s.element.querySelectorAll<HTMLButtonElement>('[data-transcript-qualifiers="recognized"]')];
+  expect(qualifiers).toHaveLength(2);
+  expect(qualifiers[0]!.getAttribute("aria-label")).not.toContain("unsaved");
+  expect(qualifiers[1]!.getAttribute("aria-label"),"UNSAVED_ROW_QUALIFIER").toContain("unsaved");
+  expect(qualifiers[1]!.querySelectorAll("svg").length).toBeGreaterThan(qualifiers[0]!.querySelectorAll("svg").length);
+
   expect(rows.flatMap(e=>e.fragments.map(f=>f.text))).toEqual(events.map(f=>"text" in f.event ? f.event.text : ""));
   expect(result.rows).toHaveLength(events.filter(f=>f.retention!=="unsaved").length);
   expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
@@ -818,4 +840,12 @@ for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota
    expect(events.at(-1)!.retention).toBe("unsaved");
   }else expect(s.element.textContent).toContain("could not be saved");
   expect(result.tasks).toBe(0);s.ui.connection.conversation.leave();await pump();
+  expect(s.ui.connection.conversation.state.getState().recognition.some(f=>f.unsaved)).toBe(true);
+  const before=s.socket.sent.length;
+  s.socket.deliver({type:"server_hello",protocolRev:5,principalKey:"penelope",capabilities:{liveConversation:true,conversationPause:true,sessionDialogue:true}});
+  expect(s.ui.connection.conversation.state.getState().recognition).toEqual([]);
+  expect(s.ui.connection.conversation.state.getState().outputs).toEqual([]);
+  expect(s.ui.connection.conversation.state.getState().dialogue).toEqual({});
+  expect(s.socket.sent.slice(before).map(b=>JSON.parse(String(b.data))).filter(f=>f.type.startsWith("conversation_"))).toEqual([]);
+
  });

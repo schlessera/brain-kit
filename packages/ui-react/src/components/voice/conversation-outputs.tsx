@@ -22,11 +22,11 @@ export function ConversationOutput({ output, restored = false, arrivalKey }: { o
   return <div className="py-4" data-arrival-key={arrivalKey} tabIndex={-1} data-conversation-output="" data-output-id={output.outputId}>
     <TurnHeader who="Voice reply" tone="brain" />
     <div className="whitespace-pre-wrap" style={{ overflowWrap: "anywhere" }}>{output.generated}<TranscriptQualifiers kind="generated" source={output.providerId ? conversationService(output.providerId) : undefined}
-      playback={output.playback === "discarded" ? "not-spoken" : output.playback} restored={restored} orderUnknown={restored} evidenceLabel="Technical evidence (generated reply)">
+      playback={output.playback === "discarded" ? "not-spoken" : output.playback} restored={restored} unsaved={output.unsaved} orderUnknown={output.orderUnknown ?? restored} evidenceLabel="Technical evidence (generated reply)">
       <p>Conversation {output.conversationId} · epoch {output.epoch} · output {output.outputId}</p>
       {output.playedSamples && <p>Reported local samples: {output.playedSamples.start}–{output.playedSamples.end}. This does not align text to audio.</p>}
     </TranscriptQualifiers></div>
-    {restored && <p className="mt-2 text-xs text-muted-foreground">Original discussion position unknown.</p>}
+    {(output.orderUnknown ?? restored) && <p className="mt-2 text-xs text-muted-foreground">Original discussion position unknown.</p>}
   </div>;
 }
 
@@ -65,8 +65,8 @@ export function ConversationRecognitionRow({ fragments, introduction = false }: 
     {introduction && <div className="mb-3 text-xs text-muted-foreground">Voice · {service} <TranscriptSymbols /></div>}
     <TurnHeader who="Recognized speech" tone="neutral" />
     <div className="whitespace-pre-wrap"><span data-recognized-text="">{fragments.every(f => f.moved) ? "Moved to voice review" : fragments.map(f => f.text).join("")}</span><TranscriptQualifiers
-      kind="recognized" source={service} finish={finish} evidenceLabel={`Technical evidence (${fragments.length} fragment${fragments.length === 1 ? "" : "s"})`}>
-      <p>Live recognition is temporary and may be unavailable after reload. Display order is received content, not exact response pairing.</p>
+      kind="recognized" source={service} finish={finish} unsaved={first.unsaved} restored={fragments.some(f=>f.restored)} orderUnknown={fragments.some(f=>f.orderUnknown)} evidenceLabel={`Technical evidence (${fragments.length} fragment${fragments.length === 1 ? "" : "s"})`}>
+      <p>Recognized text evidence. Display order does not establish an exact response pairing.</p>
       <ol>{fragments.map(f => <li key={JSON.stringify([f.kind, f.sequence])} className="py-1">
         Epoch {f.epoch} · fragment {f.sequence} · {f.kind === "input_fragment" ? `Captured input ${f.utteranceId}; speaker unverified` : "Unassigned input; speaker unverified"}.
         {f.kind === "unassigned_input_fragment" && f.sessionInterval ? ` Provider session timing; approximate: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms.` : f.kind === "input_fragment" && f.interval ? ` Provider input timing: ${f.interval.startMs}–${f.interval.endMs} ms.` : " Timing unavailable; speaker unverified."}

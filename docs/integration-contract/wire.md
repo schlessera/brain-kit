@@ -2370,3 +2370,24 @@ typed review; unassigned manual context rolls with an explicit review notice.
 This also applies when the catalog omits optional native task/epoch recovery.
 Recognition groups and finish-only attachment use source stream plus saved/unsaved
 state, so a failed mid-utterance suffix cannot inherit the prefix's retention claim.
+
+
+The shared `TranscriptQualifiers` vocabulary includes **unsaved evidence** for
+an exact observed segment whose durable write failed or exceeded the pending
+queue. Recognition and generated-reply rows pass their own unsaved state; the
+current picker, playback status and global notice never supply it. One existing
+qualifier control per contiguous blurb carries the icon, accessible name and
+hover/focus/tap explanation: “Unsaved text evidence. These words are not saved
+and are unavailable after reload.” Saved and unsaved segments remain separate.
+Restored evidence with known committed sequence order does not claim ambiguous
+order; legacy unknown-order evidence keeps its visible explanation.
+
+Paging may prepend members of a contiguous source blurb. Its existing canonical
+member key survives while that exact source remains in the projected group, so
+the shared reading scope can retain its one reader without an alternate timeline.
+True source removal closes details onto the existing reading-column fallback.
+A changed authenticated principal clears both archive pages and volatile unsaved
+input/replies and retires capture/opening identities before playback cleanup;
+no old identity is sent on the new principal's connection. Leave/history errors
+preserve already observed local evidence for the same chat, without granting new
+capture consent or admitting a missing backend session.
