@@ -61,7 +61,11 @@ function identity(pid: number): Identity | undefined {
     const fields = raw.slice(raw.lastIndexOf(")") + 2).trim().split(/\s+/);
     if (!/^\d+$/.test(fields[19] ?? "")) throw Error("Invalid owned process identity");
     return { pid, start: fields[19]!, state: fields[0]! };
-  } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  } catch (error) {
+    // A reaped process can vanish between opening and reading its stat file.
+    if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+    throw error;
+  }
 }
 const alive = (id: Identity) => { const now = identity(id.pid); return now?.start === id.start && !["Z", "X"].includes(now.state); };
 const receipt = (kind: string, data: unknown) => console.error(JSON.stringify({ kind, data }));
@@ -218,7 +222,8 @@ async function settled(f: Awaited<ReturnType<typeof fixture>>) {
   const done = await until(() => f.o.exited && f.o.stdoutEOF && f.o.stderrEOF);
   receipt("output-settlement", { done, exited: f.o.exited, stdoutEOF: f.o.stdoutEOF, stderrEOF: f.o.stderrEOF, parent: identity(f.outer.pid), child: f.o.child && identity(f.o.child.pid) });
   expect(done, "SNAPSHOT_FORK_OUTPUT_MUST_SETTLE").toBe(true);
-  if (f.o.child) expect(alive(f.o.child), "OWNED_CHILD_MUST_STOP").toBe(false);
+  // Writer EOF precedes the exiting task's zombie state; join the child's actual exit.
+  if (f.o.child) expect(await until(() => !alive(f.o.child!), 1000), "OWNED_CHILD_MUST_STOP").toBe(true);
 }
 
 test("snapshot fork ordering: first signal follows real fork acknowledgement", async () => {
