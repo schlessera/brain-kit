@@ -54,7 +54,10 @@ describe("scanText", () => {
 describe("repository", () => {
   test("scans tracked text while excluding binary, deleted, ignored and untracked files", () => {
     const root = mkdtempSync(join(tmpdir(), "invisibles-gate-"));
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: root });
+    const git = (...args: string[]) => execFileSync("git", args, {
+      cwd: root,
+      env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+    });
     try {
       git("init", "--quiet");
       mkdirSync(join(root, "nested"));

@@ -34,10 +34,11 @@ export const startRequestLog: BrowserCommand<[]> = async (ctx) => {
 /**
  * Every request URL recorded since `startRequestLog`.
  * `settle` opens a fresh, empty child document and waits for its native network
- * idle, then the page's (which includes child frames). A fresh navigation is
+ * idle, then checks the page's already-reached idle state. A fresh navigation is
  * essential: a previously reached load state can return immediately. The child
  * fetches a fresh same-origin URL; every request still reaches real Vite.
- * This observes work initiated before the call, not arbitrary future timers.
+ * The bound is request ordering and at least 500 ms of probe-frame quiet;
+ * the page check does not re-wait child frames that are already idle.
  */
 export const requestLog: BrowserCommand<[options?: { settle: boolean }], string[]> = async (ctx, options) => {
   if (options?.settle) {
