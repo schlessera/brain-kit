@@ -737,8 +737,6 @@ export function ChatPage() {
                     const index = entry.index;
                     return (
                     <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}>
-                      {entry.section === "progress" && <ConversationTaskContext message={entry.message} sessionId={sessionId} />}
-                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result entries={entries} onReveal={revealRequest} />}
                       <MessageBubble
                         message={msg}
                         arrival={transcriptRange(entry)}
@@ -754,6 +752,7 @@ export function ChatPage() {
                         closing={entry.section !== "progress" && entry.message === messages[messages.length - 1] && (entry.section !== "answer" || entry.end === entry.message.parts.filter(p => p.kind === "text").reduce((n, p) => n + p.text.length, 0))}
                         anchor={entry.section === "answer" ? undefined : String(index)}
                       />
+                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result entries={entries} onReveal={revealRequest} />}
                       {/* Where this conversation was continued elsewhere (#61). */}
                       {forward
                         .filter((link) => entry.section !== "answer" && markerAfter(link, messages) === index + 1)

@@ -537,7 +537,7 @@ test("cold restored speech explicitly has unknown original discussion position",
   const s = await scene(ctx);
   await s.enter();
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
-  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("original discussion position unknown");
+  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("Original discussion position unknown");
   expect(s.client.state.getState().micOn).toBe(false);
 });
 
@@ -895,7 +895,7 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} inline reco
   expect(messages.filter(m => m.role === "user").every(m => m.source === "voice-context")).toBe(true);
   expect(Object.values(s.client.state.getState().work)).toContainEqual(expect.objectContaining({ state: "completed", delivery: provider === "gemini" ? "unknown" : "returned" }));
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(5);
-  expect(s.host.textContent).toContain(provider === "gemini" ? "Gemini Live · unverified" : "GPT-Live · unverified");
+  expect(s.host.querySelector("[data-transcript-qualifiers=recognized]")?.getAttribute("aria-label")).toContain(provider === "gemini" ? "Gemini Live; unverified" : "GPT-Live; unverified");
   expect(s.host.querySelectorAll("[data-conversation-recognition] [data-transcript-anchor]")).toHaveLength(0);
 });
 
@@ -907,24 +907,30 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   input(0, "Which note has the Sirens?");
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-recognition]").length).toBe(1);
   const row = s.host.querySelector<HTMLElement>("[data-conversation-recognition]")!;
-  expect(row.getAttribute("aria-label")).toBe("Recognized speech · GPT-Live · unverified");
+  expect(row.getAttribute("aria-label")).toBeNull();
+  expect(row.querySelector("[data-transcript-qualifiers]")?.getAttribute("aria-label")).toBe("Recognized speech; GPT-Live; unverified. Transcript details.");
   expect(row.closest("[aria-live]")).toBe(null);
   expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
-  const summary = row.querySelector<HTMLElement>("summary")!;
+  const trigger = row.querySelector<HTMLButtonElement>("[data-transcript-qualifiers]")!;
+  trigger.focus(); await userEvent.keyboard("{Enter}");
+  const details = document.querySelector<HTMLDialogElement>("dialog[open]")!;
+  const summary = details.querySelector<HTMLElement>("summary")!;
   summary.focus(); await userEvent.keyboard("{Enter}");
-  expect(row.querySelector("details")!.open).toBe(true);
-  expect(summary.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  expect(details.querySelector("details")!.open).toBe(true);
+  expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   input(1, " Ask Nestor about the route.");
   await expect.poll(() => row.querySelector("[data-recognized-text]")?.textContent).toBe("Which note has the Sirens? Ask Nestor about the route.");
   expect(document.activeElement).toBe(summary);
-  expect(row.textContent).toContain("Timing unavailable; speaker unverified");
-  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/inline-${theme}-${width}.png` });
+  expect(details.textContent).toContain("Timing unavailable; speaker unverified");
+  await page.screenshot({ element: details, path: `../../.vitest-attachments/conversation/inline-${theme}-${width}.png` });
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.activeElement).toBe(trigger);
   const enlarged = document.createElement("style");
   enlarged.textContent = "[data-conversation-recognition] { font-size: 200% } [data-conversation-recognition] :is(p,summary,li,span) { font-size: inherit !important; line-height: 1.5 !important }";
   document.head.append(enlarged); ctx.onTestFinished(() => enlarged.remove());
   expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
   expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
-  expect(document.activeElement).toBe(summary);
+  expect(document.activeElement).toBe(trigger);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/inline-enlarged-${theme}-${width}.png` });
   enlarged.remove();
   for (let n = 2; n < 47; n++) {
@@ -952,7 +958,10 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.state.getState().recognition).toHaveLength(2);
   expect(s.client.state.getState().recognition[1]).toMatchObject({ kind: "input_fragment", utteranceId: s.socket.frames("conversation_audio").at(-1)!.utteranceId, sequence: 0 });
   s.event({ kind: "unassigned_input_fragment", sequence: 1, text: "", timing: { kind: "unavailable" }, finalization: "final" });
-  await expect.poll(() => s.host.textContent).toContain("Service finish marker received");
+  const finishTrigger = s.host.querySelector<HTMLButtonElement>("[data-transcript-qualifiers=recognized]")!;
+  await userEvent.click(finishTrigger);
+  await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Service finish marker received");
+  await userEvent.keyboard("{Escape}");
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(2);
   s.event({ kind: "output_transcript", outputId: "late-reply", sequence: 0, text: "The Sirens note." });
   s.client.mute();
@@ -1015,10 +1024,13 @@ test("task-result backlink reveals only its exact retained windowed host request
   for (let n = 0; n < 45; n++) s.event({ kind: "output_transcript", outputId: `raft-wait-${n}`, sequence: 0, text: `The watch continues ${n}.` });
   s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "raft-exact-turn", text: "The raft note is ready." }); s.ui.connection.flushChatDeltas();
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-task-result]").length).toBe(1);
-  expect([...s.host.querySelectorAll("[data-arrival-key]")].some(n => n.textContent?.includes("Background work from conversation context"))).toBe(false);
+  expect([...s.host.querySelectorAll("[data-arrival-key]")].some(n => n.textContent?.includes("Conversation task ·"))).toBe(false);
   await userEvent.click(page.getByRole("button", { name: "View request", exact: true }));
-  await expect.poll(() => document.activeElement?.textContent).toContain("Background work from conversation context");
-  expect(document.activeElement?.textContent).toContain("Find the raft note.");
+  await expect.poll(() => document.activeElement?.textContent).toContain("Conversation task ·");
+  expect(document.activeElement?.textContent).not.toContain("Find the raft note.");
+  await userEvent.click(document.activeElement!.querySelector<HTMLButtonElement>("[data-transcript-qualifiers=task-request]")!);
+  await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Find the raft note.");
+  await userEvent.keyboard("{Escape}");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
 });

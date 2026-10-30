@@ -1,3 +1,4 @@
+import { ConversationTaskContext } from "../voice/conversation-outputs.js";
 import type { TranscriptRange } from "../../lib/transcript-timeline.js";
 import { AttachmentRow } from "@schlessera/brain-ui-kit";
 import { trackRowProps } from "../../lib/track-attachment.js";
@@ -129,18 +130,14 @@ export const MessageBubble = memo(function MessageBubble({
           message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
           `effort ${message.thinkingLevel} → ${message.effectiveThinkingLevel} (backend)`
         ) : undefined}
-        tone={isUser ? "user" : "brain"}
+        tone={isUser ? message.source === "voice-context" ? "neutral" : "user" : "brain"}
       />
 
       {/* Content */}
       {isUser && message.source === "handoff" ? (
         <HandoffCard content={message.content} />
       ) : isUser && message.source === "voice-context" ? (
-        <details className="text-sm text-foreground">
-          <summary className="min-h-11 cursor-pointer">Background work from conversation context</summary>
-          <p>Recognition may be uncertain. This is the context the task agent received.</p>
-          <div className="whitespace-pre-wrap">{linkifyPaths(message.content)}</div>
-        </details>
+        <ConversationTaskContext message={message} />
       ) : isUser ? (
         <UserTurn>
           <UserAttachments message={message} />

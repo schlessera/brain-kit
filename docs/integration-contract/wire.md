@@ -1445,8 +1445,19 @@ It is displayed as an unsubmitted advisory request, bounded by
 delegations retain their existing work path. Explicit mismatches still close.
 
 Recognized speech is readable by default in Chat's shared arrival timeline,
-labelled **Recognized speech · [actual service] · unverified**, separately from
-voice-service generated replies, contextual host tasks and reviewed submissions.
+headed **Recognized speech**, separately from voice-service generated replies,
+contextual host tasks and reviewed submissions. A compact, named qualifier control
+exposes the actual original service and unverified-speaker/uncertain-word meaning
+on hover and focus, with equivalent keyboard/tap access to readable details.
+The same closed vocabulary distinguishes generated text, actual local playback
+(or unknown/not-spoken remainder), host request/result evidence and restoration.
+Restoration proves neither playback nor receipt by the currently selected engine.
+One control covers each existing contiguous logical blurb, not every delta or
+fragment; glyphs are decorative and metadata adds no live announcements.
+Internal host instruction/JSON remains collapsed technical evidence, while readable
+task state, exact request/result navigation, errors, consent and permission controls
+remain visible. No permission, playback or provider capability is promoted by these
+presentation changes (#3179).
 This adds client presentation only: no wire event, authenticated user message,
 provider history, input/output pairing or durable recognition transcript is created.
 Unassigned `(conversationId, epoch, sequence)` and captured

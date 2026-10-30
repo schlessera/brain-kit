@@ -312,6 +312,9 @@ export "./internal" (./src/internal.ts)
   PRINT_TOKENS
   TOKENS
   type TokenName
+  TranscriptQualifiers
+  type TranscriptQualifiersProps
+  TranscriptSymbols
   canvas
   mapViewBounds
   printThemeCss
@@ -1681,6 +1684,7 @@ signatures (every public export and the types it is made of)
     };
   OverlayProps (packages/ui-kit/src/chrome/Overlay.tsx)
     export type OverlayProps = OverlayName & {
+        id?: string;
         open: boolean;
         onClose: (reason: OverlayCloseReason) => void;
         variant: OverlayVariant;

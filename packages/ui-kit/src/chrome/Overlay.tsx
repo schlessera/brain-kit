@@ -18,6 +18,8 @@ type OverlayName =
 type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
 
 export type OverlayProps = OverlayName & {
+  /** Stable native dialog/panel id for a trigger's aria-controls. */
+  id?: string;
   open: boolean;
   /** A request only: the caller owns open and may refuse dismissal. */
   onClose: (reason: OverlayCloseReason) => void;
@@ -160,6 +162,7 @@ export function Overlay(p: OverlayProps) {
   const data = Object.fromEntries(Object.entries(p).filter(([key]) => key.startsWith("data-")));
   const shared = {
     ...data,
+    id: p.id,
     className: "bk-overlay",
     "data-bk-overlay": p.variant,
     "data-size": size,
