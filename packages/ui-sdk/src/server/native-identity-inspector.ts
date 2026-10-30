@@ -134,12 +134,15 @@ export function createNativeIdentityInspector(options: NativeIdentityInspectorOp
       if (controller.signal.aborted) fail(); else controller.signal.addEventListener("abort", fail, { once: true });
     });
     aborted.catch(() => {});
+    let writing = false;
     try {
       controller.signal.throwIfAborted();
       running ??= start();
       const process = running, stdin = process.child.stdin;
       // A write to an interpreter that died can fail asynchronously; it fails this request.
+      writing = true;
       await Promise.race([Promise.resolve(stdin.write(JSON.stringify({ program, path }) + "\n")).then(() => stdin.flush()), aborted]);
+      writing = false;
       const bytes = await line(process, aborted);
       const reply = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as { code: unknown; text: unknown; errors: unknown };
       if (typeof reply.code !== "number" || typeof reply.text !== "string" || typeof reply.errors !== "string")
@@ -151,6 +154,8 @@ export function createNativeIdentityInspector(options: NativeIdentityInspectorOp
       // As a failed launch was reaped before its outcome was reported.
       await stop();
       if (controller.signal.aborted) throw new NativeBrainManagerError("unknown", `Native manager command was interrupted; reconcile recorded intent. ${String(controller.signal.reason)}`);
+      if (writing && error instanceof Error && "code" in error && error.code === "EPIPE")
+        throw new NativeBrainManagerError("unavailable", "Native command refused: identity inspector write failed (EPIPE).");
       throw error;
     } finally { clearTimeout(timer); signal?.removeEventListener("abort", stopRequest); current.delete(controller); }
   }
