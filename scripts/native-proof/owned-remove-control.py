@@ -95,7 +95,10 @@ class Controls(unittest.TestCase):
             (self.entry/'dev').write_text('7:1790\n'); (self.entry/'size').write_text('0\n')
         self.refuse(change,'Owned remove sysfs identity lost')
     def test_sysfs_mode(self):
-        self.refuse(lambda:self.entry.chmod(0o700),'Owned remove sysfs identity lost')
+        original = stat.S_IMODE(self.entry.stat().st_mode)
+        changed = 0o755 if original == 0o700 else 0o700
+        self.assertNotEqual(original, changed, 'MODE_CONTROL_CHANGES_STATE')
+        self.refuse(lambda:self.entry.chmod(changed),'Owned remove sysfs identity lost')
     def test_node_other_identity_components(self):
         for key in ('st_dev','st_uid','st_gid','st_mode'):
             with self.subTest(key=key):
