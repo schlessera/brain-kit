@@ -228,7 +228,7 @@ stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
 `flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
 `adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
 scroll listener schedules that work (`handleScroll`,
-`packages/ui-react/src/components/chat/chat-page.tsx:292-302`), as do draft,
+`packages/ui-react/src/components/chat/chat-page.tsx:316-326`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
 `packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;

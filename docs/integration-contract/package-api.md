@@ -381,6 +381,12 @@ carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in
 `Overlay` to supply modal semantics and focus management. It now renders a
 named group; its pixels and callbacks are unchanged.
 
+**Additive: transcript detail linkage (#3179).** `OverlayProps.id?: string`
+sets the native dialog/panel id so a trigger's `aria-controls` identifies the
+activated overlay. Existing callers and dismissal/focus behavior are unchanged.
+The closed `TranscriptQualifiers` and `TranscriptSymbols` components live only
+on the first-party `/internal` entry and add no supported extension seam.
+
 **Additive: bounded sheet swipe dismissal (#1433).** `OverlayCloseReason` gains
 `"swipe"`. Callers branching on the close reason must handle `"swipe"`.
 Existing reasons keep their meaning and all props are unchanged, so this is a

@@ -2529,3 +2529,21 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   .bk-keyboard-hint { display: none !important; }
   .bk-touch-command { display: inline-flex; }
 }
+
+/* #3179: closed transcript evidence vocabulary. No separate app palette. */
+.bk-transcript-qualifiers { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; min-width: 44px; min-height: 44px; padding: 8px; margin-inline-start: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--bk-color-ink-mute); font: inherit; cursor: pointer; }
+.bk-transcript-qualifiers:hover, .bk-transcript-qualifiers[aria-expanded="true"] { background: var(--bk-color-raised); color: var(--bk-color-ink); }
+.bk-transcript-glyphs { display: inline-flex; align-items: center; gap: 4px; }
+.bk-transcript-glyphs > span { width: .875em !important; height: .875em !important; }
+.bk-transcript-glyphs svg { width: 100%; height: 100%; }
+.bk-transcript-tooltip { position: fixed; z-index: var(--bk-z-popover); box-sizing: border-box; max-width: min(22rem, calc(100vw - 32px)); max-height: calc(100dvh - 16px); overflow: auto; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--bk-color-raised); color: var(--bk-color-ink); box-shadow: inset 0 0 0 1px var(--bk-color-edge), 0 8px 24px var(--bk-palette-shadow); font: 400 .875rem/1.5 "Plus Jakarta Sans", sans-serif; }
+.bk-transcript-details { font: 400 1rem/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
+.bk-transcript-details h2 { font: inherit; font-weight: 600; padding-inline-end: 48px; margin: 0 0 16px; }
+.bk-transcript-details p, .bk-transcript-details dl { margin: 12px 0; }
+.bk-transcript-details dd { margin: 4px 0 16px; }
+.bk-transcript-details dt { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.bk-transcript-details summary { min-height: 44px; cursor: pointer; padding: 8px 0; }
+.bk-transcript-details pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: "JetBrains Mono", ui-monospace, monospace; }
+/* Custom readable title stays in the scroll body; its dismissal has a separate
+ * fixed-size header row so 200% text cannot pass under the close target. */
+.bk-overlay[data-transcript-details] .bk-overlay-close-slot { position: relative !important; top: auto !important; right: auto !important; flex: none; align-self: flex-end; margin: 8px 16px 0; }
