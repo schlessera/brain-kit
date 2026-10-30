@@ -167,7 +167,7 @@ A failed or interrupted preparation poisons the stage for further payloads and
 publication until it is discarded. The private control marker is bound to the
 existing stage/checkpoint, command generation, descriptor and owned drain;
 no generic copying or reader authority is added (`prepareMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:116-147`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:117-148`).
 
 The root manager configuration fixes the application UID/group and the existing
 output allowance and aggregate budget. Requests cannot choose host paths or

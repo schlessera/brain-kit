@@ -47,7 +47,7 @@ async function checkout(use: (dir: string) => Promise<void>) {
     writeFileSync(join(dir, "experiments/core/judge.test.ts"), passing("judge"));
     sh(dir, "git", "init", "-q");
     sh(dir, "git", "add", "-A");
-    sh(dir, "git", "commit", "-q", "-m", "fixture");
+    sh(dir, "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture");
     await use(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -187,7 +187,7 @@ describe("the experiment command and the release gate, run for real", () => {
 
     // Committing the same tree keeps the evidence; ignored output does not count.
     writeFileSync(join(dir, "tmp/build-output.txt"), "ignored\n");
-    sh(dir, "git", "commit", "-q", "--allow-empty", "-m", "version packages");
+    sh(dir, "git", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "version packages");
     expect(refusal(dir)).toBe("");
 
     const lock = readFileSync(join(dir, "bun.lock"), "utf8");

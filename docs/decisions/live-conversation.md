@@ -236,6 +236,13 @@ ordinary host work or uncertain output cancellation alone are not blanket
 consent invalidation. Stale callbacks never establish scope or consent. No
 silent provider/destination switch is authorized by continuity.
 
+A browser-retained chat ID is not host identity evidence (#3176). Validate
+it before opening live conversation. An absent chat is an unavailable scope,
+not permission to create another or replay failed work. Explicit New conversation
+uses the existing draft-preserving navigation; catalog/read failures must not be
+misreported as absence. Ordinary history recovery still recognizes imported
+backend history, while live task/profile admission requires a registered chat.
+
 ### Interruption and output recovery
 
 Retain consented capture, applicable conversation context and the initiating

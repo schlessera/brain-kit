@@ -339,7 +339,7 @@ export interface SessionChat {
  * reported a load error, or nothing answered within the bound.
  */
 export interface RestoreFailure {
-  reason: "error" | "timeout";
+  reason: "error" | "timeout" | "missing";
   message?: string;
 }
 
@@ -1312,9 +1312,12 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       },
       restoreFailures: {},
       failRestore: (sessionId, failure) =>
-        set((state) => (state.buffers[sessionId]?.historyConfirmed
+        set((state) => (state.buffers[sessionId]?.historyConfirmed && failure.reason !== "missing"
           ? state
-          : { restoreFailures: { ...state.restoreFailures, [sessionId]: failure } })),
+          : { restoreFailures: { ...state.restoreFailures, [sessionId]: failure },
+            ...(failure.reason === "missing" && state.buffers[sessionId] ? { buffers: { ...state.buffers,
+              [sessionId]: { ...state.buffers[sessionId]!, historyConfirmed: undefined } } } : {}),
+          })),
       clearRestoreFailure: (sessionId) =>
         set((state) => {
           if (!state.restoreFailures[sessionId]) return state;

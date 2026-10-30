@@ -254,7 +254,9 @@ slice. Queued PRs require actual merge-group and eventual landing evidence.
 ## Reservation before expensive confirmation
 
 For ordinary PRs, use `bun scripts/integrate.ts confirm <pr> --issues
-owner/repo#N,...` before requesting full confirmation. It acquires the remote
+owner/repo#N,...` before requesting full confirmation. The explicit comma-separated
+list accepts at most 100 references, must include every closing issue, and
+checks every listed issue against the PR release milestone. It acquires the remote
 exact PR/head/base reservation, renews every minute, waits for actual complete
 candidate proof, and uses the shared merge path. `inspect` shows ownership;
 busy callers have bounded retries, never a FIFO queue. Separate `acquire`

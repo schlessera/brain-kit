@@ -41,7 +41,12 @@ const backend = makeFakeBackend({ id: "fake", startTurn: async req => {
 } });
 const reviewedProvider = createGptLiveConversationProvider("keyless-odyssey-placeholder");
 reviewedProvider.capabilities = { ...reviewedProvider.capabilities, contextualTasks: "unsupported" };
-const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: reviewedProvider });
+// This is a known-chat / missing-native-task-ID control, not a stale chat.
+const catalog = createSessionCatalog(() => db);
+catalog.persistSessionStub("odysseus-ithaca", "Odysseus prepares the voyage.", null, backend.id);
+await catalog.settled?.();
+if (!catalog.hasSession!("odysseus-ithaca")) throw new Error("Known-chat fixture was not registered");
+const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog, conversationProvider: reviewedProvider });
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;

@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:666`). Before this, a resume replaced
+`packages/ui-server/src/ws/dispatch.ts:672`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 
@@ -248,7 +248,7 @@ deadline stays the only limit on an ask.
 The late stored-principal race has one native `ask_user` representative.
 All four ChatPage adapters enter `submitAnswer`; the first host frame calls
 `answers.connected()` without selecting an answer kind (`answersReady = true`,
-`packages/ui-react/src/connection.ts:391-392`). The shared restore path must
+`packages/ui-react/src/connection.ts:398-399`). The shared restore path must
 preserve that newer principal. Repeating this browser race for list, rank and
 form adds no separate startup path. Their online and offline/reload native
 cases remain: input adapters, `answerFrame` serialization and host dispatch

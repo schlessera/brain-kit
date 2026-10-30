@@ -7,7 +7,7 @@ import { invocationChild } from "../scripts/test-invocation-child";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
-type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; state: ReturnType<GitReservationStore["read"]>["state"] };
+type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; reads: string[]; state: ReturnType<GitReservationStore["read"]>["state"] };
 type Scenario = { dir?: string; child?: ReturnType<typeof invocationChild>; work?: Promise<ScenarioResult>; settled: boolean; beforeRead?: () => Promise<void> };
 const scenarios = new Set<Scenario>();
 let deadline: ReturnType<typeof setTimeout>, overdue = false, deadlineCleanup: Promise<void> | undefined;
@@ -74,6 +74,9 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   expect(store.publish(snapshot, state)).toBe(true);
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
+  const count = mode.startsWith("issues-") ? Number(mode.split("-")[1]) : 1;
+  const refs = Array.from({ length: count }, (_, index) => `odysseus/brain-kit#${index + 9}`);
+  const delivered = mode.endsWith("-missing") ? refs.slice(0, -1) : mode.endsWith("-malformed") ? [...refs.slice(0, -1), "bad"] : refs;
   const library = resolve(import.meta.dir, "../scripts/integration-reservation.ts");
   const shim = join(bin, "git");
   // Sixty real remote-CAS renewals must fit the unchanged deadline. Only the
@@ -90,6 +93,7 @@ fi`); chmodSync(shim, 0o755);
     import {GitReservationStore,reservationTransition} from ${JSON.stringify(library)};
     const args=process.argv.slice(2), file=${JSON.stringify(apiState)}, s=JSON.parse(readFileSync(file,"utf8"));
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
+    const refs=${JSON.stringify(refs)};s.reads??=[];
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
     const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
@@ -104,7 +108,7 @@ fi`); chmodSync(shim, 0o755);
     const checkout="[command]git log -1 --format=%H\\n2026-07-12T00:00:00Z "+(s.mode==="wrong-checkout"?"c".repeat(40):actual.sha)+"\\n";
     let value;
     if(args[0]==="repo")value=repo;
-    else if(args[0]==="pr"&&args[1]==="view")value={closingIssuesReferences:[{url:"https://github.com/odysseus/brain-kit/issues/9"}]};
+    else if(args[0]==="pr"&&args[1]==="view")value={closingIssuesReferences:refs.map(ref=>({url:"https://github.com/"+ref.replace("#","/issues/")}))};
     else if(args[0]==="pr"&&args[1]==="ready"){s.draft=args.includes("--undo");if(!s.draft)s.requested=true;value="ready";}
     else if(args[0]==="pr"&&args[1]==="merge") {writeFileSync(${JSON.stringify(sentinel)},"merged");s.merged=true;const result=Bun.spawnSync([${JSON.stringify(realGit)},"--git-dir",remote,"update-ref","refs/heads/main",squash]);if(result.exitCode)throw new Error("Fixture main update failed");value="merged";}
     else if(args[0]==="api") {
@@ -128,7 +132,7 @@ fi`); chmodSync(shim, 0o755);
       else if(/actions\\/jobs\\/2[123]\\/logs$/.test(path))value=checkout;
       else if(path.endsWith("git/commits/"+actual.sha))value={sha:actual.sha,tree:{sha:actual.tree},parents:actual.parents.map(sha=>({sha}))};
       else if(path.endsWith("git/commits/"+squash))value={sha:squash,tree:{sha:actual.tree},parents:[{sha:base}]};
-      else if(path.endsWith("issues/9"))value={milestone:{title:s.mode==="wrong-milestone"?"0.43.1":"0.44.0"}};
+      else if(/issues\\/\\d+$/.test(path)){s.reads.push(path);value={milestone:{title:s.mode==="wrong-milestone"||(s.mode.endsWith("-mismatch")&&path.endsWith("issues/30"))?"0.43.1":"0.44.0"}};}
       else throw new Error("Unexpected offline API "+path);
     } else throw new Error("Unexpected offline gh "+JSON.stringify(args));
     writeFileSync(file,JSON.stringify(s));console.log(typeof value==="string"?value:JSON.stringify(value));`); chmodSync(gh, 0o755);
@@ -138,7 +142,7 @@ fi`); chmodSync(shim, 0o755);
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
     Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
-  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", "odysseus/brain-kit#9"], {
+  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", delivered.join(",")], {
     cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
   });
   owner.child = child;
@@ -149,7 +153,7 @@ fi`); chmodSync(shim, 0o755);
     await child.finish();
     if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
     await owner.beforeRead?.();
-    return { code, out, err, dispatched: existsSync(sentinel), state: store.read().state };
+    return { code, out, err, dispatched: existsSync(sentinel), reads: JSON.parse(readFileSync(apiState, "utf8")).reads ?? [], state: store.read().state };
   } finally {
     await child.stop("SIGTERM");
     await Promise.allSettled([output]);
@@ -226,4 +230,31 @@ test("shared merge executable requires all three delivered browser shards", asyn
   expect(missing.dispatched, "NO_MERGE_WITH_MISSING_THIRD_BROWSER_SHARD").toBe(false);
   expect(missing.code).toBe(1);
   expect(missing.err).toContain("Actual selected job inventory differs");
+});
+
+test("delivered issues accepts 22 and the finite boundary with every milestone read back", async () => {
+  for (const count of [22, 100]) {
+    const result = await scenario(`issues-${count}`);
+    expect(result.code, `ALL_DELIVERED_ISSUES_VALIDATED:${count}: ${result.err}`).toBe(2);
+    expect(result.dispatched).toBe(true);
+    const expected = Array.from({ length: count }, (_, index) => `repos/odysseus/brain-kit/issues/${index + 9}`);
+    expect(result.reads).toEqual([...expected, ...expected]);
+    expect(result.state.active).toBeNull();
+  }
+});
+
+test("delivered issues refuses malformed oversized missing closing and final milestone mismatch", async () => {
+  for (const [mode, message] of [
+    ["issues-22-malformed", "Invalid delivered issue identities"],
+    ["issues-101", "Invalid delivered issue identities"],
+    ["issues-22-missing", "must include every closing issue"],
+    ["issues-22-mismatch", "Release milestone mismatch: odysseus/brain-kit#30"],
+  ] as const) {
+    const result = await scenario(mode);
+    expect(result.code, result.err).toBe(1);
+    expect(result.err).toContain(message);
+    expect(result.dispatched).toBe(false);
+    if (mode === "issues-22-mismatch") expect(result.reads).toHaveLength(22);
+    if (mode === "issues-22-missing") expect(result.reads).toEqual([]);
+  }
 });
