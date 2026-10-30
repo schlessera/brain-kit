@@ -164,6 +164,7 @@ let host = makeHost(),
   handlers = createWsHandlers(host, testPrincipal());
 function fixtureSocket(){const sink=frames;return {send:(data:string)=>sink.push(JSON.parse(data))} as WSContext;}
 let ws=fixtureSocket();
+let parallel: {handlers:ReturnType<typeof createWsHandlers>;ws:WSContext;frames:ServerMessage[]}|undefined;
 await handlers.onOpen(undefined as never, ws);
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -183,6 +184,8 @@ const server = Bun.serve({
       backendPrefix?: string;
       seedLegacyVoice?: boolean;
       takeover?: boolean;
+      parallelStarts?: boolean;
+      parallelLeave?: boolean;
       restart?: boolean;
       engine?: string;
     };
@@ -199,8 +202,12 @@ const server = Bun.serve({
       await handlers.onOpen(undefined as never, ws);
     }
     if(body.takeover){frames=[];ws=fixtureSocket();handlers=createWsHandlers(host,testPrincipal());await handlers.onOpen(undefined as never,ws);}
-    for (const frame of body.client ?? [])
+    if(body.parallelStarts && body.client?.some(frame=>(frame as {type?:string}).type==="conversation_start")){const sink:ServerMessage[]=[];parallel={handlers:createWsHandlers(host,testPrincipal()),ws:{send:(data:string)=>sink.push(JSON.parse(data))} as WSContext,frames:sink};await parallel.handlers.onOpen(undefined as never,parallel.ws);parallel.handlers.onMessage({data:JSON.stringify({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}})} as MessageEvent,parallel.ws);}
+    for (const frame of body.client ?? []) {
       handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
+      if(body.parallelStarts && (frame as {type?:string}).type==="conversation_start") parallel!.handlers.onMessage({data:JSON.stringify({...frame as object,requestId:"pylos-parallel"})} as MessageEvent,parallel!.ws);
+    }
+    if(body.parallelLeave && parallel){const opened=parallel.frames.find(f=>f.type==="conversation_opened");if(opened?.type!=="conversation_opened")throw Error("Parallel conversation did not open");parallel.handlers.onMessage({data:JSON.stringify({type:"conversation_stop",conversationId:opened.conversationId})} as MessageEvent,parallel.ws);}
     await Bun.sleep(10);
     if(body.backendPrefix) emitPrefix?.(body.backendPrefix);
     if(body.seedLegacyVoice) await host.catalog.saveConversationEpoch!({id:"old-voice",principalId:testPrincipal().id,epoch:1,sessionId:"odysseus-ithaca"});
@@ -256,6 +263,9 @@ const server = Bun.serve({
       ingress,
       rows,
       tasks,
+      parallelFrames:parallel?.frames,
+      conversations:db.query("SELECT id,epoch,closed FROM dialogue_conversations ORDER BY id").all(),
+      owners:db.query("SELECT id,coverage FROM dialogue_owners ORDER BY id").all(),
       dbPath,
     });
   },

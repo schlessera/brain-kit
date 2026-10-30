@@ -2430,3 +2430,15 @@ from an interrupted source. Owner, principal, generation and epoch must all
 match, and failed scopes are not exempt. The same native ID always needs its
 actual close-before-open boundary. This internal writer argument is not a wire
 field, provider-history input or caller-controlled admission exception.
+
+Simultaneous opens for different native IDs of one chat include earlier
+host-submitted, not-yet-acknowledged opens in that internal snapshot. A pending
+identity counts only if the earlier transaction's committed row matches its
+native ID, new epoch, original engine, principal, owner target and generation.
+It cannot exempt a pre-existing unclosed epoch or a same-ID reopen without
+close. Pending reservations retire on success/failure; an exact close prevents
+late acknowledgement from restoring liveness. Adoption updates every current
+scope of the adopted owner while preserving each failure overlay. A writer
+snapshot taken before adoption acknowledgement may resolve the committed owner
+alias, with the original generation and principal fences unchanged. These are
+bounded in-flight/runtime identities, never retained history or admission data.

@@ -959,3 +959,20 @@ for(const provider of ["gemini","gpt"] as const)test(`R7 ${provider}: device tak
  for(const text of ["Check the mast.","Check the sail.","The crew is ready."])expect(s.element.textContent).toContain(text);expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(result.tasks).toBe(1);
  await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r7-takeover-${provider}.png`});
 });
+
+
+for(const provider of ["gemini","gpt"] as const)test(`R8 ${provider}: simultaneous live conversations for one chat have no false incomplete notice`,async ctx=>{
+ r6Date(ctx);microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
+ await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
+ s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump({parallelStarts:true});return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ expect(result.conversations.filter((r:any)=>r.closed===0),"TWO_REAL_OPEN_CONVERSATIONS "+JSON.stringify(result.parallelFrames)).toHaveLength(2);
+ s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
+ expect(result.owners.map((r:any)=>r.coverage),"CONCURRENT_CHAT_DB_COMPLETE").toEqual(["complete"]);
+ expect(s.ui.connection.conversation.state.getState().dialogue["odysseus-ithaca"]!.coverage,"CONCURRENT_CHAT_READ_COMPLETE").toBe("complete");expect(s.element.textContent,"CONCURRENT_CHAT_NO_FALSE_NOTICE").not.toContain("Voice history may be incomplete");
+ await pump({provider:[provider==="gemini"?{serverContent:{inputTranscription:{text:"The mast is ready."}}}:{type:"session.input_transcript.delta",event_id:"parallel-input",delta:"The mast is ready.",start_ms:0,end_ms:100}]});s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
+ const retained=result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice");expect(retained.map((e:any)=>e.event.text)).toEqual(["The mast is ready."]);expect(retained[0].providerId).toBe(provider==="gemini"?"gemini-live":"gpt-live");await expect.poll(()=>s.element.textContent).toContain("The mast is ready.");
+ await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r8-concurrent-${provider}.png`});
+ s.ui.connection.conversation.leave();await pump({parallelLeave:true});s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true});s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain("The mast is ready.");expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(result.tasks).toBe(1);
+});

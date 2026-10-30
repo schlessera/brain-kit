@@ -1,4 +1,4 @@
-import { dialogueOwner, readDialogue, hasUnretainedVoice, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
+import { dialogueOwner, readDialogue, hasUnretainedVoice, type PendingDialogueEpoch, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
 import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -267,6 +267,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   // Invalidation counts at submission, even if its worker DELETE fails.
   // Only a new successfully retained request in this generation can reset it.
   const activeDialogueEpochs = new Map<string, ActiveDialogueEpoch>();
+  const pendingDialogueEpochs = new Set<PendingDialogueEpoch & { closed: boolean }>();
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
   return {
@@ -280,15 +281,25 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       return row ? dialogueOwner(db(),{sessionId},row.principal_id) : null;
     },
     dialogueClose: (conversationId,principalId,epoch,partial) => {
+      for(const scope of pendingDialogueEpochs) if(scope.input.conversationId===conversationId && scope.input.principalId===principalId && scope.input.epoch===epoch) scope.closed=true;
       const active=activeDialogueEpochs.get(conversationId);
       if(active?.epoch===epoch && active.owner.principal_id===principalId) activeDialogueEpochs.delete(conversationId);
       return submit("dialogueClose",conversationId,principalId,epoch,partial);
     },
     dialogueOpen: async input => {
+      const known=db().query("SELECT owner_id,epoch FROM dialogue_conversations WHERE id=?").get(input.conversationId) as {owner_id:string;epoch:number}|null;
+      const prior=dialogueOwner(db(),known ? {ownerId:known.owner_id} : input.historyOwnerId ? {ownerId:input.historyOwnerId} : {sessionId:input.sessionId},input.principalId);
+      const scope={input:{...input},generation:prior?.generation ?? 1,...(prior ? {ownerId:prior.id} : {}),...(known ? {previousEpoch:known.epoch} : {}),closed:false};
+      // Reserve before submission: a later open can reach the worker before
+      // this one's acknowledgement registers its successful active identity.
+      const pending=[...pendingDialogueEpochs].filter(scope=>!scope.closed).map(scope=>({input:scope.input,generation:scope.generation,ownerId:scope.ownerId,previousEpoch:scope.previousEpoch}));
+      pendingDialogueEpochs.add(scope);
       const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,owner:{...scope.owner}}]));
-      const owner=await submit<DialogueOwner>("dialogueOpen", input, live);
-      activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
-      return owner;
+      try {
+        const owner=await submit<DialogueOwner>("dialogueOpen", input, live, pending);
+        if(!scope.closed && (activeDialogueEpochs.get(input.conversationId)?.epoch ?? 0)<=input.epoch) activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
+        return owner;
+      } finally { pendingDialogueEpochs.delete(scope); }
     },
     dialogueAppend: input => submit("dialogueAppend", input),
     dialogueBind: async (conversationId, principalId, sessionId) => {
@@ -297,9 +308,12 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       if(owner && active && active.owner.principal_id===principalId) {
         // Pending callbacks still hold this object across adoption. Replacing
         // it would hide their genuine failure behind a fresh healthy owner.
-        const partial=active.owner.coverage === "partial";
-        Object.assign(active.owner,owner);
-        if(partial) active.owner.coverage="partial";
+        const previousId=active.owner.id;
+        for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId && scope.owner.principal_id===principalId){
+          const partial=scope.owner.coverage === "partial";
+          Object.assign(scope.owner,owner);
+          if(partial) scope.owner.coverage="partial";
+        }
         return active.owner;
       }
       return owner;

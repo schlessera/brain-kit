@@ -66,12 +66,34 @@ export interface ActiveDialogueEpoch {
   owner: DialogueOwner;
   epoch: number;
 }
-function activeEpochFor(owner:DialogueOwner, principalId:string, row:{id:string;epoch:number}, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>):ActiveDialogueEpoch|undefined {
-  const active=activeEpochs?.get(row.id);
-  return active && active.epoch===row.epoch && active.owner.id===owner.id
-    && active.owner.principal_id===principalId && active.owner.generation===owner.generation ? active : undefined;
+/** Host-submitted open not yet acknowledged by the worker; never supplied by a wire target. */
+export interface PendingDialogueEpoch {
+  input: DialogueOpen;
+  generation: number;
+  ownerId?: string;
+  previousEpoch?: number;
 }
-export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>): DialogueOwner {
+function pendingEpochFor(db:Database, owner:DialogueOwner, row:{id:string;epoch:number;provider_id:string}, pending:readonly PendingDialogueEpoch[]):boolean {
+  return pending.some(scope=>{
+    const input=scope.input;
+    if(input.conversationId!==row.id || input.epoch!==row.epoch || input.providerId!==row.provider_id
+      || input.epoch <= (scope.previousEpoch ?? 0) || input.principalId!==owner.principal_id || scope.generation!==owner.generation) return false;
+    // A pending submission is liveness only for the exact row its successful
+    // earlier transaction could have opened, under the same durable owner.
+    if(input.sessionId && input.sessionId!==owner.session_id) return false;
+    if(input.historyOwnerId && (input.sessionId || owner.session_id || dialogueOwner(db,{ownerId:input.historyOwnerId},input.principalId)?.id!==owner.id)) return false;
+    if(scope.ownerId) return dialogueOwner(db,{ownerId:scope.ownerId},input.principalId)?.id===owner.id;
+    return input.sessionId || input.historyOwnerId ? true : owner.id===input.conversationId;
+  });
+}
+function activeEpochFor(db:Database, owner:DialogueOwner, principalId:string, row:{id:string;epoch:number}, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>):ActiveDialogueEpoch|undefined {
+  const active=activeEpochs?.get(row.id);
+  if(!active || active.epoch!==row.epoch || active.owner.principal_id!==principalId || active.owner.generation!==owner.generation) return;
+  // Adoption may commit before the catalog receives its acknowledgement.
+  // Resolve only the durable alias; never infer a new generation or principal.
+  return active.owner.id===owner.id || dialogueOwner(db,{ownerId:active.owner.id},principalId)?.id===owner.id ? active : undefined;
+}
+export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>, pending:readonly PendingDialogueEpoch[]=[]): DialogueOwner {
   return db
     .transaction(() => {
       const known = db
@@ -121,11 +143,11 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         );
         owner = dialogueOwner(db, { ownerId: id }, input.principalId)!;
       }
-      const unfinished = (db.query("SELECT id,epoch FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+1) as Array<{id:string;epoch:number}>).some(row=>{
-        const active=activeEpochFor(owner!,input.principalId,row,activeEpochs);
+      const unfinished = (db.query("SELECT id,epoch,provider_id FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+pending.length+1) as Array<{id:string;epoch:number;provider_id:string}>).some(row=>{
+        const active=activeEpochFor(db,owner!,input.principalId,row,activeEpochs);
         // The same native ID must have a real close-before-open boundary.
         // Other exact healthy live IDs are not evidence of interruption.
-        return row.id===input.conversationId || !active || active.owner.coverage === "partial";
+        return row.id===input.conversationId || (active ? active.owner.coverage === "partial" : !pendingEpochFor(db,owner!,row,pending));
       });
       if (unfinished) {
         db.prepare(
@@ -333,7 +355,7 @@ export function readDialogue(
   }
   // One more row than live scopes proves interruption without a lifetime scan.
   const unclosed = db.query("SELECT id,epoch FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+1) as Array<{id:string;epoch:number}>;
-  const exactActive = (row:{id:string;epoch:number}) => activeEpochFor(owner,principalId,row,activeEpochs);
+  const exactActive = (row:{id:string;epoch:number}) => activeEpochFor(db,owner,principalId,row,activeEpochs);
   const failedActive=unclosed.some(row=>exactActive(row)?.owner.coverage === "partial");
   const more = rows.length > records.length;
   return {

@@ -391,3 +391,11 @@ failure propagates to the waiting open; genuine interrupted/failing coverage is
 not suppressed. Other exact healthy live native IDs use the existing catalog
 liveness evidence at the write-worker boundary as well as on reads. A same-ID
 open cannot use that exemption to bypass a missing close.
+
+Concurrent opens for distinct native IDs of the same chat must also see earlier
+pending writer submissions. Their exact committed identities, including the
+original engine and generation, prove current liveness without waiting for a
+worker acknowledgement. Pre-existing unclosed epochs and same-ID no-close
+reopens stay conservative. Reservations retire on settlement and cannot be
+revived after an exact close. Canonical adoption keeps sibling live scope
+references aligned without clearing genuine failure coverage.

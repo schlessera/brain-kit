@@ -1786,3 +1786,16 @@ test("R7 device takeover retains complete coverage through actual host socket ha
  expect(s.db.query("SELECT coverage FROM dialogue_owners").get(),"HOST_TAKEOVER_DB_COMPLETE").toEqual({coverage:"complete"});expect(b.frames("dialogue_history").at(-1).coverage,"HOST_TAKEOVER_READ_COMPLETE").toBe("complete");
  expect(b.frames("conversation_opened")[0].epoch).toBe(2);expect(s.turns).toHaveLength(0);
 });
+
+
+test("R8 concurrent different conversation starts for one known chat remain complete through host handlers",async()=>{
+ const s=setup(),a=await s.connect(),b=await s.connect();s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
+ for(const client of [a,b])client.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ a.send({type:"conversation_start",sessionId:"odysseus-known",contextualTasks:true,requestId:"ithaca-start"});
+ b.send({type:"conversation_start",sessionId:"odysseus-known",contextualTasks:true,requestId:"pylos-start"});
+ await until(()=>a.frames("conversation_opened").length===1&&b.frames("conversation_opened").length===1);
+ expect(a.frames("conversation_opened")[0].conversationId).not.toBe(b.frames("conversation_opened")[0].conversationId);
+ b.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"parallel-read"});await until(()=>b.frames("dialogue_history").some(p=>p.requestId==="parallel-read"));
+ expect(s.db.query("SELECT coverage FROM dialogue_owners").get(),"HOST_CONCURRENT_CHAT_OPENS_DB_COMPLETE").toEqual({coverage:"complete"});expect(b.frames("dialogue_history").at(-1).coverage,"HOST_CONCURRENT_CHAT_OPENS_READ_COMPLETE").toBe("complete");
+ expect(s.db.query("SELECT COUNT(*) AS n FROM dialogue_conversations WHERE closed=0").get()).toEqual({n:2});expect(s.turns).toHaveLength(0);
+});

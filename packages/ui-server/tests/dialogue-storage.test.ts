@@ -662,3 +662,75 @@ test("R7 a second healthy live native identity does not fabricate interruption f
  expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_conversations WHERE closed=0").get()).toEqual({n:2});
  }finally{await f.close();}
 });
+
+
+test("R8 simultaneous healthy conversations for one known chat remain complete",async()=>{
+ const f=await r7Fixture();try{
+ await Promise.all([f.journal.open({...opening,sessionId:"voyage"}),f.journal.open({...opening,conversationId:"pylos",sessionId:"voyage"})]);
+ expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"CONCURRENT_CHAT_OPENS_DB_COMPLETE").toEqual({coverage:"complete"});
+ expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"CONCURRENT_CHAT_OPENS_READ_COMPLETE").toBe("complete");
+ for(const [i,id] of ["ithaca","pylos"].entries()){const e=fragment(i).evidence;if(e.kind!=="voice")throw Error("voice required");f.journal.voice(id,{...e,conversationId:id},()=>{});}
+ await f.journal.settled();const page=await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"});expect(page!.records.map(r=>r.evidence.kind==="voice"?r.evidence.conversationId:null)).toEqual(["ithaca","pylos"]);
+ expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_conversations WHERE closed=0").get()).toEqual({n:2});
+ }finally{await f.close();}
+});
+
+test("R8 direct catalog same-ID reopen without close remains partial despite active identity",async()=>{
+ const f=await r7Fixture();try{
+ await f.catalog.dialogueOpen!({...opening,sessionId:"voyage"});await f.catalog.dialogueOpen!({...opening,sessionId:"voyage",epoch:2});
+ expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"SAME_ID_WITHOUT_CLOSE_DB_PARTIAL").toEqual({coverage:"partial"});
+ expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"SAME_ID_WITHOUT_CLOSE_READ_PARTIAL").toBe("partial");
+ }finally{await f.close();}
+});
+
+
+test("R8 adopted sibling live scopes retain their canonical owner identity",async()=>{
+ const f=await r7Fixture();try{
+ await f.catalog.dialogueOpen!({...opening,conversationId:"sparta",sessionId:"voyage"});await f.catalog.dialogueClose!("sparta","odysseus",1,false);
+ const first=await f.catalog.dialogueOpen!(opening),sibling=await f.catalog.dialogueOpen!({...opening,conversationId:"pylos",historyOwnerId:"ithaca"});
+ await f.catalog.dialogueBind!("pylos","odysseus","voyage");expect([first.id,sibling.id],"ADOPTED_LIVE_REFERENCES_STAY_CANONICAL").toEqual(["sparta","sparta"]);await f.catalog.dialogueOpen!({...opening,conversationId:"troy",sessionId:"voyage"});
+ expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"ADOPTED_SIBLING_SCOPES_DB_COMPLETE").toEqual({coverage:"complete"});
+ expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"ADOPTED_SIBLING_SCOPES_READ_COMPLETE").toBe("complete");
+ }finally{await f.close();}
+});
+
+
+test("R8 failed concurrent open rolls back its reservation without poisoning another chat conversation",async()=>{
+ const f=await r7Fixture(),controls=await import("./helpers/dialogue-test-writes.js"),q=f.writer.channel({url:controls.url,setup:controls.setup},{});try{
+ await q.call("refuseOpen");const results=await Promise.allSettled([f.catalog.dialogueOpen!({...opening,sessionId:"voyage"}),f.catalog.dialogueOpen!({...opening,conversationId:"pylos",sessionId:"voyage"})]);
+ expect(results[0].status).toBe("rejected");expect(results[1].status).toBe("fulfilled");expect(f.db.query("SELECT id FROM dialogue_conversations").all()).toEqual([{id:"pylos"}]);
+ await q.call("allowOpen");await f.catalog.dialogueOpen!({...opening,sessionId:"voyage"});expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"FAILED_OPEN_RESERVATION_RETIRED").toBe("complete");
+ }finally{await q.close();await f.close();}
+});
+
+test("R8 close during a worker-pending open cannot resurrect a retired runtime scope",async()=>{
+ const f=await r7Fixture(),controls=await import("./helpers/dialogue-test-writes.js"),q=f.writer.channel({url:controls.url,setup:controls.setup},{}),gate=new Int32Array(new SharedArrayBuffer(8));let hold:Promise<unknown>|undefined;
+ try{hold=q.call("hold",gate);while(!Atomics.load(gate,1))await Bun.sleep(1);
+ const first=f.catalog.dialogueOpen!({...opening,sessionId:"voyage"}),closed=f.catalog.dialogueClose!("ithaca","odysseus",1,false),second=f.catalog.dialogueOpen!({...opening,conversationId:"pylos",sessionId:"voyage"});
+ Atomics.store(gate,0,1);Atomics.notify(gate,0);await Promise.all([hold,first,closed,second]);
+ expect(f.db.query("SELECT id,closed FROM dialogue_conversations ORDER BY id").all()).toEqual([{id:"ithaca",closed:1},{id:"pylos",closed:0}]);expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage).toBe("complete");
+ // An out-of-band unclosed row is not trusted merely because the earlier
+ // acknowledgement arrived after close had already retired its scope.
+ await q.call("loseCloseMarker","ithaca");
+ expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"CLOSED_PENDING_SCOPE_CANNOT_MASK_UNCLOSED_RESTART").toBe("partial");
+ }finally{Atomics.store(gate,0,1);Atomics.notify(gate,0);await hold;await q.close();await f.close();}
+});
+
+for(const fence of ["healthy","generation","principal","epoch","provider","previous","owner","session","history"] as const)test(`R8 pending open liveness validates committed identity: ${fence}`,async()=>{
+ const f=await r7Fixture(),q=f.writer.channel({url:writes.url,setup:writes.setup},{});try{
+ await q.call("dialogueOpen",{...opening,sessionId:"voyage"});
+ const pending={input:{...opening,sessionId:fence==="session"?"sparta":"voyage",...(fence==="history"?{historyOwnerId:"missing"}:{}),...(fence==="principal"?{principalId:"penelope"}:{}),...(fence==="epoch"?{epoch:2}:{}),...(fence==="provider"?{providerId:"gpt-live"}:{})},generation:fence==="generation"?2:1,...(fence==="previous"?{previousEpoch:1}:{}),...(fence==="owner"?{ownerId:"missing"}:fence==="session"||fence==="history"?{ownerId:"ithaca"}:{})};
+ const owner=await q.call<{coverage:string}>("dialogueOpen",{...opening,conversationId:"pylos",sessionId:"voyage"},new Map(),[pending]);
+ expect(owner.coverage,`PENDING_IDENTITY_FENCE_${fence}`).toBe(fence==="healthy"?"complete":"partial");
+ }finally{await q.close();await f.close();}
+});
+
+
+test("R8 writer-pending adoption preserves exact healthy sibling identities on the next open",async()=>{
+ const f=await r7Fixture();try{
+ await f.catalog.dialogueOpen!({...opening,conversationId:"sparta",sessionId:"voyage"});await f.catalog.dialogueClose!("sparta","odysseus",1,false);
+ await f.catalog.dialogueOpen!(opening);await f.catalog.dialogueOpen!({...opening,conversationId:"pylos",historyOwnerId:"ithaca"});
+ const adoption=f.catalog.dialogueBind!("pylos","odysseus","voyage"),next=f.catalog.dialogueOpen!({...opening,conversationId:"troy",sessionId:"voyage"});await Promise.all([adoption,next]);
+ expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"PENDING_ADOPTION_DB_COMPLETE").toEqual({coverage:"complete"});expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage).toBe("complete");
+ }finally{await f.close();}
+});
