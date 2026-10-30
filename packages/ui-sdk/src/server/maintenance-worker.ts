@@ -10,13 +10,14 @@
  * (docs/decisions/governed-writable-workers.md, "The host execution boundary").
  */
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
+import { killWorker, registerWorker, workerStopCompletion } from "./maintenance-worker-kill.js";
 import { Readable } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
-import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
+import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenance-temp-budget.js";
@@ -299,6 +300,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
     pipes = yield* createWorkerPipesSteps();
     child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
+    registerWorker(child);
     pipes.closeChild();
     const ends = pipes.take();
     let inputClosed = false;
@@ -319,7 +321,11 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       stdout: fifoStream(ends.stdout),
       stderr: fifoStream(ends.stderr),
       pid: running.pid,
-      exited: running.exited.finally(() => { try { closeInput(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } } }),
+      exited: running.exited.then(async code => {
+        await workerStopCompletion(running);
+        try { closeInput(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
+        return code;
+      }),
       released: pipes.released,
       kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
     };
@@ -341,31 +347,19 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       }).catch(() => { /* The broker retains unresolved native cleanup intent. */ });
       throw error;
     }
-    try { if (child) killWorker(child, "SIGKILL"); } finally {
-      try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
+    if (child) {
+      const running = child;
+      killWorker(running, "SIGKILL");
+      // A synchronous launch can fail after spawn. Its late cleanup still owns
+      // admission until the asynchronous stop and the actual outer exit join.
+      void Promise.all([running.exited, workerStopCompletion(running)]).then(() => {
+        try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
+      }).catch(() => { /* Unconfirmed cleanup retains ownership. */ });
+      throw Object.assign(new WorkerIdentityCleanupError("maintenance_worker_launch_cleanup_pending"), { cause: error });
     }
+    try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
     throw error;
   }
-}
-
-/**
- * Stops a worker whole. The pid the server holds is bubblewrap's outer
- * process; its child is the init of the worker's PID namespace. Killing that
- * init first makes the kernel kill and reap every process in the namespace
- * before the init's exit completes. The outer monitor can exit earlier;
- * runMaintenanceWorker also drains the stdio descriptors held by init.
- * Outer-process settlement alone does not establish completed teardown.
- */
-function killWorker(child: { pid: number; kill(signal?: NodeJS.Signals): void }, signal: NodeJS.Signals = "SIGKILL"): void {
-  let inits: number[] = [];
-  try {
-    inits = readFileSync(`/proc/${child.pid}/task/${child.pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number);
-  } catch { /* Already gone, or no children list: the outer kill below still applies. */ }
-  // A namespace init takes only SIGKILL from outside; the outer process then
-  // exits on its own once the namespace is empty.
-  let reached = false;
-  for (const pid of inits) { try { process.kill(pid, "SIGKILL"); reached = true; } catch { /* Raced away. */ } }
-  if (!reached) child.kill(signal);
 }
 
 /** Runs one maintenance command to completion. An abort or the deadline kills the whole worker. */
