@@ -936,3 +936,26 @@ for(const provider of ["gemini","gpt"] as const)test(`R6 ${provider}: first voic
  await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r6-midturn-${provider}.png`});
  expect(s.element.textContent).not.toContain("Earlier spoken dialogue was not saved");expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(s.element.querySelector('[data-transcript-qualifiers][aria-label*="unsaved"]')).toBeNull();
 });
+
+
+for(const provider of ["gemini","gpt"] as const)test(`R7 ${provider}: device takeover retains ordered evidence without false incomplete history`,async ctx=>{
+ r6Date(ctx);microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
+ const input=(n:number,text:string)=>provider==="gemini"?{serverContent:{inputTranscription:{text}}}:{type:"session.input_transcript.delta",event_id:`takeover-${n}`,delta:text,start_ms:n*100,end_ms:n*100+50};
+ await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
+ s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ const first=s.ui.connection.conversation.state.getState().profile!;await pump({provider:[input(0,"Check the mast. "),input(1,"Check the sail. ")]});
+ // The second device retained the same authorized native handle. Its own
+ // SDK resume creates a fresh opening token; no admission guard is bypassed.
+ s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({takeover:true});
+ flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:"odysseus-ithaca",profile:first,disclosureOpen:false}));s.ui.connection.conversation.resume();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile?.epoch;}).toBe(2);
+ s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
+ expect(s.ui.connection.conversation.state.getState().dialogue["odysseus-ithaca"]!.coverage,"DEVICE_TAKEOVER_READ_COMPLETE").toBe("complete");expect(s.element.textContent,"DEVICE_TAKEOVER_NO_FALSE_NOTICE").not.toContain("Voice history may be incomplete");
+ s.ui.connection.conversation.start();await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(true);await pump();await pump({provider:[input(2,"The crew is ready.")]});
+ const voice=result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice");expect(voice.map((e:any)=>e.event.text)).toEqual(["Check the mast. ","Check the sail. ","The crew is ready."]);expect(voice.map((e:any)=>e.epoch)).toEqual([1,1,2]);
+ s.ui.connection.conversation.leave();await pump();s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true});s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain("The crew is ready.");
+ for(const text of ["Check the mast.","Check the sail.","The crew is ready."])expect(s.element.textContent).toContain(text);expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(result.tasks).toBe(1);
+ await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r7-takeover-${provider}.png`});
+});

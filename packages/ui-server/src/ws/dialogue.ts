@@ -16,19 +16,47 @@ export class DialogueJournal {
   private failure: unknown;
   private readonly failedOwners = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
+  private readonly ownerPending = new WeakMap<DialogueOwner, Set<Promise<unknown>>>();
+  private readonly transitions = new Map<string, Promise<unknown>>();
+  private readonly scopes = new Map<string, {epoch:number;principalId:string;closed:boolean;owner?:DialogueOwner}>();
   private readonly queues = new Map<string, { count: number; bytes: number }>();
   constructor(
     private readonly catalog: SessionCatalog,
     private readonly publish: (page: DialoguePage, principalId: string) => void,
     private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error", kind?: DialogueEvidence["kind"]) => void
   ) {}
+  private transition<T>(conversationId: string, run: () => Promise<T>): Promise<T> {
+    const prior=this.transitions.get(conversationId);
+    const done=(prior ?? Promise.resolve()).then(run);
+    this.transitions.set(conversationId,done);
+    const release=()=>{
+      if(this.transitions.get(conversationId)!==done)return;
+      this.transitions.delete(conversationId);
+      if(this.scopes.get(conversationId)?.closed)this.scopes.delete(conversationId);
+    };
+    void done.then(release,release);
+    return done;
+  }
   async open(input: DialogueOpen): Promise<DialogueOwner | undefined> {
     if (!this.catalog.dialogueOpen) return;
-    const owner = await this.catalog.dialogueOpen(input);
-    this.failedOwners.delete(owner.id); // A newly committed open starts a new failure episode.
-    this.conversations.set(input.conversationId, owner);
-    if (owner.session_id) this.rememberSession(owner.session_id, owner);
-    return owner;
+    const scope={epoch:input.epoch,principalId:input.principalId,closed:false,owner:undefined as DialogueOwner|undefined};
+    this.scopes.set(input.conversationId,scope);
+    try {
+      return await this.transition(input.conversationId,async()=>{
+        const owner=await this.catalog.dialogueOpen!(input);
+        scope.owner=owner;
+        this.failedOwners.delete(owner.id);
+        // A close/replacement may already have retired this pending open.
+        if(this.scopes.get(input.conversationId)===scope && !scope.closed){
+          this.conversations.set(input.conversationId,owner);
+          if(owner.session_id)this.rememberSession(owner.session_id,owner);
+        }
+        return owner;
+      });
+    } catch(error) {
+      if(this.scopes.get(input.conversationId)===scope)this.scopes.delete(input.conversationId);
+      throw error;
+    }
   }
   private rememberSession(id: string, owner: DialogueOwner): void {
     this.sessions.delete(id);
@@ -157,21 +185,25 @@ export class DialogueJournal {
     epoch: number,
     partial: boolean = false
   ): void {
-    const owner = this.conversations.get(conversationId);
-    // Closing capture does not prove pending observations committed. Capture
-    // the existing barrier before tracking this close, avoiding self-wait.
-    const pending = [...this.pending];
+    const scope=this.scopes.get(conversationId);
+    if(!scope || scope.epoch!==epoch || scope.principalId!==principalId)return;
+    scope.closed=true;
+    // Retire ingress immediately, including an open still waiting on storage.
     this.conversations.delete(conversationId);
-    if (!owner || !this.catalog.dialogueClose) return;
-    const done = Promise.allSettled(pending).then(() =>
-      this.catalog.dialogueClose!(
-        conversationId,
-        principalId,
-        epoch,
-        partial || owner.coverage === "partial"
-      )
-    );
-    this.track(done, owner);
+    const done=this.transition(conversationId,async()=>{
+      const owner=scope.owner;
+      if(!owner || !this.catalog.dialogueClose)return;
+      // Wait only for this owner's already observed callbacks. The close
+      // operation itself is tracked globally, so it cannot wait on itself.
+      await Promise.allSettled([...(this.ownerPending.get(owner) ?? [])]);
+      try {
+        await this.catalog.dialogueClose(conversationId,principalId,epoch,partial || owner.coverage === "partial");
+      } catch(error) {
+        this.notifyFailure(owner,"storage_error");
+        throw error;
+      }
+    });
+    this.track(done);
   }
 
   private append(
@@ -188,7 +220,7 @@ export class DialogueJournal {
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"
       );
-      const prior = [...this.pending];
+      const prior = [...(this.ownerPending.get(owner) ?? [])];
       const done = Promise.allSettled(prior).then(() => after?.(false));
       this.track(done, owner, evidence.kind);
       this.notifyFailure(owner, "queue_pressure", evidence.kind);
@@ -241,17 +273,16 @@ export class DialogueJournal {
     if(this.failedOwners.size>128)this.failedOwners.delete(this.failedOwners.values().next().value!);
     this.failed(owner,cause,kind);
   }
-  private track(done: Promise<unknown>, owner: DialogueOwner, kind?: DialogueEvidence["kind"]): void {
+  private track(done: Promise<unknown>, owner?: DialogueOwner, kind?: DialogueEvidence["kind"]): void {
     this.pending.add(done);
-    void done.then(
-      () => this.pending.delete(done),
-      (error) => {
-        this.failure ??= error;
-        if(kind !== "backend") owner.coverage = "partial";
-        this.pending.delete(done);
-        this.notifyFailure(owner, "storage_error", kind);
-      }
-    );
+    const own=owner ? this.ownerPending.get(owner) ?? new Set<Promise<unknown>>() : undefined;
+    if(owner && own){own.add(done);this.ownerPending.set(owner,own);}
+    const release=()=>{this.pending.delete(done);own?.delete(done);if(owner && own?.size===0)this.ownerPending.delete(owner);};
+    void done.then(release,(error)=>{
+      this.failure ??=error;
+      release();
+      if(owner)this.notifyFailure(owner,"storage_error",kind);
+    });
   }
   async settled(reportFailure: boolean = false): Promise<void> {
     while (this.pending.size) await Promise.allSettled([...this.pending]);

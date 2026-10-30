@@ -2415,3 +2415,18 @@ input/replies and retires capture/opening identities before playback cleanup;
 no old identity is sent on the new principal's connection. Leave/history errors
 preserve already observed local evidence for the same chat, without granting new
 capture consent or admitting a missing backend session.
+
+
+Same-native-conversation open/close transitions are ordered in the concrete
+journal. Reopening waits for that conversation's prior close and already
+observed owner callbacks, including a close requested while an earlier open is
+still waiting on storage. A failed close is not overtaken or treated as a clean
+boundary. Different owners are not serialized by this journal barrier; global
+shutdown still drains all admitted observations and reports aggregate failure.
+
+A write-worker open may use an internal snapshot of the catalog's exact healthy
+live identities to distinguish another currently live native ID for this chat
+from an interrupted source. Owner, principal, generation and epoch must all
+match, and failed scopes are not exempt. The same native ID always needs its
+actual close-before-open boundary. This internal writer argument is not a wire
+field, provider-history input or caller-controlled admission exception.

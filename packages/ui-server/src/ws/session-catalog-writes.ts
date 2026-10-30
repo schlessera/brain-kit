@@ -179,7 +179,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
       db.prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
     },
     dialogueClose: (conversationId:string,principalId:string,epoch:number,partial:boolean) => closeDialogue(db,conversationId,principalId,epoch,partial),
-    dialogueOpen: (input: import("./dialogue-storage.js").DialogueOpen) => openDialogue(db, input),
+    dialogueOpen: (input: import("./dialogue-storage.js").DialogueOpen, activeEpochs?:ReadonlyMap<string,import("./dialogue-storage.js").ActiveDialogueEpoch>) => openDialogue(db, input, activeEpochs),
     dialogueAppend: (input: import("./dialogue-storage.js").DialogueAppend) => appendDialogue(db, input),
     dialogueBind: (conversationId: string, principalId: string, sessionId: string) => bindDialogue(db, conversationId, principalId, sessionId),
     conversationEpoch: (state: import("./conversation-storage.js").StoredConversationEpoch) => saveConversationEpoch(db, state),

@@ -66,7 +66,12 @@ export interface ActiveDialogueEpoch {
   owner: DialogueOwner;
   epoch: number;
 }
-export function openDialogue(db: Database, input: DialogueOpen): DialogueOwner {
+function activeEpochFor(owner:DialogueOwner, principalId:string, row:{id:string;epoch:number}, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>):ActiveDialogueEpoch|undefined {
+  const active=activeEpochs?.get(row.id);
+  return active && active.epoch===row.epoch && active.owner.id===owner.id
+    && active.owner.principal_id===principalId && active.owner.generation===owner.generation ? active : undefined;
+}
+export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>): DialogueOwner {
   return db
     .transaction(() => {
       const known = db
@@ -116,11 +121,12 @@ export function openDialogue(db: Database, input: DialogueOpen): DialogueOwner {
         );
         owner = dialogueOwner(db, { ownerId: id }, input.principalId)!;
       }
-      const unfinished = db
-        .query(
-          "SELECT 1 FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT 1"
-        )
-        .get(owner.id);
+      const unfinished = (db.query("SELECT id,epoch FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+1) as Array<{id:string;epoch:number}>).some(row=>{
+        const active=activeEpochFor(owner!,input.principalId,row,activeEpochs);
+        // The same native ID must have a real close-before-open boundary.
+        // Other exact healthy live IDs are not evidence of interruption.
+        return row.id===input.conversationId || !active || active.owner.coverage === "partial";
+      });
       if (unfinished) {
         db.prepare(
           "UPDATE dialogue_owners SET coverage='partial' WHERE id=?"
@@ -327,11 +333,7 @@ export function readDialogue(
   }
   // One more row than live scopes proves interruption without a lifetime scan.
   const unclosed = db.query("SELECT id,epoch FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+1) as Array<{id:string;epoch:number}>;
-  const exactActive = (row: {id:string;epoch:number}) => {
-    const active=activeEpochs?.get(row.id);
-    return active && active.epoch===row.epoch && active.owner.id===owner.id
-      && active.owner.principal_id===principalId && active.owner.generation===owner.generation ? active : undefined;
-  };
+  const exactActive = (row:{id:string;epoch:number}) => activeEpochFor(owner,principalId,row,activeEpochs);
   const failedActive=unclosed.some(row=>exactActive(row)?.owner.coverage === "partial");
   const more = rows.length > records.length;
   return {

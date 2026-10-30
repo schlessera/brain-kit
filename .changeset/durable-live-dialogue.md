@@ -16,3 +16,5 @@ Integrate canonical reading/focus and stale-session recovery, qualify unsaved ro
 Drain task-persistence failures against the exact failed epoch, reject missing-chat reads without inventing legacy history, and qualify unclosed voice history separately from incomplete backend position witnesses.
 
 Keep ordinary typed chats free of invented legacy-voice warnings, preserve true backend suffix offsets when voice starts mid-turn, and distinguish healthy active epochs from unclosed history after restart.
+
+Order same-conversation close/open transitions through device takeover and pending-open replacement, preserve owner-local observation drains, and avoid false interruption from other exact healthy live identities without hiding real failures.

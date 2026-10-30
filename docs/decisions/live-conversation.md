@@ -382,3 +382,12 @@ witness: pre-owner text contributes its actual character offset, but no invented
 archive copy. The complete native answer remains authoritative; missing prefix
 position evidence may still qualify original discussion order. Numeric offsets
 are retired with each result or backend turn and do not retain prior typed text.
+
+
+Device takeover orders each native conversation's close before its next open,
+including pending-open replacements. The journal drains that owner's observed
+callbacks, not unrelated owners, before writing the terminal marker. Close
+failure propagates to the waiting open; genuine interrupted/failing coverage is
+not suppressed. Other exact healthy live native IDs use the existing catalog
+liveness evidence at the write-worker boundary as well as on reads. A same-ID
+open cannot use that exemption to bypass a missing close.

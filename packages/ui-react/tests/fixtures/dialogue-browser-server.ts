@@ -27,8 +27,8 @@ const dbPath = join(root, "ui.db");
 let db = createUiDb(dbPath),
   writer = openSqliteWriter(db);
 let engine = process.argv[2] === "gemini" ? "gemini" : "gpt";
-const frames: ServerMessage[] = [],
-  sent: unknown[] = [],
+let frames: ServerMessage[] = [];
+const sent: unknown[] = [],
   ingress: unknown[] = [];
 let tasks = 0;
 let quotaApplied = false, pressureApplied = false;
@@ -162,9 +162,8 @@ function makeHost() {
 }
 let host = makeHost(),
   handlers = createWsHandlers(host, testPrincipal());
-const ws = {
-  send: (data: string) => frames.push(JSON.parse(data)),
-} as WSContext;
+function fixtureSocket(){const sink=frames;return {send:(data:string)=>sink.push(JSON.parse(data))} as WSContext;}
+let ws=fixtureSocket();
 await handlers.onOpen(undefined as never, ws);
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -183,6 +182,7 @@ const server = Bun.serve({
       multipart?: boolean;
       backendPrefix?: string;
       seedLegacyVoice?: boolean;
+      takeover?: boolean;
       restart?: boolean;
       engine?: string;
     };
@@ -198,6 +198,7 @@ const server = Bun.serve({
       handlers = createWsHandlers(host, testPrincipal());
       await handlers.onOpen(undefined as never, ws);
     }
+    if(body.takeover){frames=[];ws=fixtureSocket();handlers=createWsHandlers(host,testPrincipal());await handlers.onOpen(undefined as never,ws);}
     for (const frame of body.client ?? [])
       handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
     await Bun.sleep(10);

@@ -285,7 +285,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       return submit("dialogueClose",conversationId,principalId,epoch,partial);
     },
     dialogueOpen: async input => {
-      const owner=await submit<DialogueOwner>("dialogueOpen", input);
+      const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,owner:{...scope.owner}}]));
+      const owner=await submit<DialogueOwner>("dialogueOpen", input, live);
       activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
       return owner;
     },

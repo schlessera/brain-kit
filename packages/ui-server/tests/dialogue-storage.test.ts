@@ -601,3 +601,64 @@ test("R6 adoption does not detach failed queued voice from active coverage",asyn
  expect((await catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"QUEUED_PRE_ADOPTION_FAILURE_REMAINS_PARTIAL").toBe("partial");
  }finally{await journal.settled();await q.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+
+async function r7Fixture(){
+ const {createSessionCatalog}=await import("../src/ws/session-catalog.js"),{createOffloopActivityStore}=await import("../src/activity/store-writes.js"),{DialogueJournal}=await import("../src/ws/dialogue.js");
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-takeover-")),db=createUiDb(join(dir,"ui.db")),writer=openSqliteWriter(db);
+ const catalog=createSessionCatalog(()=>db,undefined,undefined,{writer,pricing:{resolve:()=>null},store:createOffloopActivityStore(db,writer)}),journal=new DialogueJournal(catalog,()=>{},()=>{});
+ return {db,writer,catalog,journal,close:async()=>{await journal.settled();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}};
+}
+
+test("R7 same-tick takeover closes the old epoch after queued observations and before reopening",async()=>{
+ const f=await r7Fixture();try{
+ await f.journal.open(opening);const observed:number[]=[];
+ for(let i=0;i<30;i++){const e=fragment(i,`Mast ${i}.`).evidence;if(e.kind!=="voice")throw Error("voice required");f.journal.voice("ithaca",e,()=>{observed.push(i);});}
+ f.journal.close("ithaca","odysseus",1);await f.journal.open({...opening,epoch:2});await f.journal.settled();
+ expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"TAKEOVER_DB_REMAINS_COMPLETE").toEqual({coverage:"complete"});
+ const page=await f.catalog.dialogueRead!("odysseus",{ownerId:"ithaca"});expect(page!.coverage,"TAKEOVER_READ_REMAINS_COMPLETE").toBe("complete");
+ expect(observed).toEqual(Array.from({length:30},(_,i)=>i));expect(page!.records.map(r=>r.evidence)).toEqual(Array.from({length:30},(_,i)=>fragment(i,`Mast ${i}.`).evidence));
+ expect(f.db.query("SELECT epoch,closed FROM dialogue_conversations").get()).toEqual({epoch:2,closed:0});
+ f.journal.close("ithaca","odysseus",1);f.journal.close("ithaca","penelope",2);await f.journal.settled();
+ expect(f.db.query("SELECT epoch,closed FROM dialogue_conversations").get(),"STALE_OR_FOREIGN_CLOSE_CANNOT_RETIRE_CURRENT_EPOCH").toEqual({epoch:2,closed:0});
+ }finally{await f.close();}
+});
+
+test("R7 replacement while an earlier open is pending cannot orphan its close",async()=>{
+ const f=await r7Fixture();let release!:()=>void,entered=false;const open=f.catalog.dialogueOpen!;
+ f.catalog.dialogueOpen=async input=>{if(input.epoch===2){entered=true;await new Promise<void>(r=>{release=r;});}return open(input);};
+ try{await f.journal.open(opening);f.journal.close("ithaca","odysseus",1);const second=f.journal.open({...opening,epoch:2});f.journal.close("ithaca","odysseus",2);const third=f.journal.open({...opening,epoch:3});
+ while(!entered)await Bun.sleep(1);release();await Promise.all([second,third]);await f.journal.settled();
+ expect(f.db.query("SELECT epoch,closed FROM dialogue_conversations").get()).toEqual({epoch:3,closed:0});expect((await f.catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"PENDING_OPEN_TAKEOVER_IS_NOT_INTERRUPTION").toBe("complete");
+ }finally{release?.();await f.close();}
+});
+
+test("R7 an unrelated owner's delayed observation cannot serialize another conversation reopen",async()=>{
+ const f=await r7Fixture();let release!:()=>void;const append=f.catalog.dialogueAppend!;
+ f.catalog.dialogueAppend=async input=>{if(input.ownerId==="pylos")await new Promise<void>(r=>{release=r;});return append(input);};
+ try{await f.journal.open(opening);await f.journal.open({...opening,conversationId:"pylos"});const e=fragment(0).evidence;if(e.kind!=="voice")throw Error("voice required");f.journal.voice("pylos",{...e,conversationId:"pylos"},()=>{});
+ f.journal.close("ithaca","odysseus",1);const reopened=f.journal.open({...opening,epoch:2});
+ const outcome=await Promise.race([reopened.then(()=>"open"),Bun.sleep(200).then(()=>"blocked")]);expect(outcome,"UNRELATED_OWNER_DOES_NOT_BLOCK_REOPEN").toBe("open");
+ expect(f.db.query("SELECT epoch FROM dialogue_conversations WHERE id='ithaca'").get()).toEqual({epoch:2});
+ }finally{release?.();await f.close();}
+});
+
+
+test("R7 a failed exact close blocks its waiting open and preserves partial recovery",async()=>{
+ const f=await r7Fixture();const controls=await import("./helpers/dialogue-test-writes.js"),q=f.writer.channel({url:controls.url,setup:controls.setup},{});
+ try{await f.journal.open(opening);await q.call("refuseClose");f.journal.close("ithaca","odysseus",1);
+ await refused(f.journal.open({...opening,epoch:2}),"R7 close refused");await f.journal.settled();
+ expect(f.db.query("SELECT epoch,closed FROM dialogue_conversations").get(),"FAILED_CLOSE_CANNOT_BE_OVERTAKEN").toEqual({epoch:1,closed:0});
+ expect((await f.catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage).toBe("partial");await refused(f.journal.settled(true),"R7 close refused");
+ await q.call("allowClose");await f.journal.open({...opening,epoch:3});expect((await f.catalog.dialogueRead!("odysseus",{ownerId:"ithaca"}))!.coverage,"REAL_INTERRUPTION_IS_NOT_SUPPRESSED").toBe("partial");
+ }finally{await q.close();await f.close();}
+});
+
+
+test("R7 a second healthy live native identity does not fabricate interruption for the same chat",async()=>{
+ const f=await r7Fixture();try{
+ await f.journal.open({...opening,sessionId:"voyage"});await f.journal.open({...opening,conversationId:"pylos",sessionId:"voyage"});
+ expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"OTHER_LIVE_ID_IS_NOT_INTERRUPTION").toEqual({coverage:"complete"});expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage).toBe("complete");
+ expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_conversations WHERE closed=0").get()).toEqual({n:2});
+ }finally{await f.close();}
+});

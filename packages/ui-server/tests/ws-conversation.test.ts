@@ -1776,3 +1776,13 @@ test("missing dialogue reads cannot invent legacy history or journal owners", as
  await until(()=>client.frames("dialogue_history").some(f=>f.requestId==="known-page"));
  expect(client.frames("dialogue_history").at(-1)).toMatchObject({coverage:"complete",records:[]});
 });
+
+
+test("R7 device takeover retains complete coverage through actual host socket handlers",async()=>{
+ const s=setup(),a=await s.connect();s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
+ const first=await a.open({sessionId:"odysseus-known",contextualTasks:true});const b=await s.connect();b.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ b.send({type:"conversation_start",conversationId:first.id,contextualTasks:true,requestId:"takeover"});await until(()=>b.frames("conversation_opened").length===1);
+ b.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"after-takeover"});await until(()=>b.frames("dialogue_history").some(p=>p.requestId==="after-takeover"));
+ expect(s.db.query("SELECT coverage FROM dialogue_owners").get(),"HOST_TAKEOVER_DB_COMPLETE").toEqual({coverage:"complete"});expect(b.frames("dialogue_history").at(-1).coverage,"HOST_TAKEOVER_READ_COMPLETE").toBe("complete");
+ expect(b.frames("conversation_opened")[0].epoch).toBe(2);expect(s.turns).toHaveLength(0);
+});
