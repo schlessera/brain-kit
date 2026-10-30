@@ -276,5 +276,10 @@ test("durable positions reconstruct mixed text without changing full semantic so
   expect(progressIndex).toBeGreaterThan(0);expect(progressIndex).toBeLessThan(entries.indexOf(answers[0]!));
   for(const e of answers){expect(transcriptRange(e)?.source.content).toBe(first+last);}
   const reply=entries.find(e=>e.kind==="speech");expect(reply?.kind==="speech"&&reply.output.providerId).toBe("gemini-live");expect(reply?.kind==="speech"&&reply.restored).toBe(true);
+  voice.setState(current=>({dialogue:{...current.dialogue,ithaca:{...current.dialogue.ithaca!,records:current.dialogue.ithaca!.records.filter(r=>r.sequence!==5)}}}));
+  const partial=transcriptTimelineFor(root.stores.chat).state.getState().entries;
+  expect(partial.filter(e=>e.kind==="message").map(entryText).join("\n")).toContain(first+last);
+  expect(partial.some(e=>e.kind==="history-notice"&&e.label==="Original discussion position unknown.")).toBe(true);
+
  }finally{root.dispose();}
 });

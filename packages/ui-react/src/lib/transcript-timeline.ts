@@ -171,8 +171,15 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
         continue;
       }
       const text = messageEntry.message.parts.filter(p => p.kind === "text").map(p => p.text).join("");
-      if (!ranges.every(r => text.slice(r.start,r.end) === r.text)) {
-        entries.push({key:`dialogue-gap:${sid}`,sessionId:sid,kind:"history-notice",label:"Original discussion position unknown."}); continue;
+      const byOffset = [...ranges].sort((a,b)=>a.start-b.start);
+      const complete = byOffset[0]?.start === 0 && byOffset.at(-1)?.end === text.length
+        && byOffset.every((r,i)=>i===0 || byOffset[i-1]!.end === r.start);
+      if (!complete || !ranges.every(r => text.slice(r.start,r.end) === r.text)) {
+        // A page or a failed witness write must never truncate the native answer.
+        // Keep the complete native source group together, with unknown cross-stream order.
+        const requestIds = new Set(archive.flatMap(item=>item.sessionId===sid && item.record.evidence.kind === "request" && item.record.evidence.turnId===turnId ? [item.record.evidence.requestId] : []));
+        for (const entry of entries) if (entry.kind === "message" && entry.sessionId === sid && (entry.message.turnId===turnId || entry.message.streamTurnId===turnId || entry.message.requestId && requestIds.has(entry.message.requestId))) ordered.delete(entry.key);
+        if (!entries.some(en=>en.key===`dialogue-gap:${sid}`)) entries.push({key:`dialogue-gap:${sid}`,sessionId:sid,kind:"history-notice",label:"Original discussion position unknown."}); continue;
       }
       for (let i=entries.length-1;i>=0;i--) if (entries[i]!.kind === "message" && (entries[i] as Extract<TranscriptEntry,{kind:"message"}>).message === messageEntry.message && (entries[i] as Extract<TranscriptEntry,{kind:"message"}>).section !== "progress") entries.splice(i,1);
       if (!entries.some(en=>en.kind === "message" && en.message === messageEntry.message)) entries.push({...messageEntry,section:"progress"});

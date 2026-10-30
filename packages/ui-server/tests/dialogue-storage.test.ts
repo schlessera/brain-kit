@@ -388,57 +388,73 @@ test("byte-bounded cursor pages preserve Unicode, fence owner/generation and omi
   }
 });
 
-test("the native journal preserves a visible unsaved tail under quota and bounded pending pressure", async () => {
-  const { DialogueJournal } = await import("../src/ws/dialogue.js");
-  const dir = mkdtempSync(join(tmpdir(), "odysseus-dialogue-tail-"));
-  const db = createUiDb(join(dir, "ui.db")),
-    writer = openSqliteWriter(db);
-  const c = writer.channel({ url: writes.url, setup: writes.setup }, {});
-  const controls = await import("./helpers/dialogue-test-writes.js");
-  const q = writer.channel({ url: controls.url, setup: controls.setup }, {});
-  let visible = 0,
-    failures = 0,
-    published = 0;
-  const journal = new DialogueJournal(
-    {
-      dialogueOpen: (input: DialogueOpen) => c.call("dialogueOpen", input),
-      dialogueAppend: (input: DialogueAppend) =>
-        c.call("dialogueAppend", input),
-    } as import("../src/ws/session-catalog.js").SessionCatalog,
-    () => published++,
-    () => failures++
-  );
-  try {
-    await journal.open(opening);
-    await q.call("quota");
-    for (let i = 0; i < 300; i++) {
-      const evidence = fragment(i, "mast ".repeat(400)).evidence;
-      if (evidence.kind !== "voice") throw Error("voice required");
-      expect(journal.voice("ithaca", evidence, () => visible++)).toBe(true);
-    }
-    await journal.settled();
-    expect(visible).toBe(300);
-    expect(failures).toBeGreaterThan(0);
-    const rows = db
-      .query("SELECT sequence FROM dialogue_records ORDER BY sequence")
-      .all() as { sequence: number }[];
-    expect(rows.length).toBe(published);
-    expect(rows.length).toBeLessThan(256);
-    expect(rows.map((r) => r.sequence)).toEqual(
-      Array.from({ length: rows.length }, (_, i) => i + 1)
+for (const pendingCount of [200, 300])
+  test(`the native journal preserves a visible unsaved tail and partial Leave with ${pendingCount} pending observations`, async () => {
+    const { DialogueJournal } = await import("../src/ws/dialogue.js");
+    const dir = mkdtempSync(join(tmpdir(), "odysseus-dialogue-tail-"));
+    const db = createUiDb(join(dir, "ui.db")),
+      writer = openSqliteWriter(db);
+    const c = writer.channel({ url: writes.url, setup: writes.setup }, {});
+    const controls = await import("./helpers/dialogue-test-writes.js");
+    const q = writer.channel({ url: controls.url, setup: controls.setup }, {});
+    let visible = 0,
+      failures = 0,
+      published = 0;
+    const journal = new DialogueJournal(
+      {
+        dialogueOpen: (input: DialogueOpen) => c.call("dialogueOpen", input),
+        dialogueAppend: (input: DialogueAppend) =>
+          c.call("dialogueAppend", input),
+        dialogueClose: (
+          conversationId: string,
+          principalId: string,
+          epoch: number,
+          partial: boolean
+        ) =>
+          c.call("dialogueClose", conversationId, principalId, epoch, partial),
+      } as import("../src/ws/session-catalog.js").SessionCatalog,
+      () => published++,
+      () => failures++
     );
-    let closeFailure: unknown;
     try {
-      await journal.settled(true);
-    } catch (error) {
-      closeFailure = error;
+      await journal.open(opening);
+      await q.call("quota");
+      for (let i = 0; i < pendingCount; i++) {
+        const evidence = fragment(i, "mast ".repeat(400)).evidence;
+        if (evidence.kind !== "voice") throw Error("voice required");
+        expect(journal.voice("ithaca", evidence, () => visible++)).toBe(true);
+      }
+      journal.close("ithaca", "odysseus", 1);
+      await journal.settled();
+      expect(
+        (
+          db
+            .query("SELECT coverage FROM dialogue_owners WHERE id= ?")
+            .get("ithaca") as { coverage: string }
+        ).coverage
+      ).toBe("partial");
+      expect(visible).toBe(pendingCount);
+      expect(failures).toBeGreaterThan(0);
+      const rows = db
+        .query("SELECT sequence FROM dialogue_records ORDER BY sequence")
+        .all() as { sequence: number }[];
+      expect(rows.length).toBe(published);
+      expect(rows.length).toBeLessThan(256);
+      expect(rows.map((r) => r.sequence)).toEqual(
+        Array.from({ length: rows.length }, (_, i) => i + 1)
+      );
+      let closeFailure: unknown;
+      try {
+        await journal.settled(true);
+      } catch (error) {
+        closeFailure = error;
+      }
+      expect(closeFailure).toBeInstanceOf(Error);
+    } finally {
+      await c.close();
+      await q.close();
+      await writer.close();
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
     }
-    expect(closeFailure).toBeInstanceOf(Error);
-  } finally {
-    await c.close();
-    await q.close();
-    await writer.close();
-    db.close();
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+  });

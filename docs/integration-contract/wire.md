@@ -2259,3 +2259,15 @@ revision is consumed, while newer edits move with that same chat under a new
 revision. The separate unbound draft is untouched. This extends the existing
 draft acceptance/binding machinery; saving a draft grants no adoption authority.
 The UI-only target `dialogue:<ownerId>` is never a native backend session ID.
+
+
+Epoch-close metadata waits for observations already submitted at Leave. Any
+failed or over-bound pending observation marks that owner partial before close
+can commit; a closed epoch is never evidence that an unsaved tail was retained.
+SQLite evidence and sequence allocation are atomic. Provider/backend effects and
+operational text commits do not form a distributed transaction: the committed
+prefix is the durability boundary, and history reads never replay external work.
+
+An incomplete or mismatched backend position witness never truncates the native
+answer. Its complete semantic source group remains readable with unknown
+cross-stream position until the missing history page or evidence is available.

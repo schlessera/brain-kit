@@ -149,16 +149,23 @@ export class DialogueJournal {
     epoch: number,
     partial: boolean = false
   ): void {
-    const done = this.catalog.dialogueClose?.(
-      conversationId,
-      principalId,
-      epoch,
-      partial
-    );
     const owner = this.conversations.get(conversationId);
-    if (done && owner) this.track(done, owner);
+    // Closing capture does not prove pending observations committed. Capture
+    // the existing barrier before tracking this close, avoiding self-wait.
+    const pending = [...this.pending];
     this.conversations.delete(conversationId);
+    if (!owner || !this.catalog.dialogueClose) return;
+    const done = Promise.allSettled(pending).then(() =>
+      this.catalog.dialogueClose!(
+        conversationId,
+        principalId,
+        epoch,
+        partial || owner.coverage === "partial"
+      )
+    );
+    this.track(done, owner);
   }
+
   private append(
     owner: DialogueOwner,
     identity: string,
@@ -169,6 +176,10 @@ export class DialogueJournal {
     const q = this.queues.get(owner.id) ?? { count: 0, bytes: 0 };
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
     if (q.count >= 256 || q.bytes + bytes > 1024 * 1024) {
+      owner.coverage = "partial";
+      this.failure ??= new Error(
+        "Dialogue pending writes exceeded their bound"
+      );
       after?.();
       this.failed(owner);
       return;
@@ -216,6 +227,7 @@ export class DialogueJournal {
       () => this.pending.delete(done),
       (error) => {
         this.failure ??= error;
+        owner.coverage = "partial";
         this.pending.delete(done);
         this.failed(owner);
       }
