@@ -88,21 +88,21 @@ function outputPcm(seconds = 1, audibleSeconds = seconds) {
   return btoa(binary);
 }
 
-async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false, missingSession = false, holdOpening = false) {
+async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false, missingSession = false, holdOpening = false, holdValidation = false) {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx, width, true, "dark", missingSession);
   if (newChat) { s.ui.stores.chat.getState().setActiveSession(null); s.ui.stores.chat.getState().setMessages(null, []); }
   const manualDraftId = s.ui.stores.drafts.getState().idFor(newChat ? null : SESSION);
   s.ui.stores.drafts.getState().edit(manualDraftId, newChat ? null : SESSION, { text: "Keep the separate typed raft draft." });
-  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity, missingSession, holdOpening }) as { id: string };
+  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity, missingSession, holdOpening, holdValidation }) as { id: string };
   ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
   let cursor = 0;
   const upstream: any[] = [];
   const downstream: ServerMessage[] = [];
   let evidence: any;
-  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false) => {
+  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false, releaseValidation = false) => {
     const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data))); cursor = s.socket.sent.length;
-    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening });
+    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening, releaseValidation });
     upstream.push(...evidence.sent); downstream.push(...evidence.frames);
     for (const frame of evidence.frames) s.deliver(frame);
     return evidence;
@@ -1109,4 +1109,35 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} history fai
   s.client.leave(); await s.pump();
   expect(s.client.state.getState().active).toBe(false);
   expect(s.evidence().tasks, "HISTORY_FAILURE_NEVER_REPLAYS_TASKS").toHaveLength(0);
+});
+
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} retired missing-chat rejection releases only the explicitly entered new conversation`, async ctx => {
+  const s = await contextualScene(ctx, provider, "permitted", 390, false, false, true, false, true);
+  await expect.poll(async () => (await s.pump()).validationHeld).toBe(true);
+  await expect.poll(() => s.client.state.getState().active).toBe(false);
+  expect(s.evidence().providerOpens, "OLD_CHAT_VALIDATION_HAS_NOT_OPENED_A_PROVIDER").toBe(0);
+  const recovery = s.host.querySelector('[data-restoration="failed"]')!;
+  const fresh = [...recovery.querySelectorAll<HTMLElement>('button,[role="button"]')].find(button => button.textContent?.includes("New conversation"))!;
+  await userEvent.click(fresh);
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(null);
+  s.client.enter(); s.client.leave(); s.client.enter(); s.client.mute();
+  await s.pump();
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  await s.pump([], false, false, false, false, true);
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile; }).not.toBe(null);
+  expect(s.socket.frames("conversation_start"), "RETIRED_REJECTION_RELEASES_LAST_EXPLICIT_ENTRY").toHaveLength(2);
+  expect(s.client.state.getState().active, "OLD_REJECTION_DOES_NOT_RETIRE_REPLACEMENT").toBe(true);
+  expect(s.client.state.getState().sessionId).toBe(null);
+  expect(s.evidence().providerOpens, "ONLY_ONE_FRESH_PROVIDER_IS_ADMITTED").toBe(1);
+  expect(s.evidence().missingChatExists, "MISSING_CHAT_IS_NEVER_SILENTLY_CREATED").toBe(false);
+  expect(s.evidence().tasks, "NO_OLD_TASK_IS_REPLAYED").toHaveLength(0);
+  expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
+  expect(s.mic.opens(), "REJECTION_SETTLEMENT_NEVER_GRANTS_MICROPHONE_CONSENT").toBe(0);
+  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.client.mute(); expect(s.client.state.getState().micOn).toBe(false);
+  s.client.leave(); await s.pump();
+  expect(s.client.state.getState().active).toBe(false);
 });

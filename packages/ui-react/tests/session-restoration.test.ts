@@ -293,3 +293,77 @@ test("missing-chat errors for another view or a scoped turn do not retire the se
   expect(root.connection.conversation.state.getState().active, "A_TURN_FAILURE_IS_NOT_MISSING_CHAT_PROOF").toBe(true);
   expect(restorationOf(root.stores.chat.getState())).toBe(null);
 });
+
+
+test("a rejection for the retired selected chat unblocks the explicitly entered replacement", async () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true, conversationPause: true } });
+  root.connection.conversation.enter();
+  const oldRequest = socket.frames("conversation_start")[0]!.requestId;
+  root.stores.chat.getState().setActiveSession(null);
+  root.connection.conversation.enter();
+  expect(root.connection.conversation.state.getState().active).toBe(true);
+  expect(root.connection.conversation.state.getState().sessionId).toBe(null);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: OGYGIA, requestId: oldRequest, message: "This chat is missing." });
+  await Promise.resolve();
+  console.log("RETIRED_REJECTION_EVIDENCE", JSON.stringify({ starts: socket.frames("conversation_start"), active: root.connection.conversation.state.getState().active, sessionId: root.connection.conversation.state.getState().sessionId }));
+  expect(socket.frames("conversation_start"), "RETIRED_REJECTION_MUST_RELEASE_NEW_ENTRY").toHaveLength(2);
+});
+
+
+for (const code of ["SESSION_NOT_FOUND", "SESSION_LOAD_ERROR", "CONVERSATION_STORAGE"]) {
+  for (const next of ["same-chat", "new-chat", "multiple-entries", "left"] as const) test(`${code}: retired rejection settles only its own opening after ${next}`, async () => {
+    const root = reloaded(), socket = connect(root);
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true, conversationPause: true } });
+    root.connection.conversation.enter();
+    const oldRequest = socket.frames("conversation_start")[0]!.requestId;
+    root.connection.conversation.leave();
+    if (next !== "same-chat") root.stores.chat.getState().setActiveSession(null);
+    if (next !== "left") root.connection.conversation.enter();
+    if (next === "multiple-entries") { root.connection.conversation.leave(); root.connection.conversation.enter(); }
+    const active = next !== "left";
+    const selected = root.stores.chat.getState().activeSessionId;
+    socket.deliver({ type: "error", code, sessionId: OGYGIA, requestId: "odysseus-foreign-opening", message: "Foreign opening failed." });
+    await Promise.resolve();
+    expect(socket.frames("conversation_start"), "FOREIGN_REJECTION_CANNOT_CONSUME_PENDING_OPENING").toHaveLength(1);
+    socket.deliver({ type: "error", code, sessionId: OGYGIA, requestId: oldRequest, message: "Retired opening failed." });
+    await Promise.resolve();
+    expect(socket.frames("conversation_start"), "ONLY_EXPLICIT_ACTIVE_REPLACEMENT_MAY_OPEN").toHaveLength(active ? 2 : 1);
+    expect(root.connection.conversation.state.getState().active, "OLD_REJECTION_CANNOT_RETIRE_CURRENT_ENTRY").toBe(active);
+    expect(root.stores.chat.getState().activeSessionId).toBe(selected);
+    expect(root.connection.conversation.state.getState().micOn, "SETTLEMENT_NEVER_GRANTS_CAPTURE").toBe(false);
+    if (!active) root.connection.conversation.enter();
+    expect(socket.frames("conversation_start")).toHaveLength(2);
+    const currentRequest = socket.frames("conversation_start")[1]!.requestId;
+    // A duplicate old rejection cannot clear the newly issued opening token.
+    const connection = root.connection.conversation.state.getState().connection;
+    socket.deliver({ type: "error", code, sessionId: OGYGIA, requestId: oldRequest, message: "Duplicate retired rejection." });
+    await Promise.resolve();
+    expect(root.connection.conversation.state.getState().active).toBe(true);
+    expect(root.connection.conversation.state.getState().connection, "DUPLICATE_RETIRED_REJECTION_CANNOT_PAUSE_CURRENT_OPENING").toBe(connection);
+    if (selected) {
+      socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: selected, requestId: currentRequest, message: "Current opening failed." });
+      expect(root.connection.conversation.state.getState().active, "CURRENT_REJECTION_STILL_SETTLES_CURRENT_ENTRY").toBe(false);
+    } else {
+      // An unbound start has no session lookup; use its genuine opening error
+      // class without inventing an invalid null sessionId on the wire.
+      socket.deliver({ type: "error", code: "CONVERSATION_STORAGE", requestId: currentRequest, message: "Current opening failed." });
+      root.connection.conversation.leave();
+    }
+    root.connection.conversation.enter();
+    expect(socket.frames("conversation_start"), "CURRENT_REJECTION_REMAINS_EXPLICITLY_RETRYABLE").toHaveLength(3);
+  });
+}
+
+test("retired rejection after authorization teardown cannot open a provider or capture", async () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true, conversationPause: true } });
+  root.connection.conversation.enter();
+  const requestId = socket.frames("conversation_start")[0]!.requestId;
+  await root.authLock.expire("Odysseus signed out", true);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: OGYGIA, requestId, message: "Retired opening failed." });
+  await Promise.resolve();
+  expect(root.connection.conversation.state.getState().active).toBe(false);
+  expect(root.connection.conversation.state.getState().micOn).toBe(false);
+  expect(socket.frames("conversation_start")).toHaveLength(1);
+});

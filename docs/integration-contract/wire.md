@@ -1174,6 +1174,8 @@ history, a provider opening or task admission. A failed lookup remains
 `SESSION_LOAD_ERROR`, not proof of absence. Validation errors rejecting a live
 opening echo its `requestId`; independent history-read errors do not consume a
 pending opening. A retired entry stops any late provider opening before retry.
+A matching rejection settles its retired request across chat/entry changes,
+allowing an already explicit replacement entry to open without granting capture.
 Normal resume still supports imported
 backend history; imported-only history without a registered task/profile binding
 is refused for live work with `CONVERSATION_STORAGE`, without inventing a chat.

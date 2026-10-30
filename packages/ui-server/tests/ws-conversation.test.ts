@@ -1632,3 +1632,62 @@ test("a history failure retires the late host opening before explicit retry", as
     releaseOpen?.(); root.dispose(); Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
   }
 });
+
+
+test("a host rejection of the retired chat unblocks explicit new conversation", async () => {
+  const { createBrainUiRoot } = await import("../../ui-react/src/root");
+  const s = setup(), client = await s.connect();
+  const sessionId = "odysseus-retired-missing";
+  let releaseValidation!: () => void, validating = false;
+  const settled = s.host.catalog.settled!.bind(s.host.catalog);
+  const socketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
+  let socket: BridgeSocket;
+  const sent: any[] = [];
+  class BridgeSocket {
+    static instances: BridgeSocket[] = [];
+    readyState = 0;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onclose = null; onerror = null;
+    constructor() { BridgeSocket.instances.push(this); }
+    send(raw: string) { const f = JSON.parse(raw); sent.push(f); client.send(f); }
+    close() { this.readyState = 3; }
+    deliver(frame: unknown) { this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent); }
+  }
+  globalThis.WebSocket = BridgeSocket as unknown as typeof WebSocket;
+  const root = createBrainUiRoot({ storage: null, config: { backendUrl: "http://127.0.0.1:18999" } });
+  try {
+    root.stores.chat.getState().setActiveSession(sessionId);
+    root.connection.connect();
+    socket = BridgeSocket.instances.at(-1)!;
+    socket.readyState = 1; socket!.onopen?.();
+    for (const frame of client.frames()) socket!.deliver(frame);
+    await until(() => client.frames("error").some(f => f.code === "SESSION_NOT_FOUND" && !f.requestId));
+    s.host.catalog.settled = async () => { validating = true; await new Promise<void>(resolve => { releaseValidation = resolve; }); await settled(); };
+    root.connection.conversation.enter();
+    await until(() => validating);
+    const historyError = client.frames("error").find(f => f.code === "SESSION_NOT_FOUND" && !f.requestId);
+    socket!.deliver(historyError);
+    expect(root.connection.conversation.state.getState().active).toBe(false);
+    root.stores.chat.getState().setActiveSession(null);
+    root.connection.conversation.enter();
+    expect(root.connection.conversation.state.getState().sessionId).toBe(null);
+    releaseValidation();
+    await until(() => client.frames("error").some(f => f.code === "SESSION_NOT_FOUND" && f.requestId));
+    s.host.catalog.settled = settled;
+    const rejection = client.frames("error").find(f => f.code === "SESSION_NOT_FOUND" && f.requestId);
+    socket!.deliver(rejection);
+    await settle();
+    console.log("HOST_RETIRED_REJECTION_EVIDENCE", JSON.stringify({ rejection, starts: sent.filter(f => f.type === "conversation_start"), sessions: s.live.sessions.length, active: root.connection.conversation.state.getState().active, selected: root.stores.chat.getState().activeSessionId }));
+    expect(sent.filter(f => f.type === "conversation_start"), "ACTUAL_RETIRED_HOST_REJECTION_MUST_RELEASE_NEW_ENTRY").toHaveLength(2);
+    await until(() => s.live.sessions.length === 1);
+    socket!.deliver(client.frames("conversation_opened")[0]);
+    expect(root.connection.conversation.state.getState().active).toBe(true);
+    expect(root.connection.conversation.state.getState().disclosureOpen).toBe(true);
+    expect(root.connection.conversation.state.getState().micOn, "RETIRED_REJECTION_DOES_NOT_GRANT_CONSENT").toBe(false);
+    expect(s.host.catalog.hasSession!(sessionId), "NO_IMPLICIT_REPLACEMENT_OF_MISSING_CHAT").toBe(false);
+    expect(s.turns, "NO_FAILED_TASK_REPLAY").toHaveLength(0);
+  } finally {
+    releaseValidation?.(); root.dispose(); Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
+  }
+});
