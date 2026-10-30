@@ -332,7 +332,11 @@ refusal. Receipts, including measured physical-to-owner ratios, are kept under
 ## Owned-loop failure observations
 
 The loop1790 fixture retains monotonic cleanup boundaries in `native-fixture.json`.
-Only a failed single `LOOP_CTL_REMOVE` with EBUSY launches the isolated collector.
+Only an EBUSY raised by the removal helper after its bounded policy fails launches
+the isolated collector. A recovered EBUSY remains in `removeReceipt` without
+launching collection. The remove-enter/return/error boundaries bracket the whole
+helper call; individual attempt offsets remain in its receipt. Initial identity
+capture failure retains the helper's unretried removal path.
 The fixture waits up to two seconds, then sends SIGKILL to its process group and
 waits at most another 200 ms. This bounds the fixture's wait, not the child's
 lifetime: uninterruptible proc I/O can outlive SIGKILL. The receipt reports that
@@ -391,3 +395,28 @@ admission. File controls explicitly model append-open SEEK_END at Path.open,
 parse commands only on write and preserve foreign definitions through removal.
 They do not prove real tracefs behavior; the next reviewed runner must measure
 write, readback and format admission before running any product proof.
+
+## Owned hosted-fixture loop removal
+
+After exclusively creating loop1790, the hosted fixture captures the device-node
+and sysfs-entry identities. Each removal attempt checks those identities, the
+sysfs mapping, zero size, absence of loop/backing attributes and holders, and
+absence of the owned mount. Btrfs mount checks include both owned source aliases
+because its mountinfo device number can be anonymous. Validation never opens the
+device. Only EBUSY permits another attempt: 20 ms spacing, at most 50 total calls,
+and a one-second monotonic budget from the first EBUSY return. This policy cap
+is not a guaranteed host-opener settling time. Existing test deadlines stay fixed.
+
+Receipts retain the first EBUSY and every attempted ioctl, using nanosecond
+offsets rather than host-uptime timestamps. Both healthy and expected-failure
+controllers require a validated successful removal receipt and no cleanup errors.
+If initial identity capture fails after exclusive creation, cleanup preserves
+main's single unretried removal attempt and the invocation remains failed.
+Once identity capture succeeds, changed or vanished identity refuses further
+removal. Exhaustion retains the original EBUSY as failure.
+
+The kernel refuses removal of bound/open devices. Userspace checks cannot close
+the allocator-selection or foreign remove/re-add window between validation and
+ioctl. This fixture retains its exclusive-minor disposable-host model; retries
+extend that existing window. File controls prove protocol and refusal behavior,
+not real kernel timing or elimination of this residual risk.

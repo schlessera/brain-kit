@@ -217,23 +217,45 @@ class Controls(unittest.TestCase):
         self.assertEqual(records[-1]["unknown"], "RuntimeError", "LOOP_OBSERVER_FAILURE_EXPLICIT")
         namespace["remove_evidence"](OSError(errno.EPERM, "denied"))
         self.assertEqual(len(records), 1, "LOOP_ONLY_EBUSY_SAMPLED")
-        class Ioctl:
-            calls = 0
-            @classmethod
-            def ioctl(cls, *args): cls.calls += 1; raise original
         class Missing:
             def exists(self): return False
         class Quota:
             def __truediv__(self, _): return self
             def read_text(self): return "quota"
-        namespace.update(dict(mounted=False, attached=False, loop=None, created=True, control=None, image=None,
-                              failure=None, BACKING=Missing(), outer_quota="quota", fcntl=Ioctl, MINOR=1790,
-                              pathlib=type("Paths", (), {"Path": lambda _: Quota()})))
+        removal = module("owned-remove")
         cleanup = next(n for n in tree.body if isinstance(n, ast.Try)).finalbody
-        exec(compile(ast.Module(body=cleanup, type_ignores=[]), "fixture-cleanup", "exec"), namespace)
-        self.assertEqual(Ioctl.calls, 1, "LOOP_SINGLE_REMOVE")
-        self.assertEqual(namespace["errors"], [str(original)], "LOOP_ORIGINAL_ERROR_RETAINED")
-        self.assertEqual(str(namespace["failure"]), "Native proof cleanup failed", "LOOP_CLEANUP_STAYS_FAILED")
+        # Run the actual shared helper through both capture paths. Diagnostics
+        # happen after terminal failure only, never between retry attempts.
+        for captured, recovered in ((False, False), (True, False), (True, True)):
+            records.clear()
+            namespace.update(dict(mounted=False, attached=False, loop=None, created=True, control=None, image=None,
+                                  failure=None, BACKING=Missing(), outer_quota="quota", owned_remove=removal,
+                                  node_identity=(1,) if captured else None, entry_identity=(2,) if captured else None,
+                                  entry=None, DEVICE=None, remove_receipt={},
+                                  pathlib=type("Paths", (), {"Path": lambda _: Quota()})))
+            calls = 0
+            def ioctl(*args):
+                nonlocal calls
+                calls += 1
+                if not recovered or calls == 1: raise original
+                return 0
+            with patch.object(removal, "validate"), patch.object(removal.time, "sleep"), patch.object(removal.fcntl, "ioctl", side_effect=ioctl):
+                exec(compile(ast.Module(body=cleanup, type_ignores=[]), "fixture-cleanup", "exec"), namespace)
+            self.assertEqual(calls, 2 if recovered else removal.MAX_ATTEMPTS if captured else 1, "LOOP_SHARED_REMOVE_POLICY_PRESERVED")
+            stages = [row.get("stage") for row in records]
+            self.assertEqual(stages.count("remove-enter"), 1, "LOOP_HELPER_ENTRY_ONCE")
+            self.assertEqual(stages.count("remove-ebusy"), 0 if recovered else 1, "LOOP_ONLY_TERMINAL_EBUSY_SAMPLED")
+            if recovered:
+                self.assertEqual(namespace["errors"], [], "LOOP_RECOVERY_NOT_RECLASSIFIED")
+                self.assertIsNone(namespace["failure"])
+                self.assertFalse(namespace["created"])
+                self.assertEqual(namespace["remove_receipt"]["attempts"][0]["errno"], errno.EBUSY)
+                self.assertIn("remove-return", stages)
+            else:
+                self.assertEqual(namespace["errors"], [str(original)], "LOOP_ORIGINAL_ERROR_RETAINED")
+                self.assertEqual(str(namespace["failure"]), "Native proof cleanup failed", "LOOP_CLEANUP_STAYS_FAILED")
+                self.assertLess(stages.index("remove-error"), stages.index("remove-ebusy"), "LOOP_COLLECT_AFTER_HELPER_ERROR")
+                self.assertTrue(namespace["created"])
 
     def test_termination_error_is_unknown_without_replacing_busy(self):
         class Child:

@@ -81,6 +81,13 @@ def remove_evidence(error):
             except BaseException as diagnostic: observe("remove-ebusy", unknown=type(diagnostic).__name__)
 
 
+# Absolute repo path also works for generated fixture variants.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("owned_remove", "/repo/scripts/native-proof/owned-remove.py")
+owned_remove = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(owned_remove)
+node_identity = entry_identity = entry = None
+remove_receipt = {}
 control = loop = image = None
 created = attached = mounted = False
 failure = None
@@ -105,7 +112,16 @@ try:
     if info.st_blocks * 512 < CAPACITY: raise RuntimeError("Native proof backing must be fully allocated")
     control = os.open("/dev/loop-control", os.O_RDWR)
     fcntl.ioctl(control, 0x4c80, MINOR); created = True
+    entry = pathlib.Path("/sys/dev/block/7:1790").resolve(strict=True)
+    entry_identity = owned_remove.identity(entry)
+    if not stat.S_ISDIR(entry_identity[4]):
+        entry_identity = None
+        raise RuntimeError("Owned sysfs initial capture is not a directory")
     os.mknod(DEVICE, stat.S_IFBLK | 0o600, os.makedev(7, MINOR))
+    node_identity = owned_remove.identity(DEVICE)
+    if not stat.S_ISBLK(node_identity[4]) or node_identity[5] != os.makedev(7, MINOR):
+        node_identity = None
+        raise RuntimeError("Owned device initial capture is not the exact block node")
     loop = os.open(DEVICE, os.O_RDWR)
     fcntl.ioctl(loop, 0x4c00, image); attached = True
     kernel = bytearray(232); fcntl.ioctl(loop, 0x4c05, kernel, True)
@@ -155,7 +171,11 @@ finally:
     if created and not attached:
         observe("remove-enter")
         try:
-            fcntl.ioctl(control, 0x4c81, MINOR); created = False
+            if node_identity is None or entry_identity is None:
+                owned_remove.remove_after_capture_failure(control, remove_receipt)
+            else:
+                owned_remove.remove_owned(control, DEVICE, node_identity, entry, entry_identity, remove_receipt)
+            created = False
             observe("remove-return")
         except BaseException as error:
             errors.append(str(error))
@@ -167,6 +187,6 @@ finally:
     after_quota = pathlib.Path("/proc/sys/user/max_user_namespaces").read_text()
     record("parent-userns-quota", before=outer_quota, after=after_quota, unchanged=outer_quota == after_quota)
     if outer_quota != after_quota: errors.append("NATIVE_CONTAINER_USERNS_QUOTA_UNCHANGED")
-    record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors)
+    record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors, removeReceipt=remove_receipt)
     if errors and failure is None: failure = RuntimeError("Native proof cleanup failed")
 if failure is not None: raise failure
