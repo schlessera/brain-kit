@@ -1444,7 +1444,37 @@ It is displayed as an unsubmitted advisory request, bounded by
 `maxPendingNativeRequests` per epoch; capacity closes visibly. Explicit matched
 delegations retain their existing work path. Explicit mismatches still close.
 
-Unassigned recognition has a separate client review panel. “Review in composer”
+Recognized speech is readable by default in Chat's shared arrival timeline,
+labelled **Recognized speech · [actual service] · unverified**, separately from
+voice-service generated replies, contextual host tasks and reviewed submissions.
+This adds client presentation only: no wire event, authenticated user message,
+provider history, input/output pairing or durable recognition transcript is created.
+Unassigned `(conversationId, epoch, sequence)` and captured
+`(conversationId, epoch, utteranceId, sequence)` evidence have separate identity
+namespaces. The React root's transitive client state adds `recognition` evidence,
+`voiceDraft` provenance for the exact local draft revision, and optional source
+identity metadata. These are additive TypeScript state fields, recorded in the
+API report; no connection method, wire field or persisted transcript schema is
+added. Display ranks remain private to the root-owned timeline.
+Equal words and overlapping/late session intervals do not deduplicate
+or reorder content. Exact deltas append without inserted spaces; after intervening
+content a new arrival segment retains provenance. Duplicates do not append.
+Empty finish markers stay in recognition details without an empty bubble; native
+finish evidence is neither user finality nor permission authority. Timing unavailable
+and approximate provider intervals retain their actual meaning.
+
+Display evidence uses the existing fragment/character budgets, remains temporary,
+and is cleared on auth teardown; it is not restored from generated speech or
+inferred from a recovered draft. Explicit transfer/discard releases the corresponding
+text projection. Actual interim evidence does not survive Leave. Source eviction
+also releases display text and local anchors. UI windowing is separate from source
+retention. Stable local recognition anchors survive session adoption while retained,
+but have no durable deep-link guarantee. Both kinds of speech use the same Chat
+window, reading order and tail-follow controls as backend entries. Host result
+backlinks use exact request/turn evidence only and reveal retained windowed requests;
+missing request evidence is labelled unavailable.
+
+The optional review controls remain separate from task admission. “Review in composer”
 leaves voice and appends the exact text to the existing voice review area,
 preserving typed/captured draft text and prior review text. This explicit action
 sends nothing, fabricates no correlated commit and never associates a native

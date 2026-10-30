@@ -271,12 +271,19 @@ describe("a worker that goes away under open documents", () => {
   });
 
   test("a retired worker goes even while the retry on the main thread is still opening", async () => {
+    let retried!: () => void;
+    const retry = new Promise<void>((resolve) => (retried = resolve));
     const h = harness({
       behaviour: "ready",
-      fail: (open) => (open.worker?.port ? MISMATCH : "hang"),
+      fail: (open) => {
+        if (open.worker?.port) return MISMATCH;
+        retried();
+        return "hang";
+      },
     });
-    void h.loader.open("/a.pdf", "/old-worker.js");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Reject promptly if opening gives up instead of reaching the hung retry.
+    const opening = h.loader.open("/a.pdf", "/old-worker.js");
+    await Promise.race([retry, opening]);
 
     expect(h.ports()).toEqual([h.workers[0]!, null]);
     expect(h.workers[0]!.terminated).toBe(true);

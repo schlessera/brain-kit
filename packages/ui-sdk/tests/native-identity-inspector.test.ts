@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeIdentityInspector, NATIVE_LOOP_INSPECTION, NATIVE_ROOT_INSPECTION, type NativeInspection } from "../src/server/native-identity-inspector";
@@ -122,4 +122,132 @@ test("concurrent requests are answered in order on the one interpreter", async (
   const answers = await Promise.all([join(root, "ithaca"), join(root, "missing"), join(root, "ithaca")].map(path => inspect.run("root", path)));
   expect(answers.map(answer => lastLine(answer.errors)?.split(":")[0]), "NATIVE_INSPECTOR_REPLIES_PAIRED").toEqual(["RuntimeError", "FileNotFoundError", "RuntimeError"]);
   expect(inspect.launches).toBe(1);
+});
+
+
+/** Observe only actual inspector children launched by this test process. */
+function observedInspectors() {
+  const spawned: Array<Bun.Subprocess<"pipe", "pipe", "pipe">> = [];
+  const nativeSpawn = Bun.spawn;
+  const observer = spyOn(Bun, "spawn").mockImplementation(((command: string[], options: Parameters<typeof Bun.spawn>[1]) => {
+    const child = Reflect.apply(nativeSpawn, Bun, [command, options]) as Bun.Subprocess<"pipe", "pipe", "pipe">;
+    if (command[0] === PYTHON && command[4]?.startsWith("import sys,json,io,traceback"))
+      spawned.push(child as Bun.Subprocess<"pipe", "pipe", "pipe">);
+    return child;
+  }) as typeof Bun.spawn);
+  cleanups.push(() => observer.mockRestore());
+  return spawned;
+}
+
+/** Do not yield to Bun's child-exit callback before the native write premise. */
+function killBeforeExitCallback(child: Bun.Subprocess<"pipe", "pipe", "pipe">) {
+  const stat = readFileSync(`/proc/${child.pid}/stat`, "utf8");
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+  expect(Number(fields[1]), "THE_INSPECTOR_IS_OUR_DIRECT_CHILD").toBe(process.pid);
+  child.kill("SIGKILL");
+  const start = performance.now(), deadline = start + 1_000;
+  let state = "", polls = 0;
+  while (performance.now() < deadline) {
+    polls++;
+    try {
+      const current = readFileSync(`/proc/${child.pid}/stat`, "utf8");
+      const currentFields = current.slice(current.lastIndexOf(")") + 2).split(" ");
+      expect(currentFields[19], "THE_KERNEL_OBSERVATION_IS_THE_SAME_OWNED_PROCESS").toBe(fields[19]);
+      state = currentFields[0]!;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      state = "gone";
+    }
+    if (state === "Z" || state === "gone") break;
+    Bun.sleepSync(1);
+  }
+  console.error(JSON.stringify({ kind: "inspector-kernel-exit", pid: child.pid, state, polls, elapsedMs: performance.now() - start }));
+  expect(["Z", "gone"], "KERNEL_CONFIRMS_EXIT_BEFORE_THE_PARENT_CALLBACK").toContain(state);
+}
+
+/** Retain native sink behavior; observe either synchronous or asynchronous failure. */
+function observeSinkErrors(stdin: Bun.FileSink, failed: (error: unknown) => void) {
+  const counts = { writes: 0 };
+  for (const operation of ["write", "flush"] as const) {
+    const native = stdin[operation];
+    const observer = spyOn(stdin, operation).mockImplementation(((...args: unknown[]) => {
+      if (operation === "write") counts.writes++;
+      try {
+        const result = Reflect.apply(native, stdin, args);
+        if (result instanceof Promise) return result.catch(error => { failed(error); throw error; });
+        return result;
+      } catch (error) { failed(error); throw error; }
+    }) as typeof stdin[typeof operation]);
+    cleanups.push(() => observer.mockRestore());
+  }
+  return counts;
+}
+
+for (const attempt of [1, 2, 3]) test(`native write EPIPE is unavailable, joins retirement and replaces once (${attempt})`, async () => {
+  const root = directory(), spawned = observedInspectors(), inspect = inspector();
+  expect((await inspect.run("root", root)).code).toBe(1);
+  expect(spawned).toHaveLength(1);
+  const child = spawned[0]!, stdin = child.stdin;
+  let nativeError: unknown, exitJoined = false;
+  void child.exited.then(() => { exitJoined = true; });
+  const counts = observeSinkErrors(stdin, error => { nativeError = error; });
+  killBeforeExitCallback(child);
+  const failed = inspect.run("root", root).then(() => undefined, error => error);
+  // Queue a successor while the failed exchange is still being retired.
+  const successor = inspect.run("root", root);
+  void successor.catch(() => {});
+  const error = await failed;
+  expect(nativeError, "THE_REAL_SINK_WRITE_SUPPLIES_EPIPE").toMatchObject({ code: "EPIPE", syscall: "write" });
+  expect(error, "NATIVE_INSPECTOR_DEATH_FAILS_REQUEST").toMatchObject({ code: "unavailable" });
+  expect(exitJoined, "FAILED_REQUEST_JOINS_THE_DEAD_INTERPRETER").toBe(true);
+  expect(await child.exited).toBe(137);
+  expect(counts.writes, "RETIRED_INTERPRETER_RECEIVES_NO_SUCCESSOR_OR_RETRY").toBe(1);
+  expect(await successor.then(reply => lastLine(reply.errors), error => error), "QUEUED_SUCCESSOR_USES_A_REPLACEMENT").toBe("RuntimeError: not a subvolume root");
+  expect(inspect.launches, "ONLY_ONE_REPLACEMENT_IS_STARTED").toBe(2);
+  expect(spawned).toHaveLength(2);
+});
+
+// Abort while the native EPIPE catch is joining retirement, before classification.
+test("cancellation retains unknown precedence over a real native EPIPE", async () => {
+  const root = directory(), spawned = observedInspectors(), inspect = inspector();
+  expect((await inspect.run("root", root)).code).toBe(1);
+  const child = spawned[0]!, stdin = child.stdin;
+  const controller = new AbortController(), reason = new Error("Odysseus stopped the inspection");
+  let nativeError: unknown;
+  observeSinkErrors(stdin, error => { nativeError = error; });
+  void child.exited.then(() => controller.abort(reason));
+  killBeforeExitCallback(child);
+  let error: unknown;
+  try { await inspect.run("root", root, controller.signal); } catch (failure) { error = failure; }
+  expect(nativeError, "CANCELLATION_CONTROL_REACHES_NATIVE_EPIPE").toMatchObject({ code: "EPIPE", syscall: "write" });
+  expect(error, "CANCELLATION_WINS_OVER_TRANSPORT_EPIPE").toMatchObject({ code: "unknown", message: expect.stringContaining(reason.message) });
+  expect(await child.exited).toBe(137);
+  expect((await inspect.run("root", root)).code).toBe(1);
+  expect(inspect.launches).toBe(2);
+});
+
+
+test("an already joined interpreter exit takes the EOF refusal path and replaces once", async () => {
+  const root = directory(), spawned = observedInspectors(), inspect = inspector();
+  expect((await inspect.run("root", root)).code).toBe(1);
+  const child = spawned[0]!;
+  child.kill("SIGKILL");
+  expect(await child.exited).toBe(137);
+  await expect(inspect.run("root", root), "JOINED_EXIT_REMAINS_UNAVAILABLE").rejects.toMatchObject({
+    code: "unavailable", message: "Native command refused: identity inspector exited",
+  });
+  expect((await inspect.run("root", root)).code).toBe(1);
+  expect(inspect.launches).toBe(2);
+});
+
+test("unrelated sink failures preserve the original error instead of guessing unavailable", async () => {
+  const root = directory(), spawned = observedInspectors(), inspect = inspector();
+  expect((await inspect.run("root", root)).code).toBe(1);
+  const marker = Object.assign(new Error("Odysseus sink control"), { code: "EIO" });
+  const writer = spyOn(spawned[0]!.stdin, "write").mockImplementation(() => { throw marker; });
+  cleanups.push(() => writer.mockRestore());
+  await expect(inspect.run("root", root), "UNRELATED_ERRORS_ARE_NOT_NORMALIZED").rejects.toBe(marker);
+  expect(await spawned[0]!.exited).toBe(137);
+  expect((await inspect.run("root", root)).code).toBe(1);
+  expect(inspect.launches).toBe(2);
 });

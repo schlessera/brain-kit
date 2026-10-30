@@ -76,7 +76,7 @@ test("commit only: GPT-Live fragments remain NOT SENT while ordinary progress an
   await s.start();
   s.input("Find the departure note");
   expect(s.socket.frames("conversation_commit"), "unknown fragments cannot commit themselves").toHaveLength(0);
-  await expect.poll(() => s.host.textContent).toContain("NOT SENT");
+  await expect.poll(() => s.host.textContent).toContain("NOT SUBMITTED AS A BRAIN TASK");
   s.deliver({ type: "text_delta", sessionId: SESSION, text: "Looking through the voyage notes" });
   s.deliver({ type: "tool_use_start", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search" });
   s.deliver({ type: "tool_use_complete", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search", input: { query: "departure" } });
@@ -907,13 +907,13 @@ for (const width of [390, 320]) test(`missing-ID conversation stays live and rev
   expect(s.client.state.getState().unassignedWork).toBe(3);
   const outputs = s.downstream.flatMap(f => f.type === "conversation_event" && f.event.kind === "audio" ? [f.event.outputId] : []);
   expect(new Set(outputs)).toEqual(new Set(["output-1"]));
-  const summary = s.host.querySelector('[aria-label="Unassigned voice recognition"] summary') as HTMLElement;
+  const summary = s.host.querySelector('[aria-label="Voice review controls"] summary') as HTMLElement;
   await userEvent.click(summary);
-  await expect.poll(() => s.host.querySelector('[data-unassigned-recognition]')?.textContent).toBe(parts.join(""));
+  await expect.poll(() => [...s.host.querySelectorAll("[data-recognized-text]")].map(n => n.textContent).join("")).toBe(parts.join(""));
   expect(s.client.state.getState().unassigned.map(f => f.sessionInterval?.startMs)).toEqual([600, 10200, 19000]);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/unassigned-${width}.png` });
   expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
-  expect(s.host.querySelector('[aria-label="Unassigned voice recognition"]')!.getBoundingClientRect().bottom).toBeLessThanOrEqual(s.host.getBoundingClientRect().bottom + 1);
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')!.getBoundingClientRect().bottom).toBeLessThanOrEqual(s.host.getBoundingClientRect().bottom + 1);
   await userEvent.click(s.button("Review in composer"));
   expect(s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);

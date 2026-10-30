@@ -51,7 +51,7 @@ async function sentBody(message: ChatMessage, format: "png" | "pdf"): Promise<un
       throw new Error("captured");
     },
   } as unknown as BrainUiRoot;
-  const option = buildMessageShareOptions(root, { message, renderedRef: { current: null } }).find((o) => o.id === (format === "png" ? "image" : "pdf"))!;
+  const option = buildMessageShareOptions(root, { message }).find((o) => o.id === (format === "png" ? "image" : "pdf"))!;
   await expect(option.run()).rejects.toThrow("captured");
   return JSON.parse(body!);
 }

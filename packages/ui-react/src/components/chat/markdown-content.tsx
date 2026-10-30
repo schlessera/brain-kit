@@ -2,6 +2,7 @@ import type { MessageBlock } from "@schlessera/brain-ui-sdk/protocol";
 import { BrainMarkdown } from "./brain-markdown.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 import { holdOpenLink } from "../../lib/stream-link-hold.js";
+import { MarkdownRangeContext, type MarkdownRange } from "./markdown-range.js";
 
 /**
  * A text part of an assistant message, with the blocks the surface
@@ -23,20 +24,28 @@ export function MarkdownContent({
   content: buffer,
   blocks,
   streaming = false,
+  range,
 }: {
   content: string;
   blocks?: MessageBlock[];
   streaming?: boolean;
+  /** Coordinates in the original full text part, never in an arrival substring. */
+  range?: MarkdownRange;
 }) {
   const content = streaming ? holdOpenLink(buffer).shown : buffer;
   const cuts = usableBlocks(content, blocks);
-  if (cuts.length === 0) return <BrainMarkdown content={content} fileLinks />;
+  const markdown = (text: string, offset: number, key?: string) => (
+    <MarkdownRangeContext.Provider key={key} value={range ? { start: range.start - offset, end: range.end - offset } : null}>
+      <BrainMarkdown content={text} fileLinks />
+    </MarkdownRangeContext.Provider>
+  );
+  if (cuts.length === 0) return markdown(content, 0);
   const pieces: React.ReactNode[] = [];
   let cursor = 0;
   cuts.forEach((cut, i) => {
     const before = content.slice(cursor, cut.start);
-    if (before.trim()) pieces.push(<BrainMarkdown key={`md-${i}`} content={before} fileLinks />);
-    pieces.push(
+    if (before.trim()) pieces.push(markdown(before, cursor, `md-${i}`));
+    if (!range || cut.start >= range.start && cut.start < range.end) pieces.push(
       <div key={`block-${i}`} className="my-3" data-classified-block={cut.block.kind}>
         <BlockCard block={cut.block} />
       </div>
@@ -44,7 +53,7 @@ export function MarkdownContent({
     cursor = cut.end;
   });
   const after = content.slice(cursor);
-  if (after.trim()) pieces.push(<BrainMarkdown key="md-tail" content={after} fileLinks />);
+  if (after.trim()) pieces.push(markdown(after, cursor, "md-tail"));
   return <>{pieces}</>;
 }
 
