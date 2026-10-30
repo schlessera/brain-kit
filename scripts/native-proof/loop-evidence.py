@@ -1,7 +1,7 @@
 """Bounded container-only snapshot after owned LOOP_CTL_REMOVE returned EBUSY.
 
 Never open the device, inspect descriptors, or export mount paths/options.
-The caller imposes a separate hard process deadline.
+The caller bounds its wait; a killed child in uninterruptible I/O may outlive it.
 """
 import json, os, pathlib, time
 
@@ -66,8 +66,13 @@ def collect(proc=pathlib.Path("/proc"), sys=pathlib.Path("/sys"), budget=0.5):
                         try:
                             separator = parts.index("-")
                             device, fs = parts[2], parts[separator + 1]
+                            source = parts[separator + 2]
+                            # mountinfo escapes space, tab, newline and backslash as octal.
+                            for encoded, plain in ((r"\040", " "), (r"\011", "\t"), (r"\012", "\n"), (r"\134", "\\")):
+                                source = source.replace(encoded, plain)
+                            owned = device == "7:1790" or source in ("/dev/brain-native-proof-loop", "/dev/loop1790")
                             if device == "7:1790" or fs in ("btrfs", "overlay"):
-                                facts.append({"ownedDevice": device == "7:1790", "filesystem": fs if fs in ("btrfs", "overlay") else "other", "paths": "redacted"})
+                                facts.append({"ownedDevice": owned, "filesystem": fs if fs in ("btrfs", "overlay") else "other", "paths": "redacted"})
                         except (ValueError, IndexError): malformed = True
                     row["mounts"] = {"facts": facts[:MAX_MOUNTS], "truncated": mounts["truncated"] or len(facts) > MAX_MOUNTS, "malformed": malformed}
                 result["processes"].append(row)

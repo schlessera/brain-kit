@@ -332,28 +332,44 @@ refusal. Receipts, including measured physical-to-owner ratios, are kept under
 ## Owned-loop failure observations
 
 The loop1790 fixture retains monotonic cleanup boundaries in `native-fixture.json`.
-Only a failed single `LOOP_CTL_REMOVE` with EBUSY launches the isolated two-second
-collector. It samples sysfs before and after at most 128 container-visible PIDs,
-with 16 KiB reads and 16 relevant mount facts per PID. Mount paths/options and
-backing filenames are never exported. Unknown permissions, vanished entries,
-malformed mounts and truncation remain explicit. This snapshot never opens the
-loop, retries removal or replaces its original cleanup error. Missing evidence
-cannot rule out an opener or a retained namespace.
+Only a failed single `LOOP_CTL_REMOVE` with EBUSY launches the isolated collector.
+The fixture waits up to two seconds, then sends SIGKILL to its process group and
+waits at most another 200 ms. This bounds the fixture's wait, not the child's
+lifetime: uninterruptible proc I/O can outlive SIGKILL. The receipt reports that
+lifetime as unknown rather than waiting indefinitely or claiming termination.
+The collector samples sysfs before and after at most 128 container-visible PIDs,
+with 16 KiB reads and 16 relevant mount facts per PID. Btrfs mountinfo normally
+uses anonymous `0:NN` device numbers; ownership also matches either exact owned
+loop source name, after decoding mountinfo's four supported escapes. Only a
+boolean is exported. Mount paths/options and backing filenames stay private.
+Unknown permissions, vanished entries, malformed mounts and truncation remain
+explicit. Sampling never opens the loop, retries removal or replaces its error.
 
-CI also starts an independent optional `brainloop_*` mono-clock trace instance.
-`owned-loop-trace.json` records actual live BTF admission and kernel registration;
-`owned-loop-trace.txt` retains up to 4 MiB of its ring on stop. No BTF tool, unknown
-layout or unsupported probe means unavailable evidence, not successful tracing.
-There are no fallback pointer offsets. Disk events require major 7 / minor 1790;
-control entry requires LOOP_CTL_REMOVE and argument 1790. Only an admitted,
-filtered release event requests a kernel stack. Entry/return correlation and
-nested opener counts remain explicitly unavailable. The collector removes only
-its own instance and registered probes; it never resets global tracing. Existing
-dead-root input and classification stay independent. The ordinary always-run
-runtime-host artifact collection retains both outputs.
+CI starts an independent optional `brainloop_*` mono-clock trace instance.
+Two probes, `lo_open` and `lo_release`, use kernel-resolved BTF argument/member
+syntax, following the existing dead-root tracer and the
+[kernel probe documentation](https://docs.kernel.org/trace/kprobetrace.html).
+Both events and both stack triggers filter to major 7 / minor 1790 before enable.
+Bounded exact-symbol admission scans stop at their first match; rejected writes
+record phase, errno and bounded own-probe context from tracefs `error_log`.
+Syntax errors remain implementation evidence rather than platform-unsupported
+claims. Both CI diagnostic steps are nonfatal; lifecycle failures emit explicit
+availability-failure records even if receipt writing fails. Cleanup success is
+recorded only after its owned instance/probes and output have been handled.
+
+`owned-loop-trace.json` retains availability; `owned-loop-trace.trace.json`
+retains up to 4 MiB of ring text and a truncation flag. The ordinary always-run
+runtime-host artifact collects both. No userspace BTF tool, pointer offsets,
+ioctl probe or global reset is involved. Dead-root input and classification
+remain independent. Fixture remove boundaries supply errno and monotonic time.
+Open/release activity and stacks can support opener attribution; entry attempts
+and overwritten ring records do not provide an exact opener count. Sysfs backing
+attribute presence helps distinguish a still-bound loop from one cleared and
+then reopened; a later sample cannot establish the state at the failed ioctl.
+Neither state identifies its holder by itself.
 
 `bun run test tests/owned-loop-evidence.test.ts tests/identity-native-fixture.test.ts`
-runs file-only controls, including actual cleanup execution with an injected
-remove failure and a broken observer. These are implementation controls. Real
-held-descriptor/release proof and actual runner probe admission still require the
-privileged offline native harness; neither establishes historical attribution.
+runs file-only protocol controls and fixture composition checks. These controls
+are not kernel admission. Controlled held-descriptor/release proof and actual
+runner admission still require the reviewed privileged offline native harness;
+neither establishes historical attribution for #2420.

@@ -51,15 +51,35 @@ def observe(stage, **facts):
 
 def remove_evidence(error):
     if not isinstance(error, OSError) or error.errno != errno.EBUSY: return
+    child = None
+    def terminate():
+        try:
+            if child.poll() is not None: return "reaped"
+            try: os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            try: child.wait(timeout=0.2); return "reaped"
+            except subprocess.TimeoutExpired: return "unknown: kill sent; child may remain in uninterruptible I/O"
+        except BaseException as diagnostic: return "unknown: " + type(diagnostic).__name__
     try:
-        child = subprocess.run(["/usr/bin/python3", "-I", "-S", "/repo/scripts/native-proof/loop-evidence.py"],
-                               capture_output=True, timeout=2)
-        # The collector has finite reads/counts; refuse an oversized receipt too.
-        if child.returncode or len(child.stdout) > 262144:
+        child = subprocess.Popen(["/usr/bin/python3", "-I", "-S", "/repo/scripts/native-proof/loop-evidence.py"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        try: output, _ = child.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            lifetime = terminate()
+            observe("remove-ebusy", unknown="collector-timeout", childLifetime=lifetime)
+            return
+        if child.returncode or len(output) > 262144:
             observe("remove-ebusy", unknown="collector-failed-or-oversized", code=child.returncode)
-        else: observe("remove-ebusy", sample=json.loads(child.stdout))
+        else: observe("remove-ebusy", sample=json.loads(output))
     except BaseException as diagnostic:
-        observe("remove-ebusy", unknown=type(diagnostic).__name__)
+        lifetime = terminate() if child is not None else "not-started"
+        observe("remove-ebusy", unknown=type(diagnostic).__name__, childLifetime=lifetime)
+    finally:
+        if child is not None:
+            try:
+                if child.stdout is not None: child.stdout.close()
+            except BaseException as diagnostic: observe("remove-ebusy", unknown=type(diagnostic).__name__)
+
 
 control = loop = image = None
 created = attached = mounted = False
