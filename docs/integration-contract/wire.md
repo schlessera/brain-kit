@@ -1378,6 +1378,25 @@ or executable task. Resync never changes earlier provider messages or repeats
 work. Host authorization and principal/conversation ownership checks govern
 resumption; native IDs may repeat in a later epoch without sharing task facts.
 
+**Startup context bounds (compatibility correction, #3200).** Each first-party
+adapter bounds this historical block in exact serialized UTF-8 bytes, framing
+included, and builds it once per epoch: Gemini 24,000 bytes with at most 16,000
+bytes of serialized result strings, GPT 7,500 bytes with at most 5,000. These are
+engineering estimates. GPT documents an 8,192 rendered-token startup input with
+no public tokenizer, exact count or overflow behavior, so its ceiling is headroom
+rather than a proven token bound, and a provider rejection still fails the open
+with the fixed readable error; there is no retry and no start without this
+context. Outcomes are taken newest first. An outcome whose whole result does not
+fit keeps its request and state with `resultOmitted: true`; a result is never
+cut. When an outcome cannot fit even without its result, older outcomes are
+dropped and the block leads with `{ "omitted": "older_outcomes" }`. A block that
+fits these ceilings keeps its previous bytes exactly. Gemini setup adds
+`historyConfig: { initialHistoryInClientContent: true }` only when the block is
+non-empty and seeds it as one `clientContent` with `turnComplete: true` after
+`setupComplete` and before any realtime input; without context the setup is
+unchanged. No SDK type, client frame or wire schema changes. Actual provider
+acceptance of these ceilings and of `historyConfig` is qualified under #961.
+
 Internal UI database migration `070_conversation_result_facts.sql` adds nullable
 `conversation_tasks.result_facts`. Existing rows recover without result context;
 new writes persist only completed, bounded text under the task's stored identity.

@@ -13,6 +13,7 @@ import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { expectBoundedStartupContext, maximalResync, RESYNC_PREFIX, utf8 } from "./helpers/startup-context";
 
 const descriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
 const NativeWebSocket = WebSocket as unknown as new (url: string, options?: Bun.WebSocketOptions) => WebSocket;
@@ -470,14 +471,71 @@ test("replacement context carries exact host facts with identity fences and hone
 });
 
 
-test("replacement context enforces per-result and aggregate limits on the real socket", async () => {
+test("replacement context bounds results by the GPT byte ceilings with exact whole facts (#3200)", async () => {
   const f = await fixture(); await f.session.close();
   const work = Array.from({ length: 6 }, (_, i) => ({ conversationId: "ithaca", epoch: 1, utteranceId: `u${i}`, requestId: `r${i}`, turnId: `t${i}`, state: "completed" as const, delivery: "discarded" as const, recognized: `Find signal ${i}.`, submitted: `Find signal ${i}.` }));
   const results = work.map((w, i) => ({ conversationId: w.conversationId, epoch: w.epoch, requestId: w.requestId, turnId: w.turnId, facts: String(i).repeat(i === 5 ? 3900 : i < 2 ? 500 : 4100) }));
   const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync: { work, results } });
-  const text = f.sent.filter(m => m.type === "session.start").at(-1).session.input[0].content[0].text;
-  const entries = JSON.parse(text.slice(text.indexOf("[")));
-  expect(entries.flatMap((e: { hostResult?: string }) => e.hostResult ? [e.hostResult] : [])).toEqual([2, 3, 4, 5].map(i => String(i).repeat(i === 5 ? 3900 : 4000)));
-  expect(entries.every((e: { delivery: string }) => e.delivery === "discarded")).toBe(true);
+  const starts = f.sent.filter(m => m.type === "session.start");
+  expect(starts.at(-1).session.input).toHaveLength(1);
+  const text = starts.at(-1).session.input[0].content[0].text;
+  const shell = (i: number) => ({ request: `Find signal ${i}.`, outcome: "completed", delivery: "discarded" });
+  // Newest first: the 3,900-byte fact uses most of the 5,000-byte fact ceiling, so the
+  // three 4,000-character results keep only their request/state with an explicit omission.
+  // The older 500-character results still fit whole. Nothing older was dropped.
+  expect(JSON.parse(text.slice(RESYNC_PREFIX.length))).toEqual([
+    { ...shell(0), hostResult: "0".repeat(500) },
+    { ...shell(1), hostResult: "1".repeat(500) },
+    { ...shell(2), resultOmitted: true },
+    { ...shell(3), resultOmitted: true },
+    { ...shell(4), resultOmitted: true },
+    { ...shell(5), hostResult: "5".repeat(3900) },
+  ]);
+  expect(utf8(text)).toBeLessThanOrEqual(7_500);
+  for (const id of ["r0", "t0", "u0", "nativeHandle"]) expect(text).not.toContain(`"${id}"`);
+  expect(f.sent.some(m => m.type === "session.thinking.append" || m.type === "session.commentary.append")).toBe(false);
   await next.close();
+});
+
+test("an oversized newest result keeps its request and state with an explicit omission (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const resync = maximalResync();
+  const newest = resync.work.at(-1)!;
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal,
+    resync: { work: [newest], results: resync.results!.slice(-1) } });
+  const text = f.sent.filter(m => m.type === "session.start").at(-1).session.input[0].content[0].text;
+  expect(JSON.parse(text.slice(RESYNC_PREFIX.length))).toEqual([{ request: newest.recognized, outcome: "completed", delivery: "discarded", resultOmitted: true }]);
+  await next.close();
+});
+
+test("maximal resync stays within the GPT ceilings, newest first, without IDs or native frames (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const resync = maximalResync();
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync });
+  const text = f.sent.filter(m => m.type === "session.start").at(-1).session.input[0].content[0].text;
+  const { entries, facts } = expectBoundedStartupContext(text, { maxBytes: 7_500, maxFactBytes: 5_000 }, resync);
+  // Each 4,000-character Greek fact serializes to 7,574 bytes, above the 5,000-byte fact ceiling.
+  expect(facts).toEqual([]);
+  expect(entries.slice(-4).every(e => e.resultOmitted === true)).toBe(true);
+  expect(f.sent.some(m => m.type === "session.thinking.append" || m.type === "session.commentary.append")).toBe(false);
+  await next.close();
+});
+
+test("a fitting resync keeps the exact previous serialized bytes and is never resent (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const resync = { work: [{ conversationId: "ithaca", epoch: 1, utteranceId: "u1", requestId: "r1", turnId: "t1", state: "completed" as const, delivery: "discarded" as const, recognized: "Find the signal.", submitted: "Find the signal." }],
+    results: [{ conversationId: "ithaca", epoch: 1, requestId: "r1", turnId: "t1", facts: "The departure signal is a bronze owl." }] };
+  const starts: string[] = [];
+  for (const epoch of [2, 3]) {
+    const next = await f.provider.open({ conversationId: "ithaca", epoch }, { signal: f.abort.signal, resync });
+    starts.push(JSON.stringify(f.sent.filter(m => m.type === "session.start").at(-1)));
+    next.appendAudio({ utteranceId: "u9", sequence: 0, rate: 24000, pcm: new Uint8Array([0, 0]) });
+    await until(() => f.sent.at(-1)?.type === "session.input_audio.append");
+    await next.close();
+  }
+  expect(JSON.parse(starts[0]!).session.input[0].content[0].text).toBe(RESYNC_PREFIX +
+    '[{"request":"Find the signal.","outcome":"completed","delivery":"discarded","hostResult":"The departure signal is a bronze owl."}]');
+  expect(starts[1]).toBe(starts[0]);
+  // Startup context lives only in session.start; no later frame repeats it.
+  expect(f.sent.filter(m => JSON.stringify(m).includes("Historical host outcomes"))).toHaveLength(2);
 });
