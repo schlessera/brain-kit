@@ -1,12 +1,14 @@
-import { isRestoredConversationOutput } from "../voice/conversation-client.js";
+import { recognitionIdentity, isRestoredConversationOutput } from "../voice/conversation-client.js";
 import { rewriteTexts } from "./promoted-links.js";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ChatMessage, ChatState } from "../stores/chat-state.js";
-import type { ConversationClientState, ConversationClientOutput } from "../voice/conversation-client.js";
+import type { ConversationClientState, ConversationClientOutput, ConversationRecognition } from "../voice/conversation-client.js";
 
 export type TranscriptEntry =
   | { key: string; sessionId: string | null; kind: "message"; message: ChatMessage; index: number; section: "whole" | "progress" | "answer"; start?: number; end?: number }
-  | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean };
+  | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean }
+  | { key: string; sessionId: string | null; kind: "voice-boundary"; conversationId: string; epoch: number; label: "Voice ended" | "Voice reconnected" }
+  | { key: string; sessionId: string | null; kind: "recognition"; fragments: ConversationRecognition[] };
 
 /**
  * Display order is first observation, not a clock or inferred voice/turn pairing.
@@ -37,6 +39,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     }
     return positions.get(key)!;
   };
+  const boundaries = new Map<string, Extract<TranscriptEntry, { kind: "voice-boundary" }>>();
   const split = new Set<string>();
   const runs = new Map<string, Array<{ key: string; start: number; end: number }>>();
   const textBefore = new Map<string, string>();
@@ -128,26 +131,65 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
         entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: isRestoredConversationOutput(output), output: { ...output, generated: output.generated.slice(run.start, run.end) } });
       }
     }
+    // Preserve actual fragment identities before projection. Provider intervals
+    // and equal text never determine order or captured-input ownership.
+    const empty: ConversationRecognition[] = [];
+    for (const fragment of v.recognition) {
+      const key = recognitionIdentity(fragment);
+      position(key);
+      if (!fragment.text && !fragment.moved) { empty.push(fragment); continue; }
+      entries.push({ kind: "recognition", key, sessionId: fragment.sessionId, fragments: [fragment] });
+    }
+    for (const [key, boundary] of boundaries) {
+      const recognition = v.recognition.find(f => f.conversationId === boundary.conversationId && f.epoch === boundary.epoch);
+      const output = v.outputs.find(o => o.conversationId === boundary.conversationId && o.epoch === boundary.epoch);
+      if (!recognition && !output && !(v.active && v.profile?.conversationId === boundary.conversationId && v.profile.epoch === boundary.epoch)) { boundaries.delete(key); continue; }
+      // Adoption moves source ownership, never the boundary's identity/rank.
+      boundary.sessionId = recognition?.sessionId ?? output?.sessionId ?? boundary.sessionId;
+      entries.push(boundary);
+    }
     entries.sort((a, b) => position(a.key) - position(b.key));
+    const stream = (f: ConversationRecognition) => JSON.stringify([f.conversationId, f.epoch, f.kind, f.kind === "input_fragment" ? f.utteranceId : null]);
+    const grouped: TranscriptEntry[] = [];
+    for (const entry of entries) {
+      const tail = grouped.at(-1);
+      if (entry.kind === "recognition" && tail?.kind === "recognition" && stream(entry.fragments[0]!) === stream(tail.fragments[0]!)) tail.fragments.push(...entry.fragments);
+      else grouped.push(entry);
+    }
+    // Finish-only evidence belongs in details, never an empty speech bubble or
+    // a new arrival slot. Keep it with the most recent retained matching source.
+    for (const fragment of empty) {
+      const own = grouped.findLast(e => e.kind === "recognition" && stream(e.fragments[0]!) === stream(fragment) && position(e.key) < position(recognitionIdentity(fragment)));
+      if (own?.kind === "recognition") own.fragments.push(fragment);
+    }
+    for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => position(recognitionIdentity(a)) - position(recognitionIdentity(b)));
     // Preserve positions across partial history chunks, but do not retain the
     // identities of evicted sessions/outputs for the lifetime of a mounted app.
     if (!buffers.some(([, buffer]) => buffer?.replay)) {
-      const liveKeys = new Set(entries.map(e => e.key));
+      const liveKeys = new Set([...entries.map(e => e.key), ...empty.map(recognitionIdentity)]);
       for (const key of positions.keys()) if (!liveKeys.has(key)) positions.delete(key);
       for (const key of runs.keys()) if (!liveRuns.has(key)) { runs.delete(key); textBefore.delete(key); }
       for (const id of split) if (!liveMessages.has(id)) split.delete(id);
     }
     latest.clear();
     for (const entry of entries) latest.set(entry.sessionId, entry.key);
-    state.setState({ entries });
+    state.setState({ entries: grouped });
   };
   // Changes in selection, timers and microphone state need no transcript scan.
   const stopChat = chat.subscribe((next, old) => {
     if (next.buffers !== old.buffers || next.draft !== old.draft || next.detachedDrafts !== old.detachedDrafts) sync();
   });
-  const stopVoice = voice.subscribe((next, old) => { if (next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId) sync(); });
+  const stopVoice = voice.subscribe((next, old) => {
+    if (old.profile && old.active && (!next.active || next.profile && next.profile.conversationId === old.profile.conversationId && next.profile.epoch > old.profile.epoch)) {
+      const reconnect = next.active && next.profile;
+      const profile = reconnect || old.profile;
+      const key = JSON.stringify(["voice-boundary", profile.conversationId, profile.epoch, sequence]);
+      position(key); latest.set(next.sessionId, key);
+      boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: reconnect ? "Voice reconnected" : "Voice ended" });
+    }
+    if (next.profile !== old.profile || next.recognition !== old.recognition || next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId) sync(); });
   sync();
-  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
+  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); boundaries.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
 }
 
 /** Data-only display projections. Text ordinals stay intact for classified blocks. */

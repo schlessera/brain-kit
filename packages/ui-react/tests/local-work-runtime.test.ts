@@ -1,3 +1,4 @@
+import { expectReadingPositionSaved } from "./fixtures/reading-position-proof.ts";
 import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -291,6 +292,8 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(before.images[0]!.data.length).toBeGreaterThan(0);
       expect(before.selection).toEqual([12, 26]);
       // Read mid-transcript: not the top, not the tail.
+      expect(before.place, "the fixture measures an actual visible message shell").not.toBeNull();
+      await expectReadingPositionSaved(page, before.place, SESSION, "root:odysseus-local");
       expect(Number(before.place.anchor)).toBeGreaterThan(0);
       expect(before.place.scrollTop).toBeGreaterThan(0);
 

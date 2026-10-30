@@ -1,3 +1,4 @@
+import { expectReadingPositionSaved } from "./fixtures/reading-position-proof.ts";
 import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -311,6 +312,8 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       const before = {tracks:await fixture(page,(f)=>f.tracks()), images:await fixture(page,(f)=>f.images()), place:(await fixture(page,(f)=>f.firstVisible()))!};
       expect(before.images.length).toBe(1);
       expect(before.tracks.length, "uploaded track reference is nonempty").toBe(1);
+      expect(before.place, "the fixture measures an actual visible message shell").not.toBeNull();
+      await expectReadingPositionSaved(page, before.place, SESSION, "root:odysseus-auth-expiry");
       expect(Number(before.place.anchor)).toBeGreaterThan(0);
       const protectedHtml = await page.evaluate(() => document.documentElement.outerHTML);
       for (const text of ["Winds of Aeolus", "winds were loosed", "shroud.png"]) expect(protectedHtml, `fixture ${text} is present before expiry`).toContain(text);

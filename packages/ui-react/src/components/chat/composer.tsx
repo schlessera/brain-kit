@@ -244,6 +244,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     setPendingSend(null);
   }, [sendState, pendingSend, sessionId]);
 
+  const voiceDraft = useStore(root.connection.conversation.state, s => s.voiceDraft);
+  const knownVoiceDraft = useStore(root.stores.drafts, s => {
+    if (!voiceDraft) return false;
+    const id = s.resolveId(voiceDraft.id);
+    const draft = s.drafts[id];
+    return id === draftId && !!draft?.text && draft.edit === voiceDraft.edit;
+  });
+
   // Voice dictation state
   const voiceMode = useVoiceStore((s) => s.mode);
   const reviewText = useVoiceStore((s) => s.reviewText);
@@ -908,6 +916,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             setTimeout(focusField, 0);
           }}
         />
+        {knownVoiceDraft && <p className="px-2 text-xs text-muted-foreground" data-voice-draft-explanation="">Voice draft · not submitted as a Brain task. The voice service already received audio. These words remain a draft for a separate Brain task. A voice reply does not submit this draft.</p>}
         {/* What became of this draft's save, under the field (D52 §5). */}
         <DraftSaveLine draftId={draftId} />
       </div>}

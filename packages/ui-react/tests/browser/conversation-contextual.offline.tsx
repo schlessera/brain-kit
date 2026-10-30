@@ -527,7 +527,9 @@ test("mixed transcript window, reading anchor, history resync and session isolat
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBe(0);
   s.ui.stores.chat.getState().setActiveSession(SESSION);
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
-  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
+  const returned = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries;
+  expect(returned.filter(e => e.kind !== "voice-boundary").map(e => e.key)).toEqual(keys);
+  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual(["Voice ended"]);
 });
 
 
@@ -854,4 +856,169 @@ for (const nested of [false, true]) test(`ordered list metadata survives nested 
   }).map(li => li.hasAttribute("value") ? li.value : (li.parentElement as HTMLOListElement).start + [...li.parentElement!.children].indexOf(li));
   await expect.poll(numbered).toEqual(nested ? [3, 5, 6, 4, 8, 9] : [4, 4, 5, 8, 9]);
   expect(s.host.querySelectorAll('[aria-label="Share message"]')).toHaveLength(1);
+});
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} inline recognized dialogue surrounds deferred research in actual received order`, async ctx => {
+  const s = await contextualScene(ctx, provider, "permitted", 320, true, true);
+  const recognize = (n: number, text: string) => provider === "gemini"
+    ? { serverContent: { inputTranscription: { text, finished: true } } }
+    : { type: "session.input_transcript.delta", event_id: `inline-input-${n}`, delta: text, start_ms: n * 2000, end_ms: n * 2000 + 500 };
+  const reply = (n: number, text: string) => provider === "gemini"
+    ? { serverContent: { outputTranscription: { text }, turnComplete: true } }
+    : { type: "session.output_transcript.delta", event_id: `inline-reply-${n}`, delta: text, start_ms: n * 2000 + 600, end_ms: n * 2000 + 800 };
+  await s.pump([recognize(0, "Which note has the Sirens?")]);
+  await expect.poll(() => s.host.querySelector("[data-conversation-recognition]")?.textContent, { message: "recognized spoken side is inline before any task or reply" }).toContain("Which note has the Sirens?");
+  await s.pump([reply(0, "Look for the Sirens note.")]);
+  await s.pump([recognize(1, "Compare the voyage notes."), provider === "gemini"
+    ? { toolCall: { functionCalls: [{ id: "inline-research", name: "host_task" }] } }
+    : { type: "session.delegation.created", event_id: "inline-native", offset_ms: 500, delegation: { id: "inline-research", type: "delegation", target: "client" } }]);
+  await s.pump([], false, true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.read; }).toContain("bronze owl");
+  for (const [n, question, answer] of [[2, "Can we discuss the mast?", "Yes, while the task runs."], [3, "What should I ask next?", "Ask about the route."]] as const) {
+    await s.pump([recognize(n, question), reply(n, answer)]);
+    expect(s.evidence().tasks[0].completed).toBe(false);
+  }
+  await s.pump([], true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.completed; }).toBe(true);
+  await expect.poll(() => s.host.textContent).toContain("bronze owl");
+  await s.pump([recognize(4, "Explain that comparison.")]);
+  const rows = [...s.host.querySelectorAll("[data-conversation-recognition],[data-conversation-output],.chat-message-body")].map(n => n.textContent!);
+  const sequence = ["Which note has the Sirens?", "Look for the Sirens note.", "Compare the voyage notes.", "Can we discuss the mast?", "Yes, while the task runs.", "What should I ask next?", "Ask about the route.", "bronze owl", "Explain that comparison."];
+  const indices = sequence.map(text => rows.findIndex(row => row.includes(text)));
+  expect(indices.every(i => i >= 0)).toBe(true);
+  expect(indices).toEqual([...indices].sort((a,b) => a-b));
+  expect(new Set(indices).size).toBe(sequence.length);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.evidence().tasks).toHaveLength(1);
+  expect(s.client.state.getState().micOn).toBe(true);
+  const messages = s.ui.stores.chat.getState().buffers[s.ui.stores.chat.getState().activeSessionId!]!.messages;
+  expect(messages.filter(m => m.role === "user").every(m => m.source === "voice-context")).toBe(true);
+  expect(Object.values(s.client.state.getState().work)).toContainEqual(expect.objectContaining({ state: "completed", delivery: provider === "gemini" ? "unknown" : "returned" }));
+  expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(5);
+  expect(s.host.textContent).toContain(provider === "gemini" ? "Gemini Live · unverified" : "GPT-Live · unverified");
+  expect(s.host.querySelectorAll("[data-conversation-recognition] [data-transcript-anchor]")).toHaveLength(0);
+});
+
+for (const theme of ["light", "dark"] as const) for (const width of [320, 1280]) test(`inline recognition layout and reading controls ${theme} ${width}`, async ctx => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, width, true, theme);
+  await s.start();
+  const input = (sequence: number, text: string) => s.event({ kind: "unassigned_input_fragment", sequence, text, timing: { kind: "unavailable" }, finalization: "unknown" });
+  input(0, "Which note has the Sirens?");
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-recognition]").length).toBe(1);
+  const row = s.host.querySelector<HTMLElement>("[data-conversation-recognition]")!;
+  expect(row.getAttribute("aria-label")).toBe("Recognized speech · GPT-Live · unverified");
+  expect(row.closest("[aria-live]")).toBe(null);
+  expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+  const summary = row.querySelector<HTMLElement>("summary")!;
+  summary.focus(); await userEvent.keyboard("{Enter}");
+  expect(row.querySelector("details")!.open).toBe(true);
+  expect(summary.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  input(1, " Ask Nestor about the route.");
+  await expect.poll(() => row.querySelector("[data-recognized-text]")?.textContent).toBe("Which note has the Sirens? Ask Nestor about the route.");
+  expect(document.activeElement).toBe(summary);
+  expect(row.textContent).toContain("Timing unavailable; speaker unverified");
+  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/inline-${theme}-${width}.png` });
+  const enlarged = document.createElement("style");
+  enlarged.textContent = "[data-conversation-recognition] { font-size: 200% } [data-conversation-recognition] :is(p,summary,li,span) { font-size: inherit !important; line-height: 1.5 !important }";
+  document.head.append(enlarged); ctx.onTestFinished(() => enlarged.remove());
+  expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
+  expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
+  expect(document.activeElement).toBe(summary);
+  await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/inline-enlarged-${theme}-${width}.png` });
+  enlarged.remove();
+  for (let n = 2; n < 47; n++) {
+    s.event({ kind: "output_transcript", outputId: `inline-window-${n}`, sequence: 0, text: `The watch continues ${n}.` });
+    input(n, `Repeated question ${n}.`);
+  }
+  await expect.poll(() => s.host.querySelectorAll("[data-arrival-key]").length).toBe(40);
+  const scroll = s.host.querySelector<HTMLElement>("[data-arrival-key]")!.parentElement!.parentElement!;
+  scroll.scrollTop = 0; scroll.dispatchEvent(new Event("scroll"));
+  const anchor = s.host.querySelector<HTMLElement>("[data-arrival-key]")!;
+  const top = anchor.getBoundingClientRect().top;
+  await userEvent.click(page.getByRole("button", { name: /Show .*earlier/ }));
+  expect(Math.abs(anchor.getBoundingClientRect().top - top)).toBeLessThan(2);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("recognition namespaces, finish evidence, duplicates, transfer and epoch fences retain actual source", async ctx => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  await s.start();
+  const fragment = { kind: "unassigned_input_fragment", sequence: 0, text: "Which note?", sessionInterval: { startMs: 100, endMs: 500 } } as const;
+  s.event(fragment); s.event(fragment);
+  s.input("Which note?");
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-recognition]").length).toBe(2);
+  expect(s.client.state.getState().recognition).toHaveLength(2);
+  expect(s.client.state.getState().recognition[1]).toMatchObject({ kind: "input_fragment", utteranceId: s.socket.frames("conversation_audio").at(-1)!.utteranceId, sequence: 0 });
+  s.event({ kind: "unassigned_input_fragment", sequence: 1, text: "", timing: { kind: "unavailable" }, finalization: "final" });
+  await expect.poll(() => s.host.textContent).toContain("Service finish marker received");
+  expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(2);
+  s.event({ kind: "output_transcript", outputId: "late-reply", sequence: 0, text: "The Sirens note." });
+  s.client.mute();
+  s.event({ ...fragment, sequence: 2, sessionInterval: { startMs: 0, endMs: 100 } });
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-recognition]").length).toBe(3);
+  expect(s.client.state.getState().micOn).toBe(false);
+  const keys = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key);
+  s.event({ ...fragment, sequence: 3, text: "Stale epoch." }, 0);
+  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
+  s.client.discard();
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-recognition]").length).toBe(2);
+  expect(s.client.reviewUnassigned()).toBe(true);
+  expect(s.client.reviewUnassigned()).toBe(false);
+  await expect.poll(() => s.host.textContent).toContain("Moved to voice review");
+  expect(s.client.state.getState().recognition.every(f => !f.text)).toBe(true);
+  expect(s.ui.stores.voice.getState().reviewText).toBe("Which note?Which note?");
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  s.event({ ...fragment, sequence: 4, text: "After Leave." });
+  expect(s.host.textContent).not.toContain("After Leave.");
+});
+
+test("bounded recognition eviction and replacement never fabricate cold-reload dialogue", async ctx => {
+  const s = await scene(ctx, 390, true);
+  s.client.enter(); s.opened(1, { ...CAPS, contextualTasks: "supported" });
+  for (let n = 0; n < 140; n++) s.event({ kind: "unassigned_input_fragment", sequence: n, text: `Voyage ${n}.` + "x".repeat(150), timing: { kind: "unavailable" }, finalization: "unknown" });
+  const retained = s.client.state.getState().recognition;
+  expect(retained.length).toBeLessThanOrEqual(CONVERSATION_LIMITS.maxFragmentsPerUtterance);
+  expect(retained.reduce((n, f) => n + f.text.length, 0)).toBeLessThanOrEqual(CONVERSATION_LIMITS.maxUtteranceChars);
+  expect(retained.some(f => f.sequence === 0)).toBe(false);
+  await expect.poll(() => s.host.querySelector("[data-recognized-text]")?.textContent).toBe(retained.map(f => f.text).join(""));
+  const keys = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key);
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Must not resurrect evicted evidence.", timing: { kind: "unavailable" } });
+  expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.map(e => e.key)).toEqual(keys);
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "stopped" });
+  s.opened(2, { ...CAPS, contextualTasks: "supported" });
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "A new voyage.", timing: { kind: "unavailable" } });
+  await expect.poll(() => s.host.textContent).toContain("Voice reconnected");
+  expect(s.client.state.getState().recognition.at(-1)).toMatchObject({ epoch: 2, sequence: 0, text: "A new voyage." });
+  s.client.leave();
+  await expect.poll(() => s.host.textContent).toContain("Voice ended");
+  s.ui.stores.chat.getState().setActiveSession("pylos-watch");
+  s.client.enter();
+  expect(s.client.state.getState().recognition).toEqual([]);
+  const cold = createBrainUiRoot({ storage: null });
+  try {
+    expect(cold.connection.conversation.state.getState().recognition).toEqual([]);
+    expect(transcriptTimelineFor(cold.stores.chat).state.getState().entries).toEqual([]);
+  } finally { cold.dispose(); }
+});
+
+test("task-result backlink reveals only its exact retained windowed host request", async ctx => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  await s.start(); s.client.mute();
+  const chat = s.ui.stores.chat.getState();
+  chat.addUserMessage(SESSION, "Find the raft note.", "voice-context", undefined, { requestId: "raft-exact-request" });
+  chat.startAssistantMessage(SESSION, "raft-exact-turn", "raft-exact-request");
+  s.deliver({ type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 1, requestId: "raft-exact-request", taskId: "raft-exact-task", nativeHandle: "raft-exact-native", provenance: "contextual", sessionId: SESSION, turnId: "raft-exact-turn", state: "running", delivery: "pending", recognized: "Find the raft note.", submitted: "Find the raft note." });
+  for (let n = 0; n < 45; n++) s.event({ kind: "output_transcript", outputId: `raft-wait-${n}`, sequence: 0, text: `The watch continues ${n}.` });
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "raft-exact-turn", text: "The raft note is ready." }); s.ui.connection.flushChatDeltas();
+  await expect.poll(() => s.host.querySelectorAll("[data-conversation-task-result]").length).toBe(1);
+  expect([...s.host.querySelectorAll("[data-arrival-key]")].some(n => n.textContent?.includes("Background work from conversation context"))).toBe(false);
+  await userEvent.click(page.getByRole("button", { name: "View request", exact: true }));
+  await expect.poll(() => document.activeElement?.textContent).toContain("Background work from conversation context");
+  expect(document.activeElement?.textContent).toContain("Find the raft note.");
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
 });
