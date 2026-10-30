@@ -5,6 +5,7 @@ import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { TranscriptReadingScope } from "@schlessera/brain-ui-kit/internal";
 import { Button } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
@@ -180,15 +181,38 @@ export function ChatPage() {
 
   // Only the tail of a long transcript is rendered; the rest is one tap away.
   const [visibleCount, setVisibleCount] = useState(WINDOW_SIZE);
+  // At most one canonical row is retained in addition to the ordinary window
+  // while its details/legend is read, including the return-focus stop.
+  const [readingKey, setReadingKey] = useState<string | null>(null);
   // Switching sessions starts a fresh window. Adjusted during render rather
   // than in an effect, so the new session never paints with the old window.
   const [windowedSession, setWindowedSession] = useState(sessionId);
   if (windowedSession !== sessionId) {
     setWindowedSession(sessionId);
     setVisibleCount(WINDOW_SIZE);
+    setReadingKey(null);
   }
-  const hiddenCount = Math.max(0, entries.length - visibleCount);
-  const visibleEntries = hiddenCount > 0 ? entries.slice(hiddenCount) : entries;
+  const tailStart = Math.max(0, entries.length - visibleCount);
+  const readingIndex = readingKey === null ? -1 : entries.findIndex(entry => entry.key === readingKey);
+  const hiddenCount = tailStart - (readingIndex >= 0 && readingIndex < tailStart ? 1 : 0);
+  const visibleEntries = entries.filter((entry, index) => index >= tailStart || entry.key === readingKey);
+  const beginReading = useCallback((opener: HTMLElement) => {
+    autoScrollRef.current = false;
+    setReadingKey(opener.closest<HTMLElement>("[data-arrival-key]")?.dataset.arrivalKey ?? null);
+  }, []);
+  const readingFallback = useCallback(() => columnRef.current, []);
+  useEffect(() => {
+    if (!readingKey) return;
+    const doc = columnRef.current?.ownerDocument;
+    if (!doc) return;
+    const release = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target === doc.body || target.closest("[data-transcript-details]")) return;
+      if (target.closest<HTMLElement>("[data-arrival-key]")?.dataset.arrivalKey !== readingKey) setReadingKey(null);
+    };
+    doc.addEventListener("focusin", release);
+    return () => doc.removeEventListener("focusin", release);
+  }, [readingKey]);
   const [requestTarget, setRequestTarget] = useState<string | null>(null);
   const revealRequest = (key: string) => {
     const at = entries.findIndex(e => e.key === key);
@@ -346,7 +370,7 @@ export function ChatPage() {
       ordinal = at.reduce((a, b) => (Math.abs(b - ordinal) < Math.abs(a - ordinal) ? b : a));
     }
     const entryIndex = entries.findIndex(entry => entry.kind === "message" && entry.index === ordinal && entry.section !== "answer");
-    if (entryIndex >= 0 && entryIndex < hiddenCount) { setVisibleCount(entries.length - entryIndex); return; }
+    if (entryIndex >= 0 && entryIndex < tailStart && entries[entryIndex]!.key !== readingKey) { setVisibleCount(entries.length - entryIndex); return; }
     work.restore.setState({ scroll: null });
     autoScrollRef.current = false;
     const offset = pendingScroll.offset;
@@ -373,7 +397,7 @@ export function ChatPage() {
     // Consuming the restore re-runs this effect; only leaving the page ends the hold early.
     holdRef.current?.();
     holdRef.current = stop;
-  }, [root, pendingScroll, sessionId, messages, hiddenCount, entries]);
+  }, [root, pendingScroll, sessionId, messages, tailStart, readingKey, entries]);
 
   // A tracker for this session clears only once its latest turn is
   // actually on screen (D52 §4); selecting the session is not enough.
@@ -706,6 +730,7 @@ export function ChatPage() {
                     actually renders into, not the whole window. */}
                 <div
                   ref={columnRef}
+                  tabIndex={-1}
                   {...{ [READING_COLUMN_ATTR]: "" }}
                   className="mx-auto max-w-3xl divide-y divide-border/20"
                 >
@@ -725,6 +750,7 @@ export function ChatPage() {
                         onClick={showEarlier} />
                     </div>
                   )}
+                  <TranscriptReadingScope onRead={beginReading} returnFocus={readingFallback}>
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
                     if (entry.kind === "voice-boundary") return <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
@@ -737,10 +763,9 @@ export function ChatPage() {
                     const index = entry.index;
                     return (
                     <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}>
-                      {entry.section === "progress" && <ConversationTaskContext message={entry.message} sessionId={sessionId} />}
-                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result entries={entries} onReveal={revealRequest} />}
                       <MessageBubble
                         message={msg}
+                        taskContext={msg.source === "voice-context" ? <ConversationTaskContext message={entry.message} sessionId={sessionId} entries={entries} onReveal={revealRequest} /> : undefined}
                         arrival={transcriptRange(entry)}
                         journalVisible={entry.section !== "answer" && (!(msg.turnId ?? msg.streamTurnId) || !messages.slice(index + 1).some(later => later.role === "assistant" && (later.turnId ?? later.streamTurnId) === (msg.turnId ?? msg.streamTurnId)))}
                         onToolApproval={handleToolApproval}
@@ -754,12 +779,14 @@ export function ChatPage() {
                         closing={entry.section !== "progress" && entry.message === messages[messages.length - 1] && (entry.section !== "answer" || entry.end === entry.message.parts.filter(p => p.kind === "text").reduce((n, p) => n + p.text.length, 0))}
                         anchor={entry.section === "answer" ? undefined : String(index)}
                       />
+                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result entries={entries} onReveal={revealRequest} />}
                       {/* Where this conversation was continued elsewhere (#61). */}
                       {forward
                         .filter((link) => entry.section !== "answer" && markerAfter(link, messages) === index + 1)
                         .map((link) => <HandoffMarker key={link.sessionId} sessionId={link.sessionId} backendId={link.backendId} title={link.title} />)}
                     </div>
                   ); })}
+                  </TranscriptReadingScope>
                   <ConversationPermissionOutcomes sessionId={sessionId} />
                   {unlinked && <MarkAsSeen onMark={markSeen} />}
                   {/* Live frames drawn before the history arrived (#1328). */}

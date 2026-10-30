@@ -228,7 +228,7 @@ stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
 `flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
 `adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
 scroll listener schedules that work (`handleScroll`,
-`packages/ui-react/src/components/chat/chat-page.tsx:292-302`), as do draft,
+`packages/ui-react/src/components/chat/chat-page.tsx:316-326`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
 `packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
@@ -2039,3 +2039,16 @@ retain native execution. Complete timer and spawn descriptors are restored on
 failure, and an unconfirmed probe's host-exit case restores observers without
 performing fixture cleanup inside that host. The separate boot-probe suite's
 native deadline controls retain their existing ownership.
+
+## Diagram stress-capture budget
+
+Maintainer ruling #2402 (2026-10-30) gives only the 1,024-note
+`literal to grouped full notes capture` and `authored narrow grouped notes capture`
+cases 30 seconds: light, dark and print in Chromium and WebKit, twelve cases.
+This is a screenshot stress budget, not a product latency target. All other
+case defaults and geometry budgets remain unchanged. The complete body stays
+inside the clock, including retained-root updates, full notes and indices,
+real styles/fonts and the original capture. Whole-case ownership, offline
+guards, artifact names, dimensions/options and DIAGRAM_CAPTURE_STAGE timing
+receipts remain required. Historical 15-second failures remain evidence;
+a local pass does not establish worst-case headroom or release clearance.

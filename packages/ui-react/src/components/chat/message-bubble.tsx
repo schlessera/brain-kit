@@ -1,3 +1,4 @@
+import { ConversationTaskContext } from "../voice/conversation-outputs.js";
 import type { TranscriptRange } from "../../lib/transcript-timeline.js";
 import { AttachmentRow } from "@schlessera/brain-ui-kit";
 import { trackRowProps } from "../../lib/track-attachment.js";
@@ -5,7 +6,7 @@ import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type {
   ChatMessage,
@@ -75,8 +76,11 @@ export const MessageBubble = memo(function MessageBubble({
   anchor,
   journalVisible = true,
   arrival,
+  taskContext,
 }: {
   message: ChatMessage;
+  /** Exact host request/result navigation supplied by the owning transcript. */
+  taskContext?: ReactNode;
   arrival?: TranscriptRange;
   /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
   anchor?: string;
@@ -129,18 +133,14 @@ export const MessageBubble = memo(function MessageBubble({
           message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
           `effort ${message.thinkingLevel} → ${message.effectiveThinkingLevel} (backend)`
         ) : undefined}
-        tone={isUser ? "user" : "brain"}
+        tone={isUser ? message.source === "voice-context" ? "neutral" : "user" : "brain"}
       />
 
       {/* Content */}
       {isUser && message.source === "handoff" ? (
         <HandoffCard content={message.content} />
       ) : isUser && message.source === "voice-context" ? (
-        <details className="text-sm text-foreground">
-          <summary className="min-h-11 cursor-pointer">Background work from conversation context</summary>
-          <p>Recognition may be uncertain. This is the context the task agent received.</p>
-          <div className="whitespace-pre-wrap">{linkifyPaths(message.content)}</div>
-        </details>
+        taskContext ?? <ConversationTaskContext message={message} />
       ) : isUser ? (
         <UserTurn>
           <UserAttachments message={message} />
