@@ -77,8 +77,14 @@ try:
     fcntl.ioctl(control, 0x4c80, MINOR); created = True
     entry = pathlib.Path("/sys/dev/block/7:1790").resolve(strict=True)
     entry_identity = owned_remove.identity(entry)
+    if not stat.S_ISDIR(entry_identity[4]):
+        entry_identity = None
+        raise RuntimeError("Owned sysfs initial capture is not a directory")
     os.mknod(DEVICE, stat.S_IFBLK | 0o600, os.makedev(7, MINOR))
     node_identity = owned_remove.identity(DEVICE)
+    if not stat.S_ISBLK(node_identity[4]) or node_identity[5] != os.makedev(7, MINOR):
+        node_identity = None
+        raise RuntimeError("Owned device initial capture is not the exact block node")
     loop = os.open(DEVICE, os.O_RDWR)
     fcntl.ioctl(loop, 0x4c00, image); attached = True
     kernel = bytearray(232); fcntl.ioctl(loop, 0x4c05, kernel, True)
@@ -119,7 +125,10 @@ finally:
     if loop is not None: os.close(loop)
     if created and not attached:
         try:
-            owned_remove.remove_owned(control, DEVICE, node_identity, entry, entry_identity, remove_receipt)
+            if node_identity is None or entry_identity is None:
+                owned_remove.remove_after_capture_failure(control, remove_receipt)
+            else:
+                owned_remove.remove_owned(control, DEVICE, node_identity, entry, entry_identity, remove_receipt)
             created = False
         except BaseException as error: errors.append(str(error))
     if control is not None: os.close(control)

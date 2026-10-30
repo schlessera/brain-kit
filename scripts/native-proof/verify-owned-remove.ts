@@ -1,8 +1,8 @@
 /** Internal fixture receipt; no package or supported integration contract. */
 export function verifyOwnedRemove(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
-  const receipt = value as { outcome?: unknown; attempts?: unknown };
-  if (receipt.outcome !== "removed" || !Array.isArray(receipt.attempts) || receipt.attempts.length < 1 || receipt.attempts.length > 50) return false;
+  const receipt = value as { outcome?: unknown; attempts?: unknown; identityCaptured?: unknown; failure?: unknown; originalEBUSY?: unknown };
+  if (receipt.identityCaptured !== true || receipt.failure !== undefined || receipt.originalEBUSY !== undefined || receipt.outcome !== "removed" || !Array.isArray(receipt.attempts) || receipt.attempts.length < 1 || receipt.attempts.length > 50) return false;
   const attempts = receipt.attempts;
   let priorEnd = 0, firstBusy: number | undefined;
   return attempts.every((raw: unknown, index: number) => {
@@ -16,4 +16,12 @@ export function verifyOwnedRemove(value: unknown): boolean {
     firstBusy ??= row.endNs;
     return true;
   });
+}
+
+export function ownedCleanupComplete(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const cleanup = value as Record<string, unknown>;
+  return cleanup.kind === "cleanup" && cleanup.mounted === false && cleanup.attached === false
+    && cleanup.loopCreated === false && cleanup.backingExists === false
+    && Array.isArray(cleanup.errors) && cleanup.errors.length === 0 && verifyOwnedRemove(cleanup.removeReceipt);
 }
