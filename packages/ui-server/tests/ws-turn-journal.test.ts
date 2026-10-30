@@ -127,7 +127,7 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     expect(journal.details("sess-ithaca", failure.turnId)?.summary.state).toBe("partial");
     expect(app.db.query("SELECT outcome FROM activity_run_rollups WHERE run_id=?").get(failure.turnId), "JOURNAL_OVERFLOW_ACTIVITY_ERROR").toEqual({ outcome: "error" });
     expect(Bun.file(resolve(brain, "notes/partial.txt")).size).toBe(2 * 1024 * 1024);
-  } finally { host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
 
 test("the host observes after a tool result unless the backend proved where that read ran (#2834)", async () => {

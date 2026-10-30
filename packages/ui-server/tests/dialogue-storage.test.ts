@@ -397,7 +397,7 @@ for (const pendingCount of [200, 300])
     const c = writer.channel({ url: writes.url, setup: writes.setup }, {});
     const controls = await import("./helpers/dialogue-test-writes.js");
     const q = writer.channel({ url: controls.url, setup: controls.setup }, {});
-    let visible = 0,
+    let visible: number[] = [],
       failures = 0,
       published = 0;
     const journal = new DialogueJournal(
@@ -422,7 +422,11 @@ for (const pendingCount of [200, 300])
       for (let i = 0; i < pendingCount; i++) {
         const evidence = fragment(i, "mast ".repeat(400)).evidence;
         if (evidence.kind !== "voice") throw Error("voice required");
-        expect(journal.voice("ithaca", evidence, () => visible++)).toBe(true);
+        expect(
+          journal.voice("ithaca", evidence, () => {
+            visible.push(i);
+          })
+        ).toBe(true);
       }
       journal.close("ithaca", "odysseus", 1);
       await journal.settled();
@@ -433,7 +437,9 @@ for (const pendingCount of [200, 300])
             .get("ithaca") as { coverage: string }
         ).coverage
       ).toBe("partial");
-      expect(visible).toBe(pendingCount);
+      expect(visible).toEqual(
+        Array.from({ length: pendingCount }, (_, i) => i)
+      );
       expect(failures).toBeGreaterThan(0);
       const rows = db
         .query("SELECT sequence FROM dialogue_records ORDER BY sequence")

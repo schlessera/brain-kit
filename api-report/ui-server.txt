@@ -506,7 +506,7 @@ signatures (every public export and the types it is made of)
         bind(conversationId: string, principalId: string, sessionId: string): void;
         voice(conversationId: string, evidence: Extract<DialogueEvidence, {
             kind: "voice";
-        }>, after: () => void): boolean;
+        }>, after: (saved: boolean) => void): boolean;
         adoptTurn(turnId: string, ownerId: string, principalId: string): void;
         draftSource(turnId: string): string | undefined;
         retireTurn(turnId: string): void;

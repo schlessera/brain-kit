@@ -283,3 +283,35 @@ test("durable positions reconstruct mixed text without changing full semantic so
 
  }finally{root.dispose();}
 });
+
+
+test("an observed unsaved tail stays after its committed prefix across later commits and older paging",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  const voice=root.connection.conversation.state;
+  const event=(sequence:number,text:string)=>({kind:"unassigned_input_fragment" as const,sequence,text,timing:{kind:"unavailable" as const}});
+  const record=(sequence:number,inputSequence:number,text:string)=>({sequence,identity:`source-${inputSequence}`,evidence:{kind:"voice" as const,conversationId:"ithaca",epoch:1,providerId:"gpt-live",event:event(inputSequence,text)}});
+  const first=record(1001,0,"First."),second=record(1002,1,"Second."),later=record(1003,3,"Later."),older=record(999,4,"Earlier.");
+  const page={ownerId:"ithaca",sessionId:"voyage",generation:1,through:1002,coverage:"partial" as const,records:[first,second]};
+  voice.setState({dialogue:{voyage:page}});
+  voice.setState({recognition:[{...event(2,"Unsaved."),conversationId:"ithaca",epoch:1,providerId:"gpt-live",sessionId:"voyage",activation:1,contextual:true,unsaved:true}]});
+  const texts=()=>transcriptTimelineFor(root.stores.chat).state.getState().entries.map(entryText);
+  expect(texts().join("")).toBe("First.Second.Unsaved.");
+  voice.setState({dialogue:{voyage:{...page,through:1003,records:[first,second,later]}}});
+  expect(texts().join("")).toBe("First.Second.Unsaved.Later.");
+  voice.setState({dialogue:{voyage:{...page,through:1003,records:[older,first,second,later]}}});
+  expect(texts().join("")).toBe("Earlier.First.Second.Unsaved.Later.");
+  voice.setState({dialogue:{voyage:{...page,through:1003,records:[later]}}});
+  expect(texts().join("")).toBe("Unsaved.Later.");
+ }finally{root.dispose();}
+});
+
+
+test("generated committed prefix and unsaved tail keep separate retention qualifiers",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+  root.connection.conversation.state.setState({dialogue:{voyage:{ownerId:"ithaca",sessionId:"voyage",generation:1,through:1,coverage:"partial",records:[{sequence:1,identity:"reply-0",evidence:{kind:"voice",conversationId:"ithaca",epoch:1,providerId:"gpt-live",event:{kind:"output_transcript",outputId:"reply",sequence:0,text:"Saved."}}}]}},outputs:[{conversationId:"ithaca",epoch:1,providerId:"gpt-live",outputId:"reply",sessionId:"voyage",generated:"Saved.",unsavedGenerated:"Unsaved.",unsavedFragments:1,playback:"unknown"}]});
+  const rows=transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.kind==="speech");
+  expect(rows.map(entryText)).toEqual(["Saved.","Unsaved."]);
+  expect(rows.map(e=>e.output.unsaved)).toEqual([undefined,true]);
+  expect(rows[0]!.output.unsavedGenerated).toBeUndefined();
+ }finally{root.dispose();}
+});

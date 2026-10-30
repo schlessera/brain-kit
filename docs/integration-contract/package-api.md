@@ -4034,3 +4034,11 @@ retention supersession are defined in the [wire component](wire.md#durable-live-
 Optional history-owner metadata on conversation open/start and plain chat input
 is additive; legacy backend session IDs and native provider guards keep their
 meaning. No provider history-selection API is delivered by this slice.
+
+
+Failed-write live text exposes optional `ServerConversationEvent.retention` and
+`ServerError.historyOwnerId`, plus the existing client projection's explicit
+unsaved recognition/output fields (#3177). These are additive evidence and
+failure-scoping data. `DialogueJournal.voice` reports commit success to its
+callback; current-epoch text remains observable when the callback reports a
+failed write. No provider-facing history or authority interface changes.

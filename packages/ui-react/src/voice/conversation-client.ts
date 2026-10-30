@@ -7,6 +7,11 @@ import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
+  /** This projected readable segment contains only failed-write text. */
+  unsaved?: true;
+  /** Exact failed-write deltas, separate from the bounded generated cache. */
+  unsavedGenerated?: string;
+  unsavedFragments?: number;
   orderUnknown?: boolean;
   providerId?: string;
   conversationId: string;
@@ -35,6 +40,7 @@ export type ConversationRecognition = Extract<ConversationWireEvent, { kind: "in
   providerId: string;
   activation: number;
   restored?: boolean;
+  unsaved?: true;
   orderUnknown?: boolean;
   moved?: true;
   contextual: boolean;
@@ -177,10 +183,29 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     while (context.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance || chars > CONVERSATION_LIMITS.maxUtteranceChars) chars -= context.shift()!.text.length;
     state.setState({ unassigned: [...review, ...context] });
   }
-  function retainRecognition(event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }>) {
+  let unsavedOverflow = false;
+  let storageFailedScope: string | undefined;
+  const liveScopeKey = () => {const p=scope();return p ? JSON.stringify([p.conversationId,p.epoch]) : undefined;};
+  function stopForStorageFailure() {
+    const key=liveScopeKey(); if(!key || storageFailedScope===key)return;
+    storageFailedScope=key;
+    consent=false; permissions.lost(); clearTimers(); resetRecovery(); stopMic(); playback.cut();
+  }
+  function retainUnsaved(text: string): boolean {
+    const current = state.getState();
+    const words = [...current.recognition.filter(f=>f.unsaved).map(f=>f.text),...current.outputs.map(o=>o.unsavedGenerated ?? "")];
+    const count = current.recognition.filter(f=>f.unsaved).length + current.outputs.reduce((n,o)=>n+(o.unsavedFragments ?? 0),0);
+    if (count >= 256 || words.reduce((n,t)=>n+new TextEncoder().encode(t).length,0)+new TextEncoder().encode(text).length > 1024*1024) {
+      unsavedOverflow = true;
+      state.setState({dialogueNotice:"Some unsaved conversation text exceeded this device's temporary buffer and is unavailable. Restore storage before restarting voice."});
+      return false;
+    }
+    return true;
+  }
+  function retainRecognition(event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }>, unsaved: boolean = false) {
     const s = state.getState(), p = scope()!;
     const fragment: ConversationRecognition = { ...event, sessionId: s.sessionId, conversationId: p.conversationId,
-      epoch: p.epoch, providerId: p.providerId, activation: entryLifetime, contextual: p.capabilities.contextualTasks === "supported" };
+      epoch: p.epoch, providerId: p.providerId, activation: entryLifetime, ...(unsaved ? {unsaved:true as const} : {}), contextual: p.capabilities.contextualTasks === "supported" };
     const key = recognitionIdentity(fragment);
     if (event.kind === "unassigned_input_fragment") {
       if (event.sequence <= unassignedThrough) return false;
@@ -189,11 +214,16 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (seenRecognition.has(key)) return false;
       seenRecognition.add(key);
     }
+    if (unsaved && !retainUnsaved(event.text)) return false;
     const recognition = [...s.recognition, fragment];
-    let chars = recognition.reduce((n, f) => n + f.text.length, 0);
+    let normal = recognition.filter(f=>!f.unsaved);
+    let chars = normal.reduce((n, f) => n + f.text.length, 0);
     const allowance = event.kind === "unassigned_input_fragment" && !fragment.contextual ? 1 : 0;
-    while (recognition.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance + allowance
-      || chars > CONVERSATION_LIMITS.maxUtteranceChars + allowance * CONVERSATION_LIMITS.maxFragmentChars) chars -= recognition.shift()!.text.length;
+    while (normal.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance + allowance
+      || chars > CONVERSATION_LIMITS.maxUtteranceChars + allowance * CONVERSATION_LIMITS.maxFragmentChars) {
+      const removed = normal.shift()!; chars -= removed.text.length;
+      recognition.splice(recognition.indexOf(removed),1);
+    }
     state.setState({ recognition });
     return true;
   }
@@ -214,14 +244,16 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     if (playbackState !== "played") state.setState({ notice: "spoken portion unknown" });
   }, () => refresh()); }
-  function updateOutput(epoch: number, outputId: string, patch: Partial<ConversationOutputRecord>, restored = false) {
+  function updateOutput(epoch: number, outputId: string, patch: Partial<ConversationClientOutput>, restored = false) {
     const s = state.getState();
     const p = scope();
     if (!p) return;
     const old = s.outputs.find((output) => output.conversationId === p.conversationId && output.epoch === epoch && output.outputId === outputId);
     const next: ConversationClientOutput = { providerId: p.providerId, conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
     if (restored && !old || old && restoredOutputs.has(old)) restoredOutputs.add(next);
-    state.setState({ outputs: old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next].slice(-128) });
+    const outputs = old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next];
+    while (outputs.filter(o=>!o.unsavedGenerated).length > 128) outputs.splice(outputs.findIndex(o=>!o.unsavedGenerated),1);
+    state.setState({ outputs });
   }
   function disclosureKey(profile: ServerConversationOpened) {
     // Compare the effective profile disclosed at entry, not a later picker pin
@@ -327,7 +359,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     entryLifetime++;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
-    state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.finalization !== "interim") }));
+    state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.unsaved || f.finalization !== "interim") }));
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
     if (retainedOwner && !state.getState().sessionId) {
       const key = `dialogue:${retainedOwner}`;
@@ -352,7 +384,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const profile = scope();
     if (requireCurrentDisclosure()) return;
     if (!state.getState().active || !consent || !profile || mic || (typeof document !== "undefined" && document.hidden)) return;
-    const reason = state.getState().disclosureOpen ? "Review the voice service disclosure. Microphone off."
+    const reason = storageFailedScope === liveScopeKey() ? "Conversation text could not be saved. Restore storage before restarting voice."
+      : state.getState().disclosureOpen ? "Review the voice service disclosure. Microphone off."
       : state.getState().connection !== "Connected" ? "Waiting for the voice connection. Microphone off."
       : !ready ? "Waiting for voice readiness. Microphone off."
       : resync !== 0 ? "Synchronizing voice. Microphone off." : "";
@@ -518,15 +551,20 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
           before: read ? message.before : old?.before, cursor:read ? message.cursor : old?.cursor,
           ...(overflow && !read?.older ? {before:message.before ?? old?.before} : {})};
         const entries = Object.entries({...current.dialogue,[key]:page}).filter(([k,p])=>k===key || (k!==read?.key && p.ownerId!==message.ownerId)).slice(-8);
-        return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: message.coverage === "partial" ? "Earlier conversation history is incomplete." : ""};
+        return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Earlier conversation history is incomplete." : ""};
       });
       if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
       return null;
     }
     if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE")) {
       if (message.requestId) dialogueReads.delete(message.requestId);
-      if (message.code === "DIALOGUE_STORAGE" && state.getState().active) pause(false, false);
-      state.setState({dialogueNotice: message.message}); return null;
+      if (message.code === "DIALOGUE_STORAGE" && state.getState().active && (message.historyOwnerId ? message.historyOwnerId === scope()?.historyOwnerId : !message.sessionId || message.sessionId === state.getState().sessionId)) {
+        // Stop new capture/automation, not the already observed current-epoch tail.
+        // The host closes the epoch after these callbacks drain. Ready and all
+        // identity/disclosure fences remain intact until that ordinary close.
+        stopForStorageFailure();
+      }
+      if (!unsavedOverflow) state.setState({dialogueNotice: message.message}); return null;
     }
     if (message.type === "server_hello") state.setState({ available: message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true });
     if (message.type === "session_info" && message.requestId) {
@@ -618,6 +656,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const event = message.event;
     if (event.kind === "ready") { inputFormat = event.input; ready = true; refresh(); if (consent) void capture(); return null; }
     if (!ready) return null;
+    if (message.retention === "unsaved") {
+      stopForStorageFailure();
+      if (event.kind === "unassigned_input_fragment") retainRecognition(event,true);
+      else if (event.kind === "input_fragment" && capturedInputs.has(event.utteranceId) && !retiredInputs.has(event.utteranceId)) retainRecognition(event,true);
+      else if (event.kind === "output_transcript" && retainUnsaved(event.text)) {
+        const old = state.getState().outputs.find(o=>o.conversationId===p.conversationId && o.epoch===p.epoch && o.outputId===event.outputId);
+        updateOutput(p.epoch,event.outputId,{unsavedGenerated:(old?.unsavedGenerated ?? "")+event.text,unsavedFragments:(old?.unsavedFragments ?? 0)+1});
+      }
+      // Historical failure evidence never enters review, permissions, tasks or playback.
+      return null;
+    }
+    if (storageFailedScope === liveScopeKey()) return null;
     if (event.kind === "unassigned_input_fragment") {
       if (!retainRecognition(event)) return null;
       const retained = state.getState().unassigned;
@@ -707,7 +757,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     else if (consent) void capture();
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
-  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, dialogue: {}, dialogueRestoredThrough: {}, dialogueNotice: "", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
+  const unwatchAuth = root.authLock.registerStop(async () => { leave(); unsavedOverflow=false; storageFailedScope=undefined; requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, dialogue: {}, dialogueRestoredThrough: {}, dialogueNotice: "", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
   return {
     loadDialogue, historyOwnerFor,
     state, frame, permissions,

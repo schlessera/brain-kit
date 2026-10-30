@@ -36,9 +36,9 @@ interface Turn {
   answer: (text: string) => void;
 }
 
-let cleanup: (() => void) | null = null;
-afterEach(() => {
-  cleanup?.();
+let cleanup: (() => void | Promise<void>) | null = null;
+afterEach(async () => {
+  await cleanup?.();
   cleanup = null;
 });
 
@@ -77,10 +77,10 @@ function setup(options: {
     ...(options.wsRate ? { wsRate: options.wsRate } : {}),
     ...(options.conversation === false ? {} : { conversationProvider: live.provider }),
   });
-  cleanup = () => {
+  cleanup = async () => {
     for (const turn of turns) turn.answer("");
     host.coordinator.reset();
-    host.close();
+    await host.close();
     db.close();
   };
 
@@ -594,7 +594,7 @@ describe("second review pass: identity, resync and retry", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -633,7 +633,7 @@ describe("third review pass: failure, metering and teardown", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -674,7 +674,7 @@ describe("third review pass: failure, metering and teardown", () => {
     const client = await s.connect();
     const conversation = await client.open();
     expect(conversation.session.closed).toBe(false);
-    s.host.close();
+    await s.host.close();
     await settle();
     expect(conversation.session.closed).toBe(true);
     expect(conversation.session.options.signal.aborted).toBe(true);
@@ -797,7 +797,7 @@ describe("fifth review pass: cancellation and follow-up boundaries", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { for (const t of turns) t.answer(""); host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { for (const t of turns) t.answer(""); host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -970,7 +970,7 @@ describe("permission authority stays with the host", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -1017,7 +1017,7 @@ describe("permission authority stays with the host", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = () => { host.coordinator.reset(); host.close(); db.close(); };
+    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -1474,4 +1474,25 @@ test("in-memory replacement evicts oldest facts while preserving exact original 
   expect(next.session.options.resync.work).toHaveLength(6);
   expect(next.session.returned).toHaveLength(0);
   expect(s.turns).toHaveLength(6);
+});
+
+
+test("correlated contextual recognition archives beyond review bounds without creating a truncated reviewed request",async()=>{
+ const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect();
+ const c=await client.open({contextualTasks:true});await client.capture(c,"mast-input");
+ const texts=Array.from({length:140},(_,i)=>`Observation ${i}: ${"mast ".repeat(40)}`);
+ for(const [sequence,text] of texts.entries())c.session.emit({kind:"input_fragment",utteranceId:"mast-input",sequence,text,finalization:"unknown",certainty:"unknown",origin:"unknown"});
+ await until(()=>client.frames("conversation_event").filter(f=>f.event.kind==="input_fragment").length===texts.length);
+ expect(client.frames("conversation_closed")).toEqual([]);
+ const page=await s.host.catalog.dialogueRead!(testPrincipal().id,{ownerId:c.id});
+ expect(page!.records.map(r=>r.evidence.kind==="voice"?r.evidence.event.text:"")).toEqual(texts);
+ client.commit(c,"mast-input","review-tail","Use only the last recognition.");
+ await until(()=>client.frames("conversation_work").some(f=>f.requestId==="review-tail"));
+ expect(client.frames("conversation_work").find(f=>f.requestId==="review-tail")).toMatchObject({state:"refused",reason:expect.stringContaining("bounded task context")});
+ expect(s.turns).toHaveLength(0);
+ c.session.emit({kind:"work_requested",handle:"bounded-context"});
+ await until(()=>s.turns.length===1);
+ expect(s.turns[0]!.req.prompt).not.toContain("Observation 0:");
+ expect(s.turns[0]!.req.prompt).toContain("Observation 139:");
+ s.turns[0]!.answer("The mast is ready.");
 });

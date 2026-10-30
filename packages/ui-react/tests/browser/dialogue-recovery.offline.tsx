@@ -497,3 +497,271 @@ for (const provider of ["gemini", "gpt"] as const)
       result.rows.filter((r: any) => JSON.parse(r.payload).kind === "voice")
     ).toHaveLength(176);
   });
+
+for (const provider of ["gpt", "gemini"] as const)
+  for (const bound of ["fragments", "characters"] as const)
+    test(`${provider}: correlated capture separates the ${bound} review bound from durable discussion`, async (ctx) => {
+      microphone(ctx);
+      const fixture = (await commands.conversationServer({
+        op: "start",
+        durable: true,
+        provider,
+      })) as { id: string };
+      ctx.onTestFinished(async () => {
+        await commands.conversationServer({ op: "stop", id: fixture.id });
+      });
+      const s = await view(ctx, null);
+      let cursor = 0,
+        result: any;
+      const received: ServerMessage[] = [];
+      const pump = async (providerFrames: unknown[] = []) => {
+        const client = s.socket.sent
+          .slice(cursor)
+          .map((b) => JSON.parse(String(b.data)));
+        cursor = s.socket.sent.length;
+        result = await commands.conversationServer({
+          op: "step",
+          id: fixture.id,
+          client,
+          provider: providerFrames,
+        });
+        for (const frame of result.frames) {
+          received.push(frame);
+          s.socket.deliver(frame);
+        }
+      };
+      await pump();
+      s.ui.connection.conversation.enter();
+      await expect
+        .poll(async () => {
+          await pump();
+          return s.ui.connection.conversation.state.getState().profile;
+        })
+        .not.toBeNull();
+      s.ui.connection.conversation.start();
+      await expect
+        .poll(() => s.socket.frames("conversation_audio").length)
+        .toBeGreaterThan(0);
+      await pump();
+      const audio = result.sent.find(
+        (m: any) => m.type === "session.input_audio.append"
+      );
+      if (provider === "gpt") expect(audio.event_id).toBeTruthy();
+      const text = Array.from(
+        { length: bound === "fragments" ? 140 : 30 },
+        (_, i) =>
+          `Observation ${i}: ${
+            bound === "fragments" ? "mast ready." : "mast ".repeat(150)
+          }`
+      );
+      await pump(
+        text.map((delta, i) =>
+          provider === "gpt"
+            ? {
+                type: "session.input_transcript.delta",
+                event_id: `captured-${i}`,
+                client_event_id: audio.event_id,
+                delta,
+                start_ms: i * 1000,
+                end_ms: i * 1000 + 500,
+              }
+            : { serverContent: { inputTranscription: { text: delta } } }
+        )
+      );
+      expect(
+        result.rows.map((r: any) => JSON.parse(r.payload).event.text)
+      ).toEqual(text);
+      const events = received.filter(
+        (f): f is Extract<ServerMessage, { type: "conversation_event" }> =>
+          f.type === "conversation_event"
+      );
+      // Gemini deliberately supplies unassigned evidence in contextual mode. Only
+      // GPT exposes exact append-command correlation; never invent it for Gemini.
+      expect(
+        events.filter(
+          (f) =>
+            f.event.kind ===
+            (provider === "gpt"
+              ? "input_fragment"
+              : "unassigned_input_fragment")
+        )
+      ).toHaveLength(text.length);
+      expect(s.ui.connection.conversation.state.getState().micOn).toBe(true);
+      expect(received.filter((f) => f.type === "conversation_closed")).toEqual(
+        []
+      );
+      expect(result.tasks).toBe(0);
+      s.ui.connection.conversation.leave();
+      await pump();
+    });
+
+for (const provider of ["gpt", "gemini"] as const)
+  test(`${provider}: quota preserves every observed input/reply tail in order and restores only committed evidence`, async (ctx) => {
+    microphone(ctx);
+    const fixture = (await commands.conversationServer({
+      op: "start",
+      durable: true,
+      provider,
+    })) as { id: string };
+    ctx.onTestFinished(async () => {
+      await commands.conversationServer({ op: "stop", id: fixture.id });
+    });
+    let s = await view(ctx, null),
+      cursor = 0,
+      result: any;
+    const received: ServerMessage[] = [];
+    const pump = async (
+      providerFrames: unknown[] = [],
+      quota = false,
+      restart = false
+    ) => {
+      const client = s.socket.sent
+        .slice(cursor)
+        .map((b) => JSON.parse(String(b.data)));
+      cursor = s.socket.sent.length;
+      result = await commands.conversationServer({
+        op: "step",
+        id: fixture.id,
+        client,
+        provider: providerFrames,
+        quota,
+        restart,
+      });
+      for (const frame of result.frames) {
+        received.push(frame);
+        s.socket.deliver(frame);
+      }
+    };
+    await pump();
+    s.ui.connection.conversation.enter();
+    await expect
+      .poll(async () => {
+        await pump();
+        return s.ui.connection.conversation.state.getState().profile;
+      })
+      .not.toBeNull();
+    s.ui.connection.conversation.start();
+    await expect
+      .poll(() => s.socket.frames("conversation_audio").length)
+      .toBeGreaterThan(0);
+    await pump();
+    const owner =
+      s.ui.connection.conversation.state.getState().profile!.historyOwnerId!;
+    s.socket.deliver({
+      type: "error",
+      code: "DIALOGUE_STORAGE",
+      historyOwnerId: "other-owner",
+      message: "Another chat could not be saved.",
+    });
+    expect(s.ui.connection.conversation.state.getState().micOn).toBe(true);
+
+    const inputs = Array.from(
+      { length: 30 },
+      (_, i) => `Observation ${i}: ${"mast ".repeat(390)}`
+    );
+    const outputs = Array.from(
+      { length: 30 },
+      (_, i) => `Reply ${i}: ${"sail ".repeat(390)}`
+    );
+    const source = inputs.flatMap((text, i) => [
+      { kind: "input", text },
+      { kind: "output", text: outputs[i]! },
+    ]);
+    await pump(
+      source.map(({ kind, text }, i) =>
+        provider === "gemini"
+          ? {
+              serverContent: {
+                [kind === "input"
+                  ? "inputTranscription"
+                  : "outputTranscription"]: { text },
+              },
+            }
+          : {
+              type:
+                kind === "input"
+                  ? "session.input_transcript.delta"
+                  : "session.output_transcript.delta",
+              event_id: `quota-${i}`,
+              delta: text,
+              start_ms: i * 1000,
+              end_ms: i * 1000 + 500,
+            }
+      ),
+      true
+    );
+    await pump();
+    const events = received.filter(
+      (f): f is Extract<ServerMessage, { type: "conversation_event" }> =>
+        f.type === "conversation_event" &&
+        [
+          "input_fragment",
+          "unassigned_input_fragment",
+          "output_transcript",
+        ].includes(f.event.kind)
+    );
+    expect(events.map((f) => ("text" in f.event ? f.event.text : ""))).toEqual(
+      source.map((f) => f.text)
+    );
+    const prefix = result.rows.map(
+      (r: any) => JSON.parse(r.payload).event.text
+    ) as string[];
+    expect(prefix.length).toBeGreaterThan(0);
+    expect(prefix.length).toBeLessThan(source.length);
+    expect(events.filter((f) => f.retention === "unsaved")).toHaveLength(
+      source.length - prefix.length
+    );
+    // Expand the existing finite reading window; hidden rows are not lost history.
+    for (let n = 0; n < 5; n++) {
+      const earlier = [
+        ...s.element.querySelectorAll<HTMLElement>("button,[role=button]"),
+      ].find((b) => (b.textContent ?? "").includes("earlier message"));
+      if (!earlier) break;
+      flushSync(() => earlier.click());
+    }
+    const rendered = () => s.element.textContent!;
+    for (const item of source) expect(rendered()).toContain(item.text);
+    const offsets = source.map((item) => rendered().indexOf(item.text));
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+    expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
+    expect(rendered()).toContain("could not be saved");
+    const profile = s.ui.connection.conversation.state.getState().profile!;
+    const stale = {
+      type: "conversation_event" as const,
+      conversationId: profile.conversationId,
+      epoch: profile.epoch + 1,
+      retention: "unsaved" as const,
+      event: {
+        kind: "unassigned_input_fragment" as const,
+        sequence: 999,
+        text: "Foreign epoch must stay absent.",
+        timing: { kind: "unavailable" as const },
+      },
+    };
+    s.socket.deliver(stale);
+    expect(rendered()).not.toContain(stale.event.text);
+    s.ui.connection.conversation.leave();
+    s.socket.deliver({
+      ...stale,
+      epoch: profile.epoch,
+      event: { ...stale.event, text: "Stopped callback must stay absent." },
+    });
+    expect(rendered()).not.toContain("Stopped callback must stay absent.");
+
+    expect(result.tasks).toBe(0);
+    s.close();
+    s = await view(ctx, `dialogue:${owner}`, owner);
+    cursor = 0;
+    await pump([], false, true);
+    s.ui.connection.conversation.loadDialogue(`dialogue:${owner}`);
+    await expect
+      .poll(async () => {
+        await pump();
+        return rendered();
+      })
+      .toContain(prefix[0]!);
+    for (const text of prefix) expect(rendered()).toContain(text);
+    expect(rendered()).not.toContain(source.at(-1)!.text);
+    expect(result.tasks).toBe(0);
+    expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
+  });

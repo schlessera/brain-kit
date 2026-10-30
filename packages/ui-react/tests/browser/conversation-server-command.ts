@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import type { BrowserCommand } from "vitest/node";
-type Op = { op: "start"; durable?:boolean; contextual?: boolean; delayedIdentity?: boolean; provider?: "gemini" | "gpt"; action?: "permitted" | "confirm" | "deny" } | { op: "step"; id: string; client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; restart?:boolean; engine?:"gemini"|"gpt" } | { op: "stop"; id: string };
+type Op = { op: "start"; durable?:boolean; contextual?: boolean; delayedIdentity?: boolean; provider?: "gemini" | "gpt"; action?: "permitted" | "confirm" | "deny" } | { op: "step"; id: string; client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; quota?:boolean; restart?:boolean; engine?:"gemini"|"gpt" } | { op: "stop"; id: string };
 const servers = new Map<string, { process: ChildProcess; url: string; diagnostics: () => string }>();
 /** Native byte witnesses come from a real loopback server inside the pinned offline container. */
 export const conversationServer: BrowserCommand<[Op], unknown> = async (_ctx, input) => {
@@ -21,7 +21,7 @@ export const conversationServer: BrowserCommand<[Op], unknown> = async (_ctx, in
   }
   const server = servers.get(input.id); if (!server) throw new Error("Unknown conversation fixture");
   if (input.op === "step") {
-    const response = await fetch(`${server.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: input.client, provider: input.provider, release: input.release, identify: input.identify, restart:input.restart, engine:input.engine }) });
+    const response = await fetch(`${server.url}/fixture`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: input.client, provider: input.provider, release: input.release, identify: input.identify, quota:input.quota, restart:input.restart, engine:input.engine }) });
     if (!response.ok) throw new Error(`Conversation fixture failed: ${response.status} ${server.diagnostics()}`);
     return response.json();
   }

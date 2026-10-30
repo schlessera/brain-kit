@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3783-3789`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1871-1873`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3787-3793`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1873-1875`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2271,3 +2271,46 @@ prefix is the durability boundary, and history reads never replay external work.
 An incomplete or mismatched backend position witness never truncates the native
 answer. Its complete semantic source group remains readable with unknown
 cross-stream position until the missing history page or evidence is available.
+
+
+### Failed-write text and contextual capture (additive, #3177)
+
+A text `conversation_event` may carry `retention: "unsaved"` only when the host
+observed that exact text but its SQLite write failed or exceeded the pending
+write bound. It retains the original current conversation/epoch/source identity;
+it is not a durable-history record, replay token, permission or task admission.
+`DIALOGUE_STORAGE` errors carry optional `historyOwnerId` to scope capture shutdown
+to the affected owner. A foreign owner's failure must not mute the current chat.
+
+Storage failure freezes new host ingress/admission and stops local capture and
+consent without clearing readiness for already observed, same-epoch text callbacks.
+Those callbacks drain in observation order before ordinary epoch closure. Existing
+Leave, authorization, current-epoch, captured-input, retired-input and disclosure
+fences still apply. Failed-write text is display evidence only: it does not enter
+review automation, permission speech, model history, tasks or playback.
+
+The existing client recognition/output arrays preserve a bounded volatile unsaved
+tail separately from their ordinary rolling caches: at most 256 observations and
+1 MiB of UTF-8 text in total. This matches the pending-write failure boundary,
+not durable retention or an ordinary capture limit. Actual exhaustion of that
+failure buffer is explicitly reported as unavailable unsaved text. Reload cannot
+recover unsaved text and must show only the committed prefix/known partial state.
+The projection exposes `ConversationRecognition.unsaved` and output
+`unsaved` (for the projected segment) and `unsavedGenerated`/`unsavedFragments`; qualifiers remain the shared presentation
+owner's concern. No per-fragment metadata line or alternate timeline is added.
+
+The existing root timeline's first-observation position records the committed
+prefix visible when a transient tail arrived. Sorting compares that prefix anchor
+with canonical host sequences; older pages and later commits do not place a tail
+before its already observed prefix. This is a display projection, not another
+archive or source of native chronology.
+
+For contextual capture, correlated recognition also uses a rolling task/review
+cache rather than treating 128 fragments or 16k characters as lifetime recording
+limits. Exact deltas continue to the archive. Eviction marks the review cache
+incomplete; it cannot be committed as a complete reviewed utterance. The separate
+contextual-task tail stays bounded to its existing 12 entries / 6,000 serialized
+characters. Legacy reviewed-input limits, exact command correlation, native-ID
+and epoch replay fences, transport queues and native-request capacity guards are
+unchanged. Gemini contextual recognition remains unassigned; GPT correlation uses
+only its actual append-command identity, never timing or arrival guesses.

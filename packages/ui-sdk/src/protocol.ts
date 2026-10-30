@@ -1334,6 +1334,8 @@ export function sumModelUsage(perModel: Record<string, ModelUsage>): TurnUsage {
 }
 
 export interface ServerError extends SessionScoped {
+  /** Exact retained owner for a dialogue storage failure. */
+  historyOwnerId?: string;
   type: "error";
   code: string;
   message: string;
@@ -2198,6 +2200,8 @@ export interface ServerConversationClosed {
 
 /** Server → Client. Normalized provider evidence for the current epoch. */
 export interface ServerConversationEvent {
+  /** Exact text observed by the host but not committed; never durable replay. */
+  retention?: "unsaved";
   type: "conversation_event";
   conversationId: string;
   epoch: number;

@@ -333,6 +333,9 @@ signatures (every public export and the types it is made of)
     }): import("react").JSX.Element;
   ConversationClientOutput (packages/ui-react/src/voice/conversation-client.ts)
     export interface ConversationClientOutput extends ConversationOutputRecord {
+        unsaved?: true;
+        unsavedGenerated?: string;
+        unsavedFragments?: number;
         orderUnknown?: boolean;
         providerId?: string;
         conversationId: string;
@@ -378,6 +381,7 @@ signatures (every public export and the types it is made of)
         providerId: string;
         activation: number;
         restored?: boolean;
+        unsaved?: true;
         orderUnknown?: boolean;
         moved?: true;
         contextual: boolean;

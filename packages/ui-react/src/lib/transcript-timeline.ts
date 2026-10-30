@@ -22,30 +22,30 @@ export type TranscriptEntry =
 export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: StoreApi<ConversationClientState>) {
   const state = createStore<{ entries: TranscriptEntry[] }>(() => ({ entries: [] }));
   let sequence = 0;
-  const positions = new Map<string, number>();
-  const position = (key: string, before?: string) => {
+  const positions = new Map<string, {arrival:number; afterHostSequence?:number}>();
+  const position = (key: string, before?: string, afterHostSequence?:number) => {
     if (!positions.has(key)) {
-      const successor = before === undefined ? undefined : positions.get(before);
-      if (successor === undefined) positions.set(key, sequence++);
+      const successor = before === undefined ? undefined : positions.get(before)?.arrival;
+      if (successor === undefined) positions.set(key, {arrival:sequence++,afterHostSequence});
       else {
         // A replay can prove a missing predecessor of an already drawn row
         // (for example the user of a peer's live answer). This is source order,
         // not a new arrival after that answer. Keep every existing key and its
         // relative place, inserting immediately before the known successor.
         // Integer ranks avoid fractional-position exhaustion on long histories.
-        for (const [existing, at] of positions) if (at >= successor) positions.set(existing, at + 1);
-        positions.set(key, successor);
+        for (const [existing, at] of positions) if (at.arrival >= successor) positions.set(existing, {...at,arrival:at.arrival + 1});
+        positions.set(key, {arrival:successor,afterHostSequence});
         sequence++;
       }
     }
-    return positions.get(key)!;
+    return positions.get(key)!.arrival;
   };
   const boundaries = new Map<string, Extract<TranscriptEntry, { kind: "voice-boundary" }>>();
   const split = new Set<string>();
   const runs = new Map<string, Array<{ key: string; start: number; end: number }>>();
   const textBefore = new Map<string, string>();
   const latest = new Map<string | null, string>();
-  const segments = (key: string, text: string, sessionId: string | null, links?: Record<string, string>) => {
+  const segments = (key: string, text: string, sessionId: string | null, links?: Record<string, string>, afterHostSequence?:number) => {
     const own = runs.get(key) ?? [];
     const old = textBefore.get(key) ?? "";
     if (text === old) return own;
@@ -79,7 +79,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       if (tail && latest.get(sessionId) === tail.key) tail.end = length;
       else {
         const segment = { key: JSON.stringify([key, own.length]), start: tail?.end ?? 0, end: length };
-        own.push(segment); position(segment.key); latest.set(sessionId, segment.key);
+        own.push(segment); position(segment.key,undefined,afterHostSequence); latest.set(sessionId, segment.key);
       }
       runs.set(key, own);
     }
@@ -126,6 +126,12 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     }
     const emptyArchive: Array<{fragment:ConversationRecognition;sequence:number}> = [];
     const archive = Object.entries(v.dialogue ?? {}).flatMap(([key,page]) => page.records.map(record => ({record,restored:record.sequence <= (v.dialogueRestoredThrough?.[key] ?? -1),sessionId:page.sessionId ?? (v.profile?.historyOwnerId === page.ownerId ? v.sessionId : key)})));
+    // The existing first-observation slot retains the durable prefix visible
+    // when a transient tail arrived. Paging cannot move that tail before it.
+    const observedThrough = (sessionId:string|null):number|undefined => {
+      const seen=archive.filter(item=>item.sessionId===sessionId).map(item=>item.record.sequence);
+      return seen.length ? Math.max(...seen) : v.active && v.sessionId===sessionId && v.profile?.historyOwnerId ? 0 : undefined;
+    };
     const archivedRecognition = new Set<string>();
     const archivedOutput = new Set<string>();
     const ordered = new Map<string,number>();
@@ -140,7 +146,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
           const key = `dialogue:${record.sequence}`;
           ordered.set(key,record.sequence);
           const liveOutput = !restored ? v.outputs.find(o=>o.conversationId===e.conversationId && o.epoch===e.epoch && o.outputId===event.outputId) : undefined;
-          entries.push({key,sessionId,kind:"speech",restored,output:{...(liveOutput ?? {}),conversationId:e.conversationId,epoch:e.epoch,providerId:e.providerId,orderUnknown:false,outputId:event.outputId,generated:event.text,playback:liveOutput?.playback ?? "unknown",sessionId}});
+          entries.push({key,sessionId,kind:"speech",restored,output:{...(liveOutput ?? {}),unsaved:undefined,unsavedGenerated:undefined,unsavedFragments:undefined,conversationId:e.conversationId,epoch:e.epoch,providerId:e.providerId,orderUnknown:false,outputId:event.outputId,generated:event.text,playback:liveOutput?.playback ?? "unknown",sessionId}});
         } else {
           const fragment: ConversationRecognition = {...event,conversationId:e.conversationId,epoch:e.epoch,providerId:e.providerId,sessionId,activation:e.epoch,contextual:true,restored,orderUnknown:false};
           const key = recognitionIdentity(fragment);
@@ -189,12 +195,13 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       }
     }
     for (const output of voice.getState().outputs) {
-      if (archivedOutput.has(JSON.stringify([output.conversationId,output.epoch,output.outputId]))) continue;
-      if (!output.generated) continue;
-      const key = JSON.stringify(["speech", output.conversationId, output.epoch, output.outputId]);
+      if (archivedOutput.has(JSON.stringify([output.conversationId,output.epoch,output.outputId])) && !output.unsavedGenerated) continue;
+      const generated=output.unsavedGenerated ?? output.generated;
+      if (!generated) continue;
+      const key = JSON.stringify([output.unsavedGenerated ? "unsaved-speech" : "speech", output.conversationId, output.epoch, output.outputId]);
       liveRuns.add(key);
-      for (const run of segments(key, output.generated, output.sessionId)) {
-        entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: isRestoredConversationOutput(output), output: { ...output, generated: output.generated.slice(run.start, run.end) } });
+      for (const run of segments(key, generated, output.sessionId,undefined,observedThrough(output.sessionId))) {
+        entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: isRestoredConversationOutput(output), output: { ...output, generated: generated.slice(run.start, run.end), ...(output.unsavedGenerated ? {playback:"unknown" as const,unsaved:true as const} : {}) } });
       }
     }
     // Preserve actual fragment identities before projection. Provider intervals
@@ -203,7 +210,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     for (const fragment of v.recognition) {
       const key = recognitionIdentity(fragment);
       if (archivedRecognition.has(key)) continue;
-      position(key);
+      position(key,undefined,observedThrough(fragment.sessionId));
       if (!fragment.text && !fragment.moved) { empty.push(fragment); continue; }
       entries.push({ kind: "recognition", key, sessionId: fragment.sessionId, fragments: [fragment] });
     }
@@ -215,14 +222,19 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       boundary.sessionId = recognition?.sessionId ?? output?.sessionId ?? boundary.sessionId;
       entries.push(boundary);
     }
-    const rank = (key:string) => ordered.get(key) ?? (position(key)-Number.MAX_SAFE_INTEGER);
-    entries.sort((a, b) => rank(a.key) - rank(b.key));
+    const rank = (key:string):readonly number[] => {
+      const durable=ordered.get(key); if(durable!==undefined)return [durable,0,0];
+      const at=position(key), anchor=positions.get(key)?.afterHostSequence;
+      return anchor === undefined ? [-1,0,at] : [anchor,1,at];
+    };
+    const compareKeys=(a:string,b:string) => {const x=rank(a),y=rank(b);return x[0]!-y[0]! || x[1]!-y[1]! || x[2]!-y[2]!;};
+    entries.sort((a, b) => compareKeys(a.key,b.key));
     const stream = (f: ConversationRecognition) => JSON.stringify([f.conversationId, f.epoch, f.kind, f.kind === "input_fragment" ? f.utteranceId : null]);
     const grouped: TranscriptEntry[] = [];
     for (const entry of entries) {
       const tail = grouped.at(-1);
       if (entry.kind === "recognition" && tail?.kind === "recognition" && stream(entry.fragments[0]!) === stream(tail.fragments[0]!)) tail.fragments.push(...entry.fragments);
-      else if (entry.kind === "speech" && tail?.kind === "speech" && entry.sessionId === tail.sessionId && entry.output.conversationId === tail.output.conversationId && entry.output.epoch === tail.output.epoch && entry.output.outputId === tail.output.outputId && entry.restored === tail.restored) tail.output = {...tail.output,generated:tail.output.generated+entry.output.generated};
+      else if (entry.kind === "speech" && tail?.kind === "speech" && entry.sessionId === tail.sessionId && entry.output.conversationId === tail.output.conversationId && entry.output.epoch === tail.output.epoch && entry.output.outputId === tail.output.outputId && entry.restored === tail.restored && entry.output.unsaved === tail.output.unsaved) tail.output = {...tail.output,generated:tail.output.generated+entry.output.generated};
       else if (entry.kind === "message" && entry.section === "answer" && tail?.kind === "message" && tail.section === "answer" && entry.message === tail.message && tail.end === entry.start) tail.end=entry.end;
       else grouped.push(entry);
     }
@@ -236,7 +248,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       const own = grouped.findLast(e => e.kind === "recognition" && stream(e.fragments[0]!) === stream(fragment) && position(e.key) < position(recognitionIdentity(fragment)));
       if (own?.kind === "recognition") own.fragments.push(fragment);
     }
-    for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => rank(recognitionIdentity(a)) - rank(recognitionIdentity(b)));
+    for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => compareKeys(recognitionIdentity(a),recognitionIdentity(b)));
     // Preserve positions across partial history chunks, but do not retain the
     // identities of evicted sessions/outputs for the lifetime of a mounted app.
     if (!buffers.some(([, buffer]) => buffer?.replay)) {

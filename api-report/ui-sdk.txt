@@ -9494,6 +9494,7 @@ signatures (every public export and the types it is made of)
     }
   ServerConversationEvent (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationEvent {
+        retention?: "unsaved";
         type: "conversation_event";
         conversationId: string;
         epoch: number;
@@ -9545,6 +9546,7 @@ signatures (every public export and the types it is made of)
     }
   ServerError (packages/ui-sdk/src/protocol.ts)
     export interface ServerError extends SessionScoped {
+        historyOwnerId?: string;
         type: "error";
         code: string;
         message: string;
@@ -15128,6 +15130,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"interrupted">;
             outputId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>]>;
+        retention: z.ZodOptional<z.ZodLiteral<"unsaved">>;
         type: z.ZodLiteral<"conversation_event">;
     }, z.core.$loose>;
   serverConversationOpenedSchema (packages/ui-sdk/src/schemas.ts)
@@ -15362,6 +15365,7 @@ signatures (every public export and the types it is made of)
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             status: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         message: z.ZodString;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -16159,6 +16163,7 @@ signatures (every public export and the types it is made of)
             resetsAt: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             status: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>>;
+        historyOwnerId: z.ZodOptional<z.ZodString>;
         message: z.ZodString;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -18434,6 +18439,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"interrupted">;
             outputId: z.ZodOptional<z.ZodString>;
         }, z.core.$loose>]>;
+        retention: z.ZodOptional<z.ZodLiteral<"unsaved">>;
         type: z.ZodLiteral<"conversation_event">;
     }, z.core.$loose>, z.ZodPipe<z.ZodObject<{
         conversationId: z.ZodString;

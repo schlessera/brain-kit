@@ -31,6 +31,7 @@ const frames: ServerMessage[] = [],
   sent: unknown[] = [],
   ingress: unknown[] = [];
 let tasks = 0;
+let quotaApplied = false;
 let complete: (() => void) | undefined;
 const history: SessionHistoryMessage[] = [];
 const FACT = "The departure signal is a bronze owl.";
@@ -151,12 +152,14 @@ const server = Bun.serve({
       client?: unknown[];
       provider?: unknown[];
       release?: boolean;
+      quota?: boolean;
       restart?: boolean;
       engine?: string;
     };
     if (body.restart) {
-      await host.close();
+      await closeHost();
       await writer.close();
+      quotaApplied = false;
       db.close();
       db = createUiDb(dbPath);
       writer = openSqliteWriter(db);
@@ -168,12 +171,39 @@ const server = Bun.serve({
     for (const frame of body.client ?? [])
       handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
     await Bun.sleep(10);
+    let releaseQuota: (() => Promise<void>) | undefined;
+    if (body.quota) {
+      const controls = await import(
+        "../../../ui-server/tests/helpers/dialogue-test-writes.js"
+      );
+      const q = writer.channel(
+        { url: controls.url, setup: controls.setup },
+        {}
+      );
+      await q.call("quota");
+      quotaApplied = true;
+      const control = new Int32Array(new SharedArrayBuffer(8));
+      const hold = q.call("hold", control);
+      const deadline = Date.now() + 2000;
+      while (!Atomics.load(control, 1)) {
+        if (Date.now() > deadline)
+          throw Error("quota writer did not enter hold");
+        await Bun.sleep(1);
+      }
+      releaseQuota = async () => {
+        Atomics.store(control, 0, 1);
+        Atomics.notify(control, 0);
+        await hold;
+        await q.close();
+      };
+    }
     for (const frame of body.provider ?? []) {
       ingress.push(frame);
       remote!.send(JSON.stringify(frame));
     }
     if (body.release) complete?.();
     await Bun.sleep(20);
+    await releaseQuota?.();
     await host.historySettled();
     const rows = db
       .query(
@@ -190,10 +220,22 @@ const server = Bun.serve({
     });
   },
 });
+async function closeHost() {
+  try {
+    await host.close();
+  } catch (error) {
+    if (
+      !quotaApplied ||
+      !(error instanceof Error) ||
+      !/full/i.test(error.message)
+    )
+      throw error;
+  }
+}
 process.on("SIGTERM", async () => {
   complete?.();
   await Promise.allSettled([...host.turnTasks]);
-  await host.close();
+  await closeHost();
   await writer.close();
   db.close();
   remote?.close();

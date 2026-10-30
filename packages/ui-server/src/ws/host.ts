@@ -402,7 +402,8 @@ export class WsHost {
     this.dialogue = new DialogueJournal(this.catalog, (page, principalId) => {
       this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);
     }, owner => {
-      this.clients.broadcast({type:"error",code:"DIALOGUE_STORAGE",...(owner.session_id ? {sessionId:owner.session_id} : {}),message:"Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice."},undefined,"sessionDialogue",owner.principal_id);
+      this.conversations?.storageFailing(owner.id);
+      this.clients.broadcast({type:"error",code:"DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:"Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice."},undefined,"sessionDialogue",owner.principal_id);
       // Drain already observed text before closing its epoch, preserving the unsaved tail.
       void this.dialogue.settled().then(() => this.conversations?.storageFailed(owner.id));
     });

@@ -1292,6 +1292,7 @@ export const serverResultSchema = z.looseObject({
 }) satisfies z.ZodType<ServerResultMessage>;
 
 export const serverErrorSchema = z.looseObject({
+  historyOwnerId: id.optional(),
   type: z.literal("error"),
   code: z.string(),
   message: z.string(),
@@ -1809,6 +1810,7 @@ export const serverConversationClosedSchema = z.looseObject({
 }) satisfies z.ZodType<ServerConversationClosed>;
 
 export const serverConversationEventSchema = z.looseObject({
+  retention: z.literal("unsaved").optional(),
   type: z.literal("conversation_event"),
   conversationId: id,
   epoch: conversationEpoch,

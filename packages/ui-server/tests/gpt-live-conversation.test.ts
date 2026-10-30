@@ -16,8 +16,8 @@ import { testPrincipal } from "./helpers/principal";
 
 const descriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
 const NativeWebSocket = WebSocket as unknown as new (url: string, options?: Bun.WebSocketOptions) => WebSocket;
-let cleanup: (() => void) | undefined;
-afterEach(() => { cleanup?.(); cleanup = undefined; Object.defineProperty(globalThis, "WebSocket", descriptor); });
+let cleanup: (() => void | Promise<void>) | undefined;
+afterEach(async () => { await cleanup?.(); cleanup = undefined; Object.defineProperty(globalThis, "WebSocket", descriptor); });
 async function until(check: () => boolean): Promise<void> {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw new Error("transport condition timed out"); await Bun.sleep(1); }
@@ -223,7 +223,7 @@ test("real adapter and host keep chat progress and a question interactive while 
   } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: f.provider });
   const oldCleanup = cleanup!;
-  cleanup = () => { release(); host.coordinator.reset(); host.close(); db.close(); oldCleanup(); };
+  cleanup = async () => { release(); host.coordinator.reset(); await host.close(); db.close(); await oldCleanup(); };
   const handlers = createWsHandlers(host, testPrincipal());
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
@@ -265,7 +265,7 @@ test("replacement epoch seeds host outcomes as history without replaying audio o
   await until(() => f.received.some((e) => e.kind === "work_requested"));
   await f.session.close();
   const abort = new AbortController(); const oldCleanup = cleanup!;
-  cleanup = () => { abort.abort(); oldCleanup(); };
+  cleanup = async () => { abort.abort(); await oldCleanup(); };
   const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: abort.signal, resync: { work: [{
     conversationId: "ithaca", epoch: 1, utteranceId: "u1", requestId: "r1", turnId: "t1", state: "completed", delivery: "discarded", recognized: "Capture the Ithaca note.", submitted: "Capture the Ithaca note.",
   }] } });
@@ -361,7 +361,7 @@ test("unknown explicit transcript identity still closes instead of becoming unas
 test("replacement session missing-ID recognition remains unassigned despite historical context", async () => {
   const f = await fixture(); await f.session.close();
   const abort = new AbortController(); const oldCleanup = cleanup!;
-  cleanup = () => { abort.abort(); oldCleanup(); };
+  cleanup = async () => { abort.abort(); await oldCleanup(); };
   const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: abort.signal, resync: { work: [{
     conversationId: "ithaca", epoch: 1, utteranceId: "u1", requestId: "r1", turnId: "t1", state: "completed", delivery: "discarded", recognized: "Old note.", submitted: "Old note.",
   }] } });
@@ -414,7 +414,7 @@ test("contextual GPT lost append acknowledgement is unknown and cannot replay an
 for (const mode of ["missing", "duplicate", "queue", "aged", "no-audio", "storage", "request-identity", "binding", "submission", "authorization"] as const) test(`contextual refusals release native capacity: ${mode}`, async () => {
   const f = await fixture(true, true, true);
   const oldCleanup = cleanup!;
-  await contextualRefusals("gpt", mode, f, close => { cleanup = () => { close(); oldCleanup(); }; });
+  await contextualRefusals("gpt", mode, f, close => { cleanup = async () => { await close(); await oldCleanup(); }; });
 });
 
 

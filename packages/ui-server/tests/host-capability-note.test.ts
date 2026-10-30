@@ -63,5 +63,5 @@ test("actual hosted admission supplies only real journal/revert capabilities, in
    host.turnReverts=withRevert?app.wsHost.turnReverts:undefined;extraHosts.push(host);
    await parity(host,withJournal,false);
   }
- }finally{for(const host of extraHosts)host.close();await app.close();await rm(root,{recursive:true,force:true});}
+ }finally{for(const host of extraHosts)await host.close();await app.close();await rm(root,{recursive:true,force:true});}
 },30000);

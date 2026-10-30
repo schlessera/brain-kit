@@ -68,6 +68,7 @@ interface Utterance {
   fragments: Map<number, Fragment>;
   endpointed: boolean;
   committed: boolean;
+  reviewIncomplete?: boolean;
 }
 
 interface Work {
@@ -91,6 +92,7 @@ interface Epoch {
   model?: string;
   api?: string;
   contextualTasks: boolean;
+  storageFailing?: boolean;
   context: ContextFragment[];
   contextDigests: Set<string>;
   nativeUsed: Set<string>;
@@ -390,7 +392,7 @@ export class ConversationHost {
       refuse("That request id was already used in this conversation.");
       return;
     }
-    if (!epoch || epoch.closed || !epoch.session || epoch.number !== msg.epoch) {
+    if (!epoch || epoch.closed || epoch.storageFailing || !epoch.session || epoch.number !== msg.epoch) {
       refuse("This epoch has ended. Restart capture and commit again.");
       return;
     }
@@ -407,6 +409,7 @@ export class ConversationHost {
       refuse("That utterance was already committed.");
       return;
     }
+    if (utterance.reviewIncomplete) { refuse("Only bounded task context remains for this input. Review the retained dialogue and send typed text instead."); return; }
     const fragments = [...utterance.fragments.values()].sort((a, b) => a.sequence - b.sequence);
     // An utterance heard only as the assistant's own voice is echo, not input.
     if (!fragments.some((fragment) => fragment.origin !== "assistant")) {
@@ -502,7 +505,7 @@ export class ConversationHost {
   private async pump(conversation: Conversation, epoch: Epoch, session: LiveConversationSession): Promise<void> {
     try {
       for await (const raw of session.events) {
-        if (epoch.closed) break;
+        if (epoch.closed || epoch.storageFailing) break;
         const parsed = parseLiveConversationEvent(raw);
         if (!parsed.ok) {
           this.endEpoch(conversation, "correlation", parsed.error, epoch);
@@ -516,9 +519,9 @@ export class ConversationHost {
         }
         this.onEvent(conversation, epoch, event);
       }
-      this.endEpoch(conversation, "provider_closed", undefined, epoch);
+      if (!epoch.storageFailing) this.endEpoch(conversation, "provider_closed", undefined, epoch);
     } catch {
-      this.endEpoch(conversation, "provider_error", "The voice service failed.", epoch);
+      if (!epoch.storageFailing) this.endEpoch(conversation, "provider_error", "The voice service failed.", epoch);
     }
   }
 
@@ -569,7 +572,7 @@ export class ConversationHost {
           this.endEpoch(conversation, "correlation", "The voice service reported input for an utterance it was never sent.", epoch);
           return;
         }
-        if (!utterance.fragments.has(event.sequence) && utterance.fragments.size >= CONVERSATION_LIMITS.maxFragmentsPerUtterance) {
+        if (!epoch.contextualTasks && !utterance.fragments.has(event.sequence) && utterance.fragments.size >= CONVERSATION_LIMITS.maxFragmentsPerUtterance) {
           this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxFragmentsPerUtterance} fragments for one utterance.`, epoch);
           return;
         }
@@ -578,12 +581,21 @@ export class ConversationHost {
         for (const fragment of utterance.fragments.values()) {
           if (fragment.sequence !== event.sequence) joined += fragment.text.length + 1;
         }
-        if (joined > CONVERSATION_LIMITS.maxUtteranceChars) {
+        if (!epoch.contextualTasks && joined > CONVERSATION_LIMITS.maxUtteranceChars) {
           this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxUtteranceChars} recognized characters for one utterance.`, epoch);
           return;
         }
         this.collectContext(epoch, `input:${event.utteranceId}:${event.sequence}`, event.origin === "assistant" ? "generated" : "recognition", event.text);
         utterance.fragments.set(event.sequence, { sequence: event.sequence, text: event.text, origin: event.origin });
+        if (epoch.contextualTasks) {
+          // This is bounded task/review context, not the durable text record.
+          let chars = [...utterance.fragments.values()].reduce((n,f)=>n+f.text.length+1,0);
+          while (utterance.fragments.size > CONVERSATION_LIMITS.maxFragmentsPerUtterance || chars > CONVERSATION_LIMITS.maxUtteranceChars) {
+            const first = utterance.fragments.keys().next().value!;
+            chars -= utterance.fragments.get(first)!.text.length+1;
+            utterance.fragments.delete(first); utterance.reviewIncomplete = true;
+          }
+        }
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "input_fragment", utteranceId: event.utteranceId, sequence: event.sequence, text: event.text,
           ...(event.interval ? { interval: { ...event.interval } } : {}),
@@ -872,7 +884,7 @@ export class ConversationHost {
     // A withdrawn request was already marked discarded when the provider
     // withdrew it, so it never reaches this point.
     if (outcome !== "completed" && outcome !== "error") return discard("The request did not complete.");
-    if (!epoch || epoch.number !== work.receipt.epoch || epoch.closed || !epoch.session || conversation.ws === null) {
+    if (!epoch || epoch.number !== work.receipt.epoch || epoch.closed || epoch.storageFailing || !epoch.session || conversation.ws === null) {
       return discard("The epoch this request belonged to has ended.");
     }
     if (work.receipt.turnId === undefined) return discard("The request never started a turn.");
@@ -1088,7 +1100,7 @@ export class ConversationHost {
     const epoch = conversation.epoch;
     // Frames already in flight when an epoch ended are expected; they are
     // dropped, never applied to the replacement.
-    if (!epoch || epoch.closed || !epoch.session || epoch.number !== epochNumber) return null;
+    if (!epoch || epoch.closed || epoch.storageFailing || !epoch.session || epoch.number !== epochNumber) return null;
     return { conversation, epoch, session: epoch.session };
   }
 
@@ -1099,6 +1111,16 @@ export class ConversationHost {
       });
     }
     this.send(conversation, { type: "conversation_work", ...work.receipt });
+  }
+
+  /** Freeze new ingress/admission while already observed text callbacks drain. */
+  storageFailing(ownerId: string): void {
+    for (const conversation of this.conversations.values()) if (conversation.historyOwnerId === ownerId) {
+      const epoch=conversation.epoch;
+      if (!epoch || epoch.closed || epoch.storageFailing) continue;
+      epoch.storageFailing=true;
+      try { void Promise.resolve(epoch.session?.close()).catch(()=>{}); } catch { /* The final close still fences the epoch. */ }
+    }
   }
 
   storageFailed(ownerId: string): void {
@@ -1112,8 +1134,11 @@ export class ConversationHost {
     if (frame.type === "conversation_event" && (frame.event.kind === "input_fragment" || frame.event.kind === "unassigned_input_fragment" || frame.event.kind === "output_transcript")) {
       const epoch = conversation.epoch;
       const connection = conversation.connection;
-      const retained = this.host.dialogue.voice(conversation.id, { kind: "voice", conversationId: conversation.id, epoch: frame.epoch, providerId: this.provider.id, ...(epoch?.model ? {model:epoch.model} : {}), ...(epoch?.api ? {api:epoch.api} : {}), event: frame.event }, () => {
-        if (conversation.ws && conversation.epoch === epoch && !epoch?.closed && connection?.authorization.valid && !connection.closed) this.host.sendMessage(conversation.ws, frame);
+      const retained = this.host.dialogue.voice(conversation.id, { kind: "voice", conversationId: conversation.id, epoch: frame.epoch, providerId: this.provider.id, ...(epoch?.model ? {model:epoch.model} : {}), ...(epoch?.api ? {api:epoch.api} : {}), event: frame.event }, (saved) => {
+        if (conversation.ws && conversation.epoch === epoch && !epoch?.closed && connection?.authorization.valid && !connection.closed) {
+          try { this.host.sendMessage(conversation.ws, saved ? frame : {...frame,retention:"unsaved"}); }
+          catch { /* Socket closure does not turn a committed record into unsaved text. */ }
+        }
       });
       if (retained) return;
     }

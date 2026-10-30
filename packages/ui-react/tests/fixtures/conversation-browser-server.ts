@@ -57,5 +57,5 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   await Bun.sleep(20);
   return Response.json({ frames: frames.splice(0), sent: sent.splice(0) });
 } });
-process.on("SIGTERM", () => { clearInterval(silence); host.coordinator.reset(); host.close(); db.close(); remote?.close(); upstream.stop(true); server.stop(true); process.exit(0); });
+process.on("SIGTERM", async () => { clearInterval(silence); host.coordinator.reset(); await host.close(); db.close(); remote?.close(); upstream.stop(true); server.stop(true); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

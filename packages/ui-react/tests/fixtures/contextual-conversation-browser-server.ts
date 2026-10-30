@@ -114,5 +114,5 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   await Bun.sleep(10);
   return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, effect: existsSync(join(root, "notes/contextual-raft.md")) });
 } });
-process.on("SIGTERM", async () => { release(); host.coordinator.reset(); host.close(); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
+process.on("SIGTERM", async () => { release(); host.coordinator.reset(); await host.close(); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

@@ -59,7 +59,7 @@ export class DialogueJournal {
   voice(
     conversationId: string,
     evidence: Extract<DialogueEvidence, { kind: "voice" }>,
-    after: () => void
+    after: (saved: boolean) => void
   ): boolean {
     const owner = this.conversations.get(conversationId);
     if (!owner) return false;
@@ -170,7 +170,7 @@ export class DialogueJournal {
     owner: DialogueOwner,
     identity: string,
     evidence: DialogueEvidence,
-    after?: () => void
+    after?: (saved: boolean) => void
   ): void {
     if (!this.catalog.dialogueAppend) return;
     const q = this.queues.get(owner.id) ?? { count: 0, bytes: 0 };
@@ -180,7 +180,9 @@ export class DialogueJournal {
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"
       );
-      after?.();
+      const prior = [...this.pending];
+      const done = Promise.allSettled(prior).then(() => after?.(false));
+      this.track(done, owner);
       this.failed(owner);
       return;
     }
@@ -195,25 +197,27 @@ export class DialogueJournal {
         identity,
         evidence,
       })
-      .then((record) => {
-        this.publish(
-          {
-            ownerId: owner.id,
-            ...(owner.session_id ? { sessionId: owner.session_id } : {}),
-            generation: owner.generation,
-            through: record.sequence,
-            records: [record],
-            coverage: owner.coverage,
-          },
-          owner.principal_id
-        );
-        after?.();
-      })
-      .catch((error) => {
-        // Preserve locally visible, explicitly unsaved evidence on storage failure.
-        after?.();
-        throw error;
-      })
+      .then(
+        (record) => {
+          this.publish(
+            {
+              ownerId: owner.id,
+              ...(owner.session_id ? { sessionId: owner.session_id } : {}),
+              generation: owner.generation,
+              through: record.sequence,
+              records: [record],
+              coverage: owner.coverage,
+            },
+            owner.principal_id
+          );
+          after?.(true);
+        },
+        (error) => {
+          // Preserve locally visible, explicitly unsaved evidence on storage failure.
+          after?.(false);
+          throw error;
+        }
+      )
       .finally(() => {
         q.count--;
         q.bytes -= bytes;

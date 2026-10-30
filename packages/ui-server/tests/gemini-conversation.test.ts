@@ -15,8 +15,8 @@ import { testPrincipal } from "./helpers/principal";
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
 const NativeWebSocket = WebSocket;
-let cleanup: (() => void) | undefined;
-afterEach(() => { cleanup?.(); cleanup = undefined; Object.defineProperty(globalThis, "WebSocket", original); });
+let cleanup: (() => void | Promise<void>) | undefined;
+afterEach(async () => { await cleanup?.(); cleanup = undefined; Object.defineProperty(globalThis, "WebSocket", original); });
 async function until(check: () => boolean): Promise<void> {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw new Error("transport condition timed out"); await Bun.sleep(1); }
@@ -505,7 +505,7 @@ test.each(["text", "binary"] as const)("real %s adapter and host keep chat progr
   } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: f.provider });
   const oldCleanup = cleanup!;
-  cleanup = () => { release(); host.coordinator.reset(); host.close(); db.close(); oldCleanup(); };
+  cleanup = async () => { release(); host.coordinator.reset(); await host.close(); db.close(); await oldCleanup(); };
   const handlers = createWsHandlers(host, testPrincipal());
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
@@ -610,7 +610,7 @@ test("contextual Gemini result requires the exact pre-dispatch binding and never
 for (const mode of ["missing", "duplicate", "queue", "aged", "no-audio", "storage", "request-identity", "binding", "submission", "authorization"] as const) test(`contextual refusals release native capacity: ${mode}`, async () => {
   const f = await fixture(true, true, false, "text", true);
   const oldCleanup = cleanup!;
-  await contextualRefusals("gemini", mode, f, close => { cleanup = () => { close(); oldCleanup(); }; });
+  await contextualRefusals("gemini", mode, f, close => { cleanup = async () => { await close(); await oldCleanup(); }; });
 });
 
 

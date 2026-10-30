@@ -131,7 +131,7 @@ for (const backendId of ["claude", "pi"] as const) {
             expect(calls, "LIVE_POLICY_NO_EFFECT_REPLAY").toBe(1);
           }
         } finally {
-          host.coordinator.reset(); host.close(); db.close(); rmSync(root, { recursive: true, force: true });
+          host.coordinator.reset(); await host.close(); db.close(); rmSync(root, { recursive: true, force: true });
         }
       });
     }
