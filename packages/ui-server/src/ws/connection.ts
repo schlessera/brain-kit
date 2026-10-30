@@ -106,6 +106,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           ...(host.inbox ? { inbox: true } : {}),
           // Offered to clients that declare it in client_hello (#957).
           toolResolution: true,
+          ...(host.catalog.dialogueRead ? { sessionDialogue: true } : {}),
           // `session_queue` to connections that declare it (#1002).
           followUpQueue: true,
           ...(host.conversations ? { liveConversation: true, conversationPause: true } : {}),

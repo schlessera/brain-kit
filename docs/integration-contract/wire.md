@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1036-1051`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1046-1061`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3775-3781`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1841-1843`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3783-3789`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1871-1873`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -1447,15 +1447,16 @@ delegations retain their existing work path. Explicit mismatches still close.
 Recognized speech is readable by default in Chat's shared arrival timeline,
 labelled **Recognized speech · [actual service] · unverified**, separately from
 voice-service generated replies, contextual host tasks and reviewed submissions.
-This adds client presentation only: no wire event, authenticated user message,
-provider history, input/output pairing or durable recognition transcript is created.
+The original #3050 slice added client presentation only. #3177 now retains
+text evidence under the durable-dialogue contract below; it still creates no
+authenticated user message, provider history or inferred input/output pairing.
 Unassigned `(conversationId, epoch, sequence)` and captured
 `(conversationId, epoch, utteranceId, sequence)` evidence have separate identity
 namespaces. The React root's transitive client state adds `recognition` evidence,
 `voiceDraft` provenance for the exact local draft revision, and optional source
 identity metadata. These are additive TypeScript state fields, recorded in the
-API report; no connection method, wire field or persisted transcript schema is
-added. Display ranks remain private to the root-owned timeline.
+API report. #3177 separately adds negotiated archival fields and committed
+host positions; the existing root-owned timeline remains the display projection.
 Equal words and overlapping/late session intervals do not deduplicate
 or reorder content. Exact deltas append without inserted spaces; after intervening
 content a new arrival segment retains provenance. Duplicates do not append.
@@ -1463,13 +1464,13 @@ Empty finish markers stay in recognition details without an empty bubble; native
 finish evidence is neither user finality nor permission authority. Timing unavailable
 and approximate provider intervals retain their actual meaning.
 
-Display evidence uses the existing fragment/character budgets, remains temporary,
-and is cleared on auth teardown; it is not restored from generated speech or
-inferred from a recovered draft. Explicit transfer/discard releases the corresponding
-text projection. Actual interim evidence does not survive Leave. Source eviction
-also releases display text and local anchors. UI windowing is separate from source
-retention. Stable local recognition anchors survive session adoption while retained,
-but have no durable deep-link guarantee. Both kinds of speech use the same Chat
+Live review/context caches retain their existing fragment/character budgets
+and clear on auth teardown. The separate #3177 archive retains exact observed
+evidence, including provisional interim text, without promoting finality or
+reconstructing recognition from generated speech/drafts. Draft transfer/Discard
+affects the candidate; it does not erase the archive. UI windowing and transient
+cache eviction are separate from durable retention. Canonical archive identities
+survive adoption/reload; no new public shared deep-link guarantee is added. Both kinds of speech use the same Chat
 window, reading order and tail-follow controls as backend entries. Host result
 backlinks use exact request/turn evidence only and reveal retained windowed requests;
 missing request evidence is labelled unavailable.
@@ -2167,3 +2168,94 @@ continue dialogue and wait for verified facts. These source configurations and
 keyless three-turn browser fixtures establish implementation behavior only.
 Live provider/account, audio, device and physical interruption qualification
 remain separate.
+
+### Durable live dialogue (breaking retention supersession, #3177)
+
+The October 30 maintainer ruling replaces #3050's temporary/no-reload promise:
+recognized text evidence and independently generated replies remain with their
+chat across Leave, selection, reload and host restart. Recognition (including
+provisional/interim evidence) is not authenticated operator text, final intent,
+a grant or a paired reply. Legacy draft editing/Discard/transfer still controls
+the draft candidate; it does not erase the archived discussion. Audio is not
+retained. This documented-meaning/privacy change is a pre-1.0 breaking minor.
+
+`server_hello.capabilities.sessionDialogue: true` advertises this support. Only
+connections declaring that flag receive `dialogue_history`. `dialogue_read`
+contains `requestId` and exactly one of `sessionId` or `ownerId`, with optional
+`generation` and opaque `cursor`. The response contains `ownerId`, optional
+backend `sessionId`, `generation`, snapshot high-water `through`, ordered
+`records`, `coverage` (`complete | legacy | partial`) and optional `before`/
+`cursor` for an earlier page. Numeric `before` alone is not a paging capability.
+Cursors bind owner, principal authorization, generation and high-water; they
+convey no authority. Each indexed page holds at most 200 records/128 KiB.
+Unavailable reads return `DIALOGUE_UNAVAILABLE`, not successful empty history.
+A chat predating retained dialogue receives `legacy` coverage, never invented
+spoken words reconstructed from its task prompt, JSON, draft or paraphrase.
+
+The host commits exact deltas and their position together through the existing
+operational database's FULL write worker. A single committed sequence orders
+recognized/generated evidence, task request positions and backend text-range
+witnesses. Range copies are only exact-content witnesses for backend-owned
+answers, never a second answer authority or native transcript rewrite. Invalid
+or missing native joins retain readable source text with unknown cross-stream
+position. Approximate provider intervals never determine display order.
+Captured and unassigned evidence retain separate identities. Original provider,
+observed model/API, conversation, epoch, output/utterance and delta sequence
+remain attached after engine switching. Empty finish evidence creates no empty
+speech row; generated text does not establish playback.
+
+The new client merges a correlated snapshot with already received live records
+above its high-water, deduplicating by committed identity/sequence. Earlier
+pages never execute tasks, play audio, grant permission, start capture or enter
+provider history. One root-owned transcript projection groups contiguous text
+and retains full semantic source for Markdown/classification/sharing/Retry.
+Each active archive cache holds up to 2,000 records, with at most eight chat
+pages; paging is separate from durable retention. Routine qualifiers use the
+shared transcript presentation; material missing/unsaved history stays readable.
+
+There is no automatic age expiry, rolling archive eviction or per-chat lifetime
+character cap. Old native conversation/receipt/output cache bounds do not prune
+this archive. Pending writes are limited to 256 observations/1 MiB per owner;
+individual archive payloads are at most 32 KiB. Actual no-space/quota or bounded
+queue failure stops the unsafe live path with `DIALOGUE_STORAGE` and an unsaved-
+tail explanation, retaining the last committed prefix. It neither marks a manual
+mute nor claims host effects were undone. Clean close drains admitted writes;
+a crash can lose an uncommitted tail, not acknowledged retained text.
+
+Before a backend names a session, a principal-owned host history owner retains
+the evidence without creating a backend turn. `conversation_opened` adds optional
+`historyOwnerId`/`historyGeneration`. A new `conversation_start.historyOwnerId`
+reopens such history without using it as a backend session ID. Exact host task
+adoption binds it atomically to the actual named session; aliases preserve issued
+owner references. A new plain `chat_message.historyOwnerId` supports the first
+typed task of a host-only history. It cannot accompany `sessionId`, share intake
+or handoff. Existing native ID/epoch/admission guards remain unchanged.
+
+`GET /api/sessions?includeRetainedConversations=true` adds an optional separate
+`retainedConversations` list of authenticated-owner host-only histories. Legacy
+`sessions` remains backend-resumable. New React clients give these histories a
+UI-only `dialogue:` key; that key is never submitted as a backend session ID.
+Opening retained history alone runs no task. Changed engine/destination still
+requires the ordinary disclosure and Start. Operational restore advances history
+generations; old cursors fail and generation changes invalidate capture consent.
+
+Migration `071_session_dialogue.sql` adds operational owners, source mappings,
+records and aliases, independent of `brain.db` and native provider history.
+Operational backup retains the archive under its exact-schema compatibility
+rules. Re-indexing Markdown cannot rebuild it. No current general chat-deletion
+route is invented: #3180 owns the unified explicit deletion lifecycle. Clearing
+browser state on authentication teardown does not delete retained chat history.
+
+#3178 separately owns authorized bounded historical provider input. This feature
+supplies canonical read/provenance data; it does not claim that the new engine
+received history, retained a result, comprehended it or replayed native work.
+
+
+For the first typed task from a provisional dialogue view, the client sends
+`historyOwnerId` instead of a fabricated backend session ID. Independent new-chat
+local exchanges remain in their draft. Once the authorized real task names its
+session, the host settles only the exact provisional composer draft: its current
+revision is consumed, while newer edits move with that same chat under a new
+revision. The separate unbound draft is untouched. This extends the existing
+draft acceptance/binding machinery; saving a draft grants no adoption authority.
+The UI-only target `dialogue:<ownerId>` is never a native backend session ID.

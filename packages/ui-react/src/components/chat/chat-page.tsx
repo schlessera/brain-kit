@@ -115,6 +115,8 @@ export function ChatPage() {
   const hasVoicePermission = useStore(root.connection.conversation.permissions.state, s => s.records.some(r => r.sessionId === sessionId && !!r.word));
   const timeline = useStore(transcriptTimelineFor(root.stores.chat).state, s => s.entries);
   const entries = useMemo(() => timeline.filter(entry => entry.sessionId === sessionId), [timeline, sessionId]);
+  const dialoguePage = useStore(root.connection.conversation.state, s => s.dialogue?.[sessionId ?? `dialogue:${s.profile?.historyOwnerId ?? ""}`]);
+  const dialogueNotice = useStore(root.connection.conversation.state, s => s.dialogueNotice);
   const hasVoiceOutput = entries.some(entry => entry.kind !== "message");
 
   const clearMessages = useChatStore((s) => s.clearMessages);
@@ -709,6 +711,10 @@ export function ChatPage() {
                   {...{ [READING_COLUMN_ATTR]: "" }}
                   className="mx-auto max-w-3xl divide-y divide-border/20"
                 >
+                  {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
+                  {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
+                  {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
+                  {dialoguePage && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}
                   {hiddenCount > 0 && (
                     <div className="flex justify-center py-3">
                       <Button
@@ -726,6 +732,7 @@ export function ChatPage() {
                     </div>
                   )}
                   {visibleEntries.map((entry) => {
+                    if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
                     if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
                     if (entry.kind === "voice-boundary") return <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
                     if (entry.kind === "recognition") {

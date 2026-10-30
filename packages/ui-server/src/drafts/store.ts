@@ -90,6 +90,8 @@ export interface AcceptDraftInput {
   sessionId: string;
   /** True when the message named an existing session; false for a new conversation. */
   resumed: boolean;
+  /** Host-authorized provisional chat adoption; never supplied by a draft-save caller. */
+  sourceSessionId?: string;
   requestId?: string;
   principalId: string;
 }
@@ -509,8 +511,17 @@ export function createDraftStore(
           ).run(draftId);
         }
         const row = readDraft(draftId);
-        if (!row || row.deleted_at !== null || row.revision !== revision) return "kept";
-        if (row.session_id !== (input.resumed ? input.sessionId : null)) return "kept";
+        if (!row || row.deleted_at !== null) return "kept";
+        const source = input.resumed ? input.sessionId : input.sourceSessionId ?? null;
+        if (row.session_id !== source) return "kept";
+        if (row.revision !== revision) {
+          // Edits made after submission stay with the same chat when its first
+          // real task names it. Version the ownership move for concurrent saves.
+          if (input.sourceSessionId && !input.resumed && input.requestId)
+            db.prepare("UPDATE session_drafts SET session_id=?,revision=?,updated_at=?,updated_by=? WHERE draft_id=?")
+              .run(input.sessionId,row.revision+1,at,input.principalId,draftId);
+          return "kept";
+        }
         tombstone(row, "sent", input.principalId, at);
         return "consumed";
       }).immediate();

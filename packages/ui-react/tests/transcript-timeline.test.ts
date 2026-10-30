@@ -3,6 +3,7 @@ import { createBrainUiRoot } from "../src/root.js";
 import { createTranscriptTimeline, transcriptMessage, transcriptRange, transcriptTimelineFor, type TranscriptEntry } from "../src/lib/transcript-timeline.js";
 
 function entryText(e: TranscriptEntry) {
+  if (e.kind === "history-notice") return e.label;
   if (e.kind === "voice-boundary") return "";
   if (e.kind === "recognition") return e.fragments.map(f => f.text).join("");
   if (e.kind === "speech") return e.output.generated;
@@ -250,4 +251,30 @@ test("finish-only evidence keeps its arrival position between contiguous deltas"
     expect(entryText(row)).toBe("Which note?");
     expect(row.kind === "recognition" && row.fragments.map(f => f.sequence)).toEqual([0, 1, 2]);
   } finally { root.dispose(); }
+});
+
+test("durable positions reconstruct mixed text without changing full semantic source or provider provenance",()=>{
+ const root=createBrainUiRoot({storage:null});
+ try{
+  const chat=root.stores.chat.getState();chat.addUserMessage("ithaca","Research the mast.","voice-context",undefined,{requestId:"request"});chat.startAssistantMessage("ithaca","turn");
+  const first="1. [Mast](notes/mast.md)\n",last="2. Sail\n";chat.appendText("ithaca",first+last);chat.finishAssistantMessage("ithaca");
+  const voice=root.connection.conversation.state;
+  const recognition=(sequence:number,text:string)=>({sequence,identity:`rec-${sequence}`,evidence:{kind:"voice" as const,conversationId:"original",epoch:1,providerId:"gemini-live",event:{kind:"unassigned_input_fragment" as const,sequence,text,timing:{kind:"unavailable" as const}}}});
+  voice.setState({dialogue:{ithaca:{ownerId:"original",sessionId:"ithaca",generation:1,through:7,coverage:"complete",records:[
+   recognition(1,"Find the mast."),
+   {sequence:2,identity:"request",evidence:{kind:"request",requestId:"request",turnId:"turn"}},
+   {sequence:3,identity:"range-1",evidence:{kind:"backend",turnId:"turn",start:0,end:first.length,text:first,digest:"a".repeat(64)}},
+   recognition(4,"While we wait."),
+   {sequence:5,identity:"range-2",evidence:{kind:"backend",turnId:"turn",start:first.length,end:first.length+last.length,text:last,digest:"b".repeat(64)}},
+   {sequence:6,identity:"output-1",evidence:{kind:"voice",conversationId:"original",epoch:1,providerId:"gemini-live",event:{kind:"output_transcript",outputId:"reply",sequence:0,text:"The mast "}}},
+   {sequence:7,identity:"output-2",evidence:{kind:"voice",conversationId:"original",epoch:1,providerId:"gemini-live",event:{kind:"output_transcript",outputId:"reply",sequence:1,text:"is ready."}}},
+  ]}},dialogueRestoredThrough:{ithaca:7}});
+  const entries=transcriptTimelineFor(root.stores.chat).state.getState().entries.filter(e=>e.sessionId==="ithaca");
+  expect(entries.map(entryText).filter(Boolean)).toEqual(["Find the mast.","Research the mast.",first,"While we wait.",last,"The mast is ready."]);
+  const answers=entries.filter(e=>e.kind==="message"&&e.section==="answer");expect(answers).toHaveLength(2);
+  const progressIndex=entries.findIndex(e=>e.kind==="message"&&e.section==="progress");
+  expect(progressIndex).toBeGreaterThan(0);expect(progressIndex).toBeLessThan(entries.indexOf(answers[0]!));
+  for(const e of answers){expect(transcriptRange(e)?.source.content).toBe(first+last);}
+  const reply=entries.find(e=>e.kind==="speech");expect(reply?.kind==="speech"&&reply.output.providerId).toBe("gemini-live");expect(reply?.kind==="speech"&&reply.restored).toBe(true);
+ }finally{root.dispose();}
 });

@@ -7,9 +7,9 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 // These two consumers import/re-export runStateForFrame only. They never
 // acquire the mutable chat handler map. Any consumer edit requires re-audit.
 const helperConsumers:Record<string,string>={
-  // Re-audited arrival observer and pre-voice delta flush: still only imports
+  // Re-audited retained-history routing and arrival observer: still only imports
   // runStateForFrame; no path acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/connection.ts":"9ed855a0fc25ed3925fe1cce52b56232b3df88855ab3e1440ec1af0cdae7ee76",
+  "packages/ui-react/src/connection.ts":"6c26acd6a0708f653a2a312f7f13c30a6f9e991d3355789b3f7fc961dffb67d8",
   "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
 };
 const declarations=[
@@ -42,7 +42,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "6f3e3171dea2792f5cb5d30f268ff471d1d34a062f2e0dbd916c847a8a8f143b"
+        "source": "6f326e9a67bafbda3f3939be28515aff5324d3cbe5e4a41949616a0fc73b202c"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

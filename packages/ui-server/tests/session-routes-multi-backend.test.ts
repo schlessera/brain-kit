@@ -6,7 +6,8 @@ import {
   test,
 } from "bun:test";
 import type { Database } from "bun:sqlite";
-import type { Hono } from "hono";
+import { Hono } from "hono";
+import type { AppEnv } from "../src/app-env.js";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
@@ -14,7 +15,7 @@ import { createSessionRoutes } from "../src/routes/sessions";
 import { makeFakeBackend } from "./helpers/fake-backend";
 
 let db: Database;
-let sessionRoutes: Hono;
+let sessionRoutes: Hono<AppEnv>;
 
 function setBackendsForTests(backends: AgentBackend[], defaultBackendId?: string) {
   sessionRoutes = createSessionRoutes({
@@ -160,4 +161,25 @@ describe("multi-backend session routes", () => {
     expect(claudeCalls).toEqual(["unknown"]);
     expect(geminiCalls).toEqual([]);
   });
+});
+
+
+test("retained host-only metadata pages without fabricating native sessions and fences the principal", async()=>{
+  setBackendsForTests([makeFakeBackend({id:"fixture",sessions:[]})]);
+  const insert=db.prepare("INSERT INTO dialogue_owners(id,principal_id,coverage,created_at) VALUES(?,?,'complete',?)");
+  for(let i=0;i<403;i++)insert.run(`ithaca-${String(i).padStart(4,"0")}`,"odysseus",i);
+  insert.run("other-owner","penelope",0);
+  const app=new Hono<AppEnv>();
+  app.use("*",async(c,next)=>{c.set("principal",{id:"odysseus",kind:"owner",authMethod:"password",label:"Odysseus",credentialId:null,createdBy:null,createdAt:0,expiresAt:Date.now()+10000,lastSeenAt:null,revokedAt:null});await next();});
+  app.route("/",sessionRoutes);
+  expect((await (await app.request("/sessions")).json()).retainedConversations).toBeUndefined();
+  const ids:string[]=[];let cursor:string|undefined;
+  do{
+    const response=await app.request(`/sessions?includeRetainedConversations=true${cursor?`&retainedAfter=${cursor}`:""}`);
+    expect(response.status).toBe(200);
+    const page=await response.json();expect(page.sessions).toEqual([]);
+    expect(page.retainedConversations.length).toBeLessThanOrEqual(200);
+    ids.push(...page.retainedConversations.map((r:{id:string})=>r.id));cursor=page.retainedAfter;
+  }while(cursor);
+  expect(ids).toHaveLength(403);expect(new Set(ids).size).toBe(403);expect(ids).not.toContain("other-owner");
 });

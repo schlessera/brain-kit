@@ -101,6 +101,7 @@ type RunSessionInput = {
   isRetry?: boolean;
   text: string;
   sessionId?: string;
+  historyOwnerId?: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
   providerId?: string;
@@ -173,8 +174,9 @@ function recordDraftExchanges(host: WsHost, sessionId: string, exchanges: readon
 
 export async function runSession(host: WsHost, initial: RunSessionInput): Promise<void> {
   if (host.closing) throw new Error("The host is shutting down; no new turn was started.");
-  const releaseAuthorization = initial.authorization.retain();
   const turnId = crypto.randomUUID();
+  if(initial.historyOwnerId && initial.authorization.valid) host.dialogue.adoptTurn(turnId,initial.historyOwnerId,initial.authorization.principalId);
+  const releaseAuthorization = initial.authorization.retain();
   const lifecycle = host.activity ? createTurnLifecycle(host.activity.store, turnId, initial.sessionId ?? null, Date.now(), () => host.activity!.stream.pump()) : undefined;
   const task = runRetainedSession(host, initial, turnId, lifecycle);
   host.turnTasks.add(task);
@@ -184,6 +186,7 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
     lifecycle?.finish("error", error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
+    host.dialogue.retireTurn(turnId);
     lifecycle?.finish("cancelled", "The session ended before backend entry");
     // Every early exit (cancelled while routing, revoked) lands here; a work
     // item that ran has settled already and ignores this.
@@ -1156,6 +1159,7 @@ export async function handleChatMessage(
     shareId?: string;
     text: string;
     sessionId?: string;
+    historyOwnerId?: string;
     attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
     providerId?: string;
@@ -1350,12 +1354,13 @@ export async function handleChatMessage(
     revision = acceptRequest(host, sessionId, requestId, host.catalog.getStoredBackendId(sessionId));
     host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
   }
-  void runSession(host, {
+  const running = runSession(host, {
     authorization,
     ...(msg.replayPrompt !== undefined ? { replayPrompt: msg.replayPrompt } : {}),
     ...(msg.isRetry ? { isRetry: true } : {}),
     text,
     ...(msg.shareId ? { shareId: msg.shareId } : {}),
+    ...(msg.historyOwnerId && !sessionId ? {historyOwnerId:msg.historyOwnerId} : {}),
     sessionId,
     attachments,
     ...(files?.length ? { files } : {}),
@@ -1372,4 +1377,6 @@ export async function handleChatMessage(
     ...(!sessionId && msg.handoffHooks ? { handoffHooks: msg.handoffHooks } : {}),
     ...(work ? { work } : {}),
   });
+  if(msg.historyOwnerId) void running.catch(()=>host.sendMessage(ws,{type:"error",code:"DIALOGUE_UNAVAILABLE",...(requestId?{requestId}:{}),message:"Retained conversation could not be adopted. Check task status before trying again."}));
+  else void running;
 }

@@ -1,3 +1,4 @@
+import { dialogueOwner, readDialogue, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
 import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -41,6 +42,14 @@ import { createGovernanceWrites, type GovernanceWrites } from "../governance/eve
  */
 export interface SessionCatalog {
   /** Host identity persistence, never an executable replay queue. */
+  dialogueOwnerForConversation?(conversationId:string,principalId:string): DialogueOwner | null;
+  dialogueOwnerForId?(ownerId:string,principalId:string): DialogueOwner | null;
+  dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+  dialogueClose?(conversationId:string,principalId:string,epoch:number,partial:boolean): Promise<void>;
+  dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
+  dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
+  dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
+  dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
   saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
   loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
@@ -260,6 +269,20 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
   return {
+    dialogueOwnerForConversation: (conversationId,principalId) => {
+      const row=db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null;
+      return row ? dialogueOwner(db(),{ownerId:row.owner_id},principalId) : null;
+    },
+    dialogueOwnerForId: (ownerId,principalId) => dialogueOwner(db(),{ownerId},principalId),
+    dialogueOwnerForSession: sessionId => {
+      const row = db().query("SELECT principal_id FROM dialogue_owners WHERE session_id=?").get(sessionId) as {principal_id:string}|null;
+      return row ? dialogueOwner(db(),{sessionId},row.principal_id) : null;
+    },
+    dialogueClose: (conversationId,principalId,epoch,partial) => submit("dialogueClose",conversationId,principalId,epoch,partial),
+    dialogueOpen: input => submit("dialogueOpen", input),
+    dialogueAppend: input => submit("dialogueAppend", input),
+    dialogueBind: (conversationId, principalId, sessionId) => submit("dialogueBind", conversationId, principalId, sessionId),
+    async dialogueRead(principalId, target) { await tail; return readDialogue(db(), principalId, target); },
     saveConversationEpoch: state => submit("conversationEpoch", state),
     saveConversationTask: (principalId, receipt, facts) => submit("conversationTask", principalId, receipt, facts),
     async loadConversation(id, principalId) { await tail; return loadConversation(db(), id, principalId); },

@@ -310,3 +310,30 @@ through that same endpoint transition before cancelling review timers. They do
 not cancel the output recovery deadline. Discard retires its reviewed fragments
 so a late final cannot restore discarded text or schedule a send. Mute also
 closes input before cancelling review timers, retaining manual capture intent.
+
+## Retained discussion — 2026-10-30 (#3177)
+
+The maintainer requires the complete recognized/generated discussion to remain
+visible when reopening its chat, on both Gemini Live and GPT Live, including
+same-chat engine changes. This explicitly supersedes #3050's temporary client
+presentation/no-durable-reload guarantee. Preserve exact uncertain evidence,
+not authenticated quotes or inferred input/reply pairs; generated and played
+remain independent. Draft editing/Discard controls the separate draft candidate.
+
+Dialogue stays with its chat. Display pages, provider context and pending-write
+memory have finite bounds; those are not permission to expire old dialogue or
+routinely stop ongoing conversation at a small archive cap. Actual storage/quota
+failure preserves the committed prefix and exposes the unsaved tail and recovery
+prerequisite. No general whole-chat deletion feature exists at this source;
+#3180 records that explicit lifecycle design rather than inventing expiry/UI.
+
+The existing operational catalog/write worker owns evidence and order metadata;
+the existing root timeline projects it. Native provider transcripts stay intact.
+Reopening history is read-only and conveys no native replay, tool admission or
+microphone consent. #3178 owns the separately authorized, bounded historical-data
+projection into a new provider epoch, preserving the same-conversation/earlier-
+epoch result guard. Rendering restored text proves no model receipt or recall.
+
+This is a recorded pre-1.0 breaking retention/privacy meaning change with additive
+negotiated fields, as specified in the integration contract. No paid qualification,
+provider capability promotion or release commitment follows from this ruling.

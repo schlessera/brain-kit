@@ -268,7 +268,7 @@ export async function makeBridge(
         }
         if (draftRef && !draftSettled) {
           draftSettled = true;
-          acceptDraft(host, { draftRef, sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
+          acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
         }
         if (pendingSessionNamed) {
           const named = pendingSessionNamed;
@@ -322,11 +322,12 @@ export async function makeBridge(
       // stay un-recorded — the recorder belongs to ONE turn identity.
       if (turn.turnId === turnId) recorder?.observeFrame(msg);
       const scoped = withTurnScope(msg, turn, turnId);
+      if (msg.type === "session_info") work?.observe(scoped);
       host.sendToClients(scoped);
       // Identity must reach the client before its first scoped journal receipt.
       // The journal publishes its receipt once the binding commits, after this frame.
       if (msg.type === "session_info" && turn.turnId === turnId) { void host.budgets?.bind(turnId, msg.sessionId).catch(() => { /* The turn's accounting is unavailable; its next observation stops it. */ }); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
-      work?.observe(scoped);
+      if (msg.type !== "session_info") work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late
         // frame through a previous turn's bridge must not relabel this one.

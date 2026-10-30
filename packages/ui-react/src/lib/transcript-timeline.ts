@@ -8,6 +8,7 @@ export type TranscriptEntry =
   | { key: string; sessionId: string | null; kind: "message"; message: ChatMessage; index: number; section: "whole" | "progress" | "answer"; start?: number; end?: number }
   | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean }
   | { key: string; sessionId: string | null; kind: "voice-boundary"; conversationId: string; epoch: number; label: "Voice ended" | "Voice reconnected" }
+  | {key:string;sessionId:string|null;kind:"history-notice";label:string}
   | { key: string; sessionId: string | null; kind: "recognition"; fragments: ConversationRecognition[] };
 
 /**
@@ -123,7 +124,65 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
         } else add("whole");
       });
     }
+    const emptyArchive: Array<{fragment:ConversationRecognition;sequence:number}> = [];
+    const archive = Object.entries(v.dialogue ?? {}).flatMap(([key,page]) => page.records.map(record => ({record,restored:record.sequence <= (v.dialogueRestoredThrough?.[key] ?? -1),sessionId:page.sessionId ?? (v.profile?.historyOwnerId === page.ownerId ? v.sessionId : key)})));
+    const archivedRecognition = new Set<string>();
+    const archivedOutput = new Set<string>();
+    const ordered = new Map<string,number>();
+    const backendRanges = new Map<string, Array<{sequence:number; start:number; end:number; text:string}>>();
+    for (const {record,sessionId,restored} of archive) {
+      const e = record.evidence;
+      if (e.kind === "voice") {
+        const event = e.event;
+        if (event.kind === "output_transcript") {
+          archivedOutput.add(JSON.stringify([e.conversationId,e.epoch,event.outputId]));
+          if (!event.text) continue;
+          const key = `dialogue:${record.sequence}`;
+          ordered.set(key,record.sequence);
+          const liveOutput = !restored ? v.outputs.find(o=>o.conversationId===e.conversationId && o.epoch===e.epoch && o.outputId===event.outputId) : undefined;
+          entries.push({key,sessionId,kind:"speech",restored,output:{...(liveOutput ?? {}),conversationId:e.conversationId,epoch:e.epoch,providerId:e.providerId,orderUnknown:false,outputId:event.outputId,generated:event.text,playback:liveOutput?.playback ?? "unknown",sessionId}});
+        } else {
+          const fragment: ConversationRecognition = {...event,conversationId:e.conversationId,epoch:e.epoch,providerId:e.providerId,sessionId,activation:e.epoch,contextual:true,restored,orderUnknown:false};
+          const key = recognitionIdentity(fragment);
+          archivedRecognition.add(key); ordered.set(key,record.sequence);
+          if (event.text) entries.push({kind:"recognition",key,sessionId,fragments:[fragment]});
+          else emptyArchive.push({fragment,sequence:record.sequence});
+        }
+      } else if (e.kind === "backend") {
+        const key = JSON.stringify([sessionId,e.turnId]);
+        const ranges = backendRanges.get(key) ?? []; ranges.push({sequence:record.sequence,...e}); backendRanges.set(key,ranges);
+      } else if (e.kind === "request") {
+        const matching = entries.filter(en => en.kind === "message" && en.sessionId === sessionId && (en.message.turnId === e.turnId || en.message.streamTurnId === e.turnId || e.requestId && en.message.requestId === e.requestId));
+        const hasRanges = archive.some(item=>item.sessionId===sessionId && item.record.evidence.kind === "backend" && item.record.evidence.turnId===e.turnId);
+        if (hasRanges) for (const entry of matching) {
+          if (entry.kind === "message" && entry.section !== "answer") ordered.set(entry.key,record.sequence);
+        }
+        else if (matching.length && !entries.some(en=>en.key===`dialogue-gap:${sessionId}`)) entries.push({key:`dialogue-gap:${sessionId}`,sessionId,kind:"history-notice",label:"Original discussion position unknown."});
+      }
+    }
+    // A range is only a position witness for exact backend-owned text. Never
+    // render its copy as an independent answer or rewrite a native transcript.
+    for (const [key,ranges] of backendRanges) {
+      const [sid,turnId] = JSON.parse(key) as [string,string];
+      const messageEntry = entries.find(en => en.kind === "message" && en.sessionId === sid && en.message.role === "assistant" && (en.message.turnId === turnId || en.message.streamTurnId === turnId));
+      if (!messageEntry || messageEntry.kind !== "message") {
+        const gapKey=`dialogue-gap:${sid}`;
+        if (!entries.some(e=>e.key===gapKey)) entries.push({key:gapKey,sessionId:sid,kind:"history-notice",label:"Original discussion position unknown."});
+        continue;
+      }
+      const text = messageEntry.message.parts.filter(p => p.kind === "text").map(p => p.text).join("");
+      if (!ranges.every(r => text.slice(r.start,r.end) === r.text)) {
+        entries.push({key:`dialogue-gap:${sid}`,sessionId:sid,kind:"history-notice",label:"Original discussion position unknown."}); continue;
+      }
+      for (let i=entries.length-1;i>=0;i--) if (entries[i]!.kind === "message" && (entries[i] as Extract<TranscriptEntry,{kind:"message"}>).message === messageEntry.message && (entries[i] as Extract<TranscriptEntry,{kind:"message"}>).section !== "progress") entries.splice(i,1);
+      if (!entries.some(en=>en.kind === "message" && en.message === messageEntry.message)) entries.push({...messageEntry,section:"progress"});
+      for (const r of ranges) {
+        const arrivalKey = `dialogue:${r.sequence}`; ordered.set(arrivalKey,r.sequence);
+        entries.push({...messageEntry,key:arrivalKey,section:"answer",start:r.start,end:r.end});
+      }
+    }
     for (const output of voice.getState().outputs) {
+      if (archivedOutput.has(JSON.stringify([output.conversationId,output.epoch,output.outputId]))) continue;
       if (!output.generated) continue;
       const key = JSON.stringify(["speech", output.conversationId, output.epoch, output.outputId]);
       liveRuns.add(key);
@@ -136,6 +195,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     const empty: ConversationRecognition[] = [];
     for (const fragment of v.recognition) {
       const key = recognitionIdentity(fragment);
+      if (archivedRecognition.has(key)) continue;
       position(key);
       if (!fragment.text && !fragment.moved) { empty.push(fragment); continue; }
       entries.push({ kind: "recognition", key, sessionId: fragment.sessionId, fragments: [fragment] });
@@ -148,13 +208,20 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       boundary.sessionId = recognition?.sessionId ?? output?.sessionId ?? boundary.sessionId;
       entries.push(boundary);
     }
-    entries.sort((a, b) => position(a.key) - position(b.key));
+    const rank = (key:string) => ordered.get(key) ?? (position(key)-Number.MAX_SAFE_INTEGER);
+    entries.sort((a, b) => rank(a.key) - rank(b.key));
     const stream = (f: ConversationRecognition) => JSON.stringify([f.conversationId, f.epoch, f.kind, f.kind === "input_fragment" ? f.utteranceId : null]);
     const grouped: TranscriptEntry[] = [];
     for (const entry of entries) {
       const tail = grouped.at(-1);
       if (entry.kind === "recognition" && tail?.kind === "recognition" && stream(entry.fragments[0]!) === stream(tail.fragments[0]!)) tail.fragments.push(...entry.fragments);
+      else if (entry.kind === "speech" && tail?.kind === "speech" && entry.sessionId === tail.sessionId && entry.output.conversationId === tail.output.conversationId && entry.output.epoch === tail.output.epoch && entry.output.outputId === tail.output.outputId && entry.restored === tail.restored) tail.output = {...tail.output,generated:tail.output.generated+entry.output.generated};
+      else if (entry.kind === "message" && entry.section === "answer" && tail?.kind === "message" && tail.section === "answer" && entry.message === tail.message && tail.end === entry.start) tail.end=entry.end;
       else grouped.push(entry);
+    }
+    for (const {fragment,sequence} of emptyArchive) {
+      const own = grouped.findLast(e=>e.kind === "recognition" && stream(e.fragments[0]!) === stream(fragment) && (ordered.get(e.key) ?? Infinity) < sequence);
+      if (own?.kind === "recognition") own.fragments.push(fragment);
     }
     // Finish-only evidence belongs in details, never an empty speech bubble or
     // a new arrival slot. Keep it with the most recent retained matching source.
@@ -162,7 +229,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       const own = grouped.findLast(e => e.kind === "recognition" && stream(e.fragments[0]!) === stream(fragment) && position(e.key) < position(recognitionIdentity(fragment)));
       if (own?.kind === "recognition") own.fragments.push(fragment);
     }
-    for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => position(recognitionIdentity(a)) - position(recognitionIdentity(b)));
+    for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => rank(recognitionIdentity(a)) - rank(recognitionIdentity(b)));
     // Preserve positions across partial history chunks, but do not retain the
     // identities of evicted sessions/outputs for the lifetime of a mounted app.
     if (!buffers.some(([, buffer]) => buffer?.replay)) {
@@ -187,7 +254,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       position(key); latest.set(next.sessionId, key);
       boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: reconnect ? "Voice reconnected" : "Voice ended" });
     }
-    if (next.profile !== old.profile || next.recognition !== old.recognition || next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId) sync(); });
+    if (next.profile !== old.profile || next.recognition !== old.recognition || next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId || next.dialogue !== old.dialogue) sync(); });
   sync();
   return { state, dispose() { stopChat(); stopVoice(); positions.clear(); boundaries.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
 }

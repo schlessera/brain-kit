@@ -23,6 +23,12 @@ tombstones, checkpoints, strict stored option effects and Action contexts,
 resolutions and deterministic follow-ups, suppressions, change cursors and
 sequences, claims/leases/attempts/blocked links, intake receipts, completed-tool
 receipts, frozen budget reservations and settlement, and scheduler heartbeats.
+Retained live text evidence and its immutable original provider/epoch/order
+metadata travel with the same image. Restore advances history generations and
+marks incomplete continuity explicitly; it restores no microphone consent,
+audio, executable native response or permission grant. Re-indexing Markdown
+cannot recreate missing dialogue.
+
 Activity spans/rollups preserve observed spend; principal records preserve
 identity attribution. Other UI state, including sessions, authentication
 records and settings, travels with the same image. The turn journal keeps its

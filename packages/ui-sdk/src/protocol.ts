@@ -139,6 +139,7 @@ export type ClientMessage =
   | ClientInboxSnooze
   | ClientInboxSubscribe
   | ClientInboxUnsubscribe
+  | ClientDialogueRead
   | ClientConversationStart
   | ClientConversationAudio
   | ClientConversationEndpoint
@@ -180,6 +181,8 @@ export interface SessionWorkerProfile {
 }
 
 export interface ClientChatMessage {
+  /** Bind a retained host-only conversation to the first real backend session. */
+  historyOwnerId?: string;
   /** Authenticated share intake to bind at interactive start, never an item grant. */
   shareId?: string;
   type: "chat_message";
@@ -822,6 +825,7 @@ export type ServerMessage =
   | InboxDelta
   | ServerToolResolution
   | ServerSessionQueue
+  | ServerDialogueHistory
   | ServerConversationOpened
   | ServerConversationClosed
   | ServerConversationEvent
@@ -2068,6 +2072,8 @@ export interface ConversationOutputRecord {
 
 /** Client → Server. Open a conversation, or a new epoch of an existing one. */
 export interface ClientConversationStart {
+  /** Resume retained host-only history without pretending it is a backend session. */
+  historyOwnerId?: string;
   /** New clients opt into the provider capability; older clients stay reviewed. */
   contextualTasks?: boolean;
   type: "conversation_start";
@@ -2145,6 +2151,8 @@ export interface ClientConversationStop {
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
 export interface ServerConversationOpened {
+  historyGeneration?: number;
+  historyOwnerId?: string;
   type: "conversation_opened";
   /** Client start identity, echoed for this opening attempt, including a failed open. */
   requestId?: string;
@@ -3802,3 +3810,39 @@ export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-j
 export type { StorageCoverage, StorageOwner, StorageBytes, StorageRoot, StorageCapacityView, StorageFileEntry, StorageSnapshot, StorageStatus, StoragePage, StorageFilter, StorageReferenceEvidence, StorageMaintenanceKind, StorageMaintenanceRequest, StorageMaintenanceItem, StorageMaintenanceObservation, StorageMaintenanceReceipt, StorageMaintenanceRow, StorageTreeNode, StorageTreeFilter, StorageTreePage } from "./storage.js";
 export type { StorageRemovalInspection, StorageRemovalReviewRequest, StorageRemovalStartRequest, StorageRemovalUndoRequest, StorageRemovalFile, StorageRemovalReview, StorageRemovalItem, StorageRemovalReceipt, StorageRemovalCapability } from "./storage-removal.js";
 export type { StorageHistoryTier, StorageSeverity, StorageEvidenceReason, StorageObservedRate, StorageScenario, StorageCapacityEvidence, StorageHistoryCapacity, StorageHistoryObservation, StorageHistoryResponse, StoragePressureView, StorageGuidanceResponse } from "./storage-guidance.js";
+
+/** Retained text evidence, never a provider-native transcript or replay instruction. */
+export type DialogueEvidence =
+  | { kind: "voice"; conversationId: string; epoch: number; providerId: string; model?:string; api?:string;
+      event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" | "output_transcript" }> }
+  | { kind: "request"; turnId: string; requestId?: string }
+  | { kind: "backend"; turnId: string; start: number; end: number; digest: string; text: string };
+export interface DialogueRecord {
+  sequence: number;
+  identity: string;
+  evidence: DialogueEvidence;
+}
+export interface DialoguePage {
+  cursor?: string;
+  ownerId: string;
+  sessionId?: string;
+  generation: number;
+  through: number;
+  records: DialogueRecord[];
+  before?: number;
+  coverage: "complete" | "legacy" | "partial";
+}
+export interface ClientDialogueRead {
+  cursor?: string;
+  type: "dialogue_read";
+  requestId: string;
+  sessionId?: string;
+  ownerId?: string;
+  before?: number;
+  through?: number;
+  generation?: number;
+}
+export interface ServerDialogueHistory extends DialoguePage {
+  type: "dialogue_history";
+  requestId?: string;
+}

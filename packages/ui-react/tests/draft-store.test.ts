@@ -671,3 +671,15 @@ test("Edit of an unconfirmed session send returns to its branch after opening th
   expect(state().drafts[state().idFor(ITHACA)]!.text).toBe("Telemachus checks the harbour");
   expect(state().drafts[original]!.text).toBe("Penelope keeps the loom");
 });
+
+
+test("an exact accepted provisional dialogue draft moves without adopting the independent new-chat draft",()=>{
+ const store=createDraftStore();const d=store.getState();
+ const fresh=d.idFor(null);d.edit(fresh,null,{text:"Independent plan."});
+ const own=d.idFor("dialogue:ithaca");d.edit(own,"dialogue:ithaca",{text:"Find the mast."});
+ d.associateVoice(own,"voyage","accepted","dialogue:other");
+ expect(store.getState().drafts[own]?.sessionId).toBe("dialogue:ithaca");
+ d.associateVoice(own,"voyage","accepted","dialogue:ithaca");
+ expect(store.getState().drafts[own]?.sessionId).toBe("voyage");
+ expect(store.getState().drafts[fresh]).toMatchObject({sessionId:null,text:"Independent plan."});
+});

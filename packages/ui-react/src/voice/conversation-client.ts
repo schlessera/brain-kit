@@ -2,11 +2,12 @@ import { createConversationRecovery } from "./conversation-recovery.js";
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ServerMessage, ServerConversationOpened, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
+  orderUnknown?: boolean;
   providerId?: string;
   conversationId: string;
   sessionId: string | null;
@@ -26,13 +27,15 @@ export interface UnassignedRecognition {
   finalization?: "final" | "unknown";
 }
 
-/** Bounded local source evidence; never a submitted chat message or persisted history. */
+/** Display evidence from transient capture or retained text; never an authenticated user message. */
 export type ConversationRecognition = Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }> & {
   sessionId: string | null;
   conversationId: string;
   epoch: number;
   providerId: string;
   activation: number;
+  restored?: boolean;
+  orderUnknown?: boolean;
   moved?: true;
   contextual: boolean;
 };
@@ -66,6 +69,9 @@ export interface ConversationClientState {
   unassigned: UnassignedRecognition[];
   recognition: ConversationRecognition[];
   unassignedWork: number;
+  dialogue: Record<string, DialoguePage>;
+  dialogueNotice: string;
+  dialogueRestoredThrough: Record<string,number>;
 }
 
 // Local presentation metadata is neither wire state nor a public output field.
@@ -79,7 +85,23 @@ function outputInSession(output: ConversationClientOutput, sessionId: string) {
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
 export function createConversationClient(root: BrainUiServices, send: (message: ClientMessage) => boolean, answer: (sessionId: string | null, text: string) => boolean) {
-  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0 }));
+  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
+  let durableAvailable = false;
+  let dialoguePrincipalKey:string|undefined;
+  const dialogueReads = new Map<string, { key: string; older: boolean }>();
+  function historyOwnerFor(key:string):string|undefined {
+    return root.stores.chat.getState().historyOwners[key];
+  }
+  function loadDialogue(key: string, older: boolean = false) {
+    if (!durableAvailable || [...dialogueReads.values()].some(r => r.key === key)) return;
+    const page = state.getState().dialogue[key];
+    if (older && !page?.before) return;
+    const requestId = crypto.randomUUID();
+    dialogueReads.set(requestId, { key, older });
+    const sent=send({ type: "dialogue_read", requestId, ...(historyOwnerFor(key) ? { ownerId: historyOwnerFor(key) } : {sessionId: key}),
+      ...(older && page ? {cursor:page.cursor, generation: page.generation} : {}) });
+    if(!sent)dialogueReads.delete(requestId);
+  }
   let generation = 0;
   let disposed = false;
   let requested = false;
@@ -207,7 +229,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     // still invalidate consent. Sort fields so roster serialization order does not.
     const effectiveId = profile.agentProviderId ?? entryProfileId;
     const entryProfile = root.stores.provider.getState().available.find(p => p.id === effectiveId);
-    return JSON.stringify([profile.providerId, profile.disclosure, root.apiBase(), entryProfileId, effectiveId,
+    return JSON.stringify([profile.providerId, profile.historyGeneration ?? 1, profile.disclosure, root.apiBase(), entryProfileId, effectiveId,
       entryProfile ? Object.entries(entryProfile).sort(([a], [b]) => a.localeCompare(b)) : null]);
   }
   function requireCurrentDisclosure() {
@@ -301,11 +323,17 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   function leave() {
     clearClosedNotice();
     if (!state.getState().active) return;
+    const retainedOwner = scope()?.historyOwnerId;
     entryLifetime++;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
     state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.finalization !== "interim") }));
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
+    if (retainedOwner && !state.getState().sessionId) {
+      const key = `dialogue:${retainedOwner}`;
+      root.stores.chat.getState().setHistoryOwner(key, retainedOwner);
+      root.stores.chat.getState().setActiveSession(key);
+    }
   }
   function startEpoch() {
     if (disposed || !state.getState().active || requested || openingId || (typeof document !== "undefined" && document.hidden) || root.stores.connection.getState().wsStatus !== "connected") return;
@@ -318,7 +346,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     sequence = 0; utterance = null; ended = false; clearTimers(); resetRecovery();
     const s = state.getState();
     openingId = crypto.randomUUID(); openingEntry = entryLifetime;
-    send({ type: "conversation_start", contextualTasks: true, requestId: openingId, ...(!s.sessionId && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId ? { sessionId: s.sessionId } : {}) });
+    send({ type: "conversation_start", contextualTasks: true, requestId: openingId, ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
   }
   async function capture() {
     const profile = scope();
@@ -429,8 +457,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const p = scope();
     if (!s.active || work.provenance !== "contextual" || work.state !== "running" || !work.turnId
       || p?.conversationId !== work.conversationId || p.epoch !== work.epoch
-      || s.sessionId !== null || root.stores.chat.getState().activeSessionId !== null) return;
-    state.setState({ sessionId,
+      || s.sessionId !== null && !historyOwnerFor(s.sessionId) || root.stores.chat.getState().activeSessionId !== s.sessionId) return;
+    const provisionalKey = s.sessionId;
+    const priorPage = provisionalKey ? s.dialogue[provisionalKey] : undefined;
+    state.setState({ sessionId, ...(priorPage ? {dialogue:{...Object.fromEntries(Object.entries(s.dialogue).filter(([key])=>key!==provisionalKey)),[sessionId]:{...priorPage,sessionId}}} : {}),
       recognition: s.recognition.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
       outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? outputInSession(o, sessionId) : o),
       unassigned: s.unassigned.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
@@ -442,6 +472,62 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
   function frame(message: ServerMessage): ServerMessage | null {
     permissions.frame(message);
+    if (message.type === "server_hello") {
+      if(dialoguePrincipalKey !== undefined && dialoguePrincipalKey !== message.principalKey){dialogueReads.clear();state.setState({dialogue:{},dialogueRestoredThrough:{},dialogueNotice:""});}
+      dialoguePrincipalKey=message.principalKey;
+      durableAvailable = message.capabilities?.sessionDialogue === true;
+    }
+    if (message.type === "session_info") loadDialogue(message.sessionId);
+    if (message.type === "dialogue_history") {
+      const read = message.requestId ? dialogueReads.get(message.requestId) : undefined;
+      if (message.requestId && !read) return null;
+      if (message.requestId) dialogueReads.delete(message.requestId);
+      const key = message.sessionId ?? read?.key ?? `dialogue:${message.ownerId}`;
+      if(!message.sessionId) root.stores.chat.getState().setHistoryOwner(key,message.ownerId);
+      const selected=root.stores.chat.getState().activeSessionId;
+      if(message.sessionId && selected && historyOwnerFor(selected) && state.getState().dialogue[selected]?.ownerId === message.ownerId){
+        const oldBuffer=root.stores.chat.getState().buffers[selected];
+        if(state.getState().sessionId===selected) state.setState({sessionId:message.sessionId});
+        if(oldBuffer)root.stores.chat.getState().setMessages(message.sessionId,oldBuffer.messages);
+        root.stores.chat.getState().setActiveSession(message.sessionId);
+      }
+
+      if (read && read.key !== key && !historyOwnerFor(read.key)) return null;
+      if(read && historyOwnerFor(read.key) && message.sessionId && selected === read.key){
+        root.stores.chat.getState().setActiveSession(message.sessionId);
+        send({type:"session_resume",sessionId:message.sessionId});
+      }
+      if (read && historyOwnerFor(read.key) && !message.sessionId) {
+        root.stores.chat.getState().setMessages(read.key, []);
+        root.stores.chat.getState().noteHistoryLoaded(read.key);
+        // There is deliberately no backend transcript or synthetic turn.
+      }
+      let refreshCursor=false;
+      state.setState(current => {
+        const old = current.dialogue[key] ?? Object.values(current.dialogue).find(p=>p.ownerId===message.ownerId);
+        if (old && old.generation !== message.generation && !read) return current;
+        const merged = new Map<number, DialogueRecord>();
+        // A new snapshot replaces old pages, retaining a live tail above H.
+        if (old && old.generation === message.generation) for (const r of old.records) if (!read || read.older || r.sequence > message.through) merged.set(r.sequence, r);
+        for (const r of message.records) merged.set(r.sequence, r);
+        let records = [...merged.values()].sort((a,b) => a.sequence-b.sequence);
+        const overflow = records.length > 2000;
+        if(overflow && !read) refreshCursor=true;
+        if (overflow) records = read?.older ? records.slice(0,2000) : records.slice(-2000);
+        const page = {...message, through: Math.max(old?.generation === message.generation ? old.through : 0,message.through), records,
+          before: read ? message.before : old?.before, cursor:read ? message.cursor : old?.cursor,
+          ...(overflow && !read?.older ? {before:message.before ?? old?.before} : {})};
+        const entries = Object.entries({...current.dialogue,[key]:page}).filter(([k,p])=>k===key || (k!==read?.key && p.ownerId!==message.ownerId)).slice(-8);
+        return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: message.coverage === "partial" ? "Earlier conversation history is incomplete." : ""};
+      });
+      if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
+      return null;
+    }
+    if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE")) {
+      if (message.requestId) dialogueReads.delete(message.requestId);
+      if (message.code === "DIALOGUE_STORAGE" && state.getState().active) pause(false, false);
+      state.setState({dialogueNotice: message.message}); return null;
+    }
     if (message.type === "server_hello") state.setState({ available: message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true });
     if (message.type === "session_info" && message.requestId) {
       const work = state.getState().work[message.requestId];
@@ -475,7 +561,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         if (s.active) queueMicrotask(startEpoch);
         return null;
       }
-      if (message.type === "conversation_closed") { closedNotice = closeDiagnostic(message.reason); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
+      if (message.type === "conversation_closed") { closedNotice = message.message ?? closeDiagnostic(message.reason); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
     } else if (message.type === "conversation_opened") return null;
     if (message.type === "conversation_work") {
       const p = scope();
@@ -524,8 +610,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (message.reason === "stopped") {
         suspend(); startEpoch();
       } else if (message.reason === "disconnected" || message.reason === "provider_closed") {
-        closedNotice = closeDiagnostic(message.reason); suspend(); startEpoch();
-      } else { closedNotice = closeDiagnostic(message.reason); pause(true); }
+        closedNotice = message.message ?? closeDiagnostic(message.reason); suspend(); startEpoch();
+      } else { closedNotice = message.message ?? closeDiagnostic(message.reason); pause(true); }
       return null;
     }
     if (message.type !== "conversation_event") return null;
@@ -602,6 +688,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   });
   const unwatchProvider = root.stores.provider.subscribe(() => { requireCurrentDisclosure(); });
   const unwatchConnection = root.stores.connection.subscribe((next, previous) => {
+    if(next.wsStatus !== previous.wsStatus && next.wsStatus !== "connected") dialogueReads.clear();
     if (!state.getState().active || next.wsStatus === previous.wsStatus) return;
     if (next.wsStatus !== "connected") suspend();
     else { state.setState({ connection: "Reconnecting" }); startEpoch(); announce(consent ? "Reconnected. Restoring listening." : "Reconnected. Microphone off."); }
@@ -620,8 +707,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     else if (consent) void capture();
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
-  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
+  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, dialogue: {}, dialogueRestoredThrough: {}, dialogueNotice: "", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
   return {
+    loadDialogue, historyOwnerFor,
     state, frame, permissions,
     attachControls() {
       controlOwners++;

@@ -333,6 +333,7 @@ signatures (every public export and the types it is made of)
     }): import("react").JSX.Element;
   ConversationClientOutput (packages/ui-react/src/voice/conversation-client.ts)
     export interface ConversationClientOutput extends ConversationOutputRecord {
+        orderUnknown?: boolean;
         providerId?: string;
         conversationId: string;
         sessionId: string | null;
@@ -363,6 +364,9 @@ signatures (every public export and the types it is made of)
         unassigned: UnassignedRecognition[];
         recognition: ConversationRecognition[];
         unassignedWork: number;
+        dialogue: Record<string, DialoguePage>;
+        dialogueNotice: string;
+        dialogueRestoredThrough: Record<string, number>;
     }
   ConversationRecognition (packages/ui-react/src/voice/conversation-client.ts)
     export type ConversationRecognition = Extract<ConversationWireEvent, {
@@ -373,6 +377,8 @@ signatures (every public export and the types it is made of)
         epoch: number;
         providerId: string;
         activation: number;
+        restored?: boolean;
+        orderUnknown?: boolean;
         moved?: true;
         contextual: boolean;
     };
@@ -1183,7 +1189,12 @@ signatures (every public export and the types it is made of)
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<SessionRecoveryResult>;
-        sessions: () => Promise<{
+        sessions: (retainedAfter?: string) => Promise<{
+            retainedAfter?: string;
+            retainedConversations?: {
+                created_at: number;
+                id: string;
+            }[];
             sessions: Array<{
                 backendId?: string;
                 createdAt: number;
@@ -1193,6 +1204,7 @@ signatures (every public export and the types it is made of)
                     sessionId: string;
                     title: null | string;
                 };
+                historyOwnerId?: string;
                 id: string;
                 label?: string;
                 lastActiveAt: number;
@@ -1330,7 +1342,9 @@ signatures (every public export and the types it is made of)
             dispose(): void;
             enter(): void;
             frame: (message: ServerMessage) => ServerMessage | null;
+            historyOwnerFor: (key: string) => string | undefined;
             leave: () => void;
+            loadDialogue: (key: string, older?: boolean) => void;
             mute(): void;
             permissions: {
                 clear(): void;
@@ -1389,6 +1403,8 @@ signatures (every public export and the types it is made of)
     export function hasPendingShare(state: ShareShellState): boolean;
   hasUnsentText (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export function hasUnsentText(): boolean;
+  historyOwnerFor (packages/ui-react/src/voice/conversation-client.ts)
+    function historyOwnerFor(key: string): string | undefined;
   inlineMermaidDiagrams (packages/ui-react/src/lib/mermaid.ts)
     export function inlineMermaidDiagrams(markdown: string, theme?: MermaidTheme): Promise<string>;
   input (packages/ui-react/src/voice/conversation-permissions.ts)
@@ -1397,6 +1413,8 @@ signatures (every public export and the types it is made of)
     }>): boolean;
   leave (packages/ui-react/src/voice/conversation-client.ts)
     function leave(): void;
+  loadDialogue (packages/ui-react/src/voice/conversation-client.ts)
+    function loadDialogue(key: string, older?: boolean): void;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
   quiet (packages/ui-react/src/voice/conversation-permissions.ts)
@@ -1642,7 +1660,12 @@ signatures (every public export and the types it is made of)
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
-        sessions: () => Promise<{
+        sessions: (retainedAfter?: string) => Promise<{
+            retainedAfter?: string;
+            retainedConversations?: {
+                created_at: number;
+                id: string;
+            }[];
             sessions: Array<{
                 backendId?: string;
                 createdAt: number;
@@ -1652,6 +1675,7 @@ signatures (every public export and the types it is made of)
                     sessionId: string;
                     title: null | string;
                 };
+                historyOwnerId?: string;
                 id: string;
                 label?: string;
                 lastActiveAt: number;

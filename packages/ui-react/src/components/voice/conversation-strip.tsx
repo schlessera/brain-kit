@@ -90,7 +90,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         {profile?.capabilities.contextualTasks === "supported"
           ? <p>Brain can start permitted background tasks from the conversation and share results while you keep talking. Actions that need confirmation use the same screen cards as typed requests. Recognition may be uncertain; speech cannot approve an action.</p>
           : profile?.capabilities.finalTranscript !== "supported" && <p>Automatic tasks aren't available with this service. Review recognized text and use Send now.</p>}
-        <p>Live recognition is temporary and may be unavailable after reload.</p>
+        <p>{profile?.historyOwnerId ? "Recognized speech and generated voice replies are saved as text with this chat. This feature does not save audio. Reopening text does not replay audio or prove the voice service received this history." : "Live recognition is temporary and may be unavailable after reload."}</p>
         <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
         {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}
         {s.notice && <p>{s.notice}</p>}

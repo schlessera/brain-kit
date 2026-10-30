@@ -9,7 +9,7 @@ import type { WsHost } from "./host.js";
  */
 export function acceptDraft(
   host: WsHost,
-  input: { draftRef?: DraftRef; sessionId: string; resumed: boolean; requestId?: string; principalId: string }
+  input: { draftRef?: DraftRef; sourceSessionId?: string; sessionId: string; resumed: boolean; requestId?: string; principalId: string }
 ): void {
   const { draftRef } = input;
   if (!host.drafts || !draftRef) return;
@@ -24,6 +24,7 @@ export function acceptDraft(
   try {
     const done = host.drafts.accept({
       draftRef,
+      ...(input.sourceSessionId ? { sourceSessionId: input.sourceSessionId } : {}),
       sessionId: input.sessionId,
       resumed: input.resumed,
       ...(input.requestId ? { requestId: input.requestId } : {}),

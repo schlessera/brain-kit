@@ -88,6 +88,8 @@ interface Work {
 interface ContextFragment { key: string; text: string; kind: "recognition" | "generated"; at: number }
 
 interface Epoch {
+  model?: string;
+  api?: string;
   contextualTasks: boolean;
   context: ContextFragment[];
   contextDigests: Set<string>;
@@ -109,6 +111,8 @@ interface Epoch {
 }
 
 interface Conversation {
+  historyOwnerId?: string;
+  historyGeneration?: number;
   lastEpoch: number;
   id: string;
   agentProviderId?: string;
@@ -245,6 +249,10 @@ export class ConversationHost {
     const scope = { conversationId: conversation.id, epoch: epoch.number };
     let session: LiveConversationSession;
     try {
+      const owner = await this.host.dialogue.open({ conversationId: conversation.id, principalId, epoch: epoch.number, providerId: this.provider.id,
+        ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(msg.historyOwnerId ? { historyOwnerId: msg.historyOwnerId } : {}) });
+      if (owner) {conversation.historyOwnerId = owner.id;conversation.historyGeneration=owner.generation;}
+      if (epoch.closed || connection.closed || !connection.authorization.valid) return;
       await this.host.catalog.saveConversationEpoch?.({ id: conversation.id, principalId, epoch: epoch.number,
         ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}) });
       if (epoch.closed || connection.closed || !connection.authorization.valid) return;
@@ -275,6 +283,7 @@ export class ConversationHost {
     epoch.session = session;
     this.send(conversation, {
       type: "conversation_opened",
+      ...(conversation.historyOwnerId ? { historyOwnerId: conversation.historyOwnerId,historyGeneration:conversation.historyGeneration } : {}),
       ...(epoch.requestId ? { requestId: epoch.requestId } : {}),
       conversationId: conversation.id,
       epoch: epoch.number,
@@ -517,6 +526,7 @@ export class ConversationHost {
     const scope = { conversationId: conversation.id, epoch: epoch.number };
     switch (event.kind) {
       case "ready": {
+        epoch.model=event.model;epoch.api=event.api;
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "ready", ...(event.model ? { model: event.model } : {}), ...(event.api ? { api: event.api } : {}),
           input: { ...event.input }, output: { ...event.output },
@@ -797,6 +807,7 @@ export class ConversationHost {
         if (frame.type === "session_info") {
           work.receipt.sessionId = frame.sessionId;
           conversation.sessionId ??= frame.sessionId;
+          this.host.dialogue.bind(conversation.id, conversation.principalId, frame.sessionId);
           this.sendReceipt(conversation, work);
         } else if (frame.type === "text_delta") {
           work.facts = bounded(work.facts + frame.text, CONVERSATION_LIMITS.maxFactChars);
@@ -915,6 +926,7 @@ export class ConversationHost {
     const epoch = conversation.epoch;
     if (!epoch || epoch.closed || (only !== undefined && only !== epoch)) return;
     epoch.closed = true;
+    this.host.dialogue.close(conversation.id,conversation.principalId,epoch.number,!!message?.startsWith("Conversation text could not be saved"));
     epoch.abort.abort();
     epoch.nativePending.clear();
     const session = epoch.session;
@@ -1089,8 +1101,22 @@ export class ConversationHost {
     this.send(conversation, { type: "conversation_work", ...work.receipt });
   }
 
+  storageFailed(ownerId: string): void {
+    for (const conversation of this.conversations.values()) if (conversation.historyOwnerId === ownerId) {
+      this.endEpoch(conversation, "provider_error", "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.");
+    }
+  }
+
   private send(conversation: Conversation, frame: ServerMessage): void {
     if (!conversation.ws) return;
+    if (frame.type === "conversation_event" && (frame.event.kind === "input_fragment" || frame.event.kind === "unassigned_input_fragment" || frame.event.kind === "output_transcript")) {
+      const epoch = conversation.epoch;
+      const connection = conversation.connection;
+      const retained = this.host.dialogue.voice(conversation.id, { kind: "voice", conversationId: conversation.id, epoch: frame.epoch, providerId: this.provider.id, ...(epoch?.model ? {model:epoch.model} : {}), ...(epoch?.api ? {api:epoch.api} : {}), event: frame.event }, () => {
+        if (conversation.ws && conversation.epoch === epoch && !epoch?.closed && connection?.authorization.valid && !connection.closed) this.host.sendMessage(conversation.ws, frame);
+      });
+      if (retained) return;
+    }
     try {
       this.host.sendMessage(conversation.ws, frame);
     } catch {

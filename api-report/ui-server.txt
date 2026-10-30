@@ -88,6 +88,15 @@ export "./internal" (./src/internal.ts)
 export "./package.json" (./package.json) [asset]
 
 signatures (every public export and the types it is made of)
+  AcceptedWork (packages/ui-server/src/ws/session-work.ts)
+    export interface AcceptedWork {
+        revision: number;
+        requestId: string | null;
+        turnId: string | null;
+        backendId: string | null;
+        acceptedAt: number;
+        startedAt: number | null;
+    }
   ActivityChange (packages/ui-server/src/activity/store.ts)
     export type ActivityChange = {
         changeId: number;
@@ -433,6 +442,14 @@ signatures (every public export and the types it is made of)
         attributes: FlatAttributes;
         timestamp: number;
     }
+  ClaudeUsageEvidence (packages/ui-server/src/ws/claude-usage-accounting.ts)
+    export interface ClaudeUsageEvidence {
+        title?: TitleEvidence;
+        completed?: TurnUsage;
+        cumulative?: TurnUsage;
+        reportedCostUsd?: number;
+        cumulativeCompleted?: TurnUsage;
+    }
   Client (packages/ui-server/src/brain/reference-worktree-journal.ts)
     type Client = ReturnType<typeof createNativeBrainManagerClient>;
   CoastlineConfig (packages/ui-server/src/config/env.ts)
@@ -474,6 +491,55 @@ signatures (every public export and the types it is made of)
             onWrite?: () => void;
         };
     }
+  DialogueAppend (packages/ui-server/src/ws/dialogue-storage.ts)
+    export interface DialogueAppend {
+        ownerId: string;
+        principalId: string;
+        generation: number;
+        identity: string;
+        evidence: DialogueEvidence;
+    }
+  DialogueJournal (packages/ui-server/src/ws/dialogue.ts)
+    export class DialogueJournal {
+        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner) => void);
+        open(input: DialogueOpen): Promise<DialogueOwner | undefined>;
+        bind(conversationId: string, principalId: string, sessionId: string): void;
+        voice(conversationId: string, evidence: Extract<DialogueEvidence, {
+            kind: "voice";
+        }>, after: () => void): boolean;
+        adoptTurn(turnId: string, ownerId: string, principalId: string): void;
+        draftSource(turnId: string): string | undefined;
+        retireTurn(turnId: string): void;
+        backend(msg: ServerMessage): void;
+        close(conversationId: string, principalId: string, epoch: number, partial?: boolean): void;
+        settled(reportFailure?: boolean): Promise<void>;
+    }
+  DialogueOpen (packages/ui-server/src/ws/dialogue-storage.ts)
+    export interface DialogueOpen {
+        conversationId: string;
+        principalId: string;
+        epoch: number;
+        providerId: string;
+        sessionId?: string;
+        historyOwnerId?: string;
+    }
+  DialogueOwner (packages/ui-server/src/ws/dialogue-storage.ts)
+    export interface DialogueOwner {
+        id: string;
+        principal_id: string;
+        session_id: string | null;
+        generation: number;
+        coverage: DialoguePage["coverage"];
+    }
+  DialogueTarget (packages/ui-server/src/ws/dialogue-storage.ts)
+    export interface DialogueTarget {
+        cursor?: string;
+        sessionId?: string;
+        ownerId?: string;
+        generation?: number;
+        through?: number;
+        before?: number;
+    }
   ENV_VARS (packages/ui-server/src/config/env.ts)
     const ENV_VARS: readonly EnvVarDescriptor[];
   EffectiveGovernancePolicy (packages/common/src/governance-policy.ts)
@@ -497,11 +563,481 @@ signatures (every public export and the types it is made of)
     }
   FlatAttributes (packages/ui-server/src/observability/types.ts)
     export type FlatAttributes = Record<string, string | number | boolean>;
+  GOVERNANCE_EVENT_SCHEMAS (packages/ui-server/src/governance/events.ts)
+    const GOVERNANCE_EVENT_SCHEMAS: {
+        readonly budget_block: {
+            payload: z.ZodObject<{
+                limit: z.ZodNumber;
+                observed: z.ZodNumber;
+                scope: z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>;
+                source: z.ZodEnum<{
+                    default: "default";
+                    policy: "policy";
+                }>;
+                stage: z.ZodEnum<{
+                    admission: "admission";
+                    mid_turn: "mid_turn";
+                    sdk_backstop: "sdk_backstop";
+                }>;
+                unit: z.ZodEnum<{
+                    tokens: "tokens";
+                    usd: "usd";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly budget_warning: {
+            payload: z.ZodObject<{
+                limit: z.ZodNumber;
+                observed: z.ZodNumber;
+                scope: z.ZodEnum<{
+                    day: "day";
+                    session: "session";
+                    turn: "turn";
+                }>;
+                source: z.ZodEnum<{
+                    default: "default";
+                    policy: "policy";
+                }>;
+                unit: z.ZodEnum<{
+                    tokens: "tokens";
+                    usd: "usd";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly egress_connection: {
+            payload: z.ZodObject<{
+                accounting: z.ZodEnum<{
+                    http_wire_bound: "http_wire_bound";
+                    opaque_bytes: "opaque_bytes";
+                }>;
+                bytes: z.ZodNumber;
+                durationMs: z.ZodNumber;
+                host: z.ZodString;
+                inference: z.ZodOptional<z.ZodLiteral<true>>;
+                method: z.ZodString;
+                outcome: z.ZodEnum<{
+                    cancelled: "cancelled";
+                    completed: "completed";
+                    denied: "denied";
+                    failed: "failed";
+                }>;
+                path: z.ZodOptional<z.ZodString>;
+                port: z.ZodNumber;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly egress_denial: {
+            payload: z.ZodObject<{
+                bytes: z.ZodNullable<z.ZodNumber>;
+                host: z.ZodString;
+                method: z.ZodNullable<z.ZodString>;
+                port: z.ZodNumber;
+                reason: z.ZodEnum<{
+                    byte_cap: "byte_cap";
+                    denied_host: "denied_host";
+                    not_allowlisted: "not_allowlisted";
+                    taint_allowlist: "taint_allowlist";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly outward_action: {
+            payload: z.ZodObject<{
+                action: z.ZodEnum<{
+                    gh_write: "gh_write";
+                    git_push: "git_push";
+                    http_write: "http_write";
+                    mcp_tool: "mcp_tool";
+                    outward_host_connect: "outward_host_connect";
+                }>;
+                decision: z.ZodEnum<{
+                    approved: "approved";
+                    declined: "declined";
+                    policy_allowed: "policy_allowed";
+                    refused: "refused";
+                }>;
+                historyRewrite: z.ZodBoolean;
+                input: z.ZodString;
+                inputTruncated: z.ZodBoolean;
+                rule: z.ZodNullable<z.ZodObject<{
+                    index: z.ZodNumber;
+                    list: z.ZodEnum<{
+                        [x: string]: string;
+                    }>;
+                    pattern: z.ZodString;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>>;
+                tainted: z.ZodBoolean;
+                target: z.ZodNullable<z.ZodString>;
+                tool: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly policy_block: {
+            payload: z.ZodObject<{
+                input: z.ZodString;
+                inputTruncated: z.ZodBoolean;
+                policyHash: z.ZodNullable<z.ZodString>;
+                rule: z.ZodObject<{
+                    index: z.ZodNumber;
+                    list: z.ZodEnum<{
+                        [x: string]: string;
+                    }>;
+                    pattern: z.ZodString;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>;
+                tool: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly policy_change: {
+            payload: z.ZodObject<{
+                baseHash: z.ZodNullable<z.ZodString>;
+                outcome: z.ZodLiteral<"updated">;
+                proposedHash: z.ZodNullable<z.ZodString>;
+                requestId: z.ZodString;
+                sections: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly policy_confirm: {
+            payload: z.ZodObject<{
+                decision: z.ZodEnum<{
+                    approved: "approved";
+                    cancelled: "cancelled";
+                    declined: "declined";
+                    timed_out: "timed_out";
+                }>;
+                input: z.ZodString;
+                inputTruncated: z.ZodBoolean;
+                policyHash: z.ZodNullable<z.ZodString>;
+                rule: z.ZodObject<{
+                    index: z.ZodNumber;
+                    list: z.ZodEnum<{
+                        [x: string]: string;
+                    }>;
+                    pattern: z.ZodString;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>;
+                tool: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly promotion: {
+            payload: z.ZodObject<{
+                bytes: z.ZodNumber;
+                destination: z.ZodString;
+                originalLink: z.ZodString;
+                rewrittenLink: z.ZodString;
+                source: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly promotion_refused: {
+            payload: z.ZodObject<{
+                bytes: z.ZodNullable<z.ZodNumber>;
+                limitBytes: z.ZodNullable<z.ZodNumber>;
+                originalLink: z.ZodString;
+                reason: z.ZodEnum<{
+                    file_too_large: "file_too_large";
+                    io_error: "io_error";
+                    missing: "missing";
+                    multiple_links: "multiple_links";
+                    not_regular_file: "not_regular_file";
+                    scratch_unavailable: "scratch_unavailable";
+                    symlink: "symlink";
+                    turn_too_large: "turn_too_large";
+                }>;
+                source: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly provider_mask_refusal: {
+            payload: z.ZodObject<{
+                path: z.ZodString;
+                policyHash: z.ZodNullable<z.ZodString>;
+                rule: z.ZodObject<{
+                    index: z.ZodNumber;
+                    list: z.ZodEnum<{
+                        [x: string]: string;
+                    }>;
+                    pattern: z.ZodString;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>;
+                tool: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly provider_unavailable: {
+            payload: z.ZodObject<{
+                capability: z.ZodString;
+                command: z.ZodNullable<z.ZodString>;
+                degradedTo: z.ZodNullable<z.ZodString>;
+                provider: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly quarantine: {
+            payload: z.ZodObject<{
+                bytes: z.ZodNullable<z.ZodNumber>;
+                entry: z.ZodEnum<{
+                    directory: "directory";
+                    file: "file";
+                    other: "other";
+                    symlink: "symlink";
+                }>;
+                objectId: z.ZodString;
+                path: z.ZodString;
+                tier: z.ZodEnum<{
+                    A: "A";
+                    B: "B";
+                }>;
+                trigger: z.ZodEnum<{
+                    boot_recovery: "boot_recovery";
+                    turn_end: "turn_end";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly quarantine_reconciliation: {
+            payload: z.ZodObject<{
+                masked: z.ZodArray<z.ZodString>;
+                quarantined: z.ZodNumber;
+                reconciledTurnIds: z.ZodArray<z.ZodString>;
+                trigger: z.ZodEnum<{
+                    boot_recovery: "boot_recovery";
+                    launch: "launch";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly read_only_refusal: {
+            payload: z.ZodObject<{
+                alternative: z.ZodNullable<z.ZodString>;
+                code: z.ZodNullable<z.ZodEnum<{
+                    EACCES: "EACCES";
+                    EBUSY: "EBUSY";
+                    EROFS: "EROFS";
+                }>>;
+                path: z.ZodString;
+                protection: z.ZodEnum<{
+                    policy_protect: "policy_protect";
+                    restricted_profile: "restricted_profile";
+                    strict_profile: "strict_profile";
+                    tier_a: "tier_a";
+                    tier_b: "tier_b";
+                }>;
+                tool: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly resource_limit: {
+            payload: z.ZodObject<{
+                fatal: z.ZodBoolean;
+                limits: z.ZodArray<z.ZodObject<{
+                    events: z.ZodNullable<z.ZodNumber>;
+                    limit: z.ZodEnum<{
+                        cpu: "cpu";
+                        data: "data";
+                        file_size: "file_size";
+                        memory: "memory";
+                        open_files: "open_files";
+                        pids: "pids";
+                        processes: "processes";
+                    }>;
+                    source: z.ZodEnum<{
+                        cgroup: "cgroup";
+                        rlimit: "rlimit";
+                    }>;
+                    value: z.ZodNumber;
+                }, z.core.$strict>>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly revert_conflict: {
+            payload: z.ZodObject<{
+                conflicts: z.ZodArray<z.ZodObject<{
+                    path: z.ZodString;
+                    state: z.ZodEnum<{
+                        changed: "changed";
+                        created: "created";
+                        deleted: "deleted";
+                        type_changed: "type_changed";
+                    }>;
+                }, z.core.$strict>>;
+                restored: z.ZodNumber;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly roadblock: {
+            payload: z.ZodObject<{
+                category: z.ZodEnum<{
+                    budget: "budget";
+                    fs_denied: "fs_denied";
+                    network_refused: "network_refused";
+                    permission_denied: "permission_denied";
+                    policy_block: "policy_block";
+                    retry: "retry";
+                    scope_cap: "scope_cap";
+                    shell_nonzero: "shell_nonzero";
+                    tool_error: "tool_error";
+                }>;
+                eventIds: z.ZodArray<z.ZodNumber>;
+                failures: z.ZodArray<z.ZodObject<{
+                    category: z.ZodEnum<{
+                        budget: "budget";
+                        fs_denied: "fs_denied";
+                        network_refused: "network_refused";
+                        permission_denied: "permission_denied";
+                        policy_block: "policy_block";
+                        retry: "retry";
+                        scope_cap: "scope_cap";
+                        shell_nonzero: "shell_nonzero";
+                        tool_error: "tool_error";
+                    }>;
+                    signature: z.ZodString;
+                    toolCallId: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>>;
+                family: z.ZodString;
+                remedy: z.ZodEnum<{
+                    abandoned: "abandoned";
+                    capability: "capability";
+                    guidance: "guidance";
+                }>;
+                resolution: z.ZodNullable<z.ZodObject<{
+                    signature: z.ZodString;
+                    toolCallId: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>>;
+                signature: z.ZodString;
+                waste: z.ZodObject<{
+                    costUsd: z.ZodNullable<z.ZodNumber>;
+                    ms: z.ZodNumber;
+                    tokens: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly scope_cap: {
+            payload: z.ZodObject<{
+                cap: z.ZodEnum<{
+                    files_changed: "files_changed";
+                    free_space_floor: "free_space_floor";
+                    minutes: "minutes";
+                    tool_calls: "tool_calls";
+                    turn_bytes: "turn_bytes";
+                }>;
+                frozen: z.ZodBoolean;
+                limit: z.ZodNumber;
+                observed: z.ZodNumber;
+                outcome: z.ZodEnum<{
+                    continued: "continued";
+                    paused: "paused";
+                    stopped: "stopped";
+                    turn_ended: "turn_ended";
+                    voice_stopped: "voice_stopped";
+                }>;
+                overshoot: z.ZodNumber;
+                source: z.ZodEnum<{
+                    default: "default";
+                    policy: "policy";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly scratch_overage: {
+            payload: z.ZodObject<{
+                bytes: z.ZodNumber;
+                overageBytes: z.ZodNumber;
+                pinnedBytes: z.ZodNumber;
+                pinnedFiles: z.ZodNumber;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly state_room_warning: {
+            payload: z.ZodObject<{
+                allowanceBytes: z.ZodNumber;
+                observedAt: z.ZodNumber;
+                usedBytes: z.ZodNumber;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly steering_change: {
+            payload: z.ZodObject<{
+                afterHash: z.ZodNullable<z.ZodString>;
+                beforeHash: z.ZodNullable<z.ZodString>;
+                overlappingTurnIds: z.ZodArray<z.ZodString>;
+                path: z.ZodString;
+                sequence: z.ZodNumber;
+                taintSourceEventId: z.ZodNullable<z.ZodNumber>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly strict_fallback: {
+            payload: z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodEnum<{
+                    hardlink: "hardlink";
+                    mount_point: "mount_point";
+                    symlink: "symlink";
+                }>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly taint: {
+            payload: z.ZodObject<{
+                detail: z.ZodNullable<z.ZodString>;
+                source: z.ZodEnum<{
+                    egress_connection: "egress_connection";
+                    fetching_command: "fetching_command";
+                    mcp_document: "mcp_document";
+                    staged_share: "staged_share";
+                    unclassified_command: "unclassified_command";
+                    user_marked: "user_marked";
+                    web_fetch: "web_fetch";
+                    web_search: "web_search";
+                    workspace_read: "workspace_read";
+                }>;
+                tool: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly turn_temp_purge: {
+            payload: z.ZodObject<{
+                all: z.ZodBoolean;
+                force: z.ZodBoolean;
+                freedBytes: z.ZodNumber;
+                limitBytes: z.ZodNumber;
+                paths: z.ZodArray<z.ZodString>;
+                removedEntries: z.ZodNumber;
+                skippedLinked: z.ZodArray<z.ZodString>;
+                skippedOther: z.ZodNumber;
+                truncated: z.ZodBoolean;
+                usedBytes: z.ZodNumber;
+            }, z.core.$strict>;
+            version: number;
+        };
+    };
   GovernanceCommandRuleIndices (packages/common/src/governance-policy.ts)
     export interface GovernanceCommandRuleIndices {
         deny: number[];
         confirm: number[];
     }
+  GovernanceEventInput (packages/ui-server/src/governance/events.ts)
+    export type GovernanceEventInput<K extends GovernanceEventKind = GovernanceEventKind> = z.input<typeof attribution> & {
+        kind: K;
+        payload: GovernanceEventPayload<K>;
+    };
+  GovernanceEventKind (packages/ui-server/src/governance/events.ts)
+    export type GovernanceEventKind = keyof typeof GOVERNANCE_EVENT_SCHEMAS;
+  GovernanceEventPayload (packages/ui-server/src/governance/events.ts)
+    export type GovernanceEventPayload<K extends GovernanceEventKind> = z.infer<(typeof GOVERNANCE_EVENT_SCHEMAS)[K]["payload"]>;
   GovernancePolicyInput (packages/common/src/governance-policy.ts)
     export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
@@ -703,6 +1239,11 @@ signatures (every public export and the types it is made of)
         provider: LabelCompletionProvider;
         timeoutMs?: number;
         billing?: BillingMode;
+    }
+  LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
+    export interface LocalExchangeRecord extends LocalExchange {
+        seq: number;
+        delivered: boolean;
     }
   LogQuery (packages/ui-server/src/observability/types.ts)
     export interface LogQuery {
@@ -1057,6 +1598,13 @@ signatures (every public export and the types it is made of)
             error: string;
         }[];
     }
+  RecordedTurnFailure (packages/ui-server/src/ws/turn-failures.ts)
+    export interface RecordedTurnFailure {
+        turnId: string;
+        assistantOrdinal: number;
+        prefixDigest: string;
+        failure: TurnFailure;
+    }
   RecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export interface RecordingLoggerProvider extends LoggerProvider, LogReader {
     }
@@ -1077,6 +1625,14 @@ signatures (every public export and the types it is made of)
     }
   ReferenceWorktreeJournalPool (packages/ui-server/src/brain/reference-worktree-journal.ts)
     export type ReferenceWorktreeJournalPool = Pick<Client, "poolCheckpoint" | "poolDelta" | "poolRelease" | "poolReadCheckpoint" | "poolStatCheckpoint" | "poolListCheckpoint">;
+  RetainedRetry (packages/ui-server/src/ws/retry-requests.ts)
+    export interface RetainedRetry {
+        turnId: string;
+        principalId: string;
+        request: ClientChatMessage;
+        failureMessage: string;
+        prompt: string;
+    }
   RunRollupRow (packages/ui-server/src/activity/store.ts)
     export interface RunRollupRow {
         runId: string;
@@ -1176,6 +1732,72 @@ signatures (every public export and the types it is made of)
         subscription: SubscriptionConfig;
         exec?: ExecWrapperConfig;
     }
+  SessionCatalog (packages/ui-server/src/ws/session-catalog.ts)
+    export interface SessionCatalog {
+        dialogueOwnerForConversation?(conversationId: string, principalId: string): DialogueOwner | null;
+        dialogueOwnerForId?(ownerId: string, principalId: string): DialogueOwner | null;
+        dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+        dialogueClose?(conversationId: string, principalId: string, epoch: number, partial: boolean): Promise<void>;
+        dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
+        dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
+        dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
+        dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
+        saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
+        saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
+        loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
+        accountClaudeUsage?(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence, resumed: boolean, context?: {
+            billingMode?: BillingMode;
+            pricingRoute?: PricingRoute;
+            principalId?: string;
+        }): number | undefined;
+        recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
+        readStateRoom?(sessionId: string): StateRoomObservation | undefined;
+        recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void;
+        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
+        attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        settled?(): Promise<void>;
+        acceptWork?(sessionId: string, requestId: string | null, backendId: string | null, settled?: (stored: boolean) => void): number | null;
+        dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
+        latestWork?(sessionId: string): work.AcceptedWork | null;
+        hasSession?(sessionId: string): boolean;
+        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
+        attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        getStoredProviderId(sessionId: string): string | null;
+        saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
+        clearRetryRequest?(sessionId: string): void;
+        peekRetry?(sessionId: string): retries.RetainedRetry | null;
+        reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): Promise<{
+            receipt: ServerRetryReceipt;
+            request?: ClientChatMessage;
+            prompt?: string;
+        }>;
+        refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): Promise<ServerRetryReceipt>;
+        retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
+        attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        getStoredBackendId(sessionId: string): string | null;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
+        persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
+        recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
+            thinkingLevel?: ThinkingLevel;
+            turnId: string;
+            files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+        }): void;
+        recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
+        attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): Promise<boolean>;
+        takePendingLocalExchanges?(sessionId: string): LocalExchange[];
+        loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];
+        recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): Promise<boolean>;
+        findHandoff?(handoffId: string): string | null;
+        addSessionCost?(sessionId: string, costUsd: number): void;
+        sessionLabel?(sessionId: string): {
+            label: string;
+            source: string;
+        } | null;
+        saveSessionLabel?(sessionId: string, label: string, source: string): void;
+        bindGovernanceEvents?(turnId: string, sessionId: string): void;
+        recordGovernanceEvent?(event: GovernanceEventInput): void;
+    }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
   SpanEventRow (packages/ui-server/src/activity/store.ts)
@@ -1237,13 +1859,40 @@ signatures (every public export and the types it is made of)
         attrs?: Record<string, unknown>;
         startedAt?: number;
     }
+  StoredConversation (packages/ui-server/src/ws/conversation-storage.ts)
+    export interface StoredConversation extends StoredConversationEpoch {
+        receipts: ConversationWorkReceipt[];
+        requestIds: string[];
+        results: {
+            requestId: string;
+            facts: string;
+        }[];
+    }
+  StoredConversationEpoch (packages/ui-server/src/ws/conversation-storage.ts)
+    export interface StoredConversationEpoch {
+        id: string;
+        principalId: string;
+        epoch: number;
+        sessionId?: string;
+        agentProviderId?: string;
+    }
   SubscriptionConfig (packages/ui-server/src/config/env.ts)
     export interface SubscriptionConfig {
         tokenSet: boolean;
         mintedAt: string | null;
     }
+  TitleEvidence (packages/ui-server/src/ws/claude-usage-accounting.ts)
+    type TitleEvidence = Omit<Extract<import("@schlessera/brain-ui-sdk/server").BackendActivityEvent, {
+        kind: "claude_title_usage";
+    }>, "kind">;
   ToolExecutionPath (packages/ui-server/src/brain/tool-observation.ts)
     export type ToolExecutionPath = Parameters<NonNullable<StartTurnRequest["toolExecution"]>>[1];
+  TurnBoundary (packages/ui-server/src/ws/session-work.ts)
+    export interface TurnBoundary {
+        turnId: string;
+        assistantOrdinal: number;
+        prefixDigest: string;
+    }
   TurnDataTree (packages/ui-server/src/brain/turn-data-tree.ts)
     export interface TurnDataTree {
         readonly mount?: WorkerDataTree;
@@ -1413,8 +2062,9 @@ signatures (every public export and the types it is made of)
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
         readonly isPrincipalAuthorized: (principalId: string) => boolean;
+        readonly dialogue: DialogueJournal;
         constructor(options: WsHostOptions);
-        close(): void;
+        close(): Promise<void>;
     }
   WsHostOptions (packages/ui-server/src/ws/host.ts)
     export interface WsHostOptions {
@@ -1440,6 +2090,27 @@ signatures (every public export and the types it is made of)
     }
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
+  attribution (packages/ui-server/src/governance/events.ts)
+    const attribution: z.ZodObject<{
+        actor: z.ZodEnum<{
+            autonomous: "autonomous";
+            external: "external";
+            interactive: "interactive";
+            server: "server";
+            user: "user";
+            voice: "voice";
+        }>;
+        at: z.ZodOptional<z.ZodNumber>;
+        dedupeKey: z.ZodOptional<z.ZodString>;
+        model: z.ZodNullable<z.ZodString>;
+        profile: z.ZodNullable<z.ZodEnum<{
+            governed: "governed";
+            restricted: "restricted";
+            strict: "strict";
+        }>>;
+        sessionId: z.ZodNullable<z.ZodString>;
+        turnId: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
   createApp (packages/ui-server/src/app.ts)
     export function createApp(options?: CreateAppOptions): Promise<BrainUiApp>;
   createBrainClient (packages/ui-server/src/brain/client.ts)
