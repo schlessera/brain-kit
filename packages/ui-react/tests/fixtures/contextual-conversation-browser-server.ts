@@ -27,9 +27,10 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 const engine = process.argv[2] === "gemini" ? "gemini" : "gpt";
 const action = process.argv[3] ?? "permitted";
 const delayedIdentity = process.argv[4] === "delayed-identity";
+const missingSession = process.argv[5] === "missing-session";
 let identify!: () => void;
 const identityReady = new Promise<void>(resolve => { identify = resolve; });
-const backendSession = delayedIdentity ? "odysseus-pylos" : "odysseus-ithaca";
+const backendSession = (delayedIdentity || missingSession) ? "odysseus-pylos" : "odysseus-ithaca";
 const root = mkdtempSync(join(tmpdir(), "odysseus-context-task-"));
 cpSync(resolve("packages/core/fixtures/corpus"), root, { recursive: true });
 writeFileSync(join(root, "brain.config.ts"), readFileSync(join(root, "brain.config.ts"), "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
@@ -96,7 +97,12 @@ if (delayedIdentity) {
   const start = production.startTurn.bind(production);
   production.startTurn = req => { activeRequest = req; return start(req); };
 }
-const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db),
+const catalog = createSessionCatalog(() => db);
+if (!missingSession) {
+  catalog.persistSessionStub("odysseus-ithaca", "Odysseus prepares the voyage.", null, backend.id);
+  await catalog.settled?.();
+}
+const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog,
   applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: root, dbPath: join(state, "ui.db"), nativeManager: createNativeBrainManagerClient(native.nativeBrain) })), isPrincipalAuthorized: () => true,
   conversationProvider: engine === "gemini" ? createGeminiConversationProvider("keyless-odyssey-placeholder") : createGptLiveConversationProvider("keyless-odyssey-placeholder") });
 const handlers = createWsHandlers(host, testPrincipal());
@@ -112,7 +118,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (body.identify) identify();
   if (body.release) release();
   await Bun.sleep(10);
-  return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, effect: existsSync(join(root, "notes/contextual-raft.md")) });
+  return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, missingChatExists: catalog.hasSession!("odysseus-ithaca"), effect: existsSync(join(root, "notes/contextual-raft.md")) });
 } });
 process.on("SIGTERM", async () => { release(); host.coordinator.reset(); host.close(); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

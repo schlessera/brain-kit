@@ -457,6 +457,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
     }
+    if (message.type === "error" && !message.requestId && !message.turnId && !message.failure
+      && (message.code === "SESSION_NOT_FOUND" || (message.code === "SESSION_LOAD_ERROR" && openingId !== undefined))
+      && message.sessionId === state.getState().sessionId) {
+      openingId = undefined;
+      leave(); state.setState({ profile: null, notice: message.message });
+      return message;
+    }
     if (message.type === "error" && message.code.startsWith("CONVERSATION_")) {
       openingId = undefined; pause(true, true, false);
       state.setState({ notice: message.message, ...(message.code === "CONVERSATION_UNKNOWN" ? { profile: null } : {}) });

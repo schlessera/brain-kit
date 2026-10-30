@@ -1164,6 +1164,21 @@ profile for a new chat only; it is echoed on `conversation_opened`. Resuming a
 chat or conversation never changes its pinned backend. The voice provider's
 `providerId` remains separate.
 
+**Retained chat validation (additive, #3176).** A browser-retained `sessionId`
+is not proof this host still has that chat. Before `session_resume` acknowledges
+it, and before live conversation starts or resumes against it, the host joins
+pending catalog writes and rechecks authorization. If neither the catalog nor
+the existing bounded recovery lookup knows it, the host returns `error` with
+`code: "SESSION_NOT_FOUND"` and that `sessionId`, without `session_info`, empty
+history, a provider opening or task admission. A failed lookup remains
+`SESSION_LOAD_ERROR`, not proof of absence. Normal resume still supports imported
+backend history; imported-only history without a registered task/profile binding
+is refused for live work with `CONVERSATION_STORAGE`, without inventing a chat.
+The client stops that chat's voice entry and offers explicit **New conversation**
+through its restoration view, retaining unsent drafts. It never creates a
+replacement chat or resends previous work merely because recovery was offered.
+Unbound new-chat entry and known registered chats keep their existing paths.
+
 **Identities and epochs.** The host mints `conversationId`. Each
 `conversation_start` opens a new `epoch`, starting at 1; resuming an existing
 id (same principal) after a disconnect or restart opens the next. The new

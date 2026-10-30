@@ -441,6 +441,7 @@ describe("every exit settles, and nothing outgrows its bound", () => {
         : Promise.resolve([{ id: "fake", label: "FAKE" }]),
     });
     const client = await s.connect();
+    s.host.catalog.persistSessionStub("sess-dock", "Odysseus checks the dock.", null, "fake");
     const conversation = await client.open({ sessionId: "sess-dock" });
     // An ordinary message starts routing the same session and stalls there.
     client.send({ type: "chat_message", text: "Is the ship at the dock?", sessionId: "sess-dock" });
@@ -888,6 +889,7 @@ describe("seventh review pass: extra native requests and shutdown during routing
         : Promise.resolve([{ id: "fake", label: "FAKE" }]),
     });
     const client = await s.connect();
+    s.host.catalog.persistSessionStub("sess-quay", "Odysseus checks the quay.", null, "fake");
     const conversation = await client.open({ sessionId: "sess-quay" });
     client.send({ type: "chat_message", text: "Is the quay clear?", sessionId: "sess-quay" });
     await until(() => releaseRouting !== null);
@@ -1024,6 +1026,7 @@ describe("permission authority stays with the host", () => {
     const frames = (type: string) => sent.map((x) => JSON.parse(x)).filter((f) => f.type === type);
     const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f) } as MessageEvent, ws);
     await handlers.onOpen(undefined as never, ws);
+    host.catalog.persistSessionStub("sess-hall", "Penelope checks the hall.", null, "fake");
     send({ type: "conversation_start", sessionId: "sess-hall" });
     await until(() => frames("conversation_opened").length === 1);
     send({ type: "chat_message", text: "Note the loom's pattern", sessionId: "sess-hall" });
@@ -1474,4 +1477,93 @@ test("in-memory replacement evicts oldest facts while preserving exact original 
   expect(next.session.options.resync.work).toHaveLength(6);
   expect(next.session.returned).toHaveLength(0);
   expect(s.turns).toHaveLength(6);
+});
+
+
+test("a stale retained chat cannot open live voice or masquerade as an empty resumed chat", async () => {
+  const s = setup();
+  const client = await s.connect();
+  client.send({ type: "session_resume", sessionId: "odysseus-missing-chat" });
+  await until(() => client.frames("error").length > 0 || client.frames("session_history").length > 0);
+  expect(client.frames("session_info"), "MISSING_CHAT_IS_NOT_ACKNOWLEDGED").toHaveLength(0);
+  expect(client.frames("error")).toContainEqual(expect.objectContaining({ code: "SESSION_NOT_FOUND", sessionId: "odysseus-missing-chat" }));
+  client.send({ type: "conversation_start", contextualTasks: true, sessionId: "odysseus-missing-chat" });
+  await until(() => client.frames("error").length > 1 || client.frames("conversation_opened").length > 0);
+  expect(client.frames("conversation_opened"), "STALE_CHAT_CANNOT_PROMISE_LIVE_WORK").toHaveLength(0);
+  expect(s.live.sessions, "MISSING_CHAT_NEVER_OPENS_A_PROVIDER").toHaveLength(0);
+  expect(s.turns).toHaveLength(0);
+});
+
+
+test("a missing chat is refused before a direct live start reaches the provider", async () => {
+  const s = setup(), client = await s.connect();
+  client.send({ type: "conversation_start", contextualTasks: true, sessionId: "odysseus-stale" });
+  await until(() => client.frames("error").length > 0 || client.frames("conversation_opened").length > 0);
+  expect(client.frames("error"), "LIVE_START_VALIDATES_THE_RETAINED_CHAT").toContainEqual(expect.objectContaining({ code: "SESSION_NOT_FOUND", sessionId: "odysseus-stale" }));
+  expect(s.live.sessions, "STALE_CHAT_OPENS_NO_PROVIDER").toHaveLength(0);
+  expect(s.host.catalog.hasSession!("odysseus-stale")).toBe(false);
+  expect(s.turns).toHaveLength(0);
+});
+
+test("a connection leaving while catalog validation waits cannot open a live provider", async () => {
+  const s = setup(), client = await s.connect();
+  s.host.catalog.persistSessionStub("odysseus-known", "The voyage is planned.", null, "fake");
+  await s.host.catalog.settled?.();
+  let release!: () => void, entered = false;
+  s.host.catalog.settled = () => { entered = true; return new Promise<void>(resolve => { release = resolve; }); };
+  client.send({ type: "conversation_start", sessionId: "odysseus-known" });
+  await until(() => entered);
+  client.close(); release(); await settle();
+  expect(s.live.sessions, "CLOSED_CONNECTION_CANNOT_FINISH_CHAT_VALIDATION").toHaveLength(0);
+});
+
+
+test("catalog read failure is unavailable, never reported as a missing chat", async () => {
+  const s = setup(), client = await s.connect();
+  s.host.catalog.hasSession = () => { throw new Error("Odysseus catalog is unavailable"); };
+  client.send({ type: "conversation_start", sessionId: "odysseus-unknown" });
+  await until(() => client.frames("error").length > 0);
+  expect(client.frames("error")[0]).toMatchObject({ code: "SESSION_LOAD_ERROR" });
+  expect(s.live.sessions).toHaveLength(0);
+});
+
+
+test("principal revocation while known-chat validation waits cannot open a live provider", async () => {
+  const s = setup(), client = await s.connect();
+  s.host.catalog.persistSessionStub("odysseus-known", "The voyage is planned.", null, "fake");
+  await s.host.catalog.settled?.();
+  let release!: () => void, entered = false;
+  s.host.catalog.settled = () => { entered = true; return new Promise<void>(resolve => { release = resolve; }); };
+  client.send({ type: "conversation_start", sessionId: "odysseus-known" });
+  await until(() => entered);
+  await s.host.revokePrincipals([testPrincipal().id], 1008, "Odysseus access was revoked");
+  release(); await settle();
+  expect(s.live.sessions, "REVOKED_PRINCIPAL_CANNOT_FINISH_CHAT_VALIDATION").toHaveLength(0);
+  expect(client.frames("conversation_opened")).toHaveLength(0);
+});
+
+
+test("host shutdown while catalog validation waits cannot open a late live provider", async () => {
+  const s = setup(), client = await s.connect();
+  s.host.catalog.persistSessionStub("odysseus-known", "The voyage is planned.", null, "fake");
+  await s.host.catalog.settled?.();
+  let release!: () => void, entered = false;
+  s.host.catalog.settled = () => { entered = true; return new Promise<void>(resolve => { release = resolve; }); };
+  client.send({ type: "conversation_start", sessionId: "odysseus-known" });
+  await until(() => entered);
+  s.host.close(); release(); await settle();
+  expect(s.live.sessions, "HOST_SHUTDOWN_FENCES_PENDING_CHAT_VALIDATION").toHaveLength(0);
+  expect(client.frames("conversation_opened")).toHaveLength(0);
+});
+
+
+test("a catalog's existing owner record still validates known chats without its optional existence method", async () => {
+  const s = setup(), client = await s.connect();
+  s.host.catalog.persistSessionStub("odysseus-owned", "Odysseus prepares the crossing.", null, "fake");
+  await s.host.catalog.settled?.();
+  s.host.catalog.hasSession = undefined;
+  client.send({ type: "conversation_start", sessionId: "odysseus-owned" });
+  await until(() => client.frames("error").length > 0 || client.frames("conversation_opened").length > 0);
+  expect(client.frames("conversation_opened"), "EXISTING_CATALOG_OWNER_REMAINS_VALID").toHaveLength(1);
+  expect(s.live.sessions).toHaveLength(1);
 });

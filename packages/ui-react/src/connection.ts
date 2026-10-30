@@ -341,6 +341,13 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (!routed) return;
     msg = routed;
     const { sessionId, turnId } = msg as { sessionId?: string; turnId?: string };
+    if (msg.type === "error" && msg.code === "SESSION_NOT_FOUND" && sessionId
+      && !msg.requestId && !turnId && !msg.failure) {
+      flushDeltas();
+      if (sessionId === reattachSessionId) reattachSessionId = null;
+      root.stores.chat.getState().failRestore(sessionId, { reason: "missing", message: msg.message });
+      return;
+    }
     // A history read failing does not cancel a turn or disprove drawn content.
     if (msg.type === "error" && msg.code === "SESSION_LOAD_ERROR" && sessionId
       && !msg.requestId && !turnId && !msg.failure) {

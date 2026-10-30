@@ -20,7 +20,7 @@ let styles: HTMLStyleElement;
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
 
-async function scene(ctx: TestContext, width = 390, shell = false, theme: "light" | "dark" = "dark") {
+async function scene(ctx: TestContext, width = 390, shell = false, theme: "light" | "dark" = "dark", retained = false) {
   if (shell) {
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
@@ -38,14 +38,17 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     return url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined;
   },
     onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
-  const ui = createBrainUiRoot({ storage: null, request: network.request });
-  ui.stores.chat.getState().setActiveSession(SESSION);
+  const prefix = `odysseus-stale-${crypto.randomUUID()}`;
+  if (retained) localStorage.setItem(`${prefix}:brain-sessionId`, SESSION);
+  const ui = createBrainUiRoot({ ...(retained ? { storage: localStorage, storagePrefix: prefix } : { storage: null }), request: network.request });
+  if (retained) expect(ui.stores.chat.getState().activeSessionId, "BROWSER_RESTORES_ITS_RETAINED_CHAT_ID").toBe(SESSION);
+  else ui.stores.chat.getState().setActiveSession(SESSION);
   const host = document.createElement("div"); host.style.cssText = `position:fixed;inset:0;width:${width}px;height:568px`; document.body.append(host);
   const renderer = createRoot(host);
   ui.stores.ui.getState().setTheme(theme);
   flushSync(() => renderer.render(<BrainUiProvider root={ui}>{shell ? <AppShell><ChatPage /></AppShell> : <ChatPage />}</BrainUiProvider>));
   const release = ui.connection.connect();
-  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); });
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); if (retained) for (const key of Object.keys(localStorage)) if (key.startsWith(prefix + ":")) localStorage.removeItem(key); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
   const socket = network.socket()!;
   const deliver = (message: ServerMessage & { turnId?: string }) => socket.deliver(message);
@@ -85,13 +88,13 @@ function outputPcm(seconds = 1, audibleSeconds = seconds) {
   return btoa(binary);
 }
 
-async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false) {
+async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false, missingSession = false) {
   const mic = controlledMicrophone(ctx);
-  const s = await scene(ctx, width, true);
+  const s = await scene(ctx, width, true, "dark", missingSession);
   if (newChat) { s.ui.stores.chat.getState().setActiveSession(null); s.ui.stores.chat.getState().setMessages(null, []); }
   const manualDraftId = s.ui.stores.drafts.getState().idFor(newChat ? null : SESSION);
   s.ui.stores.drafts.getState().edit(manualDraftId, newChat ? null : SESSION, { text: "Keep the separate typed raft draft." });
-  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity }) as { id: string };
+  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity, missingSession }) as { id: string };
   ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
   let cursor = 0;
   const upstream: any[] = [];
@@ -105,6 +108,7 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
     return evidence;
   };
   s.client.enter(); await pump();
+  if (missingSession) return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
   await expect.poll(async () => { await pump(); return s.client.state.getState().profile; }).not.toBe(null);
   await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
@@ -1035,4 +1039,44 @@ test("task-result backlink reveals only its exact retained windowed host request
   await userEvent.keyboard("{Escape}");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} stale retained chat refuses live admission and explicitly recovers without replay`, async ctx => {
+  const s = await contextualScene(ctx, provider, "permitted", 390, false, false, true);
+  await expect.poll(() => s.host.querySelector('[data-restoration="failed"]')?.textContent, { message: "STALE_CHAT_OFFERS_EXPLICIT_RECOVERY" }).toContain("New conversation");
+  expect(s.evidence().tasks, "NO_TASK_BEFORE_EXPLICIT_RECOVERY").toHaveLength(0);
+  expect(s.upstream, "NO_PROVIDER_OPEN_FOR_THE_MISSING_CHAT").toHaveLength(0);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
+  const recovery = s.host.querySelector('[data-restoration="failed"]')!;
+  const fresh = [...recovery.querySelectorAll<HTMLElement>('button,[role="button"]')].find(button => button.textContent?.includes("New conversation"))!;
+  await userEvent.click(fresh);
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(null);
+  expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text, "RECOVERY_KEEPS_THE_OLD_DRAFT").toBe("Keep the separate typed raft draft.");
+  await s.pump();
+  expect(s.evidence().tasks).toHaveLength(0);
+  expect(s.evidence().missingChatExists, "NEW_CONVERSATION_DOES_NOT_CREATE_THE_OLD_CHAT").toBe(false);
+  s.client.enter();
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile; }).not.toBe(null);
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  await s.pump();
+  const recognize = provider === "gemini" ? { serverContent: { inputTranscription: { text: "Find the departure signal note." } } }
+    : { type: "session.input_transcript.delta", event_id: "odysseus-new-input", delta: "Find the departure signal note.", start_ms: 0, end_ms: 500 };
+  const request = provider === "gemini" ? { toolCall: { functionCalls: [{ id: "odysseus-new-work", name: "host_task" }] } }
+    : { type: "session.delegation.created", event_id: "odysseus-new-delegation", offset_ms: 500, delegation: { id: "odysseus-new-work", type: "delegation", target: "client" } };
+  await s.pump([recognize, request], false, true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.read; }).toContain("The departure signal is a bronze owl.");
+  await s.pump([], true);
+  await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.completed; }).toBe(true);
+  expect(s.evidence().tasks, "ONE_NEW_ORDINARY_CONTEXTUAL_TASK_ONLY").toHaveLength(1);
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe("odysseus-pylos");
+  expect(s.evidence().missingChatExists).toBe(false);
+  s.client.mute(); await s.pump();
+  expect(s.client.state.getState().micOn).toBe(false);
+  s.client.leave(); await s.pump();
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.client.state.getState().micOn).toBe(false);
 });

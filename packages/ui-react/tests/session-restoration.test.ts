@@ -262,3 +262,32 @@ describe("a reload that kept the selected session's id", () => {
     expect(root.stores.chat.getState().draft?.messages.map((m) => m.content), "the new chat keeps its transcript").toEqual(["A new voyage plan.", ""]);
   });
 });
+
+
+test("an unavailable live-opening lookup can be retried without marking known history missing", () => {
+  const root = reloaded();
+  root.connection.connect();
+  const socket = Socket.instances.at(-1)!; socket.open();
+  socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true, conversationPause: true } });
+  socket.deliver({ type: "session_history", sessionId: OGYGIA, messages: HISTORY });
+  root.connection.conversation.enter();
+  expect(socket.frames("conversation_start")).toHaveLength(1);
+  socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, message: "The host cannot verify this conversation." });
+  expect(root.connection.conversation.state.getState().active, "FAILED_LOOKUP_ENDS_ONLY_THE_PENDING_VOICE_ENTRY").toBe(false);
+  expect(restorationOf(root.stores.chat.getState()), "KNOWN_HISTORY_IS_NOT_DECLARED_MISSING").toBe(null);
+  root.connection.conversation.enter();
+  expect(socket.frames("conversation_start"), "FAILED_OPENING_DOES_NOT_LEAVE_A_STALE_OPEN_REQUEST").toHaveLength(2);
+});
+
+
+test("missing-chat errors for another view or a scoped turn do not retire the selected voice entry", () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true, conversationPause: true } });
+  socket.deliver({ type: "session_history", sessionId: OGYGIA, messages: HISTORY });
+  root.connection.conversation.enter();
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: "ithaca-other", message: "That chat is missing." });
+  expect(root.connection.conversation.state.getState().active, "ANOTHER_CHAT_CANNOT_END_THIS_ENTRY").toBe(true);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: OGYGIA, requestId: "odysseus-work", turnId: "odysseus-turn", message: "A scoped work failure" });
+  expect(root.connection.conversation.state.getState().active, "A_TURN_FAILURE_IS_NOT_MISSING_CHAT_PROOF").toBe(true);
+  expect(restorationOf(root.stores.chat.getState())).toBe(null);
+});

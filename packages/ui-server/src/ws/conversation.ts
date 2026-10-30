@@ -1,3 +1,4 @@
+import { requireKnownSession } from "./session-recovery.js";
 /**
  * Host orchestration for live conversations (#957).
  *
@@ -177,6 +178,12 @@ export class ConversationHost {
         this.refuse(ws, "CONVERSATION_UNKNOWN", "No conversation with that id can be resumed here.");
         return;
       }
+      const sessionId = found.sessionId ?? msg.sessionId;
+      if (sessionId && !await requireKnownSession(this.host, ws, connection, sessionId)) return;
+      // Storage admission yielded: an evicted conversation cannot be rebound.
+      if (this.conversations.get(msg.conversationId) !== found) {
+        this.refuse(ws, "CONVERSATION_UNKNOWN", "No conversation with that id can be resumed here."); return;
+      }
       const owned = this.byConnection.get(connection);
       if (owned && owned !== found) {
         this.refuse(ws, "CONVERSATION_LIMIT", "Stop this connection's conversation before resuming another.");
@@ -190,6 +197,7 @@ export class ConversationHost {
       }
       if (conversation.sessionId === undefined && msg.sessionId !== undefined) conversation.sessionId = msg.sessionId;
     } else {
+      if (msg.sessionId && !await requireKnownSession(this.host, ws, connection, msg.sessionId)) return;
       if (this.byConnection.has(connection)) {
         this.refuse(ws, "CONVERSATION_LIMIT", `A connection holds at most ${CONVERSATION_LIMITS.maxConversationsPerConnection} conversation.`);
         return;
