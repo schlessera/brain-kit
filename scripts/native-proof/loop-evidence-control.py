@@ -35,6 +35,12 @@ class Kernel:
                 for name, event in self.events.items() if event.get("enable") == "1"]
 
 class Controls(unittest.TestCase):
+    def setUp(self):
+        # Existing command/filter controls use a higher-level protocol double.
+        # Actual open/write/readback semantics are covered separately by WriterControls.
+        replacement = patch.object(trace, "registration_readback", return_value={"protocolDouble": True, "commandReadback": "protocol-double", "formatValid": True})
+        replacement.start(); self.addCleanup(replacement.stop)
+
     def test_bounded_redacted_snapshot_and_realistic_mount_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory); proc = root / "proc"; proc.mkdir()
@@ -262,5 +268,116 @@ class Controls(unittest.TestCase):
             kill.assert_called_once_with(123, signal.SIGKILL)
         self.assertEqual(waits, [0.2], "LOOP_REAP_MUST_BE_BOUNDED")
         self.assertIn("uninterruptible", records[-1]["childLifetime"], "LOOP_CHILD_LIFETIME_UNKNOWN")
+
+# CPython FileIO's C-level lseek is NOT intercepted by patching os.lseek.
+# This scoped double explicitly instruments Path.open('a') and models that
+# documented append-open SEEK_END. It is not proof of a real tracefs syscall.
+LEGACY_WRITER = 'def write(path, value):\n    try:\n        with path.open("a" if path.name == "kprobe_events" else "w") as stream: stream.write(value + "\\n")\n    except OSError as error:\n        error.tracePhase = path.name\n        raise'
+
+class TracefsWriterModel:
+    def __init__(self, root):
+        self.root = root; self.commands = []; self.modes = []; self.flags = []; self.seeks = []
+        self.events = {"brainkit/dead_root": "p:brainkit/dead_root btrfs_add_dead_root comm=$comm"}
+        self.path_open = pathlib.Path.open; self.fd_open = os.open; self.fd_write = os.write; self.fd_close = os.close
+        self.rmdir = pathlib.Path.rmdir; self.fds = set(); self.serial = 1000000
+    def open_path(self, path, mode="r", *args, **kwargs):
+        if path == self.root / "kprobe_events":
+            self.modes.append(mode)
+            if mode == "a":
+                self.seeks.append(os.SEEK_END)
+                raise OSError(errno.EINVAL, "modeled seq_lseek SEEK_END rejection")
+            if mode == "w": raise OSError(errno.EPERM, "modeled O_TRUNC forbidden: would remove foreign probes")
+            return io.StringIO("\n".join(self.events.values()) + "\n")
+        if path.name == "tracing_on" and mode == "w":
+            path.with_name("trace").touch(exist_ok=True)
+        return self.path_open(path, mode, *args, **kwargs)
+    def open_fd(self, path, flags, *args, **kwargs):
+        if pathlib.Path(path) != self.root / "kprobe_events": return self.fd_open(path, flags, *args, **kwargs)
+        self.flags.append(flags)
+        if flags != os.O_WRONLY | os.O_APPEND: raise OSError(errno.EPERM, "probe fd must never create/truncate")
+        self.serial += 1; self.fds.add(self.serial); return self.serial
+    def write_fd(self, fd, data):
+        if fd not in self.fds: return self.fd_write(fd, data)
+        command = data.decode(); assert command.endswith("\n") and command.count("\n") == 1
+        self.commands.append(command.strip())  # Parsing happens ONLY here, never at open.
+        words = command.split(); name = words[0][2:]
+        if words[0].startswith("-:"): self.events.pop(name); return len(data)
+        self.events[name] = command.strip()
+        for instance in (self.root / "instances").iterdir():
+            base = instance / "events" / name; base.mkdir(parents=True, exist_ok=True)
+            (base / "format").write_text("field:u32 major; offset:8; size:4; signed:0;\nfield:u32 minor; offset:12; size:4; signed:0;\nfield:__data_loc char[] comm; offset:16; size:4; signed:1;\n")
+        return len(data)
+    def close_fd(self, fd):
+        if fd in self.fds: self.fds.remove(fd)
+        else: self.fd_close(fd)
+    def remove_instance(self, path):
+        # Virtual tracefs controls disappear at rmdir; only this fake instance.
+        if path.parent == self.root / "instances":
+            import shutil
+            shutil.rmtree(path)
+        else: self.rmdir(path)
+    @contextlib.contextmanager
+    def active(self):
+        (self.root / "instances").mkdir(); (self.root / "error_log").write_text("")
+        (self.root / "available_filter_functions").write_text("lo_open\nlo_release\n")
+        with patch.object(trace,"TRACE",self.root), patch.object(trace,"STATE",self.root/"state"), patch.object(pathlib.Path,"open",lambda path,*args,**kw:self.open_path(path,*args,**kw)), patch.object(os,"open",self.open_fd), patch.object(os,"write",self.write_fd), patch.object(os,"close",self.close_fd), patch.object(pathlib.Path,"rmdir",lambda path:self.remove_instance(path)):
+            yield self
+
+class WriterControls(unittest.TestCase):
+    def test_fixed_writer_registers_and_unregisters_without_seek_or_truncation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory); model=TracefsWriterModel(root)
+            with model.active():
+                trace.start(root/"receipt.json")
+                receipt=json.loads((root/"receipt.json").read_text())
+                self.assertTrue(all(receipt["availability"][name].get("admitted") for name in trace.SYMBOLS), "TRACEFS_WRITER_REGISTRATION_REACHES_WRITE")
+                self.assertEqual(len(model.commands),2,"TRACEFS_COMMANDS_PARSE_ONLY_ON_WRITE")
+                self.assertTrue(all(row["registration"]["formatValid"] and row["registration"]["commandReadback"] for row in receipt["availability"].values()))
+                trace.stop()
+                self.assertEqual(set(model.events),{"brainkit/dead_root"},"TRACEFS_FOREIGN_PROBE_PRESERVED")
+                self.assertEqual(len(model.commands),4,"TRACEFS_UNREGISTER_REACHES_WRITE")
+                self.assertEqual(model.seeks,[],"TRACEFS_WRITER_NEVER_SEEKS_END")
+                self.assertEqual(model.flags,[os.O_WRONLY|os.O_APPEND]*4,"TRACEFS_WRITER_NO_TRUNCATE_OR_CREATE")
+                print("FIXED_WRITER_RECEIPT " + (root/"receipt.json").read_text())
+    def test_error_log_snapshots_exclude_foreign_content_and_addresses(self):
+        command="p:brainloop_owned/lo_open lo_open comm=$comm"
+        foreign="[1] error foreign /private/credential 0xffffffff12345678\n Command: p:other/event foreign\n ^\n"
+        own="[2] error own /private/source 0xffffffff87654321\n Command: "+command+"\n ^\n"
+        result=trace.snapshot(foreign+own,command)
+        serialized=json.dumps(result)
+        self.assertNotIn("credential",serialized);self.assertNotIn("/private/",serialized)
+        self.assertNotIn("0xffffffff",serialized);self.assertTrue(result["unrelatedRedacted"])
+        self.assertIn(command,result["scopedRaw"]);self.assertIn("^",result["scopedRaw"])
+        self.assertEqual(trace.snapshot(None,command),{"unknown":"error_log unreadable"})
+
+    def test_exact_legacy_writer_reproduces_both_open_errors_without_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory); model=TracefsWriterModel(root)
+            namespace=dict(trace.__dict__); exec(compile(LEGACY_WRITER,"exact-legacy-writer","exec"),namespace)
+            with model.active(), patch.object(trace,"write",namespace["write"]):
+                trace.start(root/"receipt.json");receipt=json.loads((root/"receipt.json").read_text())
+                for name in trace.SYMBOLS:
+                    row=receipt["availability"][name]
+                    self.assertEqual((row["failure"],row["errno"],row["phase"]),("OSError",22,"registration"))
+                    self.assertEqual(row["errorLog"],[]); self.assertFalse(row["errorLogUnknown"])
+                self.assertEqual(model.modes.count("a"),2);self.assertEqual(model.seeks,[os.SEEK_END]*2)
+                self.assertEqual(model.commands,[],"LEGACY_FAILS_ON_OPEN_NOT_KERNEL_WRITE")
+                self.assertEqual(set(model.events),{"brainkit/dead_root"})
+                print("LEGACY_WRITER_RECEIPT " + json.dumps(receipt))
+    def test_legacy_unregister_fails_and_truncation_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory);model=TracefsWriterModel(root)
+            namespace=dict(trace.__dict__);exec(compile(LEGACY_WRITER,"exact-legacy-writer","exec"),namespace)
+            with model.active():
+                trace.start(root/"receipt.json")
+                with patch.object(trace,"write",namespace["write"]):
+                    with self.assertRaises(OSError) as caught: trace.stop()
+                self.assertEqual(caught.exception.errno,22)
+                self.assertEqual(len(model.commands),2,"LEGACY_UNREGISTER_FAILS_BEFORE_WRITE")
+                self.assertEqual(len(model.events),3);self.assertIn("brainkit/dead_root",model.events)
+                with self.assertRaises(OSError): (root/"kprobe_events").open("w")
+                with self.assertRaises(OSError): os.open(root/"kprobe_events",os.O_WRONLY|os.O_TRUNC)
+                self.assertEqual(len(model.events),3,"TRACEFS_REFUSES_FOREIGN_TRUNCATION")
+                print("LEGACY_UNREGISTER_RECEIPT " + (root/"receipt.stop.json").read_text())
 
 if __name__ == "__main__": unittest.main()

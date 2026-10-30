@@ -375,3 +375,19 @@ runs file-only protocol controls and fixture composition checks. These controls
 are not kernel admission. Controlled held-descriptor/release proof and actual
 runner admission still require the reviewed privileged offline native harness;
 neither establishes historical attribution for #2420.
+
+The `kprobe_events` writer uses `os.open(O_WRONLY | O_APPEND)`, one `os.write`
+and `close` for both registration and unregister. It never opens that file in
+Python append mode: CPython FileIO seeks to SEEK_END during append-open, while
+tracefs seq_lseek rejects it with EINVAL before parsing a command. It never
+creates or truncates that global probe file. This explains a collector failure;
+it does not establish that the kernel accepts the loop probe expressions.
+
+Each write records bounded error-log before/after digests and observed-empty or
+unreadable status. Only exact-command context is retained, with addresses and
+absolute paths redacted; unrelated global definitions are not exported. Probe
+registration also retains its owned command readback and event format before
+admission. File controls explicitly model append-open SEEK_END at Path.open,
+parse commands only on write and preserve foreign definitions through removal.
+They do not prove real tracefs behavior; the next reviewed runner must measure
+write, readback and format admission before running any product proof.
