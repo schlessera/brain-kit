@@ -25,6 +25,12 @@ export function nativeHostDockerArgs(root: string, artifact: string, uid: string
         "--workdir=/repo", "--entrypoint=/bin/sh", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "host", "python3", "/repo/scripts/native-proof/fixture.py", backend, uid];
 }
 
+/** Shared fixture protocol boundary, also callable without launching Docker. */
+export function requireNativeHostCleanup(cleanup: unknown): void {
+  if (!ownedCleanupComplete(cleanup))
+    throw Error("Native hosted proof did not provide complete owned-resource cleanup evidence.");
+}
+
 if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Native hosted proof requires its qualified Linux x86_64 runtime.");
@@ -76,8 +82,7 @@ if (import.meta.main) {
       if (code !== 0) throw Error(`Native hosted proof failed (${code}); inspect ${artifact}. No skipped or absent runtime is passing proof.`);
       const receipt = await Bun.file(join(artifact, "native-fixture.json")).json() as { kind: string; mounted?: boolean; attached?: boolean; loopCreated?: boolean; backingExists?: boolean; errors?: string[]; removeReceipt?: unknown }[];
       const cleanup = receipt.at(-1);
-      if (!ownedCleanupComplete(cleanup))
-        throw Error("Native hosted proof did not provide complete owned-resource cleanup evidence.");
+      requireNativeHostCleanup(cleanup);
     }
     if (selected.length === 0) {
       // Four healthy cells qualify first. This separate negative control must

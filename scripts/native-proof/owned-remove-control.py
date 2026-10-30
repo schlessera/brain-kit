@@ -51,7 +51,7 @@ class Controls(unittest.TestCase):
         self.assertFalse(any(not isinstance(p,int) and pathlib.Path(p)==self.device for p in self.opens), 'NO_DEVICE_OPEN')
     def test_busy_success(self):
         self.invoke([16,None]); self.assertIsNone(self.raised,'RETRY_REQUIRED'); self.assertEqual(len(self.starts),2)
-        self.assertEqual(self.receipt['outcome'],'removed'); self.assertEqual(self.receipt['attempts'][0]['errno'],16)
+        self.assertEqual(self.receipt['outcome'],'removed'); self.assertEqual(len(self.receipt['attempts']),len(self.starts),'ATTEMPT_HISTORY_REQUIRED'); self.assertEqual(self.receipt['attempts'][0]['errno'],16)
         self.assertEqual(self.receipt['attempts'][0]['startNs'],0,'OFFSETS_NOT_HOST_UPTIME')
     def test_cap(self):
         self.invoke([16]*60,sleep_advance=False)
@@ -78,7 +78,19 @@ class Controls(unittest.TestCase):
     def test_node_rdev(self):
         self.refuse(lambda:self.node.update(st_rdev=os.makedev(7,1791)),'Owned remove device identity lost')
     def test_sysfs_identity(self):
-        self.refuse(lambda:self.entry.chmod(0o700 if self.entry.stat().st_mode&0o777!=0o700 else 0o755),'Owned remove sysfs identity lost')
+        def change():
+            self.entry.rename(self.entry.parent/'original-entry')
+            self.entry.mkdir(); (self.entry/'holders').mkdir()
+            (self.entry/'dev').write_text('7:1790\n'); (self.entry/'size').write_text('0\n')
+        self.refuse(change,'Owned remove sysfs identity lost')
+    def test_sysfs_mode(self):
+        self.refuse(lambda:self.entry.chmod(0o700),'Owned remove sysfs identity lost')
+    def test_node_other_identity_components(self):
+        for key in ('st_dev','st_uid','st_gid','st_mode'):
+            with self.subTest(key=key):
+                original=self.node[key]
+                self.refuse(lambda:self.node.update({key:original+1}),'Owned remove device identity lost')
+                self.node[key]=original
     def test_mapping(self):
         other=self.entry.parent/'other'; other.mkdir()
         def change(): self.link.unlink(); self.link.symlink_to(other)
@@ -106,17 +118,32 @@ class Controls(unittest.TestCase):
                 self.assertEqual(call.call_count,1,'BASELINE_ONE_SHOT_REQUIRED')
                 self.assertFalse(receipt['identityCaptured']); self.assertFalse(receipt['retry'])
 
+def fixture_capture_anchors():
+    """Admit unique semantic source anchors before executing selected statements."""
+    import ast
+    tree = ast.parse(pathlib.Path(__file__).with_name('fixture.py').read_text())
+    def unique(values, label):
+        assert len(values) == 1, f'SELECTOR_UNIQUE_{label}: {len(values)}'
+        return values[0]
+    def name(node, value): return isinstance(node, ast.Name) and node.id == value
+    def call(node, owner, method):
+        return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and name(node.func.value, owner) and node.func.attr == method
+    outer = unique([node for node in tree.body if isinstance(node, ast.Try) and node.finalbody], 'OUTER_TRY')
+    first = unique([i for i,node in enumerate(outer.body) if isinstance(node, ast.Expr) and call(node.value, 'fcntl', 'ioctl')
+                    and len(node.value.args) == 3 and isinstance(node.value.args[1], ast.Constant) and node.value.args[1].value == 0x4c80], 'EXCLUSIVE_ADD')
+    last = unique([i for i,node in enumerate(outer.body) if isinstance(node, ast.Assign) and len(node.targets) == 1
+                   and name(node.targets[0], 'loop') and call(node.value, 'os', 'open')], 'LOOP_OPEN')
+    def cleanup_condition(node):
+        return isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And) and len(node.values) == 2 and name(node.values[0], 'created') \
+            and isinstance(node.values[1], ast.UnaryOp) and isinstance(node.values[1].op, ast.Not) and name(node.values[1].operand, 'attached')
+    cleanup_node = unique([node for node in outer.finalbody if isinstance(node, ast.If) and cleanup_condition(node.test)], 'OWNED_CLEANUP')
+    assert first < last, 'SELECTOR_ORDER'
+    return (compile(ast.Module(body=outer.body[first:last],type_ignores=[]),'fixture-capture','exec'),
+            compile(ast.Module(body=[cleanup_node],type_ignores=[]),'fixture-cleanup','exec'))
+
 class CaptureControls(unittest.TestCase):
     def test_fixture_early_capture_failure_preserves_main_one_shot(self):
-        import ast
-        source = pathlib.Path(__file__).with_name('fixture.py').read_text()
-        tree = ast.parse(source)
-        outer = next(node for node in tree.body if isinstance(node,ast.Try) and node.finalbody)
-        first = next(i for i,node in enumerate(outer.body) if '0x4c80' in ast.unparse(node))
-        last = next(i for i,node in enumerate(outer.body) if ast.unparse(node).startswith('loop = os.open'))
-        setup = compile(ast.Module(body=outer.body[first:last],type_ignores=[]),'fixture-capture','exec')
-        cleanup_node = next(node for node in outer.finalbody if isinstance(node,ast.If) and ast.unparse(node.test)=='created and (not attached)')
-        cleanup = compile(ast.Module(body=[cleanup_node],type_ignores=[]),'fixture-cleanup','exec')
+        setup, cleanup = fixture_capture_anchors()
         for failure in ('resolve','mknod','entry-lstat','node-lstat','entry-mode','node-mode'):
             with self.subTest(failure=failure):
                 calls=[]; receipt={}; errors=[]
@@ -140,4 +167,8 @@ class CaptureControls(unittest.TestCase):
                 self.assertEqual(receipt['identityCaptured'],False)
                 self.assertEqual(receipt['retry'],False)
 
-if __name__ == '__main__': unittest.main()
+if __name__ == '__main__':
+    import sys
+    if sys.argv[1:] == ['--admit-selectors']:
+        fixture_capture_anchors(); print('ALL_UNIQUE_SEMANTIC_SELECTORS_ADMITTED')
+    else: unittest.main()

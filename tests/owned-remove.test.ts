@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { requireNativeHostCleanup } from "../scripts/prove-native-host";
 import { verifyIndexReleaseReproduction } from "../scripts/native-proof/verify-index-release-repro";
 import { ownedCleanupComplete, verifyOwnedRemove } from "../scripts/native-proof/verify-owned-remove";
 const busy = { startNs: 100, endNs: 200, errno: 16, error: "[Errno 16] busy" };
@@ -25,6 +26,7 @@ const validReceipt = { identityCaptured: true, outcome: "removed", attempts: [bu
 const clean = { kind: "cleanup", mounted: false, attached: false, loopCreated: false, backingExists: false, errors: [], removeReceipt: validReceipt };
 test("shared cleanup rejects missing, malformed and changed ownership receipts", () => {
   expect(ownedCleanupComplete(clean)).toBe(true);
+  expect(() => requireNativeHostCleanup(clean)).not.toThrow();
   for (const value of [null, {}, ...["mounted", "attached", "loopCreated", "backingExists"].map(key => ({ ...clean, [key]: true })),
     { ...clean, errors: ["original failure"] }, { ...clean, errors: "" }, { ...clean, removeReceipt: undefined },
     ...[{}, { ...validReceipt, identityCaptured: false }, { ...validReceipt, attempts: [] }, { ...validReceipt, failure: "bad" },
@@ -34,7 +36,7 @@ test("shared cleanup rejects missing, malformed and changed ownership receipts",
 });
 test("both controller call sites require shared cleanup validation", () => {
   // Composition is an explicit controller boundary: deleting either call must fail.
-  expect(readFileSync(join(import.meta.dir, "../scripts/prove-native-host.ts"), "utf8")).toContain("if (!ownedCleanupComplete(cleanup))");
+  expect(readFileSync(join(import.meta.dir, "../scripts/prove-native-host.ts"), "utf8")).toContain("requireNativeHostCleanup(cleanup);");
   expect(readFileSync(join(import.meta.dir, "../scripts/native-proof/verify-index-release-repro.ts"), "utf8")).toContain('requireFact(ownedCleanupComplete(cleanup), "OWNED_CLEANUP")');
   const directory = mkdtempSync(join(tmpdir(), "owned-cleanup-control-"));
   try {
@@ -43,6 +45,7 @@ test("both controller call sites require shared cleanup validation", () => {
       + ["descriptor records", "cwd records", "descriptor released just after its delete"].map(name => `(pass) ${name} [1ms]`).join("\n") + "\n1 fail\n";
     for (const cleanup of [{ ...clean, removeReceipt: undefined }, { ...clean, errors: ["bad"] }]) {
       writeFileSync(join(directory, "native-fixture.json"), JSON.stringify([{ kind: "command", argv: ["bun", "run", "test"], code: 1, stderr }, cleanup]));
+      expect(() => requireNativeHostCleanup(cleanup)).toThrow("Native hosted proof did not provide complete owned-resource cleanup evidence.");
       expect(() => verifyIndexReleaseReproduction(directory, 1)).toThrow("NATIVE_INDEX_RELEASE_REPRO_OWNED_CLEANUP");
     }
   } finally { rmSync(directory, { recursive: true }); }
