@@ -1,0 +1,146 @@
+name: Diagnostic owned-loop writer admission 3192 (never merge)
+on:
+  push:
+    branches: [diag/3192-owned-loop-writer-admission]
+permissions:
+  contents: read
+concurrency:
+  group: diag-3192-owned-loop-writer-admission
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: github.event.created == true && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Admit exact reviewed source and runner class
+        run: |
+          python3 scripts/native-proof/admit-loop-diagnostic.py
+      - name: Canonical installation and offline native setup
+        id: setup
+        timeout-minutes: 12
+        env:
+          BEFORE_SHA: 8cb45cc0bf8a74abbbf4d253ce70dea206d86307
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          bun install --frozen-lockfile
+          bun scripts/ci-plan.ts
+          bash scripts/ci-runtime-setup.sh --native
+      - name: Record actual canonical native image identity
+        run: |
+          docker image inspect brain-kit-native-runtime:1 --format '{{.Id}}' > tmp/native-host-proof/native-image-id.txt
+          sha256sum scripts/native-proof/Dockerfile > tmp/native-host-proof/native-image-source.sha256
+      - name: Start original dead-root trace
+        run: sudo bash scripts/native-proof/dead-root-trace.sh start tmp/native-host-proof/dead-root-trace.txt
+      - name: Start product owned-loop trace
+        id: product_start
+        continue-on-error: true
+        run: sudo python3 -I -S scripts/native-proof/loop-trace.py start tmp/native-host-proof/owned-loop-trace.json
+      - name: Require actual registration writes, readback and formats before product
+        id: registration_gate
+        run: sudo python3 -I -S scripts/native-proof/admit-loop-diagnostic.py --registration tmp/native-host-proof/owned-loop-trace.json
+      - name: One complete canonical native runtime_host
+        id: product
+        if: success() && steps.registration_gate.outcome == 'success' && steps.product_start.outcome == 'success'
+        timeout-minutes: 15
+        run: bun scripts/ci-proof.ts runtime_host
+      - name: Salvage product owned-loop trace
+        id: product_stop
+        if: always() && steps.product_start.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          sudo python3 -I -S - tmp/native-host-proof/owned-loop-trace.json <<'PY_GUARD'
+          import json,pathlib,subprocess,sys
+          state=pathlib.Path('/run/brain-kit-owned-loop-trace.json'); receipt=pathlib.Path(sys.argv[1]).resolve()
+          if state.exists():
+            owner=json.loads(receipt.read_text()); live=json.loads(state.read_text())
+            if not owner.get('group') or owner['group']!=live.get('group') or live.get('output')!=str(receipt): raise RuntimeError('Refuse unowned trace cleanup')
+          subprocess.run(['python3','-I','-S','scripts/native-proof/loop-trace.py','stop'],check=True)
+          PY_GUARD
+      - name: Original dead-root stop and classification
+        if: always() && steps.setup.outcome == 'success'
+        run: |
+          sudo bash scripts/native-proof/dead-root-trace.sh stop
+          if [ -f tmp/native-host-proof/dead-root-trace.txt ]; then
+            bun scripts/native-proof/dead-root-trace.ts tmp/native-host-proof/dead-root-trace.txt tmp/native-host-proof
+          fi
+      - name: Require observed product mount and release admission
+        id: product_admission
+        if: success() && steps.product.outcome == 'success' && steps.product_start.outcome == 'success' && steps.product_stop.outcome == 'success'
+        run: python3 -I -S scripts/native-proof/verify-loop-diagnostic.py product tmp/native-host-proof/owned-loop-trace.json
+      - name: Start separate control trace
+        id: held_start
+        if: success() && steps.product_admission.outcome == 'success'
+        continue-on-error: true
+        run: sudo python3 -I -S scripts/native-proof/loop-trace.py start tmp/native-host-proof/owned-loop-held-trace.json
+      - name: One held descriptor control in canonical offline envelope
+        id: held
+        if: success() && steps.product_admission.outcome == 'success' && steps.held_start.outcome == 'success'
+        timeout-minutes: 3
+        run: |
+          sudo python3 -I -S scripts/native-proof/admit-loop-diagnostic.py --registration tmp/native-host-proof/owned-loop-held-trace.json
+          sudo "$(command -v bun)" scripts/native-proof/held-loop-runner.ts
+      - name: Salvage control trace
+        id: held_stop
+        if: always() && steps.held_start.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          sudo python3 -I -S - tmp/native-host-proof/owned-loop-held-trace.json <<'PY_GUARD'
+          import json,pathlib,subprocess,sys
+          state=pathlib.Path('/run/brain-kit-owned-loop-trace.json'); receipt=pathlib.Path(sys.argv[1]).resolve()
+          if state.exists():
+            owner=json.loads(receipt.read_text()); live=json.loads(state.read_text())
+            if not owner.get('group') or owner['group']!=live.get('group') or live.get('output')!=str(receipt): raise RuntimeError('Refuse unowned trace cleanup')
+          subprocess.run(['python3','-I','-S','scripts/native-proof/loop-trace.py','stop'],check=True)
+          PY_GUARD
+      - name: Require held PID, syscall stacks and release ordering
+        id: held_admission
+        if: success() && steps.held.outcome == 'success' && steps.held_stop.outcome == 'success'
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess
+          paths = list(pathlib.Path('tmp/native-host-proof').glob('run-held-control-*'))
+          if len(paths) != 1: raise RuntimeError('One owned held control required')
+          subprocess.run(['python3','-I','-S','scripts/native-proof/verify-loop-diagnostic.py','held','tmp/native-host-proof/owned-loop-held-trace.json',str(paths[0])], check=True)
+          PY
+      - name: Separate product and diagnostic outcomes
+        if: always()
+        env:
+          REGISTRATION_GATE: ${{ steps.registration_gate.outcome }}
+          PRODUCT: ${{ steps.product.outcome }}
+          PRODUCT_ADMISSION: ${{ steps.product_admission.outcome }}
+          PRODUCT_START: ${{ steps.product_start.outcome }}
+          PRODUCT_STOP: ${{ steps.product_stop.outcome }}
+          HELD_START: ${{ steps.held_start.outcome }}
+          HELD_ADMISSION: ${{ steps.held_admission.outcome }}
+          HELD: ${{ steps.held.outcome }}
+          HELD_STOP: ${{ steps.held_stop.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          path=pathlib.Path('tmp/native-host-proof');path.mkdir(parents=True,exist_ok=True)
+          outcomes={key:os.environ[key] for key in ('REGISTRATION_GATE','PRODUCT','PRODUCT_START','PRODUCT_STOP','PRODUCT_ADMISSION','HELD_START','HELD','HELD_STOP','HELD_ADMISSION')}
+          (path/'diagnostic-outcomes.json').write_text(json.dumps(outcomes,indent=2))
+          if any(value != 'success' for value in outcomes.values()): raise SystemExit(1)
+          PY
+      - name: Always retain original proof and separate control evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diagnostic-3192-writer-admission
+          path: |
+            tmp/native-host-proof/
+            tmp/worker-identity-proof/
+            tmp/reference-pool-proof/
+            tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/ci-plan.json
+          if-no-files-found: error
+          retention-days: 7
