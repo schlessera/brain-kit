@@ -145,7 +145,7 @@ class Controls(unittest.TestCase):
                 self.assertIn("owned-loop-availability-failure", output.getvalue())
             # An output PermissionError remains explicit, never a successful stop receipt.
             state.write_text(json.dumps(dict(group="owned", output=str(root / "receipt.json"), events=[])))
-            with patch.object(trace, "STATE", state), patch.object(trace, "stop", side_effect=PermissionError(errno.EACCES, "denied")), contextlib.redirect_stdout(io.StringIO()) as output:
+            with patch.object(trace, "TRACE", root / "no-tracefs"), patch.object(trace, "STATE", state), patch.object(trace, "stop", side_effect=PermissionError(errno.EACCES, "denied")), contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(trace.main(["stop"]), 1)
                 self.assertEqual(json.loads(output.getvalue())["failure"], "PermissionError")
             workflow = (HERE.parent.parent / ".github/workflows/ci.yml").read_text()

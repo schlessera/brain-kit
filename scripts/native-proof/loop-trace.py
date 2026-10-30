@@ -44,7 +44,7 @@ def failure(error, phase, group, symbol=""):
     try:
         with (TRACE / "error_log").open() as stream: text = stream.read(16384)
         lines = text.splitlines()[-24:]
-        selected = {j for i, line in enumerate(lines) if group in line or (symbol and symbol in line) for j in (max(0, i-1), i)}
+        selected = {j for i, line in enumerate(lines) if (group and group in line) or (symbol and symbol in line) for j in (max(0, i-1), i)}
         tail = [re.sub(r"/\S+", "<redacted>", lines[i])[:256] for i in sorted(selected)][-8:]
     except OSError as diagnostic: tail, log_unknown = [], type(diagnostic).__name__
     return dict(failure=type(error).__name__, errno=getattr(error, "errno", None), phase=phase,
@@ -91,8 +91,8 @@ def stop():
         base = instance / "events" / state["group"] / symbol
         write(base / "enable", "0")
         write(base / "trigger", "!stacktrace")
-    with (instance / "trace").open() as stream: raw = stream.read(LIMIT + 1)
-    save(output.with_suffix(".trace.json"), dict(trace=raw[:LIMIT], truncated=len(raw) > LIMIT))
+    with (instance / "trace").open("rb") as stream: raw = stream.read(LIMIT + 1)
+    save(output.with_suffix(".trace.json"), dict(trace=raw[:LIMIT].decode(errors="backslashreplace"), truncated=len(raw) > LIMIT))
     instance.rmdir()
     for symbol in state["events"]: write(TRACE / "kprobe_events", f"-:{state['group']}/{symbol}")
     receipt["stoppedMonoNs"] = time.monotonic_ns()
@@ -106,7 +106,10 @@ def main(args):
         else: raise ValueError("usage")
     except Exception as error:
         # CI also uses continue-on-error: even an output/cleanup error cannot gate proof.
-        print(json.dumps(dict(kind="owned-loop-availability-failure", action=args[:1], failure=type(error).__name__, errno=getattr(error, "errno", None), phase=getattr(error, "tracePhase", "lifecycle"))), flush=True)
+        try: group = json.loads(STATE.read_text())["group"]
+        except Exception: group = ""
+        print(json.dumps(dict(kind="owned-loop-availability-failure", action=args[:1],
+                              **failure(error, getattr(error, "tracePhase", "lifecycle"), group))), flush=True)
         return 1
     return 0
 
