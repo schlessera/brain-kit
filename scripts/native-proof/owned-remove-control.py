@@ -33,7 +33,7 @@ class Controls(unittest.TestCase):
                     raise AssertionError('DEVICE_OPEN_FORBIDDEN')
                 return _original(path,*args,**kwargs)
             self.stack.enter_context(patch.object(owner,name,opened))
-    def invoke(self, errors, change=lambda: None, advance=0, sleep_advance=True):
+    def invoke(self, errors, change=lambda: None, advance=0, sleep_advance=True, validation_delay=0):
         self.receipt = {}; self.now = 10**18; self.starts = []; self.sleeps = []; self.raised = None
         errors = iter(errors)
         def ioctl(*args):
@@ -45,7 +45,11 @@ class Controls(unittest.TestCase):
         def sleep(seconds):
             self.sleeps.append(seconds)
             if sleep_advance: self.now += round(seconds*1e9)
-        with patch.object(m.fcntl,'ioctl',side_effect=ioctl), patch.object(m.time,'monotonic_ns',side_effect=lambda:self.now), patch.object(m.time,'sleep',side_effect=sleep):
+        validate = m.validate
+        def validating(*args):
+            validate(*args)
+            if self.starts: self.now += validation_delay
+        with patch.object(m,'validate',side_effect=validating), patch.object(m.fcntl,'ioctl',side_effect=ioctl), patch.object(m.time,'monotonic_ns',side_effect=lambda:self.now), patch.object(m.time,'sleep',side_effect=sleep):
             try: m.remove_owned(123,self.device,self.nid,self.entry,self.eid,self.receipt)
             except Exception as error: self.raised = error
         self.assertFalse(any(not isinstance(p,int) and pathlib.Path(p)==self.device for p in self.opens), 'NO_DEVICE_OPEN')
@@ -63,6 +67,13 @@ class Controls(unittest.TestCase):
         self.assertTrue(all(t-self.starts[0]-30_000_000 < m.LIMIT_NS for t in self.starts),'NO_LATE_IOCTL')
         self.assertIsInstance(self.raised,OSError); self.assertEqual(self.raised.errno,16)
         self.assertIn('originalEBUSY',self.receipt)
+    def test_deadline_after_validation(self):
+        self.invoke([16,None],validation_delay=1_100_000_000)
+        self.assertEqual(len(self.starts),1,'NO_LATE_IOCTL_AFTER_VALIDATION')
+        self.assertIsInstance(self.raised,OSError); self.assertEqual(self.raised.errno,16)
+    def test_spacing(self):
+        self.invoke([16,16,None]); self.assertIsNone(self.raised)
+        self.assertEqual(self.sleeps,[0.02,0.02],'FIXED_RETRY_SPACING')
     def test_nonbusy(self):
         for errors, count in [([1,None],1),([6,None],1),([19,None],1),([16,19,None],2)]:
             self.invoke(errors); self.assertEqual(len(self.starts),count,'ONLY_EBUSY_RETRIED')
