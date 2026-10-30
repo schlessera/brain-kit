@@ -1208,6 +1208,50 @@ for (const muted of [false, true]) test(`visibility recovery retains ${muted ? "
   if (muted) expect(s.socket.frames("conversation_audio")).toHaveLength(frames);
 });
 
+for (const reason of ["disconnected", "provider_closed"] as const) test(`recoverable active ${reason} never publishes remote diagnostics, including blocked restart`, async ctx => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); await s.start();
+  s.input("Ask Nestor about the ships");
+  const published: string[] = [];
+  const unsubscribe = s.client.state.subscribe(next => published.push(JSON.stringify(next)));
+  ctx.onTestFinished(unsubscribe);
+  const assertPrivate = () => expect(published.join("\n"), "R7PROBE_REMOTE_NEVER_PUBLISHED").not.toContain(REMOTE_CLOSE_TEXT);
+
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason, message: REMOTE_CLOSE_TEXT });
+  // suspend publishes before startEpoch clears its notice. Inspect every
+  // notification, not only the final state after automatic recovery starts.
+  assertPrivate();
+  expect(published.some(snapshot => snapshot.includes(CLOSE_DIAGNOSTICS[reason])), "RECOVERABLE_CLOSE_PUBLISHED_FIXED_REASON").toBe(true);
+  expect(s.socket.frames("conversation_start")).toHaveLength(2);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  expect(s.client.state.getState().text).toBe("Ask Nestor about the ships");
+  // Withhold the replacement receipt: consent alone cannot reopen capture.
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assertPrivate();
+  expect(mic.opens()).toBe(1);
+  s.opened(2);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(mic.opens()).toBe(2);
+  expect(s.client.state.getState().text).toBe("");
+
+  const hidden = hidePage(); ctx.onTestFinished(() => hidden.show());
+  s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 2, reason, message: REMOTE_CLOSE_TEXT });
+  assertPrivate();
+  expect(s.client.state.getState().notice).toContain(CLOSE_DIAGNOSTICS[reason]);
+  expect(s.socket.frames("conversation_start")).toHaveLength(2);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(mic.opens()).toBe(2);
+  hidden.show();
+  await expect.poll(() => s.socket.frames("conversation_start").length).toBe(3);
+  s.opened(3);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  assertPrivate();
+  expect(mic.opens()).toBe(3);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
 for (const muted of [false, true]) test(`recoverable provider closure preserves ${muted ? "manual mute" : "consent"} and never retains remote content`, async ctx => {
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx); await s.start();
