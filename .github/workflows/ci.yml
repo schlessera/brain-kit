@@ -329,10 +329,17 @@ jobs:
         run: |
           mkdir -p tmp/native-host-proof
           sudo bash scripts/native-proof/dead-root-trace.sh start tmp/native-host-proof/dead-root-trace.txt
+      - name: Start optional owned-loop kernel trace
+        continue-on-error: true
+        run: sudo python3 -I -S scripts/native-proof/loop-trace.py start tmp/native-host-proof/owned-loop-trace.json
       - name: Complete native hosted runtime proof
         id: runtime_proof
         timeout-minutes: 15
         run: bun scripts/ci-proof.ts runtime_host
+      - name: Stop optional owned-loop kernel trace
+        continue-on-error: true
+        if: always()
+        run: sudo python3 -I -S scripts/native-proof/loop-trace.py stop
       - name: Stop and classify btrfs dead-root kernel trace
         if: always()
         run: |

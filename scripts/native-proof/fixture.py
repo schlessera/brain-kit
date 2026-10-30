@@ -1,5 +1,5 @@
 """Own one finite loop filesystem, run guarded hosted proof, and release only it."""
-import fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
+import errno, fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
 BACKEND = sys.argv[1] if len(sys.argv) >= 2 else "claude"
 if BACKEND not in ("claude", "pi"): raise RuntimeError("Unknown fixed native backend selection")
@@ -43,6 +43,43 @@ def run(argv, timeout=20):
     if child.returncode:
         raise RuntimeError("Native proof command failed: " + repr(argv))
     return output
+
+def observe(stage, **facts):
+    # Diagnostics must never change fixture cleanup or replace its exception.
+    try: record("loop-boundary", stage=stage, monoNs=time.monotonic_ns(), **facts)
+    except BaseException: pass
+
+def remove_evidence(error):
+    if not isinstance(error, OSError) or error.errno != errno.EBUSY: return
+    child = None
+    def terminate():
+        try:
+            if child.poll() is not None: return "reaped"
+            try: os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            try: child.wait(timeout=0.2); return "reaped"
+            except subprocess.TimeoutExpired: return "unknown: kill sent; child may remain in uninterruptible I/O"
+        except BaseException as diagnostic: return "unknown: " + type(diagnostic).__name__
+    try:
+        child = subprocess.Popen(["/usr/bin/python3", "-I", "-S", "/repo/scripts/native-proof/loop-evidence.py"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        try: output, _ = child.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            lifetime = terminate()
+            observe("remove-ebusy", unknown="collector-timeout", childLifetime=lifetime)
+            return
+        if child.returncode or len(output) > 262144:
+            observe("remove-ebusy", unknown="collector-failed-or-oversized", code=child.returncode)
+        else: observe("remove-ebusy", sample=json.loads(output))
+    except BaseException as diagnostic:
+        lifetime = terminate() if child is not None else "not-started"
+        observe("remove-ebusy", unknown=type(diagnostic).__name__, childLifetime=lifetime)
+    finally:
+        if child is not None:
+            try:
+                if child.stdout is not None: child.stdout.close()
+            except BaseException as diagnostic: observe("remove-ebusy", unknown=type(diagnostic).__name__)
+
 
 control = loop = image = None
 created = attached = mounted = False
@@ -97,19 +134,33 @@ except BaseException as error:
     record("failure", detail=str(error))
 finally:
     errors = []
+    observe("cleanup-enter")
     if mounted:
+        observe("unmount-enter")
         try: run(["umount", str(STORE)]); mounted = False
         except BaseException as error: errors.append(str(error))
+    observe("unmount-settled", mounted=mounted)
     if attached and not mounted:
         try:
             current = bytearray(232); fcntl.ioctl(loop, 0x4c05, current, True)
             if struct.unpack_from("=QQQQQIIII", current) != identity: raise RuntimeError("Owned loop identity changed before cleanup")
+            observe("detach-enter")
             fcntl.ioctl(loop, 0x4c01); attached = False
+            observe("detach-return")
         except BaseException as error: errors.append(str(error))
-    if loop is not None: os.close(loop)
+    if loop is not None:
+        observe("close-enter")
+        os.close(loop)
+        observe("close-return")
     if created and not attached:
-        try: fcntl.ioctl(control, 0x4c81, MINOR); created = False
-        except BaseException as error: errors.append(str(error))
+        observe("remove-enter")
+        try:
+            fcntl.ioctl(control, 0x4c81, MINOR); created = False
+            observe("remove-return")
+        except BaseException as error:
+            errors.append(str(error))
+            observe("remove-error", errno=getattr(error, "errno", None))
+            remove_evidence(error)
     if control is not None: os.close(control)
     if image is not None: os.close(image)
     if not mounted and not attached and BACKING.exists(): BACKING.unlink()

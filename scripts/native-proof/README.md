@@ -328,3 +328,66 @@ The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `SYS_RESOURCE`, so `quota_override` cannot be set; the unit suite covers that
 refusal. Receipts, including measured physical-to-owner ratios, are kept under
 `tmp/reference-pool-proof/`.
+
+## Owned-loop failure observations
+
+The loop1790 fixture retains monotonic cleanup boundaries in `native-fixture.json`.
+Only a failed single `LOOP_CTL_REMOVE` with EBUSY launches the isolated collector.
+The fixture waits up to two seconds, then sends SIGKILL to its process group and
+waits at most another 200 ms. This bounds the fixture's wait, not the child's
+lifetime: uninterruptible proc I/O can outlive SIGKILL. The receipt reports that
+lifetime as unknown rather than waiting indefinitely or claiming termination.
+The collector samples sysfs before and after at most 128 container-visible PIDs,
+with 16 KiB reads and 16 relevant mount facts per PID. Btrfs mountinfo normally
+uses anonymous `0:NN` device numbers; ownership also matches either exact owned
+loop source name, after decoding mountinfo's four supported escapes. Only a
+boolean is exported. Mount paths/options and backing filenames stay private.
+Unknown permissions, vanished entries, malformed mounts and truncation remain
+explicit. Sampling never opens the loop, retries removal or replaces its error.
+
+CI starts an independent optional `brainloop_*` mono-clock trace instance.
+Two probes, `lo_open` and `lo_release`, use kernel-resolved BTF argument/member
+syntax, following the existing dead-root tracer and the
+[kernel probe documentation](https://docs.kernel.org/trace/kprobetrace.html).
+Both events and both stack triggers filter to major 7 / minor 1790 before enable.
+Registration is attempted without an ftrace-list gate. Only rejected
+registrations consult a bounded exact-symbol scan, as an inconclusive hint.
+Rejected writes retain phase, errno and only fresh exact-command error context,
+including its caret. Kernel error text is a hint rather than a syntax or
+platform verdict. Both CI diagnostic steps are nonfatal; lifecycle failures emit explicit
+availability-failure records even if receipt writing fails. Stop freezes and salvages bounded trace output before disable, unregister or
+receipt reads. It attempts all owned cleanup steps even after a failure, retains
+the original failure, and records success only after every step succeeds.
+
+`owned-loop-trace.json` retains availability; `owned-loop-trace.trace.json`
+retains up to 4 MiB of ring text and a truncation flag. The ordinary always-run
+runtime-host artifact collects both. No userspace BTF tool, pointer offsets,
+ioctl probe or global reset is involved. Dead-root input and classification
+remain independent. Fixture remove boundaries supply errno and monotonic time.
+Open/release activity and stacks can support opener attribution; entry attempts
+and overwritten ring records do not provide an exact opener count. Sysfs backing
+attribute presence helps distinguish a still-bound loop from one cleared and
+then reopened; a later sample cannot establish the state at the failed ioctl.
+Neither state identifies its holder by itself.
+
+`bun run test tests/owned-loop-evidence.test.ts tests/identity-native-fixture.test.ts`
+runs file-only protocol controls and fixture composition checks. These controls
+are not kernel admission. Controlled held-descriptor/release proof and actual
+runner admission still require the reviewed privileged offline native harness;
+neither establishes historical attribution for #2420.
+
+The `kprobe_events` writer uses `os.open(O_WRONLY | O_APPEND)`, one `os.write`
+and `close` for both registration and unregister. It never opens that file in
+Python append mode: CPython FileIO seeks to SEEK_END during append-open, while
+tracefs seq_lseek rejects it with EINVAL before parsing a command. It never
+creates or truncates that global probe file. This explains a collector failure;
+it does not establish that the kernel accepts the loop probe expressions.
+
+Each write records bounded error-log before/after digests and observed-empty or
+unreadable status. Only exact-command context is retained, with addresses and
+absolute paths redacted; unrelated global definitions are not exported. Probe
+registration also retains its owned command readback and event format before
+admission. File controls explicitly model append-open SEEK_END at Path.open,
+parse commands only on write and preserve foreign definitions through removal.
+They do not prove real tracefs behavior; the next reviewed runner must measure
+write, readback and format admission before running any product proof.
