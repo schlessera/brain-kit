@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, test as browserTest } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test as browserTest } from "vitest";
 import { commands } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -14,6 +14,10 @@ import { parseDiagram } from "../../../module-diagrams/src/svg-model.js";
 import { buildDiagramLayout } from "../../../module-diagrams/src/layout.js";
 
 let host: HTMLDivElement, render: Root, root: BrainUiRoot, styles: HTMLStyleElement;
+let caseId = "hooks", mountId = 0;
+let observer: MutationObserver | undefined;
+function mark(stage: string, extra: Record<string, unknown> = {}) { console.log("CALLOUT_CASE_STAGE", JSON.stringify({case:caseId, mountId, stage, epochMs:Date.now(), monotonicMs:performance.now(), ...extra})); }
+beforeEach(() => { mark("local-beforeEach-start"); mark("local-beforeEach-end"); });
 const originalTheme = document.documentElement.dataset.theme;
 beforeAll(async () => { styles = document.createElement("style"); styles.dataset.diagramCaptureConsumer = ""; styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 // A Vitest deadline rejects its wrapper without cancelling the async body.
@@ -22,16 +26,19 @@ let ownedCase: Promise<void> | undefined, ownedTeardown: Promise<void> | undefin
 function test(name: string, run: () => Promise<void>) {
   browserTest(name, () => {
     if (ownedCase || ownedTeardown) throw Error("PREVIOUS_CALLOUT_CASE_NOT_DRAINED");
-    ownedCase = Promise.resolve().then(run);
+    caseId = name; mountId = 0; mark("body-start");
+    ownedCase = Promise.resolve().then(run).finally(() => { mark("body-settle"); });
     return ownedCase;
   });
 }
 async function teardownCase() {
+  mark("local-afterEach-start");
   const work = ownedCase;
   const teardown = ownedTeardown ??= (async () => {
     // The test still receives its original rejected promise. Teardown observes
     // settlement so a failure cannot leave later work using another case's DOM.
     if (work) await Promise.allSettled([work]);
+    observer?.disconnect(); observer = undefined;
     const failures: unknown[] = [];
     for (const cleanup of [() => { if (render) flushSync(() => render.unmount()); },
       () => root?.dispose(), () => host?.remove(), () => { document.documentElement.dataset.theme = originalTheme; }]) {
@@ -45,15 +52,21 @@ async function teardownCase() {
   // before its body runs, and styles remain while unknown work could use them.
   await teardown;
   if (ownedTeardown === teardown) ownedTeardown = undefined;
+  mark("local-afterEach-end");
 }
 afterAll(async () => { if (ownedCase || ownedTeardown) await teardownCase(); styles?.remove(); });
 afterEach(teardownCase);
 function mount(source: string, width: number, theme: "light" | "dark" | "print" = "light") {
   if (!host?.isConnected) { host = document.createElement("div"); document.body.append(host); render = createRoot(host); root = createBrainUiRoot({ storage: null, request: async () => Response.json({ renderers: [], enabled: [] }) }); }
+  observer?.disconnect(); mountId++; mark("mount-start");
+  let seenFallback = false, seenDrawing = false;
+  const inspect = () => { if (!seenFallback && host.querySelector("ol")) { seenFallback = true; mark("fallback-observed"); } if (!seenDrawing && host.querySelector("figure > svg.bk-diagram")) { seenDrawing = true; mark("drawing-observed"); } };
+  observer = new MutationObserver(inspect); observer.observe(host, {childList:true, subtree:true});
   document.documentElement.dataset.theme = theme; host.style.width = `${width}px`;
   flushSync(() => render.render(<BrainUiProvider root={root}><DiagramContent source={source} theme={theme} mode="chat" /></BrainUiProvider>));
+  inspect(); mark("mount-return");
 }
-async function svgReady() { await expect.poll(() => host.querySelector("figure > svg.bk-diagram")).not.toBeNull(); await document.fonts.ready; return host.querySelector<SVGSVGElement>("figure > svg.bk-diagram")!; }
+async function svgReady() { await expect.poll(() => host.querySelector("figure > svg.bk-diagram")).not.toBeNull(); mark("svg-ready"); await document.fonts.ready; mark("fonts-ready"); return host.querySelector<SVGSVGElement>("figure > svg.bk-diagram")!; }
 const canonical = (item: Element): unknown => ({ tag: item.localName, attrs: Object.fromEntries([...item.attributes].filter(attr => attr.name !== "xmlns").map(attr => [attr.name, attr.value])), text: item.childElementCount ? undefined : item.textContent, children: [...item.children].map(canonical) });
 const annotation = (svg: ParentNode) => [...svg.querySelectorAll(":scope > [data-diagram-callout],:scope > [data-diagram-callout-key],:scope > [data-diagram-notes-band]")].map(canonical);
 const distance = (x: number, y: number, box: DOMRect) => Math.hypot(Math.max(box.x - x, 0, x - box.x - box.width), Math.max(box.y - y, 0, y - box.y - box.height));
@@ -137,7 +150,9 @@ async function assertParity(svg: SVGSVGElement, source: string, theme: "light" |
 for (const theme of ["light", "dark", "print"] as const) {
  test(`literal full notes client/static capture ${theme}`, async () => {
   const source = JSON.stringify(calloutsSpec); mount(source, 800, theme); const svg = await svgReady(); assertAnnotations(svg, source, 1); await assertParity(svg, source, theme);
+  mark("population-complete"); mark("capture-call", {artifact:`callouts-literal-${theme}`});
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-literal-${theme}`);
+  mark("capture-return");
  });
  test(`literal to grouped full notes live client/static ${theme}`, async () => {
   let source = JSON.stringify(calloutsSpec); mount(source, 800, theme); let svg = await svgReady(); assertAnnotations(svg, source, 1); await assertParity(svg, source, theme);
@@ -156,7 +171,9 @@ for (const theme of ["light", "dark", "print"] as const) {
   mount(source, 800, theme); const svg = await svgReady(); expect(host, "CAPTURE_UPDATE_RETAINS_CLIENT_ROOT").toBe(previousHost);
   expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_SOURCE_NOTES").toHaveLength(1024);
   expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
+  mark("population-complete"); mark("capture-call", {artifact:`callouts-1024-${theme}`});
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-${theme}`);
+  mark("capture-return");
  });
 }
 
@@ -175,7 +192,9 @@ for (const theme of ["light", "dark", "print"] as const) {
   expect(svg.getAttribute("width")).toBe("320"); expect(svg.querySelector("[data-diagram-notes-band]")!.getAttribute("data-columns")).toBe("1"); expect(host.scrollWidth).toBeLessThanOrEqual(320);
   expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_NARROW_SOURCE_NOTES").toHaveLength(1024);
   expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_NARROW_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
+  mark("population-complete"); mark("capture-call", {artifact:`callouts-1024-narrow-${theme}`});
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-narrow-${theme}`);
+  mark("capture-return");
 });
 }
 for (const width of [636, 640]) test(`responsive columns at nearest authored grid width ${width}`, async () => {
@@ -184,7 +203,9 @@ for (const width of [636, 640]) test(`responsive columns at nearest authored gri
   expect(svg.getAttribute("width")).toBe(String(width)); expect(svg.querySelector("[data-diagram-notes-band]")!.getAttribute("data-columns")).toBe(width >= 640 ? "2" : "1");
   const rows = [...svg.querySelectorAll<SVGGElement>("[data-diagram-callout]")]; expect(rows.map(row => row.dataset.column)).toEqual(width >= 640 ? ["0", "0", "0", "0", "0", "1", "1", "1", "1"] : Array(9).fill("0"));
   for (const heading of svg.querySelectorAll<SVGGElement>("[data-callout-group-heading]")) expect(Number(heading.dataset.columnWidth)).toBeGreaterThanOrEqual(280);
+  mark("population-complete"); mark("capture-call", {artifact:`callouts-columns-${width}`});
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-columns-${width}`);
+  mark("capture-return");
 });
 test("fixed canvas compatibility preserves all notes inline only when band cannot fit", async () => {
   for (const [y, band] of [[460, false], [440, true]] as const) {
@@ -196,7 +217,9 @@ for (const theme of ["light", "dark", "print"] as const) test(`semantic-only and
   const spec = { ...calloutsSpec, type: "quadrant", nodes: [{ id: "odysseus", label: "Odysseus" }], groups: [], edges: [{ id: "record", from: "odysseus", to: "odysseus", label: "RECORD" }], callouts: [{ target: "record", text: "Prepare provisions" }] }, source = JSON.stringify(spec);
   mount(source, 960, theme); const svg = await svgReady(); assertAnnotations(svg, source, 1); await assertParity(svg, source, theme);
   expect(svg.querySelector("[data-diagram-callout-key]")).toBeNull(); expect(svg.querySelector("[data-diagram-callout-group]")!.getAttribute("data-target-drawn")).toBe("false"); expect(svg.textContent).toContain("Not drawn: quadrant diagrams don’t draw connectors."); expect(svg.querySelector("[data-diagram-edge],path")).toBeNull();
+  mark("population-complete"); mark("capture-call", {artifact:`callouts-semantic-${theme}`});
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-semantic-${theme}`);
+  mark("capture-return");
   const unmarked = JSON.stringify({ ...calloutsSpec, callouts: [{ target: "voyage", text: "Prepare provisions" }, { target: "voyage", text: "Read the ledger" }] }); mount(unmarked, 800, theme); const grouped = await svgReady(); assertAnnotations(grouped, unmarked, 2); expect(grouped.textContent).toContain("Not marked: no clear spot on the drawing."); expect(grouped.querySelector("[data-diagram-callout-group]")!.getAttribute("data-target-drawn")).toBe("unmarked");
 });
 for (const theme of ["light", "dark"] as const) test(`summary groups all source notes and semantic explanation ${theme}`, async () => {
@@ -204,7 +227,9 @@ for (const theme of ["light", "dark"] as const) test(`summary groups all source 
   mount(JSON.stringify(spec), 300, theme); await expect.poll(() => host.querySelector("[data-diagram-notes]")).not.toBeNull();
   expect(host.querySelectorAll("[data-diagram-notes] section")).toHaveLength(2); const rows = [...host.querySelectorAll<HTMLLIElement>("[data-diagram-notes] li")]; expect(rows.map(row => row.value)).toEqual([1, 3, 2]); expect(rows.map(row => row.querySelector("[data-callout-text]")!.textContent)).toEqual(["Prepare provisions", "Return to Ithaca", "Read the ledger"]); expect([...host.querySelectorAll("button,[role=button]")].some(button => button.textContent === "Open diagram")).toBe(true);
   for(const row of rows){const index=row.querySelector<HTMLElement>("[data-callout-index]")!;expect(index.textContent).toBe(String(row.value));expect(index.getBoundingClientRect().width,"VISIBLE_SUMMARY_SOURCE_INDEX").toBeGreaterThan(0);expect(getComputedStyle(index).visibility).toBe("visible");}
+  mark("population-complete"); mark("capture-call", {artifact:`callouts-summary-${theme}`});
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-summary-${theme}`);
+  mark("capture-return");
 });
 test("actual family geometry and named line/path targets retain every annotation", async () => {
   for (const original of Object.values(axisExamples)) {
@@ -225,7 +250,9 @@ test("multi-digit shared keys reserve header space and remain attached to actual
   const keys=[...group.querySelectorAll<SVGGElement>("[data-callout-header-key]")],headers=[...group.querySelectorAll<SVGGElement>("[data-callout-group-heading]")];
   for(let i=0;i<keys.length;i++)expect(separated(keys[i]!.getBBox(),headers[i]!.getBBox(),4),"MULTIDIGIT_KEY_HEADER_CLEARANCE").toBe(true);
  }
+  mark("population-complete"); mark("capture-call");
  await commands.diagramCapture('[data-content-renderer="diagram"]',"callouts-multidigit-keys");
+  mark("capture-return");
 });
 test("narrow unbreakable text uses readable full summary and retains all 1024 source indices",async()=>{
  const spec={...narrowCallouts(),callouts:Array.from({length:1024},(_,i)=>({target:"odysseus",text:i===0?"W".repeat(200):`Prepare provisions ${i+1}`}))};mount(JSON.stringify(spec),320);

@@ -1,0 +1,157 @@
+name: Diagnostic callout shard 2402 (never merge)
+on:
+  push:
+    branches: [diag/2402-hosted-callouts]
+permissions:
+  contents: read
+  actions: read
+  checks: read
+concurrency:
+  group: diag-2402-hosted-callouts
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: github.event.created == true && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    # Includes setup (12 minutes), proof (20 minutes) and remaining upload time.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Admit immutable diagnostic source and original runner envelope
+        run: |
+          mkdir -p tmp/diag-2402
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,platform,subprocess,sys
+          BASE = '18da74f6b8f9fce4ef3ec3387d1fa904725b69e9'
+          MARKERS = {
+            'packages/ui-react/tests/browser/diagrams-callouts.layout.tsx':'db2fd5d5346407c03619d2c2d4029da299b7c0b18ccb6fe56caa399b96f6c31c',
+            'packages/ui-react/tests/browser/diagram-proof-command.ts':'87fa23a0e315dd6cdd620c634cef1187b745e249a3c09f11eb801eb1512f77b7',
+          }
+          ALLOWED = set(MARKERS) | {'.github/workflows/diag-2402.yml'}
+          def source_ok(base,head,parent,sha,event_sha,hashes,clean):
+            return parent == BASE and sha == event_sha and clean and {p for p in set(base)|set(head) if base.get(p)!=head.get(p)} == ALLOWED and all(hashes.get(p)==h for p,h in MARKERS.items())
+          def runner_ok(o):
+            return o.get('cpus')==4 and len(set(o.get('allowedCpus',[])))==4 and 14*1024**3 <= o.get('memoryBytes',0) <= 18*1024**3 and o.get('osId')=='ubuntu' and o.get('osVersion')=='24.04' and o.get('arch')=='x86_64'
+          def git(*args):
+            return subprocess.check_output(['git',*args],text=True).strip()
+          def tree(ref):
+            return {line.split('\t',1)[1]:line.split('\t',1)[0] for line in git('ls-tree','-r',ref).splitlines()}
+          cpuinfo=pathlib.Path('/proc/cpuinfo').read_text()
+          observed={'kernel':platform.release(),'arch':platform.machine(),'cpus':os.cpu_count(),'allowedCpus':sorted(os.sched_getaffinity(0)),'memoryBytes':int(next(l.split()[1] for l in pathlib.Path('/proc/meminfo').read_text().splitlines() if l.startswith('MemTotal:')))*1024,'imageVersion':os.environ.get('ImageVersion'),'osId':platform.freedesktop_os_release().get('ID'),'osVersion':platform.freedesktop_os_release().get('VERSION_ID'),'cpuModel':next((l.split(':',1)[1].strip() for l in cpuinfo.splitlines() if l.startswith('model name')),None)}
+          sha=git('rev-parse','HEAD'); parent=git('show','-s','--format=%P','HEAD')
+          hashes={p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in MARKERS}
+          valid_source=source_ok(tree(BASE),tree('HEAD'),parent,sha,os.environ['GITHUB_SHA'],hashes,not git('status','--porcelain'))
+          result={'status':'ENVIRONMENT_CLASS_ADMITTED' if valid_source and runner_ok(observed) else 'SETUP_MISMATCH','sourceValid':valid_source,'checkout':{'sha':sha,'tree':git('rev-parse','HEAD^{tree}'),'parents':parent.split()},'observed':observed,'limits':['Runner class only; CPU model, kernel and image version may vary','Historical kernel and hardware equivalence unproven']}
+          pathlib.Path('tmp/diag-2402/admission.json').write_text(json.dumps(result,indent=2))
+          print(json.dumps(result));sys.exit(0 if result['status']=='ENVIRONMENT_CLASS_ADMITTED' else 1)
+          PY
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Original frozen installation and diagnostic comparison plan
+        timeout-minutes: 12
+        env:
+          # Honest diagnostic diff base: branch creation has no event.before.
+          BEFORE_SHA: 18da74f6b8f9fce4ef3ec3387d1fa904725b69e9
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          printf '%s  %s\n' a83d263767d839e4d2649ca8e35d07159c7afc99afdc96d731ced29e056dda0c "$(command -v bun)" | sha256sum --check
+          bun scripts/ci-plan.ts
+      - name: One original build and complete browser shard 3
+        timeout-minutes: 20
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=20s 1200s bun scripts/ci-proof.ts browser --shard=3/3 > >(tee tmp/diag-2402/stdout.log) 2> >(tee tmp/diag-2402/stderr.log >&2)
+          result=$?
+          wait
+          printf '%s\n' "$result" > tmp/diag-2402/command.exit
+          exit "$result"
+      - name: Preserve raw markers, actual PNG headers and outcome
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,re,struct,sys
+          root=pathlib.Path('tmp/diag-2402');root.mkdir(parents=True,exist_ok=True)
+          def classify(code,report,sha):
+            if code is None:return 'NOT_EXECUTED'
+            if code!=0:return 'EXECUTION_FAILURE'
+            if not isinstance(report,dict) or report.get('checkout',{}).get('sha')!=sha:return 'INVALID_RECEIPT'
+            tests=[t for m in report.get('modules',[]) for t in m.get('cases',[])]
+            skips=[(m.get('project'),m.get('file'),t.get('name')) for m in report.get('modules',[]) for t in m.get('cases',[]) if t.get('state')=='skipped']
+            expected=set()
+            for theme in ['dark','light']:
+              for w in [320,390]:expected.add(('rail-fine','packages/ui-react/tests/browser/session-drafts.pointer.tsx',f'{w} ({theme}): with the keyboard up, switching sessions mid-edit keeps each draft'))
+              for w in [320,390,900]:expected.add(('rail-fine','packages/ui-react/tests/browser/working-sessions.pointer.tsx',f'{w} ({theme}): keyboard up, the halves are one summary each, and R4 hides the row'))
+            if report.get('reason')!='passed' or report.get('unhandledErrors') or len(report.get('modules',[]))!=88 or len(tests)!=2753 or sum(t.get('state')=='passed' for t in tests)!=2743 or len(skips)!=10 or set(skips)!=expected:return 'COUNTS_OR_FAILURE_MISMATCH'
+            return 'NONREPRO'
+          markers=[]
+          for stream in ['stdout','stderr']:
+            p=root/(stream+'.log')
+            if p.exists():
+              for n,line in enumerate(p.read_text(errors='replace').splitlines(),1):
+                line=re.sub(r'\x1b\[[0-9;]*m','',line)
+                for kind in ['CALLOUT_CASE_STAGE','CALLOUT_COMMAND_STAGE','DIAGRAM_CAPTURE_STAGE']:
+                  if kind+' ' in line:
+                    try:markers.append({'stream':stream,'line':n,'kind':kind,'value':json.loads(line.split(kind+' ',1)[1])})
+                    except ValueError:markers.append({'stream':stream,'line':n,'kind':kind,'parseError':True})
+          (root/'markers.jsonl').write_text(''.join(json.dumps(v)+'\n' for v in markers))
+          pngs=[]
+          for directory in ['tmp/diagram-renderer-proof','tmp/diagram-export-native-prepared']:
+            for p in pathlib.Path(directory).rglob('*.png'):
+              b=p.read_bytes();pngs.append({'path':p.as_posix(),'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'dimensions':list(struct.unpack('>II',b[16:24])) if b[:8]==b'\x89PNG\r\n\x1a\n' else None})
+          (root/'png-headers.json').write_text(json.dumps(pngs,indent=2))
+          codepath=root/'command.exit';code=int(codepath.read_text()) if codepath.exists() else None
+          reportpath=pathlib.Path('tmp/proof-cases.json')
+          try:report=json.loads(reportpath.read_text()) if reportpath.exists() else None
+          except ValueError:report=None
+          import os
+          status=classify(code,report,os.environ['GITHUB_SHA'])
+          outcome={'status':status,'originalExit':code,'markerParseErrors':sum(v.get('parseError',False) for v in markers),'limitations':['known beforeEach previous-case ID; shared font hooks untimed','DOM presence is not exact commit timing','instrumentation overhead uncalibrated','no repair, candidate proof or release clearance']}
+          if outcome['markerParseErrors']:outcome['measurementStatus']='INVALID_MARKERS'
+          else:outcome['measurementStatus']='RAW_MARKERS_RETAINED' if markers else 'NO_MARKERS'
+          (root/'outcome.json').write_text(json.dumps(outcome,indent=2));print(json.dumps(outcome))
+          sys.exit(0 if status=='NONREPRO' and bool(markers) and not outcome['markerParseErrors'] else 1)
+          PY
+      - name: Original proof outputs and diagnostic observations
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diag-2402-shard-3
+          path: |
+            tmp/diag-2402/
+            tmp/proof-checkout.json
+            tmp/proof-resources.json
+            tmp/proof-cases.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/diagram-export-native-prepared/*/*/release.svg
+            tmp/diagram-export-native-prepared/*/*/release.png
+            tmp/diagram-export-native-prepared/*/*/release.pdf
+            tmp/diagram-export-native-prepared/*/*/origin.svg
+            tmp/diagram-export-native-prepared/*/*/origin.png
+            tmp/diagram-export-native-prepared/*/*/origin.pdf
+            tmp/diagram-export-native-prepared/*/*/producer.json
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
