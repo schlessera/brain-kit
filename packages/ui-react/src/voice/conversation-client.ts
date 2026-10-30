@@ -187,10 +187,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   let unsavedOverflow = false;
   let storageFailedScope: string | undefined;
+  let storageFailureCode: "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE" | undefined;
   const liveScopeKey = () => {const p=scope();return p ? JSON.stringify([p.conversationId,p.epoch]) : undefined;};
-  function stopForStorageFailure() {
-    const key=liveScopeKey(); if(!key || storageFailedScope===key)return;
-    storageFailedScope=key;
+  function stopForStorageFailure(code?: "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE") {
+    const key=liveScopeKey(); if(!key)return;
+    if(storageFailedScope===key){if(code)storageFailureCode=code;return;}
+    storageFailedScope=key; storageFailureCode=code ?? "DIALOGUE_STORAGE";
     consent=false; permissions.lost(); clearTimers(); resetRecovery(); stopMic(); playback.cut();
   }
   function retainUnsaved(text: string): boolean {
@@ -338,7 +340,17 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     consent = retainedConsent;
     state.setState({ notice: closedNotice || (retainedConsent ? "Voice temporarily unavailable. Listening will recover in the same disclosed scope." : "Voice temporarily unavailable. Microphone remains muted.") });
   }
-  function closeDiagnostic(reason: ServerConversationClosed["reason"]) {
+  function dialogueDiagnostic(code: "DIALOGUE_UNAVAILABLE" | "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE") {
+    const notices = {
+      DIALOGUE_UNAVAILABLE: "Conversation history unavailable. Try opening this chat again.",
+      // A failed journal write does not prove loss of a complete native answer.
+      DIALOGUE_STORAGE: "Conversation history writes failed. Restore storage before restarting voice.",
+      DIALOGUE_PENDING_PRESSURE: "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. Any unsaved text is unavailable after reload. Let pending writes finish and check storage before restarting voice.",
+    };
+    return notices[code];
+  }
+  function closeDiagnostic(reason: ServerConversationClosed["reason"], closed: Pick<ServerConversationClosed,"conversationId"|"epoch">) {
+    if(storageFailureCode && storageFailedScope===JSON.stringify([closed.conversationId,closed.epoch])) return dialogueDiagnostic(storageFailureCode);
     // Only local fixed classes survive an epoch closure. Remote message text
     // can contain provider details or content and must never be retained here.
     const reasons: Record<ServerConversationClosed["reason"], string> = {
@@ -391,7 +403,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const profile = scope();
     if (requireCurrentDisclosure()) return;
     if (!state.getState().active || !consent || !profile || mic || (typeof document !== "undefined" && document.hidden)) return;
-    const reason = storageFailedScope === liveScopeKey() ? "Conversation text could not be saved. Restore storage before restarting voice."
+    const reason = storageFailedScope === liveScopeKey() ? dialogueDiagnostic(storageFailureCode ?? "DIALOGUE_STORAGE")
       : state.getState().disclosureOpen ? "Review the voice service disclosure. Microphone off."
       : state.getState().connection !== "Connected" ? "Waiting for the voice connection. Microphone off."
       : !ready ? "Waiting for voice readiness. Microphone off."
@@ -518,7 +530,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     // Retire the source before cutting playback: no old identity is sent on a new principal socket.
     state.setState({active:false,profile:null});
     clearTimers(); resetRecovery(); stopMic(); playback.cut();
-    unsavedOverflow=false; storageFailedScope=undefined; dialogueReads.clear();
+    unsavedOverflow=false; storageFailedScope=undefined; storageFailureCode=undefined; dialogueReads.clear();
     requests.clear(); restoredRequests.clear(); agreedDisclosure=undefined;
     permissions.clear(); localTones.clear(); fragments.clear(); capturedInputs.clear(); retiredInputs.clear();
     manualReview.clear(); incompleteReview.clear(); unassignedThrough=-1; seenRecognition.clear();
@@ -598,9 +610,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         // Stop new capture/automation, not the already observed current-epoch tail.
         // The host closes the epoch after these callbacks drain. Ready and all
         // identity/disclosure fences remain intact until that ordinary close.
-        stopForStorageFailure();
+        stopForStorageFailure(message.code);
       }
-      if (!unsavedOverflow) state.setState({dialogueNotice: message.message}); return null;
+      if (!unsavedOverflow) state.setState({dialogueNotice: dialogueDiagnostic(message.code)}); return null;
     }
     if (message.type === "server_hello") state.setState({ available: message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true });
     if (message.type === "session_info" && message.requestId) {
@@ -658,7 +670,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         if (s.active) queueMicrotask(startEpoch);
         return null;
       }
-      if (message.type === "conversation_closed") { closedNotice = message.message ?? closeDiagnostic(message.reason); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
+      if (message.type === "conversation_closed") { closedNotice = closeDiagnostic(message.reason,message); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
     } else if (message.type === "conversation_opened") return null;
     if (message.type === "conversation_work") {
       const p = scope();
@@ -707,8 +719,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (message.reason === "stopped") {
         suspend(); startEpoch();
       } else if (message.reason === "disconnected" || message.reason === "provider_closed") {
-        closedNotice = message.message ?? closeDiagnostic(message.reason); suspend(); startEpoch();
-      } else { closedNotice = message.message ?? closeDiagnostic(message.reason); pause(true); }
+        closedNotice = closeDiagnostic(message.reason,message); suspend(); startEpoch();
+      } else { closedNotice = closeDiagnostic(message.reason,message); pause(true); }
       return null;
     }
     if (message.type !== "conversation_event") return null;

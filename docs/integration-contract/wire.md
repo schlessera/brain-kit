@@ -1469,12 +1469,15 @@ inserted spaces. Duplicate provider event IDs are ignored. Late, overlapping,
 out-of-order timeline intervals and gaps remain evidence, never captured-input
 ownership, speaker certainty, completion, or permission authority. Host sequence
 gaps close `correlation`. Recognition is separate from `input_fragment` and
-cannot satisfy `conversation_commit` admission. The host forwards at most
-`maxFragmentsPerUtterance` fragments and `maxUtteranceChars` characters per epoch;
-an exceeding event closes `backpressure` with a fixed review diagnostic.
-The client also bounds retained recognition across epochs by those limits,
-retaining the boundary-crossing fragment before stopping (at most one extra
-`maxFragmentChars` fragment). Restart waits for explicit review when full.
+cannot satisfy `conversation_commit` admission. Under #3177's retention
+supersession, `maxFragmentsPerUtterance` and `maxUtteranceChars` bound transient
+review/context caches, not lifetime capture or the archive. The host journals
+exact observations before bounded review eviction in either task mode. The
+client's volatile unassigned-recognition display may retain one extra fragment;
+its review window stays bounded and reports rollover without stopping consented
+capture or erasing archived evidence. Explicit review transfers only the retained
+review window, never an implied complete reconstruction. Actual pending-write
+or unsaved-buffer exhaustion remains a visible technical failure boundary.
 Recognition retained across reconnect keeps its original epoch and session
 intervals; old-epoch wire frames are ignored. Recognition is not replayed as
 new input or seeded into provider history.
@@ -2472,3 +2475,14 @@ original owner ID resolves through the durable alias; principal, generation,
 native ID/epoch and target identity fences remain. This liveness classification
 never admits a new `historyOwnerId` entry into an already bound chat: the open
 transaction still requires a provisional owner for that new admission.
+
+Conversation-close diagnostics retain only fixed local reason classes. Arbitrary
+remote `conversation_closed.message` text never enters client notice state or
+rendered diagnostics, including failed openings and recovery closes. Known
+`DIALOGUE_UNAVAILABLE`, `DIALOGUE_STORAGE` and `DIALOGUE_PENDING_PRESSURE` codes
+select fixed local copy as well; their remote message bodies are not retained.
+A failure cause may carry across close only for its exact conversation and epoch.
+A journal write failure alone does not prove that a complete native answer was
+lost. Review-buffer eviction remains separate from archive retention and does
+not stop consented capture; a genuine bounded unsaved-buffer exhaustion still
+stops capture and exposes the unavailable tail honestly.

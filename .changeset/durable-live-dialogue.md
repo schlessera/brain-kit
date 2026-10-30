@@ -22,3 +22,5 @@ Order same-conversation close/open transitions through device takeover and pendi
 Preserve complete coverage for simultaneous healthy voice entries in one chat, fence and retire pending writer identities, and keep adopted sibling scopes aligned without masking no-close or restart gaps.
 
 Keep already admitted provisional voice scopes healthy when adoption precedes acknowledgement, without relaxing new-start admission or identity fences.
+
+Keep arbitrary remote close/storage diagnostic message text out of conversation state and UI; use fixed local reason/cause copy while preserving scoped storage recovery and continuous capture across review-cache rollover.

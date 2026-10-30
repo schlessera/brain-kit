@@ -742,7 +742,7 @@ for (const provider of ["gpt", "gemini"] as const)
     const offsets = source.map((item) => rendered().indexOf(item.text));
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
     expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
-    expect(rendered()).toContain("could not be saved");
+    expect(rendered()).toContain("Conversation history writes failed");
     const profile = s.ui.connection.conversation.state.getState().profile!;
     const stale = {
       type: "conversation_event" as const,
@@ -838,7 +838,7 @@ for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota
    expect(errors.some(f=>f.code==="DIALOGUE_STORAGE")).toBe(false);
    expect(result.rows).toHaveLength(257); // initial saved observation plus the finite pending queue
    expect(events.at(-1)!.retention).toBe("unsaved");
-  }else expect(s.element.textContent).toContain("could not be saved");
+  }else expect(s.element.textContent).toContain("Conversation history writes failed");
   expect(result.tasks).toBe(0);s.ui.connection.conversation.leave();await pump();
   expect(s.ui.connection.conversation.state.getState().recognition.some(f=>f.unsaved)).toBe(true);
   const before=s.socket.sent.length;
@@ -901,6 +901,7 @@ for(const quota of [false,true])test(`typed result after Leave retains its full 
  const notices=[...s.element.querySelectorAll("p")].filter(e=>e.textContent==="Original discussion position unknown.");
  expect(notices,"BACKEND_TAIL_POSITION_ONLY").toHaveLength(quota?1:0);
  expect(s.element.textContent).not.toContain("Voice history may be incomplete");
+ expect(s.element.textContent).not.toContain("Conversation text could not be saved");
  expect(s.element.querySelector('[data-transcript-qualifiers][aria-label*="unsaved"]')).toBeNull();
 });
 

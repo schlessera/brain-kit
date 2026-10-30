@@ -1799,3 +1799,11 @@ test("R8 concurrent different conversation starts for one known chat remain comp
  expect(s.db.query("SELECT coverage FROM dialogue_owners").get(),"HOST_CONCURRENT_CHAT_OPENS_DB_COMPLETE").toEqual({coverage:"complete"});expect(b.frames("dialogue_history").at(-1).coverage,"HOST_CONCURRENT_CHAT_OPENS_READ_COMPLETE").toBe("complete");
  expect(s.db.query("SELECT COUNT(*) AS n FROM dialogue_conversations WHERE closed=0").get()).toEqual({n:2});expect(s.turns).toHaveLength(0);
 });
+
+
+test("retained dialogue support is advertised only when the catalog can read it",async()=>{
+ const supported=setup(),a=await supported.connect(),capabilities=a.frames("server_hello")[0].capabilities;
+ expect(capabilities.sessionDialogue).toBe(true);const {sessionDialogue,...legacy}=capabilities;expect(sessionDialogue).toBe(true);await cleanup?.();
+ const unsupported=setup();unsupported.host.catalog.dialogueRead=undefined;const b=await unsupported.connect();
+ expect(b.frames("server_hello")[0].capabilities).toEqual(legacy);
+});

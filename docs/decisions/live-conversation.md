@@ -436,3 +436,10 @@ Pending provisional rows remain live after adoption, including adoption before
 an open acknowledgement. Classification follows their committed canonical
 identity, not the owner's former unbound state. New provisional admissions
 still validate that state in their own transaction; no admission rule changes.
+
+Provider diagnostics can contain private content unrelated to the readable
+conversation. The client therefore derives close notices from local reason
+classes and storage notices from known scoped error codes, never remote message
+text. Storage copy describes a failed journal write without inferring loss of a
+native answer. Bounded review rollover does not revoke continuous capture;
+actual write/unsaved-buffer failure remains a separate visible failure boundary.

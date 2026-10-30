@@ -172,7 +172,10 @@ test("retained host-only metadata pages without fabricating native sessions and 
   const app=new Hono<AppEnv>();
   app.use("*",async(c,next)=>{c.set("principal",{id:"odysseus",kind:"owner",authMethod:"password",label:"Odysseus",credentialId:null,createdBy:null,createdAt:0,expiresAt:Date.now()+10000,lastSeenAt:null,revokedAt:null});await next();});
   app.route("/",sessionRoutes);
-  expect((await (await app.request("/sessions")).json()).retainedConversations).toBeUndefined();
+  // Old callers (and an explicit false) receive the exact legacy payload.
+  for(const query of ["/sessions","/sessions?includeRetainedConversations=false"]){
+    const response=await app.request(query);expect(response.status).toBe(200);expect(await response.json()).toEqual({sessions:[]});
+  }
   const ids:string[]=[];let cursor:string|undefined;
   do{
     const response=await app.request(`/sessions?includeRetainedConversations=true${cursor?`&retainedAfter=${cursor}`:""}`);
