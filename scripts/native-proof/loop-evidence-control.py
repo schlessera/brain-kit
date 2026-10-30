@@ -63,7 +63,7 @@ class Controls(unittest.TestCase):
     def test_trace_protocol_filters_both_events_and_stacks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory); (root / "instances").mkdir()
-            (root / "available_filter_functions").write_text("lo_open\nlo_release\n")
+            (root / "available_filter_functions").write_text("")
             kernel = Kernel()
             with patch.object(trace, "TRACE", root), patch.object(trace, "STATE", root / "state"), patch.object(trace, "write", kernel.write):
                 trace.start(root / "receipt.json")
@@ -85,20 +85,57 @@ class Controls(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory); (root / "instances").mkdir()
             (root / "available_filter_functions").write_text("lo_open\n")
+            (root / "error_log").write_text("")
             kernel = Kernel()
             def reject(path, value):
                 if path.name == "kprobe_events":
-                    (root / "error_log").write_text(value + " parse-error\n")
+                    (root / "error_log").write_text("[1] location: rejected\n  Command: " + value + "\n       ^\n")
                     raise OSError(errno.EINVAL, "rejected")
                 kernel.write(path, value)
             with patch.object(trace, "TRACE", root), patch.object(trace, "STATE", root / "state"), patch.object(trace, "write", reject):
                 trace.start(root / "receipt.json")
                 result = json.loads((root / "receipt.json").read_text())["availability"]
             self.assertEqual(result["lo_open"]["phase"], "registration", "LOOP_FAILURE_PHASE")
-            self.assertEqual(result["lo_open"]["classification"], "syntax-or-implementation", "LOOP_BUG_NOT_PLATFORM_UNSUPPORTED")
+            self.assertEqual(result["lo_open"]["classification"], "hint-only: rejected command", "LOOP_ERROR_CONTEXT_IS_HINT")
             self.assertTrue(result["lo_open"]["errorLog"], "LOOP_ERROR_LOG_RETAINED")
-            self.assertEqual(result["lo_release"]["classification"], "not-traceable")
+            self.assertFalse(result["lo_release"]["ftraceListingHint"])
+            self.assertIn("^", result["lo_open"]["errorLog"][0], "LOOP_ERROR_CARET_RETAINED")
             self.assertFalse(kernel.events, "LOOP_NO_FAILED_ENABLE")
+
+    def test_error_context_never_borrows_earlier_probe_or_phase(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory); group = "brainloop_owned"
+            old = "[1] error: old\n Command: p:brainloop_owned/lo_open lo_open comm=$comm\n ^\n"
+            (root / "error_log").write_text(old)
+            with patch.object(trace, "TRACE", root):
+                result = trace.failure(OSError(errno.EINVAL, "rejected"), "registration", group, "lo_release", "p:brainloop_owned/lo_release lo_release comm=$comm", "")
+                self.assertEqual(result["errorLog"], [], "LOOP_NO_OTHER_PROBE_CONTEXT")
+                result = trace.failure(OSError(errno.EINVAL, "rejected"), "enable", group, "lo_open", "1", old)
+                self.assertEqual(result["errorLog"], [], "LOOP_NO_EARLIER_PHASE_CONTEXT")
+
+    def test_salvage_precedes_failed_cleanup_and_missing_receipt(self):
+        for mode in ("disable", "unregister", "receipt"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory); (root / "instances").mkdir(); kernel = Kernel()
+                with patch.object(trace, "TRACE", root), patch.object(trace, "STATE", root / "state"), patch.object(trace, "write", kernel.write):
+                    trace.start(root / "receipt.json")
+                    state = json.loads((root / "state").read_text()); instance = root / "instances" / state["group"]
+                    (instance / "trace").write_text("salvage before failure")
+                    if mode == "receipt": (root / "receipt.json").unlink()
+                    attempted = []; original_rmdir = pathlib.Path.rmdir
+                    def broken(path, value):
+                        if value.startswith("-:"): attempted.append(value)
+                        if (mode == "disable" and path.name == "enable") or (mode == "unregister" and value.startswith("-:")):
+                            raise PermissionError(errno.EACCES, "original cleanup failure")
+                        kernel.write(path, value)
+                    def remove(path): (path / "trace").unlink(); original_rmdir(path)
+                    with patch.object(trace, "write", broken), patch.object(pathlib.Path, "rmdir", remove):
+                        with self.assertRaises((PermissionError, FileNotFoundError)) as caught: trace.stop()
+                    self.assertTrue((root / "receipt.trace.json").exists(), "LOOP_SALVAGE_SURVIVES_CLEANUP_FAILURE")
+                    self.assertEqual(json.loads((root / "receipt.trace.json").read_text())["trace"], "salvage before failure", "LOOP_SALVAGE_SURVIVES_CLEANUP_FAILURE")
+                    self.assertEqual(len(attempted), 2, "LOOP_CLEANUP_ATTEMPTS_BOTH_OWNED_PROBES")
+                    self.assertTrue((root / "state").exists(), "LOOP_FAILURE_NOT_CLAIMED_CLEAN")
+                    self.assertEqual(json.loads((root / "receipt.stop.json").read_text())["originalFailure"], type(caught.exception).__name__, "LOOP_ORIGINAL_STOP_FAILURE_RETAINED")
 
     def test_filter_or_trigger_rejection_never_enables_event(self):
         for failed in ("filter", "trigger", "enable"):
@@ -132,6 +169,7 @@ class Controls(unittest.TestCase):
                 with patch.object(pathlib.Path, "rmdir", remove): trace.stop()
                 self.assertFalse((root / "state").exists(), "LOOP_OWNED_STATE_RELEASED")
                 self.assertEqual(kernel.events, {"foreign/event": {"enable": "1"}}, "LOOP_FOREIGN_PROBES_PRESERVED")
+                self.assertTrue((root / "receipt.trace.json").exists(), "LOOP_SALVAGE_PRESENT")
                 self.assertEqual(json.loads((root / "receipt.trace.json").read_text())["trace"], "owned trace bytes")
                 self.assertIn("stoppedMonoNs", json.loads((root / "receipt.json").read_text()))
 

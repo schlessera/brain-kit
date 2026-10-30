@@ -350,12 +350,14 @@ Two probes, `lo_open` and `lo_release`, use kernel-resolved BTF argument/member
 syntax, following the existing dead-root tracer and the
 [kernel probe documentation](https://docs.kernel.org/trace/kprobetrace.html).
 Both events and both stack triggers filter to major 7 / minor 1790 before enable.
-Bounded exact-symbol admission scans stop at their first match; rejected writes
-record phase, errno and bounded own-probe context from tracefs `error_log`.
-Syntax errors remain implementation evidence rather than platform-unsupported
-claims. Both CI diagnostic steps are nonfatal; lifecycle failures emit explicit
-availability-failure records even if receipt writing fails. Cleanup success is
-recorded only after its owned instance/probes and output have been handled.
+Registration is attempted without an ftrace-list gate. Only rejected
+registrations consult a bounded exact-symbol scan, as an inconclusive hint.
+Rejected writes retain phase, errno and only fresh exact-command error context,
+including its caret. Kernel error text is a hint rather than a syntax or
+platform verdict. Both CI diagnostic steps are nonfatal; lifecycle failures emit explicit
+availability-failure records even if receipt writing fails. Stop freezes and salvages bounded trace output before disable, unregister or
+receipt reads. It attempts all owned cleanup steps even after a failure, retains
+the original failure, and records success only after every step succeeds.
 
 `owned-loop-trace.json` retains availability; `owned-loop-trace.trace.json`
 retains up to 4 MiB of ring text and a truncation flag. The ordinary always-run
