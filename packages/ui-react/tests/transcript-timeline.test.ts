@@ -3,6 +3,8 @@ import { createBrainUiRoot } from "../src/root.js";
 import { createTranscriptTimeline, transcriptMessage, transcriptRange, transcriptTimelineFor, type TranscriptEntry } from "../src/lib/transcript-timeline.js";
 
 function entryText(e: TranscriptEntry) {
+  if (e.kind === "voice-boundary") return "";
+  if (e.kind === "recognition") return e.fragments.map(f => f.text).join("");
   if (e.kind === "speech") return e.output.generated;
   const message = transcriptMessage(e);
   return e.section === "answer" ? message.content.slice(e.start, e.end) : message.content;
@@ -206,5 +208,46 @@ test("each arrival keeps the complete current semantic source for actions, inclu
       expect(transcriptRange(entry)!.source).toBe(original);
       expect(transcriptRange(entry)!.source.content).toBe("Recovered watch.");
     }
+  } finally { root.dispose(); }
+});
+
+test("recognition identity, exact deltas, late timing and finish-only evidence use the shared arrival timeline", () => {
+  const root = createBrainUiRoot({ storage: null });
+  const voice = root.connection.conversation.state;
+  const rows = () => transcriptTimelineFor(root.stores.chat).state.getState().entries;
+  const fragment = (sequence: number, text: string, extra = {}) => ({ kind: "unassigned_input_fragment" as const, sequence, text, conversationId: "ithaca", epoch: 1, sessionId: null, providerId: "gpt-live", activation: 1, contextual: true, ...extra });
+  const first = fragment(0, "Which"), second = fragment(1, " note?");
+  try {
+    voice.setState({ recognition: [first, second] });
+    expect(rows().map(entryText)).toEqual(["Which note?"]);
+    const key = rows()[0]!.key;
+    voice.setState({ outputs: [{ conversationId: "ithaca", epoch: 1, outputId: "wind", sessionId: null, generated: "The Sirens note.", playback: "unknown" }] });
+    const late = fragment(2, "Which note?", { sessionInterval: { startMs: 0, endMs: 100 } });
+    const captured = { ...fragment(0, "Same sequence."), kind: "input_fragment" as const, utteranceId: "captured", finalization: "unknown" as const, certainty: "unknown" as const, origin: "unknown" as const };
+    voice.setState({ recognition: [first, second, late] });
+    voice.setState(s => ({ recognition: [...s.recognition, captured] }));
+    expect(rows().map(entryText)).toEqual(["Which note?", "The Sirens note.", "Which note?", "Same sequence."]);
+    expect(rows()[0]!.key).toBe(key);
+    voice.setState(s => ({ recognition: [...s.recognition, fragment(3, "", { finalization: "final" })] }));
+    expect(rows().map(entryText)).toEqual(["Which note?", "The Sirens note.", "Which note?", "Same sequence."]);
+    const continued = rows()[2]!;
+    expect(continued.kind === "recognition" && continued.fragments.at(-1)?.finalization).toBe("final");
+    const keys = rows().map(e => e.key);
+    voice.setState(s => ({ recognition: s.recognition.map(f => ({ ...f, sessionId: "ithaca" })), outputs: s.outputs.map(o => ({ ...o, sessionId: "ithaca" })) }));
+    expect(rows().map(e => e.key)).toEqual(keys);
+    voice.setState({ recognition: [] });
+    expect(rows().map(entryText)).toEqual(["The Sirens note."]);
+  } finally { root.dispose(); }
+});
+
+
+test("finish-only evidence keeps its arrival position between contiguous deltas", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const fragment = (sequence: number, text: string, finalization: "unknown" | "final" = "unknown") => ({ kind: "unassigned_input_fragment" as const, sequence, text, finalization, conversationId: "ithaca", epoch: 1, sessionId: null, providerId: "gemini-live", activation: 1, contextual: true });
+    root.connection.conversation.state.setState({ recognition: [fragment(0, "Which"), fragment(1, "", "final"), fragment(2, " note?")] });
+    const row = transcriptTimelineFor(root.stores.chat).state.getState().entries[0]!;
+    expect(entryText(row)).toBe("Which note?");
+    expect(row.kind === "recognition" && row.fragments.map(f => f.sequence)).toEqual([0, 1, 2]);
   } finally { root.dispose(); }
 });

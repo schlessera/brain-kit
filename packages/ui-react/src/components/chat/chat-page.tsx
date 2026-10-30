@@ -1,10 +1,10 @@
 import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutput, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
+import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
-import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
@@ -111,12 +111,11 @@ export function ChatPage() {
   const { send } = useWebSocket();
 
   const messages = useChatStore((s) => activeChat(s).messages);
-  const voiceOutputs = useStore(root.connection.conversation.state, (s) => s.outputs);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const hasVoicePermission = useStore(root.connection.conversation.permissions.state, s => s.records.some(r => r.sessionId === sessionId && !!r.word));
   const timeline = useStore(transcriptTimelineFor(root.stores.chat).state, s => s.entries);
   const entries = useMemo(() => timeline.filter(entry => entry.sessionId === sessionId), [timeline, sessionId]);
-  const hasVoiceOutput = voiceOutputs.some((output) => output.sessionId === sessionId && output.generated);
+  const hasVoiceOutput = entries.some(entry => entry.kind !== "message");
 
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
@@ -190,6 +189,22 @@ export function ChatPage() {
   }
   const hiddenCount = Math.max(0, entries.length - visibleCount);
   const visibleEntries = hiddenCount > 0 ? entries.slice(hiddenCount) : entries;
+  const [requestTarget, setRequestTarget] = useState<string | null>(null);
+  const revealRequest = (key: string) => {
+    const at = entries.findIndex(e => e.key === key);
+    if (at < 0) return;
+    setVisibleCount(n => Math.max(n, entries.length - at));
+    setRequestTarget(key);
+  };
+  useLayoutEffect(() => {
+    if (!requestTarget) return;
+    const node = [...(columnRef.current?.querySelectorAll<HTMLElement>("[data-arrival-key]") ?? [])].find(n => n.dataset.arrivalKey === requestTarget);
+    if (!node) return;
+    autoScrollRef.current = false;
+    node.focus({ preventScroll: true }); node.scrollIntoView({ block: "start", behavior: "instant" });
+    setRequestTarget(null);
+  }, [requestTarget, visibleCount]);
+
 
   // Revealing earlier messages prepends content, which would otherwise shove
   // the view down by the height of everything added. Remember the distance to
@@ -216,7 +231,7 @@ export function ChatPage() {
     if (el && autoScrollRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, voiceOutputs]);
+  }, [entries]);
 
   // Content that grows after it is committed (markdown that renders once
   // its parser has loaded, an image that has decoded) keeps a tailing
@@ -576,7 +591,7 @@ export function ChatPage() {
   useEffect(() => () => { if (openingTimer.current) clearTimeout(openingTimer.current); }, []);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {/* Mask editor: modal, mounted here because it answers over the socket
           this page owns. Renders nothing unless the agent has asked. */}
       <MaskEditor
@@ -711,12 +726,19 @@ export function ChatPage() {
                     </div>
                   )}
                   {visibleEntries.map((entry) => {
-                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} output={entry.output} restored={entry.restored} />;
+                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
+                    if (entry.kind === "voice-boundary") return <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
+                    if (entry.kind === "recognition") {
+                      const first = entry.fragments[0]!;
+                      const preceding = entries.slice(0, entries.indexOf(entry)).filter(e => e.kind === "recognition").flatMap(e => e.kind === "recognition" ? e.fragments : []);
+                      return <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}><ConversationRecognitionRow fragments={entry.fragments} introduction={!preceding.some(f => f.activation === first.activation)} /></div>;
+                    }
                     const msg = transcriptMessage(entry);
                     const index = entry.index;
                     return (
-                    <Fragment key={entry.key}>
+                    <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1}>
                       {entry.section === "progress" && <ConversationTaskContext message={entry.message} sessionId={sessionId} />}
+                      {entry.section === "answer" && <ConversationTaskContext message={entry.message} sessionId={sessionId} result entries={entries} onReveal={revealRequest} />}
                       <MessageBubble
                         message={msg}
                         arrival={transcriptRange(entry)}
@@ -736,7 +758,7 @@ export function ChatPage() {
                       {forward
                         .filter((link) => entry.section !== "answer" && markerAfter(link, messages) === index + 1)
                         .map((link) => <HandoffMarker key={link.sessionId} sessionId={link.sessionId} backendId={link.backendId} title={link.title} />)}
-                    </Fragment>
+                    </div>
                   ); })}
                   <ConversationPermissionOutcomes sessionId={sessionId} />
                   {unlinked && <MarkAsSeen onMark={markSeen} />}

@@ -7,11 +7,13 @@ import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
+  providerId?: string;
   conversationId: string;
   sessionId: string | null;
 }
 
 export interface UnassignedRecognition {
+  utteranceId?: string;
   /** Ephemeral task context, separate from retained manual-review candidates. */
   taskContext?: boolean;
   sessionId: string | null;
@@ -22,6 +24,24 @@ export interface UnassignedRecognition {
   sessionInterval?: { startMs: number; endMs: number };
   timing?: { kind: "unavailable" };
   finalization?: "final" | "unknown";
+}
+
+/** Bounded local source evidence; never a submitted chat message or persisted history. */
+export type ConversationRecognition = Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }> & {
+  sessionId: string | null;
+  conversationId: string;
+  epoch: number;
+  providerId: string;
+  activation: number;
+  moved?: true;
+  contextual: boolean;
+};
+export function recognitionIdentity(f: ConversationRecognition) {
+  return JSON.stringify(["recognition", f.conversationId, f.epoch, f.kind,
+    f.kind === "input_fragment" ? f.utteranceId : null, f.sequence]);
+}
+export function conversationService(providerId: string) {
+  return providerId === "gemini-live" ? "Gemini Live" : providerId === "gpt-live" ? "GPT-Live" : providerId;
 }
 
 export interface ConversationClientState {
@@ -36,6 +56,7 @@ export interface ConversationClientState {
   sessionId: string | null;
   agentProviderId: string | null;
   text: string;
+  voiceDraft: { id: string; edit: number } | null;
   notice: string;
   announcement: string;
   playing: boolean;
@@ -43,6 +64,7 @@ export interface ConversationClientState {
   work: Record<string, ConversationWorkReceipt>;
   outputs: ConversationClientOutput[];
   unassigned: UnassignedRecognition[];
+  recognition: ConversationRecognition[];
   unassignedWork: number;
 }
 
@@ -57,7 +79,7 @@ function outputInSession(output: ConversationClientOutput, sessionId: string) {
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
 export function createConversationClient(root: BrainUiServices, send: (message: ClientMessage) => boolean, answer: (sessionId: string | null, text: string) => boolean) {
-  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, sessionId: null, agentProviderId: null, text: "", notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], unassignedWork: 0 }));
+  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0 }));
   let generation = 0;
   let disposed = false;
   let requested = false;
@@ -83,6 +105,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let hold: ReturnType<typeof setTimeout> | undefined;
   let finalization: ReturnType<typeof setTimeout> | undefined;
   let lastInput: Extract<ConversationWireEvent, { kind: "input_fragment" }> | undefined;
+  // The host forwards unassigned sequence in strict arrival order. One scalar
+  // fences evicted replay without an ever-growing contextual-epoch identity set.
+  let unassignedThrough = -1;
+  // Captured identities keep the existing finite capture/fragment limits.
+  const seenRecognition = new Set<string>();
   const retiredInputs = new Set<string>();
   const capturedInputs = new Set<string>();
   const manualReview = new Set<string>();
@@ -128,6 +155,26 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     while (context.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance || chars > CONVERSATION_LIMITS.maxUtteranceChars) chars -= context.shift()!.text.length;
     state.setState({ unassigned: [...review, ...context] });
   }
+  function retainRecognition(event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" }>) {
+    const s = state.getState(), p = scope()!;
+    const fragment: ConversationRecognition = { ...event, sessionId: s.sessionId, conversationId: p.conversationId,
+      epoch: p.epoch, providerId: p.providerId, activation: entryLifetime, contextual: p.capabilities.contextualTasks === "supported" };
+    const key = recognitionIdentity(fragment);
+    if (event.kind === "unassigned_input_fragment") {
+      if (event.sequence <= unassignedThrough) return false;
+      unassignedThrough = event.sequence;
+    } else {
+      if (seenRecognition.has(key)) return false;
+      seenRecognition.add(key);
+    }
+    const recognition = [...s.recognition, fragment];
+    let chars = recognition.reduce((n, f) => n + f.text.length, 0);
+    const allowance = event.kind === "unassigned_input_fragment" && !fragment.contextual ? 1 : 0;
+    while (recognition.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance + allowance
+      || chars > CONVERSATION_LIMITS.maxUtteranceChars + allowance * CONVERSATION_LIMITS.maxFragmentChars) chars -= recognition.shift()!.text.length;
+    state.setState({ recognition });
+    return true;
+  }
   const permissions = createConversationPermissions(root, send, () => ({ active: state.getState().active, sessionId: state.getState().sessionId, micOn: state.getState().micOn, isolated: scope()?.capabilities.echoIsolatedInput === "supported", quiet: !state.getState().micOn || ended && !hold }), () => {
     playback.flush();
     const outputId = crypto.randomUUID(); localTones.add(outputId);
@@ -150,7 +197,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const p = scope();
     if (!p) return;
     const old = s.outputs.find((output) => output.conversationId === p.conversationId && output.epoch === epoch && output.outputId === outputId);
-    const next: ConversationClientOutput = { conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
+    const next: ConversationClientOutput = { providerId: p.providerId, conversationId: p.conversationId, epoch, outputId, sessionId: s.sessionId, generated: "", playback: "unknown", ...old, ...patch };
     if (restored && !old || old && restoredOutputs.has(old)) restoredOutputs.add(next);
     state.setState({ outputs: old ? s.outputs.map((output) => output === old ? next : output) : [...s.outputs, next].slice(-128) });
   }
@@ -198,6 +245,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const prefix = savedVoice && old.endsWith(savedVoice) ? old.slice(0, -savedVoice.length).trimEnd() : old;
     const next = [prefix, text].filter(Boolean).join("\n\n");
     if (next !== old) drafts.edit(id, state.getState().sessionId, { text: next });
+    const retained = root.stores.drafts.getState().drafts[id];
+    state.setState({ voiceDraft: text && retained ? { id, edit: retained.edit } : null });
     savedVoice = text;
   }
   function removeSavedDraft() {
@@ -207,6 +256,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const old = drafts.drafts[id]?.text ?? "";
     if (old.endsWith(savedVoice)) drafts.edit(id, state.getState().sessionId, { text: old.slice(0, -savedVoice.length).trimEnd() });
     savedVoice = "";
+    state.setState({ voiceDraft: null });
   }
   function pause(lost = false, resumable = true, notify = true) {
     generation++; state.setState({ token: generation });
@@ -254,7 +304,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     entryLifetime++;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
-    state.setState({ active: false, text: "", disclosureOpen: false });
+    state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.finalization !== "interim") }));
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
   }
   function startEpoch() {
@@ -381,6 +431,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       || p?.conversationId !== work.conversationId || p.epoch !== work.epoch
       || s.sessionId !== null || root.stores.chat.getState().activeSessionId !== null) return;
     state.setState({ sessionId,
+      recognition: s.recognition.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
       outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? outputInSession(o, sessionId) : o),
       unassigned: s.unassigned.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
     });
@@ -402,7 +453,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
-        state.setState({ sessionId: message.sessionId, outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
+        state.setState({ sessionId: message.sessionId, recognition: state.getState().recognition.map(f => f.conversationId === request.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId } : f), outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
     }
@@ -453,7 +504,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "conversation_opened") {
       if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return null;
       clearClosedNotice();
-      generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); lastInput = undefined;
+      generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); unassignedThrough = -1; seenRecognition.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); lastInput = undefined;
       state.setState({ profile: message, connection: "Connected", text: "", interaction: "Listening", disclosureOpen: agreedDisclosure !== disclosureKey(message) });
       if (agreedDisclosure !== disclosureKey(message)) consent = false;
       resync = message.resync.work + message.resync.outputs;
@@ -482,8 +533,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (event.kind === "ready") { inputFormat = event.input; ready = true; refresh(); if (consent) void capture(); return null; }
     if (!ready) return null;
     if (event.kind === "unassigned_input_fragment") {
+      if (!retainRecognition(event)) return null;
       const retained = state.getState().unassigned;
-      if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && f.sequence === event.sequence)) return null;
+      if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && !f.utteranceId && f.sequence === event.sequence)) return null;
       // Retain the boundary-crossing fragment before stopping. Never truncate
       // it or merge approximate session intervals into captured utterances.
       const unassigned = [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event }];
@@ -499,14 +551,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     if (event.kind === "input_fragment") {
       if (!capturedInputs.has(event.utteranceId) || retiredInputs.has(event.utteranceId)) return null;
+      // Display deduplication must not intercept the existing permission or
+      // manual-review path, including its attribution/finality validation.
+      const newRecognition = retainRecognition(event);
       if (permissions.input(event)) {
         retiredInputs.add(event.utteranceId); fragments.delete(event.utteranceId); lastInput = undefined;
         state.setState({ text: [...fragments.values()].flatMap(items => [...items.values()].map(f => f.text)).join(" ").trim() });
         saveDraft(); refresh(); return null;
       }
       if (p.capabilities.contextualTasks === "supported") {
+        if (!newRecognition) return null;
         // Bounded ephemeral context, never a manual-review draft or grant.
-        retainContext({ sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: true, sequence: event.sequence, text: event.text, timing: { kind: "unavailable" }, finalization: event.finalization === "final" ? "final" : "unknown" });
+        retainContext({ sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: true, utteranceId: event.utteranceId, sequence: event.sequence, text: event.text, timing: { kind: "unavailable" }, finalization: event.finalization === "final" ? "final" : "unknown" });
         return null;
       }
       const items = fragments.get(event.utteranceId) ?? new Map();
@@ -564,7 +620,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     else if (consent) void capture();
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
-  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); state.setState({ profile: null, work: {}, outputs: [], unassigned: [], unassignedWork: 0, available: false }); });
+  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; permissions.clear(); localTones.clear(); unassignedThrough = -1; seenRecognition.clear(); state.setState({ profile: null, voiceDraft: null, work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, available: false }); });
   return {
     state, frame, permissions,
     attachControls() {
@@ -590,7 +646,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const agentProviderId = providers.available.some((provider) => provider.id === providers.selectedId) ? providers.selectedId : null;
       entryLifetime++;
       entryProfileId = providers.pinnedId ?? agentProviderId;
-      state.setState({ active: true, sessionId, agentProviderId, unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
+      state.setState({ active: true, sessionId, agentProviderId, recognition: state.getState().recognition.filter(f => !f.contextual || f.sessionId === sessionId), unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       // A new entry needs Start even when the service matches the last visit.
       agreedDisclosure = undefined;
       root.stores.voice.getState().setMode("conversation");
@@ -611,14 +667,19 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       leave();
       const voice = root.stores.voice.getState();
       voice.setReviewText([voice.reviewText, text].filter(Boolean).join("\n\n"));
-      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), unassignedWork: 0 });
+      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), recognition: state.getState().recognition.map(f => selected.some(r => r.conversationId === f.conversationId && r.epoch === f.epoch && r.sequence === f.sequence && (f.kind === "input_fragment" ? r.utteranceId === f.utteranceId : !r.utteranceId)) ? { ...f, text: "", moved: true as const } : f), unassignedWork: 0 });
       return true;
     },
     discard() {
       if (ready && mic) endpoint(generation);
       clearTimers();
-      for (const id of fragments.keys()) retiredInputs.add(id);
-      removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh();
+      // Replay retirement spans the epoch; deletion owns only this draft.
+      // Earlier submitted/consumed input must keep its retained display evidence.
+      const discardedInputs = new Set(fragments.keys());
+      for (const id of discardedInputs) retiredInputs.add(id);
+      removeSavedDraft(); fragments.clear(); lastInput = undefined;
+      state.setState(s => ({ text: "", recognition: s.recognition.filter(f => f.kind !== "input_fragment" || !discardedInputs.has(f.utteranceId)) }));
+      refresh();
     },
     stopReply, leave,
     dispose() { leave(); disposed = true; unwatchChat(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); },
