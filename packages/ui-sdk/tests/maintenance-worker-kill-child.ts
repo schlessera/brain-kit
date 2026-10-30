@@ -65,6 +65,31 @@ function identity(pid: number): Identity | undefined {
 }
 const alive = (id: Identity) => { const now = identity(id.pid); return now?.start === id.start && !["Z", "X"].includes(now.state); };
 const receipt = (kind: string, data: unknown) => console.error(JSON.stringify({ kind, data }));
+const LABEL_PATH = "/proc/self/attr/current";
+type Label = { available: true; label: string } | { available: false; code: string; errno?: number };
+/** Optional diagnostic only: the actual label, or the read's system error. Never a security guarantee. */
+function securityLabel(): Label {
+  try { return { available: true, label: fs.readFileSync(LABEL_PATH, "utf8") }; }
+  catch (error) {
+    const { code, errno } = error as NodeJS.ErrnoException;
+    if (typeof code !== "string") throw error;
+    return { available: false, code, ...(typeof errno === "number" ? { errno } : {}) };
+  }
+}
+/** Replace only the exact label path on the shared read method; restore its complete descriptor. */
+function controlLabelRead(read: () => string): () => void {
+  // The module namespace binding refuses defineProperty; spyOn is the replacement it accepts.
+  const descriptor = Object.getOwnPropertyDescriptor(fs, "readFileSync")!;
+  const original = descriptor.value as typeof fs.readFileSync;
+  const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...args: unknown[]) =>
+    String(path) === LABEL_PATH ? read() : Reflect.apply(original, fs, [path, ...args])) as typeof fs.readFileSync);
+  return () => {
+    spy.mockRestore();
+    const restored = Object.getOwnPropertyDescriptor(fs, "readFileSync");
+    expect(restored?.value, "LABEL_CONTROL_READ_RESTORED").toBe(original);
+    expect({ ...restored, value: undefined }, "LABEL_CONTROL_DESCRIPTOR_RESTORED").toEqual({ ...descriptor, value: undefined });
+  };
+}
 async function until(predicate: () => boolean, ms = 2000): Promise<boolean> {
   const deadline = performance.now() + ms;
   while (performance.now() < deadline) { if (predicate()) return true; await Bun.sleep(2); }
@@ -394,7 +419,23 @@ test("native pidfd authority is held and closes once after actual exit and stop"
   cancellation.killWorker(f.outer); await complete(f.outer);
   expect(calls, "CLOSED_AUTHORITY_MUST_NOT_SIGNAL_REUSED_FD").toBe(0);
   expect(fs.fstatSync(state.fd).isCharacterDevice(), "REUSED_OWNED_FD_REMAINS_OPEN").toBe(true);
-  receipt("pidfd-lifetime", { fd: state.fd, closes: state.closed, reused, lateSignalCalls: calls, status: fs.readFileSync("/proc/self/status", "utf8"), label: fs.readFileSync("/proc/self/attr/current", "utf8") });
+  receipt("pidfd-lifetime", { fd: state.fd, closes: state.closed, reused, lateSignalCalls: calls, status: fs.readFileSync("/proc/self/status", "utf8"), label: securityLabel() });
+  // Nested receipt controls: a supported label is reported verbatim, an unsupported one
+  // stays unavailable, and a non-system failure still aborts. Other reads pass through.
+  const controls: [string, () => string, Label | undefined][] = [
+    ["supported", () => "odysseus-test-label (enforce)\n", { available: true, label: "odysseus-test-label (enforce)\n" }],
+    ["unsupported", () => { throw Object.assign(Error("EINVAL: invalid argument, read"), { code: "EINVAL", errno: -22, syscall: "read" }); },
+      { available: false, code: "EINVAL", errno: -22 }],
+    ["non-system", () => { throw Error("Label control defect"); }, undefined],
+  ];
+  for (const [name, read, expected] of controls) {
+    const restore = controlLabelRead(read);
+    try {
+      if (expected) expect(securityLabel(), `LABEL_RECEIPT_${name.toUpperCase()}`).toEqual(expected);
+      else expect(() => securityLabel(), "LABEL_NON_SYSTEM_FAILURE_MUST_ABORT").toThrow("Label control defect");
+      expect(fs.readFileSync("/proc/self/status", "utf8"), "LABEL_CONTROL_EXACT_PATH_ONLY").toMatch(new RegExp(`^Pid:\\s+${process.pid}$`, "m"));
+    } finally { restore(); }
+  }
 });
 
 test("registration observation failure alone preserves normal uncancelled completion", async () => {
