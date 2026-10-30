@@ -1,3 +1,4 @@
+import { MarkdownRangeContext, rehypeMarkdownRange } from "./markdown-range.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import React, { memo, useContext, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
@@ -17,7 +18,7 @@ import {
   FileLink,
   MarkdownImage,
 } from "./brain-markdown-links.js";
-import { splitShareBlocks } from "./brain-markdown-share.js";
+import { shareBlockRanges } from "./brain-markdown-share.js";
 import { InsideProseLink, ProseLink } from "./prose-link.js";
 import {
   REMARK_PLUGINS,
@@ -60,21 +61,19 @@ function withTextProcessing<T extends keyof React.JSX.IntrinsicElements>(
  * props are primitives, so the default shallow comparison is exactly right.
  */
 export const BrainMarkdown = memo(function BrainMarkdown({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
-  const segments = splitShareBlocks(content);
-  if (segments.length > 1 || (segments.length === 1 && segments[0].kind === "share")) {
+  const range = useContext(MarkdownRangeContext);
+  const segments = shareBlockRanges(content);
+  if (segments.length > 1 || (segments.length === 1 && segments[0].segment.kind === "share")) {
     return (
       <>
-        {segments.map((seg, i) =>
+        {segments.map(({ segment: seg, start, end }, i) =>
           seg.kind === "share" ? (
-            <ShareBlock key={i} body={seg.body} format={seg.format} title={seg.title} />
-          ) : seg.text.trim() ? (
-            <BrainMarkdownInner
-              key={i}
-              content={seg.text}
-              className={className}
-              entityTags={entityTags}
-              fileLinks={fileLinks}
-            />
+            !range || end > range.start && end <= range.end ?
+              <MarkdownRangeContext.Provider key={i} value={null}><ShareBlock body={seg.body} format={seg.format} title={seg.title} /></MarkdownRangeContext.Provider> : null
+          ) : seg.text.trim() && (!range || end > range.start && start < range.end) ? (
+            <MarkdownRangeContext.Provider key={i} value={range ? { start: range.start - start, end: range.end - start } : null}>
+              <BrainMarkdownInner content={seg.text} className={className} entityTags={entityTags} fileLinks={fileLinks} />
+            </MarkdownRangeContext.Provider>
           ) : null
         )}
       </>
@@ -93,9 +92,11 @@ export const BrainMarkdown = memo(function BrainMarkdown({ content, className, e
 const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className, entityTags = false, fileLinks = false }: BrainMarkdownProps) {
   const root = useBrainUiRoot();
   const processed = entityTags ? renderEntityTags(content) : content;
+  const range = useContext(MarkdownRangeContext);
   const ensureWikilinks = useFileStore((s) => s.ensureWikilinks);
   // Entity-tag rendering emits its own markup and must not be re-highlighted.
   const rehypePlugins = useRehypePlugins(!entityTags);
+  const projectedPlugins = useMemo(() => range ? [[rehypeMarkdownRange, { source: processed, start: range.start, end: range.end, fileLinks }] as [typeof rehypeMarkdownRange, { source: string; start: number; end: number; fileLinks: boolean }], ...rehypePlugins] : rehypePlugins, [processed, range, fileLinks, rehypePlugins]);
 
   useEffect(() => {
     if (fileLinks) void ensureWikilinks();
@@ -176,13 +177,13 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
 
   return (
     <div className={className ?? "brain-prose"}>
-      <Markdown
+      <MarkdownRangeContext.Provider value={null}><Markdown
         remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={rehypePlugins}
+        rehypePlugins={projectedPlugins}
         components={components}
       >
         {processed}
-      </Markdown>
+      </Markdown></MarkdownRangeContext.Provider>
     </div>
   );
 });

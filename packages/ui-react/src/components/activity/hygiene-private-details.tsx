@@ -93,6 +93,7 @@ export function HygienePrivateDetails({ item, controller: c }: { item: InboxActi
   const [view, setView] = useState<View>({ state: "closed" });
   const [announcement, setAnnouncement] = useState("");
   const request = useRef(0);
+  const pendingRefocus = useRef(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const region = useRef<HTMLDivElement>(null);
   const regionId = useId();
@@ -104,9 +105,10 @@ export function HygienePrivateDetails({ item, controller: c }: { item: InboxActi
     const inside = !!region.current?.contains(document.activeElement);
     setView({ state: "closed" });
     setAnnouncement("");
-    if (refocus && inside) focusAfterInvalidation(item.id);
+    pendingRefocus.current = refocus && inside;
   }
   async function load() {
+    pendingRefocus.current = false;
     const token = ++request.current;
     setView({ state: "loading" });
     setAnnouncement("");
@@ -137,12 +139,19 @@ export function HygienePrivateDetails({ item, controller: c }: { item: InboxActi
     if (!online) clear(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online]);
+  // Register after this commit removes the focused details control.
+  useLayoutEffect(() => {
+    if (view.state !== "closed" || !pendingRefocus.current) return;
+    pendingRefocus.current = false;
+    focusAfterInvalidation(item.id);
+  }, [view, item.id]);
   // Unmounting (another card, version, pause, completion or sign-out) discards
   // the reply and, if focus was inside, hands it to the card or the strip.
   useLayoutEffect(() => {
     const id = item.id, node = wrapper.current;
     return () => {
       request.current++;
+      pendingRefocus.current = false;
       if (node?.contains(document.activeElement)) focusAfterInvalidation(id);
     };
   }, [item.id]);

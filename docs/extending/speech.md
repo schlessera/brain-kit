@@ -288,11 +288,16 @@ capability limits, then select **Start**. With either built-in service, use
 **Send now** to commit recognized text. The ordinary transcript, tools and
 question/permission controls remain available while host work runs asynchronously.
 
-Mute ends microphone capture. Stop reply flushes local audio and pauses the
-speech epoch; its remote outcome stays separate. Resume first resynchronizes
-host work and keeps capture off until explicitly restarted. Leave returns to
-the composer with retained review text in its original draft. Background views
-do not play speech. Missing alignment reads as spoken portion unknown.
+Mute ends microphone capture until Unmute; Leave returns to the composer with
+retained review text in its original draft. Stop reply cuts local audio while
+capture and host work continue. Ordinary interruption retains initiating PCM and
+uses bounded local output recovery; timeout exposes Recover reply audio without
+muting the microphone. Delayed old audio can occasionally play after recovery.
+Recoverable hide/disconnect/resync retain consent in the same disclosed scope and
+restore capture automatically when usable; unavailable-period audio is discarded.
+Changed disclosure, authentication loss and genuine device/correlation/capacity
+failure stop safely. Background views do not play speech. Missing alignment reads
+as spoken portion unknown. See the wire contract for exact recovery semantics.
 
 This client requires the host's `conversationPause` capability in addition to
 `liveConversation`. The additive lifecycle fields, opening correlation and

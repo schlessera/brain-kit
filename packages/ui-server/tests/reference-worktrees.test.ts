@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
@@ -10,6 +10,9 @@ import { createReferenceSources } from "../src/brain/reference-source";
 import type { ReferenceTransport } from "../src/brain/reference-transport";
 import { createReferenceWorktrees, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner, REFERENCE_WORKTREE_INACTIVITY_MS } from "../src/brain/reference-worktrees";
 import { referencePoolDouble } from "./helpers/reference-pool-double";
+
+import { NativeBrainManagerError } from "@schlessera/brain-ui-sdk/internal";
+import { CHANGING_POOL, settledWorktreeRelease } from "../../../scripts/native-proof/reference-worktree-release";
 
 const BRAIN = "ithaca-brain", DAY = 86_400, TOKEN = "fixture-reference-token";
 const PUBLIC = "https://github.com/odysseus/ithaca", PRIVATE = "https://github.com/odysseus/penelope-loom";
@@ -415,4 +418,79 @@ test("recovery releases only checkpoints whose owning process provably ended", a
     .toEqual({ ended: false, otherBoot: false, unknown: true, mine: true });
   expect(recovered.retained).toEqual(expect.arrayContaining([unknown, mine]));
   expect((db.query("SELECT id FROM reference_worktree_checkpoints ORDER BY id").all() as { id: string }[]).map(row => row.id).sort()).toEqual([unknown, mine].sort());
+});
+
+
+describe("changing pool release assessment", () => {
+  for (const edited of [true, false]) test(`${edited ? "edited" : "clean"} release keeps unknown work until explicit same-ID reassessment`, async () => {
+    const { worktrees, pool, path, transport } = service(), penelope = owner();
+    const fetch = transport.fetch;
+    transport.fetch = async input => {
+      const result = await fetch(input);
+      mkdirSync(join(input.root, "odyssey/book-0"), { recursive: true });
+      writeFileSync(join(input.root, "odyssey/book-0/line-0.md"), "Ithaca chart.\n");
+      return result;
+    };
+    const tree = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    if (edited) {
+      writeFileSync(join(path(tree.id), "odyssey/book-0/line-0.md"), "Ithaca chart, corrected.\n");
+      writeFileSync(join(path(tree.id), "odyssey/argos.md"), "Argos waits.\n");
+    }
+    const before = { record: structuredClone(pool.records.get(tree.id)!), row: worktrees.inventory().find(entry => entry.row.id === tree.id)!.row };
+    const checkpoint = pool.poolCheckpoint;
+    let fault: string | null = null;
+    pool.poolCheckpoint = async (id, from, signal) => {
+      // The assessment ledger distinguishes a fresh observation from replaying its baseline.
+      if (!fault && from === tree.id && db.query("SELECT 1 FROM reference_worktree_checkpoints WHERE id = ?").get(id)) {
+        fault = id; throw new NativeBrainManagerError("unavailable", CHANGING_POOL);
+      }
+      return checkpoint(id, from, signal);
+    };
+    const released = await worktrees.release({ worktreeId: tree.id, principalId: penelope.id });
+    expect(fault, "REFERENCE_WORKTREE_CHANGING_POOL_FAULT_HIT").not.toBeNull();
+    expect(released.cleanup, "REFERENCE_WORKTREE_CHANGING_POOL_DEFERS").toMatchObject({ reason: "released", owner: "none", work: "unknown",
+      changedPaths: null, unverifiedPaths: null, sample: [], digest: null, eligible: false, error: CHANGING_POOL });
+    await worktrees.reconcile();
+    expect({ record: pool.records.get(tree.id), receipt: worktrees.inventory().find(entry => entry.row.id === tree.id)?.cleanup,
+      ledger: db.query("SELECT count(*) AS n FROM reference_worktree_checkpoints").get(), fault: pool.records.get(fault!)?.state,
+      sourceHeld: referenceWorktreeDependents(db, before.row.source_root) }, "REFERENCE_WORKTREE_CHANGING_POOL_RETAINED")
+      .toEqual({ record: before.record, receipt: null, ledger: { n: 0 }, fault: "deleted", sourceHeld: true });
+    const notes: { kind: string; facts: Record<string, unknown> }[] = [];
+    const settled = await settledWorktreeRelease({ db, worktrees, records: async () => [...pool.records.values()],
+      note: (kind, facts) => { notes.push({ kind, facts }); } }, before, released.cleanup, "REFERENCE_WORKTREE_CHANGING_POOL");
+    // inventory/fixtureDelta (helpers/native-journal-fixture.ts) omit directory timestamps/size.
+    // This double reports two files; native Btrfs directory metadata still requires the original three-path proof.
+    expect(settled, "REFERENCE_WORKTREE_CHANGING_POOL_REASSESSED").toMatchObject(edited
+      ? { owner: "none", work: "unpreserved", changedPaths: 2, unverifiedPaths: 0, sample: ["odyssey/argos.md", "odyssey/book-0/line-0.md"], eligible: false, error: null }
+      : { owner: "none", work: "none", changedPaths: 0, unverifiedPaths: 0, sample: [], eligible: true, error: null });
+    expect(pool.records.get(tree.id), "REFERENCE_WORKTREE_CHANGING_POOL_PREVIEW_DOES_NOT_REMOVE").toEqual(before.record);
+    expect(worktrees.inventory().find(entry => entry.row.id === tree.id)?.cleanup).toBeNull();
+    expect(notes.map(note => note.kind), "REFERENCE_WORKTREE_CHANGING_POOL_RECEIPTS").toEqual(["worktree-release-assessed", "worktree-release-deferred", "worktree-release-reassessed"]);
+    await worktrees.reconcile();
+    expect(pool.records.get(tree.id)?.state, "REFERENCE_WORKTREE_CHANGING_POOL_ORIGINAL_CLEANUP").toBe(edited ? "writable" : "reclaimed");
+  });
+
+  for (const changing of [false, true]) test(`${changing ? "persistent changing" : "other refusal"} fails and retains the worktree`, async () => {
+    const { worktrees, pool } = service(), penelope = owner();
+    const tree = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    const before = { record: structuredClone(pool.records.get(tree.id)!), row: worktrees.inventory().find(entry => entry.row.id === tree.id)!.row };
+    const checkpoint = pool.poolCheckpoint;
+    let attempts = 0;
+    pool.poolCheckpoint = async (id, from, signal) => {
+      if (from === tree.id && db.query("SELECT 1 FROM reference_worktree_checkpoints WHERE id = ?").get(id)) {
+        attempts++; throw new NativeBrainManagerError("unavailable", changing ? CHANGING_POOL : "The pool is unavailable for another reason.");
+      }
+      return checkpoint(id, from, signal);
+    };
+    const released = await worktrees.release({ worktreeId: tree.id, principalId: penelope.id });
+    const notes: string[] = [];
+    await expect(settledWorktreeRelease({ db, worktrees, records: async () => [...pool.records.values()], note: kind => { notes.push(kind); } },
+      before, released.cleanup, "REFERENCE_WORKTREE_CHANGING_POOL_NEGATIVE"), "REFERENCE_WORKTREE_CHANGING_POOL_NEGATIVE_FAILS")
+      .rejects.toThrow(changing ? "REFERENCE_WORKTREE_CHANGING_POOL_NEGATIVE_REASSESS_BOUND" : "REFERENCE_WORKTREE_CHANGING_POOL_NEGATIVE_DEFERRED_TRUTHFULLY");
+    expect(attempts, "REFERENCE_WORKTREE_CHANGING_POOL_BOUNDED_OPERATIONS").toBe(changing ? 4 : 1);
+    expect(notes.filter(kind => kind === "worktree-release-deferred").length, "REFERENCE_WORKTREE_CHANGING_POOL_EVERY_DEFERRAL_RECEIPTED").toBe(attempts);
+    expect(pool.records.get(tree.id), "REFERENCE_WORKTREE_CHANGING_POOL_NEGATIVE_RETAINED").toEqual(before.record);
+    expect(worktrees.inventory().find(entry => entry.row.id === tree.id)?.cleanup).toBeNull();
+    expect(db.query("SELECT count(*) AS n FROM reference_worktree_checkpoints").get()).toEqual({ n: 0 });
+  });
 });

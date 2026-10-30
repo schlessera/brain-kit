@@ -9,7 +9,7 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
-import { appendFileSync, closeSync, constants, cpSync, existsSync, fstatSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, cpSync, existsSync, fstatSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseNativeBrainDelta } from "../../ui-sdk/src/server/native-brain-delta";
@@ -570,13 +570,18 @@ test("an expiry skipped while a turn reconciles applies once that turn finishes"
 
 test("bases are kept only where no worker can see them, and a crashed server's are swept", async () => {
   const reports: string[] = [];
-  const outside = mkdtempSync(join(REPO, "tmp", "odysseus-visible-tmp-")); cleanup.push(() => rmSync(outside, { recursive: true, force: true }));
+  // Workers replace /tmp, including any checkout there, with private storage.
+  // /var/tmp is independent of both the checkout and the ambient TMPDIR.
+  const outside = realpathSync(mkdtempSync("/var/tmp/odysseus-visible-tmp-")); cleanup.push(() => rmSync(outside, { recursive: true, force: true }));
+  const maskPaths: string[] = [];
+  expect(["/tmp", ...maskPaths].filter(masked => outside === masked || outside.startsWith(`${masked}/`)),
+    "THE_VISIBLE_PARENT_IS_OUTSIDE_EVERY_HIDDEN_ROOT").toEqual([]);
   const b = bench({ report: message => reports.push(message) });
   const previous = process.env.TMPDIR;
   process.env.TMPDIR = outside;
   try {
-    expect((await b.prepare("one")).kind).toBe("built");
-    expect(await b.prepare("one"), "NO_BASE_ON_A_WORKER_VISIBLE_TMPDIR").toMatchObject({ kind: "built", reason: "no hidden place to keep a base" });
+    expect((await b.prepare("one", { maskPaths })).kind).toBe("built");
+    expect(await b.prepare("one", { maskPaths }), "NO_BASE_ON_A_WORKER_VISIBLE_TMPDIR").toMatchObject({ kind: "built", reason: "no hidden place to keep a base" });
     expect(readdirSync(outside).filter(name => name.startsWith("brain-private-index-base-")), "NOTHING_KEPT_THERE").toEqual([]);
     expect(reports.filter(report => report.startsWith("private index cache disabled")).length, "REPORTED_ONCE").toBe(1);
     // A masked operational-state path is hidden from every worker.

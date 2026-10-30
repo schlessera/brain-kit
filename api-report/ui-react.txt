@@ -333,6 +333,7 @@ signatures (every public export and the types it is made of)
     }): import("react").JSX.Element;
   ConversationClientOutput (packages/ui-react/src/voice/conversation-client.ts)
     export interface ConversationClientOutput extends ConversationOutputRecord {
+        providerId?: string;
         conversationId: string;
         sessionId: string | null;
     }
@@ -349,14 +350,32 @@ signatures (every public export and the types it is made of)
         sessionId: string | null;
         agentProviderId: string | null;
         text: string;
+        voiceDraft: {
+            id: string;
+            edit: number;
+        } | null;
         notice: string;
         announcement: string;
         playing: boolean;
+        outputRecovery: "audible" | "speaking" | "checking" | "muted";
         work: Record<string, ConversationWorkReceipt>;
         outputs: ConversationClientOutput[];
         unassigned: UnassignedRecognition[];
+        recognition: ConversationRecognition[];
         unassignedWork: number;
     }
+  ConversationRecognition (packages/ui-react/src/voice/conversation-client.ts)
+    export type ConversationRecognition = Extract<ConversationWireEvent, {
+        kind: "input_fragment" | "unassigned_input_fragment";
+    }> & {
+        sessionId: string | null;
+        conversationId: string;
+        epoch: number;
+        providerId: string;
+        activation: number;
+        moved?: true;
+        contextual: boolean;
+    };
   CorpusStats (packages/ui-react/src/lib/api-client.ts)
     export interface CorpusStats {
         trends?: CorpusStatsTrends;
@@ -866,6 +885,7 @@ signatures (every public export and the types it is made of)
     }
   UnassignedRecognition (packages/ui-react/src/voice/conversation-client.ts)
     export interface UnassignedRecognition {
+        utteranceId?: string;
         taskContext?: boolean;
         sessionId: string | null;
         conversationId: string;
@@ -1303,6 +1323,7 @@ signatures (every public export and the types it is made of)
         checkRetryDelivery: (sessionId: string) => boolean;
         connect: () => () => void;
         conversation: {
+            attachControls(): () => void;
             commit: (own: number) => boolean;
             details(): void;
             discard(): void;
@@ -1326,6 +1347,7 @@ signatures (every public export and the types it is made of)
                     records: import("./voice/conversation-permissions.js").VoicePermissionReceipt[];
                 }>;
             };
+            recoverOutput(): void;
             resume(): void;
             reviewUnassigned(): boolean;
             start(): void;

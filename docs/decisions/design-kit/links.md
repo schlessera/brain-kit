@@ -145,7 +145,7 @@ issue, so this entry fixes the behaviour and not the look.
 
 **Question.** D48 puts every model-authored link card behind `classifyLink`.
 A markdown link in the answer's prose gets none of it. The `a` override
-(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:162-173`)
+(`a: ({ href`, `packages/ui-react/src/components/chat/brain-markdown.tsx:163-174`)
 draws every link that is not a repo path as a bare
 `<a target="_blank" rel="noopener noreferrer">`. The only filter is
 react-markdown's default `urlTransform`, which strips `javascript:` and
@@ -203,6 +203,13 @@ in the place it is easiest to produce.
 hidden-destination links until #558 is ruled. "Copy as rich text" copies the
 rendered DOM, so it inherits this treatment.
 
+Arrival-interleaved answers retain this policy for rich-text copy by rendering
+the complete original answer on demand, independently of the visible arrival
+range (`renderMessageRichText`,
+`packages/ui-react/src/components/chat/message-rich-text.tsx:15-36`). The copy
+includes earlier answer parts and data-only cards, without adding a second
+visible answer or trusting model-authored HTML.
+
 **Built 2026-09-28 (#551).** The presentation is the design comment on
 #551, approved there, and the build held to it and to the ruling above. What
 it found, and what neither said:
@@ -239,7 +246,7 @@ it found, and what neither said:
   Chrome test asserts.
 - **Link text is never linkified, accepted or withheld.** The text passes
   that turn repo paths and wikilinks into links stand down inside any prose
-  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:46-56`),
+  link (`withTextProcessing`, `packages/ui-react/src/components/chat/brain-markdown.tsx:47-57`),
   because an anchor inside an anchor is not HTML either. The same wrapper
   had been writing react-markdown's `node` object into the DOM as
   `node="[object Object]"`, and no longer does.
