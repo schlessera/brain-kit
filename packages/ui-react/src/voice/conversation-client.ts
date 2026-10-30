@@ -575,10 +575,22 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
           before: read ? message.before : old?.before, cursor:read ? message.cursor : old?.cursor,
           ...(overflow && !read?.older ? {before:message.before ?? old?.before} : {})};
         const entries = Object.entries({...current.dialogue,[key]:page}).filter(([k,p])=>k===key || (k!==read?.key && p.ownerId!==message.ownerId)).slice(-8);
-        return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Earlier conversation history is incomplete." : ""};
+        return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Voice history may be incomplete." : ""};
       });
       if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
       return null;
+    }
+    if (message.type === "error" && message.requestId && dialogueReads.has(message.requestId)
+      && (message.code === "SESSION_NOT_FOUND" || message.code === "SESSION_LOAD_ERROR")) {
+      const read = dialogueReads.get(message.requestId)!;
+      dialogueReads.delete(message.requestId);
+      state.setState(current => ({
+        dialogue: Object.fromEntries(Object.entries(current.dialogue).filter(([key]) => key !== read.key)),
+        dialogueRestoredThrough: Object.fromEntries(Object.entries(current.dialogueRestoredThrough).filter(([key]) => key !== read.key)),
+      }));
+      // This is a failed read, not a task or provider-opening rejection. The
+      // ordinary restoration path owns its readable failure and keeps drafts.
+      return { ...message, requestId: undefined };
     }
     if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE")) {
       if (message.requestId) dialogueReads.delete(message.requestId);

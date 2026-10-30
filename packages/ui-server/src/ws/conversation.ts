@@ -929,7 +929,7 @@ export class ConversationHost {
     const epoch = conversation.epoch;
     if (!epoch || epoch.closed || (only !== undefined && only !== epoch)) return;
     epoch.closed = true;
-    this.host.dialogue.close(conversation.id,conversation.principalId,epoch.number,!!message?.startsWith("Conversation text could not be saved"));
+    this.host.dialogue.close(conversation.id,conversation.principalId,epoch.number,epoch.storageFailing===true);
     epoch.abort.abort();
     epoch.nativePending.clear();
     const session = epoch.session;
@@ -1097,27 +1097,32 @@ export class ConversationHost {
 
   private sendReceipt(conversation: Conversation, work: Work): void {
     if (work.receipt.provenance === "contextual" && work.durableReady) {
+      const epoch=conversation.epoch;
       void this.host.catalog.saveConversationTask!(conversation.principalId, { ...work.receipt }, work.facts).catch(() => {
-        this.endEpoch(conversation, "provider_error", "Task outcome persistence is unavailable. Do not replay uncertain work.");
+        if (!epoch || epoch.closed || conversation.epoch!==epoch || epoch.number!==work.receipt.epoch) return;
+        const message="Task outcome persistence is unavailable. Voice capture stopped while observed text drains. Failed writes are shown as unsaved. Do not replay uncertain work; restore storage before restarting voice.";
+        if (!conversation.historyOwnerId) {this.endEpoch(conversation,"provider_error",message,epoch);return;}
+        const finish=this.storageFailing(conversation.historyOwnerId);
+        this.send(conversation,{type:"error",code:"DIALOGUE_STORAGE",historyOwnerId:conversation.historyOwnerId,...(conversation.sessionId ? {sessionId:conversation.sessionId} : {}),message});
+        void this.host.dialogue.settled().then(()=>finish(message));
       });
     }
     this.send(conversation, { type: "conversation_work", ...work.receipt });
   }
 
   /** Freeze new ingress/admission while already observed text callbacks drain. */
-  storageFailing(ownerId: string): void {
+  storageFailing(ownerId: string): (message:string)=>void {
+    const scopes:Array<(message:string)=>void>=[];
     for (const conversation of this.conversations.values()) if (conversation.historyOwnerId === ownerId) {
       const epoch=conversation.epoch;
-      if (!epoch || epoch.closed || epoch.storageFailing) continue;
+      if (!epoch || epoch.closed) continue;
+      scopes.push(message=>this.endEpoch(conversation,"provider_error",message,epoch));
+      if (epoch.storageFailing) continue;
       epoch.storageFailing=true;
       try { void Promise.resolve(epoch.session?.close()).catch(()=>{}); } catch { /* The final close still fences the epoch. */ }
     }
-  }
-
-  storageFailed(ownerId: string, message: string): void {
-    for (const conversation of this.conversations.values()) if (conversation.historyOwnerId === ownerId) {
-      this.endEpoch(conversation, "provider_error", message);
-    }
+    // The completion owns these exact epochs, never a later epoch for this chat.
+    return message=>{for(const finish of scopes)finish(message);};
   }
 
   private send(conversation: Conversation, frame: ServerMessage): void {

@@ -359,3 +359,12 @@ The fictional browser examples show [compact saved/unsaved evidence](../assets/d
 [readable unsaved details](../assets/durable-dialogue-3177/unsaved-details-light-1280-1.png),
 and the [text-retention disclosure](../assets/durable-dialogue-3177/consent-retention-gpt-live.png).
 They illustrate evidence states using scripted text, not live model output.
+
+
+Backend range evidence establishes position only after exact reconciliation with
+completed native text: start zero, contiguous offsets, final native length and
+exact bytes. A failed final background append after Leave therefore keeps the
+whole native answer and qualifies its original discussion position. It does not
+assert lost voice text. An unclosed voice epoch is separately read as possibly
+incomplete before reopening, including when recovery writes cannot commit.
+Healthy completed joins require no caution marker.

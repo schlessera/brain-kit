@@ -34,7 +34,8 @@ let tasks = 0;
 let quotaApplied = false, pressureApplied = false;
 let complete: (() => void) | undefined;
 const history: SessionHistoryMessage[] = [];
-const FACT = "The departure signal is a bronze owl.";
+let backendTailQuota = false, multipart = false;
+let FACT = "The departure signal is a bronze owl.";
 const backend = makeFakeBackend({
   id: "fake",
   startTurn: async (req) => {
@@ -48,8 +49,24 @@ const backend = makeFakeBackend({
     await new Promise<void>((resolve) => {
       complete = resolve;
     });
-    req.bridge.emit({ type: "text_delta", text: FACT });
-    history.push({ role: "assistant", content: FACT, toolCalls: [] });
+    const failTail=backendTailQuota, useMultipart=multipart, reply=FACT;
+    const first = useMultipart ? "The mast is ready. " : "";
+    if (useMultipart) {
+      req.bridge.emit({ type: "text_delta", text: first });
+      req.bridge.emit({ type: "tool_use_start", toolUseId: "mast-read", toolName: "Read" });
+    }
+    await host.historySettled();
+    if (failTail) {
+      const controls = await import("../../../ui-server/tests/helpers/dialogue-test-writes.js");
+      const q = writer.channel({url:controls.url,setup:controls.setup},{});
+      await q.call("quota"); await q.close(); quotaApplied = true;
+    }
+    req.bridge.emit({ type: "text_delta", text: reply });
+    if (useMultipart) {
+      const {buildSessionHistory} = await import("../../../ui-backend-claude/src/history.js");
+      const getNative = (async () => [{type:"assistant",uuid:"mast-native-answer",message:{content:[{type:"text",text:first},{type:"tool_use",id:"mast-read",name:"Read",input:{path:"notes/mast.md"}},{type:"text",text:reply}]}}]) as unknown as Parameters<typeof buildSessionHistory>[1];
+      history.push(...await buildSessionHistory("odysseus-ithaca",getNative,root));
+    } else history.push({ role: "assistant", content: reply, toolCalls: [] });
     req.bridge.emit({
       type: "result",
       sessionId: "odysseus-ithaca",
@@ -158,6 +175,10 @@ const server = Bun.serve({
       release?: boolean;
       quota?: boolean;
       pressure?: boolean;
+      finishDuring?: number;
+      resultText?: string;
+      backendTailQuota?: boolean;
+      multipart?: boolean;
       restart?: boolean;
       engine?: string;
     };
@@ -202,13 +223,17 @@ const server = Bun.serve({
         await q.close();
       };
     }
+    let delivered=0;
     for (const frame of body.provider ?? []) {
-      ingress.push(frame);
+      if(body.finishDuring===delivered){if(body.resultText)FACT=body.resultText;complete?.();await Bun.sleep(5);}
+      ingress.push(frame);delivered++;
       if (remote?.readyState === WebSocket.OPEN) remote.send(JSON.stringify(frame));
       // Pace transport consumption while the real writer remains held, so
       // pressure reaches the journal rather than the adapter's event queue.
-      if (body.pressure) await Bun.sleep(1);
+      if (body.pressure || body.finishDuring!==undefined) await Bun.sleep(1);
     }
+    if (body.resultText) FACT=body.resultText;
+    backendTailQuota=body.backendTailQuota===true; multipart=body.multipart===true;
     if (body.release) complete?.();
     await Bun.sleep(20);
     await releaseQuota?.();

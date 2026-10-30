@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import * as writes from "../src/ws/session-catalog-writes.js";
-import { readDialogue } from "../src/ws/dialogue-storage.js";
+import { dialogueOwner, readDialogue } from "../src/ws/dialogue-storage.js";
 import type {
   DialogueAppend,
   DialogueOpen,
@@ -441,9 +441,8 @@ for (const pendingCount of [200, 300])
       expect(visible).toEqual(
         Array.from({ length: pendingCount }, (_, i) => i)
       );
-      expect(failures).toBeGreaterThan(0);
-      expect(causes).toContain("storage_error");
-      expect(causes.includes("queue_pressure")).toBe(pendingCount>256);
+      expect(failures).toBe(1);
+      expect(causes).toEqual([pendingCount > 256 ? "queue_pressure" : "storage_error"]);
       const rows = db
         .query("SELECT sequence FROM dialogue_records ORDER BY sequence")
         .all() as { sequence: number }[];
@@ -508,4 +507,34 @@ test("complete operational backup and restore preserve exact durable dialogue wi
    expect(restored.query("SELECT COUNT(*) AS n FROM conversation_tasks").get()).toEqual({n:0});
   }finally{restored.close();}
  }finally{await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test("restart read before live open derives partial coverage from an unclosed voice source",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-dialogue-unclosed-")),path=join(dir,"ui.db");
+ let db=createUiDb(path);const writer=openSqliteWriter(db),c=writer.channel({url:writes.url,setup:writes.setup},{});
+ try{await c.call("dialogueOpen",opening);await c.call("dialogueAppend",fragment(0,"Mast note."));await c.close();await writer.close();db.close();db=createUiDb(path);
+  expect(db.query("SELECT coverage FROM dialogue_owners").get()).toEqual({coverage:"complete"});
+  expect(readDialogue(db,"odysseus",{ownerId:"ithaca"})!.coverage,"UNCLOSED_READ_IS_NOT_COMPLETE").toBe("partial");
+ }finally{await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test("backend append failure after Leave does not falsely mark retained voice as lost",async()=>{
+ const {DialogueJournal}=await import("../src/ws/dialogue.js");
+ const dir=mkdtempSync(join(tmpdir(),"odysseus-dialogue-after-leave-")),path=join(dir,"ui.db");
+ let db=createUiDb(path);const writer=openSqliteWriter(db),c=writer.channel({url:writes.url,setup:writes.setup},{});
+ const controls=await import("./helpers/dialogue-test-writes.js"),q=writer.channel({url:controls.url,setup:controls.setup},{});let failures=0;
+ const journal=new DialogueJournal({dialogueOwnerForSession:(sessionId:string)=>dialogueOwner(db,{sessionId},"odysseus"),dialogueAppend:(input:DialogueAppend)=>c.call("dialogueAppend",input)} as import("../src/ws/session-catalog.js").SessionCatalog,()=>{},()=>failures++);
+ try{
+  await c.call("dialogueOpen",opening);await c.call("dialogueAppend",fragment(0,"Saved spoken prefix."));await c.call("dialogueBind","ithaca","odysseus","voyage");await c.call("dialogueClose","ithaca","odysseus",1,false);
+  await q.call("quota");journal.backend({type:"text_delta",sessionId:"voyage",turnId:"mast-turn",text:"mast ".repeat(8000)});await journal.settled();
+  let failed=false;try{await journal.settled(true);}catch(error){failed=error instanceof Error && /full/i.test(error.message);}expect(failed,"ACTUAL_BACKEND_SQLITE_QUOTA").toBe(true);
+  expect(failures,"ONE_FAILURE_NOTICE_PER_OWNER").toBe(1);
+  await q.close();await c.close();await writer.close();db.close();db=createUiDb(path);
+  // No clean-close or loss-marker write follows the failed background append.
+  expect(db.query("SELECT coverage FROM dialogue_owners").get()).toEqual({coverage:"complete"});
+  const page=readDialogue(db,"odysseus",{sessionId:"voyage"})!;
+  expect(page.coverage,"BACKEND_POSITION_IS_RECONCILED_SEPARATELY_FROM_VOICE_LOSS").toBe("complete");
+  expect(page.records[0]!.evidence).toEqual(fragment(0,"Saved spoken prefix.").evidence);
+ }finally{await journal.settled();await q.close();await c.close();await writer.close();db.close();rmSync(dir,{recursive:true,force:true});}
 });

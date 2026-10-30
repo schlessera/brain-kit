@@ -6,9 +6,6 @@ import { flushSync } from "react-dom";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
-import { ConversationOutput } from "../../src/components/voice/conversation-outputs.js";
-import { TranscriptQualifiers } from "@schlessera/brain-ui-kit/internal";
-import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import { CONVERSATION_LIMITS, type ServerConversationOpened } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationRecognition } from "../../src/voice/conversation-client.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
@@ -37,12 +34,11 @@ async function scene(ctx: TestContext, width = 320, theme: "light" | "dark" = "d
   const release = ui.connection.connect();
   ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width, outer.height); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
-  return { ui, host, render };
+  return { ui, host, render, network };
 }
 function fragments(providerId = "gemini-live", count = 100): ConversationRecognition[] {
   return Array.from({ length: count }, (_, sequence) => ({ kind: "unassigned_input_fragment", conversationId: "odysseus-voice", epoch: 1, sessionId: SESSION, providerId, activation: 1, contextual: true, sequence, timing: { kind: "unavailable" }, text: sequence === 0 ? "Find the raft preparation notes. " : "Keep the launch list within reach. ", finalization: sequence === count - 1 ? "final" : "unknown" }));
 }
-function qualifier(host: ParentNode, kind = "recognized") { return host.querySelector<HTMLButtonElement>(`[data-transcript-qualifiers="${kind}"]`)!; }
 async function closeDetails() { await userEvent.keyboard("{Escape}"); await expect.poll(() => document.querySelector("dialog[open]")).toBeNull(); }
 
 
@@ -84,7 +80,7 @@ for(const unsaved of [true,false])for(const kind of ["recognition","speech"] as 
  const trigger=[...s.host.querySelectorAll<HTMLButtonElement>(`[data-transcript-qualifiers="${kind==="recognition"?"recognized":"generated"}"]`)].find(q=>q.getAttribute("aria-label")!.includes("unsaved")===unsaved)!;
  const key=trigger.closest<HTMLElement>("[data-arrival-key]")!.dataset.arrivalKey;
  await userEvent.click(trigger);expect(document.querySelector("dialog[open]")).not.toBeNull();
- flushSync(()=>voice.setState(current=>({dialogue:{[SESSION]:{...current.dialogue[SESSION]!,records:[retained(0,"Earlier mast note. "),...current.dialogue[SESSION]!.records]}},outputs:[...current.outputs,...Array.from({length:41},(_,i)=>({conversationId:"tail",epoch:1,sessionId:SESSION,providerId:"gpt-live",outputId:`tail-${i}`,generated:`Later report ${i}.`,playback:"unknown" as const}))]})));
+ flushSync(()=>voice.setState(current=>({dialogue:{[SESSION]:{...current.dialogue[SESSION]!,records:[retained(0,"Earlier mast note. "),...current.dialogue[SESSION]!.records]}},recognition:[...current.recognition,{...fragments("gemini-live",1)[0]!,sequence:4,text:" Keep the sail within reach.",unsaved:true}],outputs:[...current.outputs,...Array.from({length:41},(_,i)=>({conversationId:"tail",epoch:1,sessionId:SESSION,providerId:"gpt-live",outputId:`tail-${i}`,generated:`Later report ${i}.`,playback:"unknown" as const}))]})));
  expect(trigger.isConnected).toBe(true);expect(trigger.closest<HTMLElement>("[data-arrival-key]")!.dataset.arrivalKey).toBe(key);
  expect(s.host.querySelectorAll("[data-arrival-key]").length).toBeLessThanOrEqual(41);expect(document.querySelector("dialog[open]")).not.toBeNull();await closeDetails();expect(document.activeElement).toBe(trigger);
  const elsewhere=document.createElement("button");elsewhere.textContent="Continue reading";document.body.append(elsewhere);ctx.onTestFinished(()=>elsewhere.remove());elsewhere.focus();await expect.poll(()=>trigger.isConnected).toBe(false);expect(s.host.querySelectorAll("[data-arrival-key]")).toHaveLength(40);
@@ -102,4 +98,23 @@ for(const providerId of ["gemini-live","gpt-live"])test(`${providerId} consent d
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/durable-dialogue/consent-top-${providerId}.png`});
  [...dialog.querySelectorAll("p")].find(p=>p.textContent?.startsWith("Recognized speech and generated"))!.scrollIntoView({block:"center"});
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/durable-dialogue/consent-retention-${providerId}.png`});
+});
+
+
+test("missing dialogue read purges its page and principal replacement rejects a late requested page",async ctx=>{
+ const s=await scene(ctx);const socket=s.network.socket()!;
+ socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus",capabilities:{sessionDialogue:true}});
+ evidence(s);s.ui.connection.conversation.loadDialogue(SESSION);
+ const request=socket.frames("dialogue_read").at(-1)!;
+ socket.deliver({type:"error",code:"SESSION_NOT_FOUND",sessionId:SESSION,requestId:request.requestId,message:"This conversation is not available on this host."});
+ await expect.poll(()=>s.ui.connection.conversation.state.getState().dialogue[SESSION]).toBeUndefined();
+ socket.deliver({type:"dialogue_history",requestId:request.requestId,ownerId:"odysseus-voice",sessionId:SESSION,generation:1,coverage:"legacy",through:0,records:[]});
+ expect(s.ui.connection.conversation.state.getState().dialogue[SESSION],"MISSING_READ_CANNOT_REAPPEAR_AS_LEGACY").toBeUndefined();
+ s.ui.connection.conversation.loadDialogue(SESSION);const late=socket.frames("dialogue_read").at(-1)!;
+ socket.deliver({type:"server_hello",protocolRev:5,principalKey:"penelope",capabilities:{sessionDialogue:true}});
+ socket.deliver({type:"dialogue_history",requestId:late.requestId,ownerId:"odysseus-voice",sessionId:SESSION,generation:1,coverage:"complete",through:1,records:[retained(1,"Old principal mast note.")]});
+ await expect.poll(()=>s.ui.connection.conversation.state.getState().dialogue).toEqual({});
+ expect(s.ui.connection.conversation.state.getState().recognition).toEqual([]);
+ expect(s.host.textContent).not.toContain("Old principal mast note.");
+ expect(s.host.querySelector("dialog[open]")).toBeNull();
 });

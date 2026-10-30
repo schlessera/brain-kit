@@ -165,7 +165,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
         if (hasRanges) for (const entry of matching) {
           if (entry.kind === "message" && entry.section !== "answer") ordered.set(entry.key,record.sequence);
         }
-        else if (matching.length && !entries.some(en=>en.key===`dialogue-gap:${sessionId}`)) entries.push({key:`dialogue-gap:${sessionId}`,sessionId,kind:"history-notice",label:"Original discussion position unknown."});
+        else if (matching.some(en=>en.kind === "message" && en.message.role === "assistant" && !en.message.isStreaming) && !entries.some(en=>en.key===`dialogue-gap:${sessionId}`)) entries.push({key:`dialogue-gap:${sessionId}`,sessionId,kind:"history-notice",label:"Original discussion position unknown."});
       }
     }
     // A range is only a position witness for exact backend-owned text. Never
@@ -174,10 +174,12 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       const [sid,turnId] = JSON.parse(key) as [string,string];
       const messageEntry = entries.find(en => en.kind === "message" && en.sessionId === sid && en.message.role === "assistant" && (en.message.turnId === turnId || en.message.streamTurnId === turnId));
       if (!messageEntry || messageEntry.kind !== "message") {
+        if (buffers.some(([key,buffer])=>key===sid && buffer?.isStreaming)) continue;
         const gapKey=`dialogue-gap:${sid}`;
         if (!entries.some(e=>e.key===gapKey)) entries.push({key:gapKey,sessionId:sid,kind:"history-notice",label:"Original discussion position unknown."});
         continue;
       }
+      if (messageEntry.message.isStreaming) continue;
       const text = messageEntry.message.parts.filter(p => p.kind === "text").map(p => p.text).join("");
       const byOffset = [...ranges].sort((a,b)=>a.start-b.start);
       const complete = byOffset[0]?.start === 0 && byOffset.at(-1)?.end === text.length

@@ -849,3 +849,55 @@ for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota
   expect(s.socket.sent.slice(before).map(b=>JSON.parse(String(b.data))).filter(f=>f.type.startsWith("conversation_"))).toEqual([]);
 
  });
+
+
+for(const provider of ["gemini","gpt"] as const)test(`${provider}: task outcome storage failure cannot close ahead of observed dialogue callbacks`,async ctx=>{
+ microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ const s=await view(ctx,null);let cursor=0,result:any;const received:ServerMessage[]=[];
+ const pump=async(providerFrames:unknown[]=[],finish=false)=>{
+  const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;
+  result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:providerFrames,...(finish?{quota:true,finishDuring:2,resultText:"Mast ready. ".repeat(360).slice(0,4000)}:{})});
+  for(const f of result.frames){received.push(f);s.socket.deliver(f);}
+ };
+ await pump();s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ await pump(provider==="gemini"?[{serverContent:{inputTranscription:{text:"Research the mast."}}},{toolCall:{functionCalls:[{id:"mast-research",name:"host_task"}]}}]:[{type:"session.input_transcript.delta",event_id:"task-primer",delta:"Research the mast.",start_ms:0,end_ms:100},{type:"session.delegation.created",event_id:"task-native",offset_ms:100,delegation:{id:"mast-research",type:"delegation",target:"client"}}]);
+ await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);
+ const texts=Array.from({length:30},(_,i)=>`Tail ${i}: ${"mast ".repeat(390)}`);
+ await pump(texts.map((text,i)=>provider==="gemini"?{serverContent:{inputTranscription:{text}}}:{type:"session.input_transcript.delta",event_id:`task-tail-${i}`,delta:text,start_ms:1000+i*1000,end_ms:1500+i*1000}),true);
+ const textEvents=received.filter((f):f is Extract<ServerMessage,{type:"conversation_event"}>=>f.type==="conversation_event"&&(f.event.kind==="input_fragment"||f.event.kind==="unassigned_input_fragment"));
+ expect(textEvents.map(f=>"text"in f.event?f.event.text:"").filter(t=>t.startsWith("Tail ")),"TASK_FAILURE_DRAINS_OBSERVED_DIALOGUE").toEqual(texts);
+ expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);expect(result.tasks).toBe(1);
+ const rawVoice=result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice").map((e:any)=>e.event.text);
+ const saved=textEvents.filter(f=>f.retention!=="unsaved").map(f=>"text"in f.event?f.event.text:"");expect(rawVoice).toEqual(saved);
+ s.ui.connection.conversation.leave();await pump();
+});
+
+
+for(const quota of [false,true])test(`typed result after Leave retains its full native answer with position-only qualification quota=${quota}`,async ctx=>{
+ microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider:"gpt"}) as {id:string};
+ ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any;
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const frame of result.frames)s.socket.deliver(frame);return result;};
+ await pump();s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ s.ui.connection.conversation.start();await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(true);await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ await pump({provider:[{type:"session.input_transcript.delta",event_id:"prime-input",delta:"Research the mast.",start_ms:0,end_ms:100},{type:"session.delegation.created",event_id:"prime-task",offset_ms:100,delegation:{id:"mast-research",type:"delegation",target:"client"}}]});
+ await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});
+ s.ui.connection.conversation.leave();await pump();
+ s.socket.send(JSON.stringify({type:"chat_message",sessionId:"odysseus-ithaca",text:"Read the mast note.",providerId:"fake"}));
+ await expect.poll(async()=>{await pump();return result.tasks;}).toBe(2);
+ const answer=quota?"The bronze owl marks departure. ".repeat(3000):"The bronze owl marks departure.";
+ await pump({release:true,multipart:true,backendTailQuota:quota,resultText:answer});
+ const raw=result.rows.map((r:any)=>JSON.parse(r.payload));
+ const retained=raw.filter((r:any)=>r.kind==="backend").map((r:any)=>r.text).join("");
+ const full="The departure signal is a bronze owl.The mast is ready. "+answer;
+ expect(full.startsWith(retained),"RAW_DB_IS_AN_EXACT_PREFIX").toBe(true);
+ if(quota)expect(retained.length,"FINAL_BACKEND_APPEND_ACTUALLY_FAILED").toBeLessThan(full.length);else expect(retained).toBe(full);
+ s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true});s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));
+ await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain("The bronze owl marks departure.");
+ const messages=s.ui.stores.chat.getState().buffers["odysseus-ithaca"]!.messages;
+ expect(messages.filter(m=>m.role==="assistant").at(-1)!.content,"NATIVE_FINAL_ANSWER_IS_COMPLETE").toBe("The mast is ready. "+answer);
+ const notices=[...s.element.querySelectorAll("p")].filter(e=>e.textContent==="Original discussion position unknown.");
+ expect(notices,"BACKEND_TAIL_POSITION_ONLY").toHaveLength(quota?1:0);
+ expect(s.element.textContent).not.toContain("Voice history may be incomplete");
+ expect(s.element.querySelector('[data-transcript-qualifiers][aria-label*="unsaved"]')).toBeNull();
+});

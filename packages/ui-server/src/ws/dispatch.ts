@@ -630,6 +630,7 @@ export async function handleClientMessage(
 
     case "dialogue_read": {
       if (!connection.authorization.valid || !connection.capabilities?.sessionDialogue || !catalog.dialogueRead) break;
+      if (msg.sessionId && !await requireKnownSession(host, ws, connection, msg.sessionId, true, msg.requestId)) break;
       try {
         const page = await catalog.dialogueRead(connection.authorization.principalId, msg);
         if (connection.closed || !connection.authorization.valid) break;

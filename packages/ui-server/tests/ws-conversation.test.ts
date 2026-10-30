@@ -139,7 +139,7 @@ function setup(options: {
       },
     };
   }
-  return { host, live, turns, connect };
+  return { host, live, turns, connect, db, backend };
 }
 
 // #3131 current-behavior witness, not a proposed result-summarization policy.
@@ -1736,4 +1736,43 @@ test("a host rejection of the retired chat unblocks explicit new conversation", 
   } finally {
     releaseValidation?.(); root.dispose(); Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
   }
+});
+
+
+test("a drained storage failure cannot close a replacement epoch for the same owner",async()=>{
+ const s=setup();const client=await s.connect();const first=await client.open();
+ const finish=s.host.conversations!.storageFailing(first.id);
+ const second=await client.open({conversationId:first.id});
+ expect(second.epoch).toBe(2);
+ finish("Earlier storage drain completed.");
+ await settle();
+ expect(client.frames("conversation_closed").filter(f=>f.epoch===second.epoch),"OLD_STORAGE_DRAIN_CANNOT_CLOSE_NEW_EPOCH").toEqual([]);
+});
+
+
+test("storage drain freezes queued host admission while an already running task completes",async()=>{
+ const s=setup();const client=await s.connect();const c=await client.open();
+ await client.speak(c,"mast-one","Research the mast.");client.commit(c,"mast-one","mast-first","Research the mast.");await until(()=>s.turns.length===1);
+ await client.speak(c,"mast-two","Research the sail.");client.commit(c,"mast-two","mast-queued","Research the sail.");await until(()=>client.receipts("mast-queued").some(r=>r.state==="queued"));
+ s.host.conversations!.storageFailing(c.id);s.turns[0]!.answer("The mast is ready.");await settle();
+ expect(s.turns,"STORAGE_DRAIN_STOPS_NEW_HOST_ADMISSION").toHaveLength(1);
+});
+
+
+test("missing dialogue reads cannot invent legacy history or journal owners", async () => {
+ const s=setup(), client=await s.connect();
+ client.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ client.send({type:"dialogue_read",sessionId:"odysseus-missing",requestId:"missing-page"});
+ await until(()=>client.frames("error").some(f=>f.requestId==="missing-page") || client.frames("dialogue_history").length>0);
+ expect(client.frames("dialogue_history"),"MISSING_CHAT_IS_NOT_LEGACY").toHaveLength(0);
+ expect(client.frames("error")).toContainEqual(expect.objectContaining({code:"SESSION_NOT_FOUND",requestId:"missing-page"}));
+ client.send({type:"conversation_start",sessionId:"odysseus-missing",requestId:"missing-open"});
+ await until(()=>client.frames("error").some(f=>f.requestId==="missing-open"));
+ expect(s.db.query("SELECT count(*) AS n FROM dialogue_owners").get()).toEqual({n:0});
+ expect(s.db.query("SELECT count(*) AS n FROM dialogue_conversations").get()).toEqual({n:0});
+ expect(s.turns).toHaveLength(0);expect(s.live.sessions).toHaveLength(0);
+ s.host.catalog.persistSessionStub("odysseus-known","The mast is ready.",null,"fake");await s.host.catalog.settled?.();
+ client.send({type:"dialogue_read",sessionId:"odysseus-known",requestId:"known-page"});
+ await until(()=>client.frames("dialogue_history").some(f=>f.requestId==="known-page"));
+ expect(client.frames("dialogue_history").at(-1)).toMatchObject({coverage:"legacy",records:[]});
 });

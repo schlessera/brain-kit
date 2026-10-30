@@ -2225,6 +2225,8 @@ backend `sessionId`, `generation`, snapshot high-water `through`, ordered
 Cursors bind owner, principal authorization, generation and high-water; they
 convey no authority. Each indexed page holds at most 200 records/128 KiB.
 Unavailable reads return `DIALOGUE_UNAVAILABLE`, not successful empty history.
+Missing session reads use the same known-chat check as opening/resume and return
+`SESSION_NOT_FOUND` with their request ID; absence is not legacy coverage.
 A chat predating retained dialogue receives `legacy` coverage, never invented
 spoken words reconstructed from its task prompt, JSON, draft or paraphrase.
 
@@ -2234,7 +2236,10 @@ recognized/generated evidence, task request positions and backend text-range
 witnesses. Range copies are only exact-content witnesses for backend-owned
 answers, never a second answer authority or native transcript rewrite. Invalid
 or missing native joins retain readable source text with unknown cross-stream
-position. Approximate provider intervals never determine display order.
+position, after the native turn completes. While native text is still streaming,
+its not-yet-final length is not a loss witness. Backend mismatch qualifies only
+position: the complete native answer remains authoritative. Healthy exact joins
+add no warning. Approximate provider intervals never determine display order.
 Captured and unassigned evidence retain separate identities. Original provider,
 observed model/API, conversation, epoch, output/utterance and delta sequence
 remain attached after engine switching. Empty finish evidence creates no empty
@@ -2260,7 +2265,12 @@ that SQLite failed. Both stop new capture while already observed callbacks drain
 retain their cause-specific recovery copy through epoch closure, and retain the
 committed prefix. It neither marks a manual
 mute nor claims host effects were undone. Clean close drains admitted writes;
-a crash can lose an uncommitted tail, not acknowledged retained text.
+a crash can lose an uncommitted tail, not acknowledged retained text. Reads
+derive conditional partial voice coverage from a prior unclosed epoch, even
+before a new live open and without requiring a successful recovery UPDATE.
+This means voice history may be incomplete, not proof that bytes were lost.
+Failure notices latch once per owner/open episode; shutdown still reports the
+aggregate writer failure. Draining a failed epoch cannot close its replacement.
 
 Before a backend names a session, a principal-owned host history owner retains
 the evidence without creating a backend turn. `conversation_opened` adds optional

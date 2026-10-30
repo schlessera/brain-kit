@@ -334,7 +334,10 @@ export function readDialogue(
           ).toString("base64url"),
         }
       : {}),
-    coverage: owner.coverage,
+    // An unclosed voice source cannot prove its final observations survived a
+    // crash, even if a recovery UPDATE cannot commit. Backend text completeness
+    // is reconciled against native messages by the existing range projection.
+    coverage: owner.coverage === "complete" && db.query("SELECT 1 FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT 1").get(owner.id) ? "partial" : owner.coverage,
   };
 }
 

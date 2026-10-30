@@ -357,3 +357,16 @@ for(const kind of ["recognition","speech"] as const)test(`older paging preserves
   expect(entryText(rows()[0]!)).toBe("Mast 99.Mast 100.");
  }finally{root.dispose();}
 });
+
+
+test("backend position qualification waits for completed native text",()=>{
+ const root=createBrainUiRoot({storage:null});try{
+ const chat=root.stores.chat.getState();chat.addUserMessage("ithaca","Read the mast note.");chat.startAssistantMessage("ithaca","mast-turn");chat.appendText("ithaca","The mast is ready. Tail.");
+ root.connection.conversation.state.setState({dialogue:{ithaca:{ownerId:"mast",sessionId:"ithaca",generation:1,coverage:"complete",through:1,records:[{sequence:1,identity:"range",evidence:{kind:"backend",turnId:"mast-turn",start:0,end:19,text:"The mast is ready. ",digest:"a".repeat(64)}}]}}});
+ const rows=()=>transcriptTimelineFor(root.stores.chat).state.getState().entries;
+ expect(rows().filter(e=>e.kind==="history-notice"),"STREAMING_LENGTH_IS_NOT_A_LOSS_WITNESS").toHaveLength(0);
+ chat.finishAssistantMessage("ithaca");
+ expect(rows().filter(e=>e.kind==="history-notice"),"FINAL_LENGTH_RECONCILES_POSITION").toHaveLength(1);
+ expect(rows().filter(e=>e.kind==="message").map(entryText).join("\n")).toContain("The mast is ready. Tail.");
+ }finally{root.dispose();}
+});

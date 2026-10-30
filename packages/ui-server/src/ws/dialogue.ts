@@ -14,16 +14,18 @@ export class DialogueJournal {
   private readonly adopting = new Map<string, DialogueOwner>();
   private readonly offsets = new Map<string, number>();
   private failure: unknown;
+  private readonly failedOwners = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly queues = new Map<string, { count: number; bytes: number }>();
   constructor(
     private readonly catalog: SessionCatalog,
     private readonly publish: (page: DialoguePage, principalId: string) => void,
-    private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error") => void
+    private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error", kind?: DialogueEvidence["kind"]) => void
   ) {}
   async open(input: DialogueOpen): Promise<DialogueOwner | undefined> {
     if (!this.catalog.dialogueOpen) return;
     const owner = await this.catalog.dialogueOpen(input);
+    this.failedOwners.delete(owner.id); // A newly committed open starts a new failure episode.
     this.conversations.set(input.conversationId, owner);
     if (owner.session_id) this.rememberSession(owner.session_id, owner);
     return owner;
@@ -120,6 +122,7 @@ export class DialogueJournal {
       this.sessions.get(sessionId) ??
       this.catalog.dialogueOwnerForSession?.(sessionId);
     if (!owner) return;
+    this.rememberSession(sessionId,owner);
     if (msg.type === "session_info")
       this.append(owner, `request:${turnId}`, {
         kind: "request",
@@ -177,14 +180,14 @@ export class DialogueJournal {
     const q = this.queues.get(owner.id) ?? { count: 0, bytes: 0 };
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
     if (q.count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || q.bytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
-      owner.coverage = "partial";
+      if (evidence.kind !== "backend") owner.coverage = "partial";
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"
       );
       const prior = [...this.pending];
       const done = Promise.allSettled(prior).then(() => after?.(false));
-      this.track(done, owner);
-      this.failed(owner, "queue_pressure");
+      this.track(done, owner, evidence.kind);
+      this.notifyFailure(owner, "queue_pressure", evidence.kind);
       return;
     }
     q.count++;
@@ -224,17 +227,25 @@ export class DialogueJournal {
         q.bytes -= bytes;
         if (!q.count) this.queues.delete(owner.id);
       });
-    this.track(done, owner);
+    this.track(done, owner, evidence.kind);
   }
-  private track(done: Promise<unknown>, owner: DialogueOwner): void {
+  private notifyFailure(owner:DialogueOwner,cause:"queue_pressure"|"storage_error",kind?:DialogueEvidence["kind"]):void {
+    if(kind !== "backend") owner.coverage="partial";
+    if(this.failedOwners.has(owner.id))return;
+    this.failedOwners.add(owner.id);
+    // A bounded notice latch, not retained history or a lifetime admission cap.
+    if(this.failedOwners.size>128)this.failedOwners.delete(this.failedOwners.values().next().value!);
+    this.failed(owner,cause,kind);
+  }
+  private track(done: Promise<unknown>, owner: DialogueOwner, kind?: DialogueEvidence["kind"]): void {
     this.pending.add(done);
     void done.then(
       () => this.pending.delete(done),
       (error) => {
         this.failure ??= error;
-        owner.coverage = "partial";
+        if(kind !== "backend") owner.coverage = "partial";
         this.pending.delete(done);
-        this.failed(owner, "storage_error");
+        this.notifyFailure(owner, "storage_error", kind);
       }
     );
   }
