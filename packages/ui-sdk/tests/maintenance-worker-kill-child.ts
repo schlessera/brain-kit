@@ -66,14 +66,15 @@ function identity(pid: number): Identity | undefined {
 const alive = (id: Identity) => { const now = identity(id.pid); return now?.start === id.start && !["Z", "X"].includes(now.state); };
 const receipt = (kind: string, data: unknown) => console.error(JSON.stringify({ kind, data }));
 const LABEL_PATH = "/proc/self/attr/current";
-type Label = { available: true; label: string } | { available: false; code: string; errno?: number };
+type Label = { available: true; label: string } | { available: false; code: string; errno: number };
 /** Optional diagnostic only: the actual label, or the read's system error. Never a security guarantee. */
 function securityLabel(): Label {
   try { return { available: true, label: fs.readFileSync(LABEL_PATH, "utf8") }; }
   catch (error) {
     const { code, errno } = error as NodeJS.ErrnoException;
-    if (typeof code !== "string") throw error;
-    return { available: false, code, ...(typeof errno === "number" ? { errno } : {}) };
+    // A system error carries both; a coded programming error such as ERR_INVALID_ARG_TYPE has no errno.
+    if (typeof code !== "string" || typeof errno !== "number") throw error;
+    return { available: false, code, errno };
   }
 }
 /** Replace only the exact label path on the shared read method; restore its complete descriptor. */
@@ -422,17 +423,21 @@ test("native pidfd authority is held and closes once after actual exit and stop"
   receipt("pidfd-lifetime", { fd: state.fd, closes: state.closed, reused, lateSignalCalls: calls, status: fs.readFileSync("/proc/self/status", "utf8"), label: securityLabel() });
   // Nested receipt controls: a supported label is reported verbatim, an unsupported one
   // stays unavailable, and a non-system failure still aborts. Other reads pass through.
-  const controls: [string, () => string, Label | undefined][] = [
+  // A string means the read must abort with that message.
+  const controls: [string, () => string, Label | string][] = [
     ["supported", () => "odysseus-test-label (enforce)\n", { available: true, label: "odysseus-test-label (enforce)\n" }],
     ["unsupported", () => { throw Object.assign(Error("EINVAL: invalid argument, read"), { code: "EINVAL", errno: -22, syscall: "read" }); },
       { available: false, code: "EINVAL", errno: -22 }],
-    ["non-system", () => { throw Error("Label control defect"); }, undefined],
+    ["non-system", () => { throw Error("Label control defect"); }, "Label control defect"],
+    ["coded-non-system", () => { throw Object.assign(TypeError("Label control argument defect"), { code: "ERR_INVALID_ARG_TYPE" }); },
+      "Label control argument defect"],
   ];
   for (const [name, read, expected] of controls) {
     const restore = controlLabelRead(read);
+    const label = name.toUpperCase().replaceAll("-", "_");
     try {
-      if (expected) expect(securityLabel(), `LABEL_RECEIPT_${name.toUpperCase()}`).toEqual(expected);
-      else expect(() => securityLabel(), "LABEL_NON_SYSTEM_FAILURE_MUST_ABORT").toThrow("Label control defect");
+      if (typeof expected !== "string") expect(securityLabel(), `LABEL_RECEIPT_${label}`).toEqual(expected);
+      else expect(() => securityLabel(), `LABEL_${label}_FAILURE_MUST_ABORT`).toThrow(expected);
       expect(fs.readFileSync("/proc/self/status", "utf8"), "LABEL_CONTROL_EXACT_PATH_ONLY").toMatch(new RegExp(`^Pid:\\s+${process.pid}$`, "m"));
     } finally { restore(); }
   }
