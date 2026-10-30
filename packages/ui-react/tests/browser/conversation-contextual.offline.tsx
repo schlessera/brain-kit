@@ -88,27 +88,27 @@ function outputPcm(seconds = 1, audibleSeconds = seconds) {
   return btoa(binary);
 }
 
-async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false, missingSession = false) {
+async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", action: "permitted" | "confirm" | "deny" = "permitted", width = 390, newChat = false, delayedIdentity = false, missingSession = false, holdOpening = false) {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx, width, true, "dark", missingSession);
   if (newChat) { s.ui.stores.chat.getState().setActiveSession(null); s.ui.stores.chat.getState().setMessages(null, []); }
   const manualDraftId = s.ui.stores.drafts.getState().idFor(newChat ? null : SESSION);
   s.ui.stores.drafts.getState().edit(manualDraftId, newChat ? null : SESSION, { text: "Keep the separate typed raft draft." });
-  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity, missingSession }) as { id: string };
+  const fixture = await commands.conversationServer({ op: "start", contextual: true, provider, action, delayedIdentity, missingSession, holdOpening }) as { id: string };
   ctx.onTestFinished(async () => { await commands.conversationServer({ op: "stop", id: fixture.id }); });
   let cursor = 0;
   const upstream: any[] = [];
   const downstream: ServerMessage[] = [];
   let evidence: any;
-  const pump = async (provider: unknown[] = [], release = false, identify = false) => {
+  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false) => {
     const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data))); cursor = s.socket.sent.length;
-    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify });
+    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening });
     upstream.push(...evidence.sent); downstream.push(...evidence.frames);
     for (const frame of evidence.frames) s.deliver(frame);
     return evidence;
   };
   s.client.enter(); await pump();
-  if (missingSession) return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
+  if (missingSession || holdOpening) return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
   await expect.poll(async () => { await pump(); return s.client.state.getState().profile; }).not.toBe(null);
   await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
@@ -1079,4 +1079,34 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} stale retai
   s.client.leave(); await s.pump();
   expect(s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
+});
+
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} history failure during opening stops the late provider before explicit retry`, async ctx => {
+  const s = await contextualScene(ctx, provider, "permitted", 390, false, false, false, true);
+  await expect.poll(async () => (await s.pump()).opening).toBe(true);
+  // The real root already requested session_resume on connection. Its history
+  // read and the voice opening are held independently in the real host.
+  await expect.poll(async () => (await s.pump()).historyPending).toBe(true);
+  await s.pump([], false, false, true);
+  expect(s.evidence().historyPending, "EVERY_OWNED_HISTORY_READ_HAS_SETTLED").toBe(false);
+  await expect.poll(() => s.client.state.getState().active).toBe(false);
+  expect(s.mic.opens(), "HISTORY_FAILURE_NEVER_GRANTS_MICROPHONE_CONSENT").toBe(0);
+  await s.pump([], false, false, false, true);
+  await expect.poll(async () => { await s.pump(); return s.downstream.filter(f => f.type === "conversation_opened").length; }).toBe(1);
+  await expect.poll(async () => (await s.pump()).providerCloses, { timeout: 5000 }).toBe(1);
+  expect(s.socket.frames("conversation_stop"), "LATE_OPENING_IS_EXPLICITLY_RETIRED").toHaveLength(1);
+  expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
+  s.client.enter();
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile; }).not.toBe(null);
+  expect(s.evidence().providerOpens, "EXPLICIT_RETRY_OPENS_EXACTLY_ONE_REPLACEMENT").toBe(2);
+  expect(s.downstream.some(f => f.type === "error" && f.code === "CONVERSATION_LIMIT")).toBe(false);
+  expect(s.mic.opens(), "REENTRY_STILL_REQUIRES_EXPLICIT_START").toBe(0);
+  await userEvent.click(s.button("Start"));
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.client.mute();
+  expect(s.client.state.getState().micOn, "MANUAL_MUTE_REMAINS_AUTHORITATIVE").toBe(false);
+  s.client.leave(); await s.pump();
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.evidence().tasks, "HISTORY_FAILURE_NEVER_REPLAYS_TASKS").toHaveLength(0);
 });

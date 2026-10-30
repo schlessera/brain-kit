@@ -457,12 +457,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
     }
-    if (message.type === "error" && !message.requestId && !message.turnId && !message.failure
+    if (message.type === "error" && (!message.requestId || message.requestId === openingId) && !message.turnId && !message.failure
       && (message.code === "SESSION_NOT_FOUND" || (message.code === "SESSION_LOAD_ERROR" && openingId !== undefined))
       && message.sessionId === state.getState().sessionId) {
-      openingId = undefined;
+      // A history read and provider opening can overlap. Only the opening's
+      // own rejection consumes its request; otherwise keep the token so a late
+      // provider response is stopped by the retired-entry path below.
+      const openingRejected = !!openingId && message.requestId === openingId;
+      if (openingRejected) openingId = undefined;
       leave(); state.setState({ profile: null, notice: message.message });
-      return message;
+      // Opening correlation is not a backend task request. Let ordinary chat
+      // restoration handle the selected chat failure after consuming it here.
+      return openingRejected ? { ...message, requestId: undefined } : message;
     }
     if (message.type === "error" && message.code.startsWith("CONVERSATION_")) {
       openingId = undefined; pause(true, true, false);

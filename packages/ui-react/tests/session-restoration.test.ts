@@ -272,7 +272,9 @@ test("an unavailable live-opening lookup can be retried without marking known hi
   socket.deliver({ type: "session_history", sessionId: OGYGIA, messages: HISTORY });
   root.connection.conversation.enter();
   expect(socket.frames("conversation_start")).toHaveLength(1);
-  socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, message: "The host cannot verify this conversation." });
+  socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, requestId: "odysseus-foreign-opening", message: "Another opening failed." });
+  expect(root.connection.conversation.state.getState().active, "FOREIGN_OPENING_REJECTION_CANNOT_RETIRE_THIS_ENTRY").toBe(true);
+  socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, requestId: socket.frames("conversation_start")[0]!.requestId, message: "The host cannot verify this conversation." });
   expect(root.connection.conversation.state.getState().active, "FAILED_LOOKUP_ENDS_ONLY_THE_PENDING_VOICE_ENTRY").toBe(false);
   expect(restorationOf(root.stores.chat.getState()), "KNOWN_HISTORY_IS_NOT_DECLARED_MISSING").toBe(null);
   root.connection.conversation.enter();

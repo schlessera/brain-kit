@@ -1497,9 +1497,9 @@ test("a stale retained chat cannot open live voice or masquerade as an empty res
 
 test("a missing chat is refused before a direct live start reaches the provider", async () => {
   const s = setup(), client = await s.connect();
-  client.send({ type: "conversation_start", contextualTasks: true, sessionId: "odysseus-stale" });
+  client.send({ type: "conversation_start", contextualTasks: true, sessionId: "odysseus-stale", requestId: "odysseus-opening" });
   await until(() => client.frames("error").length > 0 || client.frames("conversation_opened").length > 0);
-  expect(client.frames("error"), "LIVE_START_VALIDATES_THE_RETAINED_CHAT").toContainEqual(expect.objectContaining({ code: "SESSION_NOT_FOUND", sessionId: "odysseus-stale" }));
+  expect(client.frames("error"), "LIVE_START_VALIDATES_THE_RETAINED_CHAT").toContainEqual(expect.objectContaining({ code: "SESSION_NOT_FOUND", sessionId: "odysseus-stale", requestId: "odysseus-opening" }));
   expect(s.live.sessions, "STALE_CHAT_OPENS_NO_PROVIDER").toHaveLength(0);
   expect(s.host.catalog.hasSession!("odysseus-stale")).toBe(false);
   expect(s.turns).toHaveLength(0);
@@ -1566,4 +1566,69 @@ test("a catalog's existing owner record still validates known chats without its 
   await until(() => client.frames("error").length > 0 || client.frames("conversation_opened").length > 0);
   expect(client.frames("conversation_opened"), "EXISTING_CATALOG_OWNER_REMAINS_VALID").toHaveLength(1);
   expect(s.live.sessions).toHaveLength(1);
+});
+
+
+test("a history failure retires the late host opening before explicit retry", async () => {
+  const { createBrainUiRoot } = await import("../../ui-react/src/root");
+  const s = setup(), client = await s.connect();
+  const sessionId = "odysseus-known-race";
+  s.host.catalog.persistSessionStub(sessionId, "The voyage is planned.", null, "fake");
+  await s.host.catalog.settled?.();
+  let rejectHistory!: (error: Error) => void;
+  const [backend] = await s.host.registry.getBackends();
+  backend!.getHistory = () => new Promise((_, reject) => { rejectHistory = reject; });
+  let releaseOpen!: () => void, opening = false;
+  const open = s.live.provider.open.bind(s.live.provider);
+  s.live.provider.open = async (...args) => {
+    if (!opening) {
+      opening = true;
+      await new Promise<void>(resolve => { releaseOpen = resolve; });
+    }
+    return open(...args);
+  };
+  const socketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
+  let socket: BridgeSocket;
+  const sent: any[] = [];
+  class BridgeSocket {
+    static instances: BridgeSocket[] = [];
+    readyState = 0;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onclose = null; onerror = null;
+    constructor() { BridgeSocket.instances.push(this); }
+    send(raw: string) { const f = JSON.parse(raw); sent.push(f); client.send(f); }
+    close() { this.readyState = 3; }
+    deliver(frame: unknown) { this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent); }
+  }
+  globalThis.WebSocket = BridgeSocket as unknown as typeof WebSocket;
+  const root = createBrainUiRoot({ storage: null, config: { backendUrl: "http://127.0.0.1:18999" } });
+  try {
+    root.stores.chat.getState().setActiveSession(sessionId);
+    root.connection.connect();
+    socket = BridgeSocket.instances.at(-1)!;
+    socket.readyState = 1; socket!.onopen?.();
+    for (const frame of client.frames()) socket!.deliver(frame);
+    await until(() => !!rejectHistory);
+    root.connection.conversation.enter();
+    await until(() => opening);
+    rejectHistory(new Error("Fictional history disk unavailable"));
+    await until(() => client.frames("error").some(f => f.code === "SESSION_LOAD_ERROR"));
+    socket!.deliver(client.frames("error").find(f => f.code === "SESSION_LOAD_ERROR"));
+    expect(root.connection.conversation.state.getState().active).toBe(false);
+    releaseOpen();
+    await until(() => client.frames("conversation_opened").length === 1);
+    socket!.deliver(client.frames("conversation_opened")[0]);
+    await settle();
+    const closedBeforeRetry = s.live.sessions[0]!.closed;
+    root.connection.conversation.enter();
+    await until(() => client.frames("error").some(f => f.code === "CONVERSATION_LIMIT") || client.frames("conversation_opened").length > 1);
+    console.log("HISTORY_OPENING_EVIDENCE", JSON.stringify({ closedBeforeRetry, stops: sent.filter(f => f.type === "conversation_stop").length, errors: client.frames("error").map(f => ({code: f.code, message: f.message})) }));
+    expect(sent.filter(f => f.type === "conversation_stop"), "LATE_OPENING_MUST_BE_RETIRED_AFTER_HISTORY_FAILURE").toHaveLength(1);
+    expect(s.live.sessions[0]!.closed, "HOST_PROVIDER_IS_NOT_ORPHANED").toBe(true);
+    expect(client.frames("error").some(f => f.code === "CONVERSATION_LIMIT"), "EXPLICIT_RETRY_IS_NOT_BLOCKED").toBe(false);
+    expect(s.live.sessions).toHaveLength(2);
+  } finally {
+    releaseOpen?.(); root.dispose(); Object.defineProperty(globalThis, "WebSocket", socketDescriptor);
+  }
 });

@@ -4,7 +4,7 @@ import type { ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
 import { readSessionRecovery } from "./recovery.js";
 
-export async function requireKnownSession(host: WsHost, ws: WSContext, connection: ConnectionState, sessionId: string, allowImportedHistory = false): Promise<boolean> {
+export async function requireKnownSession(host: WsHost, ws: WSContext, connection: ConnectionState, sessionId: string, allowImportedHistory = false, requestId?: string): Promise<boolean> {
   try {
     // A newly emitted session_info may still have a catalog stub in flight.
     await host.catalog.settled?.();
@@ -21,13 +21,13 @@ export async function requireKnownSession(host: WsHost, ws: WSContext, connectio
       if (recovery.kind === "ok") {
         if (allowImportedHistory) return true;
         // Imported history is real, but a read cannot invent a catalog/profile binding.
-        host.sendMessage(ws, { type: "error", code: "CONVERSATION_STORAGE", sessionId,
+        host.sendMessage(ws, { type: "error", code: "CONVERSATION_STORAGE", sessionId, ...(requestId ? { requestId } : {}),
           message: "This chat has imported history but is not registered for live work. Start a New conversation; your draft is kept.",
         });
         return false;
       }
     }
-    host.sendMessage(ws, { type: "error", sessionId,
+    host.sendMessage(ws, { type: "error", sessionId, ...(requestId ? { requestId } : {}),
       code: exists === false ? "SESSION_NOT_FOUND" : "SESSION_LOAD_ERROR",
       message: exists === false
         ? "This conversation is not available on this host. Start a New conversation; your draft is kept."
@@ -35,7 +35,7 @@ export async function requireKnownSession(host: WsHost, ws: WSContext, connectio
     });
   } catch {
     if (connection.authorization.expiresAt <= Date.now()) host.expireAuthorizationContexts();
-    if (!host.closing && !connection.closed && connection.authorization.valid) host.sendMessage(ws, { type: "error", sessionId,
+    if (!host.closing && !connection.closed && connection.authorization.valid) host.sendMessage(ws, { type: "error", sessionId, ...(requestId ? { requestId } : {}),
       code: "SESSION_LOAD_ERROR", message: "The host could not verify this conversation. No work was started; your draft is kept.",
     });
   }

@@ -1171,7 +1171,10 @@ pending catalog writes and rechecks authorization. If neither the catalog nor
 the existing bounded recovery lookup knows it, the host returns `error` with
 `code: "SESSION_NOT_FOUND"` and that `sessionId`, without `session_info`, empty
 history, a provider opening or task admission. A failed lookup remains
-`SESSION_LOAD_ERROR`, not proof of absence. Normal resume still supports imported
+`SESSION_LOAD_ERROR`, not proof of absence. Validation errors rejecting a live
+opening echo its `requestId`; independent history-read errors do not consume a
+pending opening. A retired entry stops any late provider opening before retry.
+Normal resume still supports imported
 backend history; imported-only history without a registered task/profile binding
 is refused for live work with `CONVERSATION_STORAGE`, without inventing a chat.
 The client stops that chat's voice entry and offers explicit **New conversation**
