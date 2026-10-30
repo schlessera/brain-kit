@@ -195,6 +195,38 @@ installed `FunctionResponse`/scheduling declarations. Delegation is metadata,
 not task text. The literal SpawnThinking instruction is prompt text, not an
 invented client event. These sources establish API fields, not live behavior.
 
+## Startup context bounds — 2026-10-30 (#3200)
+
+Historical host outcomes reach a new provider session only as startup context,
+so its size and order are part of whether a replacement epoch opens at all. GPT
+Live documents at most 128 startup messages and 8,192 combined rendered tokens
+([session guide](https://developers.openai.com/api/docs/guides/live-conversations),
+[reference](https://developers.openai.com/api/reference/resources/live), installed
+`openai` `SessionConfig.input`). It documents no tokenizer, local exact count,
+setting or overflow error class, and the [token-counting endpoint](https://developers.openai.com/api/docs/guides/token-counting)
+is a Responses network call. Character bounds from #3141 could exceed that cap.
+
+Each adapter therefore applies one ceiling in exact serialized UTF-8 bytes to
+the whole block, plus a ceiling on serialized result strings: Gemini 24,000 and
+16,000, GPT 7,500 and 5,000. The GPT figures are estimated headroom, not a token
+guarantee. A block the previous formatter already produced within both
+ceilings is sent unchanged. Otherwise selection uses the byte ceilings alone,
+deterministically and newest first, without the older character budget: it uses
+the whole budget when nothing else shares it, keeps a request/state shell with
+`resultOmitted` for a result that cannot fit whole, and marks dropped older
+outcomes, so a rewritten block never blanks a joined result. No reselection or retry follows a provider
+error, because no error class is documented to distinguish a size rejection.
+
+Gemini documents ordered initial history ([Live reference](https://ai.google.dev/api/live)
+`HistoryConfig.initialHistoryInClientContent`; installed `@google/genai`
+declarations): the server processes `clientContent` until `turnComplete` without
+a model call before realtime input, whose ordering against `clientContent` is
+otherwise not deterministic ([capabilities](https://ai.google.dev/gemini-api/docs/live-api/capabilities)).
+The adapter enables it only when context exists. Keyless loopback fixtures prove
+the bytes and order sent, not provider acceptance or recall; those remain #961.
+A later session-history envelope (#3178) shares the same ceilings by reserving
+its actual bounded bytes rather than a fixed share.
+
 ## Continuous conversation and audible recovery — 2026-10-29
 
 The [automatic-recovery ruling on #3053](https://github.com/schlessera/brain-kit/issues/3053#issuecomment-6483873750)

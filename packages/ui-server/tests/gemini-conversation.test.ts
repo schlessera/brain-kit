@@ -12,6 +12,7 @@ import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
+import { expectBoundedStartupContext, maximalResync, previousFormatter, RESYNC_PREFIX, rewrittenAggregate, utf8 } from "./helpers/startup-context";
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
 const NativeWebSocket = WebSocket;
@@ -677,5 +678,95 @@ test("replacement context enforces per-result and aggregate limits on the real s
   const entries = JSON.parse(text.slice(text.indexOf("[")));
   expect(entries.flatMap((e: { hostResult?: string }) => e.hostResult ? [e.hostResult] : [])).toEqual([2, 3, 4, 5].map(i => String(i).repeat(i === 5 ? 3900 : 4000)));
   expect(entries.every((e: { delivery: string }) => e.delivery === "discarded")).toBe(true);
+  await next.close();
+});
+
+/** Frames one provider socket received, from its setup onward. */
+const socketFrames = (sent: any[], setupIndex: number) => {
+  const end = sent.findIndex((m, i) => i > setupIndex && m.setup);
+  return sent.slice(setupIndex, end < 0 ? undefined : end);
+};
+const lastSetup = (sent: any[]) => sent.map(m => !!m.setup).lastIndexOf(true);
+const smallResync = { work: [{ conversationId: "ithaca", epoch: 1, utteranceId: "u1", requestId: "r1", turnId: "t1", state: "completed" as const, delivery: "discarded" as const, recognized: "Find the signal.", submitted: "Find the signal." }],
+  results: [{ conversationId: "ithaca", epoch: 1, requestId: "r1", turnId: "t1", facts: "The departure signal is a bronze owl." }] };
+
+test("startup context uses ordered initial history, once, before the first realtime input (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync: smallResync });
+  const setupAt = lastSetup(f.sent);
+  await until(() => socketFrames(f.sent, setupAt).some(m => m.clientContent));
+  next.appendAudio({ utteranceId: "u2", sequence: 0, rate: 16000, pcm: new Uint8Array([0, 0]) });
+  next.appendAudio({ utteranceId: "u2", sequence: 1, rate: 16000, pcm: new Uint8Array([0, 0]) });
+  next.markEndpoint("u2");
+  await until(() => socketFrames(f.sent, setupAt).some(m => m.realtimeInput?.activityEnd));
+  const frames = socketFrames(f.sent, setupAt);
+  expect(frames[0].setup.historyConfig).toEqual({ initialHistoryInClientContent: true });
+  const seeded = frames.flatMap((m, i) => m.clientContent ? [i] : []);
+  expect(seeded).toHaveLength(1);
+  expect(frames[seeded[0]!].clientContent).toEqual({ turns: [{ role: "user", parts: [{ text: expect.stringContaining("bronze owl") }] }], turnComplete: true });
+  expect(seeded[0]!).toBeLessThan(frames.findIndex(m => m.realtimeInput));
+  expect(frames.some(m => m.toolResponse)).toBe(false);
+  await next.close();
+});
+
+test("a fitting resync keeps the exact previous serialized bytes (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync: smallResync });
+  const setupAt = lastSetup(f.sent);
+  await until(() => socketFrames(f.sent, setupAt).some(m => m.clientContent));
+  expect(socketFrames(f.sent, setupAt).find(m => m.clientContent).clientContent.turns[0].parts[0].text).toBe(RESYNC_PREFIX +
+    '[{"request":"Find the signal.","outcome":"completed","delivery":"discarded","hostResult":"The departure signal is a bronze owl."}]');
+  await next.close();
+});
+
+test("startup without context keeps the setup unchanged and seeds nothing (#3200)", async () => {
+  const f = await fixture();
+  await f.audio();
+  expect(f.sent[0].setup).not.toHaveProperty("historyConfig");
+  expect(f.sent.some(m => m.clientContent)).toBe(false);
+});
+
+test("a replacement epoch with unchanged inputs sends identical setup and startup context (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const frames: any[][] = [];
+  for (const epoch of [2, 3]) {
+    const next = await f.provider.open({ conversationId: "ithaca", epoch }, { signal: f.abort.signal, resync: smallResync });
+    const setupAt = lastSetup(f.sent);
+    await until(() => socketFrames(f.sent, setupAt).some(m => m.clientContent));
+    frames.push(socketFrames(f.sent, setupAt));
+    await next.close();
+  }
+  expect(JSON.stringify(frames[1])).toBe(JSON.stringify(frames[0]));
+});
+
+test("a rewritten aggregate names results it does not carry on the real socket (#3200 review)", async () => {
+  const f = await fixture(); await f.session.close();
+  const resync = rewrittenAggregate(30);
+  expect(utf8(previousFormatter({ conversationId: "ithaca", epoch: 2 }, resync))).toBeGreaterThan(24_000);
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync });
+  const setupAt = lastSetup(f.sent);
+  await until(() => socketFrames(f.sent, setupAt).some(m => m.clientContent));
+  const text = socketFrames(f.sent, setupAt).find(m => m.clientContent).clientContent.turns[0].parts[0].text;
+  expect(utf8(text)).toBeLessThanOrEqual(24_000);
+  const entries = JSON.parse(text.slice(RESYNC_PREFIX.length));
+  expect(entries[0]).toEqual({ omitted: "older_outcomes" });
+  expect(entries.slice(-6).map((e: { hostResult?: string; resultOmitted?: boolean }) => e.hostResult?.length ?? (e.resultOmitted ? "omitted" : "bare")))
+    .toEqual(["omitted", "omitted", 4000, 4000, 4000, 3900]);
+  await next.close();
+});
+
+test("maximal resync stays within the Gemini ceilings with whole source facts (#3200)", async () => {
+  const f = await fixture(); await f.session.close();
+  const resync = maximalResync();
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync });
+  const setupAt = lastSetup(f.sent);
+  await until(() => socketFrames(f.sent, setupAt).some(m => m.clientContent));
+  const text = socketFrames(f.sent, setupAt).find(m => m.clientContent).clientContent.turns[0].parts[0].text;
+  const { entries, facts } = expectBoundedStartupContext(text, { maxBytes: 24_000, maxFactBytes: 16_000 }, resync);
+  // Each fact serializes to 7,574 bytes: two fit the 16,000-byte fact ceiling, a third would not.
+  expect(facts).toEqual([resync.facts[2], resync.facts[3]]);
+  expect(entries.slice(-4).map(e => e.resultOmitted === true)).toEqual([true, true, false, false]);
+  // Older shells fill the rest; selection stops only when the next whole shell (at most ~2.2 KB with a reason) cannot fit.
+  expect(utf8(text)).toBeGreaterThan(24_000 - 2_300);
   await next.close();
 });

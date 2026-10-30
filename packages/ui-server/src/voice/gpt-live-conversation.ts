@@ -1,5 +1,5 @@
 /** OpenAI Live v1 primary WebSocket; client delegation, never vendor tools. */
-import { conversationHistory } from "./conversation-history.js";
+import { conversationHistory, STARTUP_CONTEXT_LIMITS } from "./conversation-history.js";
 import { z } from "zod";
 import { CONVERSATION_LIMITS, type ConversationAudioFormat } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationScope, LiveConversationEvent, LiveConversationOpenOptions, LiveConversationProvider, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
@@ -120,7 +120,7 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
   socket.addEventListener("open", () => {
     if (ended) return;
     try {
-      const history = conversationHistory(scope, options.resync);
+      const history = conversationHistory(scope, options.resync, STARTUP_CONTEXT_LIMITS.gpt);
       send({ type: "session.start", session: {
         model: MODEL, audio: { format: { type: "audio/pcm", rate: 24000 }, output: { voice: "marin" } },
         delegation: { type: "client", acknowledgement_delay_ms: 800 }, store: false,

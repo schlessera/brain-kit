@@ -328,3 +328,28 @@ The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `SYS_RESOURCE`, so `quota_override` cannot be set; the unit suite covers that
 refusal. Receipts, including measured physical-to-owner ratios, are kept under
 `tmp/reference-pool-proof/`.
+
+## Owned hosted-fixture loop removal
+
+After exclusively creating loop1790, the hosted fixture captures the device-node
+and sysfs-entry identities. Each removal attempt checks those identities, the
+sysfs mapping, zero size, absence of loop/backing attributes and holders, and
+absence of the owned mount. Btrfs mount checks include both owned source aliases
+because its mountinfo device number can be anonymous. Validation never opens the
+device. Only EBUSY permits another attempt: 20 ms spacing, at most 50 total calls,
+and a one-second monotonic budget from the first EBUSY return. This policy cap
+is not a guaranteed host-opener settling time. Existing test deadlines stay fixed.
+
+Receipts retain the first EBUSY and every attempted ioctl, using nanosecond
+offsets rather than host-uptime timestamps. Both healthy and expected-failure
+controllers require a validated successful removal receipt and no cleanup errors.
+If initial identity capture fails after exclusive creation, cleanup preserves
+main's single unretried removal attempt and the invocation remains failed.
+Once identity capture succeeds, changed or vanished identity refuses further
+removal. Exhaustion retains the original EBUSY as failure.
+
+The kernel refuses removal of bound/open devices. Userspace checks cannot close
+the allocator-selection or foreign remove/re-add window between validation and
+ioctl. This fixture retains its exclusive-minor disposable-host model; retries
+extend that existing window. File controls prove protocol and refusal behavior,
+not real kernel timing or elimination of this residual risk.
