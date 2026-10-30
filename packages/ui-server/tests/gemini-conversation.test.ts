@@ -12,7 +12,7 @@ import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testPrincipal } from "./helpers/principal";
-import { expectBoundedStartupContext, maximalResync, RESYNC_PREFIX, utf8 } from "./helpers/startup-context";
+import { expectBoundedStartupContext, maximalResync, previousFormatter, RESYNC_PREFIX, rewrittenAggregate, utf8 } from "./helpers/startup-context";
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "WebSocket")!;
 const NativeWebSocket = WebSocket;
@@ -737,6 +737,22 @@ test("a replacement epoch with unchanged inputs sends identical setup and startu
     await next.close();
   }
   expect(JSON.stringify(frames[1])).toBe(JSON.stringify(frames[0]));
+});
+
+test("a rewritten aggregate names results it does not carry on the real socket (#3200 review)", async () => {
+  const f = await fixture(); await f.session.close();
+  const resync = rewrittenAggregate(30);
+  expect(utf8(previousFormatter({ conversationId: "ithaca", epoch: 2 }, resync))).toBeGreaterThan(24_000);
+  const next = await f.provider.open({ conversationId: "ithaca", epoch: 2 }, { signal: f.abort.signal, resync });
+  const setupAt = lastSetup(f.sent);
+  await until(() => socketFrames(f.sent, setupAt).some(m => m.clientContent));
+  const text = socketFrames(f.sent, setupAt).find(m => m.clientContent).clientContent.turns[0].parts[0].text;
+  expect(utf8(text)).toBeLessThanOrEqual(24_000);
+  const entries = JSON.parse(text.slice(RESYNC_PREFIX.length));
+  expect(entries[0]).toEqual({ omitted: "older_outcomes" });
+  expect(entries.slice(-6).map((e: { hostResult?: string; resultOmitted?: boolean }) => e.hostResult?.length ?? (e.resultOmitted ? "omitted" : "bare")))
+    .toEqual(["omitted", "omitted", 4000, 4000, 4000, 3900]);
+  await next.close();
 });
 
 test("maximal resync stays within the Gemini ceilings with whole source facts (#3200)", async () => {

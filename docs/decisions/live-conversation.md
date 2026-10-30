@@ -209,10 +209,12 @@ is a Responses network call. Character bounds from #3141 could exceed that cap.
 Each adapter therefore applies one ceiling in exact serialized UTF-8 bytes to
 the whole block, plus a ceiling on serialized result strings: Gemini 24,000 and
 16,000, GPT 7,500 and 5,000. The GPT figures are estimated headroom, not a token
-guarantee. Selection is deterministic and newest first, uses the whole budget
-when nothing else shares it, keeps a request/state shell with `resultOmitted`
-for a result that cannot fit whole, and marks dropped older outcomes. A block
-that fits keeps its previous bytes. No reselection or retry follows a provider
+guarantee. A block the previous formatter already produced within both
+ceilings is sent unchanged. Otherwise selection uses the byte ceilings alone,
+deterministically and newest first, without the older character budget: it uses
+the whole budget when nothing else shares it, keeps a request/state shell with
+`resultOmitted` for a result that cannot fit whole, and marks dropped older
+outcomes, so a rewritten block never blanks a joined result. No reselection or retry follows a provider
 error, because no error class is documented to distinguish a size rejection.
 
 Gemini documents ordered initial history ([Live reference](https://ai.google.dev/api/live)

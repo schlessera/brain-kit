@@ -43,3 +43,36 @@ export function expectBoundedStartupContext(text: string, limits: { maxBytes: nu
   for (const id of ["req-", "turn-", "utterance-", "nativeHandle"]) expect(text).not.toContain(id);
   return { entries: kept, facts };
 }
+
+/**
+ * Frozen copy of the pre-#3200 formatter (main at b7d1dfd), used only as the
+ * byte-identity control for blocks that already fit both ceilings.
+ */
+export function previousFormatter(scope: { conversationId: string; epoch: number }, resync: ConversationResync): string {
+  let remaining = 16_000;
+  const seen = new Set<string>();
+  const entries = resync.work.slice(-64).reverse().flatMap(w => {
+    if (w.conversationId !== scope.conversationId || w.epoch >= scope.epoch || seen.has(w.requestId)) return [];
+    seen.add(w.requestId);
+    const result = w.state === "completed" && w.turnId ? resync.results?.find(r =>
+      r.conversationId === w.conversationId && r.epoch === w.epoch && r.requestId === w.requestId && r.turnId === w.turnId) : undefined;
+    const candidate = result?.facts.slice(0, 4_000) ?? "";
+    const facts = candidate.length <= remaining ? candidate : "";
+    remaining = candidate.length > remaining ? 0 : remaining - facts.length;
+    return [{ request: (w.recognized || w.submitted).slice(0, 500), outcome: w.state,
+      delivery: w.delivery, ...(w.reason ? { reason: w.reason.slice(0, 500) } : {}),
+      ...(facts ? { hostResult: facts } : {}) }];
+  }).reverse();
+  return entries.length ? RESYNC_PREFIX + JSON.stringify(entries) : "";
+}
+
+/** Six aggregate outcomes (#3141 shape) behind older fact-less receipts that force a rewrite. */
+export function rewrittenAggregate(fillers: number) {
+  const receipt = (id: string, request: string) => ({ conversationId: "ithaca", epoch: 1, utteranceId: `u-${id}`, requestId: id, turnId: `t-${id}`,
+    state: "completed" as const, delivery: "discarded" as const, recognized: request, submitted: request });
+  const older = Array.from({ length: fillers }, (_, i) => receipt(`f${i}`, `Earlier question ${i}: ` + "which harbour faces west? ".repeat(18)));
+  const work = [...older, ...[0, 1, 2, 3, 4, 5].map(i => receipt(`r${i}`, `Find signal ${i}.`))];
+  const results = [0, 1, 2, 3, 4, 5].map(i => ({ conversationId: "ithaca", epoch: 1, requestId: `r${i}`, turnId: `t-r${i}`,
+    facts: String(i).repeat(i === 5 ? 3900 : i < 2 ? 500 : 4100) }));
+  return { work, results };
+}

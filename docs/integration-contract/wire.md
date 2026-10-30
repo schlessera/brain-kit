@@ -1386,11 +1386,14 @@ engineering estimates. GPT documents an 8,192 rendered-token startup input with
 no public tokenizer, exact count or overflow behavior, so its ceiling is headroom
 rather than a proven token bound, and a provider rejection still fails the open
 with the fixed readable error; there is no retry and no start without this
-context. Outcomes are taken newest first. An outcome whose whole result does not
-fit keeps its request and state with `resultOmitted: true`; a result is never
-cut. When an outcome cannot fit even without its result, older outcomes are
-dropped and the block leads with `{ "omitted": "older_outcomes" }`. A block that
-fits these ceilings keeps its previous bytes exactly. Gemini setup adds
+context. A block the previous formatter produced within both ceilings is sent
+byte for byte, including the #3141 aggregate retention above. Otherwise selection
+uses these byte ceilings alone, replacing the 16,000-character aggregate budget,
+and takes outcomes newest first. An outcome whose whole result does not fit keeps
+its request and state with `resultOmitted: true`; a joined result is never cut or
+silently blanked. The inherited 4,000-character per-result bound still applies.
+When an outcome cannot fit even without its result, older outcomes are dropped
+and the block leads with `{ "omitted": "older_outcomes" }`. Gemini setup adds
 `historyConfig: { initialHistoryInClientContent: true }` only when the block is
 non-empty and seeds it as one `clientContent` with `turnComplete: true` after
 `setupComplete` and before any realtime input; without context the setup is
