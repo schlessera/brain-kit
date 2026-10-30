@@ -19,12 +19,15 @@ beforeAll(async () => { styles = document.createElement("style"); styles.dataset
 // A Vitest deadline rejects its wrapper without cancelling the async body.
 // Retain the whole body, including captures it may schedule after that deadline.
 let ownedCase: Promise<void> | undefined, ownedTeardown: Promise<void> | undefined;
-function test(name: string, run: () => Promise<void>) {
+// Maintainer ruling #2402 (2026-10-30): only the twelve 1,024-note captures
+// get 30 seconds. Keep all work inside the clock and retain capture phase receipts.
+const STRESS_CAPTURE_TIMEOUT_MS = 30_000;
+function test(name: string, run: () => Promise<void>, timeout?: number) {
   browserTest(name, () => {
     if (ownedCase || ownedTeardown) throw Error("PREVIOUS_CALLOUT_CASE_NOT_DRAINED");
     ownedCase = Promise.resolve().then(run);
     return ownedCase;
-  });
+  }, timeout);
 }
 async function teardownCase() {
   const work = ownedCase;
@@ -157,7 +160,7 @@ for (const theme of ["light", "dark", "print"] as const) {
   expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_SOURCE_NOTES").toHaveLength(1024);
   expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-${theme}`);
- });
+ }, STRESS_CAPTURE_TIMEOUT_MS);
 }
 
 // Keep full geometry and raster capture independently within the case budget.
@@ -176,7 +179,7 @@ for (const theme of ["light", "dark", "print"] as const) {
   expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_NARROW_SOURCE_NOTES").toHaveLength(1024);
   expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_NARROW_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-narrow-${theme}`);
-});
+}, STRESS_CAPTURE_TIMEOUT_MS);
 }
 for (const width of [636, 640]) test(`responsive columns at nearest authored grid width ${width}`, async () => {
   const source = JSON.stringify({ ...calloutsSpec, nodes: [{ id: "odysseus", label: "Odysseus", at: [width - 184, 64], size: [160, 64] }], groups: [], edges: [], callouts: Array.from({ length: 9 }, (_, i) => ({ target: "odysseus", text: i % 2 ? "Prepare provisions before the voyage to Ithaca and read the ledger." : `Voyage ${i + 1}` })) });
