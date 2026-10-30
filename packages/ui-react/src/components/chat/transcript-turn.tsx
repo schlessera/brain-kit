@@ -25,7 +25,7 @@ export interface TurnHeaderProps {
   voice?: "voice-dictate" | "voice-conversation";
   /** Explicit effort provenance, already formatted; defaults leave this absent. */
   effort?: string;
-  tone: "user" | "brain";
+  tone: "user" | "brain" | "neutral";
 }
 
 export function TurnHeader(p: TurnHeaderProps) {
@@ -34,7 +34,7 @@ export function TurnHeader(p: TurnHeaderProps) {
       <span
         className={cn(
           "select-none font-[family-name:var(--font-mono)] text-xs font-semibold uppercase tracking-widest",
-          p.tone === "user" ? "text-primary/80" : "text-accent/80",
+          p.tone === "neutral" ? "text-muted-foreground" : p.tone === "user" ? "text-primary/80" : "text-accent/80",
         )}
       >
         {p.who}

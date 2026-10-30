@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
@@ -127,16 +127,9 @@ test("a real inherited pipe stays pending after parent exit until its owned desc
       // Linux can independently distinguish this exact owned process from a
       // reused PID. A zombie has exited; reaping belongs to its actual parent.
       if (process.platform === "linux") {
-        const stopped = async () => {
-          try {
-            const stat = await readFile(`/proc/${descendantPid}/stat`, "utf8");
-            const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-            return fields[0] === "Z" || fields[19] !== owned.start;
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
-            throw error;
-          }
-        };
+        const stopped = () => ownedDescendantStopped(
+          () => readFile(`/proc/${descendantPid}/stat`, "utf8"), owned.start,
+        );
         const deadline = performance.now() + 1_000;
         while (!(await stopped()) && performance.now() < deadline) await Bun.sleep(5);
         expect(await stopped(), "the recorded owned descendant has terminated").toBe(true);
@@ -169,4 +162,71 @@ test("an existing relay rejection remains the original error", async () => {
   await expect(hook.child("package-build", { pid: 42, stdout, stderr, exited: Promise.resolve(0) }, relay)).rejects.toBe(marker);
   expect(records.some((r) => r.event === "stdout-rejected")).toBe(true);
   expect(JSON.stringify(records)).not.toContain("sentinel");
+});
+
+// Local test observation only: a live PID must still match its recorded start.
+async function ownedDescendantStopped(readStat: () => Promise<string>, start: string | undefined): Promise<boolean> {
+  try {
+    const stat = await readStat();
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return fields[0] === "Z" || fields[19] !== start;
+  } catch (error) {
+    // A path can vanish before open (ENOENT) or after open, at read (ESRCH).
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ESRCH") return true;
+    throw error;
+  }
+}
+
+test("owned descendant observation distinguishes live identity, reused identity and zombie state", async () => {
+  const stat = await readFile("/proc/self/stat", "utf8");
+  const stateOffset = stat.lastIndexOf(")") + 2;
+  const start = stat.slice(stateOffset).split(" ")[19]!;
+  expect(await ownedDescendantStopped(() => readFile("/proc/self/stat", "utf8"), start), "LIVE_MATCHING_IDENTITY_IS_NOT_STOPPED").toBe(false);
+  expect(await ownedDescendantStopped(() => readFile("/proc/self/stat", "utf8"), "different-start"), "REUSED_PID_IS_NOT_THE_OWNED_PROCESS").toBe(true);
+  // A controlled zombie-state record preserves the real start identity.
+  const zombie = stat.slice(0, stateOffset) + "Z" + stat.slice(stateOffset + 1);
+  expect(await ownedDescendantStopped(async () => zombie, start), "ZOMBIE_HAS_EXITED_EVEN_WITH_MATCHING_START").toBe(true);
+});
+
+test("an owned process disappearing after procfs open is stopped without hiding unexpected read errors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "odysseus-procfs-exit-"));
+  const ready = join(root, "ready");
+  const child = Bun.spawn([process.execPath, "-e", 'require("node:fs").writeFileSync(process.argv[1],"Odysseus ready");setInterval(()=>{},1000)', ready], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  let held: Awaited<ReturnType<typeof open>> | undefined;
+  const stdout = new Response(child.stdout).text();
+  const stderr = new Response(child.stderr).text();
+  try {
+    const deadline = performance.now() + 1_000;
+    while (true) {
+      try { expect(await readFile(ready, "utf8"), "OWNED_CHILD_ACKNOWLEDGED_READINESS").toBe("Odysseus ready"); break; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || performance.now() >= deadline) throw error;
+        await Bun.sleep(5);
+      }
+    }
+    const path = `/proc/${child.pid}/stat`;
+    const stat = await readFile(path, "utf8");
+    const start = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;
+    expect(await ownedDescendantStopped(() => readFile(path, "utf8"), start), "OWNED_PROCESS_IS_LIVE_BEFORE_RELEASE").toBe(false);
+    held = await open(path, "r");
+    child.kill("SIGKILL");
+    expect(await child.exited, "EXACT_OWNED_PROCESS_EXIT_IS_JOINED").toBe(137);
+    // This error comes from the kernel, not a fabricated errno or mock.
+    await expect(held.readFile("utf8"), "NATIVE_PROCFS_READ_LOSES_ITS_PROCESS").rejects.toMatchObject({ code: "ESRCH", syscall: "read", errno: -3 });
+    await expect(ownedDescendantStopped(() => held!.readFile("utf8"), start), "VANISHED_OWNED_PROCESS_IS_STOPPED").resolves.toBe(true);
+    await expect(readFile(path, "utf8"), "FRESH_PROCFS_OPEN_SEES_ABSENT_PATH").rejects.toMatchObject({ code: "ENOENT" });
+    expect(await ownedDescendantStopped(() => readFile(path, "utf8"), start), "ABSENT_OWNED_PROCESS_IS_STOPPED").toBe(true);
+    await held.close();
+    await expect(ownedDescendantStopped(() => held!.readFile("utf8"), start), "UNEXPECTED_NATIVE_READ_ERRORS_PROPAGATE").rejects.toMatchObject({ code: "EBADF" });
+    expect(await stdout).toBe("");
+    expect(await stderr).toBe("");
+  } finally {
+    child.kill("SIGKILL");
+    await child.exited;
+    await held?.close();
+    await stdout;
+    await stderr;
+    await rm(root, { recursive: true, force: true });
+  }
 });
