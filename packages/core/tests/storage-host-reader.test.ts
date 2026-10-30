@@ -24,7 +24,7 @@ test("public host reader resolves approved worktree markers and refuses redirect
   const { symlinkSync, unlinkSync } = await import("node:fs");
   const root = mkdtempSync(join(tmpdir(), "odysseus-storage-host-")), repo = join(root, "repo"), worktree = join(root, "voyage"), alternate = join(root, "alternate");
   mkdirSync(repo); mkdirSync(alternate);
-  const git = (path: string, ...args: string[]) => { const p = Bun.spawnSync(["git", "-C", path, ...args], { stdout: "pipe", stderr: "pipe" }); expect(p.exitCode, p.stderr.toString()).toBe(0); };
+  const git = (path: string, ...args: string[]) => { const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", path, ...args], { stdout: "pipe", stderr: "pipe" }); expect(p.exitCode, p.stderr.toString()).toBe(0); };
   try {
     git(repo, "init"); git(alternate, "init", "--bare");
     writeFileSync(join(repo, "Ithaca.md"), "Odysseus returns to Ithaca.\n");

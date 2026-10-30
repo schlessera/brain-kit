@@ -32,7 +32,7 @@ const stopped=Date.now()+10000;while(!existsSync(join(shared,"${1-index}.done"))
 expect(existsSync(join(shared,"${1-index}.done")),"BOTH_LIVE_WORKER_CONTROLS_COMPLETE").toBe(true);
 });
 `);
-  const git = (...args: string[]) => { const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" }); expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); };
+  const git = (...args: string[]) => { const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" }); expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); };
   git("init", "-q"); git("add", "."); git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Private invocation fixture");
   try {
     await runUnitWorkers(root, files, undefined, reports);
