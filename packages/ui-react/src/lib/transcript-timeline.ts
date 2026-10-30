@@ -202,7 +202,8 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       if (archivedOutput.has(JSON.stringify([output.conversationId,output.epoch,output.outputId])) && !output.unsavedGenerated) continue;
       const generated=output.unsavedGenerated ?? output.generated;
       if (!generated) continue;
-      const key = JSON.stringify([output.unsavedGenerated ? "unsaved-speech" : "speech", output.conversationId, output.epoch, output.outputId]);
+      // A tail is identified by its actual source offset, never qualifier state.
+      const key = JSON.stringify(["speech", output.conversationId, output.epoch, output.outputId, output.unsavedGenerated ? output.generated.length : 0]);
       liveRuns.add(key);
       for (const run of segments(key, generated, output.sessionId,undefined,observedThrough(output.sessionId))) {
         entries.push({ key: run.key, sessionId: output.sessionId, kind: "speech", restored: !output.unsavedGenerated && isRestoredConversationOutput(output), output: { ...output, generated: generated.slice(run.start, run.end), ...(output.unsavedGenerated ? {playback:"unknown" as const,unsaved:true as const,orderUnknown:false} : {}) } });

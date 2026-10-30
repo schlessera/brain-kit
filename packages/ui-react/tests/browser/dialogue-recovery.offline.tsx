@@ -867,6 +867,7 @@ for(const provider of ["gemini","gpt"] as const)test(`${provider}: task outcome 
  const textEvents=received.filter((f):f is Extract<ServerMessage,{type:"conversation_event"}>=>f.type==="conversation_event"&&(f.event.kind==="input_fragment"||f.event.kind==="unassigned_input_fragment"));
  expect(textEvents.map(f=>"text"in f.event?f.event.text:"").filter(t=>t.startsWith("Tail ")),"TASK_FAILURE_DRAINS_OBSERVED_DIALOGUE").toEqual(texts);
  expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);expect(result.tasks).toBe(1);
+ expect(received.filter(f=>f.type==="error" && f.code==="DIALOGUE_STORAGE"),"ONE_STORAGE_FAILURE_EPISODE").toHaveLength(1);
  const rawVoice=result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice").map((e:any)=>e.event.text);
  const saved=textEvents.filter(f=>f.retention!=="unsaved").map(f=>"text"in f.event?f.event.text:"");expect(rawVoice).toEqual(saved);
  s.ui.connection.conversation.leave();await pump();
@@ -876,17 +877,18 @@ for(const provider of ["gemini","gpt"] as const)test(`${provider}: task outcome 
 for(const quota of [false,true])test(`typed result after Leave retains its full native answer with position-only qualification quota=${quota}`,async ctx=>{
  microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider:"gpt"}) as {id:string};
  ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
- let s=await view(ctx,null),cursor=0,result:any;
- const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const frame of result.frames)s.socket.deliver(frame);return result;};
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const frame of result.frames){if(frame.type==="result")completed++;s.socket.deliver(frame);}return result;};
  await pump();s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
  s.ui.connection.conversation.start();await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(true);await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
  await pump({provider:[{type:"session.input_transcript.delta",event_id:"prime-input",delta:"Research the mast.",start_ms:0,end_ms:100},{type:"session.delegation.created",event_id:"prime-task",offset_ms:100,delegation:{id:"mast-research",type:"delegation",target:"client"}}]});
- await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});
+ await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
  s.ui.connection.conversation.leave();await pump();
  s.socket.send(JSON.stringify({type:"chat_message",sessionId:"odysseus-ithaca",text:"Read the mast note.",providerId:"fake"}));
  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(2);
  const answer=quota?"The bronze owl marks departure. ".repeat(3000):"The bronze owl marks departure.";
  await pump({release:true,multipart:true,backendTailQuota:quota,resultText:answer});
+ await expect.poll(async()=>{await pump();return completed;}).toBe(2);
  const raw=result.rows.map((r:any)=>JSON.parse(r.payload));
  const retained=raw.filter((r:any)=>r.kind==="backend").map((r:any)=>r.text).join("");
  const full="The departure signal is a bronze owl.The mast is ready. "+answer;
