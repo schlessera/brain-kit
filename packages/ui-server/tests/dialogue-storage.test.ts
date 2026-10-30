@@ -734,3 +734,46 @@ test("R8 writer-pending adoption preserves exact healthy sibling identities on t
  expect(f.db.query("SELECT coverage FROM dialogue_owners").get(),"PENDING_ADOPTION_DB_COMPLETE").toEqual({coverage:"complete"});expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage).toBe("complete");
  }finally{await f.close();}
 });
+
+
+for(const merge of [false,true])for(const pendingSibling of [false,true])test(`R9 pending provisional sibling survives adoption merge=${merge} pendingSibling=${pendingSibling}`,async()=>{
+ const f=await r7Fixture();try{
+ if(merge){await f.catalog.dialogueOpen!({...opening,conversationId:"sparta",sessionId:"voyage"});await f.catalog.dialogueClose!("sparta","odysseus",1,false);}
+ await f.catalog.dialogueOpen!(opening);
+ const sibling=f.catalog.dialogueOpen!({...opening,conversationId:"pylos",historyOwnerId:"ithaca"});if(!pendingSibling)await sibling;
+ // No acknowledgement between sibling submission, adoption and third open.
+ const adoption=f.catalog.dialogueBind!("ithaca","odysseus","voyage"),next=f.catalog.dialogueOpen!({...opening,conversationId:"troy",sessionId:"voyage"});await Promise.all([sibling,adoption,next]);
+ const ownerId=merge?"sparta":"ithaca";
+ expect(f.db.query("SELECT id,coverage FROM dialogue_owners").all(),"ADMITTED_PENDING_SIBLING_DB_COMPLETE").toEqual([{id:ownerId,coverage:"complete"}]);
+ expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"ADMITTED_PENDING_SIBLING_READ_COMPLETE").toBe("complete");
+ const before=f.db.query("SELECT id,owner_id,epoch,closed FROM dialogue_conversations ORDER BY id").all();
+ expect(before).toEqual([...['ithaca','pylos','troy'],...(merge?['sparta']:[])].sort().map(id=>({id,owner_id:ownerId,epoch:1,closed:id==='sparta'?1:0})));
+ // The earlier admitted row is live after adoption. A new provisional entry
+ // into that now-bound owner must still be rejected by actual admission.
+ await refused(f.catalog.dialogueOpen!({...opening,conversationId:"argos",historyOwnerId:"ithaca"}),"provisional owner unavailable");
+ await refused(f.catalog.dialogueOpen!({...opening,conversationId:"argos",historyOwnerId:"ithaca",principalId:"penelope"}),"ownership mismatch");
+ expect(f.db.query("SELECT id,owner_id,epoch,closed FROM dialogue_conversations ORDER BY id").all(),"REJECTED_NEW_START_CREATES_NO_ROWS").toEqual(before);
+ expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+
+
+for(const pendingInitial of [false,true])test(`R9 initial provisional identity survives pending merge adoption pendingInitial=${pendingInitial}`,async()=>{
+ const f=await r7Fixture();try{
+ await f.catalog.dialogueOpen!({...opening,conversationId:"sparta",sessionId:"voyage"});await f.catalog.dialogueClose!("sparta","odysseus",1,false);
+ const initial=f.catalog.dialogueOpen!(opening);if(!pendingInitial)await initial;
+ const adoption=f.catalog.dialogueBind!("ithaca","odysseus","voyage"),next=f.catalog.dialogueOpen!({...opening,conversationId:"troy",sessionId:"voyage"});await Promise.all([initial,adoption,next]);
+ expect(f.db.query("SELECT id,coverage FROM dialogue_owners").all(),"ADMITTED_INITIAL_ALIAS_DB_COMPLETE").toEqual([{id:"sparta",coverage:"complete"}]);
+ expect((await f.catalog.dialogueRead!("odysseus",{sessionId:"voyage"}))!.coverage,"ADMITTED_INITIAL_ALIAS_READ_COMPLETE").toBe("complete");
+ }finally{await f.close();}
+});
+
+
+for(const fence of ["healthy","target","principal","generation"] as const)test(`R9 admitted alias liveness preserves identity fence: ${fence}`,async()=>{
+ const f=await r7Fixture(),q=f.writer.channel({url:writes.url,setup:writes.setup},{});try{
+ await q.call("dialogueOpen",opening);await q.call("dialogueClose","ithaca","odysseus",1,false);await q.call("dialogueOpen",{...opening,conversationId:"pylos",historyOwnerId:"ithaca"});await q.call("dialogueBind","pylos","odysseus","voyage");
+ await q.call("dialogueOpen",{...opening,conversationId:"argos"});
+ const pending={input:{...opening,conversationId:"pylos",historyOwnerId:fence==="target"?"argos":"ithaca",principalId:fence==="principal"?"penelope":"odysseus"},ownerId:"ithaca",generation:fence==="generation"?2:1};
+ const owner=await q.call<{coverage:string}>("dialogueOpen",{...opening,conversationId:"troy",sessionId:"voyage"},new Map(),[pending]);expect(owner.coverage,`ADOPTED_PENDING_ALIAS_FENCE_${fence}`).toBe(fence==="healthy"?"complete":"partial");
+ }finally{await q.close();await f.close();}
+});

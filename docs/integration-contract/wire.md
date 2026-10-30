@@ -2442,3 +2442,11 @@ scope of the adopted owner while preserving each failure overlay. A writer
 snapshot taken before adoption acknowledgement may resolve the committed owner
 alias, with the original generation and principal fences unchanged. These are
 bounded in-flight/runtime identities, never retained history or admission data.
+
+A pending provisional admission is classified by its exact committed identity,
+not by rechecking whether its owner is still provisional after adoption. Both
+in-place binding and canonical merge can happen before acknowledgement. The
+original owner ID resolves through the durable alias; principal, generation,
+native ID/epoch and target identity fences remain. This liveness classification
+never admits a new `historyOwnerId` entry into an already bound chat: the open
+transaction still requires a provisional owner for that new admission.

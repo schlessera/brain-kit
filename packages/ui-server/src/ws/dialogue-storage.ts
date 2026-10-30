@@ -81,9 +81,11 @@ function pendingEpochFor(db:Database, owner:DialogueOwner, row:{id:string;epoch:
     // A pending submission is liveness only for the exact row its successful
     // earlier transaction could have opened, under the same durable owner.
     if(input.sessionId && input.sessionId!==owner.session_id) return false;
-    if(input.historyOwnerId && (input.sessionId || owner.session_id || dialogueOwner(db,{ownerId:input.historyOwnerId},input.principalId)?.id!==owner.id)) return false;
+    // Provisional admission was validated when this exact row committed.
+    // Adoption may since have bound it; only its canonical identity must persist.
+    if(input.historyOwnerId && (input.sessionId || dialogueOwner(db,{ownerId:input.historyOwnerId},input.principalId)?.id!==owner.id)) return false;
     if(scope.ownerId) return dialogueOwner(db,{ownerId:scope.ownerId},input.principalId)?.id===owner.id;
-    return input.sessionId || input.historyOwnerId ? true : owner.id===input.conversationId;
+    return input.sessionId || input.historyOwnerId ? true : dialogueOwner(db,{ownerId:input.conversationId},input.principalId)?.id===owner.id;
   });
 }
 function activeEpochFor(db:Database, owner:DialogueOwner, principalId:string, row:{id:string;epoch:number}, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>):ActiveDialogueEpoch|undefined {

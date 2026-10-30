@@ -399,3 +399,8 @@ worker acknowledgement. Pre-existing unclosed epochs and same-ID no-close
 reopens stay conservative. Reservations retire on settlement and cannot be
 revived after an exact close. Canonical adoption keeps sibling live scope
 references aligned without clearing genuine failure coverage.
+
+Pending provisional rows remain live after adoption, including adoption before
+an open acknowledgement. Classification follows their committed canonical
+identity, not the owner's former unbound state. New provisional admissions
+still validate that state in their own transaction; no admission rule changes.

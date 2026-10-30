@@ -20,3 +20,5 @@ Keep ordinary typed chats free of invented legacy-voice warnings, preserve true 
 Order same-conversation close/open transitions through device takeover and pending-open replacement, preserve owner-local observation drains, and avoid false interruption from other exact healthy live identities without hiding real failures.
 
 Preserve complete coverage for simultaneous healthy voice entries in one chat, fence and retire pending writer identities, and keep adopted sibling scopes aligned without masking no-close or restart gaps.
+
+Keep already admitted provisional voice scopes healthy when adoption precedes acknowledgement, without relaxing new-start admission or identity fences.
