@@ -328,3 +328,32 @@ The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `SYS_RESOURCE`, so `quota_override` cannot be set; the unit suite covers that
 refusal. Receipts, including measured physical-to-owner ratios, are kept under
 `tmp/reference-pool-proof/`.
+
+## Owned-loop failure observations
+
+The loop1790 fixture retains monotonic cleanup boundaries in `native-fixture.json`.
+Only a failed single `LOOP_CTL_REMOVE` with EBUSY launches the isolated two-second
+collector. It samples sysfs before and after at most 128 container-visible PIDs,
+with 16 KiB reads and 16 relevant mount facts per PID. Mount paths/options and
+backing filenames are never exported. Unknown permissions, vanished entries,
+malformed mounts and truncation remain explicit. This snapshot never opens the
+loop, retries removal or replaces its original cleanup error. Missing evidence
+cannot rule out an opener or a retained namespace.
+
+CI also starts an independent optional `brainloop_*` mono-clock trace instance.
+`owned-loop-trace.json` records actual live BTF admission and kernel registration;
+`owned-loop-trace.txt` retains up to 4 MiB of its ring on stop. No BTF tool, unknown
+layout or unsupported probe means unavailable evidence, not successful tracing.
+There are no fallback pointer offsets. Disk events require major 7 / minor 1790;
+control entry requires LOOP_CTL_REMOVE and argument 1790. Only an admitted,
+filtered release event requests a kernel stack. Entry/return correlation and
+nested opener counts remain explicitly unavailable. The collector removes only
+its own instance and registered probes; it never resets global tracing. Existing
+dead-root input and classification stay independent. The ordinary always-run
+runtime-host artifact collection retains both outputs.
+
+`bun run test tests/owned-loop-evidence.test.ts tests/identity-native-fixture.test.ts`
+runs file-only controls, including actual cleanup execution with an injected
+remove failure and a broken observer. These are implementation controls. Real
+held-descriptor/release proof and actual runner probe admission still require the
+privileged offline native harness; neither establishes historical attribution.
