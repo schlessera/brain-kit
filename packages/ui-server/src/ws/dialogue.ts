@@ -216,7 +216,14 @@ export class DialogueJournal {
     // Adoption mutates the canonical ID; pending callbacks retain this owner.
     const q = this.queues.get(owner) ?? { count: 0, bytes: 0 };
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
-    if (q.count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || q.bytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
+    // Distinct live references can share (or adopt) one archive. Keep its
+    // combined admission bound while each callback retires its stable entry.
+    let pendingCount = 0, pendingBytes = 0;
+    for (const [queuedOwner, queued] of this.queues) if (queuedOwner.id === owner.id) {
+      pendingCount += queued.count;
+      pendingBytes += queued.bytes;
+    }
+    if (pendingCount >= CONVERSATION_LIMITS.maxPendingDialogueObservations || pendingBytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
       if (evidence.kind !== "backend") owner.coverage = "partial";
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"

@@ -130,3 +130,40 @@ for (const bound of ["count", "bytes"] as const) test(`native alias adoption can
     await expect(f.journal.settled(true)).rejects.toThrow("pending writes exceeded");
   } finally { f.release(); releaseCallbacks(); await f.close(); }
 });
+
+
+for (const bound of ["count", "bytes"] as const) for (const merge of [false, true]) test(`canonical archive keeps its combined ${bound} admission budget across owner references merge=${merge}`, async () => {
+  const f = await fixture();
+  let releaseCallbacks!: () => void;
+  const callbacks = new Promise<void>(resolve => { releaseCallbacks = resolve; });
+  const append = f.catalog.dialogueAppend!;
+  f.catalog.dialogueAppend = async input => { const row = await append(input); await callbacks; return row; };
+  try {
+    const target = (await f.journal.open({ ...opening, conversationId: "troy", sessionId: "voyage" }))!;
+    const source = (await f.journal.open({ ...opening, ...(merge ? {} : { sessionId: "voyage" }) }))!;
+    expect(source).not.toBe(target);
+    await f.hold();
+    const saved: boolean[] = [];
+    const text = bound === "bytes" ? "船".repeat(2000) : "mast";
+    let count = 0, bytes = 0;
+    const submit = (conversationId: string) => {
+      const e = { ...evidence(count++, text), conversationId };
+      bytes += Buffer.byteLength(JSON.stringify(e));
+      f.journal.voice(conversationId, e, value => saved.push(value));
+    };
+    for (let i = 0; i < 100; i++) submit("troy");
+    if (merge) f.journal.bind("ithaca", "odysseus", "voyage");
+    while (count < CONVERSATION_LIMITS.maxPendingDialogueObservations &&
+      bytes + Buffer.byteLength(JSON.stringify(evidence(count, text))) <= CONVERSATION_LIMITS.maxPendingDialogueBytes) submit("ithaca");
+    f.release(); await f.catalog.settled!();
+    expect(source.id).toBe(target.id);
+    expect(f.failures).toEqual([]);
+    f.journal.voice("ithaca", evidence(count, text), value => saved.push(value));
+    expect(f.failures, "CANONICAL_ARCHIVE_BUDGET_CANNOT_SPLIT_BETWEEN_REFERENCES").toEqual(["queue_pressure"]);
+    releaseCallbacks(); await f.journal.settled();
+    expect(saved).toEqual([...Array(count).fill(true), false]);
+    expect(queues(f.journal).size, "ALL_CANONICAL_QUEUE_ENTRIES_RETIRE").toBe(0);
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({ n: count });
+    if (bound === "bytes") expect(count).toBeLessThan(CONVERSATION_LIMITS.maxPendingDialogueObservations);
+  } finally { f.release(); releaseCallbacks(); await f.close(); }
+});
