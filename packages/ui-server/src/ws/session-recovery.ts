@@ -4,7 +4,7 @@ import type { ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
 import { readSessionRecovery } from "./recovery.js";
 
-export async function requireKnownSession(host: WsHost, ws: WSContext, connection: ConnectionState, sessionId: string, allowImportedHistory = false, requestId?: string): Promise<boolean> {
+export async function requireKnownSession(host: WsHost, ws: WSContext, connection: ConnectionState, sessionId: string, allowImportedHistory = false, requestId?: string, onLoadError?: (error: unknown) => void): Promise<boolean> {
   try {
     // A newly emitted session_info may still have a catalog stub in flight.
     await host.catalog.settled?.();
@@ -33,11 +33,15 @@ export async function requireKnownSession(host: WsHost, ws: WSContext, connectio
         ? "This conversation is not available on this host. Start a New conversation; your draft is kept."
         : "The host cannot verify this conversation. No work was started; your draft is kept.",
     });
-  } catch {
+  } catch (error) {
     if (connection.authorization.expiresAt <= Date.now()) host.expireAuthorizationContexts();
-    if (!host.closing && !connection.closed && connection.authorization.valid) host.sendMessage(ws, { type: "error", sessionId, ...(requestId ? { requestId } : {}),
-      code: "SESSION_LOAD_ERROR", message: "The host could not verify this conversation. No work was started; your draft is kept.",
-    });
+    if (!host.closing && !connection.closed && connection.authorization.valid) {
+      // Resume owns its outcome and metric; retain the cause without putting it on the wire.
+      onLoadError?.(error);
+      host.sendMessage(ws, { type: "error", sessionId, ...(requestId ? { requestId } : {}),
+        code: "SESSION_LOAD_ERROR", message: "The host could not verify this conversation. No work was started; your draft is kept.",
+      });
+    }
   }
   return false;
 }
