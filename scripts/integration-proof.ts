@@ -23,6 +23,43 @@ export async function latestIntegrationRun(api: API, workflow: string, candidate
     run.pull_requests?.some((pr: { number: number }) => pr.number === candidate.pr)).sort((a, b) => b.id - a.id)[0];
 }
 
+/** Only bounded, recognized API metadata enters refusals; never stringify arbitrary values. */
+function inventoryDiagnostic(inventory: any, run: any, head: string): string {
+  const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : "invalid";
+  const choice = (value: unknown, choices: readonly string[]) => typeof value === "string" && choices.includes(value) ? value : "unrecognized";
+  const names = ["changeset", "proof", ...PROOF_JOBS,
+    ...["browser", "layout"].flatMap(name => shardNumbers(name as "browser" | "layout").map(shard => `${name} (${shard})`)),
+    ...[1, 2, 3, 4].map(shard => `unit (${shard})`)];
+  const jobs = inventory.jobs;
+  const predicates: string[] = [];
+  const offending: unknown[] = [];
+  if (!Array.isArray(jobs)) predicates.push("jobs is not an array");
+  else {
+    if (inventory.total_count !== jobs.length) predicates.push("total_count differs from jobs.length");
+    if (!jobs.length) predicates.push("jobs.length is zero");
+    if (jobs.length > 30) predicates.push("jobs.length exceeds 30");
+    // The endpoint requests at most 100 jobs. Bound diagnostics even for a malformed response.
+    for (const [index, value] of jobs.slice(0, 100).entries()) {
+      const job = value ?? {};
+      const failed: string[] = [];
+      if (!Number.isSafeInteger(job.id)) failed.push("job.id is not a safe integer");
+      if (job.run_id !== run.id) failed.push("job.run_id differs from run.id");
+      if (job.head_sha !== head) failed.push("job.head_sha differs from candidate.head");
+      if (job.status !== "completed") failed.push("job.status is not completed");
+      if (!["success", "skipped"].includes(job.conclusion)) failed.push("job.conclusion is not success/skipped");
+      if (failed.length) offending.push({ index, predicates: failed, job: {
+        id: number(job.id), name: choice(job.name, names),
+        status: choice(job.status, ["queued", "in_progress", "completed", "waiting", "requested", "pending"]),
+        conclusion: choice(job.conclusion, ["success", "skipped", "failure", "cancelled", "neutral", "timed_out", "action_required", "stale", "startup_failure"]),
+        run_id: number(job.run_id), head_sha: typeof job.head_sha === "string" && /^[a-f0-9]{40}$/.test(job.head_sha) ? job.head_sha : "invalid",
+      } });
+    }
+  }
+  return JSON.stringify({ run_id: number(run.id), attempt: number(run.run_attempt), total_count: number(inventory.total_count),
+    page_length: Array.isArray(jobs) ? jobs.length : "unavailable", predicates, offending,
+    ...(Array.isArray(jobs) && jobs.length > 100 ? { omitted_jobs: jobs.length - 100 } : {}) });
+}
+
 export async function verifyIntegrationProof(root: string, repository: string, candidate: Candidate, api: API,
   fetchCheckout: (sha: string) => void): Promise<{ run: number; checkout: Checkout }> {
   const run = await latestIntegrationRun(api, "ci.yml", candidate);
@@ -31,7 +68,7 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   const inventory = await api.json(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
   const jobs: Array<{ id: number; name: string; status: string; conclusion: string; run_id: number; head_sha: string }> = inventory.jobs;
   if (!Array.isArray(jobs) || inventory.total_count !== jobs.length || !jobs.length || jobs.length > 30 ||
-      jobs.some(job => !Number.isSafeInteger(job.id) || job.run_id !== run.id || job.head_sha !== candidate.head || job.status !== "completed" || !["success", "skipped"].includes(job.conclusion))) throw new Error("Incomplete or failed selected job inventory");
+      jobs.some(job => !Number.isSafeInteger(job.id) || job.run_id !== run.id || job.head_sha !== candidate.head || job.status !== "completed" || !["success", "skipped"].includes(job.conclusion))) throw new Error(`Incomplete or failed selected job inventory: ${inventoryDiagnostic(inventory, run, candidate.head)}`);
   const proofs = jobs.filter(job => job.name === "proof" && job.conclusion === "success");
   if (proofs.length !== 1) throw new Error("Missing complete candidate aggregate");
   const proofLog = await api.log(proofs[0].id);
