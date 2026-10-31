@@ -83,7 +83,7 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
   // partial coverage preserve that uncertainty, including failed source writes.
   const recent = messages.slice(-128);
   type Positioned = { order: number; item: HistoricalItem };
-  const groups: Array<{ items: HistoricalItem[]; positioned: Positioned[] }> = [];
+  const groups: Array<{ items: HistoricalItem[]; positioned: Positioned[]; lastFactAfter?: number }> = [];
   let group: typeof groups[number] | undefined;
   for (let i = 0; i < recent.length; i++) {
     const message = recent[i]!;
@@ -111,7 +111,10 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
       if (fact) {
         // Facts join later at their witnessed completion; retain this native
         // anchor so surrounding unknown groups cannot jump before the result.
-        if (ranges) group.positioned.push({order:ranges.at(-1)!.sequence+0.25,item:fact.item});
+        if (ranges) {
+          group.positioned.push({order:ranges.at(-1)!.sequence+0.25,item:fact.item});
+          group.lastFactAfter = group.items.length;
+        }
         continue;
       }
       if (ranges) for (const r of ranges) {
@@ -173,7 +176,9 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
   // an entirely unwitnessed prefix still has unknown recency, not a fake date.
   const lastNativeGroup = groups.findLast(g=>g.items.length || g.positioned.length);
   const lastFact = lastNativeGroup?.positioned.at(-1)?.item;
-  const nativeTail = lastFact?.kind==="host_fact" ? lastFact : lastNativeGroup?.items.at(-1);
+  // A fact replaces only its own native item, never a later adjacent answer.
+  const nativeTail = lastFact?.kind==="host_fact" && lastNativeGroup?.lastFactAfter===lastNativeGroup?.items.length
+    ? lastFact : lastNativeGroup?.items.at(-1);
   const nativeUpperBound = nativeTail && lastNativeGroup?.positioned.find(p=>p.item.ref===nativeTail.ref)?.order;
   const nativeLowerBound = Math.max(-Infinity,...groups.flatMap(g=>g.positioned.map(p=>p.order)));
   const voiceTail = ordered.findLast(v=>v.item.kind==="recognized" || v.item.kind==="generated");

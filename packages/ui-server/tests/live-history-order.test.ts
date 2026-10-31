@@ -84,3 +84,16 @@ test("known newest voice does not warn about an older exactly witnessed native t
  expect(b.text).toContain("Newest witnessed voice reply.");expect(b.text).not.toContain(answer);
  expect(b.tailOmitted,"OLDER_EXACT_NATIVE_TAIL_IS_NOT_POSSIBLY_NEWEST").toBe(false);
 });
+
+test("a later adjacent unwitnessed assistant remains a possible newest item after a witnessed fact",()=>{
+ const records:DialoguePage["records"]=[{sequence:1,identity:"q1",evidence:{kind:"request",turnId:"t1",requestId:"r1"}},backend(2,"t1","The mast is ready."),{sequence:3,identity:"voice",evidence:{kind:"voice",conversationId:"voice",epoch:1,providerId:"gpt-live",event:{kind:"output_transcript",sequence:0,outputId:"reply",text:"Newest witnessed voice."}}}];
+ const fact={turnId:"t1",requestId:"r1",item:{ref:"fact-one",kind:"host_fact" as const,outcome:"completed" as const,text:"The mast is ready.",result:{conversationId:"voice",epoch:1,requestId:"r1",turnId:"t1"},completeness:"retained_bounded" as const}};
+ const later="Unwitnessed later assistant. ".repeat(60);
+ const env=projectLiveHistory([msg("user","Is the mast ready?",{turnId:"t1"}),msg("assistant","The mast is ready.",{turnId:"t1"}),msg("assistant",later,{turnId:"t9"})],{ownerId:"ithaca",generation:1,coverage:"complete",through:3,records},[fact]);
+ const bounded=boundHistory(env,new Set(),{maxBytes:600,maxFactBytes:200,maxItems:128});
+ expect(bounded.text).not.toContain(later);expect(bounded.text).toContain("Newest witnessed voice.");
+ expect(bounded.tailOmitted,"ADJACENT_ASSISTANT_AFTER_FACT_CANNOT_BE_SILENTLY_OMITTED").toBe(true);
+ const full=boundHistory(env);expect(full.text).toContain(later);expect(full.tailOmitted,"RETAINED_ADJACENT_ASSISTANT_HAS_NO_NEWEST_OMISSION").toBe(false);
+ const factTail=projectLiveHistory([msg("user","Is the mast ready?",{turnId:"t1"}),msg("assistant","The mast is ready.",{turnId:"t1"})],{ownerId:"ithaca",generation:1,coverage:"complete",through:3,records},[fact]);
+ expect(boundHistory(factTail,new Set(),{maxBytes:600,maxFactBytes:0,maxItems:128}).tailOmitted,"KNOWN_OLDER_FACT_IS_NOT_NEWEST_WHEN_VOICE_IS_LATER").toBe(false);
+});
