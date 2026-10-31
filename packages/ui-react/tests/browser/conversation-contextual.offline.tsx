@@ -37,7 +37,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     }
     return url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined;
   },
-    onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
+    onOpen(socket) { socket.deliver({ type: "server_hello", conversationProfile: {providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure}, protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
   const prefix = `odysseus-stale-${crypto.randomUUID()}`;
   if (retained) localStorage.setItem(`${prefix}:brain-sessionId`, SESSION);
   const ui = createBrainUiRoot({ ...(retained ? { storage: localStorage, storagePrefix: prefix } : { storage: null }), request: network.request });
@@ -55,7 +55,19 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
   const client = ui.connection.conversation;
   const button = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="button"],button')].find((node) => (node.getAttribute("aria-label") ?? node.textContent) === name)!;
   const event = (event: ConversationWireEvent, epoch = client.state.getState().profile!.epoch) => socket.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch, event });
-  const opened = (epoch = 1, caps = CAPS) => { socket.deliver({ ...PROFILE, epoch, capabilities: caps, requestId: socket.frames("conversation_start").at(-1)?.requestId }); event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, epoch); };
+  let pendingOpen: (()=>void) | undefined, lastOpenedRequest: unknown;
+  const opened = (epoch = 1, caps = CAPS) => {
+    const deliver = () => { const requestId=socket.frames("conversation_start").at(-1)?.requestId; lastOpenedRequest=requestId;
+      socket.deliver({...PROFILE,epoch,capabilities:caps,requestId}); event({kind:"ready",input:{encoding:"pcm16",channels:1,sampleRate:24000},output:{encoding:"pcm16",channels:1,sampleRate:24000}},epoch); };
+    const requestId=socket.frames("conversation_start").at(-1)?.requestId;
+    if(!requestId || requestId===lastOpenedRequest) {
+      // Provider metadata is public before Start; no opened/ready is delivered yet.
+      socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,askReceipts:true,toolResolution:true,chatRequestAck:true},conversationProfile:{providerId:PROFILE.providerId,capabilities:caps,disclosure:PROFILE.disclosure}});
+      pendingOpen=deliver;
+    } else deliver();
+  };
+  const socketSend=socket.send.bind(socket);
+  socket.send=(data)=>{socketSend(data);if(typeof data === "string" && JSON.parse(data).type === "conversation_start" && pendingOpen){const deliver=pendingOpen;pendingOpen=undefined;deliver();}};
   const enter = async () => { flushSync(() => client.enter()); opened(); await expect.poll(() => button("Start")).not.toBeUndefined(); };
   const start = async () => { await enter(); await userEvent.click(button("Start")); await expect.poll(() => client.state.getState().micOn).toBe(true); await expect.poll(() => socket.frames("conversation_audio").length, { timeout: 5000 }).toBeGreaterThan(0); };
   const input = (text: string, finalization: "final" | "unknown" | "interim" = "unknown", epoch?: number) => {
@@ -107,10 +119,13 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
     for (const frame of evidence.frames) s.deliver(frame);
     return evidence;
   };
-  s.client.enter(); await pump();
+  // Read provider-free hello before Start; dispatch the root's queued chat
+  // restoration with the start so their independent lifetime race stays real.
+  const initial=await commands.conversationServer({op:"step",id:fixture.id,client:[],provider:[]}) as {frames:ServerMessage[]};
+  for(const frame of initial.frames){downstream.push(frame);s.deliver(frame);}
+  s.client.enter(); s.client.start(); await pump();
   if (missingSession || holdOpening) return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
   await expect.poll(async () => { await pump(); return s.client.state.getState().profile; }).not.toBe(null);
-  await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
   await pump();
@@ -208,7 +223,9 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
   expect(JSON.stringify(replacement)).toContain("completed");
   expect(JSON.stringify(replacement)).toContain("Find the departure signal note.");
   expect(JSON.stringify(replacement)).toContain("bronze owl");
-  const historicalText = provider === "gemini" ? replacement.turns[0].parts[0].text : replacement[0].content[0].text;
+  const startupTexts: string[] = provider === "gemini" ? replacement.turns.flatMap((turn:any)=>turn.parts.map((part:any)=>part.text)) : replacement.flatMap((message:any)=>message.content.map((part:any)=>part.text));
+  const historicalText = startupTexts.find(text=>text.startsWith("Historical host outcomes ("))!;
+  expect(historicalText,"SAME_CONVERSATION_RESYNC_REMAINS_A_SEPARATE_EXACT_BLOCK").toBeDefined();
   const historical = JSON.parse(historicalText.slice(historicalText.indexOf("[")));
   expect(historical).toContainEqual(expect.objectContaining({ request: "Find the departure signal note.", outcome: "completed", delivery: provider === "gemini" ? "unknown" : "returned", hostResult: exact }));
   expect(s.client.state.getState().outputs.some(o => o.generated.includes(fact))).toBe(true);
@@ -456,7 +473,7 @@ for (const reconnect of [false, true]) test(`typed legacy identity after context
   s.ui.stores.chat.getState().setActiveSession(null);
   s.ui.stores.chat.getState().setMessages(null, []);
   s.client.enter();
-  s.opened(2, { ...CAPS, contextualTasks: "supported" });
+  s.opened(2, { ...CAPS, contextualTasks: "supported" }); s.client.start(); s.client.mute();
   const work = { type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 2, requestId: "odysseus-late-task", taskId: "odysseus-late-host-task", nativeHandle: "odysseus-late-native", provenance: "contextual", state: "running", delivery: "pending", recognized: "", submitted: "Find the harbour watch.", turnId: "odysseus-late-turn" } as const;
   s.deliver(work);
   s.client.leave();
@@ -539,7 +556,8 @@ test("mixed transcript window, reading anchor, history resync and session isolat
 
 test("cold restored speech explicitly has unknown original discussion position", async ctx => {
   const s = await scene(ctx);
-  await s.enter();
+  s.client.enter(); s.client.start();
+  s.deliver({...PROFILE,resync:{work:0,outputs:1},requestId:String(s.socket.frames("conversation_start").at(-1)!.requestId)});
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
   await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("Original discussion position unknown");
   expect(s.client.state.getState().micOn).toBe(false);
@@ -992,7 +1010,7 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
 
 test("bounded recognition eviction and replacement never fabricate cold-reload dialogue", async ctx => {
   const s = await scene(ctx, 390, true);
-  s.client.enter(); s.opened(1, { ...CAPS, contextualTasks: "supported" });
+  s.client.enter(); s.opened(1, { ...CAPS, contextualTasks: "supported" }); s.client.start(); s.client.mute();
   for (let n = 0; n < 140; n++) s.event({ kind: "unassigned_input_fragment", sequence: n, text: `Voyage ${n}.` + "x".repeat(150), timing: { kind: "unavailable" }, finalization: "unknown" });
   const retained = s.client.state.getState().recognition;
   expect(retained.length).toBeLessThanOrEqual(CONVERSATION_LIMITS.maxFragmentsPerUtterance);
@@ -1058,8 +1076,10 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} stale retai
   expect(s.evidence().tasks).toHaveLength(0);
   expect(s.evidence().missingChatExists, "NEW_CONVERSATION_DOES_NOT_CREATE_THE_OLD_CHAT").toBe(false);
   s.client.enter();
-  await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile; }).not.toBe(null);
+  expect(s.client.state.getState().profile).toBeNull();
+  await expect.poll(()=>s.button("Start")).not.toBeUndefined();
   await userEvent.click(s.button("Start"));
+  await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile; }).not.toBe(null);
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
   await s.pump();
@@ -1097,12 +1117,14 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} history fai
   await expect.poll(async () => (await s.pump()).providerCloses, { timeout: 5000 }).toBe(1);
   expect(s.socket.frames("conversation_stop"), "LATE_OPENING_IS_EXPLICITLY_RETIRED").toHaveLength(1);
   expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
-  s.client.enter();
+  s.client.enter(); await s.pump();
+  expect(s.evidence().providerOpens,"REENTRY_NEEDS_START_BEFORE_PROVIDER_OPEN").toBe(1);
+  expect(s.mic.opens(),"REENTRY_NEEDS_START_BEFORE_MICROPHONE").toBe(0);
+  await expect.poll(()=>s.button("Start")).not.toBeUndefined();
+  await userEvent.click(s.button("Start"));
   await expect.poll(async () => { await s.pump(); return s.client.state.getState().profile; }).not.toBe(null);
   expect(s.evidence().providerOpens, "EXPLICIT_RETRY_OPENS_EXACTLY_ONE_REPLACEMENT").toBe(2);
   expect(s.downstream.some(f => f.type === "error" && f.code === "CONVERSATION_LIMIT")).toBe(false);
-  expect(s.mic.opens(), "REENTRY_STILL_REQUIRES_EXPLICIT_START").toBe(0);
-  await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   s.client.mute();
   expect(s.client.state.getState().micOn, "MANUAL_MUTE_REMAINS_AUTHORITATIVE").toBe(false);
@@ -1121,7 +1143,7 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} retired mis
   const fresh = [...recovery.querySelectorAll<HTMLElement>('button,[role="button"]')].find(button => button.textContent?.includes("New conversation"))!;
   await userEvent.click(fresh);
   expect(s.ui.stores.chat.getState().activeSessionId).toBe(null);
-  s.client.enter(); s.client.leave(); s.client.enter(); s.client.mute();
+  s.client.enter(); s.client.leave(); s.client.enter(); s.client.start(); s.client.mute();
   await s.pump();
   expect(s.socket.frames("conversation_start")).toHaveLength(1);
   await s.pump([], false, false, false, false, true);
@@ -1134,8 +1156,8 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} retired mis
   expect(s.evidence().tasks, "NO_OLD_TASK_IS_REPLAYED").toHaveLength(0);
   expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
   expect(s.mic.opens(), "REJECTION_SETTLEMENT_NEVER_GRANTS_MICROPHONE_CONSENT").toBe(0);
-  expect(s.client.state.getState().disclosureOpen).toBe(true);
-  await userEvent.click(s.button("Start"));
+  expect(s.client.state.getState().disclosureOpen).toBe(false);
+  s.client.resume();
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   s.client.mute(); expect(s.client.state.getState().micOn).toBe(false);
   s.client.leave(); await s.pump();

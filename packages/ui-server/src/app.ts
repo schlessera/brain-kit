@@ -719,7 +719,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       governanceWrites: activity.governanceWrites,
     },
   });
-  bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
+  bootCleanup.push(async () => { try { await host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
     privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,

@@ -106,7 +106,10 @@ if (delayedIdentity) {
   const start = production.startTurn.bind(production);
   production.startTurn = req => { activeRequest = req; return start(req); };
 }
-if (holdOpening) backend.getHistory = () => new Promise((_, reject) => { pendingHistory.push(reject); });
+let historyReads=0;
+// Hold ordinary UI restoration independently of the authorized live snapshot.
+// The latter must complete before the provider can reach its opening barrier.
+if (holdOpening) backend.getHistory = () => ++historyReads === 1 ? new Promise((_, reject) => { pendingHistory.push(reject); }) : Promise.resolve([]);
 const provider = engine === "gemini" ? createGeminiConversationProvider("keyless-odyssey-placeholder") : createGptLiveConversationProvider("keyless-odyssey-placeholder");
 const open = provider.open.bind(provider);
 provider.open = async (...args) => {
@@ -121,12 +124,14 @@ if (!missingSession) {
   catalog.persistSessionStub("odysseus-ithaca", "Odysseus prepares the voyage.", null, backend.id);
   await catalog.settled?.();
 }
+let holdStartValidation=false;
 if (holdValidation) {
   const settled = catalog.settled!.bind(catalog);
   catalog.settled = async () => {
-    // Root resume and live start are independently admitted commands. Hold only
-    // the latter; the first missing-history response can retire its old entry.
-    if (++validationCalls === 2) { validationHeld = true; await validationReady; }
+    validationCalls++;
+    // Hold admission for the explicitly dispatched start, not an incidental
+    // ordinal of storage reads (startup now has its own canonical read).
+    if (holdStartValidation) { holdStartValidation=false; validationHeld = true; await validationReady; }
     await settled();
   };
 }
@@ -136,11 +141,15 @@ const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
-await handlers.onOpen(undefined as never, ws); frames.length = 0;
+await handlers.onOpen(undefined as never, ws);
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (req.method !== "POST") return new Response(null, { status: 405 });
   const body = await req.json() as { client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; failHistory?: boolean; releaseOpening?: boolean; releaseValidation?: boolean };
-  for (const frame of body.client) handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
+  for (const frame of body.client) {
+    if(holdValidation && !validationHeld && (frame as {type?:string}).type === "conversation_start") holdStartValidation=true;
+    handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
+    await Promise.resolve(); // run this frame's actual dispatch before the next
+  }
   await Bun.sleep(10); // transport drain only; task completion requires the explicit barrier
   for (const frame of body.provider) remote!.send(JSON.stringify(frame));
   if (body.failHistory) for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history is temporarily unreadable."));
@@ -151,5 +160,5 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   await Bun.sleep(10);
   return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, opening, validationHeld, validationCalls, historyPending: pendingHistory.length > 0, providerOpens, providerCloses, missingChatExists: catalog.hasSession!("odysseus-ithaca"), effect: existsSync(join(root, "notes/contextual-raft.md")) });
 } });
-process.on("SIGTERM", async () => { releaseValidation(); releaseOpening(); release(); host.coordinator.reset(); host.close(); for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history fixture closed.")); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
+process.on("SIGTERM", async () => { releaseValidation(); releaseOpening(); release(); host.coordinator.reset(); await host.close(); for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history fixture closed.")); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

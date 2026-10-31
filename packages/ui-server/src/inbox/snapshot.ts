@@ -421,6 +421,10 @@ export async function restoreInboxSnapshot(input: unknown, dbPath: string, brain
       for (const row of claims) failInboxWork(db, row.id, (store.getItem(row.id) as InboxQueueItem).version, at);
       pauseRestoredSchedules(db, at);
       invalidateRestoredStorage(db, at);
+      // Retained text is historical. Old cursors/native epochs and incomplete
+      // delivery cannot acquire authority in the restored installation.
+      db.exec("UPDATE dialogue_owners SET generation=generation+1,coverage='partial'");
+      db.exec("UPDATE dialogue_conversations SET closed=1");
       db.query("UPDATE inbox_recovery_state SET status = 'ready', restored_at = ? WHERE id = 1").run(at);
       return claims.length;
     }).immediate();

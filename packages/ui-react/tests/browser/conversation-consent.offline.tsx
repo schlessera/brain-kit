@@ -26,7 +26,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
   }
   const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
-    onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
+    onOpen(socket) { socket.deliver({ type: "server_hello", conversationProfile: {providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure}, protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
   const ui = createBrainUiRoot({ storage: null, request: network.request });
   ui.stores.chat.getState().setActiveSession(SESSION);
   const host = document.createElement("div"); host.style.cssText = `position:fixed;inset:0;width:${width}px;height:568px`; document.body.append(host);
@@ -43,7 +43,19 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
   const client = ui.connection.conversation;
   const button = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="button"],button')].find((node) => (node.getAttribute("aria-label") ?? node.textContent) === name)!;
   const event = (event: ConversationWireEvent, epoch = client.state.getState().profile!.epoch) => socket.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch, event });
-  const opened = (epoch = 1, caps = CAPS) => { socket.deliver({ ...PROFILE, epoch, capabilities: caps, requestId: socket.frames("conversation_start").at(-1)?.requestId }); event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, epoch); };
+  let pendingOpen: (()=>void) | undefined, lastOpenedRequest: unknown;
+  const opened = (epoch = 1, caps = CAPS) => {
+    const deliver = () => { const requestId=socket.frames("conversation_start").at(-1)?.requestId; lastOpenedRequest=requestId;
+      socket.deliver({...PROFILE,epoch,capabilities:caps,requestId}); event({kind:"ready",input:{encoding:"pcm16",channels:1,sampleRate:24000},output:{encoding:"pcm16",channels:1,sampleRate:24000}},epoch); };
+    const requestId=socket.frames("conversation_start").at(-1)?.requestId;
+    if(!requestId || requestId===lastOpenedRequest) {
+      // Provider metadata is public before Start; no opened/ready is delivered yet.
+      socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,askReceipts:true,toolResolution:true,chatRequestAck:true},conversationProfile:{providerId:PROFILE.providerId,capabilities:caps,disclosure:PROFILE.disclosure}});
+      pendingOpen=deliver;
+    } else deliver();
+  };
+  const socketSend=socket.send.bind(socket);
+  socket.send=(data)=>{socketSend(data);if(typeof data === "string" && JSON.parse(data).type === "conversation_start" && pendingOpen){const deliver=pendingOpen;pendingOpen=undefined;deliver();}};
   const enter = async () => { flushSync(() => client.enter()); opened(); await expect.poll(() => button("Start")).not.toBeUndefined(); };
   const start = async () => { await enter(); await userEvent.click(button("Start")); await expect.poll(() => client.state.getState().micOn).toBe(true); await expect.poll(() => socket.frames("conversation_audio").length, { timeout: 5000 }).toBeGreaterThan(0); };
   const input = (text: string, finalization: "final" | "unknown" | "interim" = "unknown", epoch?: number) => {
@@ -191,7 +203,8 @@ test("an initial opening hidden before Start still requires its first disclosure
   const s = await scene(ctx); s.client.enter();
   const hidden = hidePage(); ctx.onTestFinished(() => hidden.show());
   s.opened();
-  expect(s.client.state.getState().profile?.epoch).toBe(1);
+  expect(s.client.state.getState().profile).toBeNull();
+  expect(s.socket.frames("conversation_start")).toHaveLength(0);
   expect(s.socket.frames("conversation_stop")).toHaveLength(0);
   hidden.show();
   expect(s.client.state.getState().micOn).toBe(false);
@@ -247,7 +260,7 @@ test("Leave and a new entry keep late old openings outside the new consent scope
   const s = await scene(ctx); await s.start();
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed" });
   const oldRequest = String(s.socket.frames("conversation_start").at(-1)!.requestId);
-  s.client.leave(); s.client.enter();
+  s.client.leave(); s.client.enter(); s.client.start();
   s.deliver({ ...PROFILE, epoch: 2, requestId: oldRequest });
   await Promise.resolve();
   expect(s.socket.frames("conversation_start")).toHaveLength(3);
@@ -255,15 +268,14 @@ test("Leave and a new entry keep late old openings outside the new consent scope
   expect(s.client.state.getState().micOn).toBe(false);
   expect(mic.opens()).toBe(1);
   s.opened(3);
-  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  expect(s.client.state.getState().disclosureOpen).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
 });
 
 test("hide after initial Start but before readiness restores capture without a second Start", async ctx => {
   const mic = controlledMicrophone(ctx, true);
-  const s = await scene(ctx); s.client.enter();
+  const s = await scene(ctx); s.client.enter(); s.client.start();
   s.deliver({ ...PROFILE, requestId: String(s.socket.frames("conversation_start").at(-1)!.requestId) });
-  s.client.start();
   const hidden = hidePage(); ctx.onTestFinished(() => hidden.show());
   s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   expect(mic.opens()).toBe(0);
@@ -309,4 +321,48 @@ for (const ending of ["mute", "leave", "hide", "auth", "disclosure"] as const) t
     expect(calls).toBe(1);
     expect(s.socket.frames("conversation_audio")).toHaveLength(0);
   }
+});
+
+for (const providerId of ["gemini-live","gpt-live"]) test(`${providerId}: Enter and Cancel have no start; reconnect without explicit Start remains local`,async ctx=>{
+ const s=await scene(ctx);const disclosed={providerId,capabilities:CAPS,disclosure:{...PROFILE.disclosure,voiceService:providerId}};
+ s.socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true},conversationProfile:disclosed});
+ s.client.enter();expect(s.socket.frames("conversation_start"),"ENTER_MUST_NOT_START_PROVIDER").toHaveLength(0);
+ expect(s.client.state.getState().profile).toBeNull();s.client.leave();expect(s.socket.frames("conversation_start")).toHaveLength(0);
+ s.client.enter();s.network.drop();s.network.recover();
+ await expect.poll(()=>s.network.socket()!==s.socket).toBe(true);
+ const next=s.network.socket()!;next.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true},conversationProfile:disclosed});
+ expect(next.frames("conversation_start"),"RECONNECT_WITHOUT_START_CANNOT_INHERIT_CONSENT").toHaveLength(0);
+ s.client.start();expect(next.frames("conversation_start")).toHaveLength(1);expect(next.frames("conversation_start")[0]!.disclosed,"CURRENT_HELLO_EXACT_PROFILE_IS_ECHOED").toEqual(disclosed);
+});
+
+test("changed hello destination retires pending opening and requires Start again",async ctx=>{
+ const s=await scene(ctx);s.client.enter();s.client.start();
+ const first=s.socket.frames("conversation_start").at(-1)!;
+ const changed={providerId:"gemini-live",capabilities:CAPS,disclosure:{voiceService:"Gemini Live of Ithaca",destinations:["Prior text goes to the newly selected voice service."]}};
+ s.socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true},conversationProfile:changed});
+ expect(s.socket.frames("conversation_start"),"CHANGED_DESTINATION_HAS_NO_INFERRED_START").toHaveLength(1);
+ expect(s.client.state.getState().disclosureOpen,"CHANGED_HELLO_REQUIRES_START_DISCLOSURE").toBe(true);
+ s.socket.deliver({...PROFILE,requestId:first.requestId});
+ expect(s.socket.frames("conversation_stop").filter(f=>f.conversationId===PROFILE.conversationId),"LATE_OLD_PROFILE_IS_STOPPED_ONCE").toHaveLength(1);
+ expect(s.client.state.getState().profile).toBeNull();expect(s.client.state.getState().micOn).toBe(false);
+ s.client.start();expect(s.socket.frames("conversation_start")).toHaveLength(2);
+ expect(s.socket.frames("conversation_start").at(-1)!.disclosed).toEqual(changed);
+});
+
+test("an old server with no disclosure profile cannot offer voice",async ctx=>{
+ const s=await scene(ctx);s.socket.deliver({type:"server_hello",protocolRev:5,capabilities:{liveConversation:true,conversationPause:true}});
+ expect(s.client.state.getState().available).toBe(false);s.client.enter();s.client.start();
+ expect(s.socket.frames("conversation_start"),"NO_UNDISCLOSED_OLD_SERVER_START").toHaveLength(0);
+});
+
+test("a missing replacement hello profile retires its pending opening and requires Start after recovery",async ctx=>{
+ const s=await scene(ctx);s.client.enter();s.client.start();const request=s.socket.frames("conversation_start")[0]!;
+ s.socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true}});
+ s.socket.deliver({...PROFILE,requestId:request.requestId});
+ expect(s.socket.frames("conversation_stop"),"MISSING_PROFILE_RETIRES_LATE_OPENING").toHaveLength(1);
+ expect(s.client.state.getState().profile).toBeNull();expect(s.client.state.getState().micOn).toBe(false);
+ const profile={providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure};
+ s.socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true},conversationProfile:profile});
+ await Promise.resolve();expect(s.socket.frames("conversation_start"),"RESTORED_PROFILE_DOES_NOT_RESTORE_RETIRED_START").toHaveLength(1);
+ s.client.start();expect(s.socket.frames("conversation_start")).toHaveLength(2);
 });

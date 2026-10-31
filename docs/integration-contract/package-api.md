@@ -4029,3 +4029,101 @@ output recovery rather than leaving `outputRecovery` in `speaking`. Discard
 retires the reviewed input identities; late recognition cannot restore them.
 These actions and Mute cancel pending automatic review timers, while output recovery
 remains independent of microphone consent.
+
+### Retained dialogue data (#3177)
+
+The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
+`ClientDialogueRead` and `ServerDialogueHistory`, with runtime schemas in the
+existing schemas entry. These are data-only retained history, not provider-native
+messages or task admission. Their identities/bounds/coverage and the breaking
+retention supersession are defined in the [wire component](wire.md#durable-live-dialogue-breaking-retention-supersession-3177).
+Optional history-owner metadata on conversation open/start and plain chat input
+is additive; legacy backend session IDs and native provider guards keep their
+meaning. No provider history-selection API is delivered by this slice.
+
+
+Failed-write live text exposes optional `ServerConversationEvent.retention` and
+`ServerError.historyOwnerId`, plus the existing client projection's explicit
+unsaved recognition/output fields (#3177). These are additive evidence and
+failure-scoping data. `DialogueJournal.voice` reports commit success to its
+callback; current-epoch text remains observable when the callback reports a
+failed write. No provider-facing history or authority interface changes.
+
+## Existing-chat live context (#3178)
+
+`LiveConversationOpenOptions.history?: ConversationHistoryEnvelope` is an
+additive input on the existing live-provider seam. Version 1 contains ordered
+`HistoricalItem` values and coverage with explicit `HistoryGapReason` values.
+Optional host-only `newestRefs` identifies the possible newest items after exact
+causal joins; it qualifies omissions and never enters provider text.
+Typed chat (including recorded dictated/submitted-voice source), uncertain
+recognized speech, generated voice replies, completed
+host facts and gaps remain distinct. `HistoricalResultRef` preserves the exact
+conversation/epoch/request/turn join internally; all source references,
+provider identities and operational metadata stay out of provider text.
+Recognized speech is never authenticated operator dialogue; generated text
+never proves playback. Historical items grant no admission or permission.
+
+The host reads canonical journal pages after authorization and known-chat
+admission, joins native backend-owned answers only by exact position witnesses,
+and reads completed facts through exact retained receipts. Live user items require recorded source provenance: exact turn identity, or
+ordinal matching with equal full native/source duplicate counts when turn IDs
+are unavailable. Unproven user items become in-place `source_unavailable` gaps
+with partial coverage; ordinary chat display keeps its existing fallback. Native
+assistant text remains historical data. This excludes contextual task wrappers
+regardless of journal paging or receipt retention, as well as raw audio, hidden
+thinking, tool requests and native response handles. Missing cross-stream position evidence qualifies order, without
+replacing full native answers with range copies. A read failure refuses startup;
+there is no automatic provider retry or context-free fallback. Authorization,
+entry lifetime and owner/generation are rechecked after reads.
+
+Both first-party adapters freeze one historical-data seed per native open.
+Selection uses a combined exact serialized UTF-8 text ceiling, framing and
+omission markers included: Gemini 24,000 bytes/16,000 fact bytes; GPT 7,500/5,000.
+GPT's byte ceiling estimates headroom under its documented 8,192 rendered-token
+limit; it is not a tokenizer proof. History previews within one-third of total,
+reserving only actual bytes. Resync uses the remainder with the explicit fact
+cap; history is selected again from remaining total/fact bytes, excluding only
+exact result identities actually emitted by resync. Newest request/state and
+newest historical discussion take priority, then whole facts (resync first),
+then older discussion. At most 128 historical items are selected. Whole omitted
+items leave in-place gap markers and coverage; `tailOmitted` reports an omitted
+newest item, conservatively also qualifying discarded text whose cross-stream
+recency is unknown. Partial coverage uses “may be missing” copy rather than a
+claim about the exact newest item. These bounds never delete the display archive.
+
+`LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
+historical selection as `{state, tailOmitted}`. Third-party providers may ignore
+the additive history input but cannot thereby claim existing-chat continuity.
+The frozen provider prefix/tools/instructions are never rewritten within an epoch.
+
+The reachable `SessionCatalog.attachMessageSources` signature also accepts
+optional `strict?: boolean`. The default preserves ordinary display recovery's
+existing fallback. `true` propagates source-read failures for live startup so
+internal task carriers cannot be reclassified as typed chat after a read error.
+
+`WsHost.prepareHistory(sessionId, messages, strictSources?)` performs strict source
+joining in the ordinary position, after exact native turn/failure identity joins.
+It must not normalize file-bearing user bytes before those prefix digests match.
+Unwitnessed native prefixes precede the earliest journal evidence as a selection
+policy, not a chronology witness. Later unpositioned runs follow their native
+predecessor before the next witness. Exactly witnessed assistant ranges stay at
+their recorded positions even when their request is unwitnessed. Unknown order
+always carries a gap/partial coverage; missing request records in a partial source
+do not prove that a turn predates the journal. Bounded selection preserves the
+newest journal discussion and conservatively qualifies discarded ambiguous text.
+An exact contextual receipt/turn/submitted-text join excludes a task carrier when
+its asynchronous source metadata write failed, without filtering unrelated equal
+user text. Any exact unclassified carrier without a provable native answer/nearest-
+user join fails the snapshot closed, regardless of task state or later native turns.
+Receipt lookup also requires the exact conversation, principal and session.
+
+`ConversationProfile` and `conversationProfileSchema` are public SDK exports for
+`{providerId, capabilities, disclosure}`. Hello may advertise this profile and
+Start may echo it, with the intentional legacy admission refusal documented in
+the wire component.
+
+The host helper `ConversationHost.profile(contextualTasks?)` supplies the same known
+provider-free effective disclosure for hello, admission comparison and opened
+receipts. The host refuses undisclosed legacy starts before touching their scope;
+the wire section records the deliberate privacy admission compatibility correction.

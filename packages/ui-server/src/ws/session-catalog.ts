@@ -1,3 +1,4 @@
+import { dialogueOwner, readDialogue, hasUnretainedVoice, type PendingDialogueEpoch, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
 import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -41,6 +42,14 @@ import { createGovernanceWrites, type GovernanceWrites } from "../governance/eve
  */
 export interface SessionCatalog {
   /** Host identity persistence, never an executable replay queue. */
+  dialogueOwnerForConversation?(conversationId:string,principalId:string): DialogueOwner | null;
+  dialogueOwnerForId?(ownerId:string,principalId:string): DialogueOwner | null;
+  dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+  dialogueClose?(conversationId:string,principalId:string,epoch:number,partial:boolean): Promise<void>;
+  dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
+  dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
+  dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
+  dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
   saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
   loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
@@ -117,7 +126,7 @@ export interface SessionCatalog {
   recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
-  attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+  attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
   /**
    * Keep a locally answered command (`/stats`) as part of the session
    * (#582). `delivered` means the prompt carrying its context is being
@@ -257,9 +266,64 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   };
   // Invalidation counts at submission, even if its worker DELETE fails.
   // Only a new successfully retained request in this generation can reset it.
+  const activeDialogueEpochs = new Map<string, ActiveDialogueEpoch>();
+  const pendingDialogueEpochs = new Set<PendingDialogueEpoch & { closed: boolean }>();
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
   return {
+    dialogueOwnerForConversation: (conversationId,principalId) => {
+      const row=db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null;
+      return row ? dialogueOwner(db(),{ownerId:row.owner_id},principalId) : null;
+    },
+    dialogueOwnerForId: (ownerId,principalId) => dialogueOwner(db(),{ownerId},principalId),
+    dialogueOwnerForSession: sessionId => {
+      const row = db().query("SELECT principal_id FROM dialogue_owners WHERE session_id=?").get(sessionId) as {principal_id:string}|null;
+      return row ? dialogueOwner(db(),{sessionId},row.principal_id) : null;
+    },
+    dialogueClose: (conversationId,principalId,epoch,partial) => {
+      for(const scope of pendingDialogueEpochs) if(scope.input.conversationId===conversationId && scope.input.principalId===principalId && scope.input.epoch===epoch) scope.closed=true;
+      const active=activeDialogueEpochs.get(conversationId);
+      if(active?.epoch===epoch && active.owner.principal_id===principalId) activeDialogueEpochs.delete(conversationId);
+      return submit("dialogueClose",conversationId,principalId,epoch,partial);
+    },
+    dialogueOpen: async input => {
+      const known=db().query("SELECT owner_id,epoch FROM dialogue_conversations WHERE id=?").get(input.conversationId) as {owner_id:string;epoch:number}|null;
+      const prior=dialogueOwner(db(),known ? {ownerId:known.owner_id} : input.historyOwnerId ? {ownerId:input.historyOwnerId} : {sessionId:input.sessionId},input.principalId);
+      const scope={input:{...input},generation:prior?.generation ?? 1,...(prior ? {ownerId:prior.id} : {}),...(known ? {previousEpoch:known.epoch} : {}),closed:false};
+      // Reserve before submission: a later open can reach the worker before
+      // this one's acknowledgement registers its successful active identity.
+      const pending=[...pendingDialogueEpochs].filter(scope=>!scope.closed).map(scope=>({input:scope.input,generation:scope.generation,ownerId:scope.ownerId,previousEpoch:scope.previousEpoch}));
+      pendingDialogueEpochs.add(scope);
+      const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,owner:{...scope.owner}}]));
+      try {
+        const owner=await submit<DialogueOwner>("dialogueOpen", input, live, pending);
+        if(!scope.closed && (activeDialogueEpochs.get(input.conversationId)?.epoch ?? 0)<=input.epoch) activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
+        return owner;
+      } finally { pendingDialogueEpochs.delete(scope); }
+    },
+    dialogueAppend: input => submit("dialogueAppend", input),
+    dialogueBind: async (conversationId, principalId, sessionId) => {
+      const owner=await submit<DialogueOwner | null>("dialogueBind", conversationId, principalId, sessionId);
+      const active=activeDialogueEpochs.get(conversationId);
+      if(owner && active && active.owner.principal_id===principalId) {
+        // Pending callbacks still hold this object across adoption. Replacing
+        // it would hide their genuine failure behind a fresh healthy owner.
+        const previousId=active.owner.id;
+        for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId && scope.owner.principal_id===principalId){
+          const partial=scope.owner.coverage === "partial";
+          Object.assign(scope.owner,owner);
+          if(partial) scope.owner.coverage="partial";
+        }
+        return active.owner;
+      }
+      return owner;
+    },
+    async dialogueRead(principalId, target) {
+      await tail;
+      const page=readDialogue(db(), principalId, target, activeDialogueEpochs);
+      if(page || !target.sessionId || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
+      return {ownerId:target.sessionId,sessionId:target.sessionId,generation:1,through:0,records:[],coverage:"legacy"};
+    },
     saveConversationEpoch: state => submit("conversationEpoch", state),
     saveConversationTask: (principalId, receipt, facts) => submit("conversationTask", principalId, receipt, facts),
     async loadConversation(id, principalId) { await tail; return loadConversation(db(), id, principalId); },
@@ -511,10 +575,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       submit("addCost", sessionId, costUsd).catch(err => reportWriteFailure(sessionId, err));
     },
 
-    attachMessageSources(sessionId, messages) {
+    attachMessageSources(sessionId, messages, strict = false) {
       try {
-        return attachMessageSources(db(), sessionId, messages);
+        return attachMessageSources(db(), sessionId, messages, strict, strict ? latestWork(sessionId)?.turnId ?? undefined : undefined);
       } catch (err) {
+        if (strict) throw err;
         // A replay without sources renders every message as typed, which is
         // what it rendered before sources were kept; losing the history over
         // it would not be.

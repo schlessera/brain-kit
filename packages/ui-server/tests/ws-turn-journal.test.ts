@@ -127,7 +127,7 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     expect(journal.details("sess-ithaca", failure.turnId)?.summary.state).toBe("partial");
     expect(app.db.query("SELECT outcome FROM activity_run_rollups WHERE run_id=?").get(failure.turnId), "JOURNAL_OVERFLOW_ACTIVITY_ERROR").toEqual({ outcome: "error" });
     expect(Bun.file(resolve(brain, "notes/partial.txt")).size).toBe(2 * 1024 * 1024);
-  } finally { host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
 
 test("the host observes after a tool result unless the backend proved where that read ran (#2834)", async () => {
@@ -194,7 +194,7 @@ test("an automatically admitted conversation task keeps real effects, receipts a
     const handlers = createWsHandlers(app.wsHost, principal); await handlers.onOpen(undefined as never, ws);
     const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
     const wait = async (check: () => boolean) => { const end = Date.now() + 10_000; while (!check()) { if (Date.now() > end) throw new Error(JSON.stringify(sent)); await Bun.sleep(5); } };
-    send({ type: "conversation_start", contextualTasks: true }); await wait(() => sent.some(f => f.type === "conversation_opened"));
+    send({ type: "conversation_start", contextualTasks: true, disclosed:app.wsHost.conversations!.profile(true) }); await wait(() => sent.some(f => f.type === "conversation_opened"));
     const opened = sent.find(f => f.type === "conversation_opened");
     send({ type: "conversation_audio", conversationId: opened.conversationId, epoch: opened.epoch, utteranceId: "watch-capture", sequence: 0, rate: 16000, pcm: "AAA=" });
     await wait(() => live.sessions[0]!.audio.length === 1);

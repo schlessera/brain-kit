@@ -195,6 +195,38 @@ installed `FunctionResponse`/scheduling declarations. Delegation is metadata,
 not task text. The literal SpawnThinking instruction is prompt text, not an
 invented client event. These sources establish API fields, not live behavior.
 
+## Startup context bounds — 2026-10-30 (#3200)
+
+Historical host outcomes reach a new provider session only as startup context,
+so its size and order are part of whether a replacement epoch opens at all. GPT
+Live documents at most 128 startup messages and 8,192 combined rendered tokens
+([session guide](https://developers.openai.com/api/docs/guides/live-conversations),
+[reference](https://developers.openai.com/api/reference/resources/live), installed
+`openai` `SessionConfig.input`). It documents no tokenizer, local exact count,
+setting or overflow error class, and the [token-counting endpoint](https://developers.openai.com/api/docs/guides/token-counting)
+is a Responses network call. Character bounds from #3141 could exceed that cap.
+
+Each adapter therefore applies one ceiling in exact serialized UTF-8 bytes to
+the whole block, plus a ceiling on serialized result strings: Gemini 24,000 and
+16,000, GPT 7,500 and 5,000. The GPT figures are estimated headroom, not a token
+guarantee. A block the previous formatter already produced within both
+ceilings is sent unchanged. Otherwise selection uses the byte ceilings alone,
+deterministically and newest first, without the older character budget: it uses
+the whole budget when nothing else shares it, keeps a request/state shell with
+`resultOmitted` for a result that cannot fit whole, and marks dropped older
+outcomes, so a rewritten block never blanks a joined result. No reselection or retry follows a provider
+error, because no error class is documented to distinguish a size rejection.
+
+Gemini documents ordered initial history ([Live reference](https://ai.google.dev/api/live)
+`HistoryConfig.initialHistoryInClientContent`; installed `@google/genai`
+declarations): the server processes `clientContent` until `turnComplete` without
+a model call before realtime input, whose ordering against `clientContent` is
+otherwise not deterministic ([capabilities](https://ai.google.dev/gemini-api/docs/live-api/capabilities)).
+The adapter enables it only when context exists. Keyless loopback fixtures prove
+the bytes and order sent, not provider acceptance or recall; those remain #961.
+A later session-history envelope (#3178) shares the same ceilings by reserving
+its actual bounded bytes rather than a fixed share.
+
 ## Continuous conversation and audible recovery — 2026-10-29
 
 The [automatic-recovery ruling on #3053](https://github.com/schlessera/brain-kit/issues/3053#issuecomment-6483873750)
@@ -301,8 +333,9 @@ counter, so hiding cannot turn a valid replacement response into destructive
 teardown. Disclosure compares the entry's effective profile and its current
 metadata, not a later UI picker pin: task adoption remains routine, while
 same-ID backend/model changes or removal require a fresh disclosure and Start.
-Contextual recognition is recent bounded context, distinct from legacy retained
-manual review. Identity/replay ledgers keep their finite fail-closed boundaries;
+Recognition review/context caches are bounded independently of the durable
+text evidence described below. Incomplete review cannot become an automatic
+draft/commit; archival capture continues in either task mode. Identity/replay ledgers keep their finite fail-closed boundaries;
 forgetting an identity to extend a session would weaken correlation/replay guards.
 
 The local output heuristic checks 300 ms without nonzero PCM after endpoint, with
@@ -317,3 +350,141 @@ through that same endpoint transition before cancelling review timers. They do
 not cancel the output recovery deadline. Discard retires its reviewed fragments
 so a late final cannot restore discarded text or schedule a send. Mute also
 closes input before cancelling review timers, retaining manual capture intent.
+
+## Retained discussion — 2026-10-30 (#3177)
+
+The maintainer requires the complete recognized/generated discussion to remain
+visible when reopening its chat, on both Gemini Live and GPT Live, including
+same-chat engine changes. This explicitly supersedes #3050's temporary client
+presentation/no-durable-reload guarantee. Preserve exact uncertain evidence,
+not authenticated quotes or inferred input/reply pairs; generated and played
+remain independent. Draft editing/Discard controls the separate draft candidate.
+
+Dialogue stays with its chat. Display pages, provider context and pending-write
+memory have finite bounds; those are not permission to expire old dialogue or
+routinely stop ongoing conversation at a small archive cap. Actual storage/quota
+failure or actual pending-write pressure preserves the committed prefix and exposes the unsaved tail and cause-specific recovery
+prerequisite. No general whole-chat deletion feature exists at this source;
+#3180 records that explicit lifecycle design rather than inventing expiry/UI.
+
+The existing operational catalog/write worker owns evidence and order metadata;
+the existing root timeline projects it. Native provider transcripts stay intact.
+Reopening history is read-only and conveys no native replay, tool admission or
+microphone consent. #3178 owns the separately authorized, bounded historical-data
+projection into a new provider epoch, preserving the same-conversation/earlier-
+epoch result guard. Rendering restored text proves no model receipt or recall.
+
+This is a recorded pre-1.0 breaking retention/privacy meaning change with additive
+negotiated fields, as specified in the integration contract. No paid qualification,
+provider capability promotion or release commitment follows from this ruling.
+
+
+The retained-discussion UI uses the existing closed transcript vocabulary and
+reading scope. Unsaved recognized/generated segments have their own compact
+qualifier, independent of restoration, original service and local playback.
+Known host order never receives an ambiguous-order label. Paging preserves a
+surviving canonical member key; it does not create another display authority.
+Principal replacement clears volatile failure evidence as well as archive pages.
+
+The fictional browser examples show [compact saved/unsaved evidence](../assets/durable-dialogue-3177/tail-light-320-1.png),
+[200% text reflow](../assets/durable-dialogue-3177/tail-dark-320-2.png),
+[readable unsaved details](../assets/durable-dialogue-3177/unsaved-details-light-1280-1.png),
+and the [text-retention disclosure](../assets/durable-dialogue-3177/consent-retention-gpt-live.png).
+They illustrate evidence states using scripted text, not live model output.
+
+
+Backend range evidence establishes position only after exact reconciliation with
+completed native text: start zero, contiguous offsets, final native length and
+exact bytes. A failed final background append after Leave therefore keeps the
+whole native answer and qualifies its original discussion position. It does not
+assert lost voice text. An unclosed voice epoch is separately read as possibly
+incomplete before reopening, including when recovery writes cannot commit.
+Healthy completed joins require no caution marker.
+
+
+A typed chat does not acquire a voice-loss warning merely because its session
+exists. Legacy qualification needs retained evidence of a prior unjournaled
+voice conversation; empty known-chat snapshots stay quiet. Runtime catalog opens
+identify healthy active epochs with exact principal/owner/generation/epoch
+checks, while restart reads still qualify a prior unclosed source. Failure
+coverage takes precedence over that runtime liveness.
+
+A first voice entry during a typed answer begins only the suffix position
+witness: pre-owner text contributes its actual character offset, but no invented
+archive copy. The complete native answer remains authoritative; missing prefix
+position evidence may still qualify original discussion order. Numeric offsets
+are retired with each result or backend turn and do not retain prior typed text.
+
+
+Device takeover orders each native conversation's close before its next open,
+including pending-open replacements. The journal drains that owner's observed
+callbacks, not unrelated owners, before writing the terminal marker. Close
+failure propagates to the waiting open; genuine interrupted/failing coverage is
+not suppressed. Other exact healthy live native IDs use the existing catalog
+liveness evidence at the write-worker boundary as well as on reads. A same-ID
+open cannot use that exemption to bypass a missing close.
+
+Concurrent opens for distinct native IDs of the same chat must also see earlier
+pending writer submissions. Their exact committed identities, including the
+original engine and generation, prove current liveness without waiting for a
+worker acknowledgement. Pre-existing unclosed epochs and same-ID no-close
+reopens stay conservative. Reservations retire on settlement and cannot be
+revived after an exact close. Canonical adoption keeps sibling live scope
+references aligned without clearing genuine failure coverage.
+
+Pending provisional rows remain live after adoption, including adoption before
+an open acknowledgement. Classification follows their committed canonical
+identity, not the owner's former unbound state. New provisional admissions
+still validate that state in their own transaction; no admission rule changes.
+
+Provider diagnostics can contain private content unrelated to the readable
+conversation. The client therefore derives close notices from local reason
+classes and storage notices from known scoped error codes, never remote message
+text. Storage copy describes a failed journal write without inferring loss of a
+native answer. Bounded review rollover does not revoke continuous capture;
+actual write/unsaved-buffer failure remains a separate visible failure boundary.
+
+
+## New live epochs receive existing chat text — 2026-10-31 (#3178)
+
+The separately authorized historical-data envelope consumes #3177's canonical
+journal and backend-owned native text. It does not widen native resync identity
+fences. Opening reads a bounded authorized snapshot and freezes it once for the
+native session; read failures stop startup. Typed discussion, uncertain voice
+evidence and exact completed facts remain separate data sources. Internal task
+wrappers cannot stand in for prior authenticated dialogue. No history read or
+seed dispatches work, replays a native response or grants permission.
+
+The [startup selection contract](../integration-contract/package-api.md#existing-chat-live-context-3178)
+records dynamic actual-byte allocation, whole-item omissions and honest source
+coverage. The additive wire field reports actual bounded selection independently
+of restored UI text. Start disclosure covers prior-chat text transfer to either
+selected voice service, including engine changes. Captured provider input proves
+transport assembly only; #3131/#961 retain semantic/acoustic/device qualification.
+
+The [parent-directed Start correction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935)
+uses known provider metadata in hello, not a prepare/grant resource. Enter must not
+open a provider or transfer chat context before Start. Only an exact disclosed
+profile echo admits startup; legacy undisclosed starts now refuse as an explicit
+pre-1.0 breaking privacy correction. Prior-text policy is disclosed before Start;
+actual selected coverage follows the authorized read. Scope-identical same-entry
+recovery preserves that explicit consent separately from microphone intent.
+
+
+Unwitnessed native prefixes use a slot before journal evidence; an absent request
+record is not an authenticated before-owner timestamp, especially with partial
+storage coverage. Unknown runs keep native order and gap qualification, while
+exact assistant ranges retain their actual positions. If bounded selection drops
+text with ambiguous cross-stream recency, `tailOmitted` is conservative and the UI
+says the newest context may be missing. Exact later native witnesses can rule out
+an older voice tail as a possible newest omission.
+
+Live user text requires a positive source row joined by exact turn identity, or
+an ordinal with equal full-native/source duplicate counts when either turn ID is
+unavailable. Source reads query only the bounded candidate identities through
+existing indexes. Missing legacy/imported or host-prompt provenance replaces the
+whole user item in place with a `source_unavailable` gap and partial coverage;
+it neither authenticates typed dialogue nor blocks the rest of the chat. Native
+assistant text remains historical assistant data. Missing or evicted contextual
+receipts cannot classify a user. Actual source read errors and contradictory
+positive source/retained receipt identities refuse startup before provider open.

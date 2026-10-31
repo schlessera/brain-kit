@@ -1,3 +1,4 @@
+import { readLiveHistory } from "./live-history.js";
 import { requireKnownSession } from "./session-recovery.js";
 /**
  * Host orchestration for live conversations (#957).
@@ -25,6 +26,7 @@ import {
   type ClientConversationEndpoint,
   type ClientConversationPlayback,
   type ClientConversationStart,
+  type ConversationProfile,
   type ClientConversationStop,
   type ConversationCloseReason,
   type ConversationOutputRecord,
@@ -69,6 +71,7 @@ interface Utterance {
   fragments: Map<number, Fragment>;
   endpointed: boolean;
   committed: boolean;
+  reviewIncomplete?: boolean;
 }
 
 interface Work {
@@ -89,7 +92,10 @@ interface Work {
 interface ContextFragment { key: string; text: string; kind: "recognition" | "generated"; at: number }
 
 interface Epoch {
+  model?: string;
+  api?: string;
   contextualTasks: boolean;
+  storageFailing?: boolean;
   context: ContextFragment[];
   contextDigests: Set<string>;
   nativeUsed: Set<string>;
@@ -103,13 +109,14 @@ interface Epoch {
   nativePending: Map<string, { utteranceId?: string }>;
   lastAudioSequence: number;
   unassignedCount: number;
-  unassignedChars: number;
   unassignedHandles: Set<string>;
   /** Utterance ids this epoch evicted; one never comes back as new input. */
   retiredUtterances: Set<string>;
 }
 
 interface Conversation {
+  historyOwnerId?: string;
+  historyGeneration?: number;
   lastEpoch: number;
   id: string;
   agentProviderId?: string;
@@ -150,10 +157,25 @@ export class ConversationHost {
     readonly provider: LiveConversationProvider
   ) {}
 
+  /** Public disclosure only; never opens a provider or reads chat content. */
+  profile(contextualTasks = true): ConversationProfile {
+    return { providerId: this.provider.id,
+      capabilities: { ...this.provider.capabilities, contextualTasks: contextualTasks && this.provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch ? "supported" : "unsupported" },
+      disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] } };
+  }
+  private disclosed(msg: ClientConversationStart): boolean {
+    const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])) : value;
+    return JSON.stringify(canonical(msg.disclosed)) === JSON.stringify(canonical(this.profile(msg.contextualTasks === true)));
+  }
+
   // --- client commands ---
 
   async start(ws: WSContext, connection: ConnectionState, msg: ClientConversationStart): Promise<void> {
-    if (connection.closed) return;
+    if (connection.closed || !connection.authorization.valid || this.host.closing) return;
+    // Privacy admission precedes even recovery reads and device takeover.
+    if (!msg.disclosed) { this.refuse(ws,"CONVERSATION_CAPABILITY","Update this app before starting voice. Nothing was sent to the voice service.",msg.requestId); return; }
+    if (!this.disclosed(msg)) { this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return; }
     const principalId = connection.authorization.principalId;
     let conversation: Conversation;
     if (msg.conversationId !== undefined) {
@@ -245,18 +267,36 @@ export class ConversationHost {
       closed: false,
       utterances: new Map(),
       nativePending: new Map(),
-      unassignedCount: 0, unassignedChars: 0, unassignedHandles: new Set(),
+      unassignedCount: 0, unassignedHandles: new Set(),
       lastAudioSequence: -1,
       retiredUtterances: new Set(),
     };
     conversation.epoch = epoch;
     const scope = { conversationId: conversation.id, epoch: epoch.number };
+    const authorized = () => {
+      if (connection.authorization.expiresAt <= Date.now()) this.host.expireAuthorizationContexts();
+      return !this.host.closing && !epoch.closed && !connection.closed && connection.authorization.valid
+        && connection.authorization.principalId === principalId && conversation.epoch === epoch
+        && this.byConnection.get(connection) === conversation && this.conversations.get(conversation.id) === conversation;
+    };
     let session: LiveConversationSession;
     try {
+      const owner = await this.host.dialogue.open({ conversationId: conversation.id, principalId, epoch: epoch.number, providerId: this.provider.id,
+        ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(msg.historyOwnerId ? { historyOwnerId: msg.historyOwnerId } : {}) });
+      if (owner) {conversation.historyOwnerId = owner.id;conversation.historyGeneration=owner.generation;}
+      if (epoch.closed || connection.closed || !connection.authorization.valid) return;
       await this.host.catalog.saveConversationEpoch?.({ id: conversation.id, principalId, epoch: epoch.number,
         ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}) });
       if (epoch.closed || connection.closed || !connection.authorization.valid) return;
+      const history = await readLiveHistory(this.host, principalId,
+        conversation.sessionId ? { sessionId: conversation.sessionId } : { ownerId: conversation.historyOwnerId }, authorized);
+      if (!authorized()) return;
+      if (!this.disclosed(msg)) {
+        this.endEpoch(conversation,"refused",undefined,epoch); this.detach(conversation);
+        this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return;
+      }
       session = await this.provider.open(scope, {
+        ...(history ? { history } : {}),
         signal: epoch.abort.signal,
         contextualTasks: epoch.contextualTasks,
         resync: { work: conversation.receipts.map((work) => ({ ...work.receipt })),
@@ -272,10 +312,10 @@ export class ConversationHost {
         body: "live conversation failed to open",
         attributes: { "provider.id": this.provider.id, error: err instanceof Error ? err.message : String(err) },
       });
-      this.endEpoch(conversation, "provider_error", "The voice service could not be opened.", epoch);
+      this.endEpoch(conversation, "provider_error", "The voice service or prior chat context could not be opened. No work was replayed. Restore access before restarting voice.", epoch);
       return;
     }
-    if (epoch.closed || conversation.epoch !== epoch) {
+    if (!authorized()) {
       // Replaced or stopped while opening: this session was never live.
       void session.close().catch(() => {});
       return;
@@ -283,14 +323,14 @@ export class ConversationHost {
     epoch.session = session;
     this.send(conversation, {
       type: "conversation_opened",
+      ...(session.historyCoverage ? { historyCoverage: session.historyCoverage } : {}),
+      ...(conversation.historyOwnerId ? { historyOwnerId: conversation.historyOwnerId,historyGeneration:conversation.historyGeneration } : {}),
       ...(epoch.requestId ? { requestId: epoch.requestId } : {}),
       conversationId: conversation.id,
       epoch: epoch.number,
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
-      providerId: this.provider.id,
       ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}),
-      capabilities: { ...this.provider.capabilities, contextualTasks: epoch.contextualTasks ? "supported" : "unsupported" },
-      disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] },
+      ...this.profile(epoch.contextualTasks),
       limits: { ...CONVERSATION_LIMITS },
       resync: { work: conversation.receipts.length, outputs: conversation.outputs.size },
     });
@@ -389,7 +429,7 @@ export class ConversationHost {
       refuse("That request id was already used in this conversation.");
       return;
     }
-    if (!epoch || epoch.closed || !epoch.session || epoch.number !== msg.epoch) {
+    if (!epoch || epoch.closed || epoch.storageFailing || !epoch.session || epoch.number !== msg.epoch) {
       refuse("This epoch has ended. Restart capture and commit again.");
       return;
     }
@@ -406,6 +446,7 @@ export class ConversationHost {
       refuse("That utterance was already committed.");
       return;
     }
+    if (utterance.reviewIncomplete) { refuse("Only bounded task context remains for this input. Review the retained dialogue and send typed text instead."); return; }
     const fragments = [...utterance.fragments.values()].sort((a, b) => a.sequence - b.sequence);
     // An utterance heard only as the assistant's own voice is echo, not input.
     if (!fragments.some((fragment) => fragment.origin !== "assistant")) {
@@ -501,7 +542,7 @@ export class ConversationHost {
   private async pump(conversation: Conversation, epoch: Epoch, session: LiveConversationSession): Promise<void> {
     try {
       for await (const raw of session.events) {
-        if (epoch.closed) break;
+        if (epoch.closed || epoch.storageFailing) break;
         const parsed = parseLiveConversationEvent(raw);
         if (!parsed.ok) {
           this.endEpoch(conversation, "correlation", parsed.error, epoch);
@@ -515,9 +556,9 @@ export class ConversationHost {
         }
         this.onEvent(conversation, epoch, event);
       }
-      this.endEpoch(conversation, "provider_closed", undefined, epoch);
+      if (!epoch.storageFailing) this.endEpoch(conversation, "provider_closed", undefined, epoch);
     } catch {
-      this.endEpoch(conversation, "provider_error", "The voice service failed.", epoch);
+      if (!epoch.storageFailing) this.endEpoch(conversation, "provider_error", "The voice service failed.", epoch);
     }
   }
 
@@ -525,6 +566,7 @@ export class ConversationHost {
     const scope = { conversationId: conversation.id, epoch: epoch.number };
     switch (event.kind) {
       case "ready": {
+        epoch.model=event.model;epoch.api=event.api;
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "ready", ...(event.model ? { model: event.model } : {}), ...(event.api ? { api: event.api } : {}),
           input: { ...event.input }, output: { ...event.output },
@@ -535,13 +577,8 @@ export class ConversationHost {
         if (event.sequence !== epoch.unassignedCount) {
           this.endEpoch(conversation, "correlation", "Unassigned recognition arrived out of sequence.", epoch); return;
         }
-        if (!epoch.contextualTasks && (epoch.unassignedCount >= CONVERSATION_LIMITS.maxFragmentsPerUtterance || epoch.unassignedChars + event.text.length > CONVERSATION_LIMITS.maxUtteranceChars)) {
-          this.endEpoch(conversation, "backpressure", "Unassigned recognition is full. Review the retained text before restarting voice.", epoch); return;
-        }
+        // Sequence is an epoch fence, not a lifetime review/capture budget.
         epoch.unassignedCount++;
-        // Contextual text is already bounded by collectContext. Cumulative
-        // manual-review capacity must not end an ongoing contextual dialogue.
-        if (!epoch.contextualTasks) epoch.unassignedChars += event.text.length;
         this.collectContext(epoch, `unassigned:${event.sequence}`, "recognition", event.text);
         this.send(conversation, { type: "conversation_event", ...scope, event: { kind: event.kind, sequence: event.sequence, text: event.text,
           ...(event.sessionInterval ? { sessionInterval: { ...event.sessionInterval } } : { timing: { kind: "unavailable" as const } }),
@@ -567,21 +604,17 @@ export class ConversationHost {
           this.endEpoch(conversation, "correlation", "The voice service reported input for an utterance it was never sent.", epoch);
           return;
         }
-        if (!utterance.fragments.has(event.sequence) && utterance.fragments.size >= CONVERSATION_LIMITS.maxFragmentsPerUtterance) {
-          this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxFragmentsPerUtterance} fragments for one utterance.`, epoch);
-          return;
-        }
-        // The receipt joins fragments with single spaces; bound that join.
-        let joined = event.text.length;
-        for (const fragment of utterance.fragments.values()) {
-          if (fragment.sequence !== event.sequence) joined += fragment.text.length + 1;
-        }
-        if (joined > CONVERSATION_LIMITS.maxUtteranceChars) {
-          this.endEpoch(conversation, "backpressure", `More than ${CONVERSATION_LIMITS.maxUtteranceChars} recognized characters for one utterance.`, epoch);
-          return;
-        }
         this.collectContext(epoch, `input:${event.utteranceId}:${event.sequence}`, event.origin === "assistant" ? "generated" : "recognition", event.text);
         utterance.fragments.set(event.sequence, { sequence: event.sequence, text: event.text, origin: event.origin });
+        {
+          // This is bounded task/review context in either mode, not the durable text record.
+          let chars = [...utterance.fragments.values()].reduce((n,f)=>n+f.text.length+1,0);
+          while (utterance.fragments.size > CONVERSATION_LIMITS.maxFragmentsPerUtterance || chars > CONVERSATION_LIMITS.maxUtteranceChars) {
+            const first = Math.min(...utterance.fragments.keys());
+            chars -= utterance.fragments.get(first)!.text.length+1;
+            utterance.fragments.delete(first); utterance.reviewIncomplete = true;
+          }
+        }
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "input_fragment", utteranceId: event.utteranceId, sequence: event.sequence, text: event.text,
           ...(event.interval ? { interval: { ...event.interval } } : {}),
@@ -805,7 +838,10 @@ export class ConversationHost {
         if (frame.type === "session_info") {
           work.receipt.sessionId = frame.sessionId;
           conversation.sessionId ??= frame.sessionId;
-          this.sendReceipt(conversation, work);
+          this.host.dialogue.bind(conversation.id, conversation.principalId, frame.sessionId);
+          // Reserve journal routing before the frame, but publish the updated
+          // task receipt only after session_info reaches the same client.
+          queueMicrotask(() => { if (!work.settled) this.sendReceipt(conversation, work); });
         } else if (frame.type === "text_delta") {
           work.facts = bounded(work.facts + frame.text, CONVERSATION_LIMITS.maxFactChars);
         } else if (frame.type === "result") {
@@ -869,7 +905,7 @@ export class ConversationHost {
     // A withdrawn request was already marked discarded when the provider
     // withdrew it, so it never reaches this point.
     if (outcome !== "completed" && outcome !== "error") return discard("The request did not complete.");
-    if (!epoch || epoch.number !== work.receipt.epoch || epoch.closed || !epoch.session || conversation.ws === null) {
+    if (!epoch || epoch.number !== work.receipt.epoch || epoch.closed || epoch.storageFailing || !epoch.session || conversation.ws === null) {
       return discard("The epoch this request belonged to has ended.");
     }
     if (work.receipt.turnId === undefined) return discard("The request never started a turn.");
@@ -923,6 +959,7 @@ export class ConversationHost {
     const epoch = conversation.epoch;
     if (!epoch || epoch.closed || (only !== undefined && only !== epoch)) return;
     epoch.closed = true;
+    this.host.dialogue.close(conversation.id,conversation.principalId,epoch.number,epoch.storageFailing===true);
     epoch.abort.abort();
     epoch.nativePending.clear();
     const session = epoch.session;
@@ -1084,21 +1121,53 @@ export class ConversationHost {
     const epoch = conversation.epoch;
     // Frames already in flight when an epoch ended are expected; they are
     // dropped, never applied to the replacement.
-    if (!epoch || epoch.closed || !epoch.session || epoch.number !== epochNumber) return null;
+    if (!epoch || epoch.closed || epoch.storageFailing || !epoch.session || epoch.number !== epochNumber) return null;
     return { conversation, epoch, session: epoch.session };
   }
 
   private sendReceipt(conversation: Conversation, work: Work): void {
     if (work.receipt.provenance === "contextual" && work.durableReady) {
+      const epoch=conversation.epoch;
       void this.host.catalog.saveConversationTask!(conversation.principalId, { ...work.receipt }, work.facts).catch(() => {
-        this.endEpoch(conversation, "provider_error", "Task outcome persistence is unavailable. Do not replay uncertain work.");
+        if (!epoch || epoch.closed || conversation.epoch!==epoch || epoch.number!==work.receipt.epoch) return;
+        const message="Task outcome persistence is unavailable. Voice capture stopped while observed text drains. Failed writes are shown as unsaved. Do not replay uncertain work; restore storage before restarting voice.";
+        if (!conversation.historyOwnerId) {this.endEpoch(conversation,"provider_error",message,epoch);return;}
+        const finish=this.storageFailing(conversation.historyOwnerId);
+        this.send(conversation,{type:"error",code:"DIALOGUE_STORAGE",historyOwnerId:conversation.historyOwnerId,...(conversation.sessionId ? {sessionId:conversation.sessionId} : {}),message});
+        void this.host.dialogue.settled().then(()=>finish(message));
       });
     }
     this.send(conversation, { type: "conversation_work", ...work.receipt });
   }
 
+  /** Freeze new ingress/admission while already observed text callbacks drain. */
+  storageFailing(ownerId: string): (message:string)=>void {
+    const scopes:Array<(message:string)=>void>=[];
+    for (const conversation of this.conversations.values()) if (conversation.historyOwnerId === ownerId) {
+      const epoch=conversation.epoch;
+      if (!epoch || epoch.closed) continue;
+      scopes.push(message=>this.endEpoch(conversation,"provider_error",message,epoch));
+      if (epoch.storageFailing) continue;
+      epoch.storageFailing=true;
+      try { void Promise.resolve(epoch.session?.close()).catch(()=>{}); } catch { /* The final close still fences the epoch. */ }
+    }
+    // The completion owns these exact epochs, never a later epoch for this chat.
+    return message=>{for(const finish of scopes)finish(message);};
+  }
+
   private send(conversation: Conversation, frame: ServerMessage): void {
     if (!conversation.ws) return;
+    if (frame.type === "conversation_event" && (frame.event.kind === "input_fragment" || frame.event.kind === "unassigned_input_fragment" || frame.event.kind === "output_transcript")) {
+      const epoch = conversation.epoch;
+      const connection = conversation.connection;
+      const retained = this.host.dialogue.voice(conversation.id, { kind: "voice", conversationId: conversation.id, epoch: frame.epoch, providerId: this.provider.id, ...(epoch?.model ? {model:epoch.model} : {}), ...(epoch?.api ? {api:epoch.api} : {}), event: frame.event }, (saved) => {
+        if (conversation.ws && conversation.epoch === epoch && !epoch?.closed && connection?.authorization.valid && !connection.closed) {
+          try { this.host.sendMessage(conversation.ws, saved ? frame : {...frame,retention:"unsaved"}); }
+          catch { /* Socket closure does not turn a committed record into unsaved text. */ }
+        }
+      });
+      if (retained) return;
+    }
     try {
       this.host.sendMessage(conversation.ws, frame);
     } catch {
@@ -1106,8 +1175,8 @@ export class ConversationHost {
     }
   }
 
-  private refuse(ws: WSContext, code: string, message: string): void {
-    this.host.sendMessage(ws, { type: "error", code, message });
+  private refuse(ws: WSContext, code: string, message: string, requestId?: string): void {
+    this.host.sendMessage(ws, { type: "error", code, message, ...(requestId ? {requestId} : {}) });
   }
 
   /**
