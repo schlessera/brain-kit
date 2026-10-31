@@ -34,6 +34,7 @@ interface Turn {
   sessionId: string;
   /** Let the backend answer: one text delta, then a success result. */
   answer: (text: string) => void;
+  fail: (error: Error) => void;
 }
 
 let cleanup: (() => void | Promise<void>) | null = null;
@@ -63,7 +64,7 @@ function setup(options: {
       req.bridge.emit({ type: "session_info", sessionId, isNew: req.sessionId === undefined });
       // Deliberately ignores the abort signal: the answer arrives whenever
       // the test says, which is how a late callback looks to the host.
-      const text = await new Promise<string>((resolve) => turns.push({ req, sessionId, answer: resolve }));
+      const text = await new Promise<string>((resolve,reject) => turns.push({ req, sessionId, answer: resolve, fail:reject }));
       req.bridge.emit({ type: "text_delta", text });
       req.bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 1, numTurns: 1, isError: false });
     },
@@ -1930,7 +1931,7 @@ for (const durable of [true,false]) test(`hello, accepted disclosure and opened 
  expect(s.live.sessions).toHaveLength(1);
 });
 
-for(const pending of ["running","failed"] as const)test(`real typed ${pending} tail stays after witnessed native and mixed voice evidence`,async()=>{
+for(const pending of ["running","failed"] as const)test(`real typed ${pending} native tail remains grouped with honest unknown cross-stream recency`,async()=>{
  const {readLiveHistory}=await import("../src/ws/live-history");
  const {boundHistory}=await import("../src/voice/session-history");
  const s=setup(),client=await s.connect();
@@ -1952,13 +1953,13 @@ for(const pending of ["running","failed"] as const)test(`real typed ${pending} t
  await s.host.historySettled();
  const env=(await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true))!;
  const text=env.items.flatMap(i=>"text" in i?[i.text]:[]);
- expect(text.indexOf("NEWEST unanswered typed question?"),"REAL_UNWITNESSED_QUESTION_FOLLOWS_PRIOR_NATIVE_AND_VOICE").toBeGreaterThan(text.indexOf("The mast is ready."));
+ expect(text).toContain("The mast is ready.");
  expect(text.indexOf("NEWEST unanswered typed question?")).toBeGreaterThan(text.indexOf("First typed answer."));
  expect(env.coverage.reasons).toContain("ambiguous_order");
  if(pending==="running"){
   const bounded=boundHistory(env,new Set(),{maxBytes:650,maxFactBytes:0,maxItems:128});
-  expect(bounded.text,"REAL_RUNNING_NEWEST_QUESTION_SURVIVES_BYTE_PRESSURE").toContain("NEWEST unanswered typed question?");expect(bounded.tailOmitted).toBe(false);
- }else expect(text.at(-1),"UNWITNESSED_FAILURE_ANSWER_STAYS_WITH_ITS_NATIVE_QUESTION").toBe("Final native failure explanation.");
+  expect(bounded.text.includes("NEWEST unanswered typed question?") || bounded.tailOmitted,"UNWITNESSED_RUNNING_TAIL_IS_INCLUDED_OR_QUALIFIED").toBe(true);
+ }else expect(text.indexOf("Final native failure explanation."),"UNWITNESSED_FAILURE_ANSWER_STAYS_WITH_ITS_NATIVE_QUESTION").toBe(text.indexOf("NEWEST unanswered typed question?")+1);
  expect(s.turns).toHaveLength(2);
 });
 
@@ -1972,4 +1973,26 @@ test("manual-only Start discloses the known attenuation of the offered contextua
  const opened=client.frames("conversation_opened")[0];
  expect({providerId:opened.providerId,capabilities:opened.capabilities,disclosure:opened.disclosure},"MANUAL_MODE_DISCLOSURE_MATCHES_ACTUAL_OPENED_PROFILE").toEqual(disclosed);
  expect(s.live.sessions[0]!.options.contextualTasks).toBe(false);expect(s.live.sessions).toHaveLength(1);
+});
+
+for(const outcome of ["failed","empty-completed"] as const)test(`unsourced contextual ${outcome} carrier without assistant boundary refuses even before a later typed exchange`,async()=>{
+ const {readLiveHistory}=await import("../src/ws/live-history");
+ const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect(),c=await client.open({contextualTasks:true});
+ s.db.exec("CREATE TRIGGER fail_contextual_source BEFORE INSERT ON message_sources WHEN NEW.source='voice-context' BEGIN SELECT RAISE(FAIL,'fictional source write unavailable'); END;");
+ await client.capture(c);c.session.emit({kind:"unassigned_input_fragment",sequence:0,text:"Research the departure signal.",timing:{kind:"unavailable"}});c.session.emit({kind:"work_requested",handle:"unwitnessed-research"});
+ await until(()=>s.turns.length===1);const carrier=s.turns[0]!.req.prompt,sessionId=s.turns[0]!.sessionId;
+ if(outcome==="failed")s.turns[0]!.fail(Error("The Ithaca calculation failed."));else s.turns[0]!.answer("");
+ await until(()=>!s.host.coordinator.isTurnActive());await s.host.historySettled();
+ client.send({type:"chat_message",sessionId,text:"Research the departure signal."});await until(()=>s.turns.length===2);
+ s.backend.getHistory=async()=>[{role:"user",content:carrier,toolCalls:[]},{role:"user",content:"Research the departure signal.",toolCalls:[]},{role:"assistant",content:"An ordinary typed answer.",toolCalls:[]}];
+ s.turns[1]!.answer("An ordinary typed answer.");await until(()=>!s.host.coordinator.isTurnActive());await s.host.historySettled();
+ expect(s.db.query("SELECT COUNT(*) AS n FROM message_sources WHERE source='voice-context'").get()).toEqual({n:0});
+ await expect(readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true),"NO_UNWITNESSED_CARRIER_CAN_REACH_HISTORY").rejects.toThrow("Historical request provenance is unavailable");
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();client.send({type:"conversation_start",sessionId,contextualTasks:true,requestId:"refuse-unwitnessed-carrier"});
+ await until(()=>client.frames("conversation_closed").some(f=>f.requestId==="refuse-unwitnessed-carrier") || client.frames("conversation_opened").length>1);
+ expect(s.live.sessions,"UNRESOLVED_CARRIER_FAILS_BEFORE_ANY_NEW_PROVIDER_OPEN").toHaveLength(1);expect(s.turns).toHaveLength(2);
+ // Same recognized words in ordinary chat are not an exact internal carrier.
+ s.backend.getHistory=async()=>[{role:"user",content:"Research the departure signal.",toolCalls:[]},{role:"assistant",content:"An ordinary typed answer.",toolCalls:[]}];
+ const ordinary=await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true);
+ expect(ordinary!.items.flatMap(i=>i.kind==="typed"&&i.role==="user"?[i.text]:[]),"ORDINARY_RECOGNIZED_WORDS_ARE_NOT_A_CARRIER_PATTERN").toEqual(["Research the departure signal."]);
 });

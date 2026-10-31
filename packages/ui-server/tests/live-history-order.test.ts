@@ -16,7 +16,7 @@ test("preserves newest unanswered typed question after witnessed exchange", ()=>
  expect(out.coverage.reasons).toContain("ambiguous_order");
  const b=boundHistory(out,new Set(),{maxBytes:650,maxFactBytes:0,maxItems:128});
  expect(b.text,"LATEST_QUESTION_SURVIVES_BYTE_PRESSURE").toContain("NEWEST typed question with no answer yet.");
- expect(b.tailOmitted).toBe(false);
+ expect(b.tailOmitted,"AMBIGUOUS_OMISSIONS_DO_NOT_CLAIM_NEWEST_COMPLETENESS").toBe(true);
 });
 test("preserves native order: witnessed Q1/A1 then unwitnessed Q2/A2 (answer text differs from ranges)", ()=>{
  const p={...page,records:[...page.records,{sequence:4,identity:"q2",evidence:{kind:"request" as const,turnId:"t2"}},backend(5,"t2","Partial streamed")]};
@@ -25,4 +25,38 @@ test("preserves native order: witnessed Q1/A1 then unwitnessed Q2/A2 (answer tex
  const native=["Typed question one.","Typed answer one.","Question two.","Answer two, final native form."];
  expect(native.map(t=>texts.indexOf(t)),"UNWITNESSED_GROUP_FOLLOWS_PRIOR_NATIVE_EXCHANGE").toEqual(native.map(t=>texts.indexOf(t)).sort((a,b)=>a-b));
  expect(out.coverage.reasons).toContain("ambiguous_order");
+});
+
+for(const coverage of ["complete","partial"] as const)test(`all-unwitnessed typed prefix cannot outrank newest journal discussion coverage=${coverage}`,()=>{
+ const records:DialoguePage["records"]=[
+ {sequence:1,identity:"spoken-one",evidence:{kind:"voice",conversationId:"voice-first",epoch:1,providerId:"gemini-live",event:{kind:"unassigned_input_fragment",sequence:0,text:"V1 newer spoken question",timing:{kind:"unavailable"}}}},
+ {sequence:2,identity:"spoken-two",evidence:{kind:"voice",conversationId:"voice-first",epoch:1,providerId:"gemini-live",event:{kind:"output_transcript",sequence:0,outputId:"o",text:"V2 newer spoken reply"}}},
+ {sequence:3,identity:"spoken-three",evidence:{kind:"voice",conversationId:"voice-first",epoch:1,providerId:"gemini-live",event:{kind:"unassigned_input_fragment",sequence:1,text:"V3 newest spoken question",timing:{kind:"unavailable"}}}},
+ ];
+ const env=projectLiveHistory([msg("user","T1 old typed question"),msg("assistant","A1 old typed answer",{turnId:"before-owner-1"}),msg("user","T2 old typed question"),msg("assistant","A2 old typed answer",{turnId:"before-owner-2"})],{ownerId:"ithaca",generation:1,through:3,coverage,records});
+ const texts=env.items.flatMap(i=>"text" in i?[i.text]:[]);
+ expect(texts,"UNWITNESSED_PREFIX_PRECEDES_JOURNAL_WITHOUT_INVENTING_A_WITNESS").toEqual(["T1 old typed question","A1 old typed answer","T2 old typed question","A2 old typed answer","V1 newer spoken question","V2 newer spoken reply","V3 newest spoken question"]);
+ expect(env.coverage.state).toBe("partial");expect(env.coverage.reasons).toContain("ambiguous_order");
+ if(coverage==="partial")expect(env.coverage.reasons).toContain("write_gap");
+ const bounded=boundHistory(env,new Set(),{maxBytes:600,maxItems:128,maxFactBytes:100});
+ expect(bounded.text,"LATEST_JOURNAL_QUESTION_SURVIVES_OLD_UNANCHORED_PREFIX").toContain("V3 newest spoken question");
+ expect(bounded.tailOmitted,"UNKNOWN_RECENCY_OF_DISCARDED_TEXT_IS_QUALIFIED").toBe(true);
+ const full=boundHistory(env,new Set(),{maxBytes:24000,maxItems:128,maxFactBytes:100});expect(full.tailOmitted).toBe(false);
+});
+test("unknown group after a native anchor cannot jump over later journal speech",()=>{
+ const p={...page,through:5,records:[...page.records,{sequence:5,identity:"latest-voice",evidence:{kind:"voice" as const,conversationId:"voice",epoch:1,providerId:"gpt-live",event:{kind:"unassigned_input_fragment" as const,sequence:0,text:"Newest witnessed spoken question?",timing:{kind:"unavailable" as const}}}}]};
+ const env=projectLiveHistory([msg("user","Typed question one."),msg("assistant","Typed answer one.",{turnId:"t1"}),msg("user","Unwitnessed next typed question."),msg("assistant","Unwitnessed native answer.")],p);
+ const texts=env.items.flatMap(i=>"text" in i?[i.text]:[]);
+ expect(texts.indexOf("Unwitnessed next typed question.")).toBeGreaterThan(texts.indexOf("Typed answer one."));
+ expect(texts.at(-1),"AMBIGUOUS_NATIVE_SLOT_CANNOT_REPLACE_JOURNAL_RECENCY").toBe("Newest witnessed spoken question?");
+ expect(env.coverage.reasons).toContain("ambiguous_order");
+});
+
+test("unwitnessed native question cannot relocate its exactly witnessed assistant ranges",()=>{
+ const text="First part. Last part.";
+ const range=(sequence:number,start:number,end:number)=>({sequence,identity:`range-${sequence}`,evidence:{kind:"backend" as const,turnId:"before-owner",start,end,text:text.slice(start,end),digest:Bun.SHA256.hash(text.slice(start,end),"hex")}});
+ const records:DialoguePage["records"]=[range(2,0,12),{sequence:3,identity:"between",evidence:{kind:"voice",conversationId:"voice",epoch:1,providerId:"gpt-live",event:{kind:"output_transcript",outputId:"o",sequence:0,text:"Interleaved witnessed voice."}}},range(4,12,text.length)];
+ const env=projectLiveHistory([msg("user","Question before owner."),msg("assistant",text,{turnId:"before-owner"})],{ownerId:"ithaca",generation:1,coverage:"complete",through:4,records});
+ expect(env.items.flatMap(i=>"text" in i?[i.text]:[]),"KNOWN_RANGE_POSITIONS_SURVIVE_AN_UNKNOWN_REQUEST").toEqual(["Question before owner.","First part. ","Interleaved witnessed voice.","Last part."]);
+ expect(env.coverage.reasons).toContain("ambiguous_order");
 });

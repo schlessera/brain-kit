@@ -171,3 +171,11 @@ for (const engine of ["gemini", "gpt"] as const) test(`${engine}: dynamic alloca
   expect(emitted.factBytes).toBeLessThanOrEqual(limits.maxFactBytes);
   for(const r of results) expect(emitted.resultKeys.has(historicalResultKey(r))).toBe(emitted.text.includes(r.facts));
 });
+
+test("ambiguous cross-stream order qualifies only a possibly newest omission, not an older whole fact",()=>{
+ const envelope=env([fact("old-fact","Old bounded fact. ".repeat(1000)),typed("native-latest","Newest native question."),{ref:"voice-latest",kind:"recognized",text:"Newest journal question.",finalization:"final",provenance:{providerId:"gpt-live",conversationId:"voice",epoch:1}}]);
+ const out=boundHistory({...envelope,coverage:{state:"partial",reasons:["ambiguous_order"]}},new Set(),{maxBytes:1000,maxItems:128,maxFactBytes:100});
+ expect(out.selectedRefs).toEqual(["native-latest","voice-latest"]);
+ expect(out.tailOmitted,"BOTH_SOURCE_TAILS_INCLUDED_DO_NOT_INVENT_A_NEWEST_OMISSION").toBe(false);
+ expect(out.coverage.state).toBe("partial");
+});

@@ -4082,7 +4082,9 @@ exact result identities actually emitted by resync. Newest request/state and
 newest historical discussion take priority, then whole facts (resync first),
 then older discussion. At most 128 historical items are selected. Whole omitted
 items leave in-place gap markers and coverage; `tailOmitted` reports an omitted
-newest item. These bounds never delete the display archive.
+newest item, conservatively also qualifying discarded text whose cross-stream
+recency is unknown. Partial coverage uses “may be missing” copy rather than a
+claim about the exact newest item. These bounds never delete the display archive.
 
 `LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
 historical selection as `{state, tailOmitted}`. Third-party providers may ignore
@@ -4097,11 +4099,18 @@ internal task carriers cannot be reclassified as typed chat after a read error.
 `WsHost.prepareHistory(sessionId, messages, strictSources?)` performs strict source
 joining in the ordinary position, after exact native turn/failure identity joins.
 It must not normalize file-bearing user bytes before those prefix digests match.
-Unwitnessed native groups retain native order, carry an unknown-position gap and
-follow their native predecessor; a newest unanswered question remains the tail.
+Unwitnessed native prefixes precede the earliest journal evidence as a selection
+policy, not a chronology witness. Later unpositioned runs follow their native
+predecessor before the next witness. Exactly witnessed assistant ranges stay at
+their recorded positions even when their request is unwitnessed. Unknown order
+always carries a gap/partial coverage; missing request records in a partial source
+do not prove that a turn predates the journal. Bounded selection preserves the
+newest journal discussion and conservatively qualifies discarded ambiguous text.
 An exact contextual receipt/turn/submitted-text join excludes a task carrier when
 its asynchronous source metadata write failed, without filtering unrelated equal
-user text. Ambiguous unfinished contextual carriers fail the snapshot closed.
+user text. Any exact unclassified carrier without a provable native answer/nearest-
+user join fails the snapshot closed, regardless of task state or later native turns.
+Receipt lookup also requires the exact conversation, principal and session.
 
 `ConversationProfile` and `conversationProfileSchema` are public SDK exports for
 `{providerId, capabilities, disclosure}`. Hello may advertise this profile and

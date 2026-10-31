@@ -1014,3 +1014,39 @@ for(const provider of ["gemini","gpt"] as const)test(`R8 ${provider}: simultaneo
  await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r8-concurrent-${provider}.png`});
  s.ui.connection.conversation.leave();await pump({parallelLeave:true});s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true});s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain("The mast is ready.");expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(result.tasks).toBe(1);
 });
+
+for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"] as const)test(`${first} to ${second}: real typed exchanges before first Start precede later spoken history in fresh startup`,async ctx=>{
+ microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider:first}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;const sent:any[]=[];
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);sent.push(...result.sent);for(const frame of result.frames){if(frame.type==="result")completed++;s.socket.deliver(frame);}return result;};
+ await pump();
+ const typed=["T1: Plan Telemachus's crossing.","A1: Keep the blue sail ready.","T2: Which oar is marked?","A2: Athena marked the third oar."];
+ for(let i=0;i<2;i++){
+  s.socket.send(JSON.stringify({type:"chat_message",text:typed[i*2],providerId:"fake",...(i?{sessionId:"odysseus-ithaca"}:{})}));
+  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(i+1);
+  await pump({release:true,resultText:typed[i*2+1]});await expect.poll(async()=>{await pump();return completed;}).toBe(i+1);
+ }
+ expect(result.rows,"TYPED_PREFIX_REALLY_PRECEDES_THE_FIRST_JOURNAL_OWNER").toEqual([]);
+ expect(result.providerOpens).toBe(0);expect(sent).toEqual([]);
+ s.ui.stores.chat.getState().setActiveSession("odysseus-ithaca");await pump();
+ s.ui.connection.conversation.enter();s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const old=s.ui.connection.conversation.state.getState().profile!;await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(true);await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ const voice=["V1: Explain the mast.","V2: The mast supports the sail.","V3: What is the newest spoken question?"];
+ const input=(n:number,text:string)=>first==="gemini"?{serverContent:{inputTranscription:{text}}}:{type:"session.input_transcript.delta",event_id:`prefix-spoken-${n}`,delta:text,start_ms:n*1000,end_ms:n*1000+500};
+ const reply=first==="gemini"?{serverContent:{outputTranscription:{text:voice[1]},turnComplete:true}}:{type:"session.output_transcript.delta",event_id:"prefix-reply",delta:voice[1],start_ms:600,end_ms:800};
+ await pump({provider:[input(0,voice[0]!),reply,input(1,voice[2]!)]});
+ await expect.poll(async()=>{await pump();return result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice").length;}).toBe(3);
+ expect(result.rows.map((r:any)=>JSON.parse(r.payload)).every((e:any)=>e.kind==="voice"),"NO_REQUEST_WITNESS_IS_INVENTED_FOR_PREOWNER_NATIVE_TURNS").toBe(true);
+ s.ui.connection.conversation.leave();await pump();s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true,engine:second});
+ s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain(typed[3]!);
+ sent.length=0;s.ui.connection.conversation.enter();s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const next=s.ui.connection.conversation.state.getState().profile!;expect(next.conversationId).not.toBe(old.conversationId);expect(next.historyCoverage?.state).toBe("partial");
+ await expect.poll(async()=>{await pump();return sent.some(m=>second==="gemini"?!!m.clientContent:m.type==="session.start");}).toBe(true);
+ const blocks=sent.flatMap(m=>second==="gemini"?(m.clientContent?.turns??[]).flatMap((t:any)=>t.parts.map((p:any)=>p.text)):m.type==="session.start"?m.session.input.flatMap((i:any)=>i.content.map((p:any)=>p.text)):[]);
+ const seed=blocks.join("\n"),all=[...typed,...voice];for(const text of all)expect(seed,"FRESH_PROVIDER_RECEIVES_REAL_PREOWNER_TYPED_AND_LATER_VOICE").toContain(text);
+ expect(all.map(text=>seed.indexOf(text)),"PREOWNER_PREFIX_CANNOT_OVERTAKE_LATER_VOICE_ON_THE_SOCKET").toEqual(all.map(text=>seed.indexOf(text)).sort((a,b)=>a-b));
+ expect(seed).toContain("ambiguous_order");expect(result.tasks,"HISTORY_MAPPING_DOES_NOT_REDISPATCH_TYPED_WORK").toBe(2);expect(sent.some(m=>m.toolResponse||m.type==="session.commentary.append"||m.type==="session.thinking.append")).toBe(false);
+ s.ui.connection.conversation.leave();await pump();
+});

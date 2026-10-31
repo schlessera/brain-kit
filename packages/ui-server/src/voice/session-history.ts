@@ -41,7 +41,7 @@ export interface BoundedHistory {
   bytes: number;
   /** Host-only: refs that were serialized, for receipts/tests; never sent. */
   selectedRefs: readonly string[];
-  /** Host-only UI honesty: the newest candidate item did not fit and was omitted. */
+  /** Host-only: newest omitted, or omitted text may be newer when source order is unknown. */
   tailOmitted: boolean;
   coverage: ConversationHistoryEnvelope["coverage"];
 }
@@ -122,7 +122,13 @@ export function boundHistory(
   const omitted = chosen.some((p) => !p);
   const outReasons = [...reasons, ...(omitted ? ["older_omitted" as const] : [])].filter((r, i, a) => a.indexOf(r) === i).sort();
   const state = envelope.coverage.state === "complete" ? (omitted ? "bounded" : "complete") : envelope.coverage.state;
-  return { text, bytes: bytes(text), tailOmitted: candidates.length > 0 && !chosen[candidates.length - 1], selectedRefs: candidates.filter((_, i) => chosen[i]).map((c) => c.item.ref),
+  // Native order and journal order are each known even when their merge is
+  // not. Keeping both source tails rules out an available newest omission;
+  // dropping either one cannot be described as merely losing older context.
+  const nativeTail = candidates.findLastIndex(c=>c.item.kind === "typed" || c.item.kind === "host_fact");
+  const voiceTail = candidates.findLastIndex(c=>c.item.kind === "recognized" || c.item.kind === "generated");
+  const uncertainOmission = reasons.has("ambiguous_order") && [nativeTail,voiceTail].some(i=>i>=0 && !chosen[i]);
+  return { text, bytes: bytes(text), tailOmitted: uncertainOmission || candidates.length > 0 && !chosen[candidates.length - 1], selectedRefs: candidates.filter((_, i) => chosen[i]).map((c) => c.item.ref),
     coverage: { state, reasons: outReasons } };
 }
 

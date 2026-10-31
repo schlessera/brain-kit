@@ -142,7 +142,8 @@ export interface HistoricalResultRef {
 export type HistoryGapReason = "older_omitted" | "pre_upgrade" | "write_gap" | "source_unavailable" | "ambiguous_order";
 
 /**
- * One historical source item, in source order (oldest first). `ref` is the
+ * One historical source item. Known source order is oldest first; unwitnessed
+ * cross-stream placement carries gap/partial coverage. `ref` is the
  * host's exact immutable source identity; it and every provenance field stay
  * host-side and are never serialized for the model.
  */

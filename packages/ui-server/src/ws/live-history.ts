@@ -30,22 +30,21 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
   for (const id of conversations) {
     const stored = await host.catalog.loadConversation?.(id, principalId);
     if (!authorized()) return;
-    if (!stored || stored.sessionId !== target.sessionId) continue;
+    if (!stored || stored.id !== id || stored.principalId !== principalId || stored.sessionId !== target.sessionId) continue;
     for (const receipt of stored.receipts) {
-      // A failed asynchronous source write cannot promote an internal task
-      // carrier to typed dialogue. Match the native answer's exact host turn,
-      // then only that answer group's nearest user and the exact submitted bytes.
-      if (receipt.provenance === "contextual" && receipt.turnId) {
-        const answer = messages.findIndex(m => m.role === "assistant" && m.turnId === receipt.turnId);
-        if (answer >= 0) {
-          let user = answer - 1;
-          while (user >= 0 && messages[user]!.role !== "user") user--;
-          if (user >= 0 && messages[user]!.content === receipt.submitted) {
-            messages = messages.map((m,i) => i === user ? { ...m, source: "voice-context" } : m);
-          }
-        } else if (receipt.state !== "completed" && messages.at(-1)?.role === "user" && messages.at(-1)?.content === receipt.submitted) {
-          // Without the completed native turn boundary there is no honest
-          // message identity fallback. Refuse this ambiguous source snapshot.
+      // A missing source row cannot authenticate an internal task carrier as
+      // typed dialogue. Only the exact native answer/nearest-user join can
+      // classify that carrier. Without it, exact submitted bytes anywhere in
+      // this transcript are ambiguous, even after failure or a later turn.
+      if (receipt.provenance === "contextual") {
+        const answer = receipt.turnId ? messages.findIndex(m => m.role === "assistant" && m.turnId === receipt.turnId) : -1;
+        let user = answer - 1;
+        while (user >= 0 && messages[user]!.role !== "user") user--;
+        if (answer >= 0 && user >= 0 && messages[user]!.content === receipt.submitted) {
+          const source = messages[user]!.source;
+          if (source && source !== "voice-context") throw Error("Historical request provenance is unavailable");
+          messages = messages.map((m,i) => i === user ? { ...m, source: "voice-context" } : m);
+        } else if (messages.some(m => m.role === "user" && m.content === receipt.submitted && m.source !== "voice-context")) {
           throw Error("Historical request provenance is unavailable");
         }
       }
@@ -87,17 +86,19 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
   let index = 0;
   const add = (order: number, item: HistoricalItem) => ordered.push({ order, index: index++, item });
   // Native groups retain their own order even when cross-stream position is
-  // unknown. Known request/range anchors position complete exchanges; unknown
-  // groups sit between their native neighbours, or after the journal tail when
-  // they are newest. Never assign every unjoined message a negative prefix slot.
+  // unknown. Known request/range anchors position complete exchanges;
+  // an unwitnessed prefix precedes the earliest journal observation. Later
+  // unknown groups follow their native predecessor, before the next witness.
+  // These are selection slots, not proof of cross-stream chronology: gaps and
+  // partial coverage preserve that uncertainty, including failed source writes.
   const recent = messages.slice(-128);
   type Positioned = { order: number; item: HistoricalItem };
-  const groups: Array<{ items: HistoricalItem[]; positioned: Positioned[]; known: boolean }> = [];
+  const groups: Array<{ items: HistoricalItem[]; positioned: Positioned[] }> = [];
   let group: typeof groups[number] | undefined;
   for (let i = 0; i < recent.length; i++) {
     const message = recent[i]!;
     if (!group || message.role === "user") {
-      group = { items: [], positioned: [], known: true }; groups.push(group);
+      group = { items: [], positioned: [] }; groups.push(group);
     }
     if (!message.content || message.role === "user" && message.source === "voice-context") continue;
     const ref = JSON.stringify(["native", messages.length - recent.length + i, message.role]);
@@ -109,7 +110,7 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
       const item: HistoricalItem = { ref, kind: "typed", role: "user", text: message.content,
         ...(message.source === "voice-conversation" || message.source === "voice-dictate" ? { source: message.source } : {}) };
       group.items.push(item);
-      if (request) group.positioned.push({order:request.sequence-0.5,item}); else group.known=false;
+      if (request) group.positioned.push({order:request.sequence-0.5,item});
     } else {
       const fact = facts.find(f=>f.turnId === message.turnId);
       const ranges = message.turnId ? nativeRanges(records, message.turnId, message.content) : undefined;
@@ -117,34 +118,45 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
         // Facts join later at their witnessed completion; retain this native
         // anchor so surrounding unknown groups cannot jump before the result.
         if (ranges) group.positioned.push({order:ranges.at(-1)!.sequence+0.25,item:fact.item});
-        else group.known=false;
         continue;
       }
       if (ranges) for (const r of ranges) {
         const item: HistoricalItem = {ref:`${ref}:${r.start}`,kind:"typed",role:"assistant",text:message.content.slice(r.start,r.end)};
         group.items.push(item); group.positioned.push({order:r.sequence,item});
-      } else {group.known=false;group.items.push({ref,kind:"typed",role:"assistant",text:message.content});}
+      } else {group.items.push({ref,kind:"typed",role:"assistant",text:message.content});}
     }
   }
-  const journalTail = Math.max(0,...records.map(r=>r.sequence));
-  let previous = -groups.length;
+  const journalStart = records.length ? Math.min(...records.map(r=>r.sequence)) : 0;
+  let previous = journalStart - 1;
+  let anchored = false;
   for (let i=0;i<groups.length;i++) {
     const g=groups[i]!;
-    const known=g.known && g.positioned.length>0 && g.positioned[0]!.order>=previous;
-    if (known) {
-      for (const p of g.positioned) if(p.item.kind!=="host_fact") add(p.order,p.item);
-      previous=g.positioned.at(-1)!.order;
-      continue;
+    const positions = new Map(g.positioned.map(p=>[p.item.ref,p.order]));
+    for (let j=0;j<g.items.length;) {
+      const item=g.items[j]!, at=positions.get(item.ref);
+      if (at !== undefined && at >= previous) {
+        add(at,item); previous=at; anchored=true; j++; continue;
+      }
+      // Keep every exact range at its witnessed position even if its request
+      // has no witness. Only the unpositioned native run receives a default slot.
+      const startIndex=j;
+      while(j<g.items.length && !(positions.has(g.items[j]!.ref) && positions.get(g.items[j]!.ref)!>=previous)) j++;
+      const run=g.items.slice(startIndex,j);
+      if(records.length) reasons.add("ambiguous_order");
+      const nextOwn=j<g.items.length ? positions.get(g.items[j]!.ref) : undefined;
+      const nextOther=groups.slice(i+1).flatMap(n=>n.positioned).find(p=>p.order>previous)?.order;
+      const next=nextOwn ?? nextOther;
+      const laterJournal=records.find(r=>r.sequence>previous)?.sequence;
+      const end=!anchored ? Math.min(journalStart,next ?? journalStart)
+        : Math.min(next ?? Infinity,laterJournal ?? Infinity,previous+1);
+      const start=previous,step=(end-start)/(run.length+2);
+      if(records.length) add(start+step/2,{ref:`native-gap:${i}:${startIndex}`,kind:"gap",reason:"ambiguous_order"});
+      run.forEach((entry,k)=>add(start+step*(k+1),entry));
+      previous=start+step*run.length;
     }
-    if (!g.items.length) continue;
-    if(records.length) reasons.add("ambiguous_order");
-    const next=groups.slice(i+1).find(n=>n.known && n.positioned.length && n.positioned[0]!.order>previous);
-    const end=next ? next.positioned[0]!.order : Math.max(previous,journalTail)+1;
-    const start=next ? previous : Math.max(previous,journalTail);
-    const step=(end-start)/(g.items.length+2);
-    if(records.length) add(start+step/2,{ref:`native-gap:${i}`,kind:"gap",reason:"ambiguous_order"});
-    g.items.forEach((item,j)=>add(start+step*(j+1),item));
-    previous=start+step*g.items.length;
+    // A deduped fact is emitted later at its exact completion, but still anchors
+    // the next native group here. It never acquires a second provider item.
+    for(const p of g.positioned) if(p.item.kind==="host_fact" && p.order>=previous){previous=p.order;anchored=true;}
   }
   for (const record of records) {
     const e = record.evidence;

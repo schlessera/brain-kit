@@ -3,6 +3,7 @@
  * WebSockets. Keyless; repo preload refuses non-loopback network.
  */
 import { afterEach, expect, test } from "bun:test";
+import { projectLiveHistory } from "../src/ws/live-history";
 import type { LiveConversationProvider, LiveConversationOpenOptions, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
 import { createGeminiConversationProvider } from "../src/voice/gemini-conversation";
 import { createGptLiveConversationProvider } from "../src/voice/gpt-live-conversation";
@@ -179,3 +180,17 @@ for (const engine of ["gemini","gpt"] as const) {
     await s.close();
   });
 }
+
+for(const engine of ["gemini","gpt"] as const)test(`${engine}: preowner native prefix keeps newest journal speech and conservative omission on actual socket`,async()=>{
+ const huge="Old native answer. ".repeat(engine==="gpt"?1000:4000);
+ const messages=[{role:"user" as const,content:"Old typed question one.",toolCalls:[]},{role:"assistant" as const,content:huge,turnId:"old-one",toolCalls:[]},{role:"user" as const,content:"Old typed question two.",toolCalls:[]},{role:"assistant" as const,content:huge+"Second answer.",turnId:"old-two",toolCalls:[]}];
+ const text=["Explain the mast.","The mast supports the sail.","Newest spoken question: which oar bears Athena's mark?"];
+ const records=text.map((value,i)=>({sequence:i+1,identity:`speech-${i}`,evidence:{kind:"voice" as const,conversationId:"earlier-native",epoch:1,providerId:engine==="gpt"?"gemini-live":"gpt-live",event:i===1?{kind:"output_transcript" as const,outputId:"o",sequence:0,text:value}:{kind:"unassigned_input_fragment" as const,sequence:i,text:value,timing:{kind:"unavailable" as const}}}}));
+ const history=projectLiveHistory(messages,{ownerId:"ithaca",generation:1,through:3,coverage:"complete",records});
+ const {provider,sockets}=loopback(engine),session=await open(provider,"fresh-native",1,{history});await until(()=>historyTexts(engine,sockets[0]!).length>0);
+ const rendered=historyTexts(engine,sockets[0]!).join("\n");
+ expect(rendered,"SOCKET_PRESERVES_NEWEST_SPOKEN_QUESTION_OVER_OLD_NATIVE_PREFIX").toContain(text[2]!);
+ expect(rendered).not.toContain(huge);expect(rendered).toContain("ambiguous_order");
+ expect(session.historyCoverage,"SOCKET_RECENCY_UNCERTAINTY_CANNOT_REPORT_FULL_NEWEST_COVERAGE").toEqual({state:"partial",tailOmitted:true});
+ expect(Buffer.byteLength(rendered)).toBeLessThanOrEqual(engine==="gpt"?7500:24000);await session.close();
+});

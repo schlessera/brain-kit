@@ -469,3 +469,13 @@ profile echo admits startup; legacy undisclosed starts now refuse as an explicit
 pre-1.0 breaking privacy correction. Prior-text policy is disclosed before Start;
 actual selected coverage follows the authorized read. Scope-identical same-entry
 recovery preserves that explicit consent separately from microphone intent.
+
+
+Unwitnessed native prefixes use a slot before journal evidence; an absent request
+record is not an authenticated before-owner timestamp, especially with partial
+storage coverage. Unknown runs keep native order and gap qualification, while
+exact assistant ranges retain their actual positions. If bounded selection drops
+text with ambiguous cross-stream recency, `tailOmitted` is conservative and the UI
+says the newest context may be missing. An exact contextual carrier without an
+answer/nearest-user identity join refuses the snapshot wherever it occurs; failure,
+empty completion or a later ordinary turn cannot authenticate the carrier.

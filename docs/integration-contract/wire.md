@@ -2494,6 +2494,9 @@ with state `complete`, `bounded`, `partial` or `unavailable`. It describes selec
 historical text at startup, independently of retained display history, generated
 speech and playback. Details disclose partial sources/order, context omissions
 and an omitted newest item without claiming the model understood the text.
+When cross-stream order is unknown, discarded text conservatively sets
+`tailOmitted`; partial coverage says the newest context “may be missing” rather
+than asserting a known omission position.
 
 Starting live mode in an existing authorized chat supplies prior chat text,
 canonical retained spoken evidence and exact completed host facts on both

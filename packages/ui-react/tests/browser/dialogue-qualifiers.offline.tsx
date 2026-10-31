@@ -134,12 +134,12 @@ for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(
 
 for(const providerId of ["gemini-live","gpt-live"])for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(`prior context Details keyboard and tap ${providerId} ${theme} ${width}`,async ctx=>{
  const s=await scene(ctx,width,theme);
- flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",conversationProfile:profile(providerId),durableAvailable:true,profile:{...profile(providerId),historyCoverage:{state:"bounded",tailOmitted:true}},disclosureOpen:false}));
+ flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",conversationProfile:profile(providerId),durableAvailable:true,profile:{...profile(providerId),historyCoverage:{state:"partial",tailOmitted:true}},disclosureOpen:false}));
  const trigger=s.host.querySelector<HTMLButtonElement>('[aria-label="Prior context details"]')!;
  expect(trigger).not.toBeNull();trigger.focus();expect(document.activeElement).toBe(trigger);
  if(width===320)await userEvent.click(trigger);else await userEvent.keyboard("{Enter}");
  const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
- expect(dialog).not.toBeNull();expect(dialog.textContent).toContain("The newest prior item was not included.");
+ expect(dialog).not.toBeNull();expect(dialog.textContent).toContain("The newest prior item may be missing.");
  expect(dialog.contains(document.activeElement),"DETAILS_RECEIVES_KEYBOARD_FOCUS").toBe(true);
  [...dialog.querySelectorAll("p")].find(p=>p.textContent?.includes("The newest prior item"))!.scrollIntoView({block:"center"});
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/live-history/details-${providerId}-${theme}-${width}.png`});
