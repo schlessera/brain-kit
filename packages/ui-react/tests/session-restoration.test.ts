@@ -280,6 +280,42 @@ describe("a reload that kept the selected session's id", () => {
 });
 
 
+const safeLoadDiagnostics = [
+  "The host cannot verify this conversation. No work was started; your draft is kept.",
+  "The host could not verify this conversation. No work was started; your draft is kept.",
+];
+for (const correlated of [false, true]) for (const message of safeLoadDiagnostics) {
+  test(`fixed admission diagnostic survives before publication, correlated=${correlated}, copy=${safeLoadDiagnostics.indexOf(message)}`, () => {
+    const root = reloaded(), socket = connect(root);
+    socket.deliver(VOICE_HELLO);
+    enterAndStartVoice(root, socket);
+    socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, message,
+      ...(correlated ? { requestId: socket.frames("conversation_start")[0]!.requestId } : {}),
+    });
+    expect(root.connection.conversation.state.getState().notice, "EXACT_SAFE_ADMISSION_COPY_REMAINS_MEANINGFUL").toBe(message);
+    expect(root.stores.connection.getState().lastError?.message, "ORDINARY_ERROR_PUBLICATION_KEEPS_SAFE_COPY").toBe(message);
+    expect(root.connection.conversation.state.getState().active).toBe(false);
+  });
+}
+for (const correlated of [false, true]) test(`unknown history diagnostic never enters subscribed stores, correlated=${correlated}`, () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver(VOICE_HELLO);
+  enterAndStartVoice(root, socket);
+  const snapshots: string[] = [];
+  const observe = (value: unknown) => { snapshots.push(JSON.stringify(value)); };
+  const subscriptions = [root.connection.conversation.state.subscribe(observe), root.stores.connection.subscribe(observe), root.stores.chat.subscribe(observe)];
+  const marker = safeLoadDiagnostics[0] + " Odysseus private diagnostic";
+  try {
+    socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, message: marker,
+      ...(correlated ? { requestId: socket.frames("conversation_start")[0]!.requestId } : {}),
+    });
+    expect(snapshots.length, "REAL_PUBLICATION_WAS_OBSERVED").toBeGreaterThan(0);
+    expect(snapshots.join("\n"), "EVEN_MATCHING_REQUEST_IDS_CANNOT_PUBLISH_RAW_DIAGNOSTICS").not.toContain("Odysseus private diagnostic");
+    expect(root.connection.conversation.state.getState().notice).toBe("Unable to load conversation history. Try again; your draft is kept.");
+    expect(root.connection.conversation.state.getState().active).toBe(false);
+  } finally { for (const unsubscribe of subscriptions) unsubscribe(); }
+});
+
 test("an unavailable live-opening lookup can be retried without marking known history missing", () => {
   const root = reloaded();
   root.connection.connect();

@@ -544,8 +544,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
   function frame(message: ServerMessage): ServerMessage | null {
-    // Older hosts may send backend diagnostics; never retain them in public state.
-    if (message.type === "error" && message.code === "SESSION_LOAD_ERROR") message = { ...message, message: "Unable to load conversation history. Try again; your draft is kept." };
+    // Preserve only exact fixed admission copy; request identity does not make diagnostics safe.
+    if (message.type === "error" && message.code === "SESSION_LOAD_ERROR" && ![
+      "The host cannot verify this conversation. No work was started; your draft is kept.",
+      "The host could not verify this conversation. No work was started; your draft is kept.",
+    ].includes(message.message)) message = { ...message, message: "Unable to load conversation history. Try again; your draft is kept." };
     permissions.frame(message);
     if (message.type === "server_hello") {
       if(dialoguePrincipalKey !== undefined && dialoguePrincipalKey !== message.principalKey) clearPrivateDialogue();
