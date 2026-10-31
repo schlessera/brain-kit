@@ -122,6 +122,7 @@ test("missing dialogue read purges its page and principal replacement rejects a 
 for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(`live history coverage disclosure ${theme} ${width}`,async ctx=>{
  const s=await scene(ctx,width,theme);s.ui.stores.provider.setState({available:[{id:"athena",label:"Athena",backendId:"local"}],selectedId:"athena",loaded:true});
  flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",conversationProfile:profile("gpt-live"),durableAvailable:true,profile:{...profile("gpt-live"),historyCoverage:{state:"bounded",tailOmitted:true}},disclosureOpen:true}));
+ expect(s.host.textContent).toContain("Newest prior context was not sent.");
  const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
  expect(dialog.textContent).toContain("Starting voice sends bounded prior chat text and completed results to this voice service, including when you switch services.");
  expect(dialog.textContent).toContain("The newest prior item was not included.");
@@ -135,6 +136,7 @@ for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(
 for(const providerId of ["gemini-live","gpt-live"])for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(`prior context Details keyboard and tap ${providerId} ${theme} ${width}`,async ctx=>{
  const s=await scene(ctx,width,theme);
  flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",conversationProfile:profile(providerId),durableAvailable:true,profile:{...profile(providerId),historyCoverage:{state:"partial",tailOmitted:true}},disclosureOpen:false}));
+ expect(s.host.textContent).toContain("Newest prior context may be missing.");
  const trigger=s.host.querySelector<HTMLButtonElement>('[aria-label="Prior context details"]')!;
  expect(trigger).not.toBeNull();trigger.focus();expect(document.activeElement).toBe(trigger);
  if(width===320)await userEvent.click(trigger);else await userEvent.keyboard("{Enter}");

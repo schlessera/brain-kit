@@ -577,7 +577,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     attachMessageSources(sessionId, messages, strict = false) {
       try {
-        return attachMessageSources(db(), sessionId, messages);
+        return attachMessageSources(db(), sessionId, messages, strict, strict ? latestWork(sessionId)?.turnId ?? undefined : undefined);
       } catch (err) {
         if (strict) throw err;
         // A replay without sources renders every message as typed, which is

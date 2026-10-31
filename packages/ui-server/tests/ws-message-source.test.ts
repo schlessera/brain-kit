@@ -279,3 +279,39 @@ describe("the message source store", () => {
     expect(joined[0]).toEqual({ role: "user", content: "hi", toolCalls: [] });
   });
 });
+
+const native=(role:"user"|"assistant",content:string,turnId?:string):SessionHistoryMessage=>({role,content,toolCalls:[],...(turnId?{turnId}:{})});
+test("strict live provenance survives duplicate source-write gaps only through exact turn identity",()=>{
+ const db=getDb(),sid="ithaca-duplicate",text="The same complete submitted bytes";
+ saveMessageSource(db,sid,text,"typed",{turnId:"typed-later"});
+ const messages=[native("user",text),native("user",text),native("assistant","Ordinary answer.","typed-later")];
+ const out=attachMessageSources(db,sid,messages,true);
+ expect(out[0]!.source,"FAILED_CARRIER_CANNOT_BORROW_LATER_TYPED_ROW").toBeUndefined();
+ expect(out[1],"EXACT_LATER_TYPED_COPY_RETAINS_ITS_OWN_SOURCE").toMatchObject({source:"typed",turnId:"typed-later"});
+ const noBoundary=attachMessageSources(db,sid,messages.map(({turnId,...m})=>m),true);
+ expect(noBoundary.filter(m=>m.role==="user").map(m=>m.source),"COUNT_MISMATCH_WITHOUT_BOUNDARIES_CANNOT_AUTHENTICATE_EITHER_COPY").toEqual([undefined,undefined]);
+});
+test("strict live equal-count legacy ordinal fallback and distinct yes turns remain exact",()=>{
+ const db=getDb(),sid="ithaca-yes";
+ saveMessageSource(db,sid,"yes","typed",{turnId:"yes-one"});saveMessageSource(db,sid,"yes","voice-dictate",{turnId:"yes-two"});
+ const messages=[native("user","yes"),native("assistant","One.","yes-one"),native("user","yes"),native("assistant","Two.","yes-two")];
+ expect(attachMessageSources(db,sid,messages,true).filter(m=>m.role==="user").map(m=>m.source)).toEqual(["typed","voice-dictate"]);
+ db.prepare("UPDATE message_sources SET turn_id=NULL WHERE session_id=?").run(sid);
+ expect(attachMessageSources(db,sid,messages,true).filter(m=>m.role==="user").map(m=>m.source),"PRE_020_EQUAL_COUNTS_REMAIN_USABLE").toEqual(["typed","voice-dictate"]);
+});
+test("strict indexed candidate window counts full native prefix and authenticates running turn",()=>{
+ const db=getDb(),sid="ithaca-window";
+ for(let i=0;i<200;i++)saveMessageSource(db,sid,"yes","typed",{turnId:`turn-${i}`});
+ const messages=Array.from({length:199},(_,i)=>[native("user","yes"),native("assistant",`Answer ${i}`,`turn-${i}`)]).flat();messages.push(native("user","yes"));
+ const out=attachMessageSources(db,sid,messages,true,"turn-199");
+ expect(out.at(-1),"EXACT_RUNNING_SOURCE_IDENTITY_REACHES_THE_REQUEST_JOIN").toMatchObject({source:"typed",turnId:"turn-199"});
+ expect(out.slice(-128).filter(m=>m.role==="user").every(m=>m.source==="typed")).toBe(true);
+});
+
+test("a trailing source cannot borrow a different current turn or invent a legacy request position",()=>{
+ const db=getDb(),sid="ithaca-current";saveMessageSource(db,sid,"Which oar?","typed",{turnId:"earlier"});
+ const messages=[native("user","Which oar?")];
+ expect(attachMessageSources(db,sid,messages,true,"different")[0]!.source,"CURRENT_TURN_IDENTITY_MISMATCH_IS_UNPROVEN").toBeUndefined();
+ expect(attachMessageSources(db,sid,messages,true)[0],"EQUAL_COUNT_LEGACY_ORIGIN_DOES_NOT_INVENT_REQUEST_CHRONOLOGY").toMatchObject({source:"typed"});
+ expect(attachMessageSources(db,sid,messages,true)[0]!.turnId).toBeUndefined();
+});

@@ -59,11 +59,9 @@ for(const mismatch of ["none","principal","conversation","session","turn"] as co
  const native=[msg("user",carrier),msg("user","Later ordinary question."),msg("assistant","Later ordinary answer.",{turnId:"ordinary-turn"})];
  const stored={id:mismatch==="conversation"?"other":"old",principalId:mismatch==="principal"?"penelope":"odysseus",epoch:1,sessionId:mismatch==="session"?"other-session":"voyage",receipts:[{provenance:"contextual",turnId:mismatch==="turn"?"ordinary-turn":"missing-turn",submitted:carrier,state:"completed",requestId:"host-request",epoch:1}],results:[]};
  const f=source({loadConversation:async()=>stored});f.host.registry.getBackendForSession=async()=>({getHistory:async()=>native}) as never;
- if(mismatch==="none"||mismatch==="turn")await expect(readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized),"EXACT_CARRIER_WITHOUT_A_PROVABLE_NATIVE_JOIN_REFUSES").rejects.toThrow("Historical request provenance is unavailable");
- else{
-  const pending=readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized);
-  await expect(pending,"FOREIGN_RECEIPT_NEVER_OWNS_THIS_SNAPSHOT").resolves.toBeDefined();
-  const out=await pending;
-  expect(out!.items.flatMap(i=>i.kind==="typed"&&i.role==="user"?[i.text]:[]),"FOREIGN_RECEIPT_CANNOT_RECLASSIFY_OR_FILTER_NATIVE_TEXT").toEqual([carrier,"Later ordinary question."]);
- }
+ const out=await readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized);
+ expect(out!.items.some(i=>"text" in i&&i.text===carrier),"MISSING_OR_FOREIGN_RECEIPT_CANNOT_AUTHENTICATE_UNKNOWN_USER").toBe(false);
+ expect(out!.items.flatMap(i=>i.kind==="typed"&&i.role==="user"?[i.text]:[])).toEqual([]);
+ expect(out!.coverage).toMatchObject({state:"partial",reasons:expect.arrayContaining(["source_unavailable"])});
+ expect(out!.items).toContainEqual(expect.objectContaining({kind:"typed",role:"assistant",text:"Later ordinary answer."}));
 });

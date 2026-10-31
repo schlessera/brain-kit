@@ -1941,7 +1941,7 @@ for(const pending of ["running","failed"] as const)test(`real typed ${pending} n
  s.backend.getHistory=async()=>native;
  s.turns[0]!.answer("First typed answer.");await until(()=>!s.host.coordinator.isTurnActive());
  const c=await client.open({sessionId});
- c.session.emit({kind:"output_transcript",outputId:"mixed-voice",sequence:0,text:"The mast is ready."});await settle();
+ for(let i=0;i<60;i++)c.session.emit({kind:"output_transcript",outputId:`mixed-voice-${i}`,sequence:0,text:i===0?"The mast is ready.":`Earlier spoken reply ${i}. ${"Ithaca harbour notes. ".repeat(25)}`});await settle();
  client.send({type:"chat_message",sessionId,text:"NEWEST unanswered typed question?"});await until(()=>s.turns.length===2);
  native.push({role:"user",content:"NEWEST unanswered typed question?",toolCalls:[]});
  if(pending==="failed"){
@@ -1958,7 +1958,8 @@ for(const pending of ["running","failed"] as const)test(`real typed ${pending} n
  expect(env.coverage.reasons).toContain("ambiguous_order");
  if(pending==="running"){
   const bounded=boundHistory(env,new Set(),{maxBytes:650,maxFactBytes:0,maxItems:128});
-  expect(bounded.text.includes("NEWEST unanswered typed question?") || bounded.tailOmitted,"UNWITNESSED_RUNNING_TAIL_IS_INCLUDED_OR_QUALIFIED").toBe(true);
+  expect(bounded.text,"EXACT_RUNNING_REQUEST_QUESTION_SURVIVES_BOUNDS").toContain("NEWEST unanswered typed question?");
+  expect(bounded.tailOmitted,"EXACT_NEWEST_RUNNING_QUESTION_IS_NOT_MISSING").toBe(false);
  }else expect(text.indexOf("Final native failure explanation."),"UNWITNESSED_FAILURE_ANSWER_STAYS_WITH_ITS_NATIVE_QUESTION").toBe(text.indexOf("NEWEST unanswered typed question?")+1);
  expect(s.turns).toHaveLength(2);
 });
@@ -1975,7 +1976,7 @@ test("manual-only Start discloses the known attenuation of the offered contextua
  expect(s.live.sessions[0]!.options.contextualTasks).toBe(false);expect(s.live.sessions).toHaveLength(1);
 });
 
-for(const outcome of ["failed","empty-completed"] as const)test(`unsourced contextual ${outcome} carrier without assistant boundary refuses even before a later typed exchange`,async()=>{
+for(const outcome of ["failed","empty-completed"] as const)test(`unsourced contextual ${outcome} carrier becomes a partial gap before a later typed exchange`,async()=>{
  const {readLiveHistory}=await import("../src/ws/live-history");
  const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect(),c=await client.open({contextualTasks:true});
  s.db.exec("CREATE TRIGGER fail_contextual_source BEFORE INSERT ON message_sources WHEN NEW.source='voice-context' BEGIN SELECT RAISE(FAIL,'fictional source write unavailable'); END;");
@@ -1987,12 +1988,69 @@ for(const outcome of ["failed","empty-completed"] as const)test(`unsourced conte
  s.backend.getHistory=async()=>[{role:"user",content:carrier,toolCalls:[]},{role:"user",content:"Research the departure signal.",toolCalls:[]},{role:"assistant",content:"An ordinary typed answer.",toolCalls:[]}];
  s.turns[1]!.answer("An ordinary typed answer.");await until(()=>!s.host.coordinator.isTurnActive());await s.host.historySettled();
  expect(s.db.query("SELECT COUNT(*) AS n FROM message_sources WHERE source='voice-context'").get()).toEqual({n:0});
- await expect(readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true),"NO_UNWITNESSED_CARRIER_CAN_REACH_HISTORY").rejects.toThrow("Historical request provenance is unavailable");
+ const safe=await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true);
+ expect(safe!.items.some(i=>"text" in i&&i.text===carrier),"NO_UNWITNESSED_CARRIER_CAN_REACH_HISTORY").toBe(false);
+ expect(safe!.coverage).toMatchObject({state:"partial",reasons:expect.arrayContaining(["source_unavailable"])});
  client.send({type:"conversation_stop",conversationId:c.id});await settle();client.send({type:"conversation_start",sessionId,contextualTasks:true,requestId:"refuse-unwitnessed-carrier"});
- await until(()=>client.frames("conversation_closed").some(f=>f.requestId==="refuse-unwitnessed-carrier") || client.frames("conversation_opened").length>1);
- expect(s.live.sessions,"UNRESOLVED_CARRIER_FAILS_BEFORE_ANY_NEW_PROVIDER_OPEN").toHaveLength(1);expect(s.turns).toHaveLength(2);
+ await until(()=>client.frames("conversation_opened").length>1);
+ expect(s.live.sessions,"UNKNOWN_CARRIER_GAP_ALLOWS_SAFE_PROVEN_HISTORY").toHaveLength(2);
+ expect(s.live.sessions[1]!.options.history!.items.some(i=>"text" in i&&i.text===carrier)).toBe(false);expect(s.turns).toHaveLength(2);
  // Same recognized words in ordinary chat are not an exact internal carrier.
  s.backend.getHistory=async()=>[{role:"user",content:"Research the departure signal.",toolCalls:[]},{role:"assistant",content:"An ordinary typed answer.",toolCalls:[]}];
  const ordinary=await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true);
  expect(ordinary!.items.flatMap(i=>i.kind==="typed"&&i.role==="user"?[i.text]:[]),"ORDINARY_RECOGNIZED_WORDS_ARE_NOT_A_CARRIER_PATTERN").toEqual(["Research the departure signal."]);
+});
+
+test("carrier classification survives bounded journal page eviction",async()=>{
+ const {readLiveHistory}=await import("../src/ws/live-history");
+ const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect(),c=await client.open({contextualTasks:true});
+ s.db.exec("CREATE TRIGGER fail_contextual_source BEFORE INSERT ON message_sources WHEN NEW.source='voice-context' BEGIN SELECT RAISE(FAIL,'fictional source write unavailable'); END;");
+ await client.capture(c);c.session.emit({kind:"unassigned_input_fragment",sequence:0,text:"Research the departure signal.",timing:{kind:"unavailable"}});c.session.emit({kind:"work_requested",handle:"unwitnessed-research"});
+ await until(()=>s.turns.length===1);const carrier=s.turns[0]!.req.prompt,sessionId=s.turns[0]!.sessionId;
+ s.turns[0]!.fail(Error("The Ithaca calculation failed."));
+ await until(()=>!s.host.coordinator.isTurnActive());await s.host.historySettled();
+ s.backend.getHistory=async()=>[{role:"user",content:carrier,toolCalls:[]}];
+ const initial=await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true);
+ expect(initial!.items.some(i=>i.kind==="gap"&&i.reason==="source_unavailable")).toBe(true);
+ expect(initial!.items.some(i=>"text" in i&&i.text===carrier)).toBe(false);
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();
+ const native:any[]=[{role:"user",content:carrier,toolCalls:[]}];s.backend.getHistory=async()=>native;
+ for(let k=0;k<3;k++){const q=`Typed question ${k}`;client.send({type:"chat_message",sessionId,text:q});await until(()=>s.turns.length===2+k);
+  const a=`Long typed answer ${k}. `+"Ithaca harbour notes. ".repeat(2500);native.push({role:"user",content:q,toolCalls:[]},{role:"assistant",content:a,toolCalls:[]});
+  s.turns[1+k]!.answer(a);await until(()=>!s.host.coordinator.isTurnActive());}
+ await settle();await s.host.historySettled();
+ const page=await s.host.catalog.dialogueRead!(testPrincipal().id,{sessionId});
+ expect(page!.records.some(r=>r.evidence.kind==="voice"&&r.evidence.conversationId===c.id),"CARRIER_CONVERSATION_EVICTED_FROM_DISPLAY_PAGE").toBe(false);
+ const safe=await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true);
+ expect(safe!.items.some(i=>"text" in i&&i.text===carrier),"PAGE_INDEPENDENT_PROVENANCE_EXCLUDES_CARRIER").toBe(false);
+ expect(safe!.coverage).toMatchObject({state:"partial",reasons:expect.arrayContaining(["source_unavailable"])});
+ expect(safe!.items.some(i=>i.kind==="typed"&&i.role==="assistant"),"ADJACENT_NATIVE_ANSWER_REMAINS_DATA").toBe(true);
+ const opens=s.live.sessions.length;client.send({type:"conversation_start",sessionId,requestId:"page-eviction-start"});
+ await until(()=>s.live.sessions.length>opens);
+ expect(s.live.sessions,"SAFE_GAP_HISTORY_OPENS_AFTER_CARRIER_PAGE_EVICTION").toHaveLength(opens+1);
+ expect(s.live.sessions.at(-1)!.options.history!.items.some(i=>"text" in i&&i.text===carrier),"NO_CARRIER_EGRESS_AFTER_PAGE_EVICTION").toBe(false);
+});
+
+test("legacy imported and unclassified host user items become gaps while native answers remain available",async()=>{
+ const s=setup(),client=await s.connect(),sessionId="imported-ithaca";
+ s.host.catalog.persistSessionStub(sessionId,"Imported discussion.",null,"fake");await s.host.catalog.settled?.();
+ const hidden="Unclassified autonomous host request.";
+ s.backend.getHistory=async()=>[{role:"user",content:hidden,toolCalls:[]},{role:"assistant",content:"The mast supports the sail.",toolCalls:[]}];
+ const c=await client.open({sessionId}),h=c.session.options.history!;
+ expect(h.coverage.state,"LEGACY_OMISSION_DOES_NOT_PERMANENTLY_BLOCK_VOICE").toBe("partial");
+ expect(h.items).toContainEqual(expect.objectContaining({kind:"gap",reason:"source_unavailable"}));
+ expect(JSON.stringify(h),"NO_UNCLASSIFIED_HOST_REQUEST_CAN_BECOME_TYPED_USER").not.toContain(hidden);
+ expect(h.items).toContainEqual(expect.objectContaining({kind:"typed",role:"assistant",text:"The mast supports the sail."}));
+ expect(s.turns).toHaveLength(0);
+});
+test("contradictory positive typed source with exact retained contextual turn refuses startup",async()=>{
+ const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect(),c=await client.open({contextualTasks:true});
+ await client.capture(c);c.session.emit({kind:"unassigned_input_fragment",sequence:0,text:"Research the departure signal.",timing:{kind:"unavailable"}});c.session.emit({kind:"work_requested",handle:"contradiction"});
+ await until(()=>s.turns.length===1);const carrier=s.turns[0]!.req.prompt,sessionId=s.turns[0]!.sessionId;
+ s.backend.getHistory=async()=>[{role:"user",content:carrier,toolCalls:[]},{role:"assistant",content:"A bronze owl.",toolCalls:[]}];
+ s.turns[0]!.answer("A bronze owl.");await until(()=>c.session.returned.length===1);await s.host.historySettled();
+ s.db.prepare("UPDATE message_sources SET source='typed' WHERE session_id=?").run(sessionId);
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();client.send({type:"conversation_start",sessionId,requestId:"contradictory"});
+ await until(()=>client.frames("conversation_closed").some(f=>f.requestId==="contradictory")||s.live.sessions.length>1);
+ expect(s.live.sessions,"CONTRADICTORY_POSITIVE_SOURCE_NEVER_OPENS_PROVIDER").toHaveLength(1);
 });

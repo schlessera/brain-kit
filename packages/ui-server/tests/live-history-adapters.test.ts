@@ -194,3 +194,16 @@ for(const engine of ["gemini","gpt"] as const)test(`${engine}: preowner native p
  expect(session.historyCoverage,"SOCKET_RECENCY_UNCERTAINTY_CANNOT_REPORT_FULL_NEWEST_COVERAGE").toEqual({state:"partial",tailOmitted:true});
  expect(Buffer.byteLength(rendered)).toBeLessThanOrEqual(engine==="gpt"?7500:24000);await session.close();
 });
+
+for(const from of ["gemini-live","gpt-live"])for(const engine of ["gemini","gpt"] as const)test(`${from} to ${engine}: exact running typed request survives dense voice startup on actual socket`,async()=>{
+ const records:any[]=[{sequence:1,identity:"q1",evidence:{kind:"request",turnId:"t1"}},{sequence:2,identity:"a1",evidence:{kind:"backend",turnId:"t1",start:0,end:11,text:"Answer one.",digest:Bun.SHA256.hash("Answer one.","hex")}},
+ ...Array.from({length:60},(_,i)=>({sequence:i+3,identity:`v${i}`,evidence:{kind:"voice",conversationId:"old",epoch:1,providerId:from,event:{kind:"output_transcript",outputId:`v${i}`,sequence:0,text:`Earlier voice ${i}. ${"Ithaca harbour notes. ".repeat(25)}`}}})),
+ {sequence:63,identity:"q2",evidence:{kind:"request",turnId:"t2"}}];
+ const question="NEWEST running question: "+"Which oar bears Athena's mark? ".repeat(40);
+ const history=projectLiveHistory([{role:"user",content:"Question one.",toolCalls:[],turnId:"t1"},{role:"assistant",content:"Answer one.",toolCalls:[],turnId:"t1"},{role:"user",content:question,toolCalls:[],turnId:"t2"}],{ownerId:"ithaca",generation:1,coverage:"complete",through:63,records});
+ const {provider,sockets}=loopback(engine),session=await open(provider,"fresh-running",1,{history});await until(()=>historyTexts(engine,sockets[0]!).length>0);
+ const rendered=historyTexts(engine,sockets[0]!).join("\n");
+ expect(rendered,"SOCKET_EXACT_RUNNING_REQUEST_MUST_SURVIVE").toContain(question);
+ expect(session.historyCoverage!.tailOmitted,"SOCKET_KNOWN_NEWEST_IS_RETAINED").toBe(false);
+ expect(Buffer.byteLength(rendered)).toBeLessThanOrEqual(engine==="gpt"?7500:24000);await session.close();
+});

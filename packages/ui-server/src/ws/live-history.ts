@@ -32,22 +32,12 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
     if (!authorized()) return;
     if (!stored || stored.id !== id || stored.principalId !== principalId || stored.sessionId !== target.sessionId) continue;
     for (const receipt of stored.receipts) {
-      // A missing source row cannot authenticate an internal task carrier as
-      // typed dialogue. Only the exact native answer/nearest-user join can
-      // classify that carrier. Without it, exact submitted bytes anywhere in
-      // this transcript are ambiguous, even after failure or a later turn.
-      if (receipt.provenance === "contextual") {
-        const answer = receipt.turnId ? messages.findIndex(m => m.role === "assistant" && m.turnId === receipt.turnId) : -1;
-        let user = answer - 1;
-        while (user >= 0 && messages[user]!.role !== "user") user--;
-        if (answer >= 0 && user >= 0 && messages[user]!.content === receipt.submitted) {
-          const source = messages[user]!.source;
-          if (source && source !== "voice-context") throw Error("Historical request provenance is unavailable");
-          messages = messages.map((m,i) => i === user ? { ...m, source: "voice-context" } : m);
-        } else if (messages.some(m => m.role === "user" && m.content === receipt.submitted && m.source !== "voice-context")) {
-          throw Error("Historical request provenance is unavailable");
-        }
-      }
+      // Retained receipts can expose contradictory positive provenance, never
+      // authenticate a missing source row or resurrect an evicted carrier.
+      if(receipt.provenance==="contextual" && receipt.turnId && messages.some(m=>m.role==="user" &&
+        m.turnId===receipt.turnId && m.content===receipt.submitted && m.source && m.source!=="voice-context"))
+        throw Error("Historical request provenance is inconsistent");
+
       if (receipt.turnId && receipt.provenance !== "contextual" && page?.records.some(r => {
         const e = r.evidence;
         return e.kind === "voice" && e.conversationId === id && e.epoch === receipt.epoch && e.event.kind === "input_fragment" && e.event.utteranceId === receipt.utteranceId;
@@ -71,12 +61,12 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
     const current = host.catalog.dialogueOwnerForId?.(page.ownerId, principalId);
     if (host.catalog.dialogueOwnerForId && (!current || current.id !== page.ownerId || current.generation !== page.generation)) throw Error("Historical source changed");
   }
-  return freezeHistory(projectLiveHistory(messages, page ?? undefined, facts, canonicalVoiceTurns));
+  return freezeHistory(projectLiveHistory(messages, page ?? undefined, facts, canonicalVoiceTurns, new Set(messages.flatMap((m,i)=>m.role==="user"&&!m.source?[i]:[]))));
 }
 
 /** Exact joins supply interleaving; unavailable positions are explicitly qualified. */
 export function projectLiveHistory(messages: readonly SessionHistoryMessage[], page?: DialoguePage,
-  facts: readonly { item: HistoricalItem; turnId: string; requestId: string }[] = [], canonicalVoiceTurns: ReadonlySet<string> = new Set()): ConversationHistoryEnvelope {
+  facts: readonly { item: HistoricalItem; turnId: string; requestId: string }[] = [], canonicalVoiceTurns: ReadonlySet<string> = new Set(), unprovenUsers: ReadonlySet<number> = new Set()): ConversationHistoryEnvelope {
   const reasons = new Set<HistoryGapReason>();
   if (page?.cursor || messages.length > 128) reasons.add("older_omitted");
   if (page?.coverage === "legacy") reasons.add("pre_upgrade");
@@ -103,10 +93,14 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
     if (!message.content || message.role === "user" && message.source === "voice-context") continue;
     const ref = JSON.stringify(["native", messages.length - recent.length + i, message.role]);
     if (message.role === "user") {
+      if(unprovenUsers.has(messages.length-recent.length+i)) {
+        reasons.add("source_unavailable");
+        group.items.push({ref,kind:"gap",reason:"source_unavailable"});continue;
+      }
       const nextUser = recent.findIndex((m,j) => j > i && m.role === "user");
       const answer = recent.slice(i + 1, nextUser < 0 ? undefined : nextUser).find(m => m.role === "assistant");
       if (message.source === "voice-conversation" && answer?.turnId && canonicalVoiceTurns.has(answer.turnId)) continue;
-      const request = records.find(r => r.evidence.kind === "request" && r.evidence.turnId === answer?.turnId);
+      const request = records.find(r => r.evidence.kind === "request" && r.evidence.turnId === (message.turnId ?? answer?.turnId));
       const item: HistoricalItem = { ref, kind: "typed", role: "user", text: message.content,
         ...(message.source === "voice-conversation" || message.source === "voice-dictate" ? { source: message.source } : {}) };
       group.items.push(item);
@@ -172,8 +166,20 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
     if (request) add((ranges.at(-1)?.sequence ?? request.sequence) + 0.25, fact.item);
   }
   if (!page && records.length === 0 && recent.some(m => m.source === "voice-context")) reasons.add("source_unavailable");
-  const state = reasons.has("write_gap") || reasons.has("pre_upgrade") || reasons.has("ambiguous_order") ? "partial" : reasons.has("source_unavailable") ? "unavailable" : reasons.size ? "bounded" : "complete";
-  return { version: 1, coverage: { state, reasons: [...reasons].sort() }, items: ordered.sort((a,b) => a.order-b.order || a.index-b.index).map(v => v.item) };
+  const state = reasons.has("write_gap") || reasons.has("pre_upgrade") || reasons.has("ambiguous_order") || reasons.has("source_unavailable") ? "partial" : reasons.size ? "bounded" : "complete";
+  const items = ordered.sort((a,b) => a.order-b.order || a.index-b.index).map(v => v.item);
+  // Native order proves its tail follows every earlier exact native anchor.
+  // An older voice tail cannot be the newest once a later native anchor exists;
+  // an entirely unwitnessed prefix still has unknown recency, not a fake date.
+  const lastNativeGroup = groups.findLast(g=>g.items.length || g.positioned.length);
+  const lastFact = lastNativeGroup?.positioned.at(-1)?.item;
+  const nativeTail = lastFact?.kind==="host_fact" ? lastFact : lastNativeGroup?.items.at(-1);
+  const nativeUpperBound = nativeTail && lastNativeGroup?.positioned.find(p=>p.item.ref===nativeTail.ref)?.order;
+  const nativeLowerBound = Math.max(-Infinity,...groups.flatMap(g=>g.positioned.map(p=>p.order)));
+  const voiceTail = ordered.findLast(v=>v.item.kind==="recognized" || v.item.kind==="generated");
+  const newestRefs = [nativeTail && (nativeUpperBound===undefined || !voiceTail || nativeUpperBound>voiceTail.order) ? nativeTail.ref : undefined,
+    voiceTail && voiceTail.order > nativeLowerBound ? voiceTail.item.ref : undefined].filter((r):r is string=>r!==undefined);
+  return { version: 1, coverage: { state, reasons: [...reasons].sort() }, items, ...(newestRefs.length ? {newestRefs} : {}) };
 }
 
 /** Recursively freeze this host-owned snapshot before handing it to a provider. */

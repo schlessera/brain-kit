@@ -163,6 +163,10 @@ export interface ConversationHistoryEnvelope {
   version: 1;
   coverage: { state: "complete" | "bounded" | "partial" | "unavailable"; reasons: readonly HistoryGapReason[] };
   items: readonly HistoricalItem[];
+  /** Host-only possible newest items after causal joins. Never serialized to the provider.
+   * Absent retains conservative independent source-tail qualification.
+   */
+  newestRefs?: readonly string[];
 }
 
 /** @experimental Part of the `LiveConversationProvider` seam. */

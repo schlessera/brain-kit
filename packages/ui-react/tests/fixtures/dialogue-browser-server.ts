@@ -36,7 +36,7 @@ let quotaApplied = false, pressureApplied = false;
 let complete: (() => void) | undefined;
 let emitPrefix: ((text:string)=>void) | undefined;
 const history: SessionHistoryMessage[] = [];
-let backendTailQuota = false, multipart = false;
+let backendTailQuota = false, multipart = false, failResult = false;
 let FACT = "The departure signal is a bronze owl.";
 const backend = makeFakeBackend({
   id: "fake",
@@ -52,6 +52,7 @@ const backend = makeFakeBackend({
     await new Promise<void>((resolve) => {
       complete = resolve;
     });
+    if(failResult){failResult=false;throw Error("The Ithaca calculation failed.");}
     const failTail=backendTailQuota, useMultipart=multipart, reply=FACT;
     const first = useMultipart ? "The mast is ready. " : "";
     if (useMultipart) {
@@ -189,6 +190,9 @@ const server = Bun.serve({
       parallelLeave?: boolean;
       restart?: boolean;
       engine?: string;
+      failSource?: boolean;
+      failResult?: boolean;
+      evictReceipts?: boolean;
     };
     if (body.restart) {
       await closeHost();
@@ -201,6 +205,12 @@ const server = Bun.serve({
       host = makeHost();
       handlers = createWsHandlers(host, testPrincipal());
       await handlers.onOpen(undefined as never, ws);
+    }
+    if(body.failSource)db.exec("CREATE TRIGGER fail_contextual_source BEFORE INSERT ON message_sources WHEN NEW.source='voice-context' BEGIN SELECT RAISE(FAIL,'fictional source write unavailable'); END;");
+    if(body.evictReceipts){
+      const row=db.query("SELECT receipt FROM conversation_tasks WHERE receipt IS NOT NULL ORDER BY rowid LIMIT 1").get() as {receipt:string};
+      const receipt=JSON.parse(row.receipt);
+      for(let i=0;i<65;i++)await host.catalog.saveConversationTask!(testPrincipal().id,{...receipt,nativeHandle:`retained-${i}`,taskId:`retained-${i}`,requestId:`retained-${i}`});
     }
     if(body.takeover){frames=[];ws=fixtureSocket();handlers=createWsHandlers(host,testPrincipal());await handlers.onOpen(undefined as never,ws);}
     if(body.parallelStarts && body.client?.some(frame=>(frame as {type?:string}).type==="conversation_start")){const sink:ServerMessage[]=[];parallel={handlers:createWsHandlers(host,testPrincipal()),ws:{send:(data:string)=>sink.push(JSON.parse(data))} as WSContext,frames:sink};await parallel.handlers.onOpen(undefined as never,parallel.ws);parallel.handlers.onMessage({data:JSON.stringify({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}})} as MessageEvent,parallel.ws);}
@@ -215,6 +225,7 @@ const server = Bun.serve({
       if (history.length) throw Error("Typed history fixture must be seeded once before work");
       history.push({role:"user",content:"Plan Telemachus's crossing.",toolCalls:[]}, {role:"assistant",content:"Keep the blue sail ready.",toolCalls:[]});
       host.catalog.persistSessionStub("odysseus-ithaca","Plan Telemachus's crossing.",null,"fake");
+      host.catalog.recordMessageSource!("odysseus-ithaca","Plan Telemachus's crossing.","typed");
       await host.catalog.settled?.();
     }
     if(body.seedLegacyVoice) await host.catalog.saveConversationEpoch!({id:"old-voice",principalId:testPrincipal().id,epoch:1,sessionId:"odysseus-ithaca"});
@@ -255,6 +266,7 @@ const server = Bun.serve({
     }
     if (body.resultText) FACT=body.resultText;
     backendTailQuota=body.backendTailQuota===true; multipart=body.multipart===true;
+    failResult=body.failResult===true;
     if (body.release) complete?.();
     await Bun.sleep(20);
     await releaseQuota?.();
@@ -269,7 +281,12 @@ const server = Bun.serve({
       sent: sent.splice(0),
       ingress,
       rows,
-      tasks, providerOpens,
+      tasks, providerOpens, activeTurn:host.coordinator.isTurnActive(),
+      firstReceiptState:db.query("SELECT json_extract(receipt,'$.state') AS state FROM conversation_tasks ORDER BY rowid LIMIT 1").get(),
+      carrier:history.find(m=>m.role==="user")?.content,
+      contextualSources:(db.query("SELECT COUNT(*) AS n FROM message_sources WHERE source='voice-context'").get() as {n:number}).n,
+      nativeAssistantCount:history.filter(m=>m.role==="assistant").length,
+      receiptCounts:db.query("SELECT COUNT(*) AS identities,COUNT(receipt) AS retained FROM conversation_tasks").get(),
       parallelFrames:parallel?.frames,
       conversations:db.query("SELECT id,epoch,closed FROM dialogue_conversations ORDER BY id").all(),
       owners:db.query("SELECT id,coverage FROM dialogue_owners ORDER BY id").all(),

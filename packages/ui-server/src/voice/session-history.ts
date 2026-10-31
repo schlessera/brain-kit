@@ -122,13 +122,18 @@ export function boundHistory(
   const omitted = chosen.some((p) => !p);
   const outReasons = [...reasons, ...(omitted ? ["older_omitted" as const] : [])].filter((r, i, a) => a.indexOf(r) === i).sort();
   const state = envelope.coverage.state === "complete" ? (omitted ? "bounded" : "complete") : envelope.coverage.state;
-  // Native order and journal order are each known even when their merge is
-  // not. Keeping both source tails rules out an available newest omission;
-  // dropping either one cannot be described as merely losing older context.
+  // Exact causal joins can rule out an older source tail. Older envelopes
+  // conservatively retain both independent tails when merge order is unknown.
   const nativeTail = candidates.findLastIndex(c=>c.item.kind === "typed" || c.item.kind === "host_fact");
   const voiceTail = candidates.findLastIndex(c=>c.item.kind === "recognized" || c.item.kind === "generated");
-  const uncertainOmission = reasons.has("ambiguous_order") && [nativeTail,voiceTail].some(i=>i>=0 && !chosen[i]);
-  return { text, bytes: bytes(text), tailOmitted: uncertainOmission || candidates.length > 0 && !chosen[candidates.length - 1], selectedRefs: candidates.filter((_, i) => chosen[i]).map((c) => c.item.ref),
+  const frontier = envelope.newestRefs === undefined ? [nativeTail,voiceTail]
+    : envelope.newestRefs.map(ref=>candidates.findIndex(c=>c.item.ref===ref));
+  const uncertainOmission = reasons.has("ambiguous_order") && frontier.some(i=>i>=0 && !chosen[i]);
+  const unavailableTail = frontier.some(i=>{
+    const item=candidates[i]?.item;
+    return item?.kind==="gap" && item.reason==="source_unavailable";
+  });
+  return { text, bytes: bytes(text), tailOmitted: unavailableTail || uncertainOmission || candidates.length > 0 && !chosen[candidates.length - 1], selectedRefs: candidates.filter((_, i) => chosen[i]).map((c) => c.item.ref),
     coverage: { state, reasons: outReasons } };
 }
 

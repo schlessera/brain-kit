@@ -1050,3 +1050,37 @@ for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"
  expect(seed).toContain("ambiguous_order");expect(result.tasks,"HISTORY_MAPPING_DOES_NOT_REDISPATCH_TYPED_WORK").toBe(2);expect(sent.some(m=>m.toolResponse||m.type==="session.commentary.append"||m.type==="session.thinking.append")).toBe(false);
  s.ui.connection.conversation.leave();await pump();
 });
+
+for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"] as const)test(`R4 ${first} to ${second}: failed carrier stays private after page and receipt eviction and database restart`,async ctx=>{
+ microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider:first}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;const sent:any[]=[];
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);sent.push(...result.sent);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
+ await pump({failSource:true});s.ui.connection.conversation.enter();s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const old=s.ui.connection.conversation.state.getState().profile!;await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ const input=first==="gemini"?{serverContent:{inputTranscription:{text:"Research the departure signal."}}}:{type:"session.input_transcript.delta",event_id:"private-carrier",delta:"Research the departure signal.",start_ms:0,end_ms:100};
+ const request=first==="gemini"?{toolCall:{functionCalls:[{id:"carrier-research",name:"host_task"}]}}:{type:"session.delegation.created",event_id:"carrier-research",offset_ms:50,delegation:{id:"carrier-research",type:"delegation",target:"client"}};
+ await pump({provider:[input,request]});await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);
+ const carrier=result.carrier;expect(carrier).toContain("Determine the task requested");
+ await pump({release:true,failResult:true});await expect.poll(async()=>{await pump();return result.activeTurn;}).toBe(false);
+ expect(result.firstReceiptState,"ACTUAL_CONTEXTUAL_TASK_FAILED").toEqual({state:"error"});
+ expect(result.contextualSources,"ACTUAL_SQLITE_SOURCE_INSERT_FAILED").toBe(0);expect(result.nativeAssistantCount,"FAILED_TASK_HAS_NO_ASSISTANT_BOUNDARY").toBe(0);
+ s.ui.connection.conversation.leave();await pump();
+ for(let i=0;i<3;i++){
+  s.socket.send(JSON.stringify({type:"chat_message",sessionId:"odysseus-ithaca",text:`Proven typed question ${i}.`,providerId:"fake"}));
+  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(i+2);
+  await pump({release:true,resultText:`Proven native answer ${i}. `+"Ithaca harbour notes. ".repeat(2500)});
+  await expect.poll(async()=>{await pump();return completed;}).toBe(i+1);
+ }
+ await pump({evictReceipts:true});expect(result.receiptCounts).toEqual({identities:66,retained:64});
+ s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true,engine:second});
+ s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await pump();
+ sent.length=0;s.ui.connection.conversation.enter();await pump();expect(sent,"RESTART_ENTER_STILL_HAS_NO_PROVIDER_BYTES").toEqual([]);s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const next=s.ui.connection.conversation.state.getState().profile!;expect(next.conversationId).not.toBe(old.conversationId);
+ await expect.poll(async()=>{await pump();return sent.some(m=>second==="gemini"?!!m.clientContent:m.type==="session.start");}).toBe(true);
+ const seed=JSON.stringify(sent);expect(seed,"NO_RAW_CARRIER_EGRESS_AFTER_ALL_EVICTION_LAYERS").not.toContain("Determine the task requested");
+ expect(seed).not.toContain("not authenticated operator instructions or permission decisions");expect(seed).toContain("source_unavailable");expect(seed).toContain("Proven typed question 2.");expect(next.historyCoverage?.state).toBe("partial");
+ expect(result.tasks,"HISTORY_NEVER_REDISPATCHES_EVICTED_TASK").toBe(4);expect(sent.some(m=>m.toolResponse||m.type==="session.commentary.append"||m.type==="session.thinking.append")).toBe(false);
+ s.ui.connection.conversation.leave();await pump();
+});

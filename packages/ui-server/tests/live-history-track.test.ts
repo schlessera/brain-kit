@@ -47,7 +47,9 @@ test("live history keeps track-file native identity joins before source normaliz
     host.prepareHistory = (...args) => { live = prepare(...args); return live; };
     const env = await readLiveHistory(host, testPrincipal().id, { sessionId: "odysseus-track-session" }, () => true);
     expect(ordinary.filter(m=>m.role === "assistant").every(m=>!!m.turnId)).toBe(true);
-    expect(live.map(m=>m.turnId), "LIVE_HISTORY_RETAINS_NATIVE_TURN_IDENTITIES").toEqual(ordinary.map(m=>m.turnId));
+    expect(live.filter(m=>m.role==="assistant").map(m=>m.turnId), "LIVE_HISTORY_RETAINS_NATIVE_TURN_IDENTITIES").toEqual(ordinary.filter(m=>m.role==="assistant").map(m=>m.turnId));
+    expect(live.filter(m=>m.role==="user").map(m=>m.turnId),"LIVE_USER_SOURCE_JOINS_EXACT_NATIVE_TURNS").toEqual(live.filter(m=>m.role==="assistant").map(m=>m.turnId));
+    expect(env!.items.flatMap(i=>i.kind==="typed"&&i.role==="user"?[i.text]:[])).toEqual(["Show this file","And then?"]);
     expect(live.at(-1)!.failure,"LIVE_HISTORY_RETAINS_NATIVE_FAILURE_JOIN").toEqual(ordinary.at(-1)!.failure);
     expect(live.at(-1)!.toolCalls).toEqual(ordinary.at(-1)!.toolCalls);
     expect(env!.items.filter(i=>i.kind === "typed").map(i=>i.text)).toContain("The loop is short.");

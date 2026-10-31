@@ -4054,6 +4054,8 @@ failed write. No provider-facing history or authority interface changes.
 `LiveConversationOpenOptions.history?: ConversationHistoryEnvelope` is an
 additive input on the existing live-provider seam. Version 1 contains ordered
 `HistoricalItem` values and coverage with explicit `HistoryGapReason` values.
+Optional host-only `newestRefs` identifies the possible newest items after exact
+causal joins; it qualifies omissions and never enters provider text.
 Typed chat (including recorded dictated/submitted-voice source), uncertain
 recognized speech, generated voice replies, completed
 host facts and gaps remain distinct. `HistoricalResultRef` preserves the exact
@@ -4064,9 +4066,13 @@ never proves playback. Historical items grant no admission or permission.
 
 The host reads canonical journal pages after authorization and known-chat
 admission, joins native backend-owned answers only by exact position witnesses,
-and reads completed facts through exact retained receipts. It omits contextual
-task wrappers, raw audio, hidden thinking, tool requests and native response
-handles. Missing cross-stream position evidence qualifies order, without
+and reads completed facts through exact retained receipts. Live user items require recorded source provenance: exact turn identity, or
+ordinal matching with equal full native/source duplicate counts when turn IDs
+are unavailable. Unproven user items become in-place `source_unavailable` gaps
+with partial coverage; ordinary chat display keeps its existing fallback. Native
+assistant text remains historical data. This excludes contextual task wrappers
+regardless of journal paging or receipt retention, as well as raw audio, hidden
+thinking, tool requests and native response handles. Missing cross-stream position evidence qualifies order, without
 replacing full native answers with range copies. A read failure refuses startup;
 there is no automatic provider retry or context-free fallback. Authorization,
 entry lifetime and owner/generation are rechecked after reads.

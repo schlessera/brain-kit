@@ -16,7 +16,7 @@ test("preserves newest unanswered typed question after witnessed exchange", ()=>
  expect(out.coverage.reasons).toContain("ambiguous_order");
  const b=boundHistory(out,new Set(),{maxBytes:650,maxFactBytes:0,maxItems:128});
  expect(b.text,"LATEST_QUESTION_SURVIVES_BYTE_PRESSURE").toContain("NEWEST typed question with no answer yet.");
- expect(b.tailOmitted,"AMBIGUOUS_OMISSIONS_DO_NOT_CLAIM_NEWEST_COMPLETENESS").toBe(true);
+ expect(b.tailOmitted,"OLDER_VOICE_IS_CAUSALLY_BEFORE_THE_RETAINED_NATIVE_TAIL").toBe(false);
 });
 test("preserves native order: witnessed Q1/A1 then unwitnessed Q2/A2 (answer text differs from ranges)", ()=>{
  const p={...page,records:[...page.records,{sequence:4,identity:"q2",evidence:{kind:"request" as const,turnId:"t2"}},backend(5,"t2","Partial streamed")]};
@@ -59,4 +59,28 @@ test("unwitnessed native question cannot relocate its exactly witnessed assistan
  const env=projectLiveHistory([msg("user","Question before owner."),msg("assistant",text,{turnId:"before-owner"})],{ownerId:"ithaca",generation:1,coverage:"complete",through:4,records});
  expect(env.items.flatMap(i=>"text" in i?[i.text]:[]),"KNOWN_RANGE_POSITIONS_SURVIVE_AN_UNKNOWN_REQUEST").toEqual(["Question before owner.","First part. ","Interleaved witnessed voice.","Last part."]);
  expect(env.coverage.reasons).toContain("ambiguous_order");
+});
+
+test("exact unanswered user request outranks dense later-than-prefix voice records",()=>{
+ const records:DialoguePage["records"]=[{sequence:1,identity:"q1",evidence:{kind:"request",turnId:"t1"}},backend(2,"t1","Answer one."),
+ ...Array.from({length:60},(_,i)=>({sequence:i+3,identity:`voice-${i}`,evidence:{kind:"voice" as const,conversationId:"voice",epoch:1,providerId:"gpt-live",event:{kind:"output_transcript" as const,outputId:`o${i}`,sequence:0,text:`Earlier voice ${i}: ${"Harbour notes. ".repeat(40)}`}}})),
+ {sequence:63,identity:"running",evidence:{kind:"request",turnId:"t2"}}];
+ const env=projectLiveHistory([msg("user","Question one.",{turnId:"t1"}),msg("assistant","Answer one.",{turnId:"t1"}),msg("user","NEWEST running question?",{turnId:"t2"})],{ownerId:"ithaca",generation:1,coverage:"complete",through:63,records});
+ for(const maxBytes of [7500,24000])expect(boundHistory(env,new Set(),{maxBytes,maxFactBytes:0,maxItems:128}).text,"EXACT_RUNNING_REQUEST_MUST_SURVIVE").toContain("NEWEST running question?");
+});
+
+test("unproven newest user is an unavailable gap with an honest newest omission",()=>{
+ const env=projectLiveHistory([msg("user","Unclassified internal carrier.")],undefined,[],new Set(),new Set([0]));
+ const b=boundHistory(env);
+ expect(b.text).not.toContain("Unclassified internal carrier.");expect(b.text).toContain("source_unavailable");
+ expect(b.coverage.state).toBe("partial");expect(b.tailOmitted,"UNPROVEN_NEWEST_USER_IS_NOT_SILENTLY_COMPLETE").toBe(true);
+});
+
+test("known newest voice does not warn about an older exactly witnessed native tail",()=>{
+ const answer="Older complete answer. ".repeat(100);
+ const records:DialoguePage["records"]=[{sequence:1,identity:"request",evidence:{kind:"request",turnId:"t1"}},backend(2,"t1",answer),{sequence:3,identity:"newest",evidence:{kind:"voice",conversationId:"voice",epoch:1,providerId:"gpt-live",event:{kind:"output_transcript",sequence:0,outputId:"newest",text:"Newest witnessed voice reply."}}}];
+ const env=projectLiveHistory([msg("user","Older question.",{turnId:"t1"}),msg("assistant",answer,{turnId:"t1"})],{ownerId:"ithaca",generation:1,coverage:"complete",through:3,records});
+ const b=boundHistory(env,new Set(),{maxBytes:650,maxFactBytes:0,maxItems:128});
+ expect(b.text).toContain("Newest witnessed voice reply.");expect(b.text).not.toContain(answer);
+ expect(b.tailOmitted,"OLDER_EXACT_NATIVE_TAIL_IS_NOT_POSSIBLY_NEWEST").toBe(false);
 });

@@ -476,6 +476,15 @@ record is not an authenticated before-owner timestamp, especially with partial
 storage coverage. Unknown runs keep native order and gap qualification, while
 exact assistant ranges retain their actual positions. If bounded selection drops
 text with ambiguous cross-stream recency, `tailOmitted` is conservative and the UI
-says the newest context may be missing. An exact contextual carrier without an
-answer/nearest-user identity join refuses the snapshot wherever it occurs; failure,
-empty completion or a later ordinary turn cannot authenticate the carrier.
+says the newest context may be missing. Exact later native witnesses can rule out
+an older voice tail as a possible newest omission.
+
+Live user text requires a positive source row joined by exact turn identity, or
+an ordinal with equal full-native/source duplicate counts when either turn ID is
+unavailable. Source reads query only the bounded candidate identities through
+existing indexes. Missing legacy/imported or host-prompt provenance replaces the
+whole user item in place with a `source_unavailable` gap and partial coverage;
+it neither authenticates typed dialogue nor blocks the rest of the chat. Native
+assistant text remains historical assistant data. Missing or evicted contextual
+receipts cannot classify a user. Actual source read errors and contradictory
+positive source/retained receipt identities refuse startup before provider open.
