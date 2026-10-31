@@ -4140,7 +4140,9 @@ rejected close proves persistence, cancellation, worker exit or resource
 release.
 
 `BrainUiApp.close()` refuses new admission at once and monitors real outstanding
-requests on its native SQLite worker throughout cleanup. A request pending at
+requests on both its shared UI/journal SQLite worker and its separate native-lease
+SQLite worker throughout cleanup. Native manager RPCs do not acquire a SQLite
+deadline. A request pending at
 close gets ten seconds from observation; a later submission gets ten seconds
 from submission, including native FIFO queue wait. An unsettled native request
 rejects close while retaining the actual cleanup continuation. This is not a
