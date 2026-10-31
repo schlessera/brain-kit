@@ -23,7 +23,9 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 ## Bounded storage failure settlement (additive, #3185)
 
 The server exports `StorageSettlementIndeterminate` for bounded caller waits
-whose real cleanup remains owned; app close covers the entire cleanup FIFO.
+whose real cleanup remains owned; app close monitors native storage requests
+throughout its cleanup FIFO while preserving CLI grace/protected writers and
+Activity's genuine failure identity.
 The additive `DIALOGUE_INDETERMINATE` diagnostic stops the failed live epoch
 without claiming a timed-out write was saved, unsaved or cancelled. No frame
 shape changes. See [package lifecycle](integration-contract/package-api.md#indeterminate-storage-settlement-3185),

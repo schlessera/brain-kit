@@ -88,9 +88,11 @@ test("close cancels a read that never exits once the grace period ends", async (
   const stats = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/stats")));
   await cli.started();
   const begun = performance.now();
+  const outcome = app.close().then(() => "resolved", error => error);
   expect(await closeWithin(app, 20_000), "CLOSE_MUST_NOT_WAIT_FOR_A_HUNG_SHARED_RUN").toBe("closed");
   expect(performance.now() - begun, "the grace period is honoured before cancelling").toBeGreaterThan(9_500);
   expect(await stats.then(response => response.status, () => "rejected")).not.toBe(200);
+  expect(await outcome, "HEALTHY_FULL_GRACE_CLOSE_MUST_RESOLVE").toBe("resolved");
 }, 45_000);
 
 test("a read that finishes within the grace period is answered", async () => {
@@ -109,9 +111,11 @@ test("close lets a writer that outlasts the grace period finish", async () => {
   const add = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/add", { method: "POST",
     headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Landed on Ithaca at dawn." }) })));
   await cli.started();
+  const outcome = app.close().then(() => "resolved", error => error);
   const closed = closeWithin(app, 25_000);
   expect(await (await add).json(), "WRITER_MUST_COMPLETE_ACROSS_CLOSE").toMatchObject({ success: true, path: ADDED.path });
   expect(await closed).toBe("closed");
+  expect(await outcome, "PROTECTED_OVER_GRACE_WRITER_CLOSE_MUST_RESOLVE").toBe("resolved");
 }, 45_000);
 
 test("the client's shutdown signal cancels a plain index with its exact reason", async () => {

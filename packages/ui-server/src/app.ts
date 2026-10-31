@@ -1,4 +1,5 @@
-import { STORAGE_SETTLEMENT_MS, withinStorageBudget } from "./db/settlement.js";
+import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
+import { guardSqliteCleanup } from "./db/write-worker.js";
 import { createStorageHistory } from "./storage/history-store.js";
 import { aggregateCollection } from "./storage/history-model.js";
 import { createSharedStorageScan } from "./storage/shared-scan.js";
@@ -269,7 +270,7 @@ export interface BrainUiApp {
    * their operational state. Stalled request bodies are cancelled on close.
    * Module metadata still waiting for execution admission is cancelled at
    * once. In-flight brain CLI reads, metadata and plain index runs get a 10 s
-   * grace period and are then cancelled. The entire caller wait is bounded
+   * grace period and are then cancelled. Only outstanding native storage waits are bounded
    * by that grace: an indeterminate rejection retains the actual cleanup
    * continuation, writer and reader until genuine settlement. Its cleanup
    * promise observes that continuation; the shell owns physical process exit.
@@ -1201,7 +1202,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
-    close: () => closing ??= withinStorageBudget((async () => {
+    close: () => closing ??= guardSqliteCleanup(writer, (async () => {
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
       host.closing = true;
@@ -1250,7 +1251,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
-    })(), "Application shutdown"),
+    })()),
   };
   } catch (error) {
     const failures: unknown[] = [];

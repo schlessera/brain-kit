@@ -3,6 +3,9 @@ export const url = import.meta.url;
 /** Native failure controls confined to the fixture's own database worker. */
 export function setup(db: Database) {
   return {
+    refuseCompletedTask() {
+      db.exec("CREATE TRIGGER refuse_completed_conversation_task BEFORE INSERT ON conversation_tasks WHEN json_extract(NEW.receipt,'$.state')='completed' BEGIN SELECT RAISE(ABORT,'Ithaca task outcome write refused'); END");
+    },
     holdUntilReleased(control: Int32Array) {
       Atomics.store(control, 1, 1);
       Atomics.notify(control, 1);

@@ -2292,7 +2292,10 @@ character cap. Old native conversation/receipt/output cache bounds do not prune
 this archive. Pending writes are limited to 256 observations/1 MiB per owner;
 individual archive payloads are at most 32 KiB. Actual no-space/quota or bounded
 queue failure stops the unsafe live path with an unsaved-tail explanation.
-`DIALOGUE_INDETERMINATE` means the 10-second storage settlement budget expired;
+`DIALOGUE_INDETERMINATE` means the 10-second storage settlement budget expired.
+Per-write budgets start at journal submission and include catalog/native FIFO
+queue wait and acknowledgement latency; a long healthy shared queue can stop
+voice as indeterminate. The deadline is not evidence that SQLite failed;
 write outcome and cleanup remain unknown. It stops capture/admission and ends
 only the failed epoch, withholding unresolved observations. It never labels
 them `retention: "unsaved"`, acknowledges persistence or cancels storage.
