@@ -252,11 +252,64 @@ function topNodes(body: string): MdNode[] {
 }
 
 /**
+ * Internal container-prefix column budget (not an mdast depth limit).
+ * 64 is comfortably parseable by remark-parse 11 / micromark 4 and its
+ * recursive GFM walks. Quotes cost one column; list markers and indentation
+ * cost their source columns (tabs advance to the next four-column stop).
+ * This deliberately conservative bound can leave deeply indented prose for
+ * a human. Lazy continuations cannot open containers. Ordinary fenced code
+ * is opaque. Scanning each line once avoids micromark's per-level stack copies.
+ */
+export const MAX_BODY_DEPTH = 64;
+
+function checkBodyDepth(body: string, label: string): void {
+  let fence: { marker: string; size: number } | undefined;
+  for (const line of body.split(/\r\n|[\r\n]/)) {
+    if (fence) {
+      const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.size) fence = undefined;
+      continue;
+    }
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
+      fence = { marker: opening[1]![0]!, size: opening[1]!.length };
+      continue;
+    }
+    const thematic = /^(?:(?:[ \t]*-){3,}|(?:[ \t]*\*){3,}|(?:[ \t]*_){3,})[ \t]*$/.test(line);
+    let i = 0;
+    let columns = 0;
+    let container = false;
+    while (i < line.length) {
+      const c = line[i]!;
+      if (c === " " || c === "\t") {
+        columns += c === "\t" ? 4 - columns % 4 : 1;
+        i++;
+      } else if (c === ">") {
+        columns++;
+        container = true;
+        i++;
+        if (line[i] === " ") i++;
+      } else {
+        const marker = /^(?:[-+*]|[0-9]{1,9}[.)])(?=[ \t])/.exec(line.slice(i, i + 11));
+        if (!marker) break;
+        // A thematic break is not a stack of list containers.
+        if (thematic) break;
+        columns += marker[0].length;
+        i += marker[0].length;
+        container = true;
+      }
+    }
+    if (container && columns > MAX_BODY_DEPTH) throw new UnparseableError(`${label}: the body nests too deeply to parse`);
+  }
+}
+
+/**
  * `read` run on a side's body, with the parser's recursion limit as an
  * `UnparseableError`: mdast walks nest one call per level, so a body nested
  * a few thousand blockquotes deep overflows the stack.
  */
-function withinDepth<T>(label: string, read: () => T): T {
+function withinDepth<T>(label: string, body: string, read: () => T): T {
+  checkBodyDepth(body, label);
   try {
     return read();
   } catch (e) {
@@ -271,7 +324,7 @@ function withinDepth<T>(label: string, read: () => T): T {
  */
 export function headingTexts(text: string): string[] {
   const body = text.slice(frontmatterLength(text));
-  return withinDepth("text", () =>
+  return withinDepth("text", body, () =>
     topNodes(body)
       .filter((node) => node.type === "heading")
       .map(visibleText)
@@ -416,7 +469,7 @@ export function parseDoc(raw: string, side: Side, opts: ParseOptions): Doc {
     if (unsupported) throw new UnparseableError(`${side}: ${unsupported}`);
   }
   const body = raw.slice(length);
-  const sections = withinDepth(side, () => sectionize(body, side, opts));
+  const sections = withinDepth(side, body, () => sectionize(body, side, opts));
   for (const section of sections) {
     const rebuilt = section.heading + section.lead + section.units.map((unit) => unit.text + unit.sep).join("");
     if (rebuilt !== section.text) {

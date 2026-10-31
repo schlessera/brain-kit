@@ -48,6 +48,13 @@ back.
    generated sentence to review. Code, binaries, files over 100 KB and
    markdown that does not parse are left unresolved (`planMergeLF`,
    `packages/core/src/lib/sync/resolve/plan.ts:122-145`).
+   Before Markdown tokenization, merge parsing and heading inspection enforce
+   an internal 64-column container-prefix budget. Blockquotes cost one column;
+   list markers and indentation cost source columns, with four-column tab
+   stops. This conservative safety budget may leave heavily indented input
+   unresolved even when a general Markdown parser accepts it. Ordinary fenced
+   code and thematic breaks remain valid. Excess uses the existing nesting
+   refusal; the RangeError backstop still covers recursive inline walks.
    - *Rejected: let an LLM write the merged note.* It is the only option that
      can drop a fact silently, and a sync's first rule is that it never drops
      content. A merge built from verbatim blocks can at worst keep a
