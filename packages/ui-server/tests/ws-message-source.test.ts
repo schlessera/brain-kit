@@ -288,7 +288,7 @@ test("strict live provenance survives duplicate source-write gaps only through e
  const out=attachMessageSources(db,sid,messages,true);
  expect(out[0]!.source,"FAILED_CARRIER_CANNOT_BORROW_LATER_TYPED_ROW").toBeUndefined();
  expect(out[1],"EXACT_LATER_TYPED_COPY_RETAINS_ITS_OWN_SOURCE").toMatchObject({source:"typed",turnId:"typed-later"});
- const noBoundary=attachMessageSources(db,sid,messages.map(({turnId,...m})=>m),true);
+ const noBoundary=attachMessageSources(db,sid,messages.map(({turnId:_turnId,...m})=>m),true);
  expect(noBoundary.filter(m=>m.role==="user").map(m=>m.source),"COUNT_MISMATCH_WITHOUT_BOUNDARIES_CANNOT_AUTHENTICATE_EITHER_COPY").toEqual([undefined,undefined]);
 });
 test("strict live equal-count legacy ordinal fallback and distinct yes turns remain exact",()=>{
