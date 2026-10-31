@@ -257,22 +257,69 @@ function topNodes(body: string): MdNode[] {
  * recursive GFM walks. Quotes cost one column; list markers and indentation
  * cost their source columns (tabs advance to the next four-column stop).
  * This deliberately conservative bound can leave deeply indented prose for
- * a human. Lazy continuations cannot open containers. Ordinary fenced code
- * is opaque. Scanning each line once avoids micromark's per-level stack copies.
+ * a human. Lazy continuations cannot open containers. Unindented top-level
+ * fences outside possible HTML are opaque; other code may be overcounted.
+ * Scanning each line once avoids micromark's per-level stack copies.
  */
 export const MAX_BODY_DEPTH = 64;
 
+/** GFM definition labels: syntax.js labelInside/labelEscape, capped at 999 source characters. */
+function footnotePrefixLength(line: string, start: number): number {
+  if (!line.startsWith("[^", start)) return 0;
+  let i = start + 2;
+  let size = 0;
+  while (i < line.length && size <= 999) {
+    const c = line[i]!;
+    if (c === "]") return size > 0 && line[i + 1] === ":" ? i + 2 - start : 0;
+    if (c === "[" || c === " " || c === "\t") return 0;
+    i++;
+    size++;
+    if (c === "\\" && /[\[\]\\]/.test(line[i] ?? "")) {
+      i++;
+      size++;
+    }
+  }
+  return 0;
+}
+
 function checkBodyDepth(body: string, label: string): void {
-  let fence: { marker: string; size: number } | undefined;
+  let fence: { marker: string; size: number; indent: number } | undefined;
+  // Only suppress fence recognition in possible HTML, never depth scanning.
+  // html-flow.js kinds 1-5 end at delimiters; kinds 6-7 at a blank line.
+  // Treating any other `<` as kind 7 overcounts safely, without a tag lexer.
+  const htmlKinds = [
+    [/<(?:pre|script|style|textarea)(?=[ \t/>]|$)/i, /<\/(?:pre|script|style|textarea)>/i],
+    [/<!--/, /-->/], [/<\?/, /\?>/],
+    [/<!\[CDATA\[/, /\]\]>/], [/<![a-z]/i, />/],
+  ] as const;
+  const possibleLongHtml = new Set<number>();
+  let possibleHtml = false;
   for (const line of body.split(/\r\n|[\r\n]/)) {
     if (fence) {
       const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
-      if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.size) fence = undefined;
-      continue;
+      if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.size) {
+        fence = undefined;
+        continue;
+      }
+      // A concrete fence cannot lazily continue after its list/footnote exits.
+      // For an indented top-level fence this can overcount, never hide depth.
+      if (/^[ \t]*$/.test(line) || line.startsWith(" ".repeat(fence.indent))) continue;
+      fence = undefined;
     }
+    // Track possible long HTML kinds independently: apparent tags inside a
+    // comment (or vice versa) may only extend suppression, never end it early.
+    if (line.includes("<")) possibleHtml = true;
+    for (const [index, [open]] of htmlKinds.entries()) {
+      if (open.test(line)) possibleLongHtml.add(index);
+    }
+    const suppressFence = possibleHtml || possibleLongHtml.size > 0;
+    for (const index of possibleLongHtml) {
+      if (htmlKinds[index]![1].test(line)) possibleLongHtml.delete(index);
+    }
+    if (/^[ \t]*$/.test(line)) possibleHtml = false;
     const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
-      fence = { marker: opening[1]![0]!, size: opening[1]!.length };
+    if (!suppressFence && opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
+      fence = { marker: opening[1]![0]!, size: opening[1]!.length, indent: line.length - line.trimStart().length };
       continue;
     }
     const thematic = /^(?:(?:[ \t]*-){3,}|(?:[ \t]*\*){3,}|(?:[ \t]*_){3,})[ \t]*$/.test(line);
@@ -290,6 +337,13 @@ function checkBodyDepth(body: string, label: string): void {
         i++;
         if (line[i] === " ") i++;
       } else {
+        const footnote = footnotePrefixLength(line, i);
+        if (footnote) {
+          columns += footnote;
+          i += footnote;
+          container = true;
+          continue;
+        }
         const marker = /^(?:[-+*]|[0-9]{1,9}[.)])(?=[ \t])/.exec(line.slice(i, i + 11));
         if (!marker) break;
         // A thematic break is not a stack of list containers.

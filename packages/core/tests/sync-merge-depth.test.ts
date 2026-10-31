@@ -39,3 +39,29 @@ test("bounded inline nesting controls survive parser and text walks", () => {
     }
   }
 });
+
+function refusedThroughBothEntries(body: string) {
+  let headingError: string | null = null;
+  try { headingTexts(body); } catch (error) { headingError = (error as Error).message; }
+  expect({ merge: merge(body), headingError }).toEqual({
+    merge: { status: "unresolved", reason: "unparseable: ours: the body nests too deeply to parse" },
+    headingError: "text: the body nests too deeply to parse",
+  });
+}
+test("body budget refuses nested GFM footnote containers through both entries", () => {
+  refusedThroughBothEntries(Array.from({ length: MAX_BODY_DEPTH + 1 }, (_, i) => `[^f${i}]: `).join("") + "deep\n");
+});
+test("body budget refuses quotes after a list closes its fence through both entries", () => {
+  refusedThroughBothEntries("- item\n  ```\n- next\n\n" + "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n");
+});
+test("body budget refuses quotes after HTML containing a false fence through both entries", () => {
+  refusedThroughBothEntries("<div>\n```\n\n" + "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n");
+});
+test("body budget keeps scanning after possible long HTML and escaped footnote labels", () => {
+  const deep = "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n";
+  for (const html of ["<script>\n\n```\n</script>\n\n", "<!-- <script>\n</script>\n```\n-->\n\n", "<![CDATA[\n```\n]]>\n\n", "<?x\n```\n?>\n\n"]) {
+    refusedThroughBothEntries(html + deep);
+  }
+  refusedThroughBothEntries(Array.from({ length: MAX_BODY_DEPTH + 1 }, (_, i) => `[^f\\]${i}]:`).join("") + "deep\n");
+  expect(merge("<div>\ntext\n\n```\nplain code\n```\n").status).toBe("resolved");
+});
