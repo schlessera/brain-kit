@@ -36,20 +36,24 @@ invariants in a decision record:
    deletion**, not deletion of every derivative of information ever discussed.
    If the desired promise includes those independent records, choose the broader
    alternative below and require its provenance/retention design first. Never
-   present that broader promise over a narrower implementation.
-3. **In-flight work.** Recommend refusing admission while a host task, queued
-   follow-up, handoff preparation, share application or native archive/restore
-   operation still owns the chat. Offer existing stop/reconcile paths separately;
-   deletion never silently cancels an effect or changes unknown into completed.
-   Voice/provider opening and history-only readers can be retired by the lifecycle
-   fence, but all holders must be drained before content removal is complete.
-4. **Fences and recovery.** Recommend no automatic tombstone expiry while the
+   present that broader promise over a narrower implementation. Native-history
+   deletion also requires an explicit extent ruling amending #3177's “Native
+   provider transcripts stay intact” sentence; the existing ruling does not
+   authorize the proposed removal.
+3. **Fences and recovery.** Recommend no automatic tombstone expiry while the
    installation can admit any old session/task/request identity. Retire identities
    permanently within that installation namespace. A future compaction/namespace
    reset needs its own replay and restore ruling. Accept and disclose that an old
    backup predating deletion can restore text; preventing that requires a separate
    durable deletion ledger outside the restored image, not a claim that generation
    increments solve recovery-point loss.
+
+As a conservative engineering default, refuse deletion admission while a host
+task, queued follow-up, handoff preparation, share application or native
+archive/restore operation still owns the chat. Offer existing stop/reconcile
+paths separately; deletion never silently cancels an effect or changes unknown
+into completed. Voice/provider opening and history-only readers can be retired by the lifecycle fence, but all holders
+must be drained before content removal is complete.
 
 Alternative A, catalog-only hiding, is cheap and useful as an explicitly named
 archive/hide operation, but is rejected for deletion: native list/read/resume,
@@ -66,7 +70,10 @@ of this spike; preservation continues unchanged.
 
 [Retained discussion](../decisions/live-conversation.md#retained-discussion--2026-10-30-3177)
 keeps dialogue with its chat; pages, provider input and pending memory are bounded
-separately. Task-recovery eviction is not archive eviction. The
+separately. Its “Native provider transcripts stay intact” sentence remains
+binding until a separately recorded extent ruling explicitly amends it for
+native-history deletion. This proposal does not assume that amendment has been
+approved. Task-recovery eviction is not archive eviction. The
 [explicit Start rule](../decisions/live-conversation.md#new-live-epochs-receive-existing-chat-text--2026-10-31-3178)
 requires Enter to send nothing, and binds startup to the exact disclosed profile,
 principal, session and entry lifetime. Deletion cannot count as Start or preserve
@@ -165,7 +172,10 @@ must be tested through their installed runtime, not inferred from directory name
   ownership (`recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-118`).
   Governance payloads, Activity attrs/events/reasons/notifications, lifecycle and
   budget receipts, and journal summaries/manifests/before-after objects can retain
-  related data (`007`, `038`, `042`, `045`, `046`, `051_turn_lifecycle`). The journal
+  related data (Activity spans: `023_autonomous_activity.sql`; Activity events,
+  rollups and notifications: `007_activity.sql`/`009_activity_followups.sql`;
+  governance/journal/budgets/lifecycle: `038`, `042`, `045`, `046`,
+  `051_turn_lifecycle`). The journal
   uses its own database and object store; a UI-table cascade cannot purge it.
   Recommend retaining these independent workflows/effect/accounting guarantees
   under an explicit exclusion. Any direct embedded chat copy discovered there
@@ -332,7 +342,8 @@ restoring an old transcript must never bypass a surviving deletion tombstone.
 
 ## Bounded implementation brief and proof owed
 
-First record authority, extent, busy-work and restore/tombstone rulings. Then
+First record authority, extent (including the native-history amendment) and
+restore/tombstone rulings. Retain the conservative busy-work refusal default. Then
 implement the lifecycle transaction/read-write gate and first-party native removal
 under existing owners; add an additive backend capability only when both concrete
 implementations and unsupported behavior are specified. Next join projections,
