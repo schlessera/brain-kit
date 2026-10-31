@@ -55,7 +55,11 @@ back.
    unresolved even when a general Markdown parser accepts it. Ordinary fenced
    code at the top level outside possible HTML and thematic breaks remain
    valid. Indented or blockquoted fences may conservatively consume budget;
-   possible HTML suppresses fence recognition, not depth scanning. GFM
+   possible HTML suppresses fence recognition, not depth scanning. After an
+   ambiguous fence line (suppressed by possible HTML, following a container
+   prefix or deep indentation, or closed at a different indentation), the
+   scanner counts content for the rest of the body rather than guessing fence
+   parity. It skips one leading BOM, matching the parser preprocessor. GFM
    footnote definition prefixes also consume source columns. Excess uses the
    existing nesting refusal; the RangeError backstop still covers recursive inline walks.
    - *Rejected: let an LLM write the merged note.* It is the only option that

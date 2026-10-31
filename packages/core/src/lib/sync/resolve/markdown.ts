@@ -283,6 +283,9 @@ function footnotePrefixLength(line: string, start: number): number {
 }
 
 function checkBodyDepth(body: string, label: string): void {
+  // Micromark preprocess drops exactly one initial BOM.
+  if (body.startsWith("\uFEFF")) body = body.slice(1);
+  let scanFenceContent = false;
   let fence: { marker: string; size: number; indent: number } | undefined;
   // Only suppress fence recognition in possible HTML, never depth scanning.
   // html-flow.js kinds 1-5 end at delimiters; kinds 6-7 at a blank line.
@@ -296,8 +299,11 @@ function checkBodyDepth(body: string, label: string): void {
   let possibleHtml = false;
   for (const line of body.split(/\r\n|[\r\n]/)) {
     if (fence) {
-      const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      const close = /^[ \t]*(`+|~+)[ \t]*$/.exec(line);
       if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.size) {
+        // A different indentation can close a container or merely look like
+        // a closer. Stop skipping thereafter rather than guessing fence parity.
+        if (line.length - line.trimStart().length !== fence.indent) scanFenceContent = true;
         fence = undefined;
         continue;
       }
@@ -318,7 +324,10 @@ function checkBodyDepth(body: string, label: string): void {
     }
     if (/^[ \t]*$/.test(line)) possibleHtml = false;
     const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (!suppressFence && opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
+    // Suppressed openers make later fence parity ambiguous. This is sticky:
+    // a later apparent closer must never become an opaque scanner opener.
+    if (suppressFence && opening) scanFenceContent = true;
+    if (!scanFenceContent && !suppressFence && opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
       fence = { marker: opening[1]![0]!, size: opening[1]!.length, indent: line.length - line.trimStart().length };
       continue;
     }
@@ -353,6 +362,9 @@ function checkBodyDepth(body: string, label: string): void {
         container = true;
       }
     }
+    // Fences after a container prefix (or deep indentation) are deliberately
+    // not parsed here. Count the rest of the body once their parity is unknown.
+    if ((container || i > 3) && /^(?:`{3,}|~{3,})/.test(line.slice(i))) scanFenceContent = true;
     if (container && columns > MAX_BODY_DEPTH) throw new UnparseableError(`${label}: the body nests too deeply to parse`);
   }
 }

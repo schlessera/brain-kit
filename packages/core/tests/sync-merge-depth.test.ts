@@ -65,3 +65,29 @@ test("body budget keeps scanning after possible long HTML and escaped footnote l
   refusedThroughBothEntries(Array.from({ length: MAX_BODY_DEPTH + 1 }, (_, i) => `[^f\\]${i}]:`).join("") + "deep\n");
   expect(merge("<div>\ntext\n\n```\nplain code\n```\n").status).toBe("resolved");
 });
+
+test("body budget refuses quotes after HTML-suppressed real fences through both entries", () => {
+  const deep = "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n";
+  for (const prefix of ["```<\n\n```\n", "x <!--\n```\n\n-->\n```\n"]) refusedThroughBothEntries(prefix + deep);
+});
+test("body budget refuses quotes after fences opened on container lines through both entries", () => {
+  const deep = "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n";
+  for (const [opening, indent] of [["- ```\n", "  "], ["1. ```\n", "   "]]) {
+    refusedThroughBothEntries(opening + indent + "```\n" + indent + deep);
+  }
+});
+test("body budget refuses quotes after deeply indented fence closers through both entries", () => {
+  const deep = "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n";
+  for (const closer of ["     ```\n", "\t```\n"]) refusedThroughBothEntries("- a\n\n  ```\n" + closer + "  " + deep);
+});
+test("body budget refuses BOM-prefixed quote runs through both entries", () => {
+  refusedThroughBothEntries("\uFEFF" + "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n");
+});
+test("body budget preserves repeated unambiguous fences and the BOM boundary", () => {
+  const code = "> ".repeat(MAX_BODY_DEPTH + 1) + "code\n";
+  const body = "```md\n" + code + "```\n\n~~~text\n" + code + "~~~\n";
+  expect(merge(body).status).toBe("resolved");
+  expect(headingTexts(body)).toEqual([]);
+  expect(merge("\uFEFF" + "> ".repeat(MAX_BODY_DEPTH) + "deep\n").status).toBe("resolved");
+  expect(headingTexts("\uFEFF# Mast\n")).toEqual(["Mast"]);
+});
