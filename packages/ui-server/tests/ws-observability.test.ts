@@ -647,7 +647,14 @@ describe("turn lifecycle is observable", () => {
         socket.send(JSON.stringify({ type: "session_resume", sessionId }));
         await until(() => reads === 1);
         if (fence === "closing") await host.close();
-        if (fence === "disconnect") { socket.close(); await closed; }
+        if (fence === "disconnect") {
+          expect(host.clients.count(), "NATIVE_CLIENT_IS_ATTACHED_BEFORE_CLOSE").toBe(1);
+          socket.close(); await closed;
+          // The client close event can precede the server callback. That callback
+          // marks connection.closed before removing the attached client.
+          await until(() => !host.clients.hasClients());
+          expect(host.clients.count(), "SERVER_CLOSE_ACKNOWLEDGED_BEFORE_LOOKUP_FAILURE").toBe(0);
+        }
         if (fence === "revoked") await host.revokePrincipals([principal.id], 1008, "Session revoked");
         if (fence === "expired") host.expireAuthorizationContexts(principal.expiresAt + 1);
         if (fence === "principal-invalid") valid = false;
