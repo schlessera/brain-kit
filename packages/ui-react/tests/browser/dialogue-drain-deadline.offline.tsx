@@ -126,6 +126,7 @@ test(`${provider}: native indeterminate drain stops the browser without inventin
   expect(s.element.textContent,"UNRESOLVED_TEXT_IS_WITHHELD").not.toContain("The indeterminate sail tail.");
   await pump({expireWrites:true});
   expect(received.some(f=>f.type==="conversation_closed"),"FAILED_EPOCH_HAS_VISIBLE_TERMINAL").toBe(true);
+  expect(received.filter(f=>f.type==="error"&&f.code==="DIALOGUE_INDETERMINATE"),"SINGLE_WRITE_DEADLINE_HAS_ONE_INDETERMINATE_NOTICE").toHaveLength(1);
   await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(false);
   expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
   expect(s.element.textContent).toContain("persistence could not be confirmed");

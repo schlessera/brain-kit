@@ -384,20 +384,33 @@ termination; this is not a production thread-join guarantee.
 
 ### Bounded caller waits retain real cleanup ownership (#3185)
 
-A storage operation may never return from native I/O. The existing 10-second
-application close grace also bounds the caller's wait for the entire cleanup
-sequence. Exceeding it rejects with `StorageSettlementIndeterminate`; it does
-not resolve the queued operation, terminate its worker, close its reader,
-release capacity or authorize a replacement writer. The same ordered cleanup
-continuation remains owned and proceeds when actual operations return. The
-error's optional `cleanup` promise observes that real continuation, retaining
+A storage operation may never return from native I/O. During application
+cleanup, the writer observes its real outstanding native requests
+(`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-225`).
+Each native request already pending when close begins gets ten seconds;
+requests submitted during cleanup get that budget from submission. It includes
+FIFO queue wait. Expiry rejects the caller with
+`StorageSettlementIndeterminate` but leaves the original cleanup FIFO running.
+There is no whole-application wall-clock deadline. Protected CLI writers may
+outlast the ten-second CLI grace and still finish; a healthy shared read canceled
+at the end of its full grace still lets close resolve. Activity's own transport
+deadline and genuine failure identity remain unchanged.
+
+Expiry does not resolve the queued operation, terminate its worker, close its
+reader, release capacity or authorize a replacement writer. The same ordered
+cleanup continuation remains owned and proceeds when actual operations return.
+The error's optional `cleanup` promise observes that continuation, retaining
 its eventual success or genuine errors. Repeated app close returns the same
 public outcome; a rejection never means cleanup succeeded. The deployment
 shell owns ultimate process exit. Neither this library deadline nor Bun worker
 termination proves that native SQLite/fsync stopped or a thread joined.
 
 Live dialogue uses that technical budget for individual pending operations
-and per-owner failure drains, independently of other owners. Every pending
+and per-owner failure drains, independently of other owners. A per-write budget
+starts when the journal submits the operation, including catalog/native FIFO
+queue wait and acknowledgement latency. A long healthy shared writer queue can
+therefore stop voice as indeterminate; it is a receipt-latency bound, not proof
+that SQLite/fsync failed or was cancelled. Every pending
 owner object sharing the canonical archive ID participates; adoption does not
 split a drain or release accounting. Normal healthy writes keep their own
 submission/commit order. A deadline withholds unresolved text, marks coverage

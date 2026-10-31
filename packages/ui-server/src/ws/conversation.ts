@@ -1138,6 +1138,7 @@ export class ConversationHost {
         const owner=this.host.catalog.dialogueOwnerForId?.(conversation.historyOwnerId,conversation.principalId);
         if (!owner) {finish(message);return;}
         void this.host.dialogue.settleOwner(owner).then(()=>finish(message),()=>{
+          if (epoch.closed || conversation.epoch !== epoch) return;
           const unknown="Conversation persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice.";
           this.send(conversation,{type:"error",code:"DIALOGUE_INDETERMINATE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:unknown});
           finish(unknown);

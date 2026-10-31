@@ -406,6 +406,8 @@ export class WsHost {
       const finish=this.conversations?.storageFailing(owner.id);
       const message=cause === "storage_indeterminate" ? "Conversation text persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice." : kind === "backend" ? "Original discussion position could not be saved. The complete answer remains in chat history. Check storage before restarting voice." : cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
       this.clients.broadcast({type:"error",code:cause === "storage_indeterminate" ? "DIALOGUE_INDETERMINATE" : cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",owner.principal_id);
+      // The write watchdog already withheld unknown observations for this owner.
+      if (cause === "storage_indeterminate") {finish?.(message);return;}
       // Drain already observed text before closing its epoch, preserving the unsaved tail.
       void this.dialogue.settleOwner(owner).then(() => finish?.(message), error => {
         if (!(error instanceof StorageSettlementIndeterminate)) {finish?.(message);return;}

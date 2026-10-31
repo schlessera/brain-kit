@@ -4139,12 +4139,17 @@ is optional and can remain pending indefinitely. Neither the error nor a
 rejected close proves persistence, cancellation, worker exit or resource
 release.
 
-`BrainUiApp.close()` rejects within the existing 10-second application grace
-when its entire cleanup FIFO cannot finish. It refuses new admission at once,
-keeps one public close outcome across repeated calls, and retains the original
-cleanup continuation after rejection. Borrowers drain in their existing order,
+`BrainUiApp.close()` refuses new admission at once and monitors real outstanding
+requests on its native SQLite worker throughout cleanup. A request pending at
+close gets ten seconds from observation; a later submission gets ten seconds
+from submission, including native FIFO queue wait. An unsettled native request
+rejects close while retaining the actual cleanup continuation. This is not a
+whole-app wall-clock deadline: protected CLI writers may outlast the CLI grace,
+healthy reads canceled at the end of that grace still let close resolve, and
+Activity preserves its own transport deadline and exact genuine error identity.
+Close keeps one public outcome across repeated calls. Borrowers drain in their existing order,
 then the actual writer closes before the reader. No worker termination or early
-reader close is introduced. A genuine failure completed before the deadline
+reader close is introduced. A genuine cleanup failure that settles without a native storage deadline
 keeps its original identity; later cleanup errors remain observable through
 `cleanup`. The deployment shell owns physical process exit.
 `WsHost.close()` likewise bounds dialogue settlement and rejects indeterminate

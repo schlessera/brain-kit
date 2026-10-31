@@ -311,15 +311,12 @@ test("Activity close bounds a stalled transport, releases its agent, and joins f
     const runtimeClosing = activity.close();
     expect(activity.close(), "CONCURRENT_ACTIVITY_CLOSE_JOINS").toBe(runtimeClosing);
     void runtimeClosing.catch(() => {});
-    const closeError=await rejection(closing);
-    if (closeError instanceof StorageSettlementIndeterminate) {
-      expect(await rejection(closeError.cleanup!), "LATE_DELIVERY_COMMIT_FAILURE_RETAINED_BY_OWNED_CLEANUP").toBe(failure);
-    } else expect(closeError, "DELIVERY_COMMIT_FAILURE_RETAINED_BY_APP_CLOSE").toBe(failure);
+    expect(await rejection(closing), "DELIVERY_COMMIT_FAILURE_RETAINED_BY_APP_CLOSE").toBe(failure);
     expect(await result).toBe(failure);
     expect(performance.now() - at, "PUSH_DRAIN_HAS_AN_ABSOLUTE_DEADLINE").toBeLessThan(15_000);
     expect(destroyed, "DEADLINE_RELEASES_THE_OWNED_TRANSPORT_AGENT").toBeGreaterThan(0);
     expect(await activity.pushSender.deliverPending(activity.notifier), "CLOSED_DELIVERY_REFUSES_NEW_WORK").toBe(0);
-    expect(await rejection(app.close())).toBe(closeError);
+    expect(await rejection(app.close())).toBe(failure);
     await observed.expectClosed();
     expect(() => app!.db.query("SELECT 1").get()).toThrow();
   } finally { release(); mark?.mockRestore(); await app?.close().catch(() => {}); transport.mockRestore(); assembly.mockRestore(); await observed.restore(); await f.close(); }
@@ -524,7 +521,7 @@ test("same-kind different-input deliveries both persist outcomes before app writ
 });
 
 
-test("entire app close rejects at its budget while genuine native cleanup retains writer and reader", async () => {
+for (const late of [false, true]) test(`app close bounds held native storage throughout cleanup late=${late}`, async () => {
   const f=fixture(), observed=observe(f.path);
   let app:Awaited<ReturnType<typeof createApp>>|undefined, clock:ReturnType<typeof storageDeadlineClock>|undefined;
   const gate=new Int32Array(new SharedArrayBuffer(8));let held:Promise<unknown>|undefined;
@@ -533,21 +530,23 @@ test("entire app close rejects at its budget while genuine native cleanup retain
     app=await createApp(f);
     const channel=observed.writer.channel(dialogueControls,{});
     await channel.ready;
+    clock=storageDeadlineClock();
+    // The late arm submits after the guard is installed, with no initial hold.
+    const startedClose=late ? app.close() : undefined;
     held=channel.call("holdUntilReleased",gate);
     const deadline=Date.now()+2000;while(!Atomics.load(gate,1)){if(Date.now()>deadline)throw Error("app writer did not enter hold");await Bun.sleep(1);}
     // Queue a real catalog write behind the native hold, before any shutdown stage.
     const pending=app.wsHost.catalog.dialogueOpen!({conversationId:"ithaca-cleanup",principalId:"odysseus",epoch:1,providerId:"gemini-live"});
-    clock=storageDeadlineClock();
     let outcome:unknown;
-    const publicClose=app.close();
+    const publicClose=startedClose ?? app.close();
     let publicSettled=false;
     const closing=publicClose.catch(e=>{outcome=e;}).finally(()=>{publicSettled=true;});
     await new Promise<void>(resolve=>setImmediate(resolve));
     expect(app.close(),"APP_CLOSE_RETAINS_ONE_PUBLIC_OUTCOME").toBe(publicClose);
     clock.expire();await new Promise<void>(resolve=>setImmediate(resolve));
-    expect(publicSettled,"ENTIRE_APP_CLOSE_MUST_REJECT_WITHIN_BUDGET").toBe(true);
+    expect(publicSettled,"APP_CLOSE_MUST_REJECT_UNSETTLED_NATIVE_STORAGE").toBe(true);
     await closing;
-    expect(outcome,"ENTIRE_APP_CLOSE_IS_BOUNDED").toBeInstanceOf(StorageSettlementIndeterminate);
+    expect(outcome,"APP_CLOSE_REPORTS_UNSETTLED_NATIVE_STORAGE").toBeInstanceOf(StorageSettlementIndeterminate);
     expect((outcome as StorageSettlementIndeterminate).operation).toBe("Application shutdown");
     expect(observed.closed,"DEADLINE_CANNOT_TERMINATE_OWNED_WORKER").toBe(false);
     expect(observed.closes,"CLEANUP_CANNOT_RELEASE_WORKER_EARLY").toBe(0);
