@@ -168,7 +168,8 @@ class CaptureControls(unittest.TestCase):
                     if failure==('entry-mode' if path==entry else 'node-mode'): mode=stat.S_IFREG
                     return (1,2,0,0,mode,os.makedev(7,1790))
                 env=dict(fcntl=m.fcntl,os=os,pathlib=pathlib,stat=stat,owned_remove=m,MINOR=1790,DEVICE=device,control=123,
-                         created=False,attached=False,entry=None,entry_identity=None,node_identity=None,remove_receipt=receipt,errors=errors)
+                         created=False,attached=False,entry=None,entry_identity=None,node_identity=None,remove_receipt=receipt,errors=errors,
+                         observe=lambda *args, **kwargs: None, remove_evidence=lambda error: self.fail("Successful capture fallback must not collect"))
                 with patch.object(pathlib.Path,'resolve',side_effect=OSError('capture failure') if failure=='resolve' else None,return_value=entry), patch.object(os,'mknod',side_effect=OSError('capture failure') if failure=='mknod' else None), patch.object(m,'identity',side_effect=identify), patch.object(m.fcntl,'ioctl',side_effect=lambda *args:calls.append(args)):
                     caught=None
                     try: exec(setup,env)
