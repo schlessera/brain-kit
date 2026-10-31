@@ -122,7 +122,8 @@ describe("emitted declaration graph", () => {
 // Tests may name both optional packages. Production source may not: it loads a
 // value and checks it against the shared BackendModule descriptor. These
 // assertions keep both real exports and the descriptor's deliberately small
-// member set linked at compile time.
+// member set linked at compile time. `bun run typecheck` owns this proof;
+// Bun erases these types, so a runtime witness cannot verify them.
 type Assert<T extends true> = T;
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -141,10 +142,3 @@ type _claudeDescriptorCompat = Assert<
 type _piDescriptorCompat = Assert<
   typeof pi.backendModule extends BackendModule ? true : false
 >;
-
-describe("backend module descriptor mirror", () => {
-  test("the type-level compatibility assertions above compiled", () => {
-    const witness: _descriptorMembers & _claudeDescriptorCompat & _piDescriptorCompat = true;
-    expect(witness).toBe(true);
-  });
-});

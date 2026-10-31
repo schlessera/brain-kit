@@ -107,7 +107,7 @@ function meta(root: string, key: string): string | null {
 }
 
 describe("brain stats --json over a brain with vectors", () => {
-  test("reports the exact count the fixture staged", async () => {
+  test("a full table reports the exact nonzero count the fixture staged and full coverage", async () => {
     expect(staged).toBe(CORPUS_VECTORS);
     expect(await countVectors(embedded)).toBe(CORPUS_VECTORS);
 
@@ -142,12 +142,6 @@ describe("an absent, an empty and a full vec_chunks are three different answers"
     expect(withEmptyTable.health.embeddingCoverage).toBeNull();
   });
 
-  test("a full table reports the count and a coverage that is not null", async () => {
-    const out = await stats(embedded);
-    expect(out.embeddings).toBe(CORPUS_VECTORS);
-    expect(out.embeddings).toBeGreaterThan(0);
-    expect(out.health.embeddingCoverage).not.toBeNull();
-  });
 });
 
 describe("the count is a count, not a swallowed failure", () => {

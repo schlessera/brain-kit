@@ -27,7 +27,7 @@ import { detectLocalCaptureSupport, startLocalCapture, type LocalCaptureChunk, t
 declare module "vitest/browser" {
   interface BrowserCommands {
     startRequestLog: () => Promise<void>;
-    requestLog: () => Promise<string[]>;
+    requestLog: (options?: { settle: boolean }) => Promise<string[]>;
     grantMicrophone: () => Promise<void>;
   }
 }

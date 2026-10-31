@@ -87,3 +87,39 @@ test("real WebSocket admission rejects origin, authentication and capacity befor
     expect(await full.text()).toBe("WebSocket connection limit reached");
   } finally { ws?.close(); running.server.stop(true); await t.close(); }
 });
+
+test("real Tailscale WebSocket admission uses the configured trusted forwarded identity", async () => {
+  const t = await httpContractApp({ env: {
+    AUTH_MODE: "tailscale", TRUST_PROXY: "1", TRUST_PROXY_HOPS: "2",
+  } });
+  const running = await listener(t);
+  try {
+    // The socket itself is loopback. The configured trusted path must still
+    // reject this peer, even with an attacker-controlled CGNAT leftmost entry.
+    const deniedIdentity = "100.64.0.9, 192.168.1.1, 10.0.0.2";
+    const health = await fetch(`${running.http}/api/health`, {
+      headers: { "x-forwarded-for": deniedIdentity },
+    });
+    expect(health.status).toBe(200);
+    const denied = await fetch(`${running.http}/ws`, { headers: {
+      origin: running.http, "x-forwarded-for": deniedIdentity,
+      connection: "Upgrade", upgrade: "websocket",
+      "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", "sec-websocket-version": "13",
+    } });
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toEqual({ error: "Authentication required" });
+    expect(t.app.wsHost.clients.count()).toBe(0);
+    expect(t.app.db.query("SELECT label FROM principals WHERE kind = 'ambient'").all()).toEqual([]);
+
+    for (const identity of ["100.100.1.1", "127.0.0.1"]) {
+      expect(await hello(running.ws, {
+        origin: running.http,
+        "x-forwarded-for": `192.168.1.1, ${identity}, 10.0.0.2`,
+      })).toMatchObject({ type: "server_hello", protocolRev: PROTOCOL_REV });
+      // The admitted principal comes from the configured hop, not the socket,
+      // the spoofable first entry or the rightmost proxy address.
+      expect(t.app.db.query("SELECT label FROM principals WHERE kind = 'ambient' AND label = ?").all(identity))
+        .toEqual([{ label: identity }]);
+    }
+  } finally { running.server.stop(true); await t.close(); }
+});

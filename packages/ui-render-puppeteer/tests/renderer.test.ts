@@ -31,23 +31,48 @@ describe("Semaphore", () => {
     const r1 = await sem.acquire();
     const r2 = await sem.acquire();
 
-    let third = false;
-    const p3 = sem.acquire().then((r) => {
-      third = true;
-      return r;
+    const entered: string[] = [];
+    const p3 = sem.acquire().then((release) => {
+      entered.push("third");
+      return release;
     });
-    await new Promise((r) => setTimeout(r, 5));
-    expect(third).toBe(false); // both slots held
+    const p4 = sem.acquire().then((release) => {
+      entered.push("fourth");
+      return release;
+    });
+    // Drain continuations without a wall-clock delay. Both slots stay held.
+    const drain = () => new Promise<void>((resolve) => setImmediate(resolve));
+    await drain();
+    expect(entered).toEqual([]);
 
     r1();
+    await drain();
+    // Assert before awaiting p3 so a LIFO regression fails instead of hanging.
+    expect(entered).toEqual(["third"]);
     const r3 = await p3;
-    expect(third).toBe(true);
+    await drain();
+    expect(entered).toEqual(["third"]); // fourth is still blocked
+
+    r3();
+    await drain();
+    expect(entered).toEqual(["third", "fourth"]);
+    const r4 = await p4;
 
     r2();
-    r3();
-    // All slots free again: two immediate acquires succeed.
-    (await sem.acquire())();
-    (await sem.acquire())();
+    r4();
+    // Recover both slots simultaneously, then prove no third slot was minted.
+    const recovered1 = await sem.acquire();
+    const recovered2 = await sem.acquire();
+    let extra = false;
+    const pending = sem.acquire().then((release) => {
+      extra = true;
+      return release;
+    });
+    await drain();
+    expect(extra).toBe(false);
+    recovered1();
+    (await pending)();
+    recovered2();
   });
 
   test("double-release is a no-op", async () => {

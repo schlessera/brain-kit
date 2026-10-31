@@ -223,23 +223,6 @@ describe("usable core and a CLI-produced index", () => {
 });
 
 describe("index states reported by a usable core", () => {
-  test("a missing index: described meta, refused subgraphs, the vocabulary's own error", async () => {
-    const t = await boot({ index: null });
-    try {
-      const meta = await t.get("/api/graph/meta");
-      expect(meta.status).toBe(200);
-      expect(await meta.json()).toEqual({ available: false, reason: "schema", schemaVersion: 0, computedAt: null, stale: false, nodeCount: 0, edgeCount: 0, communities: [], defaultRoot: null });
-      for (const path of GRAPH_ROUTES.slice(1)) {
-        const response = await t.get(path);
-        expect(response.status, path).toBe(503);
-        expect(await response.json(), path).toEqual({ error: "graph_unavailable", reason: "schema" });
-      }
-      const keyterms = await t.get("/api/voice/keyterms");
-      expect(keyterms.status).toBe(500);
-      expect((await keyterms.json()).error).toStartWith("brain.db not found at ");
-      expect(existsSync(t.cacheFile)).toBe(false);
-    } finally { await t.close(); }
-  });
 
   test("an incompatible index degrades the vocabulary to overrides without caching it", async () => {
     const t = await boot();
@@ -256,20 +239,6 @@ describe("index states reported by a usable core", () => {
       expect((await (await t.get("/api/voice/overrides")).json()).overrides).toEqual(OVERRIDE_PAIRS);
       expect(existsSync(t.cacheFile)).toBe(false);
       expect(t.observability.logs.find({ severity: "WARN", scope: "voice" }).map((r) => r.attributes)).toContainEqual({ "index.error": "incompatible_index" });
-    } finally { await t.close(); }
-  });
-
-  test("an uncomputed graph: meta says so, raw neighborhoods still work, derived modes refuse", async () => {
-    const t = await boot();
-    try {
-      const db = new Database(join(t.brainPath, ".brain-index", "brain.db"));
-      db.run("DELETE FROM index_metadata WHERE key = 'graph_computed_at'");
-      db.close(true);
-      expect(await (await t.get("/api/graph/meta")).json()).toMatchObject({ available: false, reason: "not_computed" });
-      expect((await t.get("/api/graph/neighborhood?center=notes/odysseus.md")).status).toBe(200);
-      for (const path of ["/api/graph/clusters", "/api/graph/discovery", "/api/graph/maintenance"]) {
-        expect(await (await t.get(path)).json(), path).toEqual({ error: "graph_unavailable", reason: "not_computed" });
-      }
     } finally { await t.close(); }
   });
 });

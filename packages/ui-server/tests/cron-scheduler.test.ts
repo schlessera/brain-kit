@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync, unlinkSync, readFileSync } from "fs";
 
 // Drive the real writer and status reader; fixture SQL only seeds history.
 import type { BrainClient } from "../src/brain/client";
@@ -36,41 +36,6 @@ describe("cron scheduler logic", () => {
     for (const suffix of ["", "-shm", "-wal"]) {
       if (existsSync(TEST_DB + suffix)) unlinkSync(TEST_DB + suffix);
     }
-  });
-
-  test("records a successful job run", () => {
-    const startedAt = Date.now();
-    const clock = spyOn(Date, "now").mockReturnValue(startedAt);
-    try {
-      const record = recordCronRun(db, "sync");
-      clock.mockReturnValue(startedAt + 1500);
-      record.finish();
-    } finally { clock.mockRestore(); }
-
-    const row = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = 'sync' ORDER BY started_at DESC LIMIT 1"
-      )
-      .get() as any;
-
-    expect(row.status).toBe("success");
-    expect(row.duration_ms).toBe(1500);
-    expect(row.finished_at).toBe(startedAt + 1500);
-    expect(row.error_message).toBeNull();
-  });
-
-  test("records a failed job run with error message", () => {
-    const record = recordCronRun(db, "validate");
-    record.finish("Connection refused");
-
-    const row = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = 'validate' ORDER BY started_at DESC LIMIT 1"
-      )
-      .get() as any;
-
-    expect(row.status).toBe("error");
-    expect(row.error_message).toBe("Connection refused");
   });
 
   test("getCronStatus returns latest run per job", () => {
@@ -109,17 +74,7 @@ describe("recordCronRun (external scheduler seam)", () => {
 
   beforeEach(() => {
     db = new Database(":memory:");
-    db.exec(`
-      CREATE TABLE cron_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_name TEXT NOT NULL,
-        started_at INTEGER NOT NULL,
-        finished_at INTEGER,
-        status TEXT NOT NULL CHECK (status IN ('running', 'success', 'error')),
-        error_message TEXT,
-        duration_ms INTEGER
-      )
-    `);
+    db.exec(readFileSync(new URL("../migrations/001_initial.sql", import.meta.url), "utf8"));
   });
 
   afterEach(() => db.close());
@@ -141,22 +96,36 @@ describe("recordCronRun (external scheduler seam)", () => {
   });
 
   test("finishing without an error writes the success shape runJob writes", () => {
-    recordCronRun(db, "sync").finish();
+    const startedAt = 1_000;
+    const clock = spyOn(Date, "now").mockReturnValue(startedAt);
+    try {
+      const record = recordCronRun(db, "sync");
+      clock.mockReturnValue(startedAt + 1500);
+      record.finish();
+    } finally { clock.mockRestore(); }
 
     const row = lastRun("sync");
     expect(row.status).toBe("success");
-    expect(row.finished_at).toBeGreaterThanOrEqual(row.started_at);
+    expect(row.started_at).toBe(startedAt);
+    expect(row.finished_at).toBe(startedAt + 1500);
+    expect(row.duration_ms).toBe(1500);
     expect(row.duration_ms).toBe(row.finished_at - row.started_at);
     expect(row.error_message).toBeNull();
   });
 
   test("finishing with an error writes the error shape", () => {
-    recordCronRun(db, "validate").finish("brain validate exited 1");
+    const clock = spyOn(Date, "now").mockReturnValue(2_000);
+    try {
+      const record = recordCronRun(db, "validate");
+      clock.mockReturnValue(2_750);
+      record.finish("brain validate exited 1");
+    } finally { clock.mockRestore(); }
 
     const row = lastRun("validate");
     expect(row.status).toBe("error");
     expect(row.error_message).toBe("brain validate exited 1");
-    expect(row.duration_ms).toBeNumber();
+    expect(row.duration_ms).toBe(750);
+    expect(row.finished_at).toBe(2_750);
   });
 
   test("concurrent runs of different jobs do not cross-write", () => {

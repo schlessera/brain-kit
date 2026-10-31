@@ -1,11 +1,10 @@
-/** Inline fixtures prove the gate's rules; the real tree proves its coverage. */
+/** Inline and temporary-tree fixtures prove the gate; lint scans the real tree. */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { scanRoot, scanSource } from "../scripts/check-raw-buttons.ts";
 
-const ROOT = resolve(import.meta.dir, "..");
 const FILE = "packages/ui-react/src/fixture.tsx";
 const scan = (text: string) => scanSource(FILE, text);
 
@@ -98,9 +97,5 @@ describe("raw buttons gate", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  test("the real tree passes", () => {
-    expect(scanRoot(ROOT).map(f => `${f.file}:${f.line}:${f.column} ${f.message}`)).toEqual([]);
   });
 });

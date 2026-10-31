@@ -2,7 +2,7 @@
  * The leakage gate's own teeth (scripts/check-leakage.ts).
  *
  * Every fixture string is constructed at runtime from pieces — never stored
- * whole — because the repo-wide scan below covers this file too, and a raw
+ * whole — because lint covers this file too, and a raw
  * fixture would be a real finding. That is the same trick the detector itself
  * uses to avoid matching its own pattern table.
  */
@@ -112,11 +112,5 @@ describe("repository", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  test("the whole tree is free of personal strings", () => {
-    const findings = scanTree(resolve(import.meta.dir, ".."));
-    const report = findings.map((f) => `${f.file}:${f.line}`).join("\n");
-    expect(report).toBe("");
   });
 });

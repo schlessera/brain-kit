@@ -14,9 +14,13 @@ test("DISCOVERY_COMMUNITY_BRANCH_ORDER: assigned topics precede absent topics", 
     const p = positions.get(id)!;
     return (Math.atan2(p.x, p.y) + 2 * Math.PI) % (2 * Math.PI);
   };
-  expect([7, 9, 5, 3].map(angle)).toEqual(
-    [7, 9, 5, 3].map(angle).sort((a, b) => a - b)
-  );
+  // Clockwise from +y, normalized to [0, 2pi). IDs are the fixture's
+  // independent community/id order, never sorted production output.
+  const angles = [7, 9, 5, 3].map(angle);
+  for (const value of angles) expect(Number.isFinite(value)).toBe(true);
+  for (let i = 1; i < angles.length; i++) {
+    expect(angles[i]! - angles[i - 1]!, "distinct clockwise branch angles").toBeGreaterThan(1e-10);
+  }
 });
 
 import {
@@ -185,14 +189,40 @@ test("DISCOVERY_Z_CLIP: five children targeting a wedge edge retain strict separ
     .map((n) => r.positions.get(n.id)!);
   expect(new Set(children.map((p) => p.angle)).size).toBe(5);
 });
-test("DISCOVERY_SIGNATURE: geometry accepts only scene nodes and directed scene edges", () => {
-  expect(discoveryLayout.length).toBe(2);
-  expect(
-    discoveryLayout
-      .toString()
-      .match(/^function discoveryLayout\(([^)]*)\)/)?.[1]
-      ?.replace(/\s/g, "")
-  ).toBe("nodes,edges");
+test("DISCOVERY_PRESENTATION_INDEPENDENCE: ambient viewport cannot change scene geometry", () => {
+  const data = fixture([4, 9, 7]);
+  const keys = ["innerWidth", "innerHeight", "devicePixelRatio"] as const;
+  const descriptors = keys.map(key => Object.getOwnPropertyDescriptor(globalThis, key));
+  function viewport(width: number, height: number, ratio: number) {
+    for (const [i, key] of keys.entries()) Object.defineProperty(globalThis, key, {
+      configurable: true, writable: true, value: [width, height, ratio][i],
+    });
+  }
+  try {
+    viewport(320, 640, 1);
+    const phone = discoveryLayout(data.nodes, data.edges);
+    viewport(1920, 1080, 3);
+    expect(discoveryLayout(data.nodes, data.edges)).toEqual(phone);
+  } finally {
+    for (const [i, key] of keys.entries()) {
+      const descriptor = descriptors[i];
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
+
+test("radial wrapper scales scene coordinates and forwards directed edges", () => {
+  const data = fixture([3, 6, 5]);
+  const nodes = data.nodes.map(node => ({ ...node, community: node.community ?? undefined }));
+  const direct = discoveryLayout(nodes, data.edges).positions;
+  const spacing = 2.75;
+  const radial = radialLayout(nodes, spacing, data.edges);
+  const withoutEdges = radialLayout(nodes, spacing, []);
+  expect([...radial]).not.toEqual([...withoutEdges]);
+  for (const [id, point] of direct) {
+    expect(radial.get(id)).toEqual({ x: point.x * spacing, y: point.y * spacing });
+  }
 });
 
 test("DISCOVERY_EXACT_WEDGE_ALLOCATION: demand 1+1 then 2+1 gives reviewed K values", () => {

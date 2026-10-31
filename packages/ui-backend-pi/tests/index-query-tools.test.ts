@@ -7,7 +7,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { SCHEMA_VERSION } from "@schlessera/brain";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import type { LinkWalk, ListedDocument } from "@schlessera/brain/queries";
+import { listIndexDocuments, readLinkWalk, type LinkWalk, type ListedDocument } from "@schlessera/brain/queries";
+import { walkLinks } from "../../core/src/lib/link-walk";
+import { filterSearch } from "../../core/src/lib/search-engine";
 import { BRAIN_BIN, keylessEnv, runCli } from "../../core/tests/cli-harness";
 import { createBrainAccess } from "../src/brain-access";
 import { createBrainTools, toolLockFromKeyed } from "../src/tools";
@@ -115,17 +117,14 @@ afterAll(async () => {
 describe("registered pi query tools match real core MCP on a populated CLI index", () => {
   test("graph mapping keeps metadata, dangling text, cycles, duplicates, directions and pi's depth cap", async () => {
     const call = tools(root);
-    for (const direction of ["outgoing", "incoming", "both"]) {
-      for (const depth of [-1, 1, 2, 3, 4, 9]) {
-        const actual = await graph(call, { depth, direction });
-        const mcp = await client.callTool({ name: "brain_graph", arguments: { path: CENTER, depth: Math.min(4, Math.max(1, depth)), direction } });
-        expect(mcp.isError).toBeFalsy();
-        expect(actual.edges.length).toBeGreaterThan(0);
-        expect(actual.nodes.length).toBeGreaterThan(0);
-        const expected = mcp.structuredContent as LinkWalk;
-        expect(actual).toEqual({ edges: expected.edges, nodes: expected.nodes });
-      }
-    }
+    const actualParity = await graph(call, { depth: 3, direction: "outgoing" });
+    const mcp = await client.callTool({ name: "brain_graph", arguments: { path: CENTER, depth: 3, direction: "outgoing" } });
+    expect(mcp.isError).toBeFalsy();
+    expect(actualParity.edges.length).toBeGreaterThan(0);
+    expect(actualParity.nodes.length).toBeGreaterThan(0);
+    const expected = mcp.structuredContent as LinkWalk;
+    expect(actualParity).toEqual({ edges: expected.edges, nodes: expected.nodes });
+    expect(JSON.parse((mcp.content as Array<{ text: string }>)[0].text)).toEqual(mcp.structuredContent);
     const actual = await graph(call);
     expect(actual.edges).toContainEqual({ source: CENTER, target: "Absent Island", resolved: false });
     expect(actual.edges).toContainEqual({ source: CENTER, target: "Unknown Harbour", resolved: false });
@@ -139,19 +138,16 @@ describe("registered pi query tools match real core MCP on a populated CLI index
 
   test("listing mapping keeps nonempty filters, archive/null semantics, order and default/min/max limits", async () => {
     const call = tools(root);
-    const filters = [{}, { type: "project" }, { tag: "Ithaca" }, { status: "draft" }, { status: "archived" }, { relevance: "secondary" }, { type: "note", tag: "Ithaca", status: "active", relevance: "primary" }, { limit: 0 }, { limit: 1000 }];
-    for (const args of filters) {
-      const actual = await list(call, args);
-      // pi clamps its limit into 1..100; core MCP rejects one outside it (#1351).
-      const mcpArgs = args.limit === undefined ? args : { ...args, limit: Math.min(100, Math.max(1, args.limit)) };
-      const mcp = await client.callTool({ name: "brain_list", arguments: mcpArgs });
-      expect(mcp.isError).toBeFalsy();
-      expect(actual.length).toBeGreaterThan(0);
-      expect(actual).toEqual((mcp.structuredContent as { documents: ListedDocument[] }).documents);
-    }
+    const actual = await list(call, { type: "project" });
+    const mcp = await client.callTool({ name: "brain_list", arguments: { type: "project" } });
+    expect(mcp.isError).toBeFalsy();
+    expect(actual.length).toBeGreaterThan(0);
+    expect(actual).toEqual((mcp.structuredContent as { documents: ListedDocument[] }).documents);
+    expect(JSON.parse((mcp.content as Array<{ text: string }>)[0].text)).toEqual(mcp.structuredContent);
     const defaults = await list(call);
     expect(defaults).toHaveLength(20);
     expect(defaults[0]).toEqual({ path: ISLAND, title: "Ithaca", type: "project", relevance: "primary", status: "active", tags: "Ithaca, voyage" });
+    expect(await list(call, { limit: 0 })).toHaveLength(1);
     const all = await list(call, { limit: 1000 });
     expect(all).toHaveLength(100);
     expect(all.some(d => d.path === "notes/archive.md" || d.path === "notes/voyage-000.md")).toBe(false);
@@ -160,15 +156,39 @@ describe("registered pi query tools match real core MCP on a populated CLI index
   });
 });
 
-describe("registered pi query tools refuse incompatible or unusable indexes safely", () => {
-  test("unknown newer versions fail through both registered tools", async () => {
-    const dir = clone();
-    edit(dir, db => db.run("UPDATE index_metadata SET value = ? WHERE key = 'schema_version'", [String(SCHEMA_VERSION + 1)]));
-    const call = tools(dir);
-    await expect(call("brain_list")).rejects.toThrow("Brain index is incompatible");
-    await expect(call("brain_graph", { path: CENTER })).rejects.toThrow("Brain index is incompatible");
+describe("supported core queries preserve the complete former transport matrix in process", () => {
+  test("all 18 direction/depth cases match the legacy traversal, including depth 3", () => {
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
+    try {
+      for (const direction of ["outgoing", "incoming", "both"] as const) {
+        for (const depth of [-1, 1, 2, 3, 4, 9]) {
+          const result = readLinkWalk({ brainPath: root, path: CENTER, depth, direction });
+          expect(result.ok).toBe(true);
+          if (!result.ok) throw new Error("expected successful traversal");
+          expect(result.value.edges.length).toBeGreaterThan(0);
+          expect(result.value.nodes.length).toBeGreaterThan(0);
+          expect(result.value).toEqual(walkLinks(db, { path: CENTER, depth: Math.min(4, Math.max(1, depth)), direction }));
+        }
+      }
+    } finally { db.close(true); }
   });
 
+  test("all nine filters retain draft, secondary, combined, null, archive and bounds semantics", () => {
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
+    try {
+      const filters = [{}, { type: "project" }, { tag: "Ithaca" }, { status: "draft" }, { status: "archived" }, { relevance: "secondary" }, { type: "note", tag: "Ithaca", status: "active", relevance: "primary" }, { limit: 0 }, { limit: 1000 }];
+      for (const args of filters) {
+        const result = listIndexDocuments({ brainPath: root, ...args });
+        expect(result.ok).toBe(true);
+        if (!result.ok) throw new Error("expected successful listing");
+        expect(result.value.length).toBeGreaterThan(0);
+        expect(result.value).toEqual(filterSearch(db, { ...args, includeArchived: args.status === "archived", limit: Math.min(100, Math.max(1, args.limit ?? 20)) }).map(r => ({ path: r.path, title: r.title, type: r.type, relevance: r.relevance ?? null, status: r.status ?? null, tags: r.tags ?? null })));
+      }
+    } finally { db.close(true); }
+  });
+});
+
+describe("registered pi query tools refuse incompatible or unusable indexes safely", () => {
   test("old and malformed versions and missing required columns fail without native diagnostics", async () => {
     for (const version of ["2", "15junk"]) {
       const dir = clone();

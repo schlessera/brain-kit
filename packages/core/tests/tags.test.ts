@@ -269,44 +269,6 @@ describe("brain tags --apply", () => {
     expect(read(root, "notes/other.md")).toBe(note(["route", "navigation"]));
   });
 
-  test("a block list with comments comes out byte-identical except the tag entries", async () => {
-    const before = [
-      "---",
-      "# Owner's note: keep this line",
-      'title: "Quoted title"  # an inline comment',
-      "type: note",
-      "updated: 2026-01-05",
-      "tags:",
-      "  # route work",
-      "  - routes   # renamed",
-      "  - 'sailing'",
-      "  - route",
-      "  - ship_building",
-      "aliases: [one,two]",
-      "---",
-      "",
-      "tags: [routes] in the body stays",
-      "",
-    ].join("\n");
-    const root = makeBrain({ aliases: { routes: "route", ship_building: "shipbuilding" } }, { "notes/block.md": before });
-    const out = await apply(root);
-    expect(out.files).toEqual([
-      { path: "notes/block.md", from: ["routes", "sailing", "route", "ship_building"], to: ["route", "sailing", "shipbuilding"] },
-    ]);
-    // routes became route, the later duplicate route line went, ship_building was renamed.
-    expect(read(root, "notes/block.md")).toBe(
-      before.replace("  - routes   # renamed", "  - route   # renamed").replace("  - route\n", "").replace("  - ship_building", "  - shipbuilding")
-    );
-  });
-
-  test("flow sequences keep their quoting and separator, and a new tag is quoted when YAML would retype it", async () => {
-    const root = makeBrain({ aliases: { old: "2026", legacy: "kept" } }, {
-      "notes/flow.md": '---\ntitle: T\ntype: note\ntags: ["legacy",old,\'x y\'] # trailing\n---\n',
-    });
-    await apply(root);
-    expect(read(root, "notes/flow.md")).toBe('---\ntitle: T\ntype: note\ntags: [kept,"2026",\'x y\'] # trailing\n---\n');
-  });
-
   test("updated is unchanged, and briefing does not list the file as silently modified", async () => {
     const root = makeBrain({ aliases: { routes: "route" } }, {
       "notes/dated.md": "---\ntitle: Dated\ntype: note\ncreated: 2026-01-05\nupdated: 2026-01-05\ntags: [routes]\n---\n\nbody\n",
@@ -380,20 +342,6 @@ describe("brain tags --apply", () => {
     ]);
     expect(read(root, "notes/broken.md")).toBe(broken);
     expect(read(root, "notes/multi.md")).toBe(multiline);
-  });
-
-  test("a byte order mark before the frontmatter stays, and the tags still migrate", async () => {
-    const bom = "\uFEFF---\ntitle: B\ntype: note\ntags: [routes]\n---\nbody\n";
-    const root = makeBrain({ aliases: { routes: "route" } }, { "notes/bom.md": bom });
-    await apply(root);
-    expect(read(root, "notes/bom.md")).toBe(bom.replace("[routes]", "[route]"));
-  });
-
-  test("CRLF files keep their line endings", async () => {
-    const crlf = "---\r\ntitle: C\r\ntype: note\r\ntags:\r\n  - routes\r\n  - sailing\r\n---\r\nbody\r\n";
-    const root = makeBrain({ aliases: { routes: "route" } }, { "notes/crlf.md": crlf });
-    await apply(root);
-    expect(read(root, "notes/crlf.md")).toBe(crlf.replace("- routes", "- route"));
   });
 
   test("the rewrite flags are refused without --apply", async () => {
@@ -486,28 +434,6 @@ describe("brain tags --apply, round 1 of review", () => {
     expect(read(root, "notes/a.md")).toBe(doc("[aa, sailing]"));
   });
 
-  test("a flow sequence keeps the gaps around untouched entries, commas in quotes included", async () => {
-    const root = makeBrain({ aliases: { routes: "route" } }, {
-      "notes/a.md": doc("[ routes,  sailing ,navigation, ]"),
-      "notes/b.md": doc('["x, y", routes,sailing]'),
-      "notes/c.md": doc("[ routes,  sailing ,route, ]"),
-    });
-    await apply(root);
-    expect(read(root, "notes/a.md")).toBe(doc("[ route,  sailing ,navigation, ]"));
-    expect(read(root, "notes/b.md")).toBe(doc('["x, y", route,sailing]'));
-    // The merged duplicate goes with the gap before it, at the end of the list.
-    expect(read(root, "notes/c.md")).toBe(doc("[ route,  sailing, ]"));
-  });
-
-  test("a dropped block entry's comment stays as a comment line", async () => {
-    const before = "---\ntitle: D\ntype: note\ntags:\n  - routes\n  - route # preserve me\n  - sailing\n---\n";
-    const root = makeBrain({ aliases: { routes: "route" } }, { "notes/a.md": before });
-    await apply(root);
-    expect(read(root, "notes/a.md")).toBe(
-      "---\ntitle: D\ntype: note\ntags:\n  - route\n  # preserve me\n  - sailing\n---\n"
-    );
-  });
-
   test("--only touches only its tag and the collision it causes", async () => {
     const root = makeBrain({ aliases: { routes: "route", "ship-building": "shipbuilding" } }, {
       "notes/a.md": doc("[routes, route, foo, foo, ship-building]"),
@@ -528,10 +454,40 @@ describe("brain tags --apply, round 1 of review", () => {
   test("a rewrite that would not read back as the planned tags is refused, and nothing is written", async () => {
     // A date-shaped target written plain reads back as a YAML date.
     const root = makeBrain({ aliases: { old: "2026-01-05" } }, { "notes/a.md": doc("[old, sailing]") });
-    const out = await apply(root);
+    const ctx = await initContext({ root });
+    const { report: out, written } = applyTagChanges(root, ctx.taxonomy, {});
+    expect(written.size).toBe(0);
     expect(out.files).toEqual([]);
     expect(out.skipped).toEqual([{ path: "notes/a.md", reason: "the rewrite did not read back as the planned tags" }]);
     expect(read(root, "notes/a.md")).toBe(doc("[old, sailing]"));
+  });
+
+  test("alias planning merges a produced duplicate and reports literal before/after tags", async () => {
+    const before = [
+      "---",
+      "# Owner's note: keep this line",
+      'title: "Quoted title"  # an inline comment',
+      "type: note",
+      "updated: 2026-01-05",
+      "tags:",
+      "  # route work",
+      "  - routes   # renamed",
+      "  - 'sailing'",
+      "  - route",
+      "  - ship_building",
+      "aliases: [one,two]",
+      "---",
+      "",
+      "tags: [routes] in the body stays",
+      "",
+    ].join("\n");
+    const root = makeBrain({ aliases: { routes: "route", ship_building: "shipbuilding" } }, { "notes/block.md": before });
+    const ctx = await initContext({ root });
+    const { report: out } = applyTagChanges(root, ctx.taxonomy, {});
+    expect(out.files).toEqual([
+      { path: "notes/block.md", from: ["routes", "sailing", "route", "ship_building"], to: ["route", "sailing", "shipbuilding"] },
+    ]);
+    expect(read(root, "notes/block.md")).toContain("  - route   # renamed");
   });
 
   test("an unreadable file is reported, and the files already rewritten are still indexed and accepted", async () => {

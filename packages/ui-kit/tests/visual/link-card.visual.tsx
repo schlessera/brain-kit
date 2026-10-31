@@ -34,7 +34,7 @@ import { LinkPreviewCard, type LinkPreviewCardProps } from "../../src/blocks/Lin
 declare module "vitest/browser" {
   interface BrowserCommands {
     startRequestLog: () => Promise<void>;
-    requestLog: () => Promise<string[]>;
+    requestLog: (options?: { settle: boolean }) => Promise<string[]>;
   }
 }
 
