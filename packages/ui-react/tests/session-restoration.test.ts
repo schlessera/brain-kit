@@ -283,6 +283,7 @@ describe("a reload that kept the selected session's id", () => {
 const safeLoadDiagnostics = [
   "The host cannot verify this conversation. No work was started; your draft is kept.",
   "The host could not verify this conversation. No work was started; your draft is kept.",
+  "The host could not load this conversation. No work was started; your draft is kept.",
 ];
 for (const correlated of [false, true]) for (const message of safeLoadDiagnostics) {
   test(`fixed admission diagnostic survives before publication, correlated=${correlated}, copy=${safeLoadDiagnostics.indexOf(message)}`, () => {

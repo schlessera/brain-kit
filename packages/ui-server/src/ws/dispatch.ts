@@ -646,9 +646,13 @@ export async function handleClientMessage(
     }
 
     case "session_resume": {
-      if (!await requireKnownSession(host, ws, connection, msg.sessionId, true)) {
+      let lookupError: string | undefined;
+      if (!await requireKnownSession(host, ws, connection, msg.sessionId, true, undefined, error => {
+        lookupError = error instanceof Error ? error.message : "Failed to load session";
+      })) {
         host.reportSessionResume(msg.sessionId, connection.authorization.valid ? "error" : "unauthorized",
-          { error: "Session could not be verified" });
+          { error: lookupError ?? "Session could not be verified" });
+        if (lookupError !== undefined) host.reportTurnFailed("SESSION_LOAD_ERROR", { sessionId: msg.sessionId }, lookupError);
         return;
       }
       host.sendMessage(ws, {
@@ -700,7 +704,7 @@ export async function handleClientMessage(
         host.sendMessage(ws, {
           type: "error",
           code: "SESSION_LOAD_ERROR",
-          message: "Unable to load conversation history. Try again; your draft is kept.",
+          message: "The host could not load this conversation. No work was started; your draft is kept.",
           sessionId: msg.sessionId,
         });
       }

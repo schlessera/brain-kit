@@ -548,6 +548,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "error" && message.code === "SESSION_LOAD_ERROR" && ![
       "The host cannot verify this conversation. No work was started; your draft is kept.",
       "The host could not verify this conversation. No work was started; your draft is kept.",
+      "The host could not load this conversation. No work was started; your draft is kept.",
     ].includes(message.message)) message = { ...message, message: "Unable to load conversation history. Try again; your draft is kept." };
     permissions.frame(message);
     if (message.type === "server_hello") {

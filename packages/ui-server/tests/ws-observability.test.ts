@@ -504,7 +504,7 @@ describe("turn lifecycle is observable", () => {
     );
     expect(reads, "KNOWN_CHAT_REACHES_ITS_HISTORY_READER").toBe(1);
     expect(socket.sent.map(raw => JSON.parse(raw))).toContainEqual({
-      type: "error", code: "SESSION_LOAD_ERROR", sessionId, message: "Unable to load conversation history. Try again; your draft is kept.",
+      type: "error", code: "SESSION_LOAD_ERROR", sessionId, message: "The host could not load this conversation. No work was started; your draft is kept.",
     });
     const [failed] = observability.logs.find({ body: "turn failed" });
     expect(failed.attributes["session.id"]).toBe(sessionId);
@@ -542,7 +542,7 @@ describe("turn lifecycle is observable", () => {
       await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("Odysseus fixture socket failed")); });
       socket.send(JSON.stringify({ type: "session_resume", sessionId }));
       await until(() => frames.some(frame => frame.type === "error" && frame.sessionId === sessionId));
-      expect(frames.find(frame => frame.type === "error" && frame.sessionId === sessionId), "KNOWN_HISTORY_FAILURE_KEEPS_ITS_ERROR_CODE").toMatchObject({ code: "SESSION_LOAD_ERROR", message: "Unable to load conversation history. Try again; your draft is kept." });
+      expect(frames.find(frame => frame.type === "error" && frame.sessionId === sessionId), "KNOWN_HISTORY_FAILURE_KEEPS_ITS_ERROR_CODE").toMatchObject({ code: "SESSION_LOAD_ERROR", message: "The host could not load this conversation. No work was started; your draft is kept." });
       expect(JSON.stringify(frames), "RAW_HISTORY_CAUSE_NEVER_REACHES_THE_SOCKET").not.toContain("transcript unreadable");
       expect(observability.metrics.value("turns.failed", { code: "SESSION_LOAD_ERROR" }), "SOCKET_HISTORY_FAILURE_RECORDS_ORIGINAL_METRIC").toBe(1);
       socket.send(JSON.stringify({ type: "session_resume", sessionId: missingId }));
@@ -601,6 +601,120 @@ describe("turn lifecycle is observable", () => {
       server.stop(true); host.close(); await Promise.all([...host.turnTasks]); db.close();
     }
   });
+
+  test.each(["registered", "imported-failure", "imported-publication-failure", "imported-success", "absent"] as const)(
+    "native resume preserves cause, accounting and admission: %s (#3194)", async kind => {
+      const db = createUiDb(":memory:");
+      const observability = createRecordingObservability();
+      const sessionId = "odysseus-ithaca";
+      const diagnostic = "Odysseus transcript unreadable: /private/transcript.json";
+      const history = [{ role: "user" as const, content: "Is the raft lashed?", toolCalls: [] }];
+      let reads = 0, starts = 0;
+      const backend = makeFakeBackend({ id: "fake", getHistory: async () => {
+        reads++;
+        if (kind === "registered" || kind === "imported-failure" || (kind === "imported-publication-failure" && reads > 1)) throw new Error(diagnostic);
+        return kind === "imported-success" || kind === "imported-publication-failure" ? history : [];
+      }, startTurn: async () => { starts++; } });
+      const catalog = createSessionCatalog(() => db);
+      if (kind === "registered") {
+        catalog.persistSessionStub(sessionId, "Odysseus plans the voyage.", null, backend.id);
+        await catalog.settled?.();
+      }
+      const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog, observability });
+      const { upgradeWebSocket, websocket } = createBunWebSocket();
+      const app = new Hono(); app.get("/ws", upgradeWebSocket(() => createWsHandlers(host)));
+      const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket });
+      const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+      const frames: Array<{ type: string; code?: string; sessionId?: string; message?: string }> = [];
+      socket.onmessage = event => { frames.push(JSON.parse(String(event.data))); };
+      const closed = new Promise<void>(resolve => { socket.onclose = () => resolve(); });
+      try {
+        await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("Odysseus fixture socket failed")); });
+        socket.send(JSON.stringify({ type: "session_resume", sessionId }));
+        await until(() => frames.some(frame => frame.sessionId === sessionId && (frame.type === "error" || frame.type === "status")));
+        const failed = kind === "registered" || kind === "imported-failure" || kind === "imported-publication-failure";
+        const resumes = observability.logs.find({ body: "session resume" });
+        expect(resumes, "ONE_RESUME_OUTCOME").toHaveLength(1);
+        expect(resumes[0]!.attributes).toMatchObject({ "session.id": sessionId, outcome: kind === "imported-success" ? "loaded" : "error" });
+        if (failed) {
+          expect(resumes[0]!.attributes.error, "HISTORY_FAILURE_RETAINS_ORIGINAL_CAUSE").toBe(diagnostic);
+          expect(observability.metrics.value("turns.failed", { code: "SESSION_LOAD_ERROR" }), "HISTORY_FAILURE_COUNTS_EXACTLY_ONCE").toBe(1);
+          expect(observability.logs.find({ body: "turn failed" })).toHaveLength(1);
+          expect(observability.logs.find({ body: "turn failed" })[0]!.attributes.error).toBe(diagnostic);
+          expect(frames.filter(frame => frame.type === "error")).toHaveLength(1);
+          expect(frames.find(frame => frame.type === "error")).toMatchObject({ code: "SESSION_LOAD_ERROR", sessionId });
+          expect(JSON.stringify(frames), "CLIENT_NEVER_RECEIVES_RAW_DIAGNOSTIC").not.toContain(diagnostic);
+        } else {
+          expect(observability.metrics.total("turns.failed")).toBe(0);
+          expect(observability.logs.find({ body: "turn failed" })).toHaveLength(0);
+        }
+        if (kind === "imported-success") {
+          expect(frames.some(frame => frame.type === "session_info" && frame.sessionId === sessionId)).toBe(true);
+          expect(frames.some(frame => frame.type === "session_history" && frame.sessionId === sessionId)).toBe(true);
+        } else {
+          expect(frames.some(frame => frame.type === "session_history")).toBe(false);
+          if (kind === "imported-failure" || kind === "absent") expect(frames.some(frame => frame.type === "session_info")).toBe(false);
+          if (kind === "absent") expect(frames.find(frame => frame.type === "error")).toMatchObject({ code: "SESSION_NOT_FOUND" });
+        }
+        expect(reads).toBe(kind === "imported-success" || kind === "imported-publication-failure" ? 2 : 1);
+        expect(starts, "RESUME_NEVER_STARTS_WORK").toBe(0);
+        expect(host.coordinator.bySession.size).toBe(0);
+        expect(host.coordinator.startingBySession.size).toBe(0);
+        expect(catalog.hasSession!(sessionId), "LOOKUP_NEVER_INVENTS_CATALOG_OWNERSHIP").toBe(kind === "registered");
+      } finally {
+        socket.close(); server.stop(true); await closed; host.close(); db.close();
+      }
+    }
+  );
+
+  test.each(["closing", "disconnect", "revoked", "expired", "principal-invalid"] as const)(
+    "native delayed imported lookup preserves the %s fence (#3194)", async fence => {
+      const db = createUiDb(":memory:");
+      const observability = createRecordingObservability();
+      const sessionId = "odysseus-ithaca";
+      let rejectRead!: (error: Error) => void;
+      const read = new Promise<never>((_, reject) => { rejectRead = reject; });
+      let reads = 0, starts = 0, valid = true;
+      const principal = { ...testPrincipal(), expiresAt: Date.now() + 60_000 };
+      const backend = makeFakeBackend({ id: "fake", getHistory: async () => { reads++; return read; }, startTurn: async () => { starts++; } });
+      const catalog = createSessionCatalog(() => db);
+      const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog, observability, isPrincipalValid: () => valid });
+      const { upgradeWebSocket, websocket } = createBunWebSocket();
+      const app = new Hono(); app.get("/ws", upgradeWebSocket(() => createAuthorizedWsHandlers(host, principal)));
+      const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket });
+      const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+      const frames: Array<{ type: string; sessionId?: string }> = [];
+      socket.onmessage = event => { frames.push(JSON.parse(String(event.data))); };
+      const closed = new Promise<void>(resolve => { socket.onclose = () => resolve(); });
+      try {
+        await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("Odysseus fixture socket failed")); });
+        socket.send(JSON.stringify({ type: "session_resume", sessionId }));
+        await until(() => reads === 1);
+        if (fence === "closing") await host.close();
+        if (fence === "disconnect") {
+          expect(host.clients.count(), "NATIVE_CLIENT_IS_ATTACHED_BEFORE_CLOSE").toBe(1);
+          socket.close(); await closed;
+          // The client close event can precede the server callback. That callback
+          // marks connection.closed before removing the attached client.
+          await until(() => !host.clients.hasClients());
+          expect(host.clients.count(), "SERVER_CLOSE_ACKNOWLEDGED_BEFORE_LOOKUP_FAILURE").toBe(0);
+        }
+        if (fence === "revoked") await host.revokePrincipals([principal.id], 1008, "Session revoked");
+        if (fence === "expired") host.expireAuthorizationContexts(principal.expiresAt + 1);
+        if (fence === "principal-invalid") valid = false;
+        rejectRead(new Error("Odysseus delayed transcript diagnostic"));
+        await until(() => observability.logs.find({ body: "session resume" }).length === 1);
+        expect(observability.metrics.total("turns.failed"), "STALE_LOOKUP_IS_NOT_A_LOAD_FAILURE").toBe(0);
+        expect(observability.logs.find({ body: "turn failed" })).toHaveLength(0);
+        expect(JSON.stringify(observability.logs.find({ body: "session resume" }))).not.toContain("Odysseus delayed transcript diagnostic");
+        expect(frames.filter(frame => frame.sessionId === sessionId), "NO_STALE_PUBLICATION").toEqual([]);
+        expect(starts).toBe(0);
+        expect(catalog.hasSession!(sessionId)).toBe(false);
+      } finally {
+        socket.close(); server.stop(true); await closed; await host.close(); db.close();
+      }
+    }
+  );
 
   test("a loaded session resume logs one line with its session and outcome (#1328)", async () => {
     const db = createUiDb(":memory:");

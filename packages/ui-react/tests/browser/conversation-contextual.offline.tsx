@@ -1152,7 +1152,7 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} history fai
   expect(JSON.stringify(s.downstream), "PRODUCTION_WIRE_REDACTS_HISTORY_CAUSE").not.toContain("Odysseus history is temporarily unreadable.");
   expect(publicStates.join("\n"), "SUBSCRIBERS_NEVER_SEE_PRIVATE_HISTORY_CAUSE").not.toContain("Odysseus history is temporarily unreadable.");
   expect(s.host.textContent, "UI_NEVER_SHOWS_PRIVATE_HISTORY_CAUSE").not.toContain("Odysseus history is temporarily unreadable.");
-  expect(s.client.state.getState().notice).toBe("Unable to load conversation history. Try again; your draft is kept.");
+  expect(s.client.state.getState().notice).toBe("The host could not load this conversation. No work was started; your draft is kept.");
   expect(s.evidence().historyPending, "EVERY_OWNED_HISTORY_READ_HAS_SETTLED").toBe(false);
   await expect.poll(() => s.client.state.getState().active).toBe(false);
   expect(s.mic.opens(), "HISTORY_FAILURE_NEVER_GRANTS_MICROPHONE_CONSENT").toBe(0);

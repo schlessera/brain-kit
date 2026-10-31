@@ -154,7 +154,7 @@ describe("history publication across concurrent turns", () => {
     expect(w.reads()).toBe(2);
     expect(histories(w.frames)).toHaveLength(0);
     expect(w.frames.filter((frame) => frame.type === "error")).toEqual([
-      { type: "error", code: "SESSION_LOAD_ERROR", sessionId: SESSION, message: "Unable to load conversation history. Try again; your draft is kept." },
+      { type: "error", code: "SESSION_LOAD_ERROR", sessionId: SESSION, message: "The host could not load this conversation. No work was started; your draft is kept." },
     ]);
     await w.resume();
     expect(w.reads()).toBe(3);
