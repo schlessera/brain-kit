@@ -175,7 +175,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
             attributes: { error: message },
           });
           if (connection.authorization.valid) {
-            host.sendMessage(ws, { type: "error", code: "SESSION_LOAD_ERROR", message, sessionId: sid });
+            host.sendMessage(ws, { type: "error", code: "SESSION_LOAD_ERROR", message: "Unable to load conversation history. Try again; your draft is kept.", sessionId: sid });
             finishSnapshot();
           }
         } finally {
