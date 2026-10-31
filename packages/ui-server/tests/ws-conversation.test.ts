@@ -92,8 +92,9 @@ function setup(options: {
     let sequence = 0;
     const frames = (type?: string): any[] =>
       sent.map((s) => JSON.parse(s)).filter((f) => type === undefined || f.type === type);
-    const send = (frame: Record<string, unknown>) =>
-      handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
+    const sendRaw = (frame: Record<string, unknown>) => handlers.onMessage({data:JSON.stringify(frame)} as MessageEvent,ws);
+    const send = (frame: Record<string, unknown>) => sendRaw(frame.type === "conversation_start" && !("disclosed" in frame)
+      ? {...frame,disclosed:host.conversations?.profile(frame.contextualTasks === true)} : frame);
     /** Frames of `type` sent after the latest `conversation_opened`. */
     const sinceOpened = (type: string): any[] => {
       const all = sent.map((s) => JSON.parse(s));
@@ -104,7 +105,7 @@ function setup(options: {
       ws,
       frames,
       sinceOpened,
-      send,
+      send, sendRaw,
       close: () => handlers.onClose({ code: 1000 } as CloseEvent, ws),
       /** Open (or resume) a conversation and wait for its epoch. */
       async open(extra: Record<string, unknown> = {}) {
@@ -605,7 +606,7 @@ describe("second review pass: identity, resync and retry", () => {
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
     const frames = (type: string) => sent.map((x) => JSON.parse(x)).filter((f) => f.type === type);
-    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f) } as MessageEvent, ws);
+    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f.type === "conversation_start" ? {...f,disclosed:host.conversations!.profile(f.contextualTasks === true)} : f) } as MessageEvent, ws);
     await handlers.onOpen(undefined as never, ws);
 
     // Control: the same failure on a typed turn is retryable.
@@ -644,7 +645,7 @@ describe("third review pass: failure, metering and teardown", () => {
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
     const frames = (type: string) => sent.map((x) => JSON.parse(x)).filter((f) => f.type === type);
-    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f) } as MessageEvent, ws);
+    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f.type === "conversation_start" ? {...f,disclosed:host.conversations!.profile(f.contextualTasks === true)} : f) } as MessageEvent, ws);
     await handlers.onOpen(undefined as never, ws);
     send({ type: "conversation_start" });
     await until(() => frames("conversation_opened").length === 1);
@@ -808,7 +809,7 @@ describe("fifth review pass: cancellation and follow-up boundaries", () => {
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
     const frames = (type: string) => sent.map((x) => JSON.parse(x)).filter((f) => f.type === type);
-    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f) } as MessageEvent, ws);
+    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f.type === "conversation_start" ? {...f,disclosed:host.conversations!.profile(f.contextualTasks === true)} : f) } as MessageEvent, ws);
     await handlers.onOpen(undefined as never, ws);
     send({ type: "conversation_start" });
     await until(() => frames("conversation_opened").length === 1);
@@ -982,7 +983,7 @@ describe("permission authority stays with the host", () => {
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
     const frames = (type: string) => sent.map((x) => JSON.parse(x)).filter((f) => f.type === type);
-    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f) } as MessageEvent, ws);
+    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f.type === "conversation_start" ? {...f,disclosed:host.conversations!.profile(f.contextualTasks === true)} : f) } as MessageEvent, ws);
     await handlers.onOpen(undefined as never, ws);
     send({ type: "chat_message", text: "Record where the bow is kept" });
     await until(() => frames("tool_approval_request").length === 1);
@@ -1029,7 +1030,7 @@ describe("permission authority stays with the host", () => {
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
     const frames = (type: string) => sent.map((x) => JSON.parse(x)).filter((f) => f.type === type);
-    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f) } as MessageEvent, ws);
+    const send = (f: Record<string, unknown>) => handlers.onMessage({ data: JSON.stringify(f.type === "conversation_start" ? {...f,disclosed:host.conversations!.profile(f.contextualTasks === true)} : f) } as MessageEvent, ws);
     await handlers.onOpen(undefined as never, ws);
     host.catalog.persistSessionStub("sess-hall", "Penelope checks the hall.", null, "fake");
     send({ type: "conversation_start", sessionId: "sess-hall" });
@@ -1659,7 +1660,7 @@ test("a history failure retires the late host opening before explicit retry", as
     socket.readyState = 1; socket!.onopen?.();
     for (const frame of client.frames()) socket!.deliver(frame);
     await until(() => !!rejectHistory);
-    root.connection.conversation.enter();
+    root.connection.conversation.enter(); root.connection.conversation.start();
     await until(() => opening);
     rejectHistory(new Error("Fictional history disk unavailable"));
     await until(() => client.frames("error").some(f => f.code === "SESSION_LOAD_ERROR"));
@@ -1670,7 +1671,7 @@ test("a history failure retires the late host opening before explicit retry", as
     socket!.deliver(client.frames("conversation_opened")[0]);
     await settle();
     const closedBeforeRetry = s.live.sessions[0]!.closed;
-    root.connection.conversation.enter();
+    root.connection.conversation.enter(); root.connection.conversation.start();
     await until(() => client.frames("error").some(f => f.code === "CONVERSATION_LIMIT") || client.frames("conversation_opened").length > 1);
     console.log("HISTORY_OPENING_EVIDENCE", JSON.stringify({ closedBeforeRetry, stops: sent.filter(f => f.type === "conversation_stop").length, errors: client.frames("error").map(f => ({code: f.code, message: f.message})) }));
     expect(sent.filter(f => f.type === "conversation_stop"), "LATE_OPENING_MUST_BE_RETIRED_AFTER_HISTORY_FAILURE").toHaveLength(1);
@@ -1713,13 +1714,13 @@ test("a host rejection of the retired chat unblocks explicit new conversation", 
     for (const frame of client.frames()) socket!.deliver(frame);
     await until(() => client.frames("error").some(f => f.code === "SESSION_NOT_FOUND" && !f.requestId));
     s.host.catalog.settled = async () => { validating = true; await new Promise<void>(resolve => { releaseValidation = resolve; }); await settled(); };
-    root.connection.conversation.enter();
+    root.connection.conversation.enter(); root.connection.conversation.start();
     await until(() => validating);
     const historyError = client.frames("error").find(f => f.code === "SESSION_NOT_FOUND" && !f.requestId);
     socket!.deliver(historyError);
     expect(root.connection.conversation.state.getState().active).toBe(false);
     root.stores.chat.getState().setActiveSession(null);
-    root.connection.conversation.enter();
+    root.connection.conversation.enter(); root.connection.conversation.start();
     expect(root.connection.conversation.state.getState().sessionId).toBe(null);
     releaseValidation();
     await until(() => client.frames("error").some(f => f.code === "SESSION_NOT_FOUND" && f.requestId));
@@ -1732,8 +1733,8 @@ test("a host rejection of the retired chat unblocks explicit new conversation", 
     await until(() => s.live.sessions.length === 1);
     socket!.deliver(client.frames("conversation_opened")[0]);
     expect(root.connection.conversation.state.getState().active).toBe(true);
-    expect(root.connection.conversation.state.getState().disclosureOpen).toBe(true);
-    expect(root.connection.conversation.state.getState().micOn, "RETIRED_REJECTION_DOES_NOT_GRANT_CONSENT").toBe(false);
+    expect(root.connection.conversation.state.getState().disclosureOpen).toBe(false);
+    expect(root.connection.conversation.state.getState().micOn, "RETIRED_REJECTION_DOES_NOT_START_MIC_BEFORE_READY").toBe(false);
     expect(s.host.catalog.hasSession!(sessionId), "NO_IMPLICIT_REPLACEMENT_OF_MISSING_CHAT").toBe(false);
     expect(s.turns, "NO_FAILED_TASK_REPLAY").toHaveLength(0);
   } finally {
@@ -1819,7 +1820,10 @@ for (const source of ["journal", "native", "provenance"] as const) test(`live st
   const fail = () => { throw Error("PRIVATE_SOURCE_FAILURE_MUST_NOT_SURFACE"); };
   if (source === "journal") s.host.catalog.dialogueRead = async () => fail();
   else if (source === "native") s.backend.getHistory = async () => fail();
-  else s.host.catalog.attachMessageSources = fail;
+  else {
+    s.db.exec("ALTER TABLE message_sources RENAME TO unavailable_message_sources");
+    expect(s.host.prepareHistory(sessionId,[]),"ORDINARY_HISTORY_RETAINS_DISPLAY_FALLBACK").toEqual([]);
+  }
   client.send({type:"conversation_start",sessionId});
   await until(() => client.frames("conversation_closed").length > 0 || client.frames("conversation_opened").length > 0);
   expect(s.live.sessions,"SOURCE_FAILURE_NEVER_OPENS_CONTEXT_FREE_PROVIDER").toHaveLength(0);
@@ -1838,4 +1842,134 @@ test("connection teardown during canonical startup read fences a stale snapshot 
   client.send({type:"conversation_start",sessionId});await until(()=>entered);client.close();release();await settle();
   expect(s.live.sessions,"STALE_CANONICAL_SNAPSHOT_NEVER_REACHES_PROVIDER").toHaveLength(0);
   expect(s.turns).toHaveLength(0);
+});
+
+test("contextual task wrapper cannot become typed dialogue when its source write failed", async () => {
+  const { readLiveHistory } = await import("../src/ws/live-history");
+  const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect();
+  const c=await client.open({contextualTasks:true});
+  s.db.exec("CREATE TRIGGER fail_contextual_source BEFORE INSERT ON message_sources WHEN NEW.source='voice-context' BEGIN SELECT RAISE(FAIL,'fictional source write unavailable'); END;");
+  await client.capture(c);
+  c.session.emit({kind:"unassigned_input_fragment",sequence:0,text:"Research the departure signal.",timing:{kind:"unavailable"}});
+  c.session.emit({kind:"work_requested",handle:"bronze-owl-research"});
+  await until(()=>s.turns.length===1);
+  const wrapper=s.turns[0]!.req.prompt, fact="The departure signal is a bronze owl.";
+  s.backend.getHistory=async()=>[{role:"user",content:wrapper,toolCalls:[]},{role:"assistant",content:fact,toolCalls:[]}];
+  s.turns[0]!.answer(fact);
+  await until(()=>c.session.returned.length===1);await s.host.historySettled();
+  expect(s.db.query("SELECT COUNT(*) AS n FROM message_sources WHERE source='voice-context'").get()).toEqual({n:0});
+  const out=await readLiveHistory(s.host,testPrincipal().id,{sessionId:s.turns[0]!.sessionId},()=>true);
+  expect(out!.items.filter(i=>i.kind==="typed" && i.role==="user"),"EXACT_CONTEXTUAL_RECEIPT_EXCLUDES_UNSOURCED_WRAPPER").toEqual([]);
+  expect(out!.items.some(i=>i.kind==="host_fact" && i.text===fact),"COMPLETED_FACT_SURVIVES_SOURCE_WRITE_FAILURE").toBe(true);
+  // Identical bytes in a separate ordinary typed turn retain their own origin.
+  const sessionId=s.turns[0]!.sessionId;
+  client.send({type:"chat_message",sessionId,text:wrapper});
+  await until(()=>s.turns.length===2);
+  s.backend.getHistory=async()=>[{role:"user",content:wrapper,toolCalls:[]},{role:"assistant",content:fact,toolCalls:[]},{role:"user",content:wrapper,toolCalls:[]},{role:"assistant",content:"Ordinary typed response.",toolCalls:[]}];
+  s.turns[1]!.answer("Ordinary typed response.");
+  await until(()=>!s.host.coordinator.isTurnActive());await s.host.historySettled();
+  const ordinary=await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true);
+  expect(ordinary!.items.flatMap(i=>i.kind==="typed" && i.role==="user" ? [i.text] : []),"RECEIPT_FALLBACK_NEVER_FILTERS_UNRELATED_EQUAL_TEXT").toEqual([wrapper]);
+});
+
+for (const entry of ["fresh","resume","takeover"] as const) for (const change of ["missing","provider","destination","contextual"] as const) test(`undisclosed ${entry} ${change} start performs no recovery, history or vendor work`,async()=>{
+ const s=setup({capabilities:{contextualTasks:"supported"}}), owner=await s.connect();
+ const prior=entry === "fresh" ? undefined : await owner.open({contextualTasks:true});
+ const client=entry === "takeover" ? await s.connect() : owner;
+ const before=client.frames("conversation_opened").length;
+ const counts={load:0,journal:0,read:0,native:0,save:0};
+ const load=s.host.catalog.loadConversation!.bind(s.host.catalog),open=s.host.dialogue.open.bind(s.host.dialogue),read=s.host.catalog.dialogueRead!.bind(s.host.catalog),save=s.host.catalog.saveConversationEpoch!.bind(s.host.catalog);
+ s.host.catalog.loadConversation=async(...args)=>{counts.load++;return load(...args);};
+ s.host.dialogue.open=async(...args)=>{counts.journal++;return open(...args);};
+ s.host.catalog.dialogueRead=async(...args)=>{counts.read++;return read(...args);};
+ s.host.catalog.saveConversationEpoch=async(...args)=>{counts.save++;return save(...args);};
+ s.backend.getHistory=async()=>{counts.native++;return [];};
+ const disclosed={providerId:s.live.provider.id,capabilities:{...s.live.provider.capabilities,contextualTasks:"supported"},disclosure:structuredClone(s.live.provider.disclosure)};
+ if(change==="provider")disclosed.providerId="other-live";
+ if(change==="destination")disclosed.disclosure.destinations.push("Additional voice destination.");
+ if(change==="contextual")disclosed.capabilities.contextualTasks="unsupported";
+ client.sendRaw({type:"conversation_start",requestId:"undisclosed-start",contextualTasks:true,...(prior ? {conversationId:prior.id} : {}),...(change==="missing"?{}:{disclosed})});
+ await until(()=>client.frames("error").length>0 || client.frames("conversation_opened").length>before);
+ expect(s.live.sessions,"NO_VENDOR_OPEN_BEFORE_EXACT_START_DISCLOSURE").toHaveLength(prior ? 1 : 0);
+ expect(counts,"DISCLOSURE_REFUSAL_PRECEDES_ALL_SOURCES_AND_EPOCH_CREATION").toEqual({load:0,journal:0,read:0,native:0,save:0});
+ if(prior)expect(prior.session.closed,"UNDISCLOSED_START_CANNOT_REPLACE_EXISTING_DEVICE").toBe(false);
+ expect(client.frames("error").at(-1)).toMatchObject({requestId:"undisclosed-start",code:change==="missing"?"CONVERSATION_CAPABILITY":"CONVERSATION_DISCLOSURE"});
+});
+
+test("principal revocation while provider open awaits closes the returned session before publishing opened",async()=>{
+ const s=setup(),client=await s.connect();let release!:()=>void,entered=false;
+ const open=s.live.provider.open.bind(s.live.provider);
+ s.live.provider.open=async(...args)=>{const session=await open(...args);entered=true;await new Promise<void>(r=>{release=r;});return session;};
+ client.send({type:"conversation_start",requestId:"revoked-opening"});await until(()=>entered);
+ await s.host.revokePrincipals([testPrincipal().id],1008,"Fictional principal revoked");release();
+ await until(()=>s.live.sessions[0]!.closed || client.frames("conversation_opened").length>0);
+ expect(s.live.sessions[0]!.closed,"POST_OPEN_AUTHORIZATION_RECHECK_CLOSES_REVOKED_SESSION").toBe(true);
+ expect(client.frames("conversation_opened")).toHaveLength(0);
+});
+
+test("destination changes during history read refuse before provider open",async()=>{
+ const s=setup(),client=await s.connect();const read=s.host.catalog.dialogueRead!.bind(s.host.catalog);
+ let release!:()=>void,entered=false;
+ s.host.catalog.dialogueRead=async(...args)=>{const page=await read(...args);entered=true;await new Promise<void>(r=>{release=r;});return page;};
+ client.send({type:"conversation_start",requestId:"changed-destination"});await until(()=>entered);
+ s.live.provider.disclosure.destinations.push("Changed voice destination.");release();
+ await until(()=>client.frames("conversation_closed").length>0 || client.frames("conversation_opened").length>0);
+ expect(s.live.sessions,"DISCLOSURE_RECHECK_AFTER_HISTORY_PREVENTS_VENDOR_OPEN").toHaveLength(0);
+ expect(client.frames("error").at(-1)).toMatchObject({code:"CONVERSATION_DISCLOSURE",requestId:"changed-destination"});
+});
+
+for (const durable of [true,false]) test(`hello, accepted disclosure and opened use the actual effective profile durable=${durable}`,async()=>{
+ const s=setup({capabilities:{contextualTasks:"supported"}});
+ if(!durable){s.host.catalog.saveConversationTask=undefined;s.host.catalog.saveConversationEpoch=undefined;}
+ const client=await s.connect(),hello=client.frames("server_hello")[0];
+ const c=await client.open({contextualTasks:true});
+ const selected={providerId:c.opened.providerId,capabilities:c.opened.capabilities,disclosure:c.opened.disclosure};
+ expect(selected,"HELLO_AND_OPENED_SHARE_THE_EFFECTIVE_PUBLIC_PROFILE").toEqual(hello.conversationProfile);
+ expect(c.session.options.contextualTasks,"ACTUAL_PROVIDER_MODE_MATCHES_DISCLOSED_CAPABILITY").toBe(durable);
+ expect(selected.capabilities.contextualTasks).toBe(durable?"supported":"unsupported");
+ expect(s.live.sessions).toHaveLength(1);
+});
+
+for(const pending of ["running","failed"] as const)test(`real typed ${pending} tail stays after witnessed native and mixed voice evidence`,async()=>{
+ const {readLiveHistory}=await import("../src/ws/live-history");
+ const {boundHistory}=await import("../src/voice/session-history");
+ const s=setup(),client=await s.connect();
+ client.send({type:"chat_message",text:"First typed question."});await until(()=>s.turns.length===1);
+ const sessionId=s.turns[0]!.sessionId;
+ const native:any[]=[{role:"user",content:"First typed question.",toolCalls:[]},{role:"assistant",content:"First typed answer.",toolCalls:[]}];
+ s.backend.getHistory=async()=>native;
+ s.turns[0]!.answer("First typed answer.");await until(()=>!s.host.coordinator.isTurnActive());
+ const c=await client.open({sessionId});
+ c.session.emit({kind:"output_transcript",outputId:"mixed-voice",sequence:0,text:"The mast is ready."});await settle();
+ client.send({type:"chat_message",sessionId,text:"NEWEST unanswered typed question?"});await until(()=>s.turns.length===2);
+ native.push({role:"user",content:"NEWEST unanswered typed question?",toolCalls:[]});
+ if(pending==="failed"){
+  s.turns[1]!.req.bridge.emit({type:"text_delta",text:"Earlier partial native prefix."});
+  s.turns[1]!.req.bridge.emit({type:"result",sessionId,isError:true,failure:{errorClass:"overloaded",message:"The Ithaca calculation stopped."},durationMs:1,numTurns:1});
+  native.push({role:"assistant",content:"Final native failure explanation.",toolCalls:[]});
+  await settle();
+ }
+ await s.host.historySettled();
+ const env=(await readLiveHistory(s.host,testPrincipal().id,{sessionId},()=>true))!;
+ const text=env.items.flatMap(i=>"text" in i?[i.text]:[]);
+ expect(text.indexOf("NEWEST unanswered typed question?"),"REAL_UNWITNESSED_QUESTION_FOLLOWS_PRIOR_NATIVE_AND_VOICE").toBeGreaterThan(text.indexOf("The mast is ready."));
+ expect(text.indexOf("NEWEST unanswered typed question?")).toBeGreaterThan(text.indexOf("First typed answer."));
+ expect(env.coverage.reasons).toContain("ambiguous_order");
+ if(pending==="running"){
+  const bounded=boundHistory(env,new Set(),{maxBytes:650,maxFactBytes:0,maxItems:128});
+  expect(bounded.text,"REAL_RUNNING_NEWEST_QUESTION_SURVIVES_BYTE_PRESSURE").toContain("NEWEST unanswered typed question?");expect(bounded.tailOmitted).toBe(false);
+ }else expect(text.at(-1),"UNWITNESSED_FAILURE_ANSWER_STAYS_WITH_ITS_NATIVE_QUESTION").toBe("Final native failure explanation.");
+ expect(s.turns).toHaveLength(2);
+});
+
+test("manual-only Start discloses the known attenuation of the offered contextual mode",async()=>{
+ const s=setup({capabilities:{contextualTasks:"supported"}}),client=await s.connect();
+ const offered=client.frames("server_hello")[0].conversationProfile;
+ expect(offered.capabilities.contextualTasks).toBe("supported");
+ const disclosed={...offered,capabilities:{...offered.capabilities,contextualTasks:"unsupported"}};
+ client.sendRaw({type:"conversation_start",requestId:"manual-only-start",disclosed});
+ await until(()=>client.frames("conversation_opened").length>0);
+ const opened=client.frames("conversation_opened")[0];
+ expect({providerId:opened.providerId,capabilities:opened.capabilities,disclosure:opened.disclosure},"MANUAL_MODE_DISCLOSURE_MATCHES_ACTUAL_OPENED_PROFILE").toEqual(disclosed);
+ expect(s.live.sessions[0]!.options.contextualTasks).toBe(false);expect(s.live.sessions).toHaveLength(1);
 });

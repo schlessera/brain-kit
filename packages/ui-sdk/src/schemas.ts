@@ -37,6 +37,7 @@ import type {
   ClientConversationEndpoint,
   ClientConversationPlayback,
   ClientConversationStart,
+  ConversationProfile,
   ClientConversationStop,
   ConversationAudioFormat,
   ConversationCapabilities,
@@ -791,6 +792,7 @@ export const clientDialogueReadSchema = z.looseObject({
 }).refine(v => !!v.sessionId !== !!v.ownerId) satisfies z.ZodType<ClientDialogueRead>;
 
 export const clientConversationStartSchema = z.looseObject({
+  disclosed: z.lazy(() => conversationProfileSchema).optional(),
   type: z.literal("conversation_start"),
   historyOwnerId: id.optional(),
   contextualTasks: z.boolean().optional(),
@@ -1108,6 +1110,7 @@ export const sessionDraftLimitsSchema = z.looseObject({
 
 export const serverHelloSchema = z.looseObject({
   type: z.literal("server_hello"),
+  conversationProfile: z.lazy(() => conversationProfileSchema).optional().catch(undefined),
   protocolRev: z.number(),
   principalKey: z.string().max(MAX_ID_CHARS).optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
@@ -1650,6 +1653,12 @@ export const conversationDisclosureSchema = z.looseObject({
   voiceService: z.string().min(1).max(500),
   destinations: z.array(z.string().min(1).max(500)).min(1).max(16),
 }) satisfies z.ZodType<ConversationDisclosure>;
+
+export const conversationProfileSchema = z.object({
+  providerId: id,
+  capabilities: conversationCapabilitiesSchema,
+  disclosure: conversationDisclosureSchema,
+}) satisfies z.ZodType<ConversationProfile>;
 
 export const conversationAudioFormatSchema = z.looseObject({
   encoding: z.literal("pcm16"),

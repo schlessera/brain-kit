@@ -20,7 +20,16 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
-## Existing-chat live context (additive, 0.44.0, #3178)
+## Existing-chat live context and Start admission (breaking before 1.0, 0.44.0, #3178)
+
+The parent-directed [privacy correction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935)
+requires explicit Start before any vendor startup or history transfer. Optional
+`server_hello.conversationProfile` exposes known provider/capability/disclosure
+metadata without opening a provider. Start echoes it in
+`conversation_start.disclosed`; missing/mismatched echoes refuse before recovery,
+takeover or history reads. This intentionally breaks undisclosed legacy starts
+in a pre-1.0 minor; a new client cannot offer voice on a host without the profile.
+It is not backward-compatible admission. Enter and Cancel stay local.
 
 `LiveConversationOpenOptions.history` and its exported historical-data types
 carry an optional authorized, frozen chat snapshot, separately from native

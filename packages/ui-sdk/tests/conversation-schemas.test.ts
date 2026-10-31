@@ -198,3 +198,11 @@ test("pending dialogue limits are additive to older opened profiles",()=>{
  expect(server({...base,limits:{...legacy,maxPendingDialogueObservations,maxPendingDialogueBytes}}).ok).toBe(true);
  expect(server({...base,limits:{...legacy,maxPendingDialogueBytes:-1}}).ok).toBe(false);
 });
+
+test("hello disclosure and explicit Start echo preserve the same typed public profile",()=>{
+ const profile={providerId:"ithaca-live",capabilities,disclosure};
+ expect(server({type:"server_hello",protocolRev:5,conversationProfile:profile})).toMatchObject({ok:true,message:{conversationProfile:profile}});
+ expect(client({type:"conversation_start",requestId:"start-ithaca",disclosed:profile})).toMatchObject({ok:true,message:{requestId:"start-ithaca",disclosed:profile}});
+ expect(server({type:"server_hello",protocolRev:5,conversationProfile:{providerId:"ithaca-live"}})).toMatchObject({ok:true,message:{conversationProfile:undefined}});
+ expect(client({type:"conversation_start",disclosed:{providerId:"ithaca-live"}})).toMatchObject({ok:false});
+});

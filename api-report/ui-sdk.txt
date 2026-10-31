@@ -114,6 +114,7 @@ export "." (./src/index.ts)
   type ConversationLimits
   type ConversationOutputRecord
   type ConversationPlayback
+  type ConversationProfile
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkState
@@ -565,6 +566,7 @@ export "./client" (./src/client/index.ts)
   type ConversationLimits
   type ConversationOutputRecord
   type ConversationPlayback
+  type ConversationProfile
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkState
@@ -1371,6 +1373,7 @@ export "./protocol" (./src/protocol.ts)
   type ConversationLimits
   type ConversationOutputRecord
   type ConversationPlayback
+  type ConversationProfile
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkState
@@ -1722,6 +1725,7 @@ export "./schemas" (./src/schemas.ts)
   conversationEvidenceSchema
   conversationLimitsSchema
   conversationOutputRecordSchema
+  conversationProfileSchema
   conversationSampleRateSchema
   conversationWireEventSchema
   conversationWorkReceiptSchema
@@ -2023,6 +2027,7 @@ export "./server" (./src/server/index.ts)
   type ConversationLimits
   type ConversationOutputRecord
   type ConversationPlayback
+  type ConversationProfile
   type ConversationResync
   type ConversationScope
   type ConversationWireEvent
@@ -5723,6 +5728,7 @@ signatures (every public export and the types it is made of)
     }
   ClientConversationStart (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationStart {
+        disclosed?: ConversationProfile;
         historyOwnerId?: string;
         contextualTasks?: boolean;
         type: "conversation_start";
@@ -6080,6 +6086,12 @@ signatures (every public export and the types it is made of)
     }
   ConversationPlayback (packages/ui-sdk/src/protocol.ts)
     export type ConversationPlayback = "played" | "discarded" | "unknown";
+  ConversationProfile (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationProfile {
+        providerId: string;
+        capabilities: ConversationCapabilities;
+        disclosure: ConversationDisclosure;
+    }
   ConversationResync (packages/ui-sdk/src/server/conversation.ts)
     export interface ConversationResync {
         work: readonly ConversationWorkReceipt[];
@@ -9652,6 +9664,7 @@ signatures (every public export and the types it is made of)
     }
   ServerHello (packages/ui-sdk/src/protocol.ts)
     export interface ServerHello {
+        conversationProfile?: ConversationProfile;
         type: "server_hello";
         protocolRev: number;
         principalKey?: string;
@@ -11475,6 +11488,55 @@ signatures (every public export and the types it is made of)
         agentProviderId: z.ZodOptional<z.ZodString>;
         contextualTasks: z.ZodOptional<z.ZodBoolean>;
         conversationId: z.ZodOptional<z.ZodString>;
+        disclosed: z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            capabilities: z.ZodObject<{
+                contextualTasks: z.ZodOptional<z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>>;
+                echoIsolatedInput: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                exactPermissionSpeech: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                finalTranscript: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                manualEndpoint: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                nonblockingWork: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                outputWordAlignment: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                remoteOutputCancelAck: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+            }, z.core.$loose>;
+            disclosure: z.ZodObject<{
+                destinations: z.ZodArray<z.ZodString>;
+                voiceService: z.ZodString;
+            }, z.core.$loose>;
+            providerId: z.ZodString;
+        }, z.core.$strip>>>;
         historyOwnerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -11903,6 +11965,55 @@ signatures (every public export and the types it is made of)
         agentProviderId: z.ZodOptional<z.ZodString>;
         contextualTasks: z.ZodOptional<z.ZodBoolean>;
         conversationId: z.ZodOptional<z.ZodString>;
+        disclosed: z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            capabilities: z.ZodObject<{
+                contextualTasks: z.ZodOptional<z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>>;
+                echoIsolatedInput: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                exactPermissionSpeech: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                finalTranscript: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                manualEndpoint: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                nonblockingWork: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                outputWordAlignment: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                remoteOutputCancelAck: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+            }, z.core.$loose>;
+            disclosure: z.ZodObject<{
+                destinations: z.ZodArray<z.ZodString>;
+                voiceService: z.ZodString;
+            }, z.core.$loose>;
+            providerId: z.ZodString;
+        }, z.core.$strip>>>;
         historyOwnerId: z.ZodOptional<z.ZodString>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -12093,6 +12204,56 @@ signatures (every public export and the types it is made of)
             start: z.ZodNumber;
         }, z.core.$loose>>;
     }, z.core.$loose>;
+  conversationProfileSchema (packages/ui-sdk/src/schemas.ts)
+    const conversationProfileSchema: z.ZodObject<{
+        capabilities: z.ZodObject<{
+            contextualTasks: z.ZodOptional<z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>>;
+            echoIsolatedInput: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+            exactPermissionSpeech: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+            finalTranscript: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+            manualEndpoint: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+            nonblockingWork: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+            outputWordAlignment: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+            remoteOutputCancelAck: z.ZodEnum<{
+                supported: "supported";
+                unproven: "unproven";
+                unsupported: "unsupported";
+            }>;
+        }, z.core.$loose>;
+        disclosure: z.ZodObject<{
+            destinations: z.ZodArray<z.ZodString>;
+            voiceService: z.ZodString;
+        }, z.core.$loose>;
+        providerId: z.ZodString;
+    }, z.core.$strip>;
   conversationSampleRateSchema (packages/ui-sdk/src/schemas.ts)
     const conversationSampleRateSchema: z.ZodNumber;
   conversationWireEventSchema (packages/ui-sdk/src/schemas.ts)
@@ -15485,6 +15646,55 @@ signatures (every public export and the types it is made of)
   serverHelloSchema (packages/ui-sdk/src/schemas.ts)
     const serverHelloSchema: z.ZodObject<{
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
+        conversationProfile: z.ZodCatch<z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            capabilities: z.ZodObject<{
+                contextualTasks: z.ZodOptional<z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>>;
+                echoIsolatedInput: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                exactPermissionSpeech: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                finalTranscript: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                manualEndpoint: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                nonblockingWork: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                outputWordAlignment: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                remoteOutputCancelAck: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+            }, z.core.$loose>;
+            disclosure: z.ZodObject<{
+                destinations: z.ZodArray<z.ZodString>;
+                voiceService: z.ZodString;
+            }, z.core.$loose>;
+            providerId: z.ZodString;
+        }, z.core.$strip>>>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
@@ -16094,6 +16304,55 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"retry_receipt">;
     }, z.core.$loose>, z.ZodObject<{
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
+        conversationProfile: z.ZodCatch<z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            capabilities: z.ZodObject<{
+                contextualTasks: z.ZodOptional<z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>>;
+                echoIsolatedInput: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                exactPermissionSpeech: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                finalTranscript: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                manualEndpoint: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                nonblockingWork: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                outputWordAlignment: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+                remoteOutputCancelAck: z.ZodEnum<{
+                    supported: "supported";
+                    unproven: "unproven";
+                    unsupported: "unsupported";
+                }>;
+            }, z.core.$loose>;
+            disclosure: z.ZodObject<{
+                destinations: z.ZodArray<z.ZodString>;
+                voiceService: z.ZodString;
+            }, z.core.$loose>;
+            providerId: z.ZodString;
+        }, z.core.$strip>>>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{

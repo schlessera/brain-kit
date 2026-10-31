@@ -38,7 +38,7 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   const handlers = createWsHandlers(host, testPrincipal());
   await handlers.onOpen(undefined as never, ws);
   const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
-  send({ type: "conversation_start", contextualTasks: true });
+  send({ type: "conversation_start", contextualTasks: true, disclosed:host.conversations!.profile(true) });
   await until(() => frames.some(f => f.type === "conversation_opened"));
   const { conversationId, epoch } = frames.find(f => f.type === "conversation_opened");
   // Seed the consumed-id boundary without executing thousands of unrelated turns.

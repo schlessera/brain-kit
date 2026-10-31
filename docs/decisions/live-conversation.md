@@ -461,3 +461,11 @@ coverage. The additive wire field reports actual bounded selection independently
 of restored UI text. Start disclosure covers prior-chat text transfer to either
 selected voice service, including engine changes. Captured provider input proves
 transport assembly only; #3131/#961 retain semantic/acoustic/device qualification.
+
+The [parent-directed Start correction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935)
+uses known provider metadata in hello, not a prepare/grant resource. Enter must not
+open a provider or transfer chat context before Start. Only an exact disclosed
+profile echo admits startup; legacy undisclosed starts now refuse as an explicit
+pre-1.0 breaking privacy correction. Prior-text policy is disclosed before Start;
+actual selected coverage follows the authorized read. Scope-identical same-entry
+recovery preserves that explicit consent separately from microphone intent.

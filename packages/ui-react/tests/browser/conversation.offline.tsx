@@ -28,7 +28,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
   }
   const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
-    onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
+    onOpen(socket) { socket.deliver({ type: "server_hello", conversationProfile: {providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure}, protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
   const ui = createBrainUiRoot({ storage: null, request: network.request });
   ui.stores.chat.getState().setActiveSession(SESSION);
   const host = document.createElement("div"); host.style.cssText = `position:fixed;inset:0;width:${width}px;height:568px`; document.body.append(host);
@@ -45,7 +45,19 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
   const client = ui.connection.conversation;
   const button = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="button"],button')].find((node) => (node.getAttribute("aria-label") ?? node.textContent) === name)!;
   const event = (event: ConversationWireEvent, epoch = client.state.getState().profile!.epoch) => socket.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch, event });
-  const opened = (epoch = 1, caps = CAPS) => { socket.deliver({ ...PROFILE, epoch, capabilities: caps, requestId: socket.frames("conversation_start").at(-1)?.requestId }); event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } }, epoch); };
+  let pendingOpen: (()=>void) | undefined, lastOpenedRequest: unknown;
+  const opened = (epoch = 1, caps = CAPS) => {
+    const deliver = () => { const requestId=socket.frames("conversation_start").at(-1)?.requestId; lastOpenedRequest=requestId;
+      socket.deliver({...PROFILE,epoch,capabilities:caps,requestId}); event({kind:"ready",input:{encoding:"pcm16",channels:1,sampleRate:24000},output:{encoding:"pcm16",channels:1,sampleRate:24000}},epoch); };
+    const requestId=socket.frames("conversation_start").at(-1)?.requestId;
+    if(!requestId || requestId===lastOpenedRequest) {
+      // Provider metadata is public before Start; no opened/ready is delivered yet.
+      socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,askReceipts:true,toolResolution:true,chatRequestAck:true},conversationProfile:{providerId:PROFILE.providerId,capabilities:caps,disclosure:PROFILE.disclosure}});
+      pendingOpen=deliver;
+    } else deliver();
+  };
+  const socketSend=socket.send.bind(socket);
+  socket.send=(data)=>{socketSend(data);if(typeof data === "string" && JSON.parse(data).type === "conversation_start" && pendingOpen){const deliver=pendingOpen;pendingOpen=undefined;deliver();}};
   const enter = async () => { flushSync(() => client.enter()); opened(); await expect.poll(() => button("Start")).not.toBeUndefined(); };
   const start = async () => { await enter(); await userEvent.click(button("Start")); await expect.poll(() => client.state.getState().micOn).toBe(true); await expect.poll(() => socket.frames("conversation_audio").length, { timeout: 5000 }).toBeGreaterThan(0); };
   const input = (text: string, finalization: "final" | "unknown" | "interim" = "unknown", epoch?: number) => {
@@ -141,7 +153,7 @@ test("hold: 700 ms silence and 500 ms hold require fresh final evidence; speech 
   const s = await scene(ctx); await s.enter();
   // This fixture deliberately supplies stronger evidence than either built-in
   // service. It proves scheduling, not provider recognition or echo isolation.
-  s.client.state.setState({ profile: { ...PROFILE, capabilities: { ...CAPS, finalTranscript: "supported" } } });
+  s.opened(1, { ...CAPS, finalTranscript: "supported" });
   await userEvent.click(s.button("Start"));
   await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
   mic.quiet();
@@ -333,7 +345,7 @@ for (const card of cardCases) test(`${card.requestId}: speech remains an ordinar
 for (const late of [false, true]) test(`hold finalized=${!late}: fresh trustworthy final commits once; a final after the 2s deadline stays reviewable`, async (ctx) => {
   const mic = controlledMicrophone(ctx);
   const s = await scene(ctx); await s.enter();
-  s.client.state.setState({ profile: { ...PROFILE, capabilities: { ...CAPS, finalTranscript: "supported" } } });
+  s.opened(1, { ...CAPS, finalTranscript: "supported" });
   await userEvent.click(s.button("Start"));
   await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
   mic.quiet();
@@ -446,9 +458,9 @@ for (const receipt of ["output", "work"] as const) test(`Start before ready wait
   controlledMicrophone(ctx);
   const s = await scene(ctx);
   s.client.enter();
-  s.socket.deliver({ ...PROFILE, resync: { work: receipt === "work" ? 1 : 0, outputs: receipt === "output" ? 1 : 0 }, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
   await expect.poll(() => s.button("Start")).not.toBeUndefined();
   await userEvent.click(s.button("Start"));
+  s.socket.deliver({ ...PROFILE, resync: { work: receipt === "work" ? 1 : 0, outputs: receipt === "output" ? 1 : 0 }, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.client.state.getState().notice).toContain("Waiting for voice readiness");
   s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
@@ -492,16 +504,16 @@ test("one tracker activation leaves voice and preserves the original draft witho
 
 test("abandoned opening is closed before replacement; late opening cannot reactivate capture", async (ctx) => {
   const s = await scene(ctx);
-  s.client.enter();
+  s.client.enter(); s.client.start();
   const old = String(s.socket.frames("conversation_start")[0]?.requestId);
-  s.client.leave(); s.client.enter();
+  s.client.leave(); s.client.enter(); s.client.start(); s.client.mute();
   expect(s.socket.frames("conversation_start")).toHaveLength(1);
   s.socket.deliver({ ...PROFILE, requestId: old });
   await expect.poll(() => s.socket.frames("conversation_start").length).toBe(2);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.socket.frames("conversation_stop").at(-1)?.conversationId).toBe(PROFILE.conversationId);
   s.opened();
-  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  expect(s.client.state.getState().disclosureOpen).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
 });
 
@@ -770,7 +782,7 @@ test("microphone permission denial is visible and a late ready cannot undo expli
 });
 
 test("mute while awaiting readiness withdraws Start consent", async (ctx) => {
-  const s = await scene(ctx); s.client.enter();
+  const s = await scene(ctx); s.client.enter(); s.client.start();
   s.socket.deliver({ ...PROFILE, requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
   s.client.start(); s.client.mute();
   s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
@@ -863,10 +875,9 @@ async function adapterScene(ctx: TestContext, width = 390) {
     upstream.push(...result.sent); downstream.push(...result.frames);
     for (const frame of result.frames) s.deliver(frame);
   };
-  s.client.enter();
+  await pump(); s.client.enter(); s.client.start();
   await pump();
   await expect.poll(async () => { await pump(); return s.client.state.getState().profile; }).not.toBe(null);
-  await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
   await pump();
@@ -1011,15 +1022,16 @@ for (const terminal of ["leave", "provider_error", "backpressure"] as const) tes
   // Re-enter the same service in the same root. A fresh conversation has its
   // own identity even when its epoch counter starts at one again.
   flushSync(() => s.client.enter());
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  expect(mic.opens()).toBe(1);
+  await userEvent.click(s.button("Start"));
   const request = s.socket.frames("conversation_start").at(-1)!;
   expect(request.requestId).not.toBe(oldRequest);
   const conversationId = "ithaca-fresh-voice";
   s.deliver({ ...PROFILE, conversationId, requestId: String(request.requestId) });
   s.deliver({ type: "conversation_event", conversationId, epoch: 1, event: { kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } } });
-  expect(s.client.state.getState().disclosureOpen).toBe(true);
-  expect(mic.opens()).toBe(1);
-  await expect.poll(() => s.button("Start")).not.toBeUndefined();
-  await userEvent.click(s.button("Start"));
+  expect(s.client.state.getState().disclosureOpen).toBe(false);
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   expect(mic.opens()).toBe(2);
   expect(mic.streams.filter(stream => stream.getTracks().some(track => track.readyState === "live"))).toHaveLength(1);
@@ -1085,7 +1097,7 @@ const REMOTE_CLOSE_TEXT = "fixture-private-marker: transcript, audio, credential
 for (const reason of Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAGNOSTICS)[]) test(`close diagnostic: failed opening retains only fixed ${reason} class`, async ctx => {
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx);
-  s.client.enter();
+  s.client.enter(); s.client.start();
   const requestId = String(s.socket.frames("conversation_start").at(-1)!.requestId);
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId, reason, message: REMOTE_CLOSE_TEXT });
   expect(JSON.stringify(s.client.state.getState()), "REMOTE_CLOSE_TEXT_NOT_RETAINED").not.toContain(REMOTE_CLOSE_TEXT);
@@ -1142,7 +1154,7 @@ for (const reason of (Object.keys(CLOSE_DIAGNOSTICS) as (keyof typeof CLOSE_DIAG
 });
 
 for (const ending of ["leave", "logout", "dispose"] as const) test(`close diagnostic: ${ending} clears retained reason and rejects late frames`, async ctx => {
-  const s = await scene(ctx); await s.enter();
+  const s = await scene(ctx); s.client.enter(); s.client.start();
   const requestId = String(s.socket.frames("conversation_start").at(-1)!.requestId);
   const closed: ServerMessage = { type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, requestId, reason: "provider_error" };
   s.deliver(closed);
@@ -1176,9 +1188,9 @@ test("close diagnostic: replacement opening rejects stale close and old conversa
 test("close diagnostic: abandoned opening refusal cannot contaminate fresh entry", async ctx => {
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx);
-  s.client.enter();
+  s.client.enter(); s.client.start();
   const requestId = String(s.socket.frames("conversation_start")[0]!.requestId);
-  s.client.leave(); s.client.enter();
+  s.client.leave(); s.client.enter(); s.client.start(); s.client.mute();
   s.deliver({ type: "conversation_closed", conversationId: "ithaca-abandoned", epoch: 1, requestId, reason: "refused", message: REMOTE_CLOSE_TEXT });
   expect(s.client.state.getState().notice, "ABANDONED_OPENING_REJECTS_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.refused);
   await expect.poll(() => s.socket.frames("conversation_start").length).toBe(2);

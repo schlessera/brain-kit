@@ -136,3 +136,46 @@ for (const engine of ["gemini", "gpt"] as const) {
     await s.close();
   });
 }
+
+for (const engine of ["gemini","gpt"] as const) {
+  const max = engine === "gpt" ? 7_500 : 24_000, factMax=engine === "gpt" ? 5_000 : 16_000;
+  const scope={conversationId:"ithaca-second",epoch:2};
+  const work=(n:number)=>Array.from({length:n},(_,i)=>({conversationId:scope.conversationId,epoch:1,utteranceId:`u${i}`,requestId:`q${i}`,turnId:`t${i}`,recognized:"Research the suitors. "+"x".repeat(470),submitted:"x",state:"completed" as const,delivery:"discarded" as const}));
+  const result=(i:number,facts:string)=>({conversationId:scope.conversationId,epoch:1,requestId:`q${i}`,turnId:`t${i}`,facts});
+  const item=(r:ReturnType<typeof result>)=>({ref:JSON.stringify(r),kind:"host_fact" as const,outcome:"completed" as const,text:r.facts,result:r,completeness:"retained_bounded" as const});
+  const envelope=(items:ConversationHistoryEnvelope["items"]):ConversationHistoryEnvelope=>({version:1,coverage:{state:"complete",reasons:[]},items});
+  test(`${engine}: omitted resync result remains eligible as whole historical data on the socket`,async()=>{
+    const {provider,sockets}=loopback(engine), receipts=work(64), facts=receipts.map((_,i)=>result(i,`Distinctive whole oar fact ${i}.`));
+    const s=await open(provider,scope.conversationId,scope.epoch,{resync:{work:receipts,results:facts},history:envelope([item(facts[0]!),{ref:"latest",kind:"typed",role:"user",text:"Which oar was that?"}])});
+    await until(()=>historyTexts(engine,sockets[0]!).length>=1);
+    const texts=historyTexts(engine,sockets[0]!);
+    expect(texts).toHaveLength(2);
+    expect(texts[1]).not.toContain(facts[0]!.facts);
+    expect(texts[0],"ONLY_ACTUALLY_EMITTED_RESYNC_REFS_ARE_EXCLUDED").toContain(facts[0]!.facts);
+    await s.close();
+  });
+  test(`${engine}: actual combined serialized facts obey the shared fact cap on the socket`,async()=>{
+    const {provider,sockets}=loopback(engine), receipts=work(engine==="gpt"?1:3);
+    const facts=receipts.map((_,i)=>result(i,String(i).repeat(4000)));
+    const historical=result(99,(engine==="gpt"?"H".repeat(1500):"H".repeat(4000)));
+    const s=await open(provider,scope.conversationId,scope.epoch,{resync:{work:receipts,results:facts},history:envelope([item(historical),{ref:"latest",kind:"typed",role:"user",text:"What did the newest research find?"}])});
+    await until(()=>historyTexts(engine,sockets[0]!).length>=1);
+    const texts=historyTexts(engine,sockets[0]!);
+    const historyData=JSON.parse(texts[0]!.slice(texts[0]!.indexOf("["))),resyncData=JSON.parse(texts[1]!.slice(texts[1]!.indexOf("[")));
+    const actualFacts=historyData.filter((i:any)=>i.from==="host_result").reduce((n:number,i:object)=>n+Buffer.byteLength(JSON.stringify(i)),0)
+      +resyncData.filter((i:any)=>i.hostResult).reduce((n:number,i:any)=>n+Buffer.byteLength(JSON.stringify(i.hostResult)),0);
+    expect(actualFacts,"RESYNC_FACT_BYTES_ARE_SUBTRACTED_FROM_HISTORY_FACT_CAP").toBeLessThanOrEqual(factMax);
+    expect(texts[1]).toContain(facts[0]!.facts);expect(texts[0]).not.toContain(historical.facts);
+    expect(texts.reduce((n,t)=>n+Buffer.byteLength(t),0)).toBeLessThanOrEqual(max);
+    await s.close();
+  });
+  test(`${engine}: dense resync preserves the newest historical question using actual history reservation`,async()=>{
+    const {provider,sockets}=loopback(engine), question="Newest unanswered question: "+"Which oar? ".repeat(engine==="gpt"?100:400);
+    const s=await open(provider,scope.conversationId,scope.epoch,{resync:{work:work(64)},history:envelope([{ref:"latest",kind:"typed",role:"user",text:question}])});
+    await until(()=>historyTexts(engine,sockets[0]!).length>=1);
+    const texts=historyTexts(engine,sockets[0]!);
+    expect(texts.join(""),"ACTUAL_HISTORY_RESERVATION_PRESERVES_NEWEST_QUESTION").toContain(question);
+    expect(texts.reduce((n,t)=>n+Buffer.byteLength(t),0)).toBeLessThanOrEqual(max);
+    await s.close();
+  });
+}

@@ -351,6 +351,8 @@ signatures (every public export and the types it is made of)
         interaction: "Listening" | "Sending soon" | "Review before sending" | "Working" | "Speaking" | "Checking whether the reply stopped" | "Answering question";
         disclosureOpen: boolean;
         profile: ServerConversationOpened | null;
+        conversationProfile: ConversationProfile | null;
+        durableAvailable: boolean;
         sessionId: string | null;
         agentProviderId: string | null;
         text: string;

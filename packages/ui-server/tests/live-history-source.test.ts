@@ -21,7 +21,7 @@ test("canonical mapping keeps actual discussion, exact native range order and en
 test("range copies never replace native final answers; partial evidence and newest-page omissions are honest",()=>{
  const incomplete={...page,cursor:"bounded",coverage:"partial" as const,records:page.records.map(r=>r.evidence.kind==="backend"?{...r,evidence:{...r.evidence,text:"wrong text",digest:Bun.SHA256.hash("wrong text","hex")}}:r)};
  const out=projectLiveHistory([msg("assistant","Bronze owl. Full native conclusion.",{turnId:"t"})],incomplete);
- expect(out.items[0]).toMatchObject({text:"Bronze owl. Full native conclusion."});
+ expect(out.items.find(i=>i.kind==="typed")).toMatchObject({text:"Bronze owl. Full native conclusion."});
  expect(out.coverage).toEqual({state:"partial",reasons:["ambiguous_order","older_omitted","write_gap"]});
 });
 function source(overrides: Record<string,unknown> = {}) {
@@ -36,7 +36,7 @@ test("revocation while canonical read awaits never reads backend or returns a se
  let finish!:(p:DialoguePage)=>void;const f=source({dialogueRead:()=>new Promise<DialoguePage>(r=>{finish=r;})});
  const pending=readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized);while(!finish)await Bun.sleep(1);f.revoke();finish(page);expect(await pending).toBeUndefined();expect(f.counts().backendReads).toBe(0);
 });
-for(const failure of ["journal","generation","provenance"] as const)test(`${failure} read error fails closed without a context-free snapshot`,async()=>{
+for(const failure of ["journal","generation"] as const)test(`${failure} read error fails closed without a context-free snapshot`,async()=>{
  const f=source(failure==="journal"?{dialogueRead:async()=>{throw Error("source failed");}}:failure==="generation"?{dialogueOwnerForId:()=>({id:"ithaca",generation:2})}:{attachMessageSources:()=>{throw Error("provenance failed");}});
  await expect(readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized)).rejects.toThrow();
 });

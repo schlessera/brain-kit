@@ -22,8 +22,7 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
     await host.historySettled();
     if (!authorized()) return;
     // Fail closed on provenance read errors: a task wrapper must never default to typed.
-    const sourced = host.catalog.attachMessageSources?.(target.sessionId, native, true) ?? native;
-    messages = host.prepareHistory(target.sessionId, sourced);
+    messages = host.prepareHistory(target.sessionId, native, true);
   }
   const conversations = [...new Set(page?.records.flatMap(r => r.evidence.kind === "voice" ? [r.evidence.conversationId] : []) ?? [])].slice(-128);
   const canonicalVoiceTurns = new Set<string>();
@@ -33,6 +32,23 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
     if (!authorized()) return;
     if (!stored || stored.sessionId !== target.sessionId) continue;
     for (const receipt of stored.receipts) {
+      // A failed asynchronous source write cannot promote an internal task
+      // carrier to typed dialogue. Match the native answer's exact host turn,
+      // then only that answer group's nearest user and the exact submitted bytes.
+      if (receipt.provenance === "contextual" && receipt.turnId) {
+        const answer = messages.findIndex(m => m.role === "assistant" && m.turnId === receipt.turnId);
+        if (answer >= 0) {
+          let user = answer - 1;
+          while (user >= 0 && messages[user]!.role !== "user") user--;
+          if (user >= 0 && messages[user]!.content === receipt.submitted) {
+            messages = messages.map((m,i) => i === user ? { ...m, source: "voice-context" } : m);
+          }
+        } else if (receipt.state !== "completed" && messages.at(-1)?.role === "user" && messages.at(-1)?.content === receipt.submitted) {
+          // Without the completed native turn boundary there is no honest
+          // message identity fallback. Refuse this ambiguous source snapshot.
+          throw Error("Historical request provenance is unavailable");
+        }
+      }
       if (receipt.turnId && receipt.provenance !== "contextual" && page?.records.some(r => {
         const e = r.evidence;
         return e.kind === "voice" && e.conversationId === id && e.epoch === receipt.epoch && e.event.kind === "input_fragment" && e.event.utteranceId === receipt.utteranceId;
@@ -70,30 +86,65 @@ export function projectLiveHistory(messages: readonly SessionHistoryMessage[], p
   const ordered: Array<{ order: number; index: number; item: HistoricalItem }> = [];
   let index = 0;
   const add = (order: number, item: HistoricalItem) => ordered.push({ order, index: index++, item });
-  // Native order is known, but absent range witnesses cannot invent cross-stream order.
+  // Native groups retain their own order even when cross-stream position is
+  // unknown. Known request/range anchors position complete exchanges; unknown
+  // groups sit between their native neighbours, or after the journal tail when
+  // they are newest. Never assign every unjoined message a negative prefix slot.
   const recent = messages.slice(-128);
-  let preceding = -recent.length;
+  type Positioned = { order: number; item: HistoricalItem };
+  const groups: Array<{ items: HistoricalItem[]; positioned: Positioned[]; known: boolean }> = [];
+  let group: typeof groups[number] | undefined;
   for (let i = 0; i < recent.length; i++) {
     const message = recent[i]!;
-    if (message.role === "assistant" && facts.some(f => f.turnId === message.turnId)) continue;
+    if (!group || message.role === "user") {
+      group = { items: [], positioned: [], known: true }; groups.push(group);
+    }
     if (!message.content || message.role === "user" && message.source === "voice-context") continue;
     const ref = JSON.stringify(["native", messages.length - recent.length + i, message.role]);
     if (message.role === "user") {
-      const answer = recent.slice(i + 1).find(m => m.role === "assistant");
+      const nextUser = recent.findIndex((m,j) => j > i && m.role === "user");
+      const answer = recent.slice(i + 1, nextUser < 0 ? undefined : nextUser).find(m => m.role === "assistant");
       if (message.source === "voice-conversation" && answer?.turnId && canonicalVoiceTurns.has(answer.turnId)) continue;
       const request = records.find(r => r.evidence.kind === "request" && r.evidence.turnId === answer?.turnId);
-      add(request ? request.sequence - 0.5 : preceding++, { ref, kind: "typed", role: "user", text: message.content,
-        ...(message.source === "voice-conversation" || message.source === "voice-dictate" ? { source: message.source } : {}) });
+      const item: HistoricalItem = { ref, kind: "typed", role: "user", text: message.content,
+        ...(message.source === "voice-conversation" || message.source === "voice-dictate" ? { source: message.source } : {}) };
+      group.items.push(item);
+      if (request) group.positioned.push({order:request.sequence-0.5,item}); else group.known=false;
     } else {
+      const fact = facts.find(f=>f.turnId === message.turnId);
       const ranges = message.turnId ? nativeRanges(records, message.turnId, message.content) : undefined;
-      // A completed host fact is a separate exact retained-result source. The
-      // full native answer is retained as backend text, never a generated reply.
-      if (ranges) for (const r of ranges) add(r.sequence, { ref: `${ref}:${r.start}`, kind: "typed", role: "assistant", text: message.content.slice(r.start,r.end) });
-      else {
-        if (records.length) reasons.add("ambiguous_order");
-        add(preceding++, { ref, kind: "typed", role: "assistant", text: message.content });
+      if (fact) {
+        // Facts join later at their witnessed completion; retain this native
+        // anchor so surrounding unknown groups cannot jump before the result.
+        if (ranges) group.positioned.push({order:ranges.at(-1)!.sequence+0.25,item:fact.item});
+        else group.known=false;
+        continue;
       }
+      if (ranges) for (const r of ranges) {
+        const item: HistoricalItem = {ref:`${ref}:${r.start}`,kind:"typed",role:"assistant",text:message.content.slice(r.start,r.end)};
+        group.items.push(item); group.positioned.push({order:r.sequence,item});
+      } else {group.known=false;group.items.push({ref,kind:"typed",role:"assistant",text:message.content});}
     }
+  }
+  const journalTail = Math.max(0,...records.map(r=>r.sequence));
+  let previous = -groups.length;
+  for (let i=0;i<groups.length;i++) {
+    const g=groups[i]!;
+    const known=g.known && g.positioned.length>0 && g.positioned[0]!.order>=previous;
+    if (known) {
+      for (const p of g.positioned) if(p.item.kind!=="host_fact") add(p.order,p.item);
+      previous=g.positioned.at(-1)!.order;
+      continue;
+    }
+    if (!g.items.length) continue;
+    if(records.length) reasons.add("ambiguous_order");
+    const next=groups.slice(i+1).find(n=>n.known && n.positioned.length && n.positioned[0]!.order>previous);
+    const end=next ? next.positioned[0]!.order : Math.max(previous,journalTail)+1;
+    const start=next ? previous : Math.max(previous,journalTail);
+    const step=(end-start)/(g.items.length+2);
+    if(records.length) add(start+step/2,{ref:`native-gap:${i}`,kind:"gap",reason:"ambiguous_order"});
+    g.items.forEach((item,j)=>add(start+step*(j+1),item));
+    previous=start+step*g.items.length;
   }
   for (const record of records) {
     const e = record.evidence;

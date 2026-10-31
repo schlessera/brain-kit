@@ -32,7 +32,7 @@ test("actual hosted admission supplies only real journal/revert capabilities, in
  async function chat(host:WsHost){const seen=requests.length,connection=await connect(host);connection.send({type:"chat_message",text:"Record the return to Ithaca",requestId:`note-${seen}`});await until(()=>requests.length===seen+1&&!host.coordinator.isTurnActive(),()=>connection.sent);connection.close();return requests.at(-1)!;}
  async function liveChat(host:WsHost) {
   const connection=await connect(host),sessionIndex=live.sessions.length;
-  connection.send({type:"conversation_start"});await until(()=>live.sessions.length===sessionIndex+1,()=>connection.sent);await until(()=>connection.sent.some(text=>JSON.parse(text).type==="conversation_opened"),()=>connection.sent);
+  connection.send({type:"conversation_start",disclosed:host.conversations!.profile(false)});await until(()=>live.sessions.length===sessionIndex+1,()=>connection.sent);await until(()=>connection.sent.some(text=>JSON.parse(text).type==="conversation_opened"),()=>connection.sent);
   const opened=connection.sent.map(text=>JSON.parse(text)).find(frame=>frame.type==="conversation_opened"),voice=live.sessions[sessionIndex]!;
   connection.send({type:"conversation_audio",conversationId:opened.conversationId,epoch:opened.epoch,utteranceId:"u-ithaca",sequence:0,rate:16000,pcm:SILENCE});await until(()=>voice.audio.length===1,()=>connection.sent);voice.emit({kind:"input_fragment",utteranceId:"u-ithaca",sequence:0,text:"Record Athena's advice",finalization:"unknown",certainty:"unknown",origin:"user"});
   await until(()=>connection.sent.some(text=>JSON.parse(text).type==="conversation_event"),()=>connection.sent);const seen=requests.length;

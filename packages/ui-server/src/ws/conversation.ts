@@ -26,6 +26,7 @@ import {
   type ClientConversationEndpoint,
   type ClientConversationPlayback,
   type ClientConversationStart,
+  type ConversationProfile,
   type ClientConversationStop,
   type ConversationCloseReason,
   type ConversationOutputRecord,
@@ -156,10 +157,25 @@ export class ConversationHost {
     readonly provider: LiveConversationProvider
   ) {}
 
+  /** Public disclosure only; never opens a provider or reads chat content. */
+  profile(contextualTasks = true): ConversationProfile {
+    return { providerId: this.provider.id,
+      capabilities: { ...this.provider.capabilities, contextualTasks: contextualTasks && this.provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch ? "supported" : "unsupported" },
+      disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] } };
+  }
+  private disclosed(msg: ClientConversationStart): boolean {
+    const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])) : value;
+    return JSON.stringify(canonical(msg.disclosed)) === JSON.stringify(canonical(this.profile(msg.contextualTasks === true)));
+  }
+
   // --- client commands ---
 
   async start(ws: WSContext, connection: ConnectionState, msg: ClientConversationStart): Promise<void> {
-    if (connection.closed) return;
+    if (connection.closed || !connection.authorization.valid || this.host.closing) return;
+    // Privacy admission precedes even recovery reads and device takeover.
+    if (!msg.disclosed) { this.refuse(ws,"CONVERSATION_CAPABILITY","Update this app before starting voice. Nothing was sent to the voice service.",msg.requestId); return; }
+    if (!this.disclosed(msg)) { this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return; }
     const principalId = connection.authorization.principalId;
     let conversation: Conversation;
     if (msg.conversationId !== undefined) {
@@ -275,6 +291,10 @@ export class ConversationHost {
       const history = await readLiveHistory(this.host, principalId,
         conversation.sessionId ? { sessionId: conversation.sessionId } : { ownerId: conversation.historyOwnerId }, authorized);
       if (!authorized()) return;
+      if (!this.disclosed(msg)) {
+        this.endEpoch(conversation,"refused",undefined,epoch); this.detach(conversation);
+        this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return;
+      }
       session = await this.provider.open(scope, {
         ...(history ? { history } : {}),
         signal: epoch.abort.signal,
@@ -309,10 +329,8 @@ export class ConversationHost {
       conversationId: conversation.id,
       epoch: epoch.number,
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
-      providerId: this.provider.id,
       ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}),
-      capabilities: { ...this.provider.capabilities, contextualTasks: epoch.contextualTasks ? "supported" : "unsupported" },
-      disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] },
+      ...this.profile(epoch.contextualTasks),
       limits: { ...CONVERSATION_LIMITS },
       resync: { work: conversation.receipts.length, outputs: conversation.outputs.size },
     });
@@ -1157,8 +1175,8 @@ export class ConversationHost {
     }
   }
 
-  private refuse(ws: WSContext, code: string, message: string): void {
-    this.host.sendMessage(ws, { type: "error", code, message });
+  private refuse(ws: WSContext, code: string, message: string, requestId?: string): void {
+    this.host.sendMessage(ws, { type: "error", code, message, ...(requestId ? {requestId} : {}) });
   }
 
   /**

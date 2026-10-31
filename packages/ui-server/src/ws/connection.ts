@@ -117,6 +117,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         },
         // Beside `capabilities`, whose values every shipped client parses
         // as booleans (#979).
+        ...(host.conversations ? { conversationProfile: host.conversations.profile() } : {}),
         ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),
       });
 

@@ -4093,3 +4093,22 @@ The reachable `SessionCatalog.attachMessageSources` signature also accepts
 optional `strict?: boolean`. The default preserves ordinary display recovery's
 existing fallback. `true` propagates source-read failures for live startup so
 internal task carriers cannot be reclassified as typed chat after a read error.
+
+`WsHost.prepareHistory(sessionId, messages, strictSources?)` performs strict source
+joining in the ordinary position, after exact native turn/failure identity joins.
+It must not normalize file-bearing user bytes before those prefix digests match.
+Unwitnessed native groups retain native order, carry an unknown-position gap and
+follow their native predecessor; a newest unanswered question remains the tail.
+An exact contextual receipt/turn/submitted-text join excludes a task carrier when
+its asynchronous source metadata write failed, without filtering unrelated equal
+user text. Ambiguous unfinished contextual carriers fail the snapshot closed.
+
+`ConversationProfile` and `conversationProfileSchema` are public SDK exports for
+`{providerId, capabilities, disclosure}`. Hello may advertise this profile and
+Start may echo it, with the intentional legacy admission refusal documented in
+the wire component.
+
+The host helper `ConversationHost.profile(contextualTasks?)` supplies the same known
+provider-free effective disclosure for hello, admission comparison and opened
+receipts. The host refuses undisclosed legacy starts before touching their scope;
+the wire section records the deliberate privacy admission compatibility correction.

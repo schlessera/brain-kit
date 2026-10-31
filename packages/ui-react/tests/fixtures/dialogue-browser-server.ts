@@ -31,6 +31,7 @@ let frames: ServerMessage[] = [];
 const sent: unknown[] = [],
   ingress: unknown[] = [];
 let tasks = 0;
+let providerOpens=0;
 let quotaApplied = false, pressureApplied = false;
 let complete: (() => void) | undefined;
 let emitPrefix: ((text:string)=>void) | undefined;
@@ -149,15 +150,14 @@ function makeHost() {
     catalog.saveConversationTask = undefined;
     catalog.saveConversationEpoch = undefined;
   }
+  const provider=engine === "gemini" ? createGeminiConversationProvider("keyless-odyssey-placeholder") : createGptLiveConversationProvider("keyless-odyssey-placeholder");
+  const open=provider.open.bind(provider);provider.open=(...args)=>{providerOpens++;return open(...args);};
   return new WsHost({
     brainPath: root,
     registry: createStaticBackendRegistry([backend], "fake"),
     catalog,
     isPrincipalAuthorized: () => true,
-    conversationProvider:
-      engine === "gemini"
-        ? createGeminiConversationProvider("keyless-odyssey-placeholder")
-        : createGptLiveConversationProvider("keyless-odyssey-placeholder"),
+    conversationProvider: provider,
   });
 }
 let host = makeHost(),
@@ -206,7 +206,7 @@ const server = Bun.serve({
     if(body.parallelStarts && body.client?.some(frame=>(frame as {type?:string}).type==="conversation_start")){const sink:ServerMessage[]=[];parallel={handlers:createWsHandlers(host,testPrincipal()),ws:{send:(data:string)=>sink.push(JSON.parse(data))} as WSContext,frames:sink};await parallel.handlers.onOpen(undefined as never,parallel.ws);parallel.handlers.onMessage({data:JSON.stringify({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}})} as MessageEvent,parallel.ws);}
     for (const frame of body.client ?? []) {
       handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
-      if(body.parallelStarts && (frame as {type?:string}).type==="conversation_start") parallel!.handlers.onMessage({data:JSON.stringify({...frame as object,requestId:"pylos-parallel"})} as MessageEvent,parallel!.ws);
+      if(body.parallelStarts && (frame as {type?:string}).type==="conversation_start") parallel!.handlers.onMessage({data:JSON.stringify({...frame as object,requestId:"pylos-parallel",disclosed:host.conversations!.profile(true)})} as MessageEvent,parallel!.ws);
     }
     if(body.parallelLeave && parallel){const opened=parallel.frames.find(f=>f.type==="conversation_opened");if(opened?.type!=="conversation_opened")throw Error("Parallel conversation did not open");parallel.handlers.onMessage({data:JSON.stringify({type:"conversation_stop",conversationId:opened.conversationId})} as MessageEvent,parallel.ws);}
     await Bun.sleep(10);
@@ -269,7 +269,7 @@ const server = Bun.serve({
       sent: sent.splice(0),
       ingress,
       rows,
-      tasks,
+      tasks, providerOpens,
       parallelFrames:parallel?.frames,
       conversations:db.query("SELECT id,epoch,closed FROM dialogue_conversations ORDER BY id").all(),
       owners:db.query("SELECT id,coverage FROM dialogue_owners ORDER BY id").all(),
