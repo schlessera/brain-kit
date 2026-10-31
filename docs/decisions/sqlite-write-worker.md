@@ -385,8 +385,12 @@ termination; this is not a production thread-join guarantee.
 ### Bounded caller waits retain real cleanup ownership (#3185)
 
 A storage operation may never return from native I/O. During application
-cleanup, the writer observes its real outstanding native requests
-(`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-225`).
+cleanup, the app observes real outstanding native requests on both its shared
+UI/journal writer and its separate native-lease writer
+(`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`).
+Request identities and settlement remain local to each concrete writer; one
+writer becoming idle cannot clear another writer's deadline. Native manager
+RPCs are not SQLite requests and do not acquire this deadline.
 Each native request already pending when close begins gets ten seconds;
 requests submitted during cleanup get that budget from submission. It includes
 FIFO queue wait. Expiry rejects the caller with

@@ -1202,7 +1202,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
-    close: () => closing ??= guardSqliteCleanup(writer, (async () => {
+    close: () => closing ??= guardSqliteCleanup([writer, nativeLeases.writer], (async () => {
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
       host.closing = true;

@@ -203,23 +203,32 @@ type SettlementObserver = (id: number, pending: boolean) => void;
 const observeSettlement = new WeakMap<SqliteWriter, (observer: SettlementObserver) => () => void>();
 
 /** Bound only real native storage waits during cleanup, never CLI or transport work. */
-export function guardSqliteCleanup(writer: SqliteWriter, cleanup: Promise<void>): Promise<void> {
-  const observe = observeSettlement.get(writer);
+export function guardSqliteCleanup(writers: readonly SqliteWriter[], cleanup: Promise<void>): Promise<void> {
+  const observers = [...new Set(writers)].flatMap(writer => observeSettlement.get(writer) ?? []);
   // In-memory procedures execute synchronously and have no native worker queue.
-  if (!observe) return cleanup;
+  if (!observers.length) return cleanup;
   return new Promise<void>((resolve, reject) => {
-    const timers = new Map<number, ReturnType<typeof setTimeout>>();
-    let stop = () => {};
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const stops: (() => void)[] = [];
     let expired = false;
-    const release = () => { stop(); for (const timer of timers.values()) clearTimeout(timer); timers.clear(); };
-    stop = observe((id, pending) => {
-      if (!pending) { clearTimeout(timers.get(id)); timers.delete(id); return; }
-      timers.set(id, setTimeout(() => {
-        if (expired) return;
-        expired = true; release();
-        reject(new StorageSettlementIndeterminate("Application shutdown", cleanup));
-      }, STORAGE_SETTLEMENT_MS));
-    });
+    const release = () => { for (const stop of stops) stop(); for (const timer of timers) clearTimeout(timer); timers.clear(); };
+    for (const observe of observers) {
+      // Request identities are local to each concrete writer.
+      const requests = new Map<number, ReturnType<typeof setTimeout>>();
+      stops.push(observe((id, pending) => {
+        if (!pending) {
+          const timer = requests.get(id);
+          if (timer !== undefined) { clearTimeout(timer); timers.delete(timer); requests.delete(id); }
+          return;
+        }
+        const timer = setTimeout(() => {
+          if (expired) return;
+          expired = true; release();
+          reject(new StorageSettlementIndeterminate("Application shutdown", cleanup));
+        }, STORAGE_SETTLEMENT_MS);
+        requests.set(id, timer); timers.add(timer);
+      }));
+    }
     void cleanup.then(() => { release(); resolve(); }, error => { release(); reject(error); });
   });
 }

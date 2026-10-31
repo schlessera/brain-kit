@@ -18,6 +18,7 @@ import { resolveServerConfig } from "../src/config/env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import * as writers from "../src/db/write-worker.js";
+import * as nativeLeases from "../src/brain/native-brain-leases.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 import * as principals from "../src/db/principal-writes.js";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
@@ -35,10 +36,11 @@ function fixture() {
 }
 
 /** Observe the actual worker at the shared send boundary; all messages still execute. */
-function observe(path: string) {
+function observe(path: string, onWriter?: (db: Database, writer: writers.SqliteWriter) => void,
+  onMessage?: (worker: Worker, message: unknown) => void) {
   const send = Worker.prototype.postMessage, open = writers.openSqliteWriter;
   const descriptor = Object.getOwnPropertyDescriptor(Worker.prototype, "postMessage")!;
-  let worker: Worker | undefined, writer: writers.SqliteWriter | undefined, closed = false, closes = 0;
+  let worker: Worker | undefined, writer: writers.SqliteWriter | undefined, reader: Database | undefined, closed = false, closes = 0;
   let acknowledge!: () => void;
   const ended = new Promise<void>(resolve => { acknowledge = resolve; });
   const messages = spyOn(Worker.prototype, "postMessage").mockImplementation(function (this: Worker, ...args: [message: unknown, options?: StructuredSerializeOptions | Transferable[]]) {
@@ -49,15 +51,17 @@ function observe(path: string) {
       this.addEventListener("close", () => { closed = true; acknowledge(); }, { once: true });
     }
     if (this === worker && message.kind === "close") closes++;
+    onMessage?.(this, message);
     return Reflect.apply(send, this, args);
   });
   const acquisition = spyOn(writers, "openSqliteWriter").mockImplementation((db, options) => {
     const result = open(db, options);
-    if (db.filename === path) writer = result;
+    onWriter?.(db, result);
+    if (db.filename === path) { writer = result; reader = db; }
     return result;
   });
   return {
-    get worker() { return worker; }, get writer() { return writer!; }, get closes() { return closes; }, get closed() { return closed; },
+    get worker() { return worker; }, get writer() { return writer!; }, get reader() { return reader!; }, get closes() { return closes; }, get closed() { return closed; },
     async expectClosed() {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -565,5 +569,113 @@ for (const late of [false, true]) test(`app close bounds held native storage thr
   } finally {
     release();await held;clock?.restore();
     await app?.close().catch(()=>{});await observed.restore();await f.close();
+  }
+});
+
+
+test("app close bounds held lease SQLite while its main writer is idle", async () => {
+  const f = fixture(), leasePath = f.config.nativeBrain.leasePath;
+  let main!: { writer: writers.SqliteWriter; reader: Database };
+  let updateQueued = false;
+  const lease = observe(leasePath, (db, writer) => { if (db.filename === f.path) main = { writer, reader: db }; }, (worker, value) => {
+    const message = value as { kind?: string; name?: string; args?: unknown[] };
+    if (worker === lease.worker && message.kind === "call" && message.name === "run" && String(message.args?.[0]).startsWith("UPDATE native_root_leases SET state='deleting'")) updateQueued = true;
+  });
+  const createManager = nativeLeases.createNativeBrainLeaseManager;
+  let manager: Awaited<ReturnType<typeof createManager>> | undefined;
+  const assembly = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async (...args) => manager = await createManager(...args));
+  let app: Awaited<ReturnType<typeof createApp>> | undefined, clock: ReturnType<typeof storageDeadlineClock> | undefined;
+  let held: Promise<unknown> | undefined, cleanup: Promise<unknown> | undefined;
+  const gate = new Int32Array(new SharedArrayBuffer(8));
+  const release = () => { Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); };
+  const order: string[] = [];
+  const restorers: { mockRestore(): void }[] = [];
+  try {
+    app = await createApp(f);
+    const id = "11111111-1111-4111-8111-111111111790";
+    await manager!.client.checkpoint(id);
+    const channel = lease.writer.channel(dialogueControls, {});
+    await channel.ready;
+    held = channel.call("holdUntilReleased", gate);
+    const entered = Date.now() + 2000;
+    while (!Atomics.load(gate, 1)) { if (Date.now() > entered) throw Error("lease worker did not enter hold"); await Bun.sleep(1); }
+    // Observe genuine close completion, not the asynchronous Worker close event.
+    for (const [label, owner] of [["lease", lease], ["main", main]] as const) {
+      const writerClose = owner.writer.close.bind(owner.writer), readerClose = owner.reader.close.bind(owner.reader);
+      restorers.push(spyOn(owner.writer, "close").mockImplementation(async () => { await writerClose(); order.push(`${label}-writer`); }));
+      restorers.push(spyOn(owner.reader, "close").mockImplementation(() => { order.push(`${label}-reader`); return readerClose(); }));
+    }
+    clock = storageDeadlineClock();
+    let outcome: unknown, settled = false;
+    const closing = app.close().catch(error => { outcome = error; }).finally(() => { settled = true; });
+    // The real close UPDATE is queued behind the hold. No deletion or RPC is fabricated.
+    const queued = Date.now() + 2000;
+    while (!updateQueued) { if (Date.now() > queued) throw Error("lease cleanup did not submit its real deletion intent"); await Bun.sleep(1); }
+    await main.writer.idle();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    clock.expire();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(settled, "APP_CLOSE_MUST_BOUND_HELD_LEASE_SQLITE_WITH_MAIN_IDLE").toBe(true);
+    await closing;
+    expect(outcome).toBeInstanceOf(StorageSettlementIndeterminate);
+    cleanup = (outcome as StorageSettlementIndeterminate).cleanup!;
+    expect((outcome as StorageSettlementIndeterminate).operation).toBe("Application shutdown");
+    expect(lease.closed, "LEASE_DEADLINE_NEVER_TERMINATES_WORKER").toBe(false);
+    expect(lease.closes, "LEASE_CLOSE_STAYS_OWNED_BEHIND_REAL_WRITE").toBe(0);
+    expect(order, "NEITHER_READER_NOR_WRITER_RELEASES_EARLY").toEqual([]);
+    expect(lease.reader.query("SELECT state FROM native_root_leases WHERE id=?").get(id)).toEqual({ state: "sealed" });
+    expect(app.db.query("SELECT 1 AS n").get()).toEqual({ n: 1 });
+    let finished = false;
+    void cleanup.then(() => { finished = true; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(finished, "INDETERMINATE_IS_NOT_PHYSICAL_CLEANUP_COMPLETION").toBe(false);
+    release(); await held; await cleanup;
+    expect(order, "REAL_LEASE_CLEANUP_PRECEDES_MAIN_READER_RELEASE").toEqual(["lease-writer", "lease-reader", "main-writer", "main-reader"]);
+    const disk = new Database(leasePath, { readonly: true });
+    try { expect(disk.query("SELECT COUNT(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 }); } finally { disk.close(); }
+  } finally {
+    release(); await held; await cleanup; clock?.restore();
+    await app?.close().catch(() => {});
+    for (const restorer of restorers.reverse()) restorer.mockRestore();
+    assembly.mockRestore(); await lease.restore(); await f.close();
+  }
+});
+
+
+test("app close does not apply a SQLite deadline to a native release RPC", async () => {
+  const f = fixture(), leasePath = f.config.nativeBrain.leasePath;
+  let main!: writers.SqliteWriter;
+  const lease = observe(leasePath, (db, writer) => { if (db.filename === f.path) main = writer; });
+  const createManager = nativeLeases.createNativeBrainLeaseManager;
+  let manager: Awaited<ReturnType<typeof createManager>> | undefined, releaseRpc!: () => void, entered!: () => void;
+  const heldRpc = new Promise<void>(resolve => { releaseRpc = resolve; });
+  const rpcEntered = new Promise<void>(resolve => { entered = resolve; });
+  const assembly = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async (raw, options) => {
+    const release = raw.release;
+    raw.release = async (...args) => { entered(); await heldRpc; return release(...args); };
+    return manager = await createManager(raw, options);
+  });
+  let app: Awaited<ReturnType<typeof createApp>> | undefined, clock: ReturnType<typeof storageDeadlineClock> | undefined;
+  let closing: Promise<void> | undefined;
+  try {
+    app = await createApp(f);
+    const id = "11111111-1111-4111-8111-111111111790";
+    await manager!.client.checkpoint(id);
+    clock = storageDeadlineClock();
+    let settled = false;
+    closing = app.close().finally(() => { settled = true; });
+    await rpcEntered;
+    await main.idle(); await lease.writer.idle();
+    clock.expire(); await new Promise<void>(resolve => setImmediate(resolve));
+    expect(settled, "SQLITE_BUDGET_DOES_NOT_DEADLINE_NATIVE_RELEASE_RPC").toBe(false);
+    expect(lease.reader.query("SELECT state FROM native_root_leases WHERE id=?").get(id)).toEqual({ state: "deleting" });
+    expect(app.db.query("SELECT 1 AS n").get()).toEqual({ n: 1 });
+    expect(lease.closes).toBe(0);
+    releaseRpc(); await closing;
+    const disk = new Database(leasePath, { readonly: true });
+    try { expect(disk.query("SELECT COUNT(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 }); } finally { disk.close(); }
+  } finally {
+    releaseRpc(); await closing?.catch(() => {}); clock?.restore(); await app?.close().catch(() => {});
+    assembly.mockRestore(); await lease.restore(); await f.close();
   }
 });
