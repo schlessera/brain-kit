@@ -57,6 +57,11 @@ Object.assign(window, {
       Object.values(root.stores.chat.getState().buffers)
         .flatMap((b) => b.messages)
         .flatMap((m) => m.askUserExchanges ?? []).length,
+    activeCardRequestIds: () => {
+      const state = root.stores.chat.getState();
+      const buffer = state.activeSessionId ? state.buffers[state.activeSessionId] : state.draft;
+      return (buffer?.messages ?? []).flatMap((m) => m.askUserExchanges ?? []).map((e) => e.requestId);
+    },
     held: () => root.answers.held(),
     activeSession: () => root.stores.chat.getState().activeSessionId,
     principalReadWaiting: () => principalReadWaiting,
