@@ -557,7 +557,7 @@ test("mixed transcript window, reading anchor, history resync and session isolat
 test("cold restored speech explicitly has unknown original discussion position", async ctx => {
   const s = await scene(ctx);
   s.client.enter(); s.client.start();
-  s.deliver({...PROFILE,resync:{work:0,outputs:1},requestId:s.socket.frames("conversation_start").at(-1)!.requestId});
+  s.deliver({...PROFILE,resync:{work:0,outputs:1},requestId:String(s.socket.frames("conversation_start").at(-1)!.requestId)});
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
   await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("Original discussion position unknown");
   expect(s.client.state.getState().micOn).toBe(false);

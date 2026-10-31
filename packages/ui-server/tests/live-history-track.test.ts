@@ -32,7 +32,7 @@ test("live history keeps track-file native identity joins before source normaliz
   } });
   const db = createUiDb(":memory:"); const catalog = createSessionCatalog(() => db);
   const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], backend.id), catalog });
-  const ws = { send: (_: string) => {} } as any; host.clients.add(ws, "test-principal");
+  const ws = { send: () => {} } as any; host.clients.add(ws, "test-principal");
   const connection = { principal: testPrincipal(), authorization: testAuthorization() };
   try {
     await handleClientMessage(host, ws, { type: "chat_message", text: "Show this file", files: [{ kind: "file", path }] }, connection);
