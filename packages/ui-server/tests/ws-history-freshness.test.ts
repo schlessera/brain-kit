@@ -288,6 +288,20 @@ describe("history publication across concurrent turns", () => {
     await w.idle();
   });
 
+  test("a throwing connect snapshot keeps its diagnostic off every public frame", async () => {
+    const w = world();
+    await w.start("Check the sail");
+    w.backend.getHistory = async () => { throw new Error("Odysseus private history diagnostic"); };
+    const snapshot = w.snapshot();
+    await snapshot.done;
+    expect(JSON.stringify(snapshot.frames), "SNAPSHOT_WIRE_REDACTS_RAW_CAUSE").not.toContain("Odysseus private history diagnostic");
+    expect(snapshot.frames.filter(frame => frame.type === "error")).toEqual([{
+      type: "error", code: "SESSION_LOAD_ERROR", sessionId: SESSION,
+      message: "Unable to load conversation history. Try again; your draft is kept.",
+    }]);
+    expect(snapshot.frames.at(-1)).toMatchObject({type: "status", status: "thinking", sessionId: SESSION});
+  });
+
   test("a connect snapshot that changes twice reports the load error and current idle state", async () => {
     const w = world();
     const originalTurn = await w.start("Check the sail");

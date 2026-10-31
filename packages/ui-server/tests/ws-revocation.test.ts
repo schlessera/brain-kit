@@ -971,7 +971,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
     host.coordinator.reset();
   });
 
-  test("snapshot-on-connect stays revocable while its history is still loading", async () => {
+  for (const fails of [false, true]) test(`snapshot-on-connect stays revocable while history settles, fails=${fails}`, async () => {
     let releaseHistory: (() => void) | undefined;
     const pending = new Promise<void>((resolve) => {
       releaseHistory = resolve;
@@ -980,6 +980,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
       id: "fake",
       getHistory: async () => {
         await pending;
+        if (fails) throw new Error("Odysseus private history diagnostic");
         return [{ role: "user" as const, content: "old turn", toolCalls: [] }];
       },
     });
@@ -1013,7 +1014,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
 
     const framesAfterRevocation = socket.sent
       .map((raw) => JSON.parse(raw).type as string)
-      .filter((type) => type === "session_history");
+      .filter((type) => type === "session_history" || type === "error" || type === "status");
     expect(framesAfterRevocation).toEqual([]);
     host.coordinator.running.clear();
     host.coordinator.reset();
