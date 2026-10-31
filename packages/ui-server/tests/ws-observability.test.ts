@@ -558,7 +558,7 @@ describe("turn lifecycle is observable", () => {
     }
   });
 
-  test.each(["registered", "imported-failure", "imported-success", "absent"] as const)(
+  test.each(["registered", "imported-failure", "imported-publication-failure", "imported-success", "absent"] as const)(
     "native resume preserves cause, accounting and admission: %s (#3194)", async kind => {
       const db = createUiDb(":memory:");
       const observability = createRecordingObservability();
@@ -568,8 +568,8 @@ describe("turn lifecycle is observable", () => {
       let reads = 0, starts = 0;
       const backend = makeFakeBackend({ id: "fake", getHistory: async () => {
         reads++;
-        if (kind === "registered" || kind === "imported-failure") throw new Error(diagnostic);
-        return kind === "imported-success" ? history : [];
+        if (kind === "registered" || kind === "imported-failure" || (kind === "imported-publication-failure" && reads > 1)) throw new Error(diagnostic);
+        return kind === "imported-success" || kind === "imported-publication-failure" ? history : [];
       }, startTurn: async () => { starts++; } });
       const catalog = createSessionCatalog(() => db);
       if (kind === "registered") {
@@ -588,7 +588,7 @@ describe("turn lifecycle is observable", () => {
         await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("Odysseus fixture socket failed")); });
         socket.send(JSON.stringify({ type: "session_resume", sessionId }));
         await until(() => frames.some(frame => frame.sessionId === sessionId && (frame.type === "error" || frame.type === "status")));
-        const failed = kind === "registered" || kind === "imported-failure";
+        const failed = kind === "registered" || kind === "imported-failure" || kind === "imported-publication-failure";
         const resumes = observability.logs.find({ body: "session resume" });
         expect(resumes, "ONE_RESUME_OUTCOME").toHaveLength(1);
         expect(resumes[0]!.attributes).toMatchObject({ "session.id": sessionId, outcome: kind === "imported-success" ? "loaded" : "error" });
@@ -609,10 +609,10 @@ describe("turn lifecycle is observable", () => {
           expect(frames.some(frame => frame.type === "session_history" && frame.sessionId === sessionId)).toBe(true);
         } else {
           expect(frames.some(frame => frame.type === "session_history")).toBe(false);
-          if (kind !== "registered") expect(frames.some(frame => frame.type === "session_info")).toBe(false);
+          if (kind === "imported-failure" || kind === "absent") expect(frames.some(frame => frame.type === "session_info")).toBe(false);
           if (kind === "absent") expect(frames.find(frame => frame.type === "error")).toMatchObject({ code: "SESSION_NOT_FOUND" });
         }
-        expect(reads).toBe(kind === "imported-success" ? 2 : 1);
+        expect(reads).toBe(kind === "imported-success" || kind === "imported-publication-failure" ? 2 : 1);
         expect(starts, "RESUME_NEVER_STARTS_WORK").toBe(0);
         expect(host.coordinator.bySession.size).toBe(0);
         expect(host.coordinator.startingBySession.size).toBe(0);
