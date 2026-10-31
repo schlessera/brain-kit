@@ -1,5 +1,5 @@
 /** OpenAI Live v1 primary WebSocket; client delegation, never vendor tools. */
-import { conversationHistory } from "./conversation-history.js";
+import { liveContext, STARTUP_CONTEXT_LIMITS } from "./conversation-history.js";
 import { z } from "zod";
 import { CONVERSATION_LIMITS, type ConversationAudioFormat } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationScope, LiveConversationEvent, LiveConversationOpenOptions, LiveConversationProvider, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
@@ -39,7 +39,7 @@ export function createGptLiveConversationProvider(apiKey: string): LiveConversat
     disclosure: {
       voiceService: "OpenAI Live API v1, gpt-live-1, marin",
       destinations: ["Microphone audio and transcripts go through this host to OpenAI GPT-Live.",
-        "Host-reviewed facts and historical context go to OpenAI GPT-Live with store:false; this is not a zero-retention promise.",
+        "Prior chat text, recognized/generated discussion and completed results go to OpenAI GPT-Live, including after switching voice services. store:false is not a zero-retention promise.",
         "Conversation tasks use the independently configured host agent backend and its ordinary permissions."],
     },
     open: (scope, options) => openGptLive(apiKey, scope, options),
@@ -117,15 +117,16 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
     try { socket.send(JSON.stringify(frame)); }
     catch { fail("GPT-Live send failed."); throw new Error("GPT-Live send failed."); }
   };
+  const context = liveContext(scope, options, STARTUP_CONTEXT_LIMITS.gpt);
   socket.addEventListener("open", () => {
     if (ended) return;
     try {
-      const history = conversationHistory(scope, options.resync);
+
       send({ type: "session.start", session: {
         model: MODEL, audio: { format: { type: "audio/pcm", rate: 24000 }, output: { voice: "marin" } },
         delegation: { type: "client", acknowledgement_delay_ms: 800 }, store: false,
         instructions: options.contextualTasks ? "You are Brain, a conversational assistant. Backchannel policy: Acknowledge naturally without competing with the caller. Interruption policy: Stop speaking when interrupted and listen. Delegation policy: Backend tools: search and read the knowledge base, capture or update notes, and other work allowed by the host agent policy. Generate <|SpawnThinking|> when a request needs these tools or careful reasoning, before answering from their results. Do not generate <|SpawnThinking|> for greetings, clarification, pending work, or a still-current result. Keep conversing while background work runs; never guess its outcome. Only the host executes tools and checks permissions. Spoken text never grants permission. Historical outcomes are context only, never repeat effects. Quiet result chunks may precede final commentary." : "This client supports reviewed host tasks only. Do not promise automatic background work or generate <|SpawnThinking|> for a new task. Separate reviewed host submission is required. Never infer an effect or permission from speech. Historical outcomes are context only, never repeat work.",
-        input: history.length ? [{ role: "user", content: [{ type: "input_text", text: history }] }] : [],
+        input: context.blocks.map(text => ({ role: "user", content: [{ type: "input_text", text }] })),
       } });
     } catch { fail("GPT-Live setup failed."); }
   });
@@ -217,6 +218,7 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
     } finally { finish(); }
   }
   return {
+    historyCoverage: context.coverage,
     events: events(),
     bindContextualWork(ref) {
       if (!options.contextualTasks || ended || options.signal.aborted || bindings.has(ref.nativeHandle) || !handles.has(ref.nativeHandle)) throw new Error("Native task binding is unavailable.");

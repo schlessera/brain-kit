@@ -1,5 +1,5 @@
 """Own one finite loop filesystem, run guarded hosted proof, and release only it."""
-import fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
+import errno, fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
 BACKEND = sys.argv[1] if len(sys.argv) >= 2 else "claude"
 if BACKEND not in ("claude", "pi"): raise RuntimeError("Unknown fixed native backend selection")
@@ -44,6 +44,50 @@ def run(argv, timeout=20):
         raise RuntimeError("Native proof command failed: " + repr(argv))
     return output
 
+def observe(stage, **facts):
+    # Diagnostics must never change fixture cleanup or replace its exception.
+    try: record("loop-boundary", stage=stage, monoNs=time.monotonic_ns(), **facts)
+    except BaseException: pass
+
+def remove_evidence(error):
+    if not isinstance(error, OSError) or error.errno != errno.EBUSY: return
+    child = None
+    def terminate():
+        try:
+            if child.poll() is not None: return "reaped"
+            try: os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            try: child.wait(timeout=0.2); return "reaped"
+            except subprocess.TimeoutExpired: return "unknown: kill sent; child may remain in uninterruptible I/O"
+        except BaseException as diagnostic: return "unknown: " + type(diagnostic).__name__
+    try:
+        child = subprocess.Popen(["/usr/bin/python3", "-I", "-S", "/repo/scripts/native-proof/loop-evidence.py"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        try: output, _ = child.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            lifetime = terminate()
+            observe("remove-ebusy", unknown="collector-timeout", childLifetime=lifetime)
+            return
+        if child.returncode or len(output) > 262144:
+            observe("remove-ebusy", unknown="collector-failed-or-oversized", code=child.returncode)
+        else: observe("remove-ebusy", sample=json.loads(output))
+    except BaseException as diagnostic:
+        lifetime = terminate() if child is not None else "not-started"
+        observe("remove-ebusy", unknown=type(diagnostic).__name__, childLifetime=lifetime)
+    finally:
+        if child is not None:
+            try:
+                if child.stdout is not None: child.stdout.close()
+            except BaseException as diagnostic: observe("remove-ebusy", unknown=type(diagnostic).__name__)
+
+
+# Absolute repo path also works for generated fixture variants.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("owned_remove", "/repo/scripts/native-proof/owned-remove.py")
+owned_remove = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(owned_remove)
+node_identity = entry_identity = entry = None
+remove_receipt = {}
 control = loop = image = None
 created = attached = mounted = False
 failure = None
@@ -68,7 +112,16 @@ try:
     if info.st_blocks * 512 < CAPACITY: raise RuntimeError("Native proof backing must be fully allocated")
     control = os.open("/dev/loop-control", os.O_RDWR)
     fcntl.ioctl(control, 0x4c80, MINOR); created = True
+    entry = pathlib.Path("/sys/dev/block/7:1790").resolve(strict=True)
+    entry_identity = owned_remove.identity(entry)
+    if not stat.S_ISDIR(entry_identity[4]):
+        entry_identity = None
+        raise RuntimeError("Owned sysfs initial capture is not a directory")
     os.mknod(DEVICE, stat.S_IFBLK | 0o600, os.makedev(7, MINOR))
+    node_identity = owned_remove.identity(DEVICE)
+    if not stat.S_ISBLK(node_identity[4]) or node_identity[5] != os.makedev(7, MINOR):
+        node_identity = None
+        raise RuntimeError("Owned device initial capture is not the exact block node")
     loop = os.open(DEVICE, os.O_RDWR)
     fcntl.ioctl(loop, 0x4c00, image); attached = True
     kernel = bytearray(232); fcntl.ioctl(loop, 0x4c05, kernel, True)
@@ -97,25 +150,43 @@ except BaseException as error:
     record("failure", detail=str(error))
 finally:
     errors = []
+    observe("cleanup-enter")
     if mounted:
+        observe("unmount-enter")
         try: run(["umount", str(STORE)]); mounted = False
         except BaseException as error: errors.append(str(error))
+    observe("unmount-settled", mounted=mounted)
     if attached and not mounted:
         try:
             current = bytearray(232); fcntl.ioctl(loop, 0x4c05, current, True)
             if struct.unpack_from("=QQQQQIIII", current) != identity: raise RuntimeError("Owned loop identity changed before cleanup")
+            observe("detach-enter")
             fcntl.ioctl(loop, 0x4c01); attached = False
+            observe("detach-return")
         except BaseException as error: errors.append(str(error))
-    if loop is not None: os.close(loop)
+    if loop is not None:
+        observe("close-enter")
+        os.close(loop)
+        observe("close-return")
     if created and not attached:
-        try: fcntl.ioctl(control, 0x4c81, MINOR); created = False
-        except BaseException as error: errors.append(str(error))
+        observe("remove-enter")
+        try:
+            if node_identity is None or entry_identity is None:
+                owned_remove.remove_after_capture_failure(control, remove_receipt)
+            else:
+                owned_remove.remove_owned(control, DEVICE, node_identity, entry, entry_identity, remove_receipt)
+            created = False
+            observe("remove-return")
+        except BaseException as error:
+            errors.append(str(error))
+            observe("remove-error", errno=getattr(error, "errno", None))
+            remove_evidence(error)
     if control is not None: os.close(control)
     if image is not None: os.close(image)
     if not mounted and not attached and BACKING.exists(): BACKING.unlink()
     after_quota = pathlib.Path("/proc/sys/user/max_user_namespaces").read_text()
     record("parent-userns-quota", before=outer_quota, after=after_quota, unchanged=outer_quota == after_quota)
     if outer_quota != after_quota: errors.append("NATIVE_CONTAINER_USERNS_QUOTA_UNCHANGED")
-    record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors)
+    record("cleanup", mounted=mounted, attached=attached, loopCreated=created, backingExists=BACKING.exists(), errors=errors, removeReceipt=remove_receipt)
     if errors and failure is None: failure = RuntimeError("Native proof cleanup failed")
 if failure is not None: raise failure

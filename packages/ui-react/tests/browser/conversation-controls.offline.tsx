@@ -4,6 +4,7 @@ import { commands, page, userEvent } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { CONVERSATION_LIMITS, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { conversationProfileSchema, serverHelloSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -12,6 +13,8 @@ import { installFaultNetwork } from "./offline/fault-network.js";
 
 const SESSION = "odysseus-ithaca";
 const PROFILE: ServerConversationOpened = { type: "conversation_opened", conversationId: "ithaca-voice", epoch: 1, sessionId: SESSION, providerId: "gpt-live", capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" }, disclosure: { voiceService: "Odysseus voice fixture", destinations: ["Audio and transcripts: fictional fixture. Retention: unknown."] }, limits: { ...CONVERSATION_LIMITS }, resync: { work: 0, outputs: 0 } };
+const DISCLOSED_PROFILE = conversationProfileSchema.parse({providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure});
+const HELLO = serverHelloSchema.parse({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,toolResolution:true},conversationProfile:DISCLOSED_PROFILE});
 let styles: HTMLStyleElement;
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
@@ -22,7 +25,7 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
   const outer = await commands.formViewport(width, height);
   await page.viewport(width, height);
   const network = installFaultNetwork({ routes: url => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
-    onOpen(socket) { socket.deliver({ type: "server_hello", protocolRev: 5, principalKey: "odysseus-principal", capabilities: { liveConversation: true, conversationPause: true, toolResolution: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
+    onOpen(socket) { socket.deliver(HELLO); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
   const ui = createBrainUiRoot({ storage: null, request: network.request });
   ui.stores.chat.getState().setActiveSession(SESSION);
   ui.stores.ui.getState().setTheme(theme);
@@ -127,7 +130,22 @@ for (const theme of ["light", "dark"] as const) test(`entry and connecting discl
   await expect.poll(() => s.client.state.getState().disclosureOpen).toBe(true);
   await s.capture("connecting-disclosure");
   expect(s.client.state.getState().micOn).toBe(false);
-  expect(page.getByRole("button", { name: "Start", exact: true }).element().getAttribute("aria-disabled")).toBe("true");
+  expect(s.network.socket()!.frames("conversation_start"),"ENTRY_DISCLOSES_WITHOUT_OPENING_PROVIDER").toHaveLength(0);
+  const start=page.getByRole("button",{name:"Start",exact:true});
+  expect(start.element().getAttribute("aria-disabled"),"KNOWN_DISCLOSURE_ALLOWS_EXPLICIT_START").not.toBe("true");
+  expect(document.querySelector('[data-overlay-site="conversation-disclosure"]')!.contains(document.activeElement),"ENTRY_DISCLOSURE_OWNS_FOCUS").toBe(true);
+  await userEvent.click(start);
+  expect(s.network.socket()!.frames("conversation_start")).toHaveLength(1);
+  expect(s.network.socket()!.frames("conversation_start")[0]!.disclosed).toEqual(DISCLOSED_PROFILE);
+  expect(s.client.state.getState().connection,"PROVIDER_OPENING_IS_STILL_PENDING").toBe("Connecting");
+  expect(s.client.state.getState().profile).toBe(null);expect(s.client.state.getState().micOn).toBe(false);
+  await userEvent.click(page.getByRole("button",{name:"Voice service details",exact:true}));
+  await expect.poll(()=>s.client.state.getState().disclosureOpen).toBe(true);
+  await s.capture("pending-connecting-disclosure");
+  // A known destination is not enough when the host connection is unavailable.
+  flushSync(()=>s.ui.stores.connection.setState({wsStatus:"disconnected"}));
+  expect(page.getByRole("button",{name:"Start",exact:true}).element().getAttribute("aria-disabled")).toBe("true");
+  expect(s.network.socket()!.frames("conversation_start"),"PENDING_OPENING_DOES_NOT_REPEAT").toHaveLength(1);
   await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
   expect(s.client.state.getState().active).toBe(false);
 });

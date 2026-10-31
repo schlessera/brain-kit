@@ -41,12 +41,16 @@ const backend = makeFakeBackend({ id: "fake", startTurn: async req => {
 } });
 const reviewedProvider = createGptLiveConversationProvider("keyless-odyssey-placeholder");
 reviewedProvider.capabilities = { ...reviewedProvider.capabilities, contextualTasks: "unsupported" };
-const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: reviewedProvider });
+// This is a known-chat / missing-native-task-ID control, not a stale chat.
+const catalog = createSessionCatalog(() => db);
+catalog.persistSessionStub("odysseus-ithaca", "Odysseus prepares the voyage.", null, backend.id);
+await catalog.settled?.();
+if (!catalog.hasSession!("odysseus-ithaca")) throw new Error("Known-chat fixture was not registered");
+const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog, conversationProvider: reviewedProvider });
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
 await handlers.onOpen(undefined as never, ws);
-frames.length = 0;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (req.method !== "POST") return new Response(null, { status: 405 });
   const body = await req.json() as { client: unknown[]; provider: unknown[] };
@@ -57,5 +61,5 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   await Bun.sleep(20);
   return Response.json({ frames: frames.splice(0), sent: sent.splice(0) });
 } });
-process.on("SIGTERM", () => { clearInterval(silence); host.coordinator.reset(); host.close(); db.close(); remote?.close(); upstream.stop(true); server.stop(true); process.exit(0); });
+process.on("SIGTERM", async () => { clearInterval(silence); host.coordinator.reset(); await host.close(); db.close(); remote?.close(); upstream.stop(true); server.stop(true); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { AppEnv } from "../app-env.js";
 import type { Database } from "bun:sqlite";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
@@ -18,7 +19,7 @@ export function createSessionRoutes(deps: {
    * earlier run are not listed: nothing would refresh them.
    */
   labels?: boolean;
-}): Hono {
+}): Hono<AppEnv> {
   const { registry, db } = deps;
   const pending = new Map<AgentBackend, ReturnType<AgentBackend["listSessions"]>>();
 
@@ -52,7 +53,7 @@ export function createSessionRoutes(deps: {
     return row?.backendId ?? null;
   }
 
-  return new Hono()
+  return new Hono<AppEnv>()
   .get("/sessions", async (c) => {
     try {
       const backends = await registry.getBackends();
@@ -110,7 +111,16 @@ export function createSessionRoutes(deps: {
         .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
       const unavailableBackends = results.flatMap((result, index) =>
         result.status === "rejected" ? [backends[index]!.id] : []);
-      return c.json({ sessions, ...(unavailableBackends.length ? { unavailableBackends } : {}) });
+      const principal = c.get("principal");
+      const after = c.req.query("retainedAfter");
+      if (after && (after.length > 2048 || !c.req.query("includeRetainedConversations")))
+        return c.json({error:"Invalid retained conversation cursor"},400);
+      const retainedRows = c.req.query("includeRetainedConversations") === "true" && principal
+        ? db.query("SELECT id,created_at FROM dialogue_owners WHERE principal_id=? AND session_id IS NULL AND id>? ORDER BY id LIMIT 201").all(principal.id,after ?? "") as {id:string;created_at:number}[]
+        : undefined;
+      const retainedConversations = retainedRows?.slice(0,200);
+      const retainedAfter = retainedRows && retainedRows.length > 200 ? retainedConversations!.at(-1)!.id : undefined;
+      return c.json({ sessions, ...(retainedConversations ? {retainedConversations} : {}), ...(retainedAfter ? {retainedAfter} : {}), ...(unavailableBackends.length ? { unavailableBackends } : {}) });
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to list sessions" },

@@ -150,11 +150,13 @@ export class ClientSet {
     msg: ServerMessage,
     onSendError?: (err: unknown) => void,
     /** Only connections that declared this `client_hello` capability. */
-    requiredCapability?: string
+    requiredCapability?: string,
+    principalId?: string
   ): void {
     if (this.clients.size === 0) return;
     const payload = JSON.stringify(shrinkForReplication(msg));
-    for (const { ws, capabilities } of this.clients.values()) {
+    for (const { ws, capabilities, principalId: owner } of this.clients.values()) {
+      if (principalId !== undefined && owner !== principalId) continue;
       if (requiredCapability !== undefined && capabilities?.[requiredCapability] !== true) continue;
       try {
         // Bun's ServerWebSocket reports a dropped write by RETURNING 0 (closed

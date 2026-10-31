@@ -339,7 +339,7 @@ export interface SessionChat {
  * reported a load error, or nothing answered within the bound.
  */
 export interface RestoreFailure {
-  reason: "error" | "timeout";
+  reason: "error" | "timeout" | "missing";
   message?: string;
 }
 
@@ -371,6 +371,9 @@ export interface PendingTurnRetry {
 }
 
 export interface ChatState {
+  /** Explicit UI history target routing; never inferred from an opaque backend ID. */
+  historyOwners: Record<string,string>;
+  setHistoryOwner(key:string,ownerId:string|null):void;
   stateRooms: Record<string, { observation: StateRoomObservation; historical: boolean }>;
   stateRoomPreferences: Record<string, { dismissedAllowance?: number; invalidatedAt?: number; backendId?: string; measuredAt?: number }>;
   stateRoomAnnouncements: Record<string, number>;
@@ -1104,6 +1107,12 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
   }
 
   const SESSION_ID_KEY = env.storageKey("brain-sessionId");
+  const HISTORY_SELECTION_KEY = env.storageKey("brain-history-selection");
+  function readHistorySelection():{key:string;ownerId:string}|null {
+    try {const value:unknown=JSON.parse(env.storage()?.getItem(HISTORY_SELECTION_KEY) ?? "null");
+      if(value && typeof value === "object" && "key" in value && "ownerId" in value && typeof value.key === "string" && typeof value.ownerId === "string" && value.key.length<=512 && value.ownerId.length<=256)return {key:value.key,ownerId:value.ownerId};
+    }catch{/* A corrupt selection grants no routing authority. */}return null;
+  }
   const STATE_ROOM_KEY = env.storageKey("brain-state-room-preferences");
   function readStateRoomPreferences(): ChatState["stateRoomPreferences"] {
     try {
@@ -1131,17 +1140,17 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
    * browser). A no-op in non-DOM environments (tests, SSR) so creating the store
    * never throws on a missing `localStorage`.
    */
-  function persistSessionId(id: string | null) {
+  function persistSessionId(id: string | null, ownerId?:string) {
     const storage = env.storage();
     if (!storage) return;
-    if (id) env.storage()?.setItem(SESSION_ID_KEY, id);
-    else env.storage()?.removeItem(SESSION_ID_KEY);
+    if(id && ownerId){storage.setItem(HISTORY_SELECTION_KEY,JSON.stringify({key:id,ownerId}));storage.removeItem(SESSION_ID_KEY);}
+    else {if(id) storage.setItem(SESSION_ID_KEY,id);else storage.removeItem(SESSION_ID_KEY);storage.removeItem(HISTORY_SELECTION_KEY);}
   }
 
   function readPersistedSessionId(): string | null {
     const storage = env.storage();
     if (!storage) return null;
-    return storage.getItem(SESSION_ID_KEY);
+    return readHistorySelection()?.key ?? storage.getItem(SESSION_ID_KEY);
   }
 
 
@@ -1296,11 +1305,19 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       // PWA process being killed on mobile — that durability is what lets a cold
       // relaunch re-request the full transcript instead of showing nothing.
       activeSessionId: persistedSessionId,
+      historyOwners: readHistorySelection() ? {[readHistorySelection()!.key]:readHistorySelection()!.ownerId} : {},
+      setHistoryOwner(key,ownerId){
+        const historyOwners={...get().historyOwners};if(ownerId)historyOwners[key]=ownerId;else delete historyOwners[key];
+        set({historyOwners});if(get().activeSessionId===key)persistSessionId(key,ownerId ?? undefined);
+      },
       restoreFailures: {},
       failRestore: (sessionId, failure) =>
-        set((state) => (state.buffers[sessionId]?.historyConfirmed
+        set((state) => (state.buffers[sessionId]?.historyConfirmed && failure.reason !== "missing"
           ? state
-          : { restoreFailures: { ...state.restoreFailures, [sessionId]: failure } })),
+          : { restoreFailures: { ...state.restoreFailures, [sessionId]: failure },
+            ...(failure.reason === "missing" && state.buffers[sessionId] ? { buffers: { ...state.buffers,
+              [sessionId]: { ...state.buffers[sessionId]!, historyConfirmed: undefined } } } : {}),
+          })),
       clearRestoreFailure: (sessionId) =>
         set((state) => {
           if (!state.restoreFailures[sessionId]) return state;
@@ -2072,7 +2089,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       setActiveSession: (sessionId) =>
         set((state) => {
-          persistSessionId(sessionId);
+          persistSessionId(sessionId,sessionId ? state.historyOwners[sessionId] : undefined);
           if (sessionId === null) return { activeSessionId: null };
           const existing = state.buffers[sessionId];
           const buffers = existing

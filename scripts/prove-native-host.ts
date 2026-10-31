@@ -3,6 +3,8 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathS
 import { basename, dirname, join, resolve } from "node:path";
 import { verifyIndexReleaseReproduction } from "./native-proof/verify-index-release-repro.js";
 
+import { ownedCleanupComplete } from "./native-proof/verify-owned-remove.js";
+
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
 export const NATIVE_PROOF_NAME = "native managed hosted admission";
 
@@ -21,6 +23,12 @@ export function nativeHostDockerArgs(root: string, artifact: string, uid: string
         "--mount", `type=bind,source=${root},target=/repo,readonly`,
         "--mount", `type=bind,source=${lease},target=/repo/tmp/workspace-operation`,
         "--workdir=/repo", "--entrypoint=/bin/sh", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "host", "python3", "/repo/scripts/native-proof/fixture.py", backend, uid];
+}
+
+/** Shared fixture protocol boundary, also callable without launching Docker. */
+export function requireNativeHostCleanup(cleanup: unknown): void {
+  if (!ownedCleanupComplete(cleanup))
+    throw Error("Native hosted proof did not provide complete owned-resource cleanup evidence.");
 }
 
 if (import.meta.main) {
@@ -72,10 +80,9 @@ if (import.meta.main) {
       }
       if (runnerQuotaChanged) throw Error("NATIVE_RUNNER_USERNS_QUOTA_UNCHANGED");
       if (code !== 0) throw Error(`Native hosted proof failed (${code}); inspect ${artifact}. No skipped or absent runtime is passing proof.`);
-      const receipt = await Bun.file(join(artifact, "native-fixture.json")).json() as { kind: string; mounted?: boolean; attached?: boolean; loopCreated?: boolean; backingExists?: boolean; errors?: string[] }[];
+      const receipt = await Bun.file(join(artifact, "native-fixture.json")).json() as { kind: string; mounted?: boolean; attached?: boolean; loopCreated?: boolean; backingExists?: boolean; errors?: string[]; removeReceipt?: unknown }[];
       const cleanup = receipt.at(-1);
-      if (cleanup?.kind !== "cleanup" || cleanup.mounted !== false || cleanup.attached !== false || cleanup.loopCreated !== false || cleanup.backingExists !== false || cleanup.errors?.length !== 0)
-        throw Error("Native hosted proof did not provide complete owned-resource cleanup evidence.");
+      requireNativeHostCleanup(cleanup);
     }
     if (selected.length === 0) {
       // Four healthy cells qualify first. This separate negative control must

@@ -146,6 +146,8 @@ const SAMPLES: ServerMessage[] = [
   },
   { type: "conversation_output", conversationId: "c1", epoch: 1, outputId: "o1", generated: "Twelve oxen.", playback: "played", playedSamples: { start: 0, end: 480 } },
   { type: "conversation_closed", conversationId: "c1", epoch: 1, reason: "stopped" },
+  { type: "dialogue_history", requestId: "history-mast", ownerId: "ithaca", sessionId: "s1", generation: 1, through: 1, coverage: "complete",
+    records: [{sequence:1,identity:"mast-recognition",evidence:{kind:"voice",conversationId:"c1",epoch:1,providerId:"gpt-live",event:{kind:"unassigned_input_fragment",sequence:0,text:"The mast is ready.",timing:{kind:"unavailable"},finalization:"unknown"}}}] },
   { type: "conversation_event", conversationId: "c1", epoch: 1, event: { kind: "interrupted", outputId: "o1" } },
   {
     type: "conversation_work", conversationId: "c1", epoch: 1, utteranceId: "u1", requestId: "r1", state: "queued",

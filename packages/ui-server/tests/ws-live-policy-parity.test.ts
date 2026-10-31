@@ -76,7 +76,7 @@ for (const backendId of ["claude", "pi"] as const) {
           let opened: any;
           if (modality === "typed") send({ type: "chat_message", text });
           else {
-            send({ type: "conversation_start", contextualTasks: modality === "contextual" });
+            send({ type: "conversation_start", contextualTasks: modality === "contextual", disclosed:host.conversations!.profile(modality === "contextual") });
             await until(() => frames("conversation_opened").length === 1);
             opened = frames("conversation_opened")[0];
             const scope = { conversationId: opened.conversationId, epoch: opened.epoch };
@@ -126,12 +126,12 @@ for (const backendId of ["claude", "pi"] as const) {
           await until(() => frames("result").length === 1);
           if (opened) {
             await until(() => frames("conversation_work").some(frame => frame.state === "completed"));
-            send({ type: "conversation_start", conversationId: opened.conversationId, contextualTasks: modality === "contextual" });
+            send({ type: "conversation_start", conversationId: opened.conversationId, contextualTasks: modality === "contextual", disclosed:host.conversations!.profile(modality === "contextual") });
             await until(() => frames("conversation_opened").length === 2);
             expect(calls, "LIVE_POLICY_NO_EFFECT_REPLAY").toBe(1);
           }
         } finally {
-          host.coordinator.reset(); host.close(); db.close(); rmSync(root, { recursive: true, force: true });
+          host.coordinator.reset(); await host.close(); db.close(); rmSync(root, { recursive: true, force: true });
         }
       });
     }

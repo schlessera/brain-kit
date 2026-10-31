@@ -16,6 +16,11 @@ const compositions = {
   "shared git": { ...base, sharedGit: true },
   "private git inputs": { ...base, sharedGit: true, privateGitInputs: true },
   "application scenario with boot prune capture": { ...base, sharedGit: true, applicationQualification: true, applicationScenario: "db-repeat", bootPruneCapture: true },
+  "probe-state placement": { ...base, sharedGit: true, probeStatePlacement: true },
+  "application default": { ...base, sharedGit: true, applicationQualification: true },
+  "application governed": { ...base, sharedGit: true, applicationQualification: true, applicationScenario: "governed" },
+  "application strict": { ...base, sharedGit: true, applicationQualification: true, applicationScenario: "strict" },
+  "application boot capture": { ...base, sharedGit: true, applicationQualification: true, bootPruneCapture: true },
   "omitted probe-state placement": { ...base, sharedGit: true, probeStatePlacement: true, omitProbeStatePlacement: true },
 };
 

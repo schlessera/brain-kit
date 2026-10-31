@@ -189,3 +189,20 @@ test("unassigned evidence carries exactly one real provider interval or explicit
     expect(parseLiveConversationEvent({ ...scope, ...invalid }).ok).toBe(false);
   }
 });
+
+
+test("pending dialogue limits are additive to older opened profiles",()=>{
+ const {maxPendingDialogueObservations,maxPendingDialogueBytes,...legacy}=CONVERSATION_LIMITS;
+ const base={type:"conversation_opened",conversationId:"ithaca",epoch:1,providerId:"fake-live",capabilities,disclosure,resync:{work:0,outputs:0}};
+ expect(server({...base,limits:legacy}).ok).toBe(true);
+ expect(server({...base,limits:{...legacy,maxPendingDialogueObservations,maxPendingDialogueBytes}}).ok).toBe(true);
+ expect(server({...base,limits:{...legacy,maxPendingDialogueBytes:-1}}).ok).toBe(false);
+});
+
+test("hello disclosure and explicit Start echo preserve the same typed public profile",()=>{
+ const profile={providerId:"ithaca-live",capabilities,disclosure};
+ expect(server({type:"server_hello",protocolRev:5,conversationProfile:profile})).toMatchObject({ok:true,message:{conversationProfile:profile}});
+ expect(client({type:"conversation_start",requestId:"start-ithaca",disclosed:profile})).toMatchObject({ok:true,message:{requestId:"start-ithaca",disclosed:profile}});
+ expect(server({type:"server_hello",protocolRev:5,conversationProfile:{providerId:"ithaca-live"}})).toMatchObject({ok:true,message:{conversationProfile:undefined}});
+ expect(client({type:"conversation_start",disclosed:{providerId:"ithaca-live"}})).toMatchObject({ok:false});
+});

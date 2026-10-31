@@ -2,7 +2,7 @@ import { DraftSaveLine } from "../chat/draft-save-line.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { Button, Overlay } from "@schlessera/brain-ui-kit";
+import { Button, Overlay, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 
 /** The voice controls live below the ordinary transcript and its interactive cards. */
@@ -40,6 +40,8 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   useEffect(() => client.attachControls(), [client]);
   if (!s.active) return null;
   const profile = s.profile;
+  const disclosed = s.conversationProfile;
+  const coverage = s.connection === "Connected" ? profile?.historyCoverage : undefined;
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
   const control = { ...button, padding: "0 2px" };
   const leave = () => { client.leave(); onLeave(); };
@@ -52,6 +54,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
       </div>
       <Button label={`${profile?.providerId ?? "Voice"} ⓘ`} ariaLabel="Voice service details" tone="ghost" size="sm" block={false} style={{ minHeight: 44, minWidth: 44, maxWidth: 96, padding: "0 4px", fontSize: 11 }} onClick={client.details} />
     </div>
+    {coverage && coverage.state !== "complete" && <div className="text-xs" role="status">{coverage.tailOmitted ? coverage.state === "partial" ? "Newest prior context may be missing." : "Newest prior context was not sent." : "Prior context is incomplete."} <TextButton label="Details" ariaLabel="Prior context details" inline onClick={client.details} /></div>}
     {s.outputRecovery === "muted" && <Button label="Recover reply audio" tone="ghost" style={button} onClick={client.recoverOutput} />}
     {s.notice && <div role="status" aria-label="Voice notice" style={{ fontSize: 12, lineHeight: 1.3 }}>{s.notice}</div>}
     {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
@@ -83,18 +86,20 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
     </div>
     <Overlay open={s.disclosureOpen} variant="sheet" title="Live conversation" onClose={leave} data-overlay-site="conversation-disclosure">
       <div className="space-y-3 p-4 text-sm">
-        <p>{profile?.disclosure.voiceService ?? "Connecting to the configured voice service…"}</p>
-        {profile?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
+        <p>{disclosed?.disclosure.voiceService ?? "Connecting to the configured voice service…"}</p>
+        {disclosed?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
         <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
         <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>
-        {profile?.capabilities.contextualTasks === "supported"
+        {disclosed?.capabilities.contextualTasks === "supported"
           ? <p>Brain can start permitted background tasks from the conversation and share results while you keep talking. Actions that need confirmation use the same screen cards as typed requests. Recognition may be uncertain; speech cannot approve an action.</p>
-          : profile?.capabilities.finalTranscript !== "supported" && <p>Automatic tasks aren't available with this service. Review recognized text and use Send now.</p>}
-        <p>Live recognition is temporary and may be unavailable after reload.</p>
+          : disclosed?.capabilities.finalTranscript !== "supported" && <p>Automatic tasks aren't available with this service. Review recognized text and use Send now.</p>}
+        <p>{s.durableAvailable || client.historyOwnerFor(s.sessionId ?? "") ? "Recognized speech and generated voice replies are saved as text with this chat. This feature does not save audio. Reopening text does not replay audio or prove the voice service received this history." : "Live recognition is temporary and may be unavailable after reload."}</p>
+        <p>Starting voice sends bounded prior chat text and completed results to this voice service, including when you switch services. Raw audio is not retained by this feature.</p>
+        {coverage && <p>{coverage.state === "complete" ? "Available prior text was included in startup context." : coverage.state === "bounded" ? "Some prior text was omitted to fit startup context." : coverage.state === "partial" ? "Some prior discussion evidence or its original order is unavailable." : "Prior discussion evidence is unavailable."} {coverage.tailOmitted && (coverage.state === "partial" ? "The newest prior item may be missing." : "The newest prior item was not included.")} This does not prove the service understood or recalled it.</p>}
         <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
         {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}
         {s.notice && <p>{s.notice}</p>}
-        <div className="flex gap-2"><Button label="Start" style={button} disabled={!profile || s.connection !== "Connected"} onClick={client.start} /><Button label="Cancel" style={button} tone="ghost" onClick={leave} /></div>
+        <div className="flex gap-2"><Button label="Start" style={button} disabled={!disclosed || chat !== "connected"} onClick={client.start} /><Button label="Cancel" style={button} tone="ghost" onClick={leave} /></div>
       </div>
     </Overlay>
   </div>;

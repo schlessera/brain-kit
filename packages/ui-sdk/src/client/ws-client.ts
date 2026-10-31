@@ -252,7 +252,7 @@ export class BrainUiClient {
             JSON.stringify({
               type: "client_hello",
               protocolRev: PROTOCOL_REV,
-              capabilities: { [ASK_RECEIPTS_CAPABILITY]: true, [FOLLOW_UP_QUEUE_CAPABILITY]: true, toolResolution: true },
+              capabilities: { [ASK_RECEIPTS_CAPABILITY]: true, [FOLLOW_UP_QUEUE_CAPABILITY]: true, toolResolution: true, sessionDialogue: true },
             })
           );
         } catch {

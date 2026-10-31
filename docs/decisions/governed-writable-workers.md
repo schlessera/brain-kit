@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:665-670`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:666-671`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1520,7 +1520,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:930`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1899,7 +1899,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:383`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:447`)
   must not feed any budget.
 
 **Enforcement:**

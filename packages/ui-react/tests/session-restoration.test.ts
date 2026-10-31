@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, test, vi } from "bun:test";
 import { RESTORE_DEADLINE_MS } from "../src/connection.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
+import { conversationProfileSchema, serverHelloSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { restorationOf } from "../src/stores/chat-state.js";
 
 class Socket {
@@ -43,6 +44,21 @@ const HISTORY = [
   { role: "user" as const, content: "Is the raft lashed for the crossing?", toolCalls: [] },
   { role: "assistant" as const, content: "Calypso checked every knot at dawn.", toolCalls: [] },
 ];
+
+const VOICE_PROFILE = conversationProfileSchema.parse({
+  providerId: "gpt-live",
+  capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
+  disclosure: { voiceService: "Odysseus voice fixture", destinations: ["Audio and transcripts: fictional fixture. Retention: unknown."] },
+});
+const VOICE_HELLO = serverHelloSchema.parse({ type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true, conversationPause: true }, conversationProfile: VOICE_PROFILE });
+
+/** Explicit Start is independent of entry and of pending-opening settlement. */
+function enterAndStartVoice(root: BrainUiRoot, socket: Socket): void {
+  const before = socket.frames("conversation_start").length;
+  root.connection.conversation.enter();
+  expect(socket.frames("conversation_start"), "ENTER_ALONE_NEVER_OPENS_VOICE").toHaveLength(before);
+  root.connection.conversation.start();
+}
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>();
@@ -261,4 +277,131 @@ describe("a reload that kept the selected session's id", () => {
     expect(root.stores.chat.getState().activeSessionId, "the old session is not selected again").toBeNull();
     expect(root.stores.chat.getState().draft?.messages.map((m) => m.content), "the new chat keeps its transcript").toEqual(["A new voyage plan.", ""]);
   });
+});
+
+
+test("an unavailable live-opening lookup can be retried without marking known history missing", () => {
+  const root = reloaded();
+  root.connection.connect();
+  const socket = Socket.instances.at(-1)!; socket.open();
+  socket.deliver(VOICE_HELLO);
+  socket.deliver({ type: "session_history", sessionId: OGYGIA, messages: HISTORY });
+  enterAndStartVoice(root, socket);
+  expect(socket.frames("conversation_start")).toHaveLength(1);
+  socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, requestId: "odysseus-foreign-opening", message: "Another opening failed." });
+  expect(root.connection.conversation.state.getState().active, "FOREIGN_OPENING_REJECTION_CANNOT_RETIRE_THIS_ENTRY").toBe(true);
+  socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: OGYGIA, requestId: socket.frames("conversation_start")[0]!.requestId, message: "The host cannot verify this conversation." });
+  expect(root.connection.conversation.state.getState().active, "FAILED_LOOKUP_ENDS_ONLY_THE_PENDING_VOICE_ENTRY").toBe(false);
+  expect(restorationOf(root.stores.chat.getState()), "KNOWN_HISTORY_IS_NOT_DECLARED_MISSING").toBe(null);
+  enterAndStartVoice(root, socket);
+  expect(socket.frames("conversation_start"), "FAILED_OPENING_DOES_NOT_LEAVE_A_STALE_OPEN_REQUEST").toHaveLength(2);
+});
+
+
+test("missing-chat errors for another view or a scoped turn do not retire the selected voice entry", () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver(VOICE_HELLO);
+  socket.deliver({ type: "session_history", sessionId: OGYGIA, messages: HISTORY });
+  enterAndStartVoice(root, socket);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: "ithaca-other", message: "That chat is missing." });
+  expect(root.connection.conversation.state.getState().active, "ANOTHER_CHAT_CANNOT_END_THIS_ENTRY").toBe(true);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: OGYGIA, requestId: "odysseus-work", turnId: "odysseus-turn", message: "A scoped work failure" });
+  expect(root.connection.conversation.state.getState().active, "A_TURN_FAILURE_IS_NOT_MISSING_CHAT_PROOF").toBe(true);
+  expect(restorationOf(root.stores.chat.getState())).toBe(null);
+});
+
+
+test("a rejection for the retired selected chat unblocks the explicitly entered replacement", async () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver(VOICE_HELLO);
+  enterAndStartVoice(root, socket);
+  const oldRequest = socket.frames("conversation_start")[0]!.requestId;
+  root.stores.chat.getState().setActiveSession(null);
+  enterAndStartVoice(root, socket);
+  expect(root.connection.conversation.state.getState().active).toBe(true);
+  expect(root.connection.conversation.state.getState().sessionId).toBe(null);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: OGYGIA, requestId: oldRequest, message: "This chat is missing." });
+  await Promise.resolve();
+  console.log("RETIRED_REJECTION_EVIDENCE", JSON.stringify({ starts: socket.frames("conversation_start"), active: root.connection.conversation.state.getState().active, sessionId: root.connection.conversation.state.getState().sessionId }));
+  expect(socket.frames("conversation_start"), "RETIRED_REJECTION_MUST_RELEASE_NEW_ENTRY").toHaveLength(2);
+});
+
+
+for (const code of ["SESSION_NOT_FOUND", "SESSION_LOAD_ERROR", "CONVERSATION_STORAGE"]) {
+  for (const next of ["same-chat", "new-chat", "multiple-entries", "left"] as const) test(`${code}: retired rejection settles only its own opening after ${next}`, async () => {
+    const root = reloaded(), socket = connect(root);
+    socket.deliver(VOICE_HELLO);
+    enterAndStartVoice(root, socket);
+    const oldRequest = socket.frames("conversation_start")[0]!.requestId;
+    root.connection.conversation.leave();
+    if (next !== "same-chat") root.stores.chat.getState().setActiveSession(null);
+    if (next !== "left") enterAndStartVoice(root, socket);
+    if (next === "multiple-entries") { root.connection.conversation.leave(); enterAndStartVoice(root, socket); }
+    const active = next !== "left";
+    const selected = root.stores.chat.getState().activeSessionId;
+    socket.deliver({ type: "error", code, sessionId: OGYGIA, requestId: "odysseus-foreign-opening", message: "Foreign opening failed." });
+    await Promise.resolve();
+    expect(socket.frames("conversation_start"), "FOREIGN_REJECTION_CANNOT_CONSUME_PENDING_OPENING").toHaveLength(1);
+    socket.deliver({ type: "error", code, sessionId: OGYGIA, requestId: oldRequest, message: "Retired opening failed." });
+    await Promise.resolve();
+    expect(socket.frames("conversation_start"), "ONLY_EXPLICIT_ACTIVE_REPLACEMENT_MAY_OPEN").toHaveLength(active ? 2 : 1);
+    expect(root.connection.conversation.state.getState().active, "OLD_REJECTION_CANNOT_RETIRE_CURRENT_ENTRY").toBe(active);
+    expect(root.stores.chat.getState().activeSessionId).toBe(selected);
+    expect(root.connection.conversation.state.getState().micOn, "SETTLEMENT_NEVER_GRANTS_CAPTURE").toBe(false);
+    if (!active) enterAndStartVoice(root, socket);
+    expect(socket.frames("conversation_start")).toHaveLength(2);
+    const currentRequest = socket.frames("conversation_start")[1]!.requestId;
+    // A duplicate old rejection cannot clear the newly issued opening token.
+    const connection = root.connection.conversation.state.getState().connection;
+    socket.deliver({ type: "error", code, sessionId: OGYGIA, requestId: oldRequest, message: "Duplicate retired rejection." });
+    await Promise.resolve();
+    expect(root.connection.conversation.state.getState().active).toBe(true);
+    expect(root.connection.conversation.state.getState().connection, "DUPLICATE_RETIRED_REJECTION_CANNOT_PAUSE_CURRENT_OPENING").toBe(connection);
+    if (selected) {
+      socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", sessionId: selected, requestId: currentRequest, message: "Current opening failed." });
+      expect(root.connection.conversation.state.getState().active, "CURRENT_REJECTION_STILL_SETTLES_CURRENT_ENTRY").toBe(false);
+    } else {
+      // An unbound start has no session lookup; use its genuine opening error
+      // class without inventing an invalid null sessionId on the wire.
+      socket.deliver({ type: "error", code: "CONVERSATION_STORAGE", requestId: currentRequest, message: "Current opening failed." });
+      root.connection.conversation.leave();
+    }
+    enterAndStartVoice(root, socket);
+    expect(socket.frames("conversation_start"), "CURRENT_REJECTION_REMAINS_EXPLICITLY_RETRYABLE").toHaveLength(3);
+  });
+}
+
+test("retired rejection after authorization teardown cannot open a provider or capture", async () => {
+  const root = reloaded(), socket = connect(root);
+  socket.deliver(VOICE_HELLO);
+  enterAndStartVoice(root, socket);
+  const requestId = socket.frames("conversation_start")[0]!.requestId;
+  await root.authLock.expire("Odysseus signed out", true);
+  socket.deliver({ type: "error", code: "SESSION_NOT_FOUND", sessionId: OGYGIA, requestId, message: "Retired opening failed." });
+  await Promise.resolve();
+  expect(root.connection.conversation.state.getState().active).toBe(false);
+  expect(root.connection.conversation.state.getState().micOn).toBe(false);
+  expect(socket.frames("conversation_start")).toHaveLength(1);
+});
+
+test("a disclosed live entry waits for explicit Start and echoes the exact validated profile",()=>{
+ const root=reloaded(),socket=connect(root);socket.deliver(VOICE_HELLO);
+ expect(root.connection.conversation.state.getState().available).toBe(true);
+ root.connection.conversation.enter();
+ expect(root.connection.conversation.state.getState().disclosureOpen).toBe(true);
+ expect(socket.frames("conversation_start"),"DISCLOSURE_ENTRY_SENDS_NOTHING").toHaveLength(0);
+ socket.deliver(VOICE_HELLO);
+ expect(socket.frames("conversation_start"),"HELLO_RECOVERY_CANNOT_INFER_START_CONSENT").toHaveLength(0);
+ root.connection.conversation.start();
+ expect(socket.frames("conversation_start")).toHaveLength(1);
+ expect(socket.frames("conversation_start")[0]!.disclosed,"START_ECHOES_ADVERTISED_PROFILE_WITHOUT_FIXTURE_REWRITING").toEqual(VOICE_PROFILE);
+ expect(root.connection.conversation.state.getState().micOn).toBe(false);
+});
+test("a legacy hello without a disclosure profile keeps voice unavailable",()=>{
+ const root=reloaded(),socket=connect(root);
+ socket.deliver(serverHelloSchema.parse({type:"server_hello",protocolRev:5,capabilities:{liveConversation:true,conversationPause:true}}));
+ expect(root.connection.conversation.state.getState().available).toBe(false);
+ root.connection.conversation.enter();root.connection.conversation.start();
+ expect(root.connection.conversation.state.getState().active).toBe(false);
+ expect(socket.frames("conversation_start"),"OLD_SERVER_CANNOT_RECEIVE_UNDISCLOSED_START").toHaveLength(0);
 });

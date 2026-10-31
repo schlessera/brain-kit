@@ -1,3 +1,4 @@
+import { requireKnownSession } from "./session-recovery.js";
 import { resolveChatFiles, withTrackFiles } from "../tracks/read.js";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { estimateDecodedBase64Bytes } from "./attachments.js";
@@ -174,6 +175,7 @@ export async function handleClientMessage(
       await handleChatMessage(host, ws, {
         authorization: connection.authorization,
         text: msg.text,
+        ...(msg.historyOwnerId && !shareSessionId ? {historyOwnerId:msg.historyOwnerId} : {}),
         ...(msg.shareId ? { shareId: msg.shareId } : {}),
         sessionId: shareSessionId,
         attachments: attachmentResult.attachments,
@@ -626,7 +628,29 @@ export async function handleClientMessage(
       break;
     }
 
+    case "dialogue_read": {
+      if (!connection.authorization.valid || !connection.capabilities?.sessionDialogue || !catalog.dialogueRead) break;
+      if (msg.sessionId && !await requireKnownSession(host, ws, connection, msg.sessionId, true, msg.requestId)) break;
+      try {
+        const page = await catalog.dialogueRead(connection.authorization.principalId, msg);
+        if (connection.closed || !connection.authorization.valid) break;
+        if (page) host.sendMessage(ws, { type: "dialogue_history", requestId: msg.requestId, ...page });
+        else if (msg.sessionId) host.sendMessage(ws, { type: "dialogue_history", requestId: msg.requestId,
+          ownerId: msg.sessionId, sessionId: msg.sessionId, generation: 1, through: 0, records: [], coverage: "complete" });
+        else throw new Error("Dialogue owner unavailable");
+      } catch {
+        if (!connection.closed && connection.authorization.valid) host.sendMessage(ws, { type: "error", code: "DIALOGUE_UNAVAILABLE", requestId: msg.requestId,
+          ...(msg.sessionId ? {sessionId: msg.sessionId} : {}), message: "Conversation history unavailable. Try opening this chat again." });
+      }
+      break;
+    }
+
     case "session_resume": {
+      if (!await requireKnownSession(host, ws, connection, msg.sessionId, true)) {
+        host.reportSessionResume(msg.sessionId, connection.authorization.valid ? "error" : "unauthorized",
+          { error: "Session could not be verified" });
+        return;
+      }
       host.sendMessage(ws, {
         type: "session_info",
         sessionId: msg.sessionId,

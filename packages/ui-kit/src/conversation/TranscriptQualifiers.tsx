@@ -26,6 +26,7 @@ const vocabulary = {
   played: { icon: "run", copy: "Received audio chunks played locally; spoken portion unknown." },
   unknown: { icon: "unproven", copy: "Playback unknown. Generated words are not proof they were spoken." },
   "not-spoken": { icon: "unreachable", copy: "Remaining reply not spoken locally. Earlier spoken portion unknown." },
+  unsaved: { icon: "unreachable", copy: "Unsaved text evidence. These words are not saved and are unavailable after reload." },
   restored: { icon: "history", copy: "Restored text evidence. This does not prove playback or that the current voice engine received it." },
 } as const satisfies Record<string, { icon: IconName; copy: string; role?: string }>;
 
@@ -35,6 +36,8 @@ export interface TranscriptQualifiersProps {
   source?: string;
   playback?: "played" | "unknown" | "not-spoken";
   restored?: boolean;
+  /** Observed text whose durable write failed; never inferred from playback. */
+  unsaved?: boolean;
   orderUnknown?: boolean;
   finish?: "updating" | "some-updating" | "finished" | "unknown";
   evidenceLabel: string;
@@ -75,9 +78,9 @@ export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
   const hovered = useRef(false);
   const anchor = useRef<HTMLElement | null>(null);
   const source = p.source || "source unknown";
-  const keys = [p.kind, ...(p.kind === "generated" ? [p.playback ?? "unknown"] : []), ...(p.restored ? ["restored" as const] : [])] as Array<keyof typeof vocabulary>;
+  const keys = [p.kind, ...(p.kind === "generated" ? [p.playback ?? "unknown"] : []), ...(p.restored ? ["restored" as const] : []), ...(p.unsaved ? ["unsaved" as const] : [])] as Array<keyof typeof vocabulary>;
   const sentences = keys.map(key => vocabulary[key].copy);
-  const name = [vocabulary[p.kind].role, source, ...(p.kind === "recognized" ? ["unverified"] : []), ...(p.kind === "generated" ? [`playback ${p.playback ?? "unknown"}`] : []), ...(p.restored ? ["restored"] : [])].join("; ") + ". Transcript details.";
+  const name = [vocabulary[p.kind].role, source, ...(p.kind === "recognized" ? ["unverified"] : []), ...(p.kind === "generated" ? [`playback ${p.playback ?? "unknown"}`] : []), ...(p.restored ? ["restored"] : []), ...(p.unsaved ? ["unsaved"] : [])].join("; ") + ". Transcript details.";
   const clear = () => { clearTimeout(pending.current); };
   const hide = () => { clear(); setShown(false); };
   const enter = () => { clear(); suppressed.current = false; pending.current = setTimeout(() => { if (!suppressed.current && !open) setShown(true); }, 300); };
@@ -146,7 +149,7 @@ export function TranscriptSymbols() {
   return <span ref={holder} onFocus={() => { const opener = focus(); if (opener) owner?.onRead(opener); }}>
     <TextButton label="Transcript symbols" tone="meta" onClick={() => { const opener = focus(); if (opener) owner?.onRead(opener); setOpen(true); }} />
     {open && <Details title="Transcript symbols" open={open} onClose={() => setOpen(false)} returnFocus={focus}>
-      <dl>{Object.entries(vocabulary).map(([key, value]) => <div key={key}><dt><span aria-hidden="true"><Icon icon={value.icon} size={16} /></span> {"role" in value ? value.role : key === "restored" ? "Restored evidence" : `Playback ${key}`}</dt><dd>{value.copy}</dd></div>)}</dl>
+      <dl>{Object.entries(vocabulary).map(([key, value]) => <div key={key}><dt><span aria-hidden="true"><Icon icon={value.icon} size={16} /></span> {"role" in value ? value.role : key === "restored" ? "Restored evidence" : key === "unsaved" ? "Unsaved evidence" : `Playback ${key}`}</dt><dd>{value.copy}</dd></div>)}</dl>
       <p>Source names identify the original service, not the speaker. Matching text or received order does not establish a question/reply pair. Permission and recovery controls remain separate.</p>
     </Details>}
   </span>;

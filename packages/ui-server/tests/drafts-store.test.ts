@@ -124,3 +124,14 @@ test("previews and image signatures", () => {
   expect(hasImageSignature("image/gif", new TextEncoder().encode("GIF89a...."))).toBe(true);
   expect(hasImageSignature("image/webp", new TextEncoder().encode("RIFF\u0000\u0000\u0000\u0000WEBPVP8 "))).toBe(true);
 });
+
+
+test("provisional dialogue adoption consumes the exact draft and moves only newer edits with its chat",()=>{
+ const {store,owner}=setup();
+ const save=(id:string,revision:number,text:string)=>store.save(owner,id,{ifMatch:revision,idempotencyKey:`${id}-${revision}`,sessionId:"dialogue:ithaca",text,attachmentIds:[]});
+ save("current",0,"Find the mast.");save("newer",0,"Find the sail.");save("newer",1,"And the departure note.");
+ expect(store.accept({draftRef:{draftId:"current",revision:1},sessionId:"voyage",resumed:false,requestId:"wrong",principalId:owner})).toBe("kept");
+ expect(store.accept({draftRef:{draftId:"current",revision:1},sessionId:"voyage",sourceSessionId:"dialogue:ithaca",resumed:false,requestId:"first",principalId:owner})).toBe("consumed");
+ expect(store.accept({draftRef:{draftId:"newer",revision:1},sessionId:"voyage",sourceSessionId:"dialogue:ithaca",resumed:false,requestId:"second",principalId:owner})).toBe("kept");
+ expect(store.get(owner,"newer")).toMatchObject({sessionId:"voyage",text:"And the departure note.",revision:3});
+});

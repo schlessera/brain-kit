@@ -13,7 +13,7 @@ import { testPrincipal } from "./principal";
 
 export async function contextualRefusals(provider: "gemini" | "gpt", mode: "missing" | "duplicate" | "queue" | "aged" | "no-audio" | "storage" | "request-identity" | "binding" | "submission" | "authorization", f: {
   provider: LiveConversationProvider; emit: (frame: any) => void; sent: any[];
-}, registerCleanup: (cleanup: () => void) => void) {
+}, registerCleanup: (cleanup: () => void | Promise<void>) => void) {
   const until = async (check: () => boolean) => {
     const end = Date.now() + 2000;
     while (!check()) { if (Date.now() > end) throw new Error("refusal lifecycle barrier timed out"); await Bun.sleep(1); }
@@ -32,13 +32,13 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   const save = host.catalog.saveConversationTask!.bind(host.catalog);
   Object.defineProperty(host.catalog, "saveConversationTask", { value: (principal: string, receipt: Parameters<typeof save>[1]) =>
     rejectAdmission && receipt.state === "queued" ? Promise.reject(new Error("Fixture admission storage failure")) : save(principal, receipt) });
-  registerCleanup(() => { for (const release of releases) release(); host.coordinator.reset(); host.close(); db.close(); });
+  registerCleanup(async () => { for (const release of releases) release(); host.coordinator.reset(); await host.close(); db.close(); });
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
   const handlers = createWsHandlers(host, testPrincipal());
   await handlers.onOpen(undefined as never, ws);
   const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
-  send({ type: "conversation_start", contextualTasks: true });
+  send({ type: "conversation_start", contextualTasks: true, disclosed:host.conversations!.profile(true) });
   await until(() => frames.some(f => f.type === "conversation_opened"));
   const { conversationId, epoch } = frames.find(f => f.type === "conversation_opened");
   // Seed the consumed-id boundary without executing thousands of unrelated turns.

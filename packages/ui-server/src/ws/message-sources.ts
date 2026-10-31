@@ -70,13 +70,16 @@ export function saveEffectiveThinkingLevel(db: Database, sessionId: string, turn
 export function attachMessageSources(
   db: Database,
   sessionId: string,
-  messages: SessionHistoryMessage[]
+  messages: SessionHistoryMessage[],
+  strict = false,
+  latestTurnId?: string,
 ): SessionHistoryMessage[] {
+  if (strict) return attachLiveSources(db,sessionId,messages,latestTurnId);
   const rows = db
     .query("SELECT text_hash AS hash, ordinal, source, thinking_level, effective_thinking_level, track_files FROM message_sources WHERE session_id = ?")
     .all(sessionId) as Array<{ hash: string; ordinal: number; source: string; thinking_level: string | null; effective_thinking_level: string | null; track_files: string | null }>;
   const stored = new Map<string, Partial<SessionHistoryMessage>>();
-  for (const row of rows) {
+  const decode = (row: typeof rows[number]): Partial<SessionHistoryMessage> => {
     // Re-validated on the way out: a row written by a newer server with a
     // source this one does not know reads as typed.
     const parsed = messageSourceSchema.safeParse(row.source);
@@ -97,6 +100,10 @@ export function attachMessageSources(
         }
       } catch { /* Corrupt operational metadata cannot become a claimed attachment. */ }
     }
+    return metadata;
+  };
+  for (const row of rows) {
+    const metadata = decode(row);
     if (Object.keys(metadata).length) stored.set(`${row.hash}:${row.ordinal}`, metadata);
   }
   if (stored.size === 0) return messages;
@@ -121,5 +128,55 @@ export function attachMessageSources(
     }
     seen.set(hash, ordinal + 1);
     return metadata ? { ...message, content, ...metadata } : message;
+  });
+}
+
+/** Positive provenance for live DATA. Unknown users remain unclassified.
+ * Full native duplicate counts prevent a failed write shifting every ordinal.
+ * Only bounded candidate rows reach JS; aggregates use the existing indexes.
+ */
+function attachLiveSources(db: Database, sessionId: string, messages: SessionHistoryMessage[], latestTurnId?: string): SessionHistoryMessage[] {
+  const counts = new Map<string,number>();
+  const identities = messages.map((m,i)=> {
+    if(m.role!=="user") return undefined;
+    const texts=[m.content],candidate=trackContextText(m.content);
+    if(candidate!==null && candidate!==m.content)texts.push(candidate);
+    const keys=texts.map(text=>{const hash=messageTextHash(text),ordinal=counts.get(hash)??0;counts.set(hash,ordinal+1);return {hash,ordinal,text};});
+    // Never cross another user to infer this one's turn: it may have failed.
+    let turnId: string | undefined;
+    for(let j=i+1;j<messages.length;j++) {
+      if(messages[j]!.role==="user") break;
+      if(messages[j]!.role==="assistant") {turnId=messages[j]!.turnId;break;}
+    }
+    if(i===messages.length-1)turnId=latestTurnId;
+    return {keys,turnId};
+  });
+  type Row={source:string;turn_id:string|null;track_files:string|null};
+  const count=db.query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id=? AND text_hash=?");
+  const ordinalRow=db.query("SELECT source,turn_id,track_files FROM message_sources WHERE session_id=? AND text_hash=? AND ordinal=?");
+  const turnCount=db.query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id=? AND turn_id=? AND text_hash=?");
+  const turnRow=db.query("SELECT source,turn_id,track_files FROM message_sources WHERE session_id=? AND turn_id=? AND text_hash=? ORDER BY ordinal LIMIT 1 OFFSET ?");
+  return messages.map((m,i)=>{
+    const id=identities[i];if(!id||i<messages.length-128)return m;
+    const {source:_source,turnId:_turnId,...unknown}=m;
+    for(const key of id.keys) {
+      let row=ordinalRow.get(sessionId,key.hash,key.ordinal) as Row|null;
+      const n=(count.get(sessionId,key.hash) as {n:number}).n;
+      if(id.turnId) {
+        // Exact native/active-turn identity survives a missing earlier row.
+        const matching=identities.filter(x=>x?.keys.some(k=>k.hash===key.hash)&&x.turnId===id.turnId);
+        const stored=(turnCount.get(sessionId,id.turnId,key.hash) as {n:number}).n;
+        if(stored===matching.length) row=turnRow.get(sessionId,id.turnId,key.hash,matching.indexOf(id)) as Row|null;
+        else if((row?.turn_id && row.turn_id!==id.turnId) || n!==counts.get(key.hash)) row=null;
+      } else if(n!==counts.get(key.hash))row=null;
+      const parsed=messageSourceSchema.safeParse(row?.source);
+      if(!parsed.success || !["typed","voice-dictate","voice-conversation","voice-context"].includes(parsed.data))continue;
+      if(key.text!==m.content) {
+        let files: unknown;try{files=JSON.parse(row?.track_files ?? "null");}catch{continue;}
+        if(!Array.isArray(files)||!files.length||files.length>10||!files.every(f=>sharedFileMetaSchema.safeParse(f).success)||withTrackFiles(key.text,files)!==m.content)continue;
+      }
+      return {...unknown,content:key.text,source:parsed.data,...(id.turnId && row?.turn_id===id.turnId?{turnId:id.turnId}:{})};
+    }
+    return unknown;
   });
 }

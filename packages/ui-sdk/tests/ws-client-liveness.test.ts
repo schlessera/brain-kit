@@ -123,7 +123,7 @@ function harness(capabilities: Record<string, boolean> = { liveness: true, askRe
 describe("the client hello", () => {
   test("declares receipt support", () => {
     const { sockets, client } = harness();
-    expect(sockets[0]!.frames("client_hello")[0].capabilities).toEqual({ askReceipts: true, followUpQueue: true, toolResolution: true });
+    expect(sockets[0]!.frames("client_hello")[0].capabilities).toEqual({ askReceipts: true, followUpQueue: true, toolResolution: true, sessionDialogue: true });
     client.close();
   });
 });
