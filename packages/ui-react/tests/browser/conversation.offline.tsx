@@ -536,8 +536,14 @@ test("a voice-first session binds its original typed draft and generated output,
   s.ui.stores.drafts.getState().newChat();
   const next = s.ui.stores.drafts.getState().idFor(null);
   s.ui.stores.drafts.getState().edit(next, null, { text: "New raft question" });
+  const previousOpening=s.socket.frames("conversation_start").at(-1)!;
   s.client.enter();
-  s.socket.deliver({ ...PROFILE, conversationId: "ithaca-replacement", requestId: s.socket.frames("conversation_start").at(-1)?.requestId });
+  expect(s.socket.frames("conversation_start").at(-1)!.requestId,"NEW_DRAFT_ENTRY_WAITS_FOR_START").toBe(previousOpening.requestId);
+  s.client.start();
+  const replacementOpening=s.socket.frames("conversation_start").at(-1)!;
+  expect(replacementOpening.requestId,"REPLACEMENT_HAS_ITS_OWN_EXPLICIT_OPENING").not.toBe(previousOpening.requestId);
+  s.deliver({ ...PROFILE, sessionId:undefined, conversationId: "ithaca-replacement", requestId: replacementOpening.requestId });
+  expect(s.client.state.getState().profile?.conversationId,"NEW_DRAFT_IDENTITY_TEST_HAS_AN_ACTUAL_ACCEPTED_REPLACEMENT").toBe("ithaca-replacement");
   s.deliver({ type: "session_info", sessionId: "odysseus-new-voyage", requestId: String(commit.requestId), isNew: true, turnId: "ithaca-new-turn" });
   expect(s.client.state.getState().sessionId).toBe(null);
   expect(s.ui.stores.drafts.getState().drafts[next]?.text).toBe("New raft question");
