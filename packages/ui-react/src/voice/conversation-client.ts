@@ -544,6 +544,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
   function frame(message: ServerMessage): ServerMessage | null {
+    // Older hosts may send backend diagnostics; never retain them in public state.
+    if (message.type === "error" && message.code === "SESSION_LOAD_ERROR") message = { ...message, message: "Unable to load conversation history. Try again; your draft is kept." };
     permissions.frame(message);
     if (message.type === "server_hello") {
       if(dialoguePrincipalKey !== undefined && dialoguePrincipalKey !== message.principalKey) clearPrivateDialogue();

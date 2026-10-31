@@ -1102,13 +1102,57 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} stale retai
 });
 
 
+for (const correlation of ["matching", "snapshot", "foreign-request", "foreign-session", "retired-entry"] as const) test(`history diagnostic privacy and opening ownership: ${correlation}`, async ctx => {
+  const mic = controlledMicrophone(ctx);
+  const s = await scene(ctx, 390, true);
+  const states: string[] = [];
+  const unsubscribe = s.client.state.subscribe(state => states.push(JSON.stringify(state)));
+  const unsubscribeConnection = s.ui.stores.connection.subscribe(state => states.push(JSON.stringify(state)));
+  const unsubscribeChat = s.ui.stores.chat.subscribe(state => states.push(JSON.stringify(state)));
+  ctx.onTestFinished(() => { unsubscribe(); unsubscribeConnection(); unsubscribeChat(); });
+  s.client.enter();
+  expect(s.socket.frames("conversation_start"), "ENTER_ALONE_SENDS_NOTHING").toHaveLength(0);
+  s.client.start();
+  const opening = s.socket.frames("conversation_start").at(-1)!;
+  if (correlation === "retired-entry") { s.client.leave(); s.client.enter(); s.client.start(); }
+  const marker = "Odysseus private history diagnostic";
+  s.deliver({ type: "error", code: "SESSION_LOAD_ERROR", message: marker,
+    sessionId: correlation === "foreign-session" ? "odysseus-pylos" : SESSION,
+    ...(correlation === "snapshot" ? {} : { requestId: correlation === "foreign-request" ? "odysseus-unrelated-read" : String(opening.requestId) }),
+  });
+  await Promise.resolve();
+  expect(states.join("\n"), "NO_TRANSIENT_VOICE_STATE_CONTAINS_RAW_DIAGNOSTIC").not.toContain(marker);
+  expect(JSON.stringify(s.ui.stores.chat.getState()), "CHAT_STATE_REDACTS_OLDER_HOST_COPY").not.toContain(marker);
+  expect(s.host.textContent, "RENDERED_COPY_REDACTS_RAW_DIAGNOSTIC").not.toContain(marker);
+  const rejected = correlation === "matching" || correlation === "snapshot";
+  expect(s.client.state.getState().active, "ONLY_CURRENT_SCOPE_FAILURE_RETIRES_ENTRY").toBe(!rejected);
+  if (rejected) expect(s.client.state.getState().notice).toBe("Unable to load conversation history. Try again; your draft is kept.");
+  if (correlation === "snapshot") {
+    s.deliver({ ...PROFILE, requestId: String(opening.requestId) });
+    expect(s.socket.frames("conversation_stop"), "UNCORRELATED_FAILURE_RETAINS_LATE_OPENING_TOKEN").toHaveLength(1);
+    expect(s.client.state.getState().profile).toBe(null);
+  }
+  if (correlation === "retired-entry") {
+    await expect.poll(() => s.socket.frames("conversation_start").length).toBe(2);
+    expect(s.client.state.getState().active, "RETIRED_REJECTION_CANNOT_CLOSE_REPLACEMENT").toBe(true);
+  }
+  expect(mic.opens(), "HISTORY_FAILURE_NEVER_GRANTS_CAPTURE").toBe(0);
+});
+
 for (const provider of ["gemini", "gpt"] as const) test(`${provider} history failure during opening stops the late provider before explicit retry`, async ctx => {
   const s = await contextualScene(ctx, provider, "permitted", 390, false, false, false, true);
   await expect.poll(async () => (await s.pump()).opening).toBe(true);
   // The real root already requested session_resume on connection. Its history
   // read and the voice opening are held independently in the real host.
   await expect.poll(async () => (await s.pump()).historyPending).toBe(true);
+  const publicStates: string[] = [];
+  const unsubscribe = s.client.state.subscribe(state => publicStates.push(JSON.stringify(state)));
+  ctx.onTestFinished(unsubscribe);
   await s.pump([], false, false, true);
+  expect(JSON.stringify(s.downstream), "PRODUCTION_WIRE_REDACTS_HISTORY_CAUSE").not.toContain("Odysseus history is temporarily unreadable.");
+  expect(publicStates.join("\n"), "SUBSCRIBERS_NEVER_SEE_PRIVATE_HISTORY_CAUSE").not.toContain("Odysseus history is temporarily unreadable.");
+  expect(s.host.textContent, "UI_NEVER_SHOWS_PRIVATE_HISTORY_CAUSE").not.toContain("Odysseus history is temporarily unreadable.");
+  expect(s.client.state.getState().notice).toBe("Unable to load conversation history. Try again; your draft is kept.");
   expect(s.evidence().historyPending, "EVERY_OWNED_HISTORY_READ_HAS_SETTLED").toBe(false);
   await expect.poll(() => s.client.state.getState().active).toBe(false);
   expect(s.mic.opens(), "HISTORY_FAILURE_NEVER_GRANTS_MICROPHONE_CONSENT").toBe(0);

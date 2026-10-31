@@ -700,7 +700,7 @@ export async function handleClientMessage(
         host.sendMessage(ws, {
           type: "error",
           code: "SESSION_LOAD_ERROR",
-          message,
+          message: "Unable to load conversation history. Try again; your draft is kept.",
           sessionId: msg.sessionId,
         });
       }

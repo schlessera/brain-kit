@@ -226,7 +226,7 @@ describe("a reload that kept the selected session's id", () => {
     expect(root.stores.chat.getState().activeSessionId).toBe(OGYGIA);
     expect(typedMessage(root, "Sail tonight?"), "a failed restoration takes no message").toBe(false);
     expect(restorationOf(root.stores.chat.getState())).toEqual({
-      sessionId: OGYGIA, phase: "failed", failure: { reason: "error", message: "transcript unreadable" },
+      sessionId: OGYGIA, phase: "failed", failure: { reason: "error", message: "Unable to load conversation history. Try again; your draft is kept." },
     });
     expect(typedMessage(root, "Sail tonight?")).toBe(false);
     expect(socket.frames("session_resume"), "no automatic loop on the same socket").toHaveLength(1);
