@@ -1,5 +1,5 @@
 /** Gemini Developer API raw-wire adapter. Authority stays in ConversationHost. */
-import { conversationHistory, STARTUP_CONTEXT_LIMITS } from "./conversation-history.js";
+import { liveContext, STARTUP_CONTEXT_LIMITS } from "./conversation-history.js";
 import { z } from "zod";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationAudioFormat } from "@schlessera/brain-ui-sdk/protocol";
@@ -61,7 +61,7 @@ export function createGeminiConversationProvider(apiKey: string): LiveConversati
       voiceService: `Gemini Developer API v1beta, ${MODEL}, Kore`,
       destinations: [
         "Microphone audio and transcripts go through this host to Google Gemini Live.",
-        "Host-reviewed agent results and resynchronization context go to Google Gemini Live.",
+        "Prior chat text, recognized/generated discussion and completed results go to Google Gemini Live, including after switching voice services.",
         "Conversation tasks use the independently configured host agent backend and its ordinary permissions.",
       ],
     },
@@ -78,7 +78,7 @@ async function openGemini(
   catch { throw new Error("Gemini Live connection failed."); }
   // Only bounded historical host state, no native handles or replayed calls.
   // Frozen once per epoch; it decides the setup and is never rebuilt.
-  const history = conversationHistory(scope, options.resync, STARTUP_CONTEXT_LIMITS.gemini);
+  const context = liveContext(scope, options, STARTUP_CONTEXT_LIMITS.gemini);
   const queue: LiveConversationEvent[] = [];
   const bindings = new Map<string, { taskId: string; requestId: string }>();
   let wake: (() => void) | undefined;
@@ -140,7 +140,7 @@ async function openGemini(
         // not JSON Schema and rejects additionalProperties (#2356).
         // Documented ordered seeding: the server takes clientContent until
         // turnComplete without a model call, before any realtime input.
-        ...(history ? { historyConfig: { initialHistoryInClientContent: true } } : {}),
+        ...(context.blocks.length ? { historyConfig: { initialHistoryInClientContent: true } } : {}),
         tools: [{ functionDeclarations: [{ name: "host_task", description: "Request a new host task from recent conversation context while continuing the dialogue.", behavior: "NON_BLOCKING" }] }],
       } });
     } catch { fail("Gemini Live setup failed."); }
@@ -171,7 +171,7 @@ async function openGemini(
       if (m.setupComplete) {
         if (ready) throw new Error();
         ready = true; clearTimeout(timer);
-        if (history) send({ clientContent: { turns: [{ role: "user", parts: [{ text: history }] }], turnComplete: true } });
+        if (context.blocks.length) send({ clientContent: { turns: context.blocks.map(text => ({ role: "user", parts: [{ text }] })), turnComplete: true } });
         emit({ kind: "ready", model: MODEL, api: "Gemini Developer API v1beta BidiGenerateContent", input: INPUT, output: OUTPUT });
         resolveReady();
       }
@@ -231,6 +231,7 @@ async function openGemini(
     } finally { finish(); }
   }
   return {
+    historyCoverage: context.coverage,
     events: events(),
     bindContextualWork(ref) {
       if (!options.contextualTasks || ended || options.signal.aborted || bindings.has(ref.nativeHandle) || !handles.has(ref.nativeHandle)) throw new Error("Native task binding is unavailable.");

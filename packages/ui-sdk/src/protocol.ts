@@ -843,6 +843,8 @@ export type ServerMessage =
  * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
+  /** Known destination/profile before explicit Start; no provider has opened. */
+  conversationProfile?: ConversationProfile;
   type: "server_hello";
   protocolRev: number;
   /**
@@ -1905,6 +1907,13 @@ export interface ConversationDisclosure {
   destinations: string[];
 }
 
+/** Provider-free voice disclosure. Start must echo this exact effective profile. */
+export interface ConversationProfile {
+  providerId: string;
+  capabilities: ConversationCapabilities;
+  disclosure: ConversationDisclosure;
+}
+
 /** Mono 16-bit little-endian PCM at one sample rate. */
 export interface ConversationAudioFormat {
   encoding: "pcm16";
@@ -2082,6 +2091,8 @@ export interface ConversationOutputRecord {
 
 /** Client → Server. Open a conversation, or a new epoch of an existing one. */
 export interface ClientConversationStart {
+  /** Exact profile explicitly disclosed at Start; absent legacy starts refuse. */
+  disclosed?: ConversationProfile;
   /** Resume retained host-only history without pretending it is a backend session. */
   historyOwnerId?: string;
   /** New clients opt into the provider capability; older clients stay reviewed. */
@@ -2161,6 +2172,8 @@ export interface ClientConversationStop {
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
 export interface ServerConversationOpened {
+  /** Actual bounded startup text coverage; no semantic recall guarantee. */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
   historyGeneration?: number;
   historyOwnerId?: string;
   type: "conversation_opened";

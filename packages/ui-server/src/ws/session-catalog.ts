@@ -126,7 +126,7 @@ export interface SessionCatalog {
   recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
-  attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+  attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
   /**
    * Keep a locally answered command (`/stats`) as part of the session
    * (#582). `delivered` means the prompt carrying its context is being
@@ -575,10 +575,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       submit("addCost", sessionId, costUsd).catch(err => reportWriteFailure(sessionId, err));
     },
 
-    attachMessageSources(sessionId, messages) {
+    attachMessageSources(sessionId, messages, strict = false) {
       try {
-        return attachMessageSources(db(), sessionId, messages);
+        return attachMessageSources(db(), sessionId, messages, strict, strict ? latestWork(sessionId)?.turnId ?? undefined : undefined);
       } catch (err) {
+        if (strict) throw err;
         // A replay without sources renders every message as typed, which is
         // what it rendered before sources were kept; losing the history over
         // it would not be.

@@ -51,7 +51,6 @@ const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
 const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
 await handlers.onOpen(undefined as never, ws);
-frames.length = 0;
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (req.method !== "POST") return new Response(null, { status: 405 });
   const body = await req.json() as { client: unknown[]; provider: unknown[] };

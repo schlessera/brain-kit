@@ -443,3 +443,48 @@ classes and storage notices from known scoped error codes, never remote message
 text. Storage copy describes a failed journal write without inferring loss of a
 native answer. Bounded review rollover does not revoke continuous capture;
 actual write/unsaved-buffer failure remains a separate visible failure boundary.
+
+
+## New live epochs receive existing chat text — 2026-10-31 (#3178)
+
+The separately authorized historical-data envelope consumes #3177's canonical
+journal and backend-owned native text. It does not widen native resync identity
+fences. Opening reads a bounded authorized snapshot and freezes it once for the
+native session; read failures stop startup. Typed discussion, uncertain voice
+evidence and exact completed facts remain separate data sources. Internal task
+wrappers cannot stand in for prior authenticated dialogue. No history read or
+seed dispatches work, replays a native response or grants permission.
+
+The [startup selection contract](../integration-contract/package-api.md#existing-chat-live-context-3178)
+records dynamic actual-byte allocation, whole-item omissions and honest source
+coverage. The additive wire field reports actual bounded selection independently
+of restored UI text. Start disclosure covers prior-chat text transfer to either
+selected voice service, including engine changes. Captured provider input proves
+transport assembly only; #3131/#961 retain semantic/acoustic/device qualification.
+
+The [parent-directed Start correction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935)
+uses known provider metadata in hello, not a prepare/grant resource. Enter must not
+open a provider or transfer chat context before Start. Only an exact disclosed
+profile echo admits startup; legacy undisclosed starts now refuse as an explicit
+pre-1.0 breaking privacy correction. Prior-text policy is disclosed before Start;
+actual selected coverage follows the authorized read. Scope-identical same-entry
+recovery preserves that explicit consent separately from microphone intent.
+
+
+Unwitnessed native prefixes use a slot before journal evidence; an absent request
+record is not an authenticated before-owner timestamp, especially with partial
+storage coverage. Unknown runs keep native order and gap qualification, while
+exact assistant ranges retain their actual positions. If bounded selection drops
+text with ambiguous cross-stream recency, `tailOmitted` is conservative and the UI
+says the newest context may be missing. Exact later native witnesses can rule out
+an older voice tail as a possible newest omission.
+
+Live user text requires a positive source row joined by exact turn identity, or
+an ordinal with equal full-native/source duplicate counts when either turn ID is
+unavailable. Source reads query only the bounded candidate identities through
+existing indexes. Missing legacy/imported or host-prompt provenance replaces the
+whole user item in place with a `source_unavailable` gap and partial coverage;
+it neither authenticates typed dialogue nor blocks the rest of the chat. Native
+assistant text remains historical assistant data. Missing or evicted contextual
+receipts cannot classify a user. Actual source read errors and contradictory
+positive source/retained receipt identities refuse startup before provider open.

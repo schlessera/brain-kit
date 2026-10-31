@@ -230,7 +230,7 @@ test("real adapter and host keep chat progress and a question interactive while 
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
   await handlers.onOpen(undefined as never, ws);
   const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
-  send({ type: "conversation_start" });
+  send({ type: "conversation_start", disclosed:host.conversations!.profile(false) });
   await until(() => frames.some((m) => m.type === "conversation_opened"));
   const { conversationId, epoch } = frames.find((m) => m.type === "conversation_opened");
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "u1", sequence: 0, rate: 24000, pcm: "AAA=" });

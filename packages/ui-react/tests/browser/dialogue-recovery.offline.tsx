@@ -110,10 +110,14 @@ for (const first of ["gemini", "gpt"] as const)
       ctx.onTestFinished(async () => {
         await commands.conversationServer({ op: "stop", id: fixture.id });
       });
-      let s = await view(ctx, null),
+      const seeded = await commands.conversationServer({op:"step",id:fixture.id,client:[],provider:[],seedTypedHistory:true}) as {frames:ServerMessage[]};
+      let s = await view(ctx, "odysseus-ithaca"),
         cursor = 0;
+      for (const frame of seeded.frames) s.socket.deliver(frame);
       let result: any;
+      const distinctiveFact = ("The departure signal is a bronze owl. " + "Athena marked the third oar; keep the blue sail ready. ".repeat(30)).slice(0,1067);
       const observed: ServerMessage[] = [];
+      const providerSent: any[] = [];
       const pump = async (
         provider: unknown[] = [],
         release = false,
@@ -130,9 +134,11 @@ for (const first of ["gemini", "gpt"] as const)
           client,
           provider,
           release,
+          resultText: release ? distinctiveFact : undefined,
           restart,
           engine,
         })) as any;
+        providerSent.push(...result.sent);
         for (const frame of result.frames as ServerMessage[]) {
           observed.push(frame);
           s.socket.deliver(frame);
@@ -141,6 +147,14 @@ for (const first of ["gemini", "gpt"] as const)
       };
       await pump();
       s.ui.connection.conversation.enter();
+      await pump();
+      expect(s.socket.frames("conversation_start"),"ENTER_IS_LOCAL_DISCLOSURE_ONLY").toHaveLength(0);
+      expect(result.providerOpens,"NO_VENDOR_OPEN_BEFORE_START").toBe(0);
+      expect(providerSent,"NO_PROVIDER_BYTES_BEFORE_START").toEqual([]);
+      s.ui.connection.conversation.leave(); await pump();
+      expect(result.providerOpens,"CANCEL_BEFORE_START_HAS_NO_VENDOR_EFFECT").toBe(0);
+      s.ui.connection.conversation.enter(); s.ui.connection.conversation.start();
+      await pump();
       await expect
         .poll(async () => {
           await pump();
@@ -203,6 +217,8 @@ for (const first of ["gemini", "gpt"] as const)
                 target: "client",
               },
             };
+      expect(JSON.stringify(providerSent), "INITIAL_CONTEXT_INCLUDES_EXISTING_TYPED_CHAT").toContain("Plan Telemachus's crossing.");
+      expect(JSON.stringify(providerSent), "INITIAL_CONTEXT_HAS_NO_DEFERRED_FACT").not.toContain("bronze owl");
       await pump([...ingress, request]);
       await expect
         .poll(async () => {
@@ -231,12 +247,14 @@ for (const first of ["gemini", "gpt"] as const)
         .toContain("The departure signal is a bronze owl.");
       await pump([input(3, "What was that signal?")]);
       const expected = [
+        "Plan Telemachus's crossing.",
+        "Keep the blue sail ready.",
         "Where is the departure note?",
         "We can look for it.",
         "Research the departure signal.",
         "Explain the mast while that runs.",
         "The mast supports the sail.",
-        "The departure signal is a bronze owl.",
+        distinctiveFact,
         "What was that signal?",
       ];
       const exact = () =>
@@ -296,7 +314,9 @@ for (const first of ["gemini", "gpt"] as const)
       );
       expect(result.tasks).toBe(1);
       expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
+      providerSent.length = 0;
       s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();
       await expect
         .poll(async () => {
           await pump();
@@ -323,8 +343,16 @@ for (const first of ["gemini", "gpt"] as const)
       expect(result.tasks).toBe(1);
       s.ui.connection.conversation.leave();
       await pump();
-      // #3178 separately supplies provider history. Visible restoration makes no
-      // claim that a new engine received or understood these prior words.
+      const startup = providerSent.flatMap(m => second === "gemini"
+        ? (m.clientContent?.turns ?? []).flatMap((t:any)=>t.parts.map((p:any)=>p.text))
+        : m.type === "session.start" ? m.session.input.map((i:any)=>i.content[0].text) : []);
+      const seed = startup.join("\n");
+      for (const text of expected) expect(seed,"PROVIDER_RECEIVES_COMPLETE_PRIOR_DISCUSSION_AND_FACT").toContain(text);
+      expect(seed.split(distinctiveFact).length-1,"WHOLE_1067_CHARACTER_FACT_ONCE").toBe(1);
+      expect(seed,"TASK_WRAPPER_NEVER_AUTHENTICATED_DIALOGUE").not.toContain("Determine the task requested by this recent conversation context");
+      expect(providerSent.some(m=>m.toolResponse || m.type==="session.thinking.append" || m.type==="session.commentary.append"),"NO_NATIVE_RESULT_REPLAY").toBe(false);
+      expect(result.tasks,"OPENING_HISTORY_DOES_NOT_EXECUTE_WORK").toBe(1);
+      // Actual transport receipt, independently from UI restoration; no recall claim.
     });
 
 for (const provider of ["gemini", "gpt"] as const)
@@ -358,6 +386,7 @@ for (const provider of ["gemini", "gpt"] as const)
     };
     await pump();
     s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();
     await expect
       .poll(async () => {
         await pump();
@@ -536,6 +565,7 @@ for (const provider of ["gpt", "gemini"] as const)
       };
       await pump();
       s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();
       await expect
         .poll(async () => {
           await pump();
@@ -651,6 +681,7 @@ for (const provider of ["gpt", "gemini"] as const)
     };
     await pump();
     s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();
     await expect
       .poll(async () => {
         await pump();
@@ -812,6 +843,7 @@ for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota
    for(const frame of result.frames){received.push(frame);s.socket.deliver(frame);}
   };
   await pump();s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();
   await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
   s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
   const audio=result.sent.find((m:any)=>m.type==="session.input_audio.append");
@@ -859,7 +891,8 @@ for(const provider of ["gemini","gpt"] as const)test(`${provider}: task outcome 
   result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:providerFrames,...(finish?{quota:true,finishDuring:2,resultText:"Mast ready. ".repeat(360).slice(0,4000)}:{})});
   for(const f of result.frames){received.push(f);s.socket.deliver(f);}
  };
- await pump();s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ await pump();s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
  await pump(provider==="gemini"?[{serverContent:{inputTranscription:{text:"Research the mast."}}},{toolCall:{functionCalls:[{id:"mast-research",name:"host_task"}]}}]:[{type:"session.input_transcript.delta",event_id:"task-primer",delta:"Research the mast.",start_ms:0,end_ms:100},{type:"session.delegation.created",event_id:"task-native",offset_ms:100,delegation:{id:"mast-research",type:"delegation",target:"client"}}]);
  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);
  const texts=Array.from({length:30},(_,i)=>`Tail ${i}: ${"mast ".repeat(390)}`);
@@ -879,7 +912,8 @@ for(const quota of [false,true])test(`typed result after Leave retains its full 
  ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
  let s=await view(ctx,null),cursor=0,result:any,completed=0;
  const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const frame of result.frames){if(frame.type==="result")completed++;s.socket.deliver(frame);}return result;};
- await pump();s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ await pump();s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
  s.ui.connection.conversation.start();await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(true);await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
  await pump({provider:[{type:"session.input_transcript.delta",event_id:"prime-input",delta:"Research the mast.",start_ms:0,end_ms:100},{type:"session.delegation.created",event_id:"prime-task",offset_ms:100,delegation:{id:"mast-research",type:"delegation",target:"client"}}]});
  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
@@ -926,7 +960,8 @@ for(const provider of ["gemini","gpt"] as const)test(`R6 ${provider}: first voic
  let s=await view(ctx,null),cursor=0,result:any,completed=0;
  const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
  await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({backendPrefix:"Part one. "});
- await expect.poll(()=>s.element.textContent).toContain("Part one.");s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ await expect.poll(()=>s.element.textContent).toContain("Part one.");s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
  s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
  expect(s.ui.connection.conversation.state.getState().dialogue["odysseus-ithaca"]!.coverage,"HEALTHY_ACTIVE_READ_WITHOUT_NEXT_DELTA").toBe("complete");
  expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(s.element.textContent).not.toContain("Earlier spoken dialogue was not saved");
@@ -945,12 +980,13 @@ for(const provider of ["gemini","gpt"] as const)test(`R7 ${provider}: device tak
  const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
  const input=(n:number,text:string)=>provider==="gemini"?{serverContent:{inputTranscription:{text}}}:{type:"session.input_transcript.delta",event_id:`takeover-${n}`,delta:text,start_ms:n*100,end_ms:n*100+50};
  await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
- s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();s.ui.connection.conversation.start();await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
  const first=s.ui.connection.conversation.state.getState().profile!;await pump({provider:[input(0,"Check the mast. "),input(1,"Check the sail. ")]});
  // The second device retained the same authorized native handle. Its own
  // SDK resume creates a fresh opening token; no admission guard is bypassed.
  s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({takeover:true});
- flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:"odysseus-ithaca",profile:first,disclosureOpen:false}));s.ui.connection.conversation.resume();
+ flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:"odysseus-ithaca",profile:first,disclosureOpen:false}));s.ui.connection.conversation.start();
  await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile?.epoch;}).toBe(2);
  s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
  expect(s.ui.connection.conversation.state.getState().dialogue["odysseus-ithaca"]!.coverage,"DEVICE_TAKEOVER_READ_COMPLETE").toBe("complete");expect(s.element.textContent,"DEVICE_TAKEOVER_NO_FALSE_NOTICE").not.toContain("Voice history may be incomplete");
@@ -967,7 +1003,8 @@ for(const provider of ["gemini","gpt"] as const)test(`R8 ${provider}: simultaneo
  let s=await view(ctx,null),cursor=0,result:any,completed=0;
  const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
  await pump();s.socket.send(JSON.stringify({type:"chat_message",text:"Read the mast note.",providerId:"fake"}));await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);await pump({release:true});await expect.poll(async()=>{await pump();return completed;}).toBe(1);
- s.ui.connection.conversation.enter();await expect.poll(async()=>{await pump({parallelStarts:true});return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ s.ui.connection.conversation.enter();
+      s.ui.connection.conversation.start();await expect.poll(async()=>{await pump({parallelStarts:true});return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
  expect(result.conversations.filter((r:any)=>r.closed===0),"TWO_REAL_OPEN_CONVERSATIONS "+JSON.stringify(result.parallelFrames)).toHaveLength(2);
  s.ui.connection.conversation.loadDialogue("odysseus-ithaca");await pump();
  expect(result.owners.map((r:any)=>r.coverage),"CONCURRENT_CHAT_DB_COMPLETE").toEqual(["complete"]);
@@ -976,4 +1013,74 @@ for(const provider of ["gemini","gpt"] as const)test(`R8 ${provider}: simultaneo
  const retained=result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice");expect(retained.map((e:any)=>e.event.text)).toEqual(["The mast is ready."]);expect(retained[0].providerId).toBe(provider==="gemini"?"gemini-live":"gpt-live");await expect.poll(()=>s.element.textContent).toContain("The mast is ready.");
  await page.screenshot({element:s.element,path:`../../.vitest-attachments/durable-dialogue/r8-concurrent-${provider}.png`});
  s.ui.connection.conversation.leave();await pump({parallelLeave:true});s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true});s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain("The mast is ready.");expect(s.element.textContent).not.toContain("Voice history may be incomplete");expect(result.tasks).toBe(1);
+});
+
+for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"] as const)test(`${first} to ${second}: real typed exchanges before first Start precede later spoken history in fresh startup`,async ctx=>{
+ microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider:first}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;const sent:any[]=[];
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);sent.push(...result.sent);for(const frame of result.frames){if(frame.type==="result")completed++;s.socket.deliver(frame);}return result;};
+ await pump();
+ const typed=["T1: Plan Telemachus's crossing.","A1: Keep the blue sail ready.","T2: Which oar is marked?","A2: Athena marked the third oar."];
+ for(let i=0;i<2;i++){
+  s.socket.send(JSON.stringify({type:"chat_message",text:typed[i*2],providerId:"fake",...(i?{sessionId:"odysseus-ithaca"}:{})}));
+  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(i+1);
+  await pump({release:true,resultText:typed[i*2+1]});await expect.poll(async()=>{await pump();return completed;}).toBe(i+1);
+ }
+ expect(result.rows,"TYPED_PREFIX_REALLY_PRECEDES_THE_FIRST_JOURNAL_OWNER").toEqual([]);
+ expect(result.providerOpens).toBe(0);expect(sent).toEqual([]);
+ s.ui.stores.chat.getState().setActiveSession("odysseus-ithaca");await pump();
+ s.ui.connection.conversation.enter();s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const old=s.ui.connection.conversation.state.getState().profile!;await expect.poll(()=>s.ui.connection.conversation.state.getState().micOn).toBe(true);await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ const voice=["V1: Explain the mast.","V2: The mast supports the sail.","V3: What is the newest spoken question?"];
+ const input=(n:number,text:string)=>first==="gemini"?{serverContent:{inputTranscription:{text}}}:{type:"session.input_transcript.delta",event_id:`prefix-spoken-${n}`,delta:text,start_ms:n*1000,end_ms:n*1000+500};
+ const reply=first==="gemini"?{serverContent:{outputTranscription:{text:voice[1]},turnComplete:true}}:{type:"session.output_transcript.delta",event_id:"prefix-reply",delta:voice[1],start_ms:600,end_ms:800};
+ await pump({provider:[input(0,voice[0]!),reply,input(1,voice[2]!)]});
+ await expect.poll(async()=>{await pump();return result.rows.map((r:any)=>JSON.parse(r.payload)).filter((e:any)=>e.kind==="voice").length;}).toBe(3);
+ expect(result.rows.map((r:any)=>JSON.parse(r.payload)).every((e:any)=>e.kind==="voice"),"NO_REQUEST_WITNESS_IS_INVENTED_FOR_PREOWNER_NATIVE_TURNS").toBe(true);
+ s.ui.connection.conversation.leave();await pump();s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true,engine:second});
+ s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await expect.poll(async()=>{await pump();return s.element.textContent;}).toContain(typed[3]!);
+ sent.length=0;s.ui.connection.conversation.enter();s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const next=s.ui.connection.conversation.state.getState().profile!;expect(next.conversationId).not.toBe(old.conversationId);expect(next.historyCoverage?.state).toBe("partial");
+ await expect.poll(async()=>{await pump();return sent.some(m=>second==="gemini"?!!m.clientContent:m.type==="session.start");}).toBe(true);
+ const blocks=sent.flatMap(m=>second==="gemini"?(m.clientContent?.turns??[]).flatMap((t:any)=>t.parts.map((p:any)=>p.text)):m.type==="session.start"?m.session.input.flatMap((i:any)=>i.content.map((p:any)=>p.text)):[]);
+ const seed=blocks.join("\n"),all=[...typed,...voice];for(const text of all)expect(seed,"FRESH_PROVIDER_RECEIVES_REAL_PREOWNER_TYPED_AND_LATER_VOICE").toContain(text);
+ expect(all.map(text=>seed.indexOf(text)),"PREOWNER_PREFIX_CANNOT_OVERTAKE_LATER_VOICE_ON_THE_SOCKET").toEqual(all.map(text=>seed.indexOf(text)).sort((a,b)=>a-b));
+ expect(seed).toContain("ambiguous_order");expect(result.tasks,"HISTORY_MAPPING_DOES_NOT_REDISPATCH_TYPED_WORK").toBe(2);expect(sent.some(m=>m.toolResponse||m.type==="session.commentary.append"||m.type==="session.thinking.append")).toBe(false);
+ s.ui.connection.conversation.leave();await pump();
+});
+
+for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"] as const)test(`R4 ${first} to ${second}: failed carrier stays private after page and receipt eviction and database restart`,async ctx=>{
+ microphone(ctx);const fixture=await commands.conversationServer({op:"start",durable:true,provider:first}) as {id:string};ctx.onTestFinished(async()=>{await commands.conversationServer({op:"stop",id:fixture.id});});
+ let s=await view(ctx,null),cursor=0,result:any,completed=0;const sent:any[]=[];
+ const pump=async(extra:Record<string,unknown>={})=>{const client=s.socket.sent.slice(cursor).map(b=>JSON.parse(String(b.data)));cursor=s.socket.sent.length;result=await commands.conversationServer({op:"step",id:fixture.id,client,provider:[],...extra} as any);sent.push(...result.sent);for(const f of result.frames){if(f.type==="result")completed++;s.socket.deliver(f);}return result;};
+ await pump({failSource:true});s.ui.connection.conversation.enter();s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const old=s.ui.connection.conversation.state.getState().profile!;await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);await pump();
+ const input=first==="gemini"?{serverContent:{inputTranscription:{text:"Research the departure signal."}}}:{type:"session.input_transcript.delta",event_id:"private-carrier",delta:"Research the departure signal.",start_ms:0,end_ms:100};
+ const request=first==="gemini"?{toolCall:{functionCalls:[{id:"carrier-research",name:"host_task"}]}}:{type:"session.delegation.created",event_id:"carrier-research",offset_ms:50,delegation:{id:"carrier-research",type:"delegation",target:"client"}};
+ await pump({provider:[input,request]});await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);
+ const carrier=result.carrier;expect(carrier).toContain("Determine the task requested");
+ await pump({release:true,failResult:true});await expect.poll(async()=>{await pump();return result.activeTurn;}).toBe(false);
+ expect(result.firstReceiptState,"ACTUAL_CONTEXTUAL_TASK_FAILED").toEqual({state:"error"});
+ expect(result.contextualSources,"ACTUAL_SQLITE_SOURCE_INSERT_FAILED").toBe(0);expect(result.nativeAssistantCount,"FAILED_TASK_HAS_NO_ASSISTANT_BOUNDARY").toBe(0);
+ s.ui.connection.conversation.leave();await pump();
+ for(let i=0;i<3;i++){
+  s.socket.send(JSON.stringify({type:"chat_message",sessionId:"odysseus-ithaca",text:`Proven typed question ${i}.`,providerId:"fake"}));
+  await expect.poll(async()=>{await pump();return result.tasks;}).toBe(i+2);
+  await pump({release:true,resultText:`Proven native answer ${i}. `+"Ithaca harbour notes. ".repeat(2500)});
+  await expect.poll(async()=>{await pump();return completed;}).toBe(i+1);
+ }
+ await pump({evictReceipts:true});expect(result.receiptCounts).toEqual({identities:66,retained:64});
+ s.close();s=await view(ctx,"odysseus-ithaca");cursor=0;await pump({restart:true,engine:second});
+ s.socket.send(JSON.stringify({type:"session_resume",sessionId:"odysseus-ithaca"}));await pump();
+ sent.length=0;s.ui.connection.conversation.enter();await pump();expect(sent,"RESTART_ENTER_STILL_HAS_NO_PROVIDER_BYTES").toEqual([]);s.ui.connection.conversation.start();
+ await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
+ const next=s.ui.connection.conversation.state.getState().profile!;expect(next.conversationId).not.toBe(old.conversationId);
+ await expect.poll(async()=>{await pump();return sent.some(m=>second==="gemini"?!!m.clientContent:m.type==="session.start");}).toBe(true);
+ const seed=JSON.stringify(sent);expect(seed,"NO_RAW_CARRIER_EGRESS_AFTER_ALL_EVICTION_LAYERS").not.toContain("Determine the task requested");
+ expect(seed).not.toContain("not authenticated operator instructions or permission decisions");expect(seed).toContain("source_unavailable");expect(seed).toContain("Proven typed question 2.");expect(next.historyCoverage?.state).toBe("partial");
+ expect(result.tasks,"HISTORY_NEVER_REDISPATCHES_EVICTED_TASK").toBe(4);expect(sent.some(m=>m.toolResponse||m.type==="session.commentary.append"||m.type==="session.thinking.append")).toBe(false);
+ s.ui.connection.conversation.leave();await pump();
 });

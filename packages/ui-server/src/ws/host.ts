@@ -627,7 +627,7 @@ export class WsHost {
    * exactly as it did before they existed.
    * @internal Host wiring (#1053).
    */
-  prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
+  prepareHistory(sessionId: string, messages: SessionHistoryMessage[], strictSources = false): SessionHistoryMessage[] {
     // Turn ids first: boundaries were observed on the backend's own messages.
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
     if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
@@ -636,7 +636,7 @@ export class WsHost {
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
     const { messages: stripped, carriers } = stripLocalContext(stripLegacyBudgetNotes(messages), exchanges);
-    const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
+    const withSources = this.catalog.attachMessageSources?.(sessionId, stripped, strictSources) ?? stripped;
     const joined = spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
     return this.catalog.attachRetryRequest?.(sessionId, joined) ?? joined;
   }

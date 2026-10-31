@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1046-1061`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1063`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3795-3801`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1875-1877`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1885-1887`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2486,3 +2486,66 @@ A journal write failure alone does not prove that a complete native answer was
 lost. Review-buffer eviction remains separate from archive retention and does
 not stop consented capture; a genuine bounded unsaved-buffer exhaustion still
 stops capture and exposes the unavailable tail honestly.
+
+## Existing-chat live context (#3178)
+
+`conversation_opened` optionally carries `historyCoverage: {state, tailOmitted}`,
+with state `complete`, `bounded`, `partial` or `unavailable`. It describes selected
+historical text at startup, independently of retained display history, generated
+speech and playback. Details disclose partial sources/order, context omissions
+and an omitted newest item without claiming the model understood the text.
+When cross-stream order is unknown, discarded text conservatively sets
+`tailOmitted`; partial coverage says the newest context “may be missing” rather
+than asserting a known omission position.
+
+Starting live mode in an existing authorized chat supplies prior chat text,
+canonical retained spoken evidence and exact completed host facts on both
+Gemini Live and GPT Live, including new native IDs, Leave/re-entry, reload,
+restart and engine switches. The existing disclosure/explicit Start guards
+remain: prior text is transferred to the selected voice service; raw audio is
+not retained by this feature. Historical text is data, not a new task or grant.
+Same-conversation earlier-epoch/native-binding fences and effect counts are
+unchanged. There is no native response or tool replay.
+
+GPT uses only startup `session.start.session.input` user `input_text` data blocks,
+and waits for `session.started`. Gemini enables ordered initial client history
+only for nonempty context, then sends `clientContent` with `turnComplete:true`
+after `setupComplete`, before PCM. Under that documented initial-history mode,
+seeding makes no extra model call. No native resume is configured. Future resume
+must avoid double-seeding already retained native history. Vendor acceptance,
+semantic recall and acoustic/device behavior remain separately qualified.
+
+### Explicit Start admission (pre-1.0 breaking privacy correction)
+
+`server_hello.conversationProfile?: ConversationProfile` is separate from boolean
+capabilities and contains `{providerId, capabilities, disclosure}` already known
+by the configured live provider. A malformed/absent profile makes voice unavailable
+in the new client. No provider or prior-chat read is needed to advertise it.
+
+Enter renders this known disclosure and the fixed prior-text transfer policy;
+it sends no `conversation_start`. Explicit Start alone records consent for that
+entry, effective profile and agent metadata and sends
+`conversation_start.disclosed` with the exact effective profile. Missing disclosure
+receives `CONVERSATION_CAPABILITY`; a mismatch receives `CONVERSATION_DISCLOSURE`.
+Hello offers the host's supported contextual mode; the first-party client requests
+it with `contextualTasks: true`. A consumer opting out must disclose the effective
+`contextualTasks: "unsupported"` capability when its start flag is absent/false;
+provider identity, destinations and every other capability remain exact. Opened
+and actual provider options reflect that same effective mode, never an invented
+capability.
+
+Both carry the start `requestId` when supplied and fixed safe copy, and occur
+before native recovery, known-chat reads, takeover, journal/epoch writes, history
+reads or provider open. Authorization/lifetime and disclosure are checked again
+after asynchronous history work, immediately before vendor startup.
+
+Same-entry unchanged-disclosure recovery may start a fresh epoch under the prior
+explicit Start; microphone intent is independent (including manual Mute). A new
+entry, principal, engine, destination or effective profile metadata requires
+Start again. Disconnect drops cached hello metadata; retries wait for a fresh
+hello and cannot inherit a grant from Enter or adoption. Retired opening responses
+are stopped by exact request/entry lifetime and cannot capture. Coverage/omissions
+are shown only from an actual post-Start opened receipt, not pre-Start estimates.
+Legacy undisclosed starts now refuse intentionally under the
+[parent direction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935);
+this is a breaking pre-1.0 privacy admission correction shipped in a minor.

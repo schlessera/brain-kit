@@ -194,7 +194,7 @@ test("an automatically admitted conversation task keeps real effects, receipts a
     const handlers = createWsHandlers(app.wsHost, principal); await handlers.onOpen(undefined as never, ws);
     const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
     const wait = async (check: () => boolean) => { const end = Date.now() + 10_000; while (!check()) { if (Date.now() > end) throw new Error(JSON.stringify(sent)); await Bun.sleep(5); } };
-    send({ type: "conversation_start", contextualTasks: true }); await wait(() => sent.some(f => f.type === "conversation_opened"));
+    send({ type: "conversation_start", contextualTasks: true, disclosed:app.wsHost.conversations!.profile(true) }); await wait(() => sent.some(f => f.type === "conversation_opened"));
     const opened = sent.find(f => f.type === "conversation_opened");
     send({ type: "conversation_audio", conversationId: opened.conversationId, epoch: opened.epoch, utteranceId: "watch-capture", sequence: 0, rate: 16000, pcm: "AAA=" });
     await wait(() => live.sessions[0]!.audio.length === 1);
