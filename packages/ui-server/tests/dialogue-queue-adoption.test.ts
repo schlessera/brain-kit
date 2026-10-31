@@ -33,7 +33,7 @@ async function fixture() {
   const journal = new DialogueJournal(catalog, page => pages.push(page), (_owner, cause) => failures.push(cause));
   const holds: { gate: Int32Array; done: Promise<unknown> }[] = [];
   const release = () => { for (const { gate } of holds) { Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); } };
-  return { db, writer, catalog, journal, failures, pages, release,
+  return { db, writer, catalog, journal, failures, pages, release, control,
     async hold() {
       const gate = new Int32Array(new SharedArrayBuffer(8));
       const done = control.call("hold", gate);
@@ -166,4 +166,32 @@ for (const bound of ["count", "bytes"] as const) for (const merge of [false, tru
     expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({ n: count });
     if (bound === "bytes") expect(count).toBeLessThan(CONVERSATION_LIMITS.maxPendingDialogueObservations);
   } finally { f.release(); releaseCallbacks(); await f.close(); }
+});
+
+
+for (const merge of [false, true]) test(`native rejected writes retire drained queue entries after adoption merge=${merge}`, async () => {
+  const f = await fixture();
+  try {
+    if (merge) {
+      await f.catalog.dialogueOpen!({ ...opening, conversationId: "troy", sessionId: "voyage" });
+      await f.catalog.dialogueClose!("troy", "odysseus", 1, false);
+    }
+    const owner = (await f.journal.open(opening))!;
+    await f.control.call("quota");
+    await f.hold();
+    f.journal.bind("ithaca", "odysseus", "voyage");
+    const saved: boolean[] = [];
+    for (let i = 0; i < 30; i++) f.journal.voice("ithaca", evidence(i, "mast ".repeat(390)), value => saved.push(value));
+    f.release(); await f.journal.settled();
+    await expect(f.journal.settled(true)).rejects.toThrow("full");
+    expect(saved).toHaveLength(30);
+    expect(saved).toContain(false);
+    expect(f.failures).toEqual(["storage_error"]);
+    expect(owner.id).toBe(merge ? "troy" : "ithaca");
+    expect(owner.coverage).toBe("partial");
+    expect(queues(f.journal).size, "REJECTED_WRITE_QUEUE_RETIRES_AFTER_ADOPTION").toBe(0);
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({ n: saved.filter(Boolean).length });
+    expect(f.pages.flatMap(page => page.records).map(row => row.sequence)).toEqual(Array.from({ length: saved.filter(Boolean).length }, (_, i) => i + 1));
+    expect((await f.catalog.dialogueRead!("odysseus", { sessionId: "voyage" }))!.coverage).toBe("partial");
+  } finally { await f.close(); }
 });
