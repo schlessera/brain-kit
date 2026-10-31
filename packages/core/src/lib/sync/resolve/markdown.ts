@@ -252,11 +252,131 @@ function topNodes(body: string): MdNode[] {
 }
 
 /**
+ * Internal container-prefix column budget (not an mdast depth limit).
+ * 64 is comfortably parseable by remark-parse 11 / micromark 4 and its
+ * recursive GFM walks. Quotes cost one column; list markers and indentation
+ * cost their source columns (tabs advance to the next four-column stop).
+ * This deliberately conservative bound can leave deeply indented prose for
+ * a human. Lazy continuations cannot open containers. Unindented top-level
+ * fences outside possible HTML are opaque; other code may be overcounted.
+ * Scanning each line once avoids micromark's per-level stack copies.
+ */
+export const MAX_BODY_DEPTH = 64;
+
+/** GFM definition labels: syntax.js labelInside/labelEscape, capped at 999 source characters. */
+function footnotePrefixLength(line: string, start: number): number {
+  if (!line.startsWith("[^", start)) return 0;
+  let i = start + 2;
+  let size = 0;
+  while (i < line.length && size <= 999) {
+    const c = line[i]!;
+    if (c === "]") return size > 0 && line[i + 1] === ":" ? i + 2 - start : 0;
+    if (c === "[" || c === " " || c === "\t") return 0;
+    i++;
+    size++;
+    if (c === "\\" && /[\[\]\\]/.test(line[i] ?? "")) {
+      i++;
+      size++;
+    }
+  }
+  return 0;
+}
+
+function checkBodyDepth(body: string, label: string): void {
+  // Micromark preprocess drops exactly one initial BOM.
+  if (body.startsWith("\uFEFF")) body = body.slice(1);
+  let scanFenceContent = false;
+  let fence: { marker: string; size: number; indent: number } | undefined;
+  // Only suppress fence recognition in possible HTML, never depth scanning.
+  // html-flow.js kinds 1-5 end at delimiters; kinds 6-7 at a blank line.
+  // Treating any other `<` as kind 7 overcounts safely, without a tag lexer.
+  const htmlKinds = [
+    [/<(?:pre|script|style|textarea)(?=[ \t/>]|$)/i, /<\/(?:pre|script|style|textarea)>/i],
+    [/<!--/, /-->/], [/<\?/, /\?>/],
+    [/<!\[CDATA\[/, /\]\]>/], [/<![a-z]/i, />/],
+  ] as const;
+  const possibleLongHtml = new Set<number>();
+  let possibleHtml = false;
+  for (const line of body.split(/\r\n|[\r\n]/)) {
+    if (fence) {
+      const close = /^[ \t]*(`+|~+)[ \t]*$/.exec(line);
+      if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.size) {
+        // A different indentation can close a container or merely look like
+        // a closer. Stop skipping thereafter rather than guessing fence parity.
+        if (line.slice(0, line.length - line.trimStart().length) !== " ".repeat(fence.indent)) scanFenceContent = true;
+        fence = undefined;
+        continue;
+      }
+      // Less-indented content may continue a top-level fence or exit a
+      // container. Its later closer must not become a new scanner opener.
+      if (/^[ \t]*$/.test(line) || line.startsWith(" ".repeat(fence.indent))) continue;
+      scanFenceContent = true;
+      fence = undefined;
+    }
+    // Track possible long HTML kinds independently: apparent tags inside a
+    // comment (or vice versa) may only extend suppression, never end it early.
+    if (line.includes("<")) possibleHtml = true;
+    for (const [index, [open]] of htmlKinds.entries()) {
+      if (open.test(line)) possibleLongHtml.add(index);
+    }
+    const suppressFence = possibleHtml || possibleLongHtml.size > 0;
+    for (const index of possibleLongHtml) {
+      if (htmlKinds[index]![1].test(line)) possibleLongHtml.delete(index);
+    }
+    if (/^[ \t]*$/.test(line)) possibleHtml = false;
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    // Suppressed openers make later fence parity ambiguous. This is sticky:
+    // a later apparent closer must never become an opaque scanner opener.
+    if (suppressFence && opening) scanFenceContent = true;
+    if (!scanFenceContent && !suppressFence && opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
+      fence = { marker: opening[1]![0]!, size: opening[1]!.length, indent: line.length - line.trimStart().length };
+      continue;
+    }
+    const thematic = /^(?:(?:[ \t]*-){3,}|(?:[ \t]*\*){3,}|(?:[ \t]*_){3,})[ \t]*$/.test(line);
+    let i = 0;
+    let columns = 0;
+    let container = false;
+    while (i < line.length) {
+      const c = line[i]!;
+      if (c === " " || c === "\t") {
+        columns += c === "\t" ? 4 - columns % 4 : 1;
+        i++;
+      } else if (c === ">") {
+        columns++;
+        container = true;
+        i++;
+        if (line[i] === " ") i++;
+      } else {
+        const footnote = footnotePrefixLength(line, i);
+        if (footnote) {
+          columns += footnote;
+          i += footnote;
+          container = true;
+          continue;
+        }
+        const marker = /^(?:[-+*]|[0-9]{1,9}[.)])(?=[ \t])/.exec(line.slice(i, i + 11));
+        if (!marker) break;
+        // A thematic break is not a stack of list containers.
+        if (thematic) break;
+        columns += marker[0].length;
+        i += marker[0].length;
+        container = true;
+      }
+    }
+    // Fences after a container prefix (or deep indentation) are deliberately
+    // not parsed here. Count the rest of the body once their parity is unknown.
+    if ((container || i > 3) && /^(?:`{3,}|~{3,})/.test(line.slice(i))) scanFenceContent = true;
+    if (container && columns > MAX_BODY_DEPTH) throw new UnparseableError(`${label}: the body nests too deeply to parse`);
+  }
+}
+
+/**
  * `read` run on a side's body, with the parser's recursion limit as an
  * `UnparseableError`: mdast walks nest one call per level, so a body nested
  * a few thousand blockquotes deep overflows the stack.
  */
-function withinDepth<T>(label: string, read: () => T): T {
+function withinDepth<T>(label: string, body: string, read: () => T): T {
+  checkBodyDepth(body, label);
   try {
     return read();
   } catch (e) {
@@ -271,7 +391,7 @@ function withinDepth<T>(label: string, read: () => T): T {
  */
 export function headingTexts(text: string): string[] {
   const body = text.slice(frontmatterLength(text));
-  return withinDepth("text", () =>
+  return withinDepth("text", body, () =>
     topNodes(body)
       .filter((node) => node.type === "heading")
       .map(visibleText)
@@ -416,7 +536,7 @@ export function parseDoc(raw: string, side: Side, opts: ParseOptions): Doc {
     if (unsupported) throw new UnparseableError(`${side}: ${unsupported}`);
   }
   const body = raw.slice(length);
-  const sections = withinDepth(side, () => sectionize(body, side, opts));
+  const sections = withinDepth(side, body, () => sectionize(body, side, opts));
   for (const section of sections) {
     const rebuilt = section.heading + section.lead + section.units.map((unit) => unit.text + unit.sep).join("");
     if (rebuilt !== section.text) {
