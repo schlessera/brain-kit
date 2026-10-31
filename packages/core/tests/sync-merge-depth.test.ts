@@ -91,3 +91,9 @@ test("body budget preserves repeated unambiguous fences and the BOM boundary", (
   expect(merge("\uFEFF" + "> ".repeat(MAX_BODY_DEPTH) + "deep\n").status).toBe("resolved");
   expect(headingTexts("\uFEFF# Mast\n")).toEqual(["Mast"]);
 });
+test("body budget refuses quotes after a less-indented fence content line through both entries", () => {
+  refusedThroughBothEntries("  ```\nx\n```\n" + "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n");
+});
+test("body budget refuses quotes after a tab closer with equal character indentation through both entries", () => {
+  refusedThroughBothEntries(" ```\n\t```\n```\n" + "> ".repeat(MAX_BODY_DEPTH + 1) + "deep\n");
+});

@@ -57,9 +57,9 @@ back.
    valid. Indented or blockquoted fences may conservatively consume budget;
    possible HTML suppresses fence recognition, not depth scanning. After an
    ambiguous fence line (suppressed by possible HTML, following a container
-   prefix or deep indentation, or closed at a different indentation), the
-   scanner counts content for the rest of the body rather than guessing fence
-   parity. It skips one leading BOM, matching the parser preprocessor. GFM
+   prefix or deep indentation, closed with a different whitespace prefix, or
+   followed by less-indented content), the scanner counts content for the
+   rest of the body rather than guessing fence parity. It skips one leading BOM, matching the parser preprocessor. GFM
    footnote definition prefixes also consume source columns. Excess uses the
    existing nesting refusal; the RangeError backstop still covers recursive inline walks.
    - *Rejected: let an LLM write the merged note.* It is the only option that

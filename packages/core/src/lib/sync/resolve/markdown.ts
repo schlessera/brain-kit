@@ -303,13 +303,14 @@ function checkBodyDepth(body: string, label: string): void {
       if (close && close[1]![0] === fence.marker && close[1]!.length >= fence.size) {
         // A different indentation can close a container or merely look like
         // a closer. Stop skipping thereafter rather than guessing fence parity.
-        if (line.length - line.trimStart().length !== fence.indent) scanFenceContent = true;
+        if (line.slice(0, line.length - line.trimStart().length) !== " ".repeat(fence.indent)) scanFenceContent = true;
         fence = undefined;
         continue;
       }
-      // A concrete fence cannot lazily continue after its list/footnote exits.
-      // For an indented top-level fence this can overcount, never hide depth.
+      // Less-indented content may continue a top-level fence or exit a
+      // container. Its later closer must not become a new scanner opener.
       if (/^[ \t]*$/.test(line) || line.startsWith(" ".repeat(fence.indent))) continue;
+      scanFenceContent = true;
       fence = undefined;
     }
     // Track possible long HTML kinds independently: apparent tags inside a
