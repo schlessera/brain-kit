@@ -1759,7 +1759,11 @@ test("storage drain freezes queued host admission while an already running task 
  const s=setup();const client=await s.connect();const c=await client.open();
  await client.speak(c,"mast-one","Research the mast.");client.commit(c,"mast-one","mast-first","Research the mast.");await until(()=>s.turns.length===1);
  await client.speak(c,"mast-two","Research the sail.");client.commit(c,"mast-two","mast-queued","Research the sail.");await until(()=>client.receipts("mast-queued").some(r=>r.state==="queued"));
- s.host.conversations!.storageFailing(c.id);s.turns[0]!.answer("The mast is ready.");await settle();
+ const finish=s.host.conversations!.storageFailing(c.id);s.turns[0]!.answer("The mast is ready.");
+ await until(()=>client.receipts("mast-first").some(r=>r.state==="completed"));
+ finish("Storage drain completed.");
+ await until(()=>client.receipts("mast-queued").some(r=>r.state!=="queued"));
+ expect(client.receipts("mast-queued").find(r=>r.state!=="queued")?.state,"STORAGE_DRAIN_STOPS_NEW_HOST_ADMISSION").toBe("cancelled");
  expect(s.turns,"STORAGE_DRAIN_STOPS_NEW_HOST_ADMISSION").toHaveLength(1);
 });
 
