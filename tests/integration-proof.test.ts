@@ -93,3 +93,34 @@ test("count refusal diagnostics tolerate null jobs and invalid scalar fields", a
   expect(detail.offending[0].job).toEqual({ id: "invalid", name: "unrecognized", status: "unrecognized",
     conclusion: "unrecognized", run_id: "invalid", head_sha: "invalid" });
 });
+
+for (const [label, inventory] of [
+  ["null", null], ["missing", undefined], ["boolean", false], ["number", 17],
+  ["string", "Bearer fictional-odysseus-secret"], ["array", []],
+] as const) test(`inventory shape refusal diagnoses ${label} before dereferencing`, async () => {
+  const message = await refusal(inventory);
+  expect(message).toStartWith("Incomplete or failed selected job inventory: ");
+  const detail = JSON.parse(message.split("inventory: ")[1]!);
+  expect(detail.predicates).toContain("inventory is not an object");
+  expect(detail).toMatchObject({ run_id: 17, attempt: 2, total_count: "invalid", page_length: "unavailable" });
+  expect(message).not.toContain("Bearer");
+  expect(message.length).toBeLessThan(1800);
+});
+
+for (const [label, malformed] of [
+  ["null", null], ["missing", undefined], ["boolean", false], ["number", 19],
+  ["string", "Bearer fictional-odysseus-secret"], ["array", []],
+  ["array with valid job fields", Object.assign([], job)],
+] as const) test(`matching-count job shape refusal diagnoses ${label} before dereferencing`, async () => {
+  const message = await refusal({ total_count: 2, jobs: [job, malformed] });
+  expect(message).toStartWith("Incomplete or failed selected job inventory: ");
+  const detail = JSON.parse(message.split("inventory: ")[1]!);
+  expect(detail).toMatchObject({ run_id: 17, attempt: 2, total_count: 2, page_length: 2, predicates: [] });
+  expect(detail.offending).toHaveLength(1);
+  expect(detail.offending[0]).toMatchObject({ index: 1, predicates: ["job is not an object",
+    "job.id is not a safe integer", "job.run_id differs from run.id", "job.head_sha differs from candidate.head",
+    "job.status is not completed", "job.conclusion is not success/skipped"],
+    job: { id: "invalid", name: "unrecognized", status: "unrecognized", conclusion: "unrecognized", run_id: "invalid", head_sha: "invalid" } });
+  expect(message).not.toContain("Bearer");
+  expect(message.length).toBeLessThan(1800);
+});
