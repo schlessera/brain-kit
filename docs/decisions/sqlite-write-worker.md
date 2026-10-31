@@ -382,6 +382,38 @@ reader. Borrowed journals close their own channel without closing that writer.
 The writer awaits its database-close acknowledgement and invokes Bun worker
 termination; this is not a production thread-join guarantee.
 
+### Bounded caller waits retain real cleanup ownership (#3185)
+
+A storage operation may never return from native I/O. The existing 10-second
+application close grace also bounds the caller's wait for the entire cleanup
+sequence. Exceeding it rejects with `StorageSettlementIndeterminate`; it does
+not resolve the queued operation, terminate its worker, close its reader,
+release capacity or authorize a replacement writer. The same ordered cleanup
+continuation remains owned and proceeds when actual operations return. The
+error's optional `cleanup` promise observes that real continuation, retaining
+its eventual success or genuine errors. Repeated app close returns the same
+public outcome; a rejection never means cleanup succeeded. The deployment
+shell owns ultimate process exit. Neither this library deadline nor Bun worker
+termination proves that native SQLite/fsync stopped or a thread joined.
+
+Live dialogue uses that technical budget for individual pending operations
+and per-owner failure drains, independently of other owners. Every pending
+owner object sharing the canonical archive ID participates; adoption does not
+split a drain or release accounting. Normal healthy writes keep their own
+submission/commit order. A deadline withholds unresolved text, marks coverage
+incomplete, stops capture/admission and closes only the captured failed epoch.
+Already confirmed unsaved callbacks remain distinct from indeterminate writes.
+Actual pending sets and count/byte charges remain until genuine settlement.
+Late commits never publish into a retired live scope; authorized historical
+reads retain the actual principal, generation and native provenance.
+
+Opening behind an old close transition and required history/catalog settlement
+also refuse within the technical budget. A late opening is retired and its
+exact durable close remains ordered before a later opening. Existing explicit
+Start/profile disclosure and principal/epoch/lifetime authority still gate all
+history/provider access. No timed-out operation is replayed.
+
+
 Activity, Actions and Storage delivery retain admitted transport and outcome
 writes through shutdown. Every admitted call retains its own inputs, result and
 error, including concurrent calls of the same kind. Pending promises are tracked

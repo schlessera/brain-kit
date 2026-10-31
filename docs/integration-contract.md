@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Bounded storage failure settlement (additive, #3185)
+
+The server exports `StorageSettlementIndeterminate` for bounded caller waits
+whose real cleanup remains owned; app close covers the entire cleanup FIFO.
+The additive `DIALOGUE_INDETERMINATE` diagnostic stops the failed live epoch
+without claiming a timed-out write was saved, unsaved or cancelled. No frame
+shape changes. See [package lifecycle](integration-contract/package-api.md#indeterminate-storage-settlement-3185),
+[wire semantics](integration-contract/wire.md) and
+[writer ownership](decisions/sqlite-write-worker.md#bounded-caller-waits-retain-real-cleanup-ownership-3185).
+This ships in a minor; no new breaking ruling is required.
+
 ## Existing-chat live context and Start admission (breaking before 1.0, 0.44.0, #3178)
 
 The parent-directed [privacy correction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935)

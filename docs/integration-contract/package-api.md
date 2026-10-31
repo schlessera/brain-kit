@@ -4127,3 +4127,30 @@ The host helper `ConversationHost.profile(contextualTasks?)` supplies the same k
 provider-free effective disclosure for hello, admission comparison and opened
 receipts. The host refuses undisclosed legacy starts before touching their scope;
 the wire section records the deliberate privacy admission compatibility correction.
+
+
+## Indeterminate storage settlement (#3185)
+
+`StorageSettlementIndeterminate` is an additive error export from
+`@schlessera/brain-ui-server`. Its `operation: string` names the bounded wait;
+optional `cleanup?: Promise<unknown>` observes the original owned operation
+through its genuine eventual success or failure. Awaiting the error's cleanup
+is optional and can remain pending indefinitely. Neither the error nor a
+rejected close proves persistence, cancellation, worker exit or resource
+release.
+
+`BrainUiApp.close()` rejects within the existing 10-second application grace
+when its entire cleanup FIFO cannot finish. It refuses new admission at once,
+keeps one public close outcome across repeated calls, and retains the original
+cleanup continuation after rejection. Borrowers drain in their existing order,
+then the actual writer closes before the reader. No worker termination or early
+reader close is introduced. A genuine failure completed before the deadline
+keeps its original identity; later cleanup errors remain observable through
+`cleanup`. The deployment shell owns physical process exit.
+`WsHost.close()` likewise bounds dialogue settlement and rejects indeterminate
+storage without releasing the actual journal or writer ownership.
+
+This is an additive diagnostic/lifecycle clarification in a minor release.
+Existing successful close, FULL durability, archive retention and no-replay
+guarantees remain. The error supplements existing close rejection rather than
+turning a timeout into successful disposal.

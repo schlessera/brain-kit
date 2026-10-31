@@ -1,3 +1,4 @@
+import { STORAGE_SETTLEMENT_MS, withinStorageBudget } from "./db/settlement.js";
 import { createStorageHistory } from "./storage/history-store.js";
 import { aggregateCollection } from "./storage/history-model.js";
 import { createSharedStorageScan } from "./storage/shared-scan.js";
@@ -268,8 +269,10 @@ export interface BrainUiApp {
    * their operational state. Stalled request bodies are cancelled on close.
    * Module metadata still waiting for execution admission is cancelled at
    * once. In-flight brain CLI reads, metadata and plain index runs get a 10 s
-   * grace period and are then cancelled; every other run keeps its existing
-   * shutdown behaviour.
+   * grace period and are then cancelled. The entire caller wait is bounded
+   * by that grace: an indeterminate rejection retains the actual cleanup
+   * continuation, writer and reader until genuine settlement. Its cleanup
+   * promise observes that continuation; the shell owns physical process exit.
    */
   close(): Promise<void>;
 }
@@ -279,7 +282,7 @@ export interface BrainUiApp {
  * shared ones (#2473). Long enough for an ordinary follow-up index to finish,
  * short enough to bound shutdown well inside a 30 s hook.
  */
-const CLOSE_GRACE_MS = 10_000;
+const CLOSE_GRACE_MS = STORAGE_SETTLEMENT_MS;
 
 function isWebSocketUpgradeAttempt(request: Request): boolean {
   const connectionHasUpgrade = request.headers
@@ -1198,7 +1201,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     observability,
     isTurnActive: () => host.coordinator.isTurnActive(),
     cancelActiveTurns: () => host.coordinator.cancelAll("Server shutting down"),
-    close: () => closing ??= (async () => {
+    close: () => closing ??= withinStorageBudget((async () => {
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
       host.closing = true;
@@ -1219,6 +1222,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => inbox.close());
       await Promise.allSettled([...httpRequests.keys()]);
       await attempt(() => host.close());
+      // The public close deadline never releases a still-owned storage borrower.
+      await attempt(() => host.dialogue.settled(true));
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
@@ -1245,7 +1250,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
-    })(),
+    })(), "Application shutdown"),
   };
   } catch (error) {
     const failures: unknown[] = [];
