@@ -19,7 +19,7 @@ export class DialogueJournal {
   private readonly ownerPending = new WeakMap<DialogueOwner, Set<Promise<unknown>>>();
   private readonly transitions = new Map<string, Promise<unknown>>();
   private readonly scopes = new Map<string, {epoch:number;principalId:string;closed:boolean;owner?:DialogueOwner}>();
-  private readonly queues = new Map<string, { count: number; bytes: number }>();
+  private readonly queues = new Map<DialogueOwner, { count: number; bytes: number }>();
   constructor(
     private readonly catalog: SessionCatalog,
     private readonly publish: (page: DialoguePage, principalId: string) => void,
@@ -213,9 +213,17 @@ export class DialogueJournal {
     after?: (saved: boolean) => void
   ): void {
     if (!this.catalog.dialogueAppend) return;
-    const q = this.queues.get(owner.id) ?? { count: 0, bytes: 0 };
+    // Adoption mutates the canonical ID; pending callbacks retain this owner.
+    const q = this.queues.get(owner) ?? { count: 0, bytes: 0 };
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
-    if (q.count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || q.bytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
+    // Distinct live references can share (or adopt) one archive. Keep its
+    // combined admission bound while each callback retires its stable entry.
+    let pendingCount = 0, pendingBytes = 0;
+    for (const [queuedOwner, queued] of this.queues) if (queuedOwner.id === owner.id) {
+      pendingCount += queued.count;
+      pendingBytes += queued.bytes;
+    }
+    if (pendingCount >= CONVERSATION_LIMITS.maxPendingDialogueObservations || pendingBytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
       if (evidence.kind !== "backend") owner.coverage = "partial";
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"
@@ -228,7 +236,7 @@ export class DialogueJournal {
     }
     q.count++;
     q.bytes += bytes;
-    this.queues.set(owner.id, q);
+    this.queues.set(owner, q);
     const done = this.catalog
       .dialogueAppend({
         ownerId: owner.id,
@@ -261,7 +269,7 @@ export class DialogueJournal {
       .finally(() => {
         q.count--;
         q.bytes -= bytes;
-        if (!q.count) this.queues.delete(owner.id);
+        if (!q.count) this.queues.delete(owner);
       });
     this.track(done, owner, evidence.kind);
   }
