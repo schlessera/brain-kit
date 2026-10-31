@@ -14,6 +14,7 @@
  * same order, behind the same asynchronous calls.
  */
 import type { Database } from "bun:sqlite";
+import { STORAGE_SETTLEMENT_MS, StorageSettlementIndeterminate } from "./settlement.js";
 
 /** Every procedure is synchronous: it runs and commits before the next call starts. */
 export type WriteProcedures = Record<string, (...args: never[]) => unknown> & { close?: () => void };
@@ -197,23 +198,61 @@ function inlineWriter(db: Database): SqliteWriter {
   };
 }
 
+// Registration observes the existing native pending map; it is not write state.
+type SettlementObserver = (id: number, pending: boolean) => void;
+const observeSettlement = new WeakMap<SqliteWriter, (observer: SettlementObserver) => () => void>();
+
+/** Bound only real native storage waits during cleanup, never CLI or transport work. */
+export function guardSqliteCleanup(writers: readonly SqliteWriter[], cleanup: Promise<void>): Promise<void> {
+  const observers = [...new Set(writers)].flatMap(writer => observeSettlement.get(writer) ?? []);
+  // In-memory procedures execute synchronously and have no native worker queue.
+  if (!observers.length) return cleanup;
+  return new Promise<void>((resolve, reject) => {
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const stops: (() => void)[] = [];
+    let expired = false;
+    const release = () => { for (const stop of stops) stop(); for (const timer of timers) clearTimeout(timer); timers.clear(); };
+    for (const observe of observers) {
+      // Request identities are local to each concrete writer.
+      const requests = new Map<number, ReturnType<typeof setTimeout>>();
+      stops.push(observe((id, pending) => {
+        if (!pending) {
+          const timer = requests.get(id);
+          if (timer !== undefined) { clearTimeout(timer); timers.delete(timer); requests.delete(id); }
+          return;
+        }
+        const timer = setTimeout(() => {
+          if (expired) return;
+          expired = true; release();
+          reject(new StorageSettlementIndeterminate("Application shutdown", cleanup));
+        }, STORAGE_SETTLEMENT_MS);
+        requests.set(id, timer); timers.add(timer);
+      }));
+    }
+    void cleanup.then(() => { release(); resolve(); }, error => { release(); reject(error); });
+  });
+}
+
 type Pending = { resolve(value: unknown): void; reject(error: Error): void; revive?: (error: WireError) => Error | undefined };
 
 function workerWriter(path: string, attach: readonly AttachedDatabase[], turn: Int32Array): SqliteWriter {
   const worker = new Worker(THREAD) as Worker & { ref(): void; unref(): void };
   const pending = new Map<number, Pending>();
+  const observers = new Set<SettlementObserver>();
+  const observed = (id: number, waiting: boolean) => { for (const observer of observers) observer(id, waiting); };
   let next = 0, channels = 0, closed = false, stopped: Error | undefined;
   // An idle writer never keeps the process alive; a pending commit does.
   const reference = () => { if (pending.size) worker.ref(); else worker.unref(); };
   const stop = (error: Error) => {
     stopped ??= error;
-    for (const [id, waiter] of pending) { pending.delete(id); waiter.reject(stopped); }
+    for (const [id, waiter] of pending) { pending.delete(id); observed(id,false); waiter.reject(stopped); }
     reference();
   };
   worker.onmessage = (event: MessageEvent<{ id: number; ok: boolean; value?: unknown; error?: WireError }>) => {
     const waiter = pending.get(event.data.id);
     if (!waiter) return;
     pending.delete(event.data.id);
+    observed(event.data.id,false);
     if (event.data.ok) waiter.resolve(event.data.value);
     else waiter.reject(decodeError(event.data.error!, waiter.revive));
     reference();
@@ -224,13 +263,14 @@ function workerWriter(path: string, attach: readonly AttachedDatabase[], turn: I
     if (stopped) return Promise.reject(stopped);
     const id = ++next;
     const result = new Promise<T>((resolve, reject) => pending.set(id, { resolve: resolve as (value: unknown) => void, reject, revive }));
+    observed(id,true);
     worker.postMessage({ ...message, id });
     reference();
     return result;
   }
   const opened = send<void>({ kind: "open", path, attach: [...attach], turn });
   opened.catch(() => {});
-  return {
+  const writer: SqliteWriter = {
     offloop: true,
     channel(module, options, revive) {
       const channel = ++channels;
@@ -259,6 +299,12 @@ function workerWriter(path: string, attach: readonly AttachedDatabase[], turn: I
       worker.terminate();
     },
   };
+  observeSettlement.set(writer, observer => {
+    observers.add(observer);
+    for (const id of pending.keys()) observer(id,true);
+    return () => { observers.delete(observer); };
+  });
+  return writer;
 }
 
 /**

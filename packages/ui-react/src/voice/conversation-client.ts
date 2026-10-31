@@ -190,9 +190,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   let unsavedOverflow = false;
   let storageFailedScope: string | undefined;
-  let storageFailureCode: "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE" | undefined;
+  let storageFailureCode: "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE" | "DIALOGUE_INDETERMINATE" | undefined;
   const liveScopeKey = () => {const p=scope();return p ? JSON.stringify([p.conversationId,p.epoch]) : undefined;};
-  function stopForStorageFailure(code?: "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE") {
+  function stopForStorageFailure(code?: "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE" | "DIALOGUE_INDETERMINATE") {
     const key=liveScopeKey(); if(!key)return;
     if(storageFailedScope===key){if(code)storageFailureCode=code;return;}
     storageFailedScope=key; storageFailureCode=code ?? "DIALOGUE_STORAGE";
@@ -341,10 +341,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     consent = retainedConsent;
     state.setState({ notice: closedNotice || (retainedConsent ? "Voice temporarily unavailable. Listening will recover in the same disclosed scope." : "Voice temporarily unavailable. Microphone remains muted.") });
   }
-  function dialogueDiagnostic(code: "DIALOGUE_UNAVAILABLE" | "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE") {
+  function dialogueDiagnostic(code: "DIALOGUE_UNAVAILABLE" | "DIALOGUE_STORAGE" | "DIALOGUE_PENDING_PRESSURE" | "DIALOGUE_INDETERMINATE") {
     const notices = {
       DIALOGUE_UNAVAILABLE: "Conversation history unavailable. Try opening this chat again.",
       // A failed journal write does not prove loss of a complete native answer.
+      DIALOGUE_INDETERMINATE: "Conversation text persistence could not be confirmed. Voice history may be incomplete. Restore storage before restarting voice.",
       DIALOGUE_STORAGE: "Conversation history writes failed. Restore storage before restarting voice.",
       DIALOGUE_PENDING_PRESSURE: "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. Any unsaved text is unavailable after reload. Let pending writes finish and check storage before restarting voice.",
     };
@@ -615,9 +616,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       // ordinary restoration path owns its readable failure and keeps drafts.
       return { ...message, requestId: undefined };
     }
-    if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE")) {
+    if (message.type === "error" && (message.code === "DIALOGUE_UNAVAILABLE" || message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE" || message.code === "DIALOGUE_INDETERMINATE")) {
       if (message.requestId) dialogueReads.delete(message.requestId);
-      if ((message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE") && state.getState().active && (message.historyOwnerId ? message.historyOwnerId === scope()?.historyOwnerId : !message.sessionId || message.sessionId === state.getState().sessionId)) {
+      if ((message.code === "DIALOGUE_STORAGE" || message.code === "DIALOGUE_PENDING_PRESSURE" || message.code === "DIALOGUE_INDETERMINATE") && state.getState().active && (message.historyOwnerId ? message.historyOwnerId === scope()?.historyOwnerId : !message.sessionId || message.sessionId === state.getState().sessionId)) {
         // Stop new capture/automation, not the already observed current-epoch tail.
         // The host closes the epoch after these callbacks drain. Ready and all
         // identity/disclosure fences remain intact until that ordinary close.

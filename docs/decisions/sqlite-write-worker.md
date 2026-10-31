@@ -382,6 +382,55 @@ reader. Borrowed journals close their own channel without closing that writer.
 The writer awaits its database-close acknowledgement and invokes Bun worker
 termination; this is not a production thread-join guarantee.
 
+### Bounded caller waits retain real cleanup ownership (#3185)
+
+A storage operation may never return from native I/O. During application
+cleanup, the app observes real outstanding native requests on both its shared
+UI/journal writer and its separate native-lease writer
+(`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`).
+Request identities and settlement remain local to each concrete writer; one
+writer becoming idle cannot clear another writer's deadline. Native manager
+RPCs are not SQLite requests and do not acquire this deadline.
+Each native request already pending when close begins gets ten seconds;
+requests submitted during cleanup get that budget from submission. It includes
+FIFO queue wait. Expiry rejects the caller with
+`StorageSettlementIndeterminate` but leaves the original cleanup FIFO running.
+There is no whole-application wall-clock deadline. Protected CLI writers may
+outlast the ten-second CLI grace and still finish; a healthy shared read canceled
+at the end of its full grace still lets close resolve. Activity's own transport
+deadline and genuine failure identity remain unchanged.
+
+Expiry does not resolve the queued operation, terminate its worker, close its
+reader, release capacity or authorize a replacement writer. The same ordered
+cleanup continuation remains owned and proceeds when actual operations return.
+The error's optional `cleanup` promise observes that continuation, retaining
+its eventual success or genuine errors. Repeated app close returns the same
+public outcome; a rejection never means cleanup succeeded. The deployment
+shell owns ultimate process exit. Neither this library deadline nor Bun worker
+termination proves that native SQLite/fsync stopped or a thread joined.
+
+Live dialogue uses that technical budget for individual pending operations
+and per-owner failure drains, independently of other owners. A per-write budget
+starts when the journal submits the operation, including catalog/native FIFO
+queue wait and acknowledgement latency. A long healthy shared writer queue can
+therefore stop voice as indeterminate; it is a receipt-latency bound, not proof
+that SQLite/fsync failed or was cancelled. Every pending
+owner object sharing the canonical archive ID participates; adoption does not
+split a drain or release accounting. Normal healthy writes keep their own
+submission/commit order. A deadline withholds unresolved text, marks coverage
+incomplete, stops capture/admission and closes only the captured failed epoch.
+Already confirmed unsaved callbacks remain distinct from indeterminate writes.
+Actual pending sets and count/byte charges remain until genuine settlement.
+Late commits never publish into a retired live scope; authorized historical
+reads retain the actual principal, generation and native provenance.
+
+Opening behind an old close transition and required history/catalog settlement
+also refuse within the technical budget. A late opening is retired and its
+exact durable close remains ordered before a later opening. Existing explicit
+Start/profile disclosure and principal/epoch/lifetime authority still gate all
+history/provider access. No timed-out operation is replayed.
+
+
 Activity, Actions and Storage delivery retain admitted transport and outcome
 writes through shutdown. Every admitted call retains its own inputs, result and
 error, including concurrent calls of the same kind. Pending promises are tracked

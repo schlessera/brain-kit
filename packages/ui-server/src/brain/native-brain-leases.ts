@@ -5,7 +5,7 @@ import { constants, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, open
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { NativeBrainManagerError, REFERENCE_POOL_CHECKPOINT_BYTES, type createNativeBrainManagerClient, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
-import { openSqliteWriter } from "../db/write-worker.js";
+import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
 import * as nativeLeaseStore from "./native-lease-store.js";
 import { reviveNativeLeaseError, type NativeLeaseOwner } from "./native-lease-store.js";
 
@@ -17,6 +17,8 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
   statePath: string; brainPath: string; fsid: string; brainUuid: string;
 }): Promise<{
   client: Client;
+  /** Concrete SQLite owner observed by app shutdown; close() retains its cleanup ownership. */
+  readonly writer: SqliteWriter;
   /** Reference pool roots are durable app state: dead-owner recovery never deletes them. */
   recoverDeadOwners(): Promise<{ released: string[]; retainedLive: number; retainedUnverifiable: number; unknown: string[]; retainedPool: number }>;
   close(): Promise<void>;
@@ -269,7 +271,7 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     });
   }
   let closing: Promise<void> | undefined;
-  return { client, recoverDeadOwners, close(): Promise<void> {
+  return { client, writer, recoverDeadOwners, close(): Promise<void> {
     if (closing) return closing;
     closed = true;
     closing = (async () => {

@@ -3,6 +3,14 @@ export const url = import.meta.url;
 /** Native failure controls confined to the fixture's own database worker. */
 export function setup(db: Database) {
   return {
+    refuseCompletedTask() {
+      db.exec("CREATE TRIGGER refuse_completed_conversation_task BEFORE INSERT ON conversation_tasks WHEN json_extract(NEW.receipt,'$.state')='completed' BEGIN SELECT RAISE(ABORT,'Ithaca task outcome write refused'); END");
+    },
+    holdUntilReleased(control: Int32Array) {
+      Atomics.store(control, 1, 1);
+      Atomics.notify(control, 1);
+      while (!Atomics.load(control, 0)) Atomics.wait(control, 0, 0);
+    },
     quota() {
       const row = db.query("PRAGMA page_count").get() as { page_count: number };
       db.exec(`PRAGMA max_page_count=${row.page_count + 2}`);

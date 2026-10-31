@@ -1,3 +1,4 @@
+import { storageDeadlineClock } from "../../../ui-server/tests/helpers/storage-deadline-clock.js";
 import { workerHostBoundary } from "../../../ui-sdk/src/server/worker-launcher.js";
 // Scripted in-process inference launches no worker. Containment has separate
 // native proof; keep actual host admission, adapters and storage here.
@@ -33,6 +34,14 @@ const sent: unknown[] = [],
 let tasks = 0;
 let providerOpens=0;
 let quotaApplied = false, pressureApplied = false;
+let heldWrites: {control:Int32Array;done:Promise<unknown>;channel:import("../../../ui-server/src/db/write-worker.js").WriteChannel}|undefined;
+let deadlineClock:ReturnType<typeof storageDeadlineClock>|undefined;
+async function releaseHeldWrites() {
+  if (!heldWrites) return;
+  Atomics.store(heldWrites.control,0,1);Atomics.notify(heldWrites.control,0);
+  await heldWrites.done;await heldWrites.channel.close();heldWrites=undefined;
+  deadlineClock?.restore();deadlineClock=undefined;
+}
 let complete: (() => void) | undefined;
 let emitPrefix: ((text:string)=>void) | undefined;
 const history: SessionHistoryMessage[] = [];
@@ -174,6 +183,7 @@ const server = Bun.serve({
     if (req.method !== "POST") return new Response(null, { status: 405 });
     const body = (await req.json()) as {
       client?: unknown[];
+      holdWrites?:boolean; expireWrites?:boolean; releaseWrites?:boolean;
       provider?: unknown[];
       release?: boolean;
       quota?: boolean;
@@ -194,6 +204,14 @@ const server = Bun.serve({
       failResult?: boolean;
       evictReceipts?: boolean;
     };
+    if(body.releaseWrites) await releaseHeldWrites();
+    if(body.holdWrites){
+      const controls=await import("../../../ui-server/tests/helpers/dialogue-test-writes.js");
+      const channel=writer.channel(controls,{}),control=new Int32Array(new SharedArrayBuffer(8));
+      const done=channel.call("holdUntilReleased",control);heldWrites={channel,control,done};
+      const end=Date.now()+2000;while(!Atomics.load(control,1)){if(Date.now()>end)throw Error("browser writer did not hold");await Bun.sleep(1);}
+      deadlineClock=storageDeadlineClock();
+    }
     if (body.restart) {
       await closeHost();
       await writer.close();
@@ -270,7 +288,8 @@ const server = Bun.serve({
     if (body.release) complete?.();
     await Bun.sleep(20);
     await releaseQuota?.();
-    await host.historySettled();
+    if(body.expireWrites){deadlineClock?.expire();await new Promise<void>(resolve=>setImmediate(resolve));}
+    if(!heldWrites) await host.historySettled();
     const rows = db
       .query(
         "SELECT sequence,owner_id,identity,payload FROM dialogue_records ORDER BY sequence"
@@ -300,10 +319,11 @@ async function closeHost() {
   } catch (error) {
     const expected = error instanceof Error &&
       (quotaApplied && /full/i.test(error.message) || pressureApplied && error.message === "Dialogue pending writes exceeded their bound");
-    if (!expected) throw error;
+    if (!expected && !(error instanceof Error && error.name==="StorageSettlementIndeterminate")) throw error;
   }
 }
 process.on("SIGTERM", async () => {
+  await releaseHeldWrites();
   complete?.();
   await Promise.allSettled([...host.turnTasks]);
   await closeHost();

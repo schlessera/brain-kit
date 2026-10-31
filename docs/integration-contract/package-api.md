@@ -4127,3 +4127,37 @@ The host helper `ConversationHost.profile(contextualTasks?)` supplies the same k
 provider-free effective disclosure for hello, admission comparison and opened
 receipts. The host refuses undisclosed legacy starts before touching their scope;
 the wire section records the deliberate privacy admission compatibility correction.
+
+
+## Indeterminate storage settlement (#3185)
+
+`StorageSettlementIndeterminate` is an additive error export from
+`@schlessera/brain-ui-server`. Its `operation: string` names the bounded wait;
+optional `cleanup?: Promise<unknown>` observes the original owned operation
+through its genuine eventual success or failure. Awaiting the error's cleanup
+is optional and can remain pending indefinitely. Neither the error nor a
+rejected close proves persistence, cancellation, worker exit or resource
+release.
+
+`BrainUiApp.close()` refuses new admission at once and monitors real outstanding
+requests on both its shared UI/journal SQLite worker and its separate native-lease
+SQLite worker throughout cleanup. Native manager RPCs do not acquire a SQLite
+deadline. A request pending at
+close gets ten seconds from observation; a later submission gets ten seconds
+from submission, including native FIFO queue wait. An unsettled native request
+rejects close while retaining the actual cleanup continuation. This is not a
+whole-app wall-clock deadline: protected CLI writers may outlast the CLI grace,
+healthy reads canceled at the end of that grace still let close resolve, and
+Activity preserves its own transport deadline and exact genuine error identity.
+Close keeps one public outcome across repeated calls. Borrowers drain in their existing order,
+then the actual writer closes before the reader. No worker termination or early
+reader close is introduced. A genuine cleanup failure that settles without a native storage deadline
+keeps its original identity; later cleanup errors remain observable through
+`cleanup`. The deployment shell owns physical process exit.
+`WsHost.close()` likewise bounds dialogue settlement and rejects indeterminate
+storage without releasing the actual journal or writer ownership.
+
+This is an additive diagnostic/lifecycle clarification in a minor release.
+Existing successful close, FULL durability, archive retention and no-replay
+guarantees remain. The error supplements existing close rejection rather than
+turning a timeout into successful disposal.

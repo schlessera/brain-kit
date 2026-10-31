@@ -67,7 +67,7 @@ Source anchors, checked against the reviewed commit:
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:297-333`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:301-337`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:108-114`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:30-39`).
