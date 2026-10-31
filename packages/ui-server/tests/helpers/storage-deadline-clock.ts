@@ -15,6 +15,15 @@ export function storageDeadlineClock() {
   Object.defineProperty(globalThis, "clearTimeout", { ...clear, value: (timer: ReturnType<typeof setTimeout>) => { pending.delete(timer); nativeClear(timer); } });
   return {
     get pending() { return pending.size; },
+    /** Capture one concrete deadline; cancellation must not expire a different timer. */
+    captureLatest() {
+      const timer = [...pending.keys()].at(-1);
+      if (timer === undefined) throw Error("No storage deadline was registered");
+      return () => {
+        const callback = pending.get(timer);
+        if (callback) { pending.delete(timer); nativeClear(timer); callback(); }
+      };
+    },
     expire() { for (const [timer, callback] of [...pending]) { pending.delete(timer); nativeClear(timer); callback(); } },
     restore() { for (const timer of pending.keys()) nativeClear(timer); pending.clear(); Object.defineProperty(globalThis, "setTimeout", timeout); Object.defineProperty(globalThis, "clearTimeout", clear); },
   };
