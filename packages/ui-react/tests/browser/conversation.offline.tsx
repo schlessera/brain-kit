@@ -542,7 +542,7 @@ test("a voice-first session binds its original typed draft and generated output,
   s.client.start();
   const replacementOpening=s.socket.frames("conversation_start").at(-1)!;
   expect(replacementOpening.requestId,"REPLACEMENT_HAS_ITS_OWN_EXPLICIT_OPENING").not.toBe(previousOpening.requestId);
-  s.deliver({ ...PROFILE, sessionId:undefined, conversationId: "ithaca-replacement", requestId: replacementOpening.requestId });
+  s.deliver({ ...PROFILE, sessionId:undefined, conversationId: "ithaca-replacement", requestId: replacementOpening.requestId as string });
   expect(s.client.state.getState().profile?.conversationId,"NEW_DRAFT_IDENTITY_TEST_HAS_AN_ACTUAL_ACCEPTED_REPLACEMENT").toBe("ithaca-replacement");
   s.deliver({ type: "session_info", sessionId: "odysseus-new-voyage", requestId: String(commit.requestId), isNew: true, turnId: "ithaca-new-turn" });
   expect(s.client.state.getState().sessionId).toBe(null);
