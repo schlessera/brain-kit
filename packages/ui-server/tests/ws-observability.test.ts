@@ -543,6 +543,7 @@ describe("turn lifecycle is observable", () => {
       socket.send(JSON.stringify({ type: "session_resume", sessionId }));
       await until(() => frames.some(frame => frame.type === "error" && frame.sessionId === sessionId));
       expect(frames.find(frame => frame.type === "error" && frame.sessionId === sessionId), "KNOWN_HISTORY_FAILURE_KEEPS_ITS_ERROR_CODE").toMatchObject({ code: "SESSION_LOAD_ERROR", message: "The host could not load this conversation. No work was started; your draft is kept." });
+      expect(JSON.stringify(frames), "RAW_HISTORY_CAUSE_NEVER_REACHES_THE_SOCKET").not.toContain("transcript unreadable");
       expect(observability.metrics.value("turns.failed", { code: "SESSION_LOAD_ERROR" }), "SOCKET_HISTORY_FAILURE_RECORDS_ORIGINAL_METRIC").toBe(1);
       socket.send(JSON.stringify({ type: "session_resume", sessionId: missingId }));
       await until(() => frames.some(frame => frame.type === "error" && frame.sessionId === missingId));
@@ -555,6 +556,49 @@ describe("turn lifecycle is observable", () => {
       expect(reads).toEqual([sessionId, missingId]);
     } finally {
       socket.close(); server.stop(true); await closed; host.close(); db.close();
+    }
+  });
+
+  test("native reconnect snapshot hides a throwing history cause and logs it once", async () => {
+    const db = createUiDb(":memory:");
+    const observability = createRecordingObservability();
+    const sessionId = "odysseus-ithaca", marker = "Odysseus private history diagnostic";
+    const held = Promise.withResolvers<void>();
+    const backend = makeFakeBackend({ id: "fake", getHistory: async () => { throw new Error(marker); },
+      startTurn: async request => { request.bridge.emit({ type: "session_info", sessionId, isNew: false }); await held.promise; },
+    });
+    const catalog = createSessionCatalog(() => db);
+    catalog.persistSessionStub(sessionId, "Odysseus plans the voyage.", null, backend.id);
+    await catalog.settled?.();
+    const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog, observability });
+    const { upgradeWebSocket, websocket } = createBunWebSocket();
+    const app = new Hono(); app.get("/ws", upgradeWebSocket(() => createWsHandlers(host)));
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket });
+    const sockets: WebSocket[] = [];
+    const connect = async () => {
+      const frames: any[] = [];
+      const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`); sockets.push(socket);
+      socket.onmessage = event => frames.push(JSON.parse(String(event.data)));
+      await new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); socket.onerror = () => reject(new Error("Odysseus fixture socket failed")); });
+      return {socket, frames};
+    };
+    try {
+      const first = await connect();
+      first.socket.send(JSON.stringify({ type: "chat_message", sessionId, text: "Check the sail", attachments: [] }));
+      await until(() => host.coordinator.bySession.has(sessionId));
+      const snapshot = await connect();
+      await until(() => snapshot.frames.some(frame => frame.code === "SESSION_LOAD_ERROR"));
+      expect(JSON.stringify(snapshot.frames), "REAL_SNAPSHOT_SOCKET_REDACTS_RAW_CAUSE").not.toContain(marker);
+      expect(snapshot.frames.find(frame => frame.code === "SESSION_LOAD_ERROR")).toEqual({ type: "error", code: "SESSION_LOAD_ERROR", sessionId,
+        message: "Unable to load conversation history. Try again; your draft is kept.", });
+      expect(snapshot.frames.at(-1)).toMatchObject({ type: "status", status: "thinking", sessionId });
+      const logs = observability.logs.find({body: "snapshot-on-connect failed"});
+      expect(logs).toHaveLength(1);
+      expect(logs[0]!.attributes.error).toBe(marker);
+    } finally {
+      held.resolve();
+      for (const socket of sockets) socket.close();
+      server.stop(true); host.close(); await Promise.all([...host.turnTasks]); db.close();
     }
   });
 

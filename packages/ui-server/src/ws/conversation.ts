@@ -794,7 +794,7 @@ export class ConversationHost {
   }
 
   private pumpQueue(conversation: Conversation): void {
-    if (conversation.running || conversation.queue.length === 0 || conversation.queue[0]!.durableReady === false) return;
+    if (conversation.epoch?.storageFailing || conversation.running || conversation.queue.length === 0 || conversation.queue[0]!.durableReady === false) return;
     const connection = conversation.connection;
     const ws = conversation.ws;
     const work = conversation.queue.shift()!;
