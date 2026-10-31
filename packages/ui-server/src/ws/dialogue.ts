@@ -1,4 +1,5 @@
 /** Concrete host journal. Submission order is the shared SQLite writer's commit order. */
+import { StorageSettlementIndeterminate, withinStorageBudget } from "../db/settlement.js";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   DialogueEvidence,
@@ -16,14 +17,16 @@ export class DialogueJournal {
   private failure: unknown;
   private readonly failedOwners = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
-  private readonly ownerPending = new WeakMap<DialogueOwner, Set<Promise<unknown>>>();
+  private readonly ownerPending = new Map<DialogueOwner, Set<Promise<unknown>>>();
   private readonly transitions = new Map<string, Promise<unknown>>();
   private readonly scopes = new Map<string, {epoch:number;principalId:string;closed:boolean;owner?:DialogueOwner}>();
-  private readonly queues = new Map<string, { count: number; bytes: number }>();
+  private readonly queues = new Map<DialogueOwner, { count: number; bytes: number }>();
+  private readonly withheld = new WeakSet<DialogueOwner>();
+  private readonly refusals = new Map<DialogueOwner, Set<() => void>>();
   constructor(
     private readonly catalog: SessionCatalog,
     private readonly publish: (page: DialoguePage, principalId: string) => void,
-    private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error", kind?: DialogueEvidence["kind"]) => void
+    private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void
   ) {}
   private transition<T>(conversationId: string, run: () => Promise<T>): Promise<T> {
     const prior=this.transitions.get(conversationId);
@@ -39,12 +42,14 @@ export class DialogueJournal {
   }
   async open(input: DialogueOpen): Promise<DialogueOwner | undefined> {
     if (!this.catalog.dialogueOpen) return;
-    const scope={epoch:input.epoch,principalId:input.principalId,closed:false,owner:undefined as DialogueOwner|undefined};
+    const scope={epoch:input.epoch,principalId:input.principalId,closed:false,expired:false,owner:undefined as DialogueOwner|undefined};
     this.scopes.set(input.conversationId,scope);
     try {
-      return await this.transition(input.conversationId,async()=>{
+      const completion=this.transition(input.conversationId,async()=>{
+        if(scope.expired) throw new StorageSettlementIndeterminate("Retired dialogue opening");
         const owner=await this.catalog.dialogueOpen!(input);
         scope.owner=owner;
+        if (scope.expired) { await this.catalog.dialogueClose?.(input.conversationId,input.principalId,input.epoch,true); return owner; }
         this.failedOwners.delete(owner.id);
         // A close/replacement may already have retired this pending open.
         if(this.scopes.get(input.conversationId)===scope && !scope.closed){
@@ -53,7 +58,11 @@ export class DialogueJournal {
         }
         return owner;
       });
+      this.track(completion.catch(error => { if (scope.expired) this.failure ??= error; }));
+      return await withinStorageBudget(completion, "Dialogue opening");
     } catch(error) {
+      scope.closed=true;
+      if(error instanceof StorageSettlementIndeterminate)scope.expired=true;
       if(this.scopes.get(input.conversationId)===scope)this.scopes.delete(input.conversationId);
       throw error;
     }
@@ -195,7 +204,7 @@ export class DialogueJournal {
       if(!owner || !this.catalog.dialogueClose)return;
       // Wait only for this owner's already observed callbacks. The close
       // operation itself is tracked globally, so it cannot wait on itself.
-      await Promise.allSettled([...(this.ownerPending.get(owner) ?? [])]);
+      await Promise.allSettled(this.ownerWrites(owner));
       try {
         await this.catalog.dialogueClose(conversationId,principalId,epoch,partial || owner.coverage === "partial");
       } catch(error) {
@@ -213,22 +222,32 @@ export class DialogueJournal {
     after?: (saved: boolean) => void
   ): void {
     if (!this.catalog.dialogueAppend) return;
-    const q = this.queues.get(owner.id) ?? { count: 0, bytes: 0 };
+    const q = this.queues.get(owner) ?? { count: 0, bytes: 0 };
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
-    if (q.count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || q.bytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
+    let count = 0, pendingBytes = 0;
+    for (const [queuedOwner, queued] of this.queues) if (queuedOwner.id === owner.id) {
+      count += queued.count; pendingBytes += queued.bytes;
+    }
+    if (count >= CONVERSATION_LIMITS.maxPendingDialogueObservations || pendingBytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
       if (evidence.kind !== "backend") owner.coverage = "partial";
       this.failure ??= new Error(
         "Dialogue pending writes exceeded their bound"
       );
-      const prior = [...(this.ownerPending.get(owner) ?? [])];
-      const done = Promise.allSettled(prior).then(() => after?.(false));
-      this.track(done, owner, evidence.kind);
+      if (after) {
+        const refused = this.refusals.get(owner) ?? new Set<() => void>();
+        let delivered = false;
+        const deliver = () => { if (delivered) return; delivered = true; refused.delete(deliver); if (!refused.size) this.refusals.delete(owner); after(false); };
+        refused.add(deliver); this.refusals.set(owner, refused);
+        const prior = this.ownerWrites(owner);
+        const done = Promise.allSettled(prior).then(deliver);
+        this.track(done, owner, evidence.kind);
+      }
       this.notifyFailure(owner, "queue_pressure", evidence.kind);
       return;
     }
     q.count++;
     q.bytes += bytes;
-    this.queues.set(owner.id, q);
+    this.queues.set(owner, q);
     const done = this.catalog
       .dialogueAppend({
         ownerId: owner.id,
@@ -239,6 +258,7 @@ export class DialogueJournal {
       })
       .then(
         (record) => {
+          if (this.withheld.has(owner)) return;
           this.publish(
             {
               ownerId: owner.id,
@@ -254,18 +274,18 @@ export class DialogueJournal {
         },
         (error) => {
           // Preserve locally visible, explicitly unsaved evidence on storage failure.
-          after?.(false);
+          if (!this.withheld.has(owner)) after?.(false);
           throw error;
         }
       )
       .finally(() => {
         q.count--;
         q.bytes -= bytes;
-        if (!q.count) this.queues.delete(owner.id);
+        if (!q.count) this.queues.delete(owner);
       });
     this.track(done, owner, evidence.kind);
   }
-  private notifyFailure(owner:DialogueOwner,cause:"queue_pressure"|"storage_error",kind?:DialogueEvidence["kind"]):void {
+  private notifyFailure(owner:DialogueOwner,cause:"queue_pressure"|"storage_error"|"storage_indeterminate",kind?:DialogueEvidence["kind"]):void {
     if(kind !== "backend") owner.coverage="partial";
     if(this.failedOwners.has(owner.id))return;
     this.failedOwners.add(owner.id);
@@ -278,11 +298,47 @@ export class DialogueJournal {
     const own=owner ? this.ownerPending.get(owner) ?? new Set<Promise<unknown>>() : undefined;
     if(owner && own){own.add(done);this.ownerPending.set(owner,own);}
     const release=()=>{this.pending.delete(done);own?.delete(done);if(owner && own?.size===0)this.ownerPending.delete(owner);};
+    if (owner && !this.withheld.has(owner)) {
+      // Bound each real operation, not the duration of a healthy continuous stream.
+      void withinStorageBudget(done, "Dialogue write").catch(error => {
+        if (error instanceof StorageSettlementIndeterminate) {
+          this.withholdOwner(owner);
+          this.notifyFailure(owner,"storage_indeterminate",kind);
+        }
+      });
+    }
     void done.then(release,(error)=>{
       this.failure ??=error;
       release();
       if(owner)this.notifyFailure(owner,"storage_error",kind);
     });
+  }
+  private ownerWrites(owner: DialogueOwner): Promise<unknown>[] {
+    return [...this.ownerPending].flatMap(([pendingOwner, writes]) => pendingOwner.id === owner.id ? [...writes] : []);
+  }
+  /** A logical failure boundary; actual write and capacity ownership is unchanged. */
+  async settleOwner(owner: DialogueOwner): Promise<void> {
+    if (this.withheld.has(owner)) throw new StorageSettlementIndeterminate("Dialogue owner drain");
+    try {
+      await withinStorageBudget((async () => {
+        while (true) { const pending = this.ownerWrites(owner); if (!pending.length) return; await Promise.allSettled(pending); }
+      })(), "Dialogue owner drain");
+    } catch (error) {
+      if (error instanceof StorageSettlementIndeterminate) {
+        this.withholdOwner(owner);
+      }
+      throw error;
+    }
+  }
+  private withholdOwner(owner: DialogueOwner): void {
+    for (const pendingOwner of new Set([owner, ...this.ownerPending.keys()])) if (pendingOwner.id === owner.id) {
+      this.withheld.add(pendingOwner); pendingOwner.coverage = "partial";
+      // Explicit refusals were never submitted, unlike unknown writes.
+      for (const deliver of [...(this.refusals.get(pendingOwner) ?? [])]) deliver();
+    }
+  }
+  async settledWithinBudget(reportFailure: boolean = false): Promise<void> {
+    await withinStorageBudget(this.settled(reportFailure), "Dialogue drain");
   }
   async settled(reportFailure: boolean = false): Promise<void> {
     while (this.pending.size) await Promise.allSettled([...this.pending]);

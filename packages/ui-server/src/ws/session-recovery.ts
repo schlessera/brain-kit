@@ -3,11 +3,12 @@ import type { WSContext } from "./clients.js";
 import type { ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
 import { readSessionRecovery } from "./recovery.js";
+import { withinStorageBudget } from "../db/settlement.js";
 
 export async function requireKnownSession(host: WsHost, ws: WSContext, connection: ConnectionState, sessionId: string, allowImportedHistory = false, requestId?: string, onLoadError?: (error: unknown) => void): Promise<boolean> {
   try {
     // A newly emitted session_info may still have a catalog stub in flight.
-    await host.catalog.settled?.();
+    await withinStorageBudget(Promise.resolve(host.catalog.settled?.()), "Session admission settlement");
     if (connection.authorization.expiresAt <= Date.now()) host.expireAuthorizationContexts();
     if (host.closing || connection.closed || !connection.authorization.valid) return false;
     // Older catalogs may expose ownership without the optional existence read.

@@ -1,3 +1,4 @@
+import { StorageSettlementIndeterminate, withinStorageBudget } from "../db/settlement.js";
 import { DialogueJournal } from "./dialogue.js";
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
@@ -403,10 +404,15 @@ export class WsHost {
       this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);
     }, (owner, cause, kind) => {
       const finish=this.conversations?.storageFailing(owner.id);
-      const message=kind === "backend" ? "Original discussion position could not be saved. The complete answer remains in chat history. Check storage before restarting voice." : cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
-      this.clients.broadcast({type:"error",code:cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",owner.principal_id);
+      const message=cause === "storage_indeterminate" ? "Conversation text persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice." : kind === "backend" ? "Original discussion position could not be saved. The complete answer remains in chat history. Check storage before restarting voice." : cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
+      this.clients.broadcast({type:"error",code:cause === "storage_indeterminate" ? "DIALOGUE_INDETERMINATE" : cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",owner.principal_id);
       // Drain already observed text before closing its epoch, preserving the unsaved tail.
-      void this.dialogue.settled().then(() => finish?.(message));
+      void this.dialogue.settleOwner(owner).then(() => finish?.(message), error => {
+        if (!(error instanceof StorageSettlementIndeterminate)) {finish?.(message);return;}
+        const unknown="Conversation text persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice.";
+        this.clients.broadcast({type:"error",code:"DIALOGUE_INDETERMINATE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:unknown},undefined,"sessionDialogue",owner.principal_id);
+        finish?.(unknown);
+      });
     });
     this.classifier = options.classifier ?? null;
     this.labels = options.labeller?.enabled
@@ -613,7 +619,7 @@ export class WsHost {
    * @internal Host wiring.
    */
   async historySettled(): Promise<void> {
-    await Promise.all([this.dialogue.settled(), this.catalog.settled?.(), this.policyProposals?.settled(), this.classifier?.settled?.()]);
+    await withinStorageBudget(Promise.all([this.dialogue.settled(), this.catalog.settled?.(), this.policyProposals?.settled(), this.classifier?.settled?.()]), "History settlement");
   }
 
   /**
@@ -800,7 +806,7 @@ export class WsHost {
     this.scope?.close();
     this.inbox?.close();
     this.conversations?.closeAll();
-    return this.dialogue.settled(true);
+    return this.dialogue.settledWithinBudget(true);
   }
 
   /**

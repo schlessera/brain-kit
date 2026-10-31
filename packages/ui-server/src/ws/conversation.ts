@@ -1,3 +1,4 @@
+import { withinStorageBudget } from "../db/settlement.js";
 import { readLiveHistory } from "./live-history.js";
 import { requireKnownSession } from "./session-recovery.js";
 /**
@@ -182,7 +183,7 @@ export class ConversationHost {
       let found = this.conversations.get(msg.conversationId);
       if (!found && this.host.catalog.loadConversation) {
         try {
-          const stored = await this.host.catalog.loadConversation(msg.conversationId, principalId);
+          const stored = await withinStorageBudget(this.host.catalog.loadConversation(msg.conversationId, principalId), "Conversation recovery");
           if (connection.closed || !connection.authorization.valid) return;
           // Another resume may have registered an owner while storage awaited.
           found = this.conversations.get(msg.conversationId);
@@ -285,11 +286,11 @@ export class ConversationHost {
         ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(msg.historyOwnerId ? { historyOwnerId: msg.historyOwnerId } : {}) });
       if (owner) {conversation.historyOwnerId = owner.id;conversation.historyGeneration=owner.generation;}
       if (epoch.closed || connection.closed || !connection.authorization.valid) return;
-      await this.host.catalog.saveConversationEpoch?.({ id: conversation.id, principalId, epoch: epoch.number,
-        ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}) });
+      await withinStorageBudget(Promise.resolve(this.host.catalog.saveConversationEpoch?.({ id: conversation.id, principalId, epoch: epoch.number,
+        ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}) })), "Conversation epoch persistence");
       if (epoch.closed || connection.closed || !connection.authorization.valid) return;
-      const history = await readLiveHistory(this.host, principalId,
-        conversation.sessionId ? { sessionId: conversation.sessionId } : { ownerId: conversation.historyOwnerId }, authorized);
+      const history = await withinStorageBudget(readLiveHistory(this.host, principalId,
+        conversation.sessionId ? { sessionId: conversation.sessionId } : { ownerId: conversation.historyOwnerId }, authorized), "Live history");
       if (!authorized()) return;
       if (!this.disclosed(msg)) {
         this.endEpoch(conversation,"refused",undefined,epoch); this.detach(conversation);
@@ -1134,7 +1135,13 @@ export class ConversationHost {
         if (!conversation.historyOwnerId) {this.endEpoch(conversation,"provider_error",message,epoch);return;}
         const finish=this.storageFailing(conversation.historyOwnerId);
         this.send(conversation,{type:"error",code:"DIALOGUE_STORAGE",historyOwnerId:conversation.historyOwnerId,...(conversation.sessionId ? {sessionId:conversation.sessionId} : {}),message});
-        void this.host.dialogue.settled().then(()=>finish(message));
+        const owner=this.host.catalog.dialogueOwnerForId?.(conversation.historyOwnerId,conversation.principalId);
+        if (!owner) {finish(message);return;}
+        void this.host.dialogue.settleOwner(owner).then(()=>finish(message),()=>{
+          const unknown="Conversation persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice.";
+          this.send(conversation,{type:"error",code:"DIALOGUE_INDETERMINATE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:unknown});
+          finish(unknown);
+        });
       });
     }
     this.send(conversation, { type: "conversation_work", ...work.receipt });
