@@ -17,7 +17,7 @@ import { recordGovernanceEvent } from "../../ui-server/src/governance/events.js"
 import { createClaudeWorkerState } from "../../ui-backend-claude/src/worker-state.js";
 import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budget.js";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.js";
-
+import { MIN_BRAIN_CLI_VERSION } from "../../ui-server/src/brain/client";
 const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"].find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
 if (!executablePath) throw new Error("Turn journal proof requires real Chrome");
 const repo = resolve(import.meta.dir, "../../.."), password = "the bow only Odysseus can string", turnId = "odysseus-journal";
@@ -38,7 +38,7 @@ beforeAll(() => hook.phase("setup", async () => {
   await hook.phase("fixture-files", () => createFixtureBrain(repo, brain)); await mkdir(assets);
   await hook.phase("fixture-seed-files", async () => {
   await mkdir(resolve(brain,"scripts"));
-  await writeFile(resolve(brain,"scripts/brain-cli.ts"),`// Fixture-only startup version; real commands execute the release-candidate CLI source.\nif(process.argv.includes("--version"))console.log("0.42.0");else await import(${JSON.stringify(pathToFileURL(resolve(repo,"packages/core/src/cli/brain.ts")).href)});\n`);
+  await writeFile(resolve(brain,"scripts/brain-cli.ts"),`// Fixture-only startup version; real commands execute the release-candidate CLI source.\nif(process.argv.includes("--version"))console.log("${MIN_BRAIN_CLI_VERSION}");else await import(${JSON.stringify(pathToFileURL(resolve(repo,"packages/core/src/cli/brain.ts")).href)});\n`);
   await writeFile(resolve(brain, "notes/voyage.md"), "Ithaca\r\n");
   await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
   await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");

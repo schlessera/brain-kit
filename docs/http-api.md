@@ -1428,8 +1428,8 @@ bound, not a new retention expiry. Lost completion persistence retains intent an
 readback describes uncertainty. Invalid input is 400, oversized bodies 413,
 non-JSON input 415, and unavailable owners/admission 503 or a refused receipt.
 
-Packing alone requires content core 0.44.0 or newer. Older installations produce
-an explicit refusal; the ordinary server CLI minimum remains 0.42.0. Hosted CLI
+Packing requires content core 0.44.0 or newer. Older installations produce
+an explicit refusal; the ordinary server CLI minimum is also 0.44.0. Hosted CLI
 operations use only the qualified credential-free maintenance worker; unsupported
 hosts do not fall back to executing repository code on the host.
 

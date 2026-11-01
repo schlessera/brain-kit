@@ -1,5 +1,238 @@
 # @schlessera/brain-backend-claude
 
+## 0.44.0
+
+### Minor Changes
+
+- c60f956: A hosted turn now sees the provider folders its governance policy allows for the provider that actually receives its inference (#2695). Until now every turn under a `providers` rule had those folders masked. The recipient is named only from the exact origin the turn's host inference relay forwards to, which runs for governed and strict Claude and pi turns on managed native storage. Built-in vendor origins name their vendor, for example `https://api.anthropic.com` is `anthropic` and pi's `openai-codex` is `openai`. The new server variable `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` (`name=origin[,origin];...`) names a trusted gateway. Any other origin is unknown and sees no provider folder. That includes a custom base URL, an origin listed only in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or `BRAIN_UI_PI_CREDENTIAL_ORIGINS`, routers, and Bedrock or Vertex.
+
+  A turn allowed every provider folder sees them, `.git` and the real search index. A turn allowed some of them gets masks for the rest and a private index without their documents. The turn's relay then refuses any other origin.
+
+  A conversation that showed folders to one recipient refuses a later turn, or a handoff, whose recipient may not see them, with `ProviderRecipientRefusedError`. That covers a pin that fell back to another profile, a changed route or a pi model change. A handoff summary is not drafted for such a conversation; write it by hand.
+
+  `AgentBackend` gains optional `inferenceOrigin({ profileId, sessionId })`, which the Claude and pi backends implement. A backend without it keeps every provider folder masked.
+
+- bd4eba3: Governed and strict Claude turns on an API-billed profile now run on the turn egress proxy and the host inference relay too, on hosts with managed native storage. The relay sends the profile's `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` to the profile's own route; the worker holds only a placeholder, and neither the variable the profile names nor a host `CLAUDE_CODE_OAUTH_TOKEN` reaches it. Billing is unchanged. The `brain` CLI inside such a worker no longer sees that key either, until its own providers are relayed (#1673). Only the credential the profile declares is sent: an ambient `ANTHROPIC_AUTH_TOKEN` no longer rides along to the profile's route. Project or managed settings that move the route, set a credential variable or configure an `apiKeyHelper` refuse the turn before its prompt is sent, as a transport failure. A host Claude login file linked into the brain refuses relayed turns. `runtime.workerHost.governed.egress` no longer lists API-key profiles as unrouted.
+- bddd0a4: Apply governance policy provider folders to autonomous turns (#2691). A restricted autonomous turn under a provider rule now reads each masked folder as empty and searches a private index built from the masked view, removed when the turn ends; its server-side brain tools refuse masked paths. Autonomous admission reads the same last-valid policy as hosted turns, translates path and type selectors onto folders the same way, and refuses every other selector by name.
+- 3bdaa03: A hosted turn whose governance policy masks a provider folder no longer receives the brain's saved Claude auto-memory and saves no note to it (#2726). It continues an existing conversation, or a handoff from one, only when the server recorded that the conversation was born with those folders masked and kept them masked on every turn since. A conversation from before the provider rule, from a route that could see the folder, or without that record is refused before its history is copied or sent, with an actionable request to start a new conversation, and drafting its handoff summary is refused. Saved memory and transcripts are never changed. Expect existing conversations to need a fresh start the first time you add a provider rule.
+- 603a754: Complete interactive share filing through session-bound authoritative receipts and verified original-file dispositions, with durable replay and recoverable cleanup.
+- 4349af3: Retain successfully persisted external Claude auto-memory as attributed steering history with raw versions, taint evidence, authenticated review/revert and conflict-safe Undo. Interrupted or refused persistence remains explicitly incomplete.
+
+  Keep expanded journal details within the viewport when long retained paths or unavailable-reason text is reviewed at 200% zoom.
+
+- d2bb3b3: A hosted application (`brain_add`, `brain_update`, `brain_archive`, `write_file`, `edit_file`, `apply_staged_changes`) returns as soon as its Markdown is committed, instead of re-indexing the brain first (#2835). On a 2,000-note brain that wait was about 4 s per write. Breaking before 1.0, ruled on #2835: a successful result now reports `indexed: false` with the new `indexStatus: "pending"` while its index update is queued, and `indexed: true` only after an update completed. The Markdown write, its durability and its refusals are unchanged.
+
+  The changed paths are batched and indexed in one targeted update, in the same isolated maintenance worker, at the next read that needs the index or at the end of the turn. Every such read waits for it: the brain's MCP tools, pi's `brain_search`, `brain_context`, `brain_read`, `brain_list` and `brain_graph`, the shell, `brain_add` planning, and the server's `/api/brain/search`, `/list`, `/stats`, `/briefing` and `/api/graph/*` routes. When the update fails, the read is refused with the committed paths and the error instead of returning stale results, `brain_add` refuses with `index_stale`, `/api/*` answers `503` with `code: "index_stale"`, and the paths stay queued for the next try. Activity records each outcome as a `brain_application_index` event after the application it follows.
+
+  `BackendBridge` gains optional `awaitIndex(toolName)`, which the Claude and pi backends await before admitting every tool. `indexAll` in `@schlessera/brain/internal` accepts `paths` for a targeted run that leaves the index as a fresh build would. The standalone `brain add --json` keeps its synchronous `indexed`.
+
+- aeaaf77: Pass each app's resolved exec wrapper through backend construction, runtime
+  probes, Claude SDK workers and Pi tools. Explicit empty host configuration
+  disables the optional wrapper; standalone callers omitting it retain the
+  ambient fallback at the existing turn and tool-spawn boundaries.
+  Pi workers see each configured helper file, and only that file, in ordinary and
+  restricted views; a wrapper or killer that is not a regular file is refused
+  before any relay or worker starts, as is a nonregular wrapper for an ordinary
+  Claude worker.
+- 1135899: Agents on both backends can read shared reference source and use managed worktrees. Two new bridge tools, `reference_source` and `reference_worktree` (`request`, `access`, `renew`, `release`, `list`), share one strict contract in `@schlessera/brain-ui-sdk/tool-contracts` and stay in every interactive session's fixed roster; a turn without a host handler refuses the call. The host binds principal, turn and worker generation itself, and a result reports a path only where this turn's workers can reach it. Governed and strict turns now bind the public and principal's private source views read-only under `/tmp/brain-reference/`; before each bind, every source whose validation lapsed is validated again, and one that fails is withheld until a request validates it, and the app enables worktree generations whenever a reference pool exists. The native manager gains `poolView`, which opens a view's directory before its first publication.
+- 3f68a36: Propagate configured and runtime main-model identity into interactive and voice journal/governance attribution, preserving earlier unknown-model event snapshots and rejecting stale active-turn bindings.
+- caae12d: Add the supported metadata-only `@schlessera/brain/storage` host reader, which never executes Git or repository configuration, and human-only bounded Storage inventory and reference inspection, with explicit store ownership, deduplicated object and capacity observations, partial coverage, configured backup roots, and backend-owned transcript metadata. This foundation does not register a Storage pane or execute cleanup.
+
+  Provide bounded cached subtree projections and server-side search/sorting for
+  Storage charts and equivalent lists, with separate object-union area and subtotal
+  evidence so aliases do not inflate a chart.
+
+- 6099bdf: Record the first main request's cache-read/write counters and hash-only assembled
+  prefix fingerprints for each conversation turn. Activity detail exposes suspected
+  resumed cache breaks and changed components; runtime stats aggregate retained
+  diagnostic evidence with explicit unknown coverage. Helper and child usage cannot
+  replace the main receipt, and fingerprints do not claim provider cache hits.
+- b9805a4: Allow a trusted host to supply an already-prepared turn egress proxy to the ordinary Claude turn runner, retaining native startup settings and checkpoint identity checks before host-held OAuth inference.
+- fb80840: Restore approval-free governed native writes and keep strict/voice native tools registered with enforced call-time refusals.
+- 790d593: Retain literal provider-policy folder topology in newly admitted governed workers and in native host publication. Shared writers inherit active peer folder plans across policy removal. Existing roots and ancestors resist rename or replacement while contents and permitted siblings stay writable. These primitives do not activate inference routing or establish complete protected-data isolation.
+- 8f7430c: A session that ingests untrusted content now runs under tighter rules for the rest of the session. WebFetch/WebSearch and pi web results, reads under `.brain-ui/inbox/` or `workspaces/`, results from any MCP server other than brain-kit's own, and fetching or unclassified Bash calls record the session's first `taint` governance event. While tainted, every outward action asks for approval even when `outward.allow` matches, and its `outward_action` event says `tainted: true`. On the turn egress proxy, any connection other than the inference relay also taints the session, and a tainted session's new connections reach only `taint.egress.allow` and hosts the session already contacted; refusals are `egress_denial` events with reason `taint_allowlist`. Turns without the proxy keep their network, and the capabilities note says tainted egress is not enforced there.
+- 8822aed: Keep interactive tool schemas stable across posture, strict fallback and temporary host capability changes. Refuse unavailable calls before privileged handlers or approval cards, preserving voice and sandbox authority.
+- 79bab30: A strict, voice or autonomous turn now sees its own applications in the same turn (#2848). Its worker reads a turn data tree at `/tmp/brain-worker-data`: the documents as the turn started plus every change the turn's host applications committed, with a search index the server brings up to date before the next search. `brain` commands in either shell, Claude's `brain` MCP server and pi's brain tools, `read_file`, `grep`, `brain_read` and shell use it as their data root, while `brain.config.ts`, modules and module settings still load from the frozen view at the brain path. A peer's change made during the turn does not enter it. Admission copies the startup documents into the tree and seeds its index (about 0.1-0.4 s on 2,000 notes).
+
+  Claude's `Read`, `Grep` and `Glob`, and shell commands that name the brain path, still see the turn-start bytes. A Claude `Read` of a file the turn changed is refused and names `mcp__brain__brain_read`, which reads the current version.
+
+  A provider-restricted turn's own applications now reach its private search index too (#2846), and no masked document does: a change enters only if its path is outside the masked folders, neither its result nor its base declares a type the recipient may not see, and its base is what the turn could already see, never a peer's. Such a turn's `brain_add` plans on its own data tree and index, in a masked worker. The private index is now read-only to the agent: `brain index` and `brain` CLI captures inside a masked turn fail, and the server keeps it current instead.
+
+  Core maps a worker's `BRAIN_WORKER_CONFIG_ROOT` back to its `BRAIN_WORKER_DATA_ROOT` during root discovery, and readers there retry `SQLITE_READONLY_RECOVERY` and `SQLITE_BUSY_RECOVERY` a bounded number of times. `@schlessera/brain/module` exports `configurationRoot(root)`; jobs scoring reads `settings/jobs.json` and its criteria document through it. `BackendBridge.awaitIndex` takes the tool's input as an optional second argument.
+
+- 086db5b: On hosts with managed native storage, run governed and strict Claude turns on their own turn egress proxy and the host inference relay by default. Every connection becomes a governance event, policy limits apply, and a connection to an outward host waits for approval unless the tool call in progress was classified as a read or an approved outward action to that host. The capabilities note states recorded egress only for a worker actually routed through the proxy. Elsewhere those turns keep their current network, and `runtime.workerHost.governed.egress` on `GET /api/status` says which applies.
+
+  The relay forwards to the server-selected route (a profile's `baseUrl`, else `ANTHROPIC_BASE_URL`). A custom origin may receive the host's Claude login only when `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` lists it exactly. **Migration:** if a subscription profile or `ANTHROPIC_BASE_URL` points Claude at a custom origin on a host with managed native storage, add that origin to `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, or those turns are refused before their prompt is sent.
+
+  A model-discovery cache entry in the brain no longer supplies a profile's `baseUrl`, credential variable names, model aliases or tools; only the fields discovery itself writes are read back.
+
+- 7d1a31d: Run qualified workers under a distinct host identity with authenticated supervision, retained bounded mounts and cancellable private-file recovery.
+
+### Patch Changes
+
+- 2d21e91: A separate-UID worker's identity broker is now also closed off the event loop after an asynchronous launch has returned: when a turn releases the worker's last runtime-state or turn-temp handle, when the worker exits holding none, and after a failed supervision. The hosted server no longer stalls `/api/health` and WebSocket pings at the end of such a turn. Both backends await the close before they release the turn's storage reservation. A close the supervisor cannot confirm keeps the reservation charged and can be retried, and a worker's exit holding no handle now reports that refusal instead of dropping it. The synchronous launch is unchanged.
+- 2fe4005: Keep the hosted server answering while a worker's pipes are created and while a Claude turn prepares its own sandbox. The asynchronous worker probe, agent launch and maintenance launch and run now await `mkfifo` for their stdio and status channels instead of blocking on it, and a Claude turn whose host supplies no worker sandbox awaits its scratch area's git check before building its options. The synchronous forms, the FIFO modes, the unlink-before-launch boundary, the resolved sandbox and every refusal are unchanged.
+- e75f9af: Preserve accepted host cancellation when Claude releases a delayed SDK result. Cancelled terminals retain reported usage, clear error-only details, and wait for worker cleanup before emission.
+- f33358e: Restore the Claude package's Node import by loading Bun FFI only when its native inference guard is selected, while retaining fail-closed native input checks.
+- cf70a33: Retain Claude-generated session titles while attributing measured title-helper usage separately from main-conversation and cache diagnostics. Reconcile supported OTLP receipts within the existing cumulative accounting transaction so helper spend appears once, preserve unmatched usage as unattributed, and respect configured operator telemetry and opt-outs.
+- 3b3485e: A Claude turn now settles only after its session's native file observation saves have. A new session's first save is still queued without blocking the stream, but the turn's cleanup waits for it, so nothing is still writing host observation storage once the turn has returned. `NativeFileVersions` on the internal entry gains `settled()`.
+- f178a59: Report Claude subscription usage-limit stops as rate-limit failures in live turns and history replay.
+- b63276f: Non-envelope Claude workers no longer import operator shell startup configuration (#2984). Their HOME is a fresh, empty, read-only mount, separate from the writable runtime-state tmpfs at CLAUDE_CONFIG_DIR. This covers successful shell snapshots and the CLI's login-shell fallback. Writes to `~/.npm`, `~/go`, `~/.cargo` and other HOME paths still fail with EROFS; they cannot consume transcript/credential storage or be misreported as runtime-state exhaustion. Credentials and config are resolved from the original environment before the HOME override and retain their existing preparation and persistence. The original host home stays read-only at its original path with the same profile masks; per-turn XDG storage and restricted-envelope behavior are unchanged.
+
+  Rc-file masking was measured first with the real CLI. It preserves implicit Git config reads for fixed existing files, but a read-only bind remains a live view: a previously absent profile created by the host after enumeration leaks into both the snapshot and login fallback. Binding over the absent path up front fails with EROFS, and a startup symlink can redirect the mask onto another config file. The maintainer's empty-HOME fallback is therefore retained. Image-owned system startup files remain out of scope.
+
+  Commands that found operator configuration through `~`, including `~/.gitconfig`, `~/.npmrc` and `~/.netrc`, must use an explicit path where the profile exposes it. Core's default `~/.local/bin` and geo's default cache/admission paths now resolve under the empty read-only HOME. Existing operator-home geo caches are no longer found implicitly; a geo cache miss refuses before any request, and no private per-worker admission state is created. Use the existing explicit configuration/environment facilities for other home-derived paths.
+
+  Non-envelope launches also discard `BASH_ENV`, `ENV`, `ZDOTDIR`, `SHELLOPTS`, `BASHOPTS` and exported `BASH_FUNC_*%%` functions, including explicitly admitted values. Tools and variables previously supplied by a shell profile must come from the server's configured PATH and admitted environment. RTK continues to exclude the original host home when runtime HOME differs. The sandbox note describes Claude's empty read-only HOME, pi's original read-only HOME and the real host home's profile masks.
+
+- 933286d: Refuse background Bash tasks that cannot outlive a turn's worker, with foreground retry guidance. Hide native runtime task notifications from user-message history while preserving genuine user text and image attachments.
+- fab1c37: A Claude turn's own abort, such as an autonomous turn yielding at its checkpoint, again reaches a running worker only through the Agent SDK's close, which gives the runtime its grace period to finish its last request. Since the worker's probe and launch moved behind the deferred spawn, that abort had killed the worker at once, so a held continuation request could go unaccounted.
+- 9a3af9b: Resolve inference credentials per dispatch and serialize host OAuth access with credentialed maintenance through a crash-safe kernel lock.
+- c06dbb4: Preserve Bash commands when optional RTK availability cannot be established in the actual Claude worker, and avoid sharing availability probes across worker environments.
+- 1794e72: Keep the hosted server answering while native file observations and the Claude transcript archive's daily scan marker are written to a loaded disk. Saving and restoring a session's native file observations, including creating their storage directory, now waits on the file system off the event loop. Saves land in call order, and each native read or write still waits for its observation to be durable before it proceeds. The archive's scan marker is written the same way, and concurrent sweeps in one process still scan once. File and directory fsync, atomic replacement, the private modes, the redirect and alias refusals and the refusal of a write whose observation cannot be saved are unchanged. `NativeFileVersions` on the internal entry now returns promises from `restore` and its recording methods.
+- a9602c8: Prepare a bounded host-only Claude stored-login OAuth resolver with atomic credential refresh and offline compatibility guards. Ordinary worker authentication remains unchanged pending complete relay qualification.
+- 066107c: Put the brain's installed CLI first on governed and strict interactive workers' PATH, matching maintenance workers, and explain installation in the sandbox note when it is missing. Restricted autonomous environments retain their fixed PATH.
+- 4e0fbb6: Allow the ordinary Claude spawn adapter to consume a host-prepared inference transport without copying the native credential store into worker state.
+- a90490e: Carry an explicitly prepared host inference transport through ordinary Claude SDK turn assembly while preserving subscription and per-use permission checks.
+- 0125555: Preserve runtime-written provider transcript entries across turns. Store promoted
+  answer-link display mappings and authoritative Pi application receipts in host-owned
+  replay metadata so history retains promoted links and receipts without changing
+  prior model text or tool results. Recover only missing results for runtime-written
+  Pi calls after the worker exits; direct server applications create no provider entry.
+- 775cd1b: Retain native file observations in host-private session storage so resumed Claude and Pi turns refuse stale writes after a backend restart. Interrupted reads and missing legacy observation records require a genuine reread before writing; fully tracked sessions retain the existing never-read behavior.
+- 9506026: Keep interactive Claude request prefixes stable when the brain repository changes by disabling built-in git status and commit/PR instructions for both API and subscription turns. Project CLAUDE.md guidance remains available.
+- 3cc0a60: Suppress RTK's missing-hook installation warning in Claude workers and Pi bash children, where the host already rewrites shell commands. Preserve command errors and exit status.
+- 965578d: Use completed response receipts for resumed Claude turns instead of the runtime's session-cumulative cost and model usage. Retain newly observed unstreamed usage separately and once in Activity and session totals, with explicit unknown attribution and partial coverage after missing history or counter rollback. Model identifiers retain their own counters across response snapshots and persisted reconciliation, including names that match inherited JavaScript properties.
+- 25899b1: Remove the unused child-only exec-wrapper spawn adapter. Ordinary turns continue to use the isolated worker launcher, including optional exec wrappers and worker-owned cancellation.
+- 88012cf: A Claude or pi agent turn, a pi worker whose initialization or start callback was refused, and a streaming maintenance launch now finish only once every descriptor on their worker's stdio FIFOs is closed in the server, or after the 5 second bound of the worker's `released()` (#2863). Bun closes its own duplicates of those descriptors later, on its thread pool, so on a busy host a finished turn could report itself done with them still open. A streaming launch keeps its output slot and writer gate until then, but reports the worker's exit as before: a caller that reads the streams only after the exit is not held up. A scheduled job run through the host boundary ends only once its launch has settled, so the writer gate is free before the job's host closes its database. The worker's stdin is now closed once it has exited.
+- 8d06beb: Share inference relay admission, byte limits and audit with the turn egress proxy, and require exact host authorization for Claude OAuth inference recipients.
+- b192ca0: Changed: the hosted server commits turn-journal, Activity and native-lease SQLite writes on a write worker thread at `synchronous=FULL`, in submission order; the event loop awaits each commit instead of blocking in its fsync (#2814).
+  Changed (breaking for direct `TurnJournal` callers): journal writes that callers wait on (`bindSession`, `writeOperation`, Claude memory persistence, revert reservation, retained-version leases and retained streams) are asynchronous; `writeOperation` takes statements, and the journal exposes `ready` for its startup recovery.
+  Added: `StartTurnRequest.persistClaudeMemory` may return a promise; the Claude backend awaits it before persisting the next note or ending the turn.
+- 55dbf1c: Retain session-stable prompt appends and deliver changed host facts in owned new tail context, preserving user history and unknown device capabilities.
+- c452cf1: Keep the hosted server answering while the remaining worker checks run. A Claude turn now claims its session at once and then awaits its worker host probe, and a Claude worker's probe and bubblewrap launch are awaited behind the deferred spawn instead of inside the SDK's synchronous callback. A separate-UID worker's exit is polled without blocking, and so are the separate-UID maintenance launch and the scratch mask's git ignore check. The checks, their order and their refusals are unchanged: a refused probe still rejects the turn and leaves no turn behind, and a worker that does not start still names the turn's failure with its own error.
+- 1faf79c: Governed and strict turn workers no longer receive the `brain` CLI's provider keys (#1666). A worker keeps only its own inference credential where the host does not relay it, plus any name an operator admits through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. `GEMINI_API_KEY`, `OPENAI_API_KEY`, `TYPESAFE_API_KEY` and the other provider credentials stay on the host. The brain's `.env*` files were already unreadable in these workers, and now there is a test for that.
+
+  A `brain` command that needs a withheld key names the provider and the key, and falls back where it can. `brain search` returns keyword results, `brain index --embeddings` builds a keyword index, and an enabled `jev` reranker keeps lifecycle order. `brain process`, `brain image` and `brain video watch` refuse, because the built-in providers' own missing-key errors name a withheld key too. Each notice ends in a `[provider_unavailable …]` token. The worker learns which keys it lacks from the new `BRAIN_WITHHELD_KEYS` variable, which holds names only. The server records each token in a tool's result as a `provider_unavailable` governance event, at most 20 per turn. The capabilities note now says that secrets are hidden and names the keys a worker keeps.
+
+  To keep the old behaviour for a key until the metered relays land (#1673), admit it explicitly with `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. Outside a worker, a brain without keys behaves as before.
+
+- Updated dependencies [e1b8980]
+- Updated dependencies [c60f956]
+- Updated dependencies [bddd0a4]
+- Updated dependencies [1f032f9]
+- Updated dependencies [2d21e91]
+- Updated dependencies [2fe4005]
+- Updated dependencies [603a754]
+- Updated dependencies [caae12d]
+- Updated dependencies [4349af3]
+- Updated dependencies [cf70a33]
+- Updated dependencies [3b3485e]
+- Updated dependencies [b63276f]
+- Updated dependencies [7eedceb]
+- Updated dependencies [07bf0ee]
+- Updated dependencies [04a6595]
+- Updated dependencies [d2bb3b3]
+- Updated dependencies [11239d6]
+- Updated dependencies [8fc9663]
+- Updated dependencies [fb219e0]
+- Updated dependencies [39d16cb]
+- Updated dependencies [0316ccf]
+- Updated dependencies [1977f52]
+- Updated dependencies [d3a49c1]
+- Updated dependencies [498270f]
+- Updated dependencies [800d965]
+- Updated dependencies [8351c98]
+- Updated dependencies [aeaaf77]
+- Updated dependencies [9a3af9b]
+- Updated dependencies [4ba50d8]
+- Updated dependencies [bde209b]
+- Updated dependencies [5e6446a]
+- Updated dependencies [cf25c12]
+- Updated dependencies [498a601]
+- Updated dependencies [ff70ec1]
+- Updated dependencies [f3c6fdc]
+- Updated dependencies [477c8f7]
+- Updated dependencies [62cb35c]
+- Updated dependencies [1135899]
+- Updated dependencies [ea4c76c]
+- Updated dependencies [c06dbb4]
+- Updated dependencies [d6a07c4]
+- Updated dependencies [c89045b]
+- Updated dependencies [b2f2f25]
+- Updated dependencies [abf5b3e]
+- Updated dependencies [85873db]
+- Updated dependencies [07bf0ee]
+- Updated dependencies [00a583b]
+- Updated dependencies [e261d53]
+- Updated dependencies [3f68a36]
+- Updated dependencies [9bebef7]
+- Updated dependencies [5322d30]
+- Updated dependencies [69151ca]
+- Updated dependencies [b70d422]
+- Updated dependencies [1794e72]
+- Updated dependencies [d9ac37b]
+- Updated dependencies [9f930f6]
+- Updated dependencies [046b6ae]
+- Updated dependencies [5b34b6f]
+- Updated dependencies [498270f]
+- Updated dependencies [49c8b1d]
+- Updated dependencies [5600c72]
+- Updated dependencies [caae12d]
+- Updated dependencies [066107c]
+- Updated dependencies [6099bdf]
+- Updated dependencies [d85a649]
+- Updated dependencies [6470786]
+- Updated dependencies [ce3345b]
+- Updated dependencies [a90490e]
+- Updated dependencies [b9805a4]
+- Updated dependencies [0125555]
+- Updated dependencies [19b43c6]
+- Updated dependencies [8823a28]
+- Updated dependencies [d9f4405]
+- Updated dependencies [1c5666e]
+- Updated dependencies [918b34a]
+- Updated dependencies [c164899]
+- Updated dependencies [61399d1]
+- Updated dependencies [775cd1b]
+- Updated dependencies [613f1bd]
+- Updated dependencies [498270f]
+- Updated dependencies [3cc0a60]
+- Updated dependencies [caae12d]
+- Updated dependencies [650caaf]
+- Updated dependencies [f62ce30]
+- Updated dependencies [9c52e8c]
+- Updated dependencies [e7c037b]
+- Updated dependencies [965578d]
+- Updated dependencies [cb5db6e]
+- Updated dependencies [790d593]
+- Updated dependencies [335ee04]
+- Updated dependencies [02c74a3]
+- Updated dependencies [1ba7673]
+- Updated dependencies [8f7430c]
+- Updated dependencies [a19ce13]
+- Updated dependencies [8d06beb]
+- Updated dependencies [b192ca0]
+- Updated dependencies [8822aed]
+- Updated dependencies [55dbf1c]
+- Updated dependencies [8476426]
+- Updated dependencies [25a97da]
+- Updated dependencies [caae12d]
+- Updated dependencies [caae12d]
+- Updated dependencies [2d86dc5]
+- Updated dependencies [d6ad60a]
+- Updated dependencies [1411f0c]
+- Updated dependencies [79bab30]
+- Updated dependencies [086db5b]
+- Updated dependencies [9b8239d]
+- Updated dependencies [c452cf1]
+- Updated dependencies [6492291]
+- Updated dependencies [9423920]
+- Updated dependencies [1faf79c]
+- Updated dependencies [7d1a31d]
+  - @schlessera/brain-ui-sdk@0.44.0
+  - @schlessera/brain-common@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes

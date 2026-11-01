@@ -1,5 +1,11 @@
 # @schlessera/brain-render-template
 
+## 0.44.0
+
+### Minor Changes
+
+- 8476426: Render configured module fences through trusted static entries using the print theme in CLI and API exports. Failed or unsafe entries retain their code with diagnostics. CLI markdown embeds contained local SVG images for offline PDF/PNG rendering.
+
 ## 0.43.1
 
 ## 0.43.0

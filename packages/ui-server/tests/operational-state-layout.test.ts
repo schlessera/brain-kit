@@ -14,7 +14,7 @@ import { createHostBoundary as createBoundary } from "../src/brain/host-boundary
 import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 const roots: string[] = [];
 const nativeCleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of nativeCleanup.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -31,7 +31,7 @@ function fixture() {
   mkdirSync(brain); mkdirSync(state);
   const sentinel = join(state, "evaluated");
   mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  writeFileSync(join(brain, "node_modules/.bin/brain"), `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(sentinel)}, "evaluated"); console.log("0.42.0");\n`, { mode: 0o755 });
+  writeFileSync(join(brain, "node_modules/.bin/brain"), `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(sentinel)}, "evaluated"); console.log("${MIN_BRAIN_CLI_VERSION}");\n`, { mode: 0o755 });
   return { root, brain, state, sentinel };
 }
 

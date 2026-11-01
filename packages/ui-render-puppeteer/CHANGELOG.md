@@ -1,5 +1,13 @@
 # @schlessera/brain-render-puppeteer
 
+## 0.44.0
+
+### Patch Changes
+
+- c68bd69: Enforce the existing PNG pixel limits for zero-sized and hidden body layouts, including positioned overflow. Use a bounded document/viewport clip so empty and fixed-only documents still render.
+- Updated dependencies [8476426]
+  - @schlessera/brain-render-template@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes

@@ -1,5 +1,263 @@
 # @schlessera/brain-ui-react
 
+## 0.44.0
+
+### Minor Changes
+
+- 5fba3ec: Recording timestamps now measure complete emitted WebM/Opus audio rather than elapsed delivery time. This changes the meaning of exported LocalCaptureChunk and Recording duration fields; existing stored timestamps remain readable. The ten-minute audio cap and 100-MiB budget remain. A separate eleven-minute monotonic backstop retains interrupted audio. Unsupported formats, including audio/mp4, retain conservative wall-time accounting.
+- 603a754: Complete interactive share filing through session-bound authoritative receipts and verified original-file dispositions, with durable replay and recoverable cleanup.
+- 7d57849: Bound live dialogue failure drains and history/startup storage waits using a ten-second technical budget. During app shutdown, bound real outstanding native SQLite requests on both the shared UI/journal and separate lease writers throughout cleanup while preserving CLI grace, protected writers and genuine Activity errors. Indeterminate writes stop only the failed epoch and remain owned until actual settlement; late commits are historical data, never replayed live effects. Add an honest indeterminate diagnostic and an exported storage-settlement error whose cleanup promise observes continuing real cleanup.
+- 7c63003: Show compact accessible live transcript qualifiers with original source, playback and restoration evidence; keep host instructions in keyboard-accessible technical details, preserve active reading focus through new arrivals, and link exact requests and results.
+- caae12d: Add the complete Storage Settings pane: separate capacity observations, owned-store maps and equivalent lists, large-file inspection, owner maintenance, fresh attachment removal review, durable per-file outcomes and retained Undo. Preserve root/account boundaries, Settings navigation, current-file versions and explicit unknown evidence.
+- 07bf0ee: Start host-owned background tasks during Gemini and GPT-Live conversations, with exact native result binding, ordinary typed-task permissions, honest recognition and durable no-replay outcomes. Pre-1.0 breaking conversation refs and statuses follow the recorded maintainer ruling.
+
+  Reuse a single conversation owner across concurrent durable recovery, and terminate exactly bound native refusals while retaining no-replay tombstones so repeated refusals do not exhaust voice capacity.
+
+- 10c05ab: BREAKING: live conversation retains microphone consent through routine reply
+  interruption, Stop reply and recoverable visibility/transport/resync transitions
+  instead of requiring repeated Resume. Manual Mute and Leave remain authoritative.
+  Local reply audio uses bounded automatic recovery with a separate manual output
+  recovery action on timeout; delayed interrupted audio can occasionally pass.
+  Contextual recognition uses bounded recent history rather than a growing review
+  buffer. Permission authority, host serialization and no-replay guards remain.
+
+  Preserve effective agent-profile disclosure metadata across recovery and retain
+  same-entry openings while hidden, without weakening stale-capture, Mute, Leave
+  or authentication fences.
+
+  Keep bounded reply recovery active when manual Send, a question answer, Discard
+  or Mute ends interrupted speech, and retire discarded recognition identities.
+
+- a769d0f: Add accessible inline and static diagram renderer packs with authored narrow layouts, readable viewer fallback and print-themed sharing.
+- d83e438: Arrange Discovery in deterministic outgoing-hop bands and predecessor-informed wedges, with counted hop groups, a placement explanation and a brief notice after changed-data updates. Preserve individual note access through zoom and the grouped list.
+- 0c68c2b: Reveal outgoing Discovery links with original-root hop distances, bounded response-based counts, accessible loading and recovery, reset controls, and reduced-motion-aware placement. Add action description and loading props to the UI kit.
+- 8fc9663: BREAKING: retain recognized and generated live dialogue with its chat across reopening; draft Discard no longer erases archived discussion. Add negotiated bounded history paging with original source provenance and operational recovery, without native replay or automatic expiry.
+
+  Preserve explicitly unsaved recognition/reply tails in observed order after real storage failure, and separate contextual correlated capture from bounded task/review caches.
+
+  Separate saved and unsaved recognition groups, bound projection work per session, distinguish pending-write pressure from storage errors, and keep both contextual and reviewed-only archival capture independent of rolling review budgets.
+
+  Integrate canonical reading/focus and stale-session recovery, qualify unsaved rows accessibly, preserve surviving source anchors during paging, and clear volatile evidence across principal replacement.
+
+  Drain task-persistence failures against the exact failed epoch, reject missing-chat reads without inventing legacy history, and qualify unclosed voice history separately from incomplete backend position witnesses.
+
+  Keep ordinary typed chats free of invented legacy-voice warnings, preserve true backend suffix offsets when voice starts mid-turn, and distinguish healthy active epochs from unclosed history after restart.
+
+  Order same-conversation close/open transitions through device takeover and pending-open replacement, preserve owner-local observation drains, and avoid false interruption from other exact healthy live identities without hiding real failures.
+
+  Preserve complete coverage for simultaneous healthy voice entries in one chat, fence and retire pending writer identities, and keep adopted sibling scopes aligned without masking no-close or restart gaps.
+
+  Keep already admitted provisional voice scopes healthy when adoption precedes acknowledgement, without relaxing new-start admission or identity fences.
+
+  Keep arbitrary remote close/storage diagnostic message text out of conversation state and UI; use fixed local reason/cause copy while preserving scoped storage recovery and continuous capture across review-cache rollover.
+
+- 0adc5c0: Show recognized speech inline with voice-service replies and background task results, with unverified service provenance, exact fragment evidence and bounded local arrival order. Keep optional review and legacy draft ownership separate from permitted conversation tasks; explain that the voice service already received audio while a legacy Brain task draft remains unsubmitted. Recognition remains temporary and is not authenticated chat history. The React root gains additive client-state evidence and local draft-provenance fields; wire frames and provider-facing history are unchanged.
+
+  Discard removes recognition belonging to the current draft while preserving earlier submitted or consumed speech and the cumulative replay guard.
+
+- 498a601: Let the owner read a private managed-worktree finding's details from its hygiene review card. The review read says per request whether this caller may read them, and `GET /api/hygiene/review/details/:itemId` returns the recorded owner, repository, revision, starting commit and changed paths to the owner principal only; every delegated agent and ambient principal is refused, and the replicated card stays opaque. `HygieneCard` gains a `details` slot, and the full card shows an inline Private details disclosure that fetches on opening and keeps the details in memory only.
+- abf5b3e: Seed new live conversations from authorized prior chat text, retained spoken evidence and exactly joined completed host facts on both voice services. Add optional frozen history and actual selection coverage to the live API; preserve native binding fences, whole-item byte bounds and no effect replay. Disclose prior-text transfer and incomplete context on Start and re-entry.
+
+  Breaking before 1.0: voice starts must echo the exact profile disclosed on explicit Start. Legacy clients sending an undisclosed start now receive a correlated refusal before any provider or chat-history work. New clients keep voice unavailable on older hosts without the public hello profile. Enter and Cancel transfer no prior chat text. This privacy admission correction is directed on #3178; ordinary same-entry recovery retains explicit Start consent only for an unchanged effective disclosure.
+
+  Preserve pre-journal typed prefixes and exact assistant range positions when cross-stream order is unwitnessed; qualify ambiguous omissions conservatively. Live user text requires recorded source provenance; omit unproven legacy or host-generated user items whole with partial-context gaps, preserving native answers as historical data. Exact turn joins protect duplicate text and newest running questions across page/receipt eviction and restart. Actual provenance read errors or contradictory positive identities refuse startup. Add host-only causal newest references so omission qualifiers remain truthful.
+
+- 85873db: Add the live conversation client with reviewed semantic commits, PCM capture and playback, lifecycle resync and continued ordinary chat progress and interaction. Add advertised resumable speech pause, opening-request correlation and independent agent-profile routing while preserving final stop and phase-1 dictation.
+- 00a583b: Keep GPT-Live connected across missing input correlation IDs. Replace the prior close-on-missing behavior with bounded unassigned recognition carrying exact fragments and session intervals, separately reviewed without guessed input or native-work association. Add unassigned recognition/delegation events to the conversation contract. Explicit mismatches and permission guards remain enforced.
+- a754ad0: Start each Maintenance graph finding category collapsed, with independent accessible controls for Orphans, Unreachable from root, Broken links, and Stale notes. Preserve each category's choice during refreshes and filter changes.
+- cd54454: Route Mermaid fences and source files through the bundled content renderer. Share exports and browser printing use opaque white print tokens, with vector labels in static exports. Preserve existing light and dark screen rendering and legacy sharing entry points.
+- 5322d30: The turn journal records the brain's disposable search index by metadata only (#2873). `.brain-index/brain.db`, its `-wal`, `-shm` and `-journal` sidecars and an index publication copy keep their path, size and change stamp in history, so every refresh still shows as a change, but their bytes are no longer copied into retained objects. A governed turn's journal finish no longer copies a whole new index version after each automatic refresh.
+
+  Breaking before 1.0, ruled on #2873: index versions were byte-retained, readable and restorable, and now are not. Their `JournalVersion` carries the new `metadataOnly: true` and an opaque change `stamp`, and no `hash` or symlink `target`; preview answers `reason: "metadata_only"`, raw download is 404, versions retained by earlier releases are presented the same way, and history revert and Undo exclude the index as `metadata_only` (including versions retained by earlier releases) and leave it to the following index refresh, without marking the operation partial. Rebuild the index with `brain index --force`. A metadata-only version is not a missing version and does not make a turn partial. The history reader lists these entries under "Search index · metadata only" with no review action. Every other path, including other names inside `.brain-index/`, keeps its exact retained bytes. Existing history rows are kept; the bytes earlier releases retained for them are purged (#2903).
+
+- 046b6ae: Expose authoritative optional journal configuration coverage and its compact accessible disclosure badge. Keep changes ahead of complete, filterable coverage inventories, separate missing retained versions and ignored paths, and preserve inspection state on same-turn refreshes without changing counts, retention or authority.
+- 1d63f9c: Keep a confirmed answer settled when another tab's pending ownership takeover finishes after its queue entry was removed or replaced.
+- f62ce30: Expose trusted build-time content-renderer pack registration and authenticated
+  module renderer metadata. Missing bundled packs retain source with an explanatory
+  note; development roots report known module version skew once.
+- fd9c450: Render bundled content packs in markdown fences and file previews with lazy loading, isolated error fallbacks and surface-aware themes.
+- f48c83d: Organize Settings into seven consistent panes across phone, tablet and desktop.
+  Move Appearance and Input into their own pane, provider connections and web
+  search into Accounts, and always-allowed tools into Security. Add manual
+  keyboard tab navigation and preserve selection across responsive layouts.
+  Closing Settings returns to its opener across width changes without taking
+  focus from a newly selected destination.
+- b7d1dfd: Validate retained chat identities before session recovery or live voice admission. Missing chats report a scoped SESSION_NOT_FOUND error and offer explicit New conversation recovery while preserving unsent drafts. Known chats and imported-history recovery remain supported, with no implicit replacement or replay of failed work. Live-opening rejections retain request correlation, while independent history failures still retire late provider openings before explicit retry. A rejection for a retired opening releases an explicitly entered replacement without changing its selection or microphone consent.
+- caae12d: Show layered Storage observations, server-qualified growth and capacity scenarios,
+  pressure causes and honest notification receipts. Add a persistent owner-scoped
+  status and authenticated Storage notification link while preserving file selection,
+  review and Undo.
+- 9b8239d: Record and show host turn lifecycle, admission and first-frame timing alongside unchanged backend-run durations.
+- 9423920: Negotiate host permission outcomes in the client and add scoped voice refusals with an earcon and visual fallback when exact permission speech is unproven. Keep approval controls, original-input attribution, once-only cues, terminal and reconnect receipts tied to the host's actual result. Publish posture-denied outcomes without raising a grant card.
+
+### Patch Changes
+
+- 4349af3: Retain successfully persisted external Claude auto-memory as attributed steering history with raw versions, taint evidence, authenticated review/revert and conflict-safe Undo. Interrupted or refused persistence remains explicitly incomplete.
+
+  Keep expanded journal details within the viewport when long retained paths or unavailable-reason text is reviewed at 200% zoom.
+
+- 210b35c: Keep destination pane shadows and opening effects inside the content region, leaving the phone navigation and safe-area strip unshaded in Sessions, Settings and Files.
+- 2b935b1: Restore focus after disconnected hygiene details have closed, preserving deliberate focus changes.
+- fb219e0: Keep shared originals durably in their authenticated account until dismissal or
+  complete server intake. Recover review and prior confirmation after reload or
+  same-account authentication, coordinate tab ownership with native browser locks,
+  and include retained shares in intentional sign-out cleanup.
+- 9d1e078: Keep history-load diagnostics private while preserving voice-opening cleanup and draft recovery.
+- 8cb0fdb: Require actual headroom below the existing finite scope continuation ceiling, including a fresh eligibility check before accepting Continue. Explain exhausted recovery with Stop only, preserve exact observed counts, and remove stale Continue retries and announcements.
+- 47c55df: Require Start again when entering a new live conversation after leaving voice.
+- 19eec44: Name only supplied shared metadata in the filing prompt.
+- 8401156: Keep live conversation status and permission guidance clear as text grows, make the unsent transcript keyboard scrollable, and fit both disclosure actions on screen. Bound the strip on short screens so permission cards remain reachable while microphone and leave controls stay visible. Direct permission decisions to the screen while current voice services cannot attribute a spoken refusal to the user. Keep microphone and connection notices visible alongside review text without duplicating them inside the transcript. Keep reply controls in fixed positions and bridge brief playback gaps in the displayed Speaking status and Stop reply availability without changing microphone or interruption guards.
+- 5f5178c: `HygieneCard` accepts optional caller copy: `stateText` replaces the wording of any state, including the fixed outcome, and `busyLabel` replaces the applying label, as inert text; omitting them keeps every file default. The hygiene review uses them for a managed-worktree finding, so its card describes the removal or the check instead of a file edit: a finding with no repair offers "Check again" and says a worktree verified clean and unused may be reclaimed automatically, a confirmed removal reads "Worktree removed", another cleared finding reads "No longer needs review", and an uncertain reply reads "The outcome wasn't confirmed. Check again."
+- 66c370b: Keep queued replies visible when a reconnect history read overlaps turn completion. Re-read an invalidated snapshot once and refuse a second invalidated snapshot instead of replacing newer delivered messages.
+
+  Preserve the live assistant message when refreshed history inserts its missing user row.
+
+- 2c85589: Keep the journal's polite accessibility status consistent with late authoritative cost and completion updates, preserving known zero versus unknown cost and clearing expired or inactive-session announcements without repeating unrelated updates.
+- d2b4cf9: Keep Submit visible for custom Other answers, refuse blank text, and submit the
+  current draft through the existing answer path. Add optional controlled Other
+  text props to the kit card so switching choices preserves the custom draft.
+- 0e2e32f: Keep microphone capture open when user speech overlaps digitally silent live audio or a silent reply tail. Track potentially audible samples on the browser audio clock, flush currently queued output when the user takes the floor or a permission tone plays without retiring the provider's epoch-wide output identity, and preserve real reply interruption and explicit stop behavior. Start now waits visibly for readiness and resynchronization, opens capture when both complete, preserves an explicit Resume across late receipts from the old epoch, and reports microphone permission or device failures without reopening after mute or reconnect.
+- 36074ef: Place background task answers where their words arrive in the live discussion, retaining stable display positions across streamed updates and reconnects. Window generated speech together with backend messages and distinguish restored speech whose original position is unknown.
+
+  Preserve recovered replay prefixes and complete Markdown/link/classified-block semantics across interleaved chunks. Declare the existing Markdown decoder directly for exact escaped-text source ranges.
+
+  Copy and export complete original answers, including earlier arrivals and classified or tool-backed blocks, independently of transcript display filtering.
+
+  Preserve latest-turn Retry actions and source ordered-list numbering across arrival ranges.
+
+- 55108a6: Give file and file-tree loading placeholders accessible names without adding live announcements.
+- 932d2b3: Keep focused query fields, filter and suggestion chips, tightly padded controls and edge rows visible inside rounded or clipped containers in both themes.
+- 55dbf1c: Retain session-stable prompt appends and deliver changed host facts in owned new tail context, preserving user history and unknown device capabilities.
+- f4fd0de: Keep live conversation capture running when the first automatic background task receives its backend session identity. Associate only the admitted request and host turn, preserve independent typed drafts, and retain teardown when navigating to another chat. After leaving voice, preserve legacy typed-session adoption even when the host omits draft correlation, while rejecting late known contextual request identities.
+- ed6b0c5: Preserve a shared message's draft and attachments when its session arrives after navigation or a new chat.
+- f6f5c71: Hide remaining printed keyboard hints on touch-only surfaces while preserving tap controls and keyboard bindings.
+- 83252ad: Retain fixed voice closure diagnostics through pauses, clearing them on restart or exit without retaining remote message text.
+- 9eb6c83: Preview SVG files as images with a raw-source toggle, and select light SVG image palettes when printing the app.
+- 77f35ef: The hygiene review card no longer offers "Open file ›" for a managed-worktree finding. Its path, `reference-worktree://<worktree id>`, is a logical identity rather than a brain file, so the card shows it as text and keeps the host's explanation; Markdown findings still open their file.
+- Updated dependencies [e1b8980]
+- Updated dependencies [d99f399]
+- Updated dependencies [c60f956]
+- Updated dependencies [bddd0a4]
+- Updated dependencies [1f032f9]
+- Updated dependencies [2d21e91]
+- Updated dependencies [2fe4005]
+- Updated dependencies [603a754]
+- Updated dependencies [caae12d]
+- Updated dependencies [4349af3]
+- Updated dependencies [cf70a33]
+- Updated dependencies [3b3485e]
+- Updated dependencies [b63276f]
+- Updated dependencies [210b35c]
+- Updated dependencies [7c63003]
+- Updated dependencies [caae12d]
+- Updated dependencies [7eedceb]
+- Updated dependencies [07bf0ee]
+- Updated dependencies [d2bb3b3]
+- Updated dependencies [11239d6]
+- Updated dependencies [0c68c2b]
+- Updated dependencies [8fc9663]
+- Updated dependencies [fb219e0]
+- Updated dependencies [39d16cb]
+- Updated dependencies [0316ccf]
+- Updated dependencies [1977f52]
+- Updated dependencies [d3a49c1]
+- Updated dependencies [498270f]
+- Updated dependencies [800d965]
+- Updated dependencies [8351c98]
+- Updated dependencies [aeaaf77]
+- Updated dependencies [9a3af9b]
+- Updated dependencies [4ba50d8]
+- Updated dependencies [bde209b]
+- Updated dependencies [5e6446a]
+- Updated dependencies [cf25c12]
+- Updated dependencies [498a601]
+- Updated dependencies [f3c6fdc]
+- Updated dependencies [477c8f7]
+- Updated dependencies [62cb35c]
+- Updated dependencies [1135899]
+- Updated dependencies [ea4c76c]
+- Updated dependencies [c06dbb4]
+- Updated dependencies [d6a07c4]
+- Updated dependencies [5f5178c]
+- Updated dependencies [c89045b]
+- Updated dependencies [b2f2f25]
+- Updated dependencies [abf5b3e]
+- Updated dependencies [85873db]
+- Updated dependencies [07bf0ee]
+- Updated dependencies [00a583b]
+- Updated dependencies [e261d53]
+- Updated dependencies [3f68a36]
+- Updated dependencies [9bebef7]
+- Updated dependencies [cd54454]
+- Updated dependencies [5322d30]
+- Updated dependencies [69151ca]
+- Updated dependencies [b70d422]
+- Updated dependencies [1794e72]
+- Updated dependencies [d9ac37b]
+- Updated dependencies [9f930f6]
+- Updated dependencies [046b6ae]
+- Updated dependencies [5b34b6f]
+- Updated dependencies [498270f]
+- Updated dependencies [49c8b1d]
+- Updated dependencies [5600c72]
+- Updated dependencies [caae12d]
+- Updated dependencies [066107c]
+- Updated dependencies [6099bdf]
+- Updated dependencies [d85a649]
+- Updated dependencies [6470786]
+- Updated dependencies [d2b4cf9]
+- Updated dependencies [ce3345b]
+- Updated dependencies [a90490e]
+- Updated dependencies [b9805a4]
+- Updated dependencies [0125555]
+- Updated dependencies [19b43c6]
+- Updated dependencies [8823a28]
+- Updated dependencies [d9f4405]
+- Updated dependencies [1c5666e]
+- Updated dependencies [918b34a]
+- Updated dependencies [c164899]
+- Updated dependencies [61399d1]
+- Updated dependencies [775cd1b]
+- Updated dependencies [613f1bd]
+- Updated dependencies [498270f]
+- Updated dependencies [3cc0a60]
+- Updated dependencies [caae12d]
+- Updated dependencies [650caaf]
+- Updated dependencies [f62ce30]
+- Updated dependencies [9c52e8c]
+- Updated dependencies [e7c037b]
+- Updated dependencies [965578d]
+- Updated dependencies [cb5db6e]
+- Updated dependencies [790d593]
+- Updated dependencies [932d2b3]
+- Updated dependencies [335ee04]
+- Updated dependencies [02c74a3]
+- Updated dependencies [1ba7673]
+- Updated dependencies [8f7430c]
+- Updated dependencies [a19ce13]
+- Updated dependencies [8d06beb]
+- Updated dependencies [b192ca0]
+- Updated dependencies [8822aed]
+- Updated dependencies [55dbf1c]
+- Updated dependencies [8476426]
+- Updated dependencies [25a97da]
+- Updated dependencies [caae12d]
+- Updated dependencies [caae12d]
+- Updated dependencies [2d86dc5]
+- Updated dependencies [f6f5c71]
+- Updated dependencies [d6ad60a]
+- Updated dependencies [1411f0c]
+- Updated dependencies [79bab30]
+- Updated dependencies [086db5b]
+- Updated dependencies [9b8239d]
+- Updated dependencies [c452cf1]
+- Updated dependencies [6492291]
+- Updated dependencies [9423920]
+- Updated dependencies [1faf79c]
+- Updated dependencies [7d1a31d]
+  - @schlessera/brain-ui-sdk@0.44.0
+  - @schlessera/brain-ui-kit@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes

@@ -15,11 +15,11 @@ import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 const roots: string[] = [];
 const closeNative: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closeNative.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function fixture(version = "0.42.0") {
+function fixture(version = MIN_BRAIN_CLI_VERSION) {
   const directory = mkdtempSync(join(tmpdir(), "host-version-"));
   roots.push(directory);
   const root = join(directory, "brain"); mkdirSync(root);
@@ -69,14 +69,14 @@ describe("host version requirements at app startup", () => {
     });
   }
   test("below an explicit host floor refuses, despite satisfying the package floor", async () => {
-    const f = fixture("0.42.0");
-    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.43.0" } })).rejects.toThrow("host versionRequirements.brainCli");
+    const f = fixture(MIN_BRAIN_CLI_VERSION);
+    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.45.0" } })).rejects.toThrow("host versionRequirements.brainCli");
     expect(f.invocations()).toEqual([["--version"]]);
     expect(existsSync(f.config.dbPath)).toBe(false);
   });
   test("a weaker host floor cannot lower the package floor", async () => {
     const f = fixture("0.32.9");
-    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.1.0" } })).rejects.toThrow("0.42.0");
+    await expect(createApp({ ...f, versionRequirements: { brainCli: "0.1.0" } })).rejects.toThrow(MIN_BRAIN_CLI_VERSION);
     expect(existsSync(f.config.dbPath)).toBe(false);
   });
   test("explicit unknown refuses while default unknown logs a warning and boots", async () => {

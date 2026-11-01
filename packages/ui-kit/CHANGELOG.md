@@ -1,5 +1,49 @@
 # @schlessera/brain-ui-kit
 
+## 0.44.0
+
+### Minor Changes
+
+- d99f399: Add generated diagram paint tokens, accessible type and contrast checks, and optional authored narrow layouts; align shared dark and print cluster paint with the approved design.
+- 7c63003: Show compact accessible live transcript qualifiers with original source, playback and restoration evidence; keep host instructions in keyboard-accessible technical details, preserve active reading focus through new arrivals, and link exact requests and results.
+- caae12d: Add the complete Storage Settings pane: separate capacity observations, owned-store maps and equivalent lists, large-file inspection, owner maintenance, fresh attachment removal review, durable per-file outcomes and retained Undo. Preserve root/account boundaries, Settings navigation, current-file versions and explicit unknown evidence.
+- 0c68c2b: Reveal outgoing Discovery links with original-root hop distances, bounded response-based counts, accessible loading and recovery, reset controls, and reduced-motion-aware placement. Add action description and loading props to the UI kit.
+- 8fc9663: BREAKING: retain recognized and generated live dialogue with its chat across reopening; draft Discard no longer erases archived discussion. Add negotiated bounded history paging with original source provenance and operational recovery, without native replay or automatic expiry.
+
+  Preserve explicitly unsaved recognition/reply tails in observed order after real storage failure, and separate contextual correlated capture from bounded task/review caches.
+
+  Separate saved and unsaved recognition groups, bound projection work per session, distinguish pending-write pressure from storage errors, and keep both contextual and reviewed-only archival capture independent of rolling review budgets.
+
+  Integrate canonical reading/focus and stale-session recovery, qualify unsaved rows accessibly, preserve surviving source anchors during paging, and clear volatile evidence across principal replacement.
+
+  Drain task-persistence failures against the exact failed epoch, reject missing-chat reads without inventing legacy history, and qualify unclosed voice history separately from incomplete backend position witnesses.
+
+  Keep ordinary typed chats free of invented legacy-voice warnings, preserve true backend suffix offsets when voice starts mid-turn, and distinguish healthy active epochs from unclosed history after restart.
+
+  Order same-conversation close/open transitions through device takeover and pending-open replacement, preserve owner-local observation drains, and avoid false interruption from other exact healthy live identities without hiding real failures.
+
+  Preserve complete coverage for simultaneous healthy voice entries in one chat, fence and retire pending writer identities, and keep adopted sibling scopes aligned without masking no-close or restart gaps.
+
+  Keep already admitted provisional voice scopes healthy when adoption precedes acknowledgement, without relaxing new-start admission or identity fences.
+
+  Keep arbitrary remote close/storage diagnostic message text out of conversation state and UI; use fixed local reason/cause copy while preserving scoped storage recovery and continuous capture across review-cache rollover.
+
+- 498a601: Let the owner read a private managed-worktree finding's details from its hygiene review card. The review read says per request whether this caller may read them, and `GET /api/hygiene/review/details/:itemId` returns the recorded owner, repository, revision, starting commit and changed paths to the owner principal only; every delegated agent and ambient principal is refused, and the replicated card stays opaque. `HygieneCard` gains a `details` slot, and the full card shows an inline Private details disclosure that fetches on opening and keeps the details in memory only.
+- 5f5178c: `HygieneCard` accepts optional caller copy: `stateText` replaces the wording of any state, including the fixed outcome, and `busyLabel` replaces the applying label, as inert text; omitting them keeps every file default. The hygiene review uses them for a managed-worktree finding, so its card describes the removal or the check instead of a file edit: a finding with no repair offers "Check again" and says a worktree verified clean and unused may be reclaimed automatically, a confirmed removal reads "Worktree removed", another cleared finding reads "No longer needs review", and an uncertain reply reads "The outcome wasn't confirmed. Check again."
+- 046b6ae: Expose authoritative optional journal configuration coverage and its compact accessible disclosure badge. Keep changes ahead of complete, filterable coverage inventories, separate missing retained versions and ignored paths, and preserve inspection state on same-turn refreshes without changing counts, retention or authority.
+- d2b4cf9: Keep Submit visible for custom Other answers, refuse blank text, and submit the
+  current draft through the existing answer path. Add optional controlled Other
+  text props to the kit card so switching choices preserves the custom draft.
+
+### Patch Changes
+
+- 210b35c: Keep destination pane shadows and opening effects inside the content region, leaving the phone navigation and safe-area strip unshaded in Sessions, Settings and Files.
+- cd54454: Route Mermaid fences and source files through the bundled content renderer. Share exports and browser printing use opaque white print tokens, with vector labels in static exports. Preserve existing light and dark screen rendering and legacy sharing entry points.
+- 932d2b3: Keep focused query fields, filter and suggestion chips, tightly padded controls and edge rows visible inside rounded or clipped containers in both themes.
+- f6f5c71: Hide remaining printed keyboard hints on touch-only surfaces while preserving tap controls and keyboard bindings.
+- Updated dependencies [8476426]
+  - @schlessera/brain-render-template@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes

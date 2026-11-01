@@ -1,5 +1,81 @@
 # @schlessera/brain
 
+## 0.44.0
+
+### Minor Changes
+
+- 603a754: Complete interactive share filing through session-bound authoritative receipts and verified original-file dispositions, with durable replay and recoverable cleanup.
+- d2bb3b3: A hosted application (`brain_add`, `brain_update`, `brain_archive`, `write_file`, `edit_file`, `apply_staged_changes`) returns as soon as its Markdown is committed, instead of re-indexing the brain first (#2835). On a 2,000-note brain that wait was about 4 s per write. Breaking before 1.0, ruled on #2835: a successful result now reports `indexed: false` with the new `indexStatus: "pending"` while its index update is queued, and `indexed: true` only after an update completed. The Markdown write, its durability and its refusals are unchanged.
+
+  The changed paths are batched and indexed in one targeted update, in the same isolated maintenance worker, at the next read that needs the index or at the end of the turn. Every such read waits for it: the brain's MCP tools, pi's `brain_search`, `brain_context`, `brain_read`, `brain_list` and `brain_graph`, the shell, `brain_add` planning, and the server's `/api/brain/search`, `/list`, `/stats`, `/briefing` and `/api/graph/*` routes. When the update fails, the read is refused with the committed paths and the error instead of returning stale results, `brain_add` refuses with `index_stale`, `/api/*` answers `503` with `code: "index_stale"`, and the paths stay queued for the next try. Activity records each outcome as a `brain_application_index` event after the application it follows.
+
+  `BackendBridge` gains optional `awaitIndex(toolName)`, which the Claude and pi backends await before admitting every tool. `indexAll` in `@schlessera/brain/internal` accepts `paths` for a targeted run that leaves the index as a fresh build would. The standalone `brain add --json` keeps its synchronous `indexed`.
+
+- 61c73e2: Add diagram SVG/PNG/PDF export, owned light/dark Markdown build pairs and fresh-source hygiene. Expose concrete GFM fence extraction and offline HTML artifact rendering helpers through the module API.
+- 800d965: Keep the committed generated-text caches in their own `.brain-cache/` directory: `.context-cache.jsonl` becomes `.brain-cache/contexts.jsonl` and `.asset-cache.jsonl` becomes `.brain-cache/assets.jsonl`. Breaking before 1.0, ruled in #2692 (option B, delivered in #2725): the location of committed files changes. The line format and every CLI, MCP and HTTP shape are unchanged. An existing clone keeps every cached context and asset description: reads count the old root-level files, and the next index run (or `brain doctor --fix`, new check `legacy-caches`) moves every line into the new file and deletes the old one. The move is idempotent and keeps union-merged lines, and `brain sync` treats the old names as derived caches, so a merge with a clone that still writes them keeps both sides. The template ships the empty caches in `.brain-cache/` with `merge=union` for the new paths, and `brain doctor --fix` adds those lines to an existing brain. While a governance policy names provider folders, every governed writer retains `.brain-cache/` beside `.brain-index/`, a hosted or autonomous turn that masks any provider folder sees it as an empty read-only folder, and a turn allowed every provider folder sees the real caches. A root-level cache from an earlier release keeps its file mask on every turn under a provider rule. ui-server starts one index run at boot when such a file is present.
+- bde209b: Keep the disposable search index in its own `.brain-index/` directory: `brain.db`, its SQLite sidecars and the embedding lock move from the brain root to `.brain-index/brain.db`. Breaking before 1.0, ruled in #1668 (option B): a direct SQL reader opens the new path. The schema and every CLI, MCP and HTTP shape are unchanged. An existing brain migrates by rebuilding, never by moving: the first writable command creates the directory and `brain index` fills it. The old root-level files are ignored; `brain doctor` reports them as `legacy-index` and `--fix` deletes them. ui-server now requires a content CLI of at least 0.44.0, deletes the old root-level index at boot and starts one index run. While a governance policy names provider folders, every governed writer retains `.brain-index/` like a provider folder, and publication refuses to remove or replace it.
+- ff70ec1: Apply governance provider selectors to core embedding eligibility, reconcile forbidden vectors while keeping keyword content, and distinguish proven built-in Google transport identity from model and cost labels. Treat linked or unreadable source paths as unproven rather than allowing an unrestricted alias to authorize a request. Keep matching content local when an enrichment route is unknown and warn about affected turns losing Git history. This does not enable inference-worker routing or history isolation.
+- 69151ca: The `brain` CLI's paid providers work again in governed and strict turn workers, through a metered host relay, and the worker still holds no provider key (#1673). On a host with managed native storage, each such turn gets a relay beside its egress proxy. Gemini embeddings, Gemini completions without video, Anthropic completions, and OpenAI and Gemini images send their native requests to it. The server adds the key, records each request's usage on the turn, counts it toward the turn, conversation and day budgets, and refuses the next request with `budget_exceeded` once a budget is blocked. Nothing is reserved, so requests already in flight can take a budget slightly past its stop. `brain search` uses its vectors again instead of falling back to keyword results. The relay refuses streamed requests, caps how many requests and request bytes it holds at once, and replaces any copy of the key in a response with `[redacted]`. `brain video watch` and the `jev` reranker are not relayed and still report `provider_unavailable`.
+
+  A relayed Claude API-key turn no longer breaks `anthropic-haiku`. The CLI used to send the turn's inference placeholder and fail authentication; it now reaches the host's `ANTHROPIC_API_KEY` through the relay.
+
+  Credentialed maintenance (search from the UI, cron jobs, module actions) on those hosts also runs without `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or the brain's `.env*`, and uses its own relay. A run started from a turn's tool is charged to that turn; any other run counts toward the UTC day. Keys the relay does not carry, such as `TYPESAFE_API_KEY`, stay as before. Hosts without managed native storage are unchanged, and worker-host status says so.
+
+  The budget receipt's `coverage` now reads "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered". Receipts stored earlier keep the old text, and the schema accepts both. Gemini embeddings are priced at Google's list price per input modality. Image requests stay unpriced, and their reported tokens count toward the unpriced-token stops.
+
+  **Migration:** the relay sends a key only to its own first-party origin. If you point a built-in provider at a custom endpoint (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_BASE_URL`, `OPENAI_BASE_URL`), or use a custom `apiKeyEnv`, list that key and exact origin in the new `BRAIN_UI_CLI_PROVIDER_ORIGINS`, for example `GEMINI_API_KEY=https://gateway.ithaca.invalid`. Until you do, the relay refuses those requests. Keys must be in the server's environment; a key kept only in the brain's `.env` no longer reaches relayed maintenance. A governed turn with an `allowlist` egress policy needs the provider's host on that allowlist.
+
+- 4931275: Add `brain storage inventory --json` for bounded, metadata-only content and approved local Git storage observations, with object deduplication, hierarchy pages, qualified filesystem capacity and explicit partial coverage. Existing corpus statistics retain their meaning.
+- caae12d: Add the supported metadata-only `@schlessera/brain/storage` host reader, which never executes Git or repository configuration, and human-only bounded Storage inventory and reference inspection, with explicit store ownership, deduplicated object and capacity observations, partial coverage, configured backup roots, and backend-owned transcript metadata. This foundation does not register a Storage pane or execute cleanup.
+
+  Provide bounded cached subtree projections and server-side search/sorting for
+  Storage charts and equivalent lists, with separate object-union area and subtotal
+  evidence so aliases do not inflate a chart.
+
+- 918b34a: Enforce governance policy provider folders in hosted interactive and voice turns (#1668). No turn has a proven inference recipient yet, so a provider rule denies every turn: each `folder/**` root reads as an empty read-only directory, `.git` is hidden, and `.brain-index/` is a private, writable index the brain's own CLI builds before the turn from the masked view, so it never holds the masked documents. A provider rule that names a document type, a non-literal glob or a single path refuses turn admission by name instead of staying unenforced. `brain index` without `--embeddings` now runs where only `.brain-index/` is writable.
+- caae12d: Add human-owner attachment review, journal-backed removal and version-checked Undo with durable per-item receipts. Originals are verified and retained before effects; changed, protected, ignored and uncovered files are refused. Interrupted requests never replay, replacements are never overwritten, and retention expiry removes the Undo offer. Add the bounded core primitives and protocol contracts used by this application boundary.
+
+  Read-only attachment inspection exposes the same bounded current facts without consuming a durable operation identity; confirmation still requires a fresh review.
+
+- c5d2755: Declare module content renderers with strict validation, collision detection, export linting and versioned metadata for render consumers.
+- 8476426: Render configured module fences through trusted static entries using the print theme in CLI and API exports. Failed or unsafe entries retain their code with diagnostics. CLI markdown embeds contained local SVG images for offline PDF/PNG rendering.
+- caae12d: Expose explicit owner-only Storage housekeeping with durable operation receipts,
+  qualified before/after observations and bounded credential-free workers. Add
+  non-destructive `brain storage pack --json`; retain scratch pins, inbox settlement,
+  recovery evidence and existing retention policy across failures and cancellation.
+- 79bab30: A strict, voice or autonomous turn now sees its own applications in the same turn (#2848). Its worker reads a turn data tree at `/tmp/brain-worker-data`: the documents as the turn started plus every change the turn's host applications committed, with a search index the server brings up to date before the next search. `brain` commands in either shell, Claude's `brain` MCP server and pi's brain tools, `read_file`, `grep`, `brain_read` and shell use it as their data root, while `brain.config.ts`, modules and module settings still load from the frozen view at the brain path. A peer's change made during the turn does not enter it. Admission copies the startup documents into the tree and seeds its index (about 0.1-0.4 s on 2,000 notes).
+
+  Claude's `Read`, `Grep` and `Glob`, and shell commands that name the brain path, still see the turn-start bytes. A Claude `Read` of a file the turn changed is refused and names `mcp__brain__brain_read`, which reads the current version.
+
+  A provider-restricted turn's own applications now reach its private search index too (#2846), and no masked document does: a change enters only if its path is outside the masked folders, neither its result nor its base declares a type the recipient may not see, and its base is what the turn could already see, never a peer's. Such a turn's `brain_add` plans on its own data tree and index, in a masked worker. The private index is now read-only to the agent: `brain index` and `brain` CLI captures inside a masked turn fail, and the server keeps it current instead.
+
+  Core maps a worker's `BRAIN_WORKER_CONFIG_ROOT` back to its `BRAIN_WORKER_DATA_ROOT` during root discovery, and readers there retry `SQLITE_READONLY_RECOVERY` and `SQLITE_BUSY_RECOVERY` a bounded number of times. `@schlessera/brain/module` exports `configurationRoot(root)`; jobs scoring reads `settings/jobs.json` and its criteria document through it. `BackendBridge.awaitIndex` takes the tool's input as an optional second argument.
+
+- d5692af: Validate render input containment and existence before refusing writes to a read-only brain. Help now states the input boundary and stdin option; read-only scratch diagnostics point to the sandbox note for the reason rather than guessing it. Existing refusal codes, envelopes, tools and exit codes remain unchanged.
+- 1faf79c: Governed and strict turn workers no longer receive the `brain` CLI's provider keys (#1666). A worker keeps only its own inference credential where the host does not relay it, plus any name an operator admits through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. `GEMINI_API_KEY`, `OPENAI_API_KEY`, `TYPESAFE_API_KEY` and the other provider credentials stay on the host. The brain's `.env*` files were already unreadable in these workers, and now there is a test for that.
+
+  A `brain` command that needs a withheld key names the provider and the key, and falls back where it can. `brain search` returns keyword results, `brain index --embeddings` builds a keyword index, and an enabled `jev` reranker keeps lifecycle order. `brain process`, `brain image` and `brain video watch` refuse, because the built-in providers' own missing-key errors name a withheld key too. Each notice ends in a `[provider_unavailable …]` token. The worker learns which keys it lacks from the new `BRAIN_WITHHELD_KEYS` variable, which holds names only. The server records each token in a tool's result as a `provider_unavailable` governance event, at most 20 per turn. The capabilities note now says that secrets are hidden and names the keys a worker keeps.
+
+  To keep the old behaviour for a key until the metered relays land (#1673), admit it explicitly with `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. Outside a worker, a brain without keys behaves as before.
+
+### Patch Changes
+
+- c69d04e: Refuse excessive Markdown container prefixes before sync merge tokenization, preserving the existing unresolved nesting reason and avoiding quadratic work on deeply nested blockquotes.
+- 04a6595: Refuse unsupported frontmatter languages before parser engine dispatch in data-only governance, skills, schedules and content workflows. Preserve supported YAML, jobs' legacy JSON scoring input, policy last-valid fallback, approval checks, cache independence and travel's custom YAML date parser.
+- dc5d3c7: Review and clean up managed reference worktrees. Release and expiry remove a worktree only when a fresh assessment shows no holder and no work. Retained unfinished work, worktrees whose holder or work cannot be established, and failed removals become host-only hygiene findings: they reuse core's finding IDs and fingerprints and join the human-started review, but never enter `context/hygiene/` or `brain hygiene list`. A private worktree's card names no repository, commit or path. The owner reviews a delegated agent's worktrees; dismissing or snoozing never removes one. A confirmed `delete-worktree` repair is revalidated immediately before it deletes, so a renewal, edit, worker start, replaced root or revoked reviewer refuses it, and capacity is credited only when the pool reports the worktree reclaimed.
+- Updated dependencies [04a6595]
+- Updated dependencies [800d965]
+- Updated dependencies [3fb5199]
+- Updated dependencies [bde209b]
+- Updated dependencies [ff70ec1]
+- Updated dependencies [69151ca]
+- Updated dependencies [066107c]
+- Updated dependencies [8476426]
+- Updated dependencies [1faf79c]
+  - @schlessera/brain-common@0.44.0
+  - @schlessera/brain-geo@0.44.0
+  - @schlessera/brain-render-template@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes
