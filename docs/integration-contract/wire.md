@@ -2343,8 +2343,13 @@ Migration `071_session_dialogue.sql` adds operational owners, source mappings,
 records and aliases, independent of `brain.db` and native provider history.
 Operational backup retains the archive under its exact-schema compatibility
 rules. Re-indexing Markdown cannot rebuild it. No current general chat-deletion
-route is invented: #3180 owns the unified explicit deletion lifecycle. Clearing
-browser state on authentication teardown does not delete retained chat history.
+route is invented. The [#3180 policy decision](../decisions/chat-history-deletion.md)
+approves authenticated own-chat local deletion, including the explicit #3177
+native-preservation exception, permanent minimized identity/replay fences and
+accepted old-backup restoration limits. Runtime deletion remains unbuilt; this
+records policy without adding frames, endpoints or changing shipped retention.
+Independent saved content/effects, provider copies and backups remain excluded
+and must be disclosed. Clearing browser state on authentication teardown does not delete retained chat history.
 
 #3178 separately owns authorized bounded historical provider input. This feature
 supplies canonical read/provenance data; it does not claim that the new engine
