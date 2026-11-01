@@ -74,6 +74,8 @@ let sequence = 0;
 /** Every settlement the backend's tools received, by request id. */
 const settlements = new Map<string, unknown[]>();
 const histories = new Map<string, SessionHistoryMessage[]>();
+// Only the regression case holds a completed backend in the host running set.
+let resultGate: { arrived: () => void; released: Promise<void> } | undefined;
 
 const hook = runtimeHookPhases("answer-delivery-runtime");
 
@@ -149,6 +151,11 @@ beforeAll(async () => {
       bridge.emit({ type: "tool_result", sessionId, toolUseId: requestId, output, isError: false });
       bridge.emit({ type: "text_delta", sessionId, text: `Completed ${kind}` });
       bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      const gate = resultGate;
+      if (gate) {
+        gate.arrived();
+        await gate.released;
+      }
     },
   };
   app = await hook.phase("host-start", () => createApp({
@@ -271,9 +278,18 @@ async function ask(page: Page, kind: Kind, command: string = kind): Promise<stri
     if (!ready && control) control.waiting = true;
     return ready;
   });
+  const before = await page.evaluate<string[]>("window.__answers.activeCardRequestIds()");
   await composer.press("Enter");
-  await page.waitForFunction("window.__answers.cards() === 1");
-  return `toolu_${kind}_${sequence}`;
+  const request = await page.waitForFunction((previous) => {
+    const ids = (window as unknown as { __answers: { activeCardRequestIds(): string[] } }).__answers.activeCardRequestIds()
+      .filter((id) => !previous.includes(id));
+    return ids.length === 1 ? ids[0] : false;
+  }, before);
+  const requestId = await request.jsonValue() as string;
+  await request.dispose();
+  // Read the backend counter only after the new active card has arrived.
+  expect(requestId).toBe(`toolu_${kind}_${sequence}`);
+  return requestId;
 }
 
 /** Answer the visible card as a user would, with a nonempty (multibyte where possible) answer. */
@@ -722,13 +738,52 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
     }
   });
 
+  test("ASK_RETURNS_NEW_CARD_IDENTITY: completed running turn replay cannot identify a new ask", async () => {
+    const first = await newContext();
+    let second: Awaited<ReturnType<typeof newContext>> | undefined;
+    let release!: () => void;
+    let arrived!: () => void;
+    const waiting = new Promise<void>((resolve) => { arrived = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      const previous = await openPage(first.context);
+      const oldId = await ask(previous, "ask_user");
+      resultGate = { arrived, released };
+      await answer(previous, "ask_user");
+      await waiting;
+      await waitForState(previous, oldId, "answered");
+      second = await newContext();
+      const page = await openPage(second.context);
+      // Real connect replay, with no browser store injection.
+      await page.waitForFunction("window.__answers.cards() === 1");
+      expect(await page.evaluate<string[]>("window.__answers.activeCardRequestIds()")).toEqual([]);
+      const id = await ask(page, "ask_user");
+      await page.waitForFunction("window.__answers.activeCardRequestIds().length === 1");
+      const actual = await page.evaluate<string[]>("window.__answers.activeCardRequestIds()");
+      expect(id, "ASK_RETURNS_NEW_CARD_IDENTITY").toBe(actual[0]!);
+      expect(id).not.toBe(oldId);
+      await answer(page, "ask_user");
+      await waitForState(page, id, "answered");
+      expect(settlements.get(id)).toEqual([EXPECTED_RESULTS.ask_user]);
+    } finally {
+      resultGate = undefined;
+      release();
+      await second?.context.close();
+      await first.context.close();
+    }
+  });
+
   test("two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once", async () => {
     const { context, net } = await newContext();
     try {
       const a = await openPage(context);
       const requestId = await ask(a, "ask_user");
       const b = await openPage(context);
-      await b.waitForFunction("window.__answers.cards() === 1");
+      await b.waitForFunction((id) => {
+        const ids = (window as unknown as { __answers: { activeCardRequestIds(): string[] } }).__answers.activeCardRequestIds();
+        return ids.length === 1 && ids[0] === id;
+      }, requestId);
+      expect(await b.evaluate<number>("window.__answers.cards()")).toBe(1);
       net.mode = "refuse";
       net.cut();
       await a.waitForFunction("!window.__answers.connected()");
@@ -778,7 +833,12 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       const requestId = await ask(a, "ask_user");
       const b = await context.newPage();
       await b.goto(`${origin}/?takeover=b`);
-      await b.waitForFunction("window.__answers?.connected() && window.__answers.cards() === 1");
+      await b.waitForFunction((id) => {
+        const api = (window as unknown as { __answers?: { connected(): boolean; activeCardRequestIds(): string[] } }).__answers;
+        const ids = api?.activeCardRequestIds() ?? [];
+        return api?.connected() && ids.length === 1 && ids[0] === id;
+      }, requestId);
+      expect(await b.evaluate<number>("window.__answers.cards()")).toBe(1);
       net.mode = "refuse";
       net.cut();
       await a.waitForFunction("!window.__answers.connected()");
