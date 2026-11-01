@@ -204,3 +204,17 @@ test("S7 a reclaimed baseline may be forgotten while its receipt remains fenced"
   expect(calls).toBe(2);
   expect(f.notes.filter(note => note.kind === "worktree-allocation-deferred").length).toBe(1);
 });
+
+test("S7 a plain-object changing error cannot defer allocation", async () => {
+  const f = await fixture(); let calls = 0;
+  const create = f.pool.poolCreate;
+  // Production stringifies non-Errors. Preserve the exact wrapped message so
+  // only the native error class distinguishes this plain object from a refusal.
+  const error = { code: "unavailable", message: CHANGING_POOL, toString() { return this.message; } };
+  f.pool.poolCreate = async (...args) => { if (++calls === 1) throw error; return create(...args); };
+  await expect(f.worktrees.allocate(f.input), "S7_PLAIN_OBJECT_NOT_DEFERRED").rejects.toMatchObject({
+    code: "unavailable", message: `The worktree could not be created: ${CHANGING_POOL}`,
+  });
+  expect(calls, "S7_PLAIN_OBJECT_FAILS_IMMEDIATELY").toBe(1);
+  expect(f.notes, "S7_PLAIN_OBJECT_HAS_NO_DEFERRAL_RECEIPTS").toEqual([]);
+});
