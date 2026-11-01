@@ -55,6 +55,7 @@ export "." (./src/index.ts)
   type SpanOutcome
   type SpanRow
   type SpanUsage
+  StorageSettlementIndeterminate
   type VoiceConfig
   type WebAuthnConfig
   WsHost
@@ -501,7 +502,7 @@ signatures (every public export and the types it is made of)
     }
   DialogueJournal (packages/ui-server/src/ws/dialogue.ts)
     export class DialogueJournal {
-        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error", kind?: DialogueEvidence["kind"]) => void);
+        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void);
         open(input: DialogueOpen): Promise<DialogueOwner | undefined>;
         bind(conversationId: string, principalId: string, sessionId: string): void;
         voice(conversationId: string, evidence: Extract<DialogueEvidence, {
@@ -512,6 +513,8 @@ signatures (every public export and the types it is made of)
         retireTurn(turnId: string): void;
         backend(msg: ServerMessage): void;
         close(conversationId: string, principalId: string, epoch: number, partial?: boolean): void;
+        settleOwner(owner: DialogueOwner): Promise<void>;
+        settledWithinBudget(reportFailure?: boolean): Promise<void>;
         settled(reportFailure?: boolean): Promise<void>;
     }
   DialogueOpen (packages/ui-server/src/ws/dialogue-storage.ts)
@@ -1858,6 +1861,10 @@ signatures (every public export and the types it is made of)
         principalId?: string;
         attrs?: Record<string, unknown>;
         startedAt?: number;
+    }
+  StorageSettlementIndeterminate (packages/ui-server/src/db/settlement.ts)
+    export class StorageSettlementIndeterminate extends Error {
+        constructor(readonly operation: string, readonly cleanup?: Promise<unknown>);
     }
   StoredConversation (packages/ui-server/src/ws/conversation-storage.ts)
     export interface StoredConversation extends StoredConversationEpoch {

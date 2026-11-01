@@ -2292,6 +2292,17 @@ character cap. Old native conversation/receipt/output cache bounds do not prune
 this archive. Pending writes are limited to 256 observations/1 MiB per owner;
 individual archive payloads are at most 32 KiB. Actual no-space/quota or bounded
 queue failure stops the unsafe live path with an unsaved-tail explanation.
+`DIALOGUE_INDETERMINATE` means the 10-second storage settlement budget expired.
+Per-write budgets start at journal submission and include catalog/native FIFO
+queue wait and acknowledgement latency; a long healthy shared queue can stop
+voice as indeterminate. The deadline is not evidence that SQLite failed;
+write outcome and cleanup remain unknown. It stops capture/admission and ends
+only the failed epoch, withholding unresolved observations. It never labels
+them `retention: "unsaved"`, acknowledges persistence or cancels storage.
+Already confirmed unsaved callbacks retain their original order and qualifiers.
+Late genuine commits are available only to authorized historical reads with
+principal/generation/source fences, never live replacement epochs. Pending
+operation count/bytes remain charged until actual settlement.
 `DIALOGUE_STORAGE` means a storage operation failed; `DIALOGUE_PENDING_PRESSURE`
 means observations outpaced the bounded pending-write queue, without implying
 that SQLite failed. Both stop new capture while already observed callbacks drain,
@@ -2368,7 +2379,7 @@ A text `conversation_event` may carry `retention: "unsaved"` only when the host
 observed that exact text but its SQLite write failed or exceeded the pending
 write bound. It retains the original current conversation/epoch/source identity;
 it is not a durable-history record, replay token, permission or task admission.
-`DIALOGUE_STORAGE` and `DIALOGUE_PENDING_PRESSURE` errors carry optional `historyOwnerId` to scope capture shutdown
+`DIALOGUE_STORAGE`, `DIALOGUE_INDETERMINATE` and `DIALOGUE_PENDING_PRESSURE` errors carry optional `historyOwnerId` to scope capture shutdown
 to the affected owner. A foreign owner's failure must not mute the current chat.
 
 Storage failure freezes new host ingress/admission and stops local capture and
@@ -2479,7 +2490,7 @@ transaction still requires a provisional owner for that new admission.
 Conversation-close diagnostics retain only fixed local reason classes. Arbitrary
 remote `conversation_closed.message` text never enters client notice state or
 rendered diagnostics, including failed openings and recovery closes. Known
-`DIALOGUE_UNAVAILABLE`, `DIALOGUE_STORAGE` and `DIALOGUE_PENDING_PRESSURE` codes
+`DIALOGUE_UNAVAILABLE`, `DIALOGUE_STORAGE`, `DIALOGUE_INDETERMINATE` and `DIALOGUE_PENDING_PRESSURE` codes
 select fixed local copy as well; their remote message bodies are not retained.
 A failure cause may carry across close only for its exact conversation and epoch.
 A journal write failure alone does not prove that a complete native answer was
