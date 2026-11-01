@@ -16,6 +16,8 @@ export {
   type AppRenderer,
 } from "./app.js";
 
+export { StorageSettlementIndeterminate } from "./db/settlement.js";
+
 // Configuration: the package's single environment chokepoint. The descriptor
 // (ENV_VARS) is the artifact the env-parity gate diffs against documentation.
 export {

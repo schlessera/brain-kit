@@ -7,6 +7,8 @@
 import { dirname } from "node:path";
 import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { openSqliteWriter } from "../src/db/write-worker.js";
 import { WorkerStateError, workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -49,8 +51,12 @@ let maintenanceProbe: ReturnType<typeof spyOn<typeof hostExecution, "maintenance
 // Do not apply that identity to a real filesystem admission; actual native
 // maintenance qualification and busy recovery are proved in runtime tests.
 beforeEach(() => {
-  nativeOwnership = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async client => ({ client,
-    async recoverDeadOwners() { return { released: [], retainedLive: 0, retainedUnverifiable: 0, unknown: [], retainedPool: 0 }; }, async close() {} }));
+  nativeOwnership = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async client => {
+    const db = new Database(":memory:"), writer = openSqliteWriter(db);
+    return { client, writer,
+      async recoverDeadOwners() { return { released: [], retainedLive: 0, retainedUnverifiable: 0, unknown: [], retainedPool: 0 }; },
+      async close() { await writer.close(); db.close(); } };
+  });
   runAs(1000); maintenanceProbe = spyOn(hostExecution, "maintenanceProbe").mockReturnValue({ ok: true }); });
 afterEach(() => { maintenanceProbe.mockRestore(); nativeOwnership.mockRestore(); });
 afterEach(() => { for (const spy of uids) spy.mockRestore(); uids = []; });
