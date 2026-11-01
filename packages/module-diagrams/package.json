@@ -1,6 +1,6 @@
 {
   "name": "@schlessera/brain-module-diagrams",
-  "version": "0.43.1",
+  "version": "0.44.0",
   "description": "Versioned editorial diagrams with accessible client and static SVG renderers",
   "license": "MIT",
   "keywords": [

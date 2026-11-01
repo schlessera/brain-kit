@@ -130,7 +130,7 @@ declare full SemVer minima for the content checkout's CLI and active backends:
 ```ts
 const app = await createApp({
   versionRequirements: {
-    brainCli: "0.42.0",
+    brainCli: "0.44.0",
     backends: { claude: { sdk: "0.3.283", runtime: "2.1.283" } },
   },
 });
@@ -144,12 +144,10 @@ report are errors. An injected registry cannot verify explicit backend
 requirements and is refused; injection remains supported without them, and
 can still use a verified `brainCli` minimum.
 
-The server refuses to boot against a content CLI older than 0.42.0, the first
-release with its ordinary commands and flags, including scratch pin input and
-hygiene review. The 0.44.0 release raises the floor to 0.44.0, the first release
+The server refuses to boot against a content CLI older than 0.44.0, the first release
 that keeps its index in `.brain-index/`, the directory the server reads and
 retains for provider folder turns. Optional Storage packing separately probes core 0.44.0 before
-dispatch and refuses older/unknown versions without raising the ordinary floor.
+dispatch and refuses older/unknown versions independently of the boot-time check.
 The CLI always retains this package floor. An explicit `brainCli`
 minimum makes a failed or unknown version an error and rechecks the selected
 executable before each client invocation, including streaming sync. Direct

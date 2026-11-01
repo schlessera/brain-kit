@@ -78,8 +78,11 @@ inference call is needed.
    loop pick it up from its manifest: they all read
    `scripts/publishable-packages.ts`, which lists every non-private
    `packages/*/package.json` with each package after its internal hard
-   dependencies. `bun run release -- --dry-run` prints that order without
-   publishing. The package must still join the `fixed` group in
+   dependencies. `bun scripts/publish.ts --dry-run` prints that order without
+   installing, building or publishing. `bun run release -- --dry-run` first
+   runs the release script’s install and build steps before reaching the
+   publisher’s listing mode; do not use it for a cheap inventory check.
+   The package must still join the `fixed` group in
    `.changeset/config.json`, the package map in `README.md`, and a row in the
    pack table (`PACK_TABLE` in `scripts/ci-pack.ts`) saying what its tarball
    must hold and how Bun and Node consumers import it; the pack job refuses a
@@ -120,6 +123,11 @@ refresh by hand. `scripts/publish.ts` refuses the release if the pins are stale.
 
 Bump `template/package.json`'s `@schlessera/brain` pin to that version. A
 forgotten bump is caught by `tests/release-manifest.test.ts`.
+
+When raising the CLI floor, update fake CLI defaults and first-compatible and
+below-floor assertions. Run the focused brain-client and host-version-requirements
+tests before relying on broader release proof; keep explicit higher host floors
+and historical rejection cases distinct.
 
 Stage the generated changes with `git add -A` before the post-version checks.
 Documentation gates enumerate tracked files with `git ls-files`; until the
@@ -179,7 +187,8 @@ receipt`). Committing the same tree keeps it valid; any later change to a
 source file, the lock or the inventory needs a fresh run. A failure is a
 finding to fix or file, never a reason to skip the tier: there is no override.
 Debug one file with `bun run test experiments/<file>`; that records nothing.
-`bun run release -- --dry-run` stays a plain listing and is not gated.
+`bun scripts/publish.ts --dry-run` stays a plain listing and is not gated.
+The `bun run release -- --dry-run` wrapper installs and builds first.
 
 **`Experiment tier refused: node_modules is hard-linked to Bun's cache`** (or,
 from a direct `bun run test experiments/…`, about 34 native/paid-harness
@@ -341,7 +350,7 @@ bun run release        # build, publish, `changeset tag`, publish the template
 ## After publishing
 
 - **Bump the content repo's `@schlessera/brain` pin BEFORE the deploy.**
-  It must satisfy ui-server's `MIN_BRAIN_CLI_VERSION` (currently 0.42.0),
+  It must satisfy ui-server's `MIN_BRAIN_CLI_VERSION` (currently 0.44.0),
   including every command and flag the server invokes. The `.brain-index/`
   index location needs 0.44.0: the 0.44.0 version PR raises the floor to
   `INDEX_DIRECTORY_CLI_VERSION`, and `tests/cli-inventory.test.ts` fails that

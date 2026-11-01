@@ -34,7 +34,7 @@ import type { CreateAppOptions } from "../src/app";
 import { createFixtureApp as createApp, createNativeAppFixture } from "./helpers/native-app-fixture";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 const ROOT = resolve(import.meta.dir, "../../..");
 const CORPUS = join(ROOT, "packages/core/fixtures/corpus");
 const CORE = join(ROOT, "packages/core/src/index.ts");
@@ -102,7 +102,7 @@ function installCli(brain: string, body = "") {
 const args = process.argv.slice(2);
 if (args[0] !== "--version") await import(process.cwd() + "/brain.config.ts");
 ${body}
-if (args[0] === "--version") console.log("0.42.0");
+if (args[0] === "--version") console.log("${MIN_BRAIN_CLI_VERSION}");
 else if (args[0] === "stats") console.log(JSON.stringify({ documents: 1 }));
 else if (args[0] === "search") console.log(JSON.stringify({ results: [], warnings: [] }));
 else console.log("{}");

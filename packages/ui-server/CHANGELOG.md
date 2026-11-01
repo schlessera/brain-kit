@@ -1,5 +1,443 @@
 # @schlessera/brain-ui-server
 
+## 0.44.0
+
+### Minor Changes
+
+- e1b8980: Bound unresolved roadblock waste at eligible later success and add the abandoned remedy. Breaking before 1.0, approved in #2034: the default actionable report now excludes abandoned episodes; use remedy=all to include them or a named remedy to filter explicitly over HTTP and query_activity. Historical stored evidence is preserved.
+- c60f956: A hosted turn now sees the provider folders its governance policy allows for the provider that actually receives its inference (#2695). Until now every turn under a `providers` rule had those folders masked. The recipient is named only from the exact origin the turn's host inference relay forwards to, which runs for governed and strict Claude and pi turns on managed native storage. Built-in vendor origins name their vendor, for example `https://api.anthropic.com` is `anthropic` and pi's `openai-codex` is `openai`. The new server variable `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` (`name=origin[,origin];...`) names a trusted gateway. Any other origin is unknown and sees no provider folder. That includes a custom base URL, an origin listed only in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or `BRAIN_UI_PI_CREDENTIAL_ORIGINS`, routers, and Bedrock or Vertex.
+
+  A turn allowed every provider folder sees them, `.git` and the real search index. A turn allowed some of them gets masks for the rest and a private index without their documents. The turn's relay then refuses any other origin.
+
+  A conversation that showed folders to one recipient refuses a later turn, or a handoff, whose recipient may not see them, with `ProviderRecipientRefusedError`. That covers a pin that fell back to another profile, a changed route or a pi model change. A handoff summary is not drafted for such a conversation; write it by hand.
+
+  `AgentBackend` gains optional `inferenceOrigin({ profileId, sessionId })`, which the Claude and pi backends implement. A backend without it keeps every provider folder masked.
+
+- bddd0a4: Apply governance policy provider folders to autonomous turns (#2691). A restricted autonomous turn under a provider rule now reads each masked folder as empty and searches a private index built from the masked view, removed when the turn ends; its server-side brain tools refuse masked paths. Autonomous admission reads the same last-valid policy as hosted turns, translates path and type selectors onto folders the same way, and refuses every other selector by name.
+- 20ba871: An autonomous turn whose provider rules mask a folder now starts only when the server can show that every item and checkpoint of its origin inbox thread was written without those folders (#2741): a person's arrival through the share or queue route, server-composed text, or an autonomous run that already masked them. Otherwise it refuses with `provider_masked` before its prompt is built or any provider is reached, and its `inbox_list` and `inbox_get` revalidate the same evidence and refuse after an incompatible change or a policy change. Work queued before a provider rule, or added by a conversation, is refused rather than assumed safe; it stays stored and queued. Tool names and schemas are unchanged, and turns without masked folders are unaffected.
+- 3bdaa03: A hosted turn whose governance policy masks a provider folder no longer receives the brain's saved Claude auto-memory and saves no note to it (#2726). It continues an existing conversation, or a handoff from one, only when the server recorded that the conversation was born with those folders masked and kept them masked on every turn since. A conversation from before the provider rule, from a route that could see the folder, or without that record is refused before its history is copied or sent, with an actionable request to start a new conversation, and drafting its handoff summary is refused. Saved memory and transcripts are never changed. Expect existing conversations to need a fresh start the first time you add a provider rule.
+- 80faf6e: An item a hosted conversation adds through `inbox_add` can now qualify a provider-masked autonomous turn (#2816). It qualifies when the conversation was born masking provider folders and kept every folder the autonomous turn masks hidden from each of its turns, up to and including the one that added the item. The server records this from its own lineage record for that turn, never from anything the model sends. Items from conversations that started before a provider rule, were shown a masked folder by a later turn, or have lost their record are still refused with `provider_masked`. Tool names, schemas and results are unchanged.
+- 603a754: Complete interactive share filing through session-bound authoritative receipts and verified original-file dispositions, with durable replay and recoverable cleanup.
+- 7d57849: Bound live dialogue failure drains and history/startup storage waits using a ten-second technical budget. During app shutdown, bound real outstanding native SQLite requests on both the shared UI/journal and separate lease writers throughout cleanup while preserving CLI grace, protected writers and genuine Activity errors. Indeterminate writes stop only the failed epoch and remain owned until actual settlement; late commits are historical data, never replayed live effects. Add an honest indeterminate diagnostic and an exported storage-settlement error whose cleanup promise observes continuing real cleanup.
+- 4349af3: Retain successfully persisted external Claude auto-memory as attributed steering history with raw versions, taint evidence, authenticated review/revert and conflict-safe Undo. Interrupted or refused persistence remains explicitly incomplete.
+
+  Keep expanded journal details within the viewport when long retained paths or unavailable-reason text is reviewed at 200% zoom.
+
+- 07bf0ee: Start host-owned background tasks during Gemini and GPT-Live conversations, with exact native result binding, ordinary typed-task permissions, honest recognition and durable no-replay outcomes. Pre-1.0 breaking conversation refs and statuses follow the recorded maintainer ruling.
+
+  Reuse a single conversation owner across concurrent durable recovery, and terminate exactly bound native refusals while retaining no-replay tombstones so repeated refusals do not exhaust voice capacity.
+
+- 10c05ab: BREAKING: live conversation retains microphone consent through routine reply
+  interruption, Stop reply and recoverable visibility/transport/resync transitions
+  instead of requiring repeated Resume. Manual Mute and Leave remain authoritative.
+  Local reply audio uses bounded automatic recovery with a separate manual output
+  recovery action on timeout; delayed interrupted audio can occasionally pass.
+  Contextual recognition uses bounded recent history rather than a growing review
+  buffer. Permission authority, host serialization and no-replay guards remain.
+
+  Preserve effective agent-profile disclosure metadata across recovery and retain
+  same-entry openings while hidden, without weakening stale-capture, Mute, Leave
+  or authentication fences.
+
+  Keep bounded reply recovery active when manual Send, a question answer, Discard
+  or Mute ends interrupted speech, and retire discarded recognition identities.
+
+- d2bb3b3: A hosted application (`brain_add`, `brain_update`, `brain_archive`, `write_file`, `edit_file`, `apply_staged_changes`) returns as soon as its Markdown is committed, instead of re-indexing the brain first (#2835). On a 2,000-note brain that wait was about 4 s per write. Breaking before 1.0, ruled on #2835: a successful result now reports `indexed: false` with the new `indexStatus: "pending"` while its index update is queued, and `indexed: true` only after an update completed. The Markdown write, its durability and its refusals are unchanged.
+
+  The changed paths are batched and indexed in one targeted update, in the same isolated maintenance worker, at the next read that needs the index or at the end of the turn. Every such read waits for it: the brain's MCP tools, pi's `brain_search`, `brain_context`, `brain_read`, `brain_list` and `brain_graph`, the shell, `brain_add` planning, and the server's `/api/brain/search`, `/list`, `/stats`, `/briefing` and `/api/graph/*` routes. When the update fails, the read is refused with the committed paths and the error instead of returning stale results, `brain_add` refuses with `index_stale`, `/api/*` answers `503` with `code: "index_stale"`, and the paths stay queued for the next try. Activity records each outcome as a `brain_application_index` event after the application it follows.
+
+  `BackendBridge` gains optional `awaitIndex(toolName)`, which the Claude and pi backends await before admitting every tool. `indexAll` in `@schlessera/brain/internal` accepts `paths` for a targeted run that leaves the index as a fresh build would. The standalone `brain add --json` keeps its synchronous `indexed`.
+
+- 8fc9663: BREAKING: retain recognized and generated live dialogue with its chat across reopening; draft Discard no longer erases archived discussion. Add negotiated bounded history paging with original source provenance and operational recovery, without native replay or automatic expiry.
+
+  Preserve explicitly unsaved recognition/reply tails in observed order after real storage failure, and separate contextual correlated capture from bounded task/review caches.
+
+  Separate saved and unsaved recognition groups, bound projection work per session, distinguish pending-write pressure from storage errors, and keep both contextual and reviewed-only archival capture independent of rolling review budgets.
+
+  Integrate canonical reading/focus and stale-session recovery, qualify unsaved rows accessibly, preserve surviving source anchors during paging, and clear volatile evidence across principal replacement.
+
+  Drain task-persistence failures against the exact failed epoch, reject missing-chat reads without inventing legacy history, and qualify unclosed voice history separately from incomplete backend position witnesses.
+
+  Keep ordinary typed chats free of invented legacy-voice warnings, preserve true backend suffix offsets when voice starts mid-turn, and distinguish healthy active epochs from unclosed history after restart.
+
+  Order same-conversation close/open transitions through device takeover and pending-open replacement, preserve owner-local observation drains, and avoid false interruption from other exact healthy live identities without hiding real failures.
+
+  Preserve complete coverage for simultaneous healthy voice entries in one chat, fence and retire pending writer identities, and keep adopted sibling scopes aligned without masking no-close or restart gaps.
+
+  Keep already admitted provisional voice scopes healthy when adoption precedes acknowledgement, without relaxing new-start admission or identity fences.
+
+  Keep arbitrary remote close/storage diagnostic message text out of conversation state and UI; use fixed local reason/cause copy while preserving scoped storage recovery and continuous capture across review-cache rollover.
+
+- cd5e8bb: Add an explicit Gemini Live conversation adapter with nonblocking host work and guarded result correlation.
+- 800d965: Keep the committed generated-text caches in their own `.brain-cache/` directory: `.context-cache.jsonl` becomes `.brain-cache/contexts.jsonl` and `.asset-cache.jsonl` becomes `.brain-cache/assets.jsonl`. Breaking before 1.0, ruled in #2692 (option B, delivered in #2725): the location of committed files changes. The line format and every CLI, MCP and HTTP shape are unchanged. An existing clone keeps every cached context and asset description: reads count the old root-level files, and the next index run (or `brain doctor --fix`, new check `legacy-caches`) moves every line into the new file and deletes the old one. The move is idempotent and keeps union-merged lines, and `brain sync` treats the old names as derived caches, so a merge with a clone that still writes them keeps both sides. The template ships the empty caches in `.brain-cache/` with `merge=union` for the new paths, and `brain doctor --fix` adds those lines to an existing brain. While a governance policy names provider folders, every governed writer retains `.brain-cache/` beside `.brain-index/`, a hosted or autonomous turn that masks any provider folder sees it as an empty read-only folder, and a turn allowed every provider folder sees the real caches. A root-level cache from an earlier release keeps its file mask on every turn under a provider rule. ui-server starts one index run at boot when such a file is present.
+- 18a6520: Add an explicit GPT-Live conversation adapter with asynchronous client delegation to host-owned agent work.
+- aeaaf77: Pass each app's resolved exec wrapper through backend construction, runtime
+  probes, Claude SDK workers and Pi tools. Explicit empty host configuration
+  disables the optional wrapper; standalone callers omitting it retain the
+  ambient fallback at the existing turn and tool-spawn boundaries.
+  Pi workers see each configured helper file, and only that file, in ordinary and
+  restricted views; a wrapper or killer that is not a regular file is refused
+  before any relay or worker starts, as is a nonregular wrapper for an ordinary
+  Claude worker.
+- bde209b: Keep the disposable search index in its own `.brain-index/` directory: `brain.db`, its SQLite sidecars and the embedding lock move from the brain root to `.brain-index/brain.db`. Breaking before 1.0, ruled in #1668 (option B): a direct SQL reader opens the new path. The schema and every CLI, MCP and HTTP shape are unchanged. An existing brain migrates by rebuilding, never by moving: the first writable command creates the directory and `brain index` fills it. The old root-level files are ignored; `brain doctor` reports them as `legacy-index` and `--fix` deletes them. ui-server now requires a content CLI of at least 0.44.0, deletes the old root-level index at boot and starts one index run. While a governance policy names provider folders, every governed writer retains `.brain-index/` like a provider folder, and publication refuses to remove or replace it.
+- a901276: Enforce provider `types` selectors and `folder/**/*` paths in hosted turns when they map exactly onto whole folders: the turn masks those folders and builds its private index without them. A type maps when its taxonomy folders are literal, hold no other type's folder, it is not the inbox type, and no Markdown document outside them declares it. Every other selector still refuses admission, now naming why.
+- a4d6d8c: Hosted turns with provider folder masks now refuse admission, naming the files, when a regular file outside the masked folders is a hardlink to a file inside one; the mask hid only the name, so the turn could read the masked bytes through the other one.
+- 498a601: Let the owner read a private managed-worktree finding's details from its hygiene review card. The review read says per request whether this caller may read them, and `GET /api/hygiene/review/details/:itemId` returns the recorded owner, repository, revision, starting commit and changed paths to the owner principal only; every delegated agent and ambient principal is refused, and the replicated card stays opaque. `HygieneCard` gains a `details` slot, and the full card shows an inline Private details disclosure that fetches on opening and keeps the details in memory only.
+- ff70ec1: Apply governance provider selectors to core embedding eligibility, reconcile forbidden vectors while keeping keyword content, and distinguish proven built-in Google transport identity from model and cost labels. Treat linked or unreadable source paths as unproven rather than allowing an unrestricted alias to authorize a request. Keep matching content local when an enrichment route is unknown and warn about affected turns losing Git history. This does not enable inference-worker routing or history isolation.
+- f3c6fdc: Acquire shared reference source through the native reference pool. Public source is resolved and fetched anonymously and shared across the host; private source needs a live owner-managed grant and stays with its principal. Only the network transport ever holds the granted credential, and checkout runs with no credential and no network. Authority validation and refresh keep separate request-only clocks (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`, `BRAIN_UI_REFERENCE_REFRESH_SECONDS`, five minutes each). A failed refresh returns the previous revision explicitly stale while its authority is still valid. At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (two) operations run host-wide, and same-source requests join one. Capacity pressure evicts the least recently used source no reader holds. Revocation cancels and withdraws private source. `ServerConfig` gains optional `referenceSource`, and transport workers can run without network.
+- 16b0dba: Add owner-managed reference-source grants. In password mode an owner can grant a live principal a repository prefix and a named existing host credential (`BRAIN_UI_SYNC_GITHUB_TOKEN`, `BRAIN_UI_SKILLS_GITHUB_TOKEN`, `GITHUB_TOKEN` or none) through `GET`/`POST /api/auth/principals/:id/reference-grants`, and revoke one with `DELETE /api/auth/principals/:id/reference-grants/:grantId`. Grants become the only authority for private reference acquisition. A configured host credential never grants access by itself, and revoking a grant or its principal applies to the next authority check.
+- 477c8f7: Add an optional, separately qualified reference pool volume to the host-only native storage manager. It charges actual unique Btrfs allocation against a configurable 10 GiB combined and 2 GiB per-operation allowance, enforces both with simple-quota kernel limits, shares physical backing headroom through a ledger, records durable intents through reclamation, and exposes `brain-native-store pool status|recovery|release` for operators. No acquisition, worktree or worker access is enabled yet.
+- 62cb35c: Publish sealed reference-pool roots through per-domain view directories. `poolPublish` moves a sealed source root into its view once and swaps a plain name to it atomically, so a worker that binds the whole view reads a refreshed source on its next path read while open files keep their revision and staging never appears. `poolUnpublish` removes a name, `poolWithdraw` moves a root out of its view so it is unreachable by name or identity, releasing a root removes its names first, and `NativePoolRecord` gains `view`. The pool's `roots` and `views` directories join the mandatory worker masks.
+- 1135899: Agents on both backends can read shared reference source and use managed worktrees. Two new bridge tools, `reference_source` and `reference_worktree` (`request`, `access`, `renew`, `release`, `list`), share one strict contract in `@schlessera/brain-ui-sdk/tool-contracts` and stay in every interactive session's fixed roster; a turn without a host handler refuses the call. The host binds principal, turn and worker generation itself, and a result reports a path only where this turn's workers can reach it. Governed and strict turns now bind the public and principal's private source views read-only under `/tmp/brain-reference/`; before each bind, every source whose validation lapsed is validated again, and one that fails is withheld until a request validates it, and the app enables worktree generations whenever a reference pool exists. The native manager gains `poolView`, which opens a view's directory before its first publication.
+- d6a07c4: Give workers governed access to managed reference worktrees. A governed or strict turn's workers bind one root-owned worker generation at `/tmp/brain-worktrees`, and a worktree appears there only after the turn journal covers it. Its edits are journaled from the worktree's own checkpoints under scope `reference_worktree` with logical `reference-worktree://<id>/<path>` paths, count toward scope caps and are never reverted into the brain. The generation retires before the turn's final observation and parks its worktrees afterwards. The sandbox note gains fixed worktree guidance. Generations open only when worktree access is enabled by the supported tools, and acquired source is checked out group-writable.
+- dc5d3c7: Review and clean up managed reference worktrees. Release and expiry remove a worktree only when a fresh assessment shows no holder and no work. Retained unfinished work, worktrees whose holder or work cannot be established, and failed removals become host-only hygiene findings: they reuse core's finding IDs and fingerprints and join the human-started review, but never enter `context/hygiene/` or `brain hygiene list`. A private worktree's card names no repository, commit or path. The owner reviews a delegated agent's worktrees; dismissing or snoozing never removes one. A confirmed `delete-worktree` repair is revalidated immediately before it deletes, so a renewal, edit, worker start, replaced root or revoked reviewer refuses it, and capacity is credited only when the pool reports the worktree reclaimed.
+- c303993: Add the host lifecycle for managed reference worktrees. A worktree is allocated from authorized shared source as a writable snapshot at a fixed reported commit, belongs to one principal and is granted only to an open worker generation of that principal after its authority, including a live grant for private source, is checked again. Only explicit access, resumption or renewal resets its three-day inactivity clock; a live worker keeps it past expiry, a provably ended holder is recovered and unknown liveness keeps ownership and charge. Release and expiry record durable cleanup eligibility facts and never delete anything. Workers cannot reach a worktree until journal coverage is wired.
+- c89045b: Give the native reference pool managed-worktree storage. `poolCheckpoint` takes a read-only snapshot of a writable worktree, `poolDelta` streams metadata deltas between two checkpoints of one worktree, and `poolReadCheckpoint`, `poolStatCheckpoint` and `poolListCheckpoint` read them through the fixed worker-UID reader. Access generations (`poolAccessOpen`, `poolAccess`, `poolPark`, `poolAccessClose`) move a worktree into or out of one root-owned directory that a running worker binds whole, so a grant appears without a new mount. Pool records gain the `checkpoint` purpose and an `access` field, the pool's `access` directory joins the worker masks, and reclaimed checkpoint identities are forgotten.
+- fbff319: Persist a late backend session identity on its active Activity span so session queries and run summaries include turns whose first frame preceded session identification. Refuse replacement of an established identity.
+- abf5b3e: Seed new live conversations from authorized prior chat text, retained spoken evidence and exactly joined completed host facts on both voice services. Add optional frozen history and actual selection coverage to the live API; preserve native binding fences, whole-item byte bounds and no effect replay. Disclose prior-text transfer and incomplete context on Start and re-entry.
+
+  Breaking before 1.0: voice starts must echo the exact profile disclosed on explicit Start. Legacy clients sending an undisclosed start now receive a correlated refusal before any provider or chat-history work. New clients keep voice unavailable on older hosts without the public hello profile. Enter and Cancel transfer no prior chat text. This privacy admission correction is directed on #3178; ordinary same-entry recovery retains explicit Start consent only for an unchanged effective disclosure.
+
+  Preserve pre-journal typed prefixes and exact assistant range positions when cross-stream order is unwitnessed; qualify ambiguous omissions conservatively. Live user text requires recorded source provenance; omit unproven legacy or host-generated user items whole with partial-context gaps, preserving native answers as historical data. Exact turn joins protect duplicate text and newest running questions across page/receipt eviction and restart. Actual provenance read errors or contradictory positive identities refuse startup. Add host-only causal newest references so omission qualifiers remain truthful.
+
+- 85873db: Add the live conversation client with reviewed semantic commits, PCM capture and playback, lifecycle resync and continued ordinary chat progress and interaction. Add advertised resumable speech pause, opening-request correlation and independent agent-profile routing while preserving final stop and phase-1 dictation.
+- 07bf0ee: BREAKING: Live-conversation host work now uses the same ordinary backend,
+  session and principal policy as typed work, including session worker preference,
+  permitted writes and on-screen permission cards. It no longer implicitly selects
+  the narrower voice posture or declares no grant surface. Hosts relying on those
+  implicit restrictions must express them in their ordinary policy. Explicit
+  restricted backend requests remain enforced; speech still cannot grant permission.
+  Automatic conversational task admission and Gemini capture continuity remain
+  separate work.
+- 00a583b: Keep GPT-Live connected across missing input correlation IDs. Replace the prior close-on-missing behavior with bounded unassigned recognition carrying exact fragments and session intervals, separately reviewed without guessed input or native-work association. Add unassigned recognition/delegation events to the conversation contract. Explicit mismatches and permission guards remain enforced.
+- e261d53: A turn on the egress proxy treats mail submission as outward by default, next to the GitHub API: a connection to port 25, 465 or 587 on any host, or to a built-in mail-send API such as `gmail.googleapis.com` or `api.sendgrid.com`, waits on the turn's approval card unless the call in progress was classified as a read or an approved outward action to that host. `outward.hosts` still adds the rest. Microsoft Graph and Exchange Online carry more than mail, so their reads by an opaque script also ask.
+- 3f68a36: Propagate configured and runtime main-model identity into interactive and voice journal/governance attribution, preserving earlier unknown-model event snapshots and rejecting stale active-turn bindings.
+- 5322d30: The turn journal records the brain's disposable search index by metadata only (#2873). `.brain-index/brain.db`, its `-wal`, `-shm` and `-journal` sidecars and an index publication copy keep their path, size and change stamp in history, so every refresh still shows as a change, but their bytes are no longer copied into retained objects. A governed turn's journal finish no longer copies a whole new index version after each automatic refresh.
+
+  Breaking before 1.0, ruled on #2873: index versions were byte-retained, readable and restorable, and now are not. Their `JournalVersion` carries the new `metadataOnly: true` and an opaque change `stamp`, and no `hash` or symlink `target`; preview answers `reason: "metadata_only"`, raw download is 404, versions retained by earlier releases are presented the same way, and history revert and Undo exclude the index as `metadata_only` (including versions retained by earlier releases) and leave it to the following index refresh, without marking the operation partial. Rebuild the index with `brain index --force`. A metadata-only version is not a missing version and does not make a turn partial. The history reader lists these entries under "Search index · metadata only" with no review action. Every other path, including other names inside `.brain-index/`, keeps its exact retained bytes. Existing history rows are kept; the bytes earlier releases retained for them are purged (#2903).
+
+- 69151ca: The `brain` CLI's paid providers work again in governed and strict turn workers, through a metered host relay, and the worker still holds no provider key (#1673). On a host with managed native storage, each such turn gets a relay beside its egress proxy. Gemini embeddings, Gemini completions without video, Anthropic completions, and OpenAI and Gemini images send their native requests to it. The server adds the key, records each request's usage on the turn, counts it toward the turn, conversation and day budgets, and refuses the next request with `budget_exceeded` once a budget is blocked. Nothing is reserved, so requests already in flight can take a budget slightly past its stop. `brain search` uses its vectors again instead of falling back to keyword results. The relay refuses streamed requests, caps how many requests and request bytes it holds at once, and replaces any copy of the key in a response with `[redacted]`. `brain video watch` and the `jev` reranker are not relayed and still report `provider_unavailable`.
+
+  A relayed Claude API-key turn no longer breaks `anthropic-haiku`. The CLI used to send the turn's inference placeholder and fail authentication; it now reaches the host's `ANTHROPIC_API_KEY` through the relay.
+
+  Credentialed maintenance (search from the UI, cron jobs, module actions) on those hosts also runs without `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or the brain's `.env*`, and uses its own relay. A run started from a turn's tool is charged to that turn; any other run counts toward the UTC day. Keys the relay does not carry, such as `TYPESAFE_API_KEY`, stay as before. Hosts without managed native storage are unchanged, and worker-host status says so.
+
+  The budget receipt's `coverage` now reads "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered". Receipts stored earlier keep the old text, and the schema accepts both. Gemini embeddings are priced at Google's list price per input modality. Image requests stay unpriced, and their reported tokens count toward the unpriced-token stops.
+
+  **Migration:** the relay sends a key only to its own first-party origin. If you point a built-in provider at a custom endpoint (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_BASE_URL`, `OPENAI_BASE_URL`), or use a custom `apiKeyEnv`, list that key and exact origin in the new `BRAIN_UI_CLI_PROVIDER_ORIGINS`, for example `GEMINI_API_KEY=https://gateway.ithaca.invalid`. Until you do, the relay refuses those requests. Keys must be in the server's environment; a key kept only in the brain's `.env` no longer reaches relayed maintenance. A governed turn with an `allowlist` egress policy needs the provider's host on that allowlist.
+
+- 046b6ae: Expose authoritative optional journal configuration coverage and its compact accessible disclosure badge. Keep changes ahead of complete, filterable coverage inventories, separate missing retained versions and ignored paths, and preserve inspection state on same-turn refreshes without changing counts, retention or authority.
+- caae12d: Add the supported metadata-only `@schlessera/brain/storage` host reader, which never executes Git or repository configuration, and human-only bounded Storage inventory and reference inspection, with explicit store ownership, deduplicated object and capacity observations, partial coverage, configured backup roots, and backend-owned transcript metadata. This foundation does not register a Storage pane or execute cleanup.
+
+  Provide bounded cached subtree projections and server-side search/sorting for
+  Storage charts and equivalent lists, with separate object-union area and subtotal
+  evidence so aliases do not inflate a chart.
+
+- 6099bdf: Record the first main request's cache-read/write counters and hash-only assembled
+  prefix fingerprints for each conversation turn. Activity detail exposes suspected
+  resumed cache breaks and changed components; runtime stats aggregate retained
+  diagnostic evidence with explicit unknown coverage. Helper and child usage cannot
+  replace the main receipt, and fingerprints do not claim provider cache hits.
+- 6470786: Add a typed per-turn egress connection event and an internal proxy recorder with durable connection/refusal facts and cancellation when recording fails. Ordinary backend activation remains unchanged.
+
+  Honor valid zero-byte egress budgets by refusing before credential release or upstream contact.
+
+- ce3345b: On hosts with managed native storage, governed and strict pi turns now run on the turn egress proxy and the host inference relay, like Claude turns. The worker holds only a placeholder: on each request the host asks pi's own credential store, so refresh and its writeback happen on the host. Every connection is a governance event, and outward hosts wait for approval. Variables that name or feed the provider's credential stay on the host, so the `brain` CLI inside that worker no longer sees them either, until its own providers are relayed (#1673).
+
+  The relay carries API keys on Anthropic Messages and OpenAI-compatible models, and the `openai-codex` (SSE) and `anthropic` logins. A credential can reach only its provider's built-in origins and any exact origins listed for that provider in the new server variable `BRAIN_UI_PI_CREDENTIAL_ORIGINS` (`provider=origin[,origin];...`).
+
+  **Reduced capability, by maintainer ruling:** on those hosts, a pi turn is refused before its worker starts, with the reason, when its key or a header runs a command (`!command`), when it uses another provider login (such as GitHub Copilot), a login implementation configured in `models.json` (`oauth`) or another provider API, when pi's `auth.json` is linked into the brain, or when a `models.json` linked into the brain holds a literal key for any provider. Before this change those turns ran with the credential inside the worker.
+
+  **Migration:** if pi's `models.json` points a provider at a custom origin, add that origin to `BRAIN_UI_PI_CREDENTIAL_ORIGINS`, for example `anthropic=https://gateway.ithaca.invalid`. Replace a command-sourced key with a literal, an environment variable or a stored key.
+
+- 2eaa310: Changed (breaking supported input, #2876): the host writers a turn drives outside its worker now refuse the turn's protected paths. An autonomous turn's exactly approved application uses the protection of the governance policy it was admitted under, as a hosted turn's application already did, so an approved autonomous write to a protected path (the built-in tiers or anything in the policy's `protect` list) no longer applies and returns `policy_denied`. A hosted conversation's `inbox_add` refuses the same way when its staging directory `.brain-ui/inbox`, an ancestor, or the arrival it would stage, publish or compensate is protected; nothing is staged and no inbox item is created. A protected path that is itself a link, or a `.env*` name that is one, now also protects where it leads, for every host writer including the hosted application route and image masks (`policy_denied`), and an image mask's scratch prune keeps those files. A target reached through a link keeps the application route's `alias_denied` refusal; inbox staging, which follows links, refuses a link into a protected path or a `.env*` name as protected. To let an autonomous turn or `inbox_add` write there again, remove the path from the policy's `protect` list, or for a built-in tier B path add it to `release`.
+- d9f4405: Changed (breaking supported input, #2699): a hosted or autonomous turn whose governance policy has a `providers` rule with `types:` now reads the brain's taxonomy only from the policy's protected paths. The `brain config check` worker that translates a type into folder masks sees `brain.config.ts`, `node_modules`, `package.json` and the other protected paths, and nothing else of the brain. A configuration that imports a helper, loads a local module or runs a CLI script outside those paths no longer loads there, so every type selector refuses with `ProviderPolicyRefusedError`, naming the file it could not load. The same refusal follows when the taxonomy changes once only the protected paths are visible (the configuration reads or probes another file), when a governed turn created a protected name such as `brain.config.ts` and has not been reconciled, when the policy releases `brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock` or `node_modules`, when the configured brain path is not canonical, and when the brain has no packaged CLI, since its `scripts/brain-cli.ts` fallback cannot start in the taxonomy worker. Previously those configurations translated, trusting code a governed turn could rewrite to decide which assets the masks hide. To keep translating, add every file the configuration loads or reads to the policy's `protect` list (for example `protect: [modules, lib/odysseus-types.ts]`). Configurations whose taxonomy loads only from protected paths, such as the template's, are unaffected.
+
+  Added: `WorkerProviderMasks.visible`, the only brain paths a worker sees, each read-only over an empty brain.
+
+- 918b34a: Enforce governance policy provider folders in hosted interactive and voice turns (#1668). No turn has a proven inference recipient yet, so a provider rule denies every turn: each `folder/**` root reads as an empty read-only directory, `.git` is hidden, and `.brain-index/` is a private, writable index the brain's own CLI builds before the turn from the masked view, so it never holds the masked documents. A provider rule that names a document type, a non-literal glob or a single path refuses turn admission by name instead of staying unenforced. `brain index` without `--embeddings` now runs where only `.brain-index/` is writable.
+- 3c07eae: Host bridge tools now refuse provider-masked folders (#2690). While a provider rule masks a folder for a hosted interactive or voice turn, `brain_read_base`, the application tools, share completion, image masks, `inbox_add` and policy proposals refuse any path at or below that folder with the named `provider_masked` refusal, before reading or writing anything, and record one `provider_mask_refusal` governance event per refused call.
+- d1d7c9f: A hosted interactive or voice turn whose provider rules mask a folder can no longer read the activity record or the inbox (#2698). `query_activity` in every scope, `inbox_list` and `inbox_get` refuse with the named `provider_masked` refusal before reading anything, because those records keep text from earlier runs that may quote a masked document. The tools stay registered; turns without masked folders, and the app itself, read them as before.
+- 4c97b68: The turn journal purges the search-index bytes earlier releases retained (#2903). The first journal open after the upgrade (or a later one, if a capacity or storage refusal defers it) rewrites every stored `.brain-index/` family version, in turn history and in revert records, to the metadata-only entry history already showed, without its hash or symlink target, drops the pins only those versions explained and collects the objects left unpinned; a full index copy was about 120 MB per version. An object that any other record also names (another path's version, a memory note or an attachment removal's retained original) is kept, as is any pin of a turn that has not ended. The purge is one-time, runs in at most two commits on the journal's write worker, resumes after a crash, and returns the freed bytes to the journal's capacity. Object collection reads the pinned hashes once instead of searching every pin per object, so the purge stays under a second on a large journal.
+
+  Breaking before 1.0, under the #2873 ruling as confirmed on #2903: retained index bytes are now removed instead of expiring with ordinary retention, and the embeddings lock database `.brain-index/brain.db.embedding-lock.db` and its `-journal`, `-wal` and `-shm` sidecars join the metadata-only index family, so their versions are no longer retained, previewed, downloaded or restored. A similarly named file elsewhere keeps its bytes.
+
+- 35e25b9: Cancel queued module metadata when its HTTP caller disconnects or as soon as the app starts closing, so `/api/status` no longer holds `close()` open behind a busy output lock. Admitted metadata drains within the close grace period, like other shared runs, with database ownership retained until handlers settle. Add an optional admission-cancellation signal to `BrainClient.modules`.
+- caae12d: Add human-owner attachment review, journal-backed removal and version-checked Undo with durable per-item receipts. Originals are verified and retained before effects; changed, protected, ignored and uncovered files are refused. Interrupted requests never replay, replacements are never overwritten, and retention expiry removes the Undo offer. Add the bounded core primitives and protocol contracts used by this application boundary.
+
+  Read-only attachment inspection exposes the same bounded current facts without consuming a durable operation identity; confirmation still requires a fresh review.
+
+- f62ce30: Expose trusted build-time content-renderer pack registration and authenticated
+  module renderer metadata. Missing bundled packs retain source with an explanatory
+  note; development roots report known module version skew once.
+- cb5db6e: Retain bounded completed host results across live conversation replacement and durable recovery for both voice engines.
+- 790d593: Retain literal provider-policy folder topology in newly admitted governed workers and in native host publication. Shared writers inherit active peer folder plans across policy removal. Existing roots and ancestors resist rename or replacement while contents and permitted siblings stay writable. These primitives do not activate inference routing or establish complete protected-data isolation.
+- 8f7430c: A session that ingests untrusted content now runs under tighter rules for the rest of the session. WebFetch/WebSearch and pi web results, reads under `.brain-ui/inbox/` or `workspaces/`, results from any MCP server other than brain-kit's own, and fetching or unclassified Bash calls record the session's first `taint` governance event. While tainted, every outward action asks for approval even when `outward.allow` matches, and its `outward_action` event says `tainted: true`. On the turn egress proxy, any connection other than the inference relay also taints the session, and a tainted session's new connections reach only `taint.egress.allow` and hosts the session already contacted; refusals are `egress_denial` events with reason `taint_allowlist`. Turns without the proxy keep their network, and the capabilities note says tainted egress is not enforced there.
+- b192ca0: Changed: the hosted server commits turn-journal, Activity and native-lease SQLite writes on a write worker thread at `synchronous=FULL`, in submission order; the event loop awaits each commit instead of blocking in its fsync (#2814).
+  Changed (breaking for direct `TurnJournal` callers): journal writes that callers wait on (`bindSession`, `writeOperation`, Claude memory persistence, revert reservation, retained-version leases and retained streams) are asynchronous; `writeOperation` takes statements, and the journal exposes `ready` for its startup recovery.
+  Added: `StartTurnRequest.persistClaudeMemory` may return a promise; the Claude backend awaits it before persisting the next note or ending the turn.
+- 8822aed: Keep interactive tool schemas stable across posture, strict fallback and temporary host capability changes. Refuse unavailable calls before privileged handlers or approval cards, preserving voice and sandbox authority.
+- b7d1dfd: Validate retained chat identities before session recovery or live voice admission. Missing chats report a scoped SESSION_NOT_FOUND error and offer explicit New conversation recovery while preserving unsent drafts. Known chats and imported-history recovery remain supported, with no implicit replacement or replay of failed work. Live-opening rejections retain request correlation, while independent history failures still retire late provider openings before explicit retry. A rejection for a retired opening releases an explicitly entered replacement without changing its selection or microphone consent.
+- 8476426: Render configured module fences through trusted static entries using the print theme in CLI and API exports. Failed or unsafe entries retain their code with diagnostics. CLI markdown embeds contained local SVG images for offline PDF/PNG rendering.
+- caae12d: Keep bounded Recent, Daily and Weekly Storage observations, qualified seven-day and 30-day capacity scenarios and independent pressure causes. Retain warning and notification evidence across restart, use existing owner-authorized push subscriptions, and suppress ambiguous or restored delivery attempts.
+- caae12d: Expose explicit owner-only Storage housekeeping with durable operation receipts,
+  qualified before/after observations and bounded credential-free workers. Add
+  non-destructive `brain storage pack --json`; retain scratch pins, inbox settlement,
+  recovery evidence and existing retention policy across failures and cancellation.
+- 79bab30: A strict, voice or autonomous turn now sees its own applications in the same turn (#2848). Its worker reads a turn data tree at `/tmp/brain-worker-data`: the documents as the turn started plus every change the turn's host applications committed, with a search index the server brings up to date before the next search. `brain` commands in either shell, Claude's `brain` MCP server and pi's brain tools, `read_file`, `grep`, `brain_read` and shell use it as their data root, while `brain.config.ts`, modules and module settings still load from the frozen view at the brain path. A peer's change made during the turn does not enter it. Admission copies the startup documents into the tree and seeds its index (about 0.1-0.4 s on 2,000 notes).
+
+  Claude's `Read`, `Grep` and `Glob`, and shell commands that name the brain path, still see the turn-start bytes. A Claude `Read` of a file the turn changed is refused and names `mcp__brain__brain_read`, which reads the current version.
+
+  A provider-restricted turn's own applications now reach its private search index too (#2846), and no masked document does: a change enters only if its path is outside the masked folders, neither its result nor its base declares a type the recipient may not see, and its base is what the turn could already see, never a peer's. Such a turn's `brain_add` plans on its own data tree and index, in a masked worker. The private index is now read-only to the agent: `brain index` and `brain` CLI captures inside a masked turn fail, and the server keeps it current instead.
+
+  Core maps a worker's `BRAIN_WORKER_CONFIG_ROOT` back to its `BRAIN_WORKER_DATA_ROOT` during root discovery, and readers there retry `SQLITE_READONLY_RECOVERY` and `SQLITE_BUSY_RECOVERY` a bounded number of times. `@schlessera/brain/module` exports `configurationRoot(root)`; jobs scoring reads `settings/jobs.json` and its criteria document through it. `BackendBridge.awaitIndex` takes the tool's input as an optional second argument.
+
+- 086db5b: On hosts with managed native storage, run governed and strict Claude turns on their own turn egress proxy and the host inference relay by default. Every connection becomes a governance event, policy limits apply, and a connection to an outward host waits for approval unless the tool call in progress was classified as a read or an approved outward action to that host. The capabilities note states recorded egress only for a worker actually routed through the proxy. Elsewhere those turns keep their current network, and `runtime.workerHost.governed.egress` on `GET /api/status` says which applies.
+
+  The relay forwards to the server-selected route (a profile's `baseUrl`, else `ANTHROPIC_BASE_URL`). A custom origin may receive the host's Claude login only when `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` lists it exactly. **Migration:** if a subscription profile or `ANTHROPIC_BASE_URL` points Claude at a custom origin on a host with managed native storage, add that origin to `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, or those turns are refused before their prompt is sent.
+
+  A model-discovery cache entry in the brain no longer supplies a profile's `baseUrl`, credential variable names, model aliases or tools; only the fields discovery itself writes are read back.
+
+- 9b8239d: Record and show host turn lifecycle, admission and first-frame timing alongside unchanged backend-run durations.
+- 8344571: A strict, voice or autonomous turn that applies an image mask now reads the new PNG in its own data tree before its next read, and the scratch files the mask's prune removed are gone from it; a Claude `Read` of the mask at the brain path is refused like any other path the turn applied. In a provider-masked turn the PNG enters the tree only under the provenance rule, compared byte for byte. `AppliedEffect` accepts `Uint8Array` content and base (additive).
+- 9423920: Negotiate host permission outcomes in the client and add scoped voice refusals with an earcon and visual fallback when exact permission speech is unproven. Keep approval controls, original-input attribution, once-only cues, terminal and reconnect receipts tied to the host's actual result. Publish posture-denied outcomes without raising a grant card.
+- 1faf79c: Governed and strict turn workers no longer receive the `brain` CLI's provider keys (#1666). A worker keeps only its own inference credential where the host does not relay it, plus any name an operator admits through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. `GEMINI_API_KEY`, `OPENAI_API_KEY`, `TYPESAFE_API_KEY` and the other provider credentials stay on the host. The brain's `.env*` files were already unreadable in these workers, and now there is a test for that.
+
+  A `brain` command that needs a withheld key names the provider and the key, and falls back where it can. `brain search` returns keyword results, `brain index --embeddings` builds a keyword index, and an enabled `jev` reranker keeps lifecycle order. `brain process`, `brain image` and `brain video watch` refuse, because the built-in providers' own missing-key errors name a withheld key too. Each notice ends in a `[provider_unavailable …]` token. The worker learns which keys it lacks from the new `BRAIN_WITHHELD_KEYS` variable, which holds names only. The server records each token in a tool's result as a `provider_unavailable` governance event, at most 20 per turn. The capabilities note now says that secrets are hidden and names the keys a worker keeps.
+
+  To keep the old behaviour for a key until the metered relays land (#1673), admit it explicitly with `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. Outside a worker, a brain without keys behaves as before.
+
+- 7d1a31d: Run qualified workers under a distinct host identity with authenticated supervision, retained bounded mounts and cancellable private-file recovery.
+
+### Patch Changes
+
+- 2f10e04: Commit account and security administration, passkeys, reference grants and push registration on the SQLite write worker at FULL durability, so their fsyncs do not block requests. Revocation responses await the durable revocation, and concurrent VAPID first uses share one stored key pair.
+- 07fbce8: Commit Action notice enrollment, digests, delivery attempts and zone preferences off the server event loop.
+- bd4eba3: Governed and strict Claude turns on an API-billed profile now run on the turn egress proxy and the host inference relay too, on hosts with managed native storage. The relay sends the profile's `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` to the profile's own route; the worker holds only a placeholder, and neither the variable the profile names nor a host `CLAUDE_CODE_OAUTH_TOKEN` reaches it. Billing is unchanged. The `brain` CLI inside such a worker no longer sees that key either, until its own providers are relayed (#1673). Only the credential the profile declares is sent: an ambient `ANTHROPIC_AUTH_TOKEN` no longer rides along to the profile's route. Project or managed settings that move the route, set a credential variable or configure an `apiKeyHelper` refuse the turn before its prompt is sent, as a transport failure. A host Claude login file linked into the brain refuses relayed turns. `runtime.workerHost.governed.egress` no longer lists API-key profiles as unrouted.
+- f2b91c5: Changed: the hosted server commits local exchanges, a turn's classified blocks and classifier confidence, and a saved worker preference (`PUT …/profile`) on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#2850). A local exchange is still carried by the next prompt while it commits, and is answered once stored; a replayed history waits for the classified blocks submitted before it.
+- 0539931: Keep admitted HTTP handlers alive until they finish before closing server operational state. Refuse new requests during shutdown and cancel stalled request bodies without waiting for an unresponsive body producer.
+- 1ede8ab: Exclude shell calls ended by the user's Stop from governance roadblocks on both backends, while retaining genuine nonzero exits and failures completed before cancellation. Pi reports an aborted shell execution as an abort error instead of an ordinary nonzero result.
+- caae12d: Revalidate Storage maintenance authority after asynchronous worker preparation
+  and record command entry only when preparation and authorization succeed.
+- cf70a33: Retain Claude-generated session titles while attributing measured title-helper usage separately from main-conversation and cache diagnostics. Reconcile supported OTLP receipts within the existing cumulative accounting transaction so helper spend appears once, preserve unmatched usage as unattributed, and respect configured operator telemetry and opt-outs.
+- b17e349: `app.close()` no longer waits indefinitely for brain CLI reads or a plain index run. In-flight runs get a 10 s grace period; then shared runs (reads and plain `index`, whose outputs are disposable) are cancelled. Runs that write Markdown or git are never cancelled by this; every other run keeps its existing shutdown behaviour.
+- 04a6595: Refuse unsupported frontmatter languages before parser engine dispatch in data-only governance, skills, schedules and content workflows. Preserve supported YAML, jobs' legacy JSON scoring input, policy last-valid fallback, approval checks, cache independence and travel's custom YAML date parser.
+- 15a5a3b: Count the brain's disposable search index once per turn at its largest observed size, and stop counting its publication copies once they are gone, so a strict pi turn's host-applied edits no longer pause on the `turn_bytes` scope cap because each index refresh was charged in full.
+- 64af9b5: Changed: the hosted server commits composer drafts, voice transcription claims and settings on its SQLite write worker at FULL durability. Draft reads wait for accepted-message tombstones, providers dispatch only after their transcription claim commits, and settings replies see committed preferences while standalone and cron callers keep their inline behavior.
+- 9d1e078: Keep history-load diagnostics private while preserving voice-opening cleanup and draft recovery.
+- 8cb0fdb: Require actual headroom below the existing finite scope continuation ceiling, including a fresh eligibility check before accepting Continue. Explain exhausted recovery with Stop only, preserve exact observed counts, and remove stale Continue retries and announcements.
+- e1ab485: The first provider-policy turn after the server starts is no longer refused with "An active peer did not retain the requested provider folders". A writer started with the server, such as the boot-time scratch prune, plans its retained folders before any turn has translated a type selector, so its plan lacks those folders. Admission now waits up to 30 seconds for such an earlier writer to finish instead of refusing at once. A peer still active at that bound refuses as before, and peers that are unsafe whatever they do next (unaccounted, unverified or unpinned host plans) still refuse immediately.
+- b90d60d: Keep queued voice work stopped while its epoch drains a storage failure, then cancel it when the epoch ends.
+- 5b476a7: Accept bounded UTF-8 binary JSON frames from Gemini Live without changing host-owned conversation authority.
+- 880f005: Keep Gemini Live connections open for empty JSON object envelopes after setup while retaining rejection of unknown-only nonempty payloads and existing input attribution guards.
+- 8351c98: Changed: the hosted server commits governance events raised outside a journal transaction, the session's first taint, roadblock records and turn scope rows on its SQLite write worker at `synchronous=FULL`, in submission order with journal and Activity writes, instead of on the event loop (#2850). A turn's egress connection sends its first byte only after its taint has committed, and admission counts that taint from the moment it is submitted.
+  Changed: the egress proxy awaits a promise returned from its `admitted` hook before the connection's first upstream byte.
+- caf5ee0: Changed: the hosted server commits a governed turn's admission records (the policy it was admitted under, provider exposures, masked lineage and its protected-path manifest) on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#2850). Admission still waits for each record before the turn goes on.
+- 9a3af9b: Resolve inference credentials per dispatch and serialize host OAuth access with credentialed maintenance through a crash-safe kernel lock.
+- c888781: Honor declared writer gates in legacy asynchronous host execution, retaining admission through command and output cleanup before governed transitions.
+- 4ba50d8: Keep host GitHub credentials, including the skills installer token, out of maintenance and agent workers. Share the credential names across environment boundaries while preserving the mirror transport and skills installer's dedicated tokens and generic fallback.
+- f1f3ad7: Count ignored-file observed bytes once per turn per path using the largest observed size, preserving hashed-version accounting, and display session-profile scope byte caps in readable binary units.
+- 9f893b5: A hosted turn refused for a hardlink out of a masked provider folder now names the same masked file on every host. The check reads each directory in a fixed order instead of the filesystem's own.
+- ae6b804: A provider policy that selects a folder inside another selected folder, such as `me/**` beside `me/sub/**`, no longer fails every hosted turn at worker launch. The nested folder is hidden by its ancestor's mask, and the masks, retention, private index and hardlink check share that one set.
+- c696f99: Changed: the turn journal keeps its tables in its own SQLite file, `DB_PATH.journal.db`, attached to the UI database; they move there on the first start. Its capacity is that file's page count and WAL, with no b-tree walk on a journal write (#2789).
+  Changed: a steering change's governance event that did not commit with it is recorded again on start, from the journal.
+- ab746a4: A host-applied write that overlapped a journal observation or a scope pause was refused as `authority_revoked` even though the turn's principal was still valid (#2853). With quick applications the window was easy to hit: one write in a turn failed and the next succeeded. An observation or pause now holds the write instead. The write waits outside the shared brain lock, each wait for at most 60 seconds, then commits once the hold clears. Nothing commits while a hold is active. Image masks, policy publication and the other host bridge calls wait the same way. A principal that really lost authority still refuses with `authority_revoked` at once, even mid-wait. A write still held when the 60 seconds run out refuses with `application_failed` and changes nothing, so `authority_revoked` keeps its meaning.
+- b2f2f25: Changed: a journal write no longer truncates the SQLite WAL first; admission charges the WAL as it stands and truncates only when that would refuse. Commits stay `synchronous=FULL` (#2789).
+  Changed: journal capacity measurement walks only the journal's own SQLite b-trees, not the whole database.
+  Changed: a journal row changed outside capacity accounting on the server's connection is refused.
+  Changed: the server's maintenance temporary-storage ledger stays open between reservations instead of opening and closing its database each time.
+- 34b08d1: Speed up ordinary turn-journal object collection by indexing object pins by hash. The index is built only after reserving its database and WAL growth within the existing journal cap, with sorting in memory and foreign-key enforcement enabled. A near-cap journal defers the upgrade, keeps its existing integrity-checked expiry and collection path, and retries after collection frees enough capacity or on restart. Retention and pin/reservation ownership rules are unchanged.
+
+  Operational backups preserve their canonical schema by omitting this derived index. A restored journal admits and rebuilds it only when capacity allows.
+
+- 66c370b: Keep queued replies visible when a reconnect history read overlaps turn completion. Re-read an invalidated snapshot once and refuse a second invalidated snapshot instead of replacing newer delivered messages.
+
+  Preserve the live assistant message when refreshed history inserts its missing user row.
+
+- 404a98f: Bound the historical host outcomes that the Gemini Live and GPT Live adapters send when a replacement epoch opens. The limit is in exact UTF-8 bytes: 24,000 for Gemini and 7,500 for GPT, of which at most 16,000 and 5,000 may be result text. Selection is newest first. A result that does not fit whole is replaced by its request and state marked `resultOmitted`, and when older outcomes are dropped the block starts with an explicit marker. Gemini now seeds this history in its documented ordered-history mode before any audio. Context that the previous formatter already produced within both limits is sent unchanged; otherwise no joined result is dropped without being marked. The GPT limit is estimated headroom under its documented 8,192-token startup input, not a proven token bound.
+- 9bebef7: Clarify maintenance completion and sync-mirror validation: namespace init retains output pipes after the outer monitor can exit, and a teardown artifact must still be refused before transport. Runtime behavior is unchanged.
+- 14fd04f: Close masked CLI stdin after worker exit and wait for masked CLI and turn-tree maintenance stdio to be released before settling, within the existing 5 second bound.
+- 6814f2c: Record a Claude memory note saved during a turn before that turn's journal closes, now that journal commits run off the event loop. A save still committing when the turn finished was refused after the note had already been written, and the turn ended partial with the note unconfirmed. A save requested after the turn finishes is refused before it writes, and a memory record no longer reuses the sequence of an observation that is still committing (#2893).
+- 6c5a4f4: Refuse the legacy host fallback while a provider folder policy is active (#2284). A host process's descendants cannot be bounded, so on a never-governed host a command that would run brain code on the host now throws before any process starts: `HostFallbackRefusedError` naming the folders, or an existing peer refusal that is checked first. This covers complete, streaming and synchronous commands, gated or not, and folders a running writer still retains after the policy changes. A policy file that cannot be read or parsed counts as unknown and refuses too. Without provider folders host fallback still runs, except that an ungated command now also refuses beside a running writer whose folder provenance is unknown.
+- e69ade4: Changed: the hosted server commits the Activity notifier's tick, intent delivery status, acknowledgements and retention, and push delivery's subscription bookkeeping on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#2850). A delivery pass settles only once its writes have committed, so the next pass never resends an intent.
+- dca0e34: Isolate login failure buckets, passkey challenges, sync admission and message receipt ordering between app instances.
+- 498270f: Prepare protected maintenance metadata through the retained native manager and use the verified separate-UID launcher for credential-free helper maintenance. Bind command preparation and cleanup to the owned stage, reject stale or foreign plans, and retain concrete frozen Git inputs read-only inside the existing staging allowance with their writable alias concealed and private control excluded from publication. Preserve directory setgid modes during native output publication. Register only validated, originally absent Git mask scaffolds inside the owned stage, preserving live absence and refusing protected-path changes or incomplete preparation. Credentialed and no-helper paths retain their existing behavior. Native Git qualification covers the documented shared-group metadata envelope; private, non-shared lower Git metadata remains unsupported.
+- 066107c: Put the brain's installed CLI first on governed and strict interactive workers' PATH, matching maintenance workers, and explain installation in the sandbox note when it is missing. Restricted autonomous environments retain their fixed PATH.
+- cb86cb7: Keep ordinary maintenance working after a strict worker publishes private output. With a separate worker identity, Git input preparation used to refuse once a published `0700` directory existed, so the authenticated index returned HTTP 500. The worker collector now withholds directories its identity cannot search. The server then reads only the nested `.gitattributes` of withheld directories it owns, from the retained checkpoint. Modes and ownership stay unchanged, and aliases, foreign owners and replaced identities still refuse.
+- d01fa34: Keep host-owned policy-publication staging inside the approved synchronous journal boundary so history retains the user policy change without temporary agent-attributed noise. Similarly named real agent changes remain recorded; exact bytes, approval checks and partial/unknown failure receipts are preserved.
+- 047a1cb: Name the offending hidden path segment when the server application route refuses a write, preserving the Markdown diagnostic for non-Markdown paths and all existing path restrictions.
+- 048b686: Record completed fetching and opaque shell calls as the first untrusted input in an interactive session. This supplies pre-proxy command detection only; complete taint enforcement and ordinary egress activation remain separate.
+- 0125555: Preserve runtime-written provider transcript entries across turns. Store promoted
+  answer-link display mappings and authoritative Pi application receipts in host-owned
+  replay metadata so history retains promoted links and receipts without changing
+  prior model text or tool results. Recover only missing results for runtime-written
+  Pi calls after the worker exits; direct server applications create no provider entry.
+- 7150354: Changed: the hosted server commits authentication's per-request principal writes (the `last_seen_at` touch, terminal-principal pruning, ambient principal resolution and a login's new principal) on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#2850). A request never waits for its touch; a login answers once its principal has committed.
+- 344ab3a: A provider-restricted hosted turn after one that added or edited notes no longer updates its private search index before it starts (#2833). After each turn's index refresh, the server brings its kept build up to a fresh checkpoint of the brain, off the turn path, under the same rules as before: new notes are added, a changed, removed or newly masked note is rebuilt from nothing, and anything it cannot prove drops the build so the next turn makes a clean one.
+- 58b70e8: A provider-restricted hosted turn no longer rebuilds its private search index from scratch on every turn (#2833). The server keeps one host-owned build per policy, mask set and recipient, bound to the native checkpoint it was built from, and reuses it when the turn's checkpoint provably indexes to the same thing: unchanged, or only new notes outside the masked folders, which the incremental index adds. Any other change, such as a note edited, removed or moved into a masked folder, still builds the index from nothing, so no removed or masked text survives in it.
+- 19b43c6: Support disjoint private server-state masks below inaccessible server-owned parent directories for separate-identity workers, without exposing their contents or covering required brain and runtime paths.
+- 1c5666e: A governed or strict pi turn no longer waits for a full journal observation after a call that is proven read-only (#2834). The host observes after every tool result unless the backend reported, from what the call actually did, that it ran a host bridge read (`brain_read_base`, `query_activity`, `inbox_list`, `inbox_get`, `show_block`, `ask_user*`, `get_current_location`) or pi's own `read_file`, no other call is still running, and no call in the turn could still be writing in the background. `bash`, `grep`, `brain_search` and the other index tools, extension tools, unknown tools and every Claude tool are observed as before, and after one of them every later result in that turn is observed too. Writers are observed after their own result. Only a pi worker that loads no extensions (`loadExtensions: false`, or a restricted autonomous turn) reports this evidence: with extensions loaded, the default, every result is observed as before. Turn begin and finish, the 15-second observation and scope-limit enforcement are unchanged.
+- b99489b: Move hosted inbox lifecycle commits off the event loop at FULL durability. Correct the public declaration drift by marking `WsHost.inboxTools` and `WsHostOptions.inboxTools` internal under the #1053 narrowing ruling; these concrete inbox helpers are supplied by `createApp`.
+- 7487b90: Stop adding routine inference-budget totals to governed provider prompts. Repair legacy history replay so local commands retain their position and user messages regain voice, thinking and file metadata, without rewriting provider transcripts.
+- 37c8629: Close the app-owned SQLite write worker during ordinary shutdown after its consumers and independent push deliveries drain, preserving accepted notification outcomes and retaining bounded diagnostics and counts for settled persistence failures through unconditional cleanup.
+- 20a5fc1: Keep successful Activity runs free of run-level failure reasons when a child tool failed and recovered. Child errors remain visible in the trace, and existing rollups are corrected when rolled up again.
+- ec05e4e: Seed steering configuration from supported startup and module consumers, excluding incidental dependency and cloned-project manifests.
+- 1de1239: Refuse protected folder admission beside an unpinned host writer even when its advisory plan names every protected root. Record host provenance before process creation and refuse the inverse unsafe admission while preserving shared host concurrency.
+- fd51cad: Commit schedule proposals, approvals, publication, cancellation and reconciliation off the server's event loop while retaining FULL SQLite durability.
+- 6a73a59: Fix Gemini Live setup by omitting the parameter schema for the parameterless host delegation function.
+- cb56a71: Accept documented Gemini Live voice activity metadata without closing the audio session. Metadata does not establish input attribution, transcript finalization or permission authority; malformed frames still fail closed.
+- abe5086: Apply the existing SQLite busy timeout before enabling WAL so server and cron startup can wait for a transient database lock instead of exiting immediately.
+- da1ec5f: Changed: the hosted server commits reference-source, managed-worktree and hygiene writes on its SQLite write worker at full durability, including periodic checkpoint observations, while keeping lease, generation and cleanup effects ordered before their callers continue.
+- 2235ab4: Refuse a new governed provider-folder admission while an active peer has an unaccounted or insufficient folder plan. Preserve existing writers, nested shared maintenance and strict consumers; successful plans do not attest mounted privacy.
+- 965578d: Use completed response receipts for resumed Claude turns instead of the runtime's session-cumulative cost and model usage. Retain newly observed unstreamed usage separately and once in Activity and session totals, with explicit unknown attribution and partial coverage after missing history or counter rollback. Model identifiers retain their own counters across response snapshots and persisted reconciliation, including names that match inherited JavaScript properties.
+- 64af9b5: Changed: the hosted server commits retained retry requests, retry receipts and policy proposal inserts and review saves on its SQLite write worker at FULL durability. Retry invalidation remains fail closed while queued or failed, reservations commit before dispatch, and policy publication waits for its writing review to commit.
+- d1e9dba: Admit schedule Git ignore probes through the shared writer gate so native publication retains active peers’ protected folders and waits for exclusive maintenance.
+- 335ee04: Apply scratch image masks through an asynchronously prepared native ignore query, and distinguish a missing ignore rule from unavailable verification.
+
+  Keep construction-only clients usable for missing brain paths; validate the canonical brain directory when the query executes under its maintenance lock.
+
+- bb7b5d1: Changed: the hosted server commits the session catalog on its SQLite write worker at `synchronous=FULL`, in submission order, instead of on the event loop (#2850): the session row, accepted work and turn boundaries, message sources, turn failures, the state room, Claude usage accounting, handoff links, labels and session costs, and the worker-profile and policy-proposal binds a new session makes. Reads on the turn path see a write from its submission; the session list, history replays and retry reads wait for the writes submitted before them.
+- 88012cf: A Claude or pi agent turn, a pi worker whose initialization or start callback was refused, and a streaming maintenance launch now finish only once every descriptor on their worker's stdio FIFOs is closed in the server, or after the 5 second bound of the worker's `released()` (#2863). Bun closes its own duplicates of those descriptors later, on its thread pool, so on a busy host a finished turn could report itself done with them still open. A streaming launch keeps its output slot and writer gate until then, but reports the worker's exit as before: a caller that reads the streams only after the exit is not held up. A scheduled job run through the host boundary ends only once its launch has settled, so the writer gate is free before the job's host closes its database. The worker's stdin is now closed once it has exited.
+- a19ce13: Cut a native journal observation's own cost (#2872). The native brain manager runs its root and loop-device identity checks in one long-lived `python3 -I -S` interpreter instead of a fresh launch per check, with the same programs, paths and refusals. The journal releases the previous native checkpoint after the observation that superseded it is recorded, outside the hold that freezes the turn's workers, at most two pending per observed root; a commit past that waits as before. A release that fails there still stops every active turn and leaves its record partial, and shutdown drains pending releases and reports any checkpoint it could not release.
+- 4d3c58d: Freeze a maintenance command's Git attributes in one worker launch instead of one launch per object, which cut each hosted maintenance run's Git preparation by about two thirds on a loaded host.
+- 55dbf1c: Retain session-stable prompt appends and deliver changed host facts in owned new tail context, preserving user history and unknown device capabilities.
+- ac61ecf: Keep pending dialogue write accounting attached to its stable owner across provisional chat adoption, preserving count and byte bounds and retiring drained bookkeeping.
+- ab61774: Changed: the hosted server commits shared storage scan leases and storage maintenance receipts on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#3028). A scan's collector starts only after its lease commits, a maintenance route answers once its receipt has committed, and a cancellation takes effect once it is durable.
+- eefed8b: Changed: the hosted server commits its storage history flush and storage notice bookkeeping (the 20-second sweep, and a delivery's begin and finish) on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#2850). Buffered observations are kept until their flush commits, and shutdown waits for the final one.
+- 6c16711: Record failed handoff preparation and ordinary chat result messages in Activity, including empty summaries and backend startup failures. Keep successful and cancelled runs free of failure reasons.
+- 482ebd1: Group shell compound commands by their body program so a successful plain command can resolve a failed loop in roadblock reports.
+- bbb5a41: Send the final session recovery notification after Activity commits so work finished in the background reaches its tracker with the host's completion time.
+- 498270f: Keep worker identity probe sentinels in validated server state outside the brain, including memory-backed apps with native lease state, so concurrent checkpoints cannot capture private probe inputs.
+- a268b3d: Classify journal steering references by supported input roles instead of arbitrary quoted filenames. Exclude the resolved disposable index and its SQLite sidecars while retaining genuine startup inputs and explicit coverage limitations.
+- 1411f0c: Changed: the hosted server commits every turn-budget ledger write (admission, session binding, completed-response and relayed-provider usage, warnings and the SDK backstop) on its SQLite write worker at `synchronous=FULL`, in submission order, instead of on the event loop (#2850). A relayed provider request is admitted only once every earlier budget write has committed.
+  Changed: the provider relay awaits a promise returned from its `admit` hook.
+- c670449: A strict, voice or autonomous turn's data tree is built faster: admission copies its files and the index seed sixteen at a time off the event loop, requesting a reflink, instead of one file after another, and an aborted admission stops the copy and removes it. On the native fixture this halves the copy (2,000 notes 100 ms to 51 ms, 10,000 notes 471 ms to 245 ms).
+- d0697d9: A provider-policy turn whose rules select document types is no longer held for 30 seconds and then refused with "An active peer did not retain the requested provider folders" while a cron job, or a writer started after a server restart, is running. The folders a turn translates those types to are now recorded in the UI database under the policy's hash, so writers in every process, and after a restart, plan them while the policy is unchanged. A record from another policy version or another brain, or one that cannot be read, plans nothing. Admission still translates the types itself and still refuses a writer lacking what it masks. The first turn under a new policy version still waits for writers admitted before it, as before.
+- c452cf1: Keep the hosted server answering while the remaining worker checks run. A Claude turn now claims its session at once and then awaits its worker host probe, and a Claude worker's probe and bubblewrap launch are awaited behind the deferred spawn instead of inside the SDK's synchronous callback. A separate-UID worker's exit is polled without blocking, and so are the separate-UID maintenance launch and the scratch mask's git ignore check. The checks, their order and their refusals are unchanged: a refused probe still rejects the turn and leaves no turn behind, and a worker that does not start still names the turn's failure with its own error.
+- 6492291: Keep the hosted server answering while a turn's worker checks run. The per-turn worker host probe, the sandbox's scratch git check and the pi worker launch now wait on their bubblewrap workers without blocking the event loop, so `/health` and WebSocket pings no longer stall while a loaded host starts a worker. The checks, their order and their refusals are unchanged; the synchronous forms remain for callers that cannot await.
+- 498270f: Collect frozen Git attributes and repository hook inputs under the qualified worker identity so intentional private file modes remain usable without widening host access.
+- 5f27615: Retain imported-history lookup failure causes and exactly-once failure metrics in host diagnostics, while keeping resume errors safe for clients.
+- 9eb6c83: Preview SVG files as images with a raw-source toggle, and select light SVG image palettes when printing the app.
+- 2577504: Changed: the hosted server commits the brain's writer gate on its SQLite write worker at `synchronous=FULL` instead of on the event loop (#2850). Each gate transaction keeps its `BEGIN IMMEDIATE`, so it stays serialized against the cron runner's. A release is submitted at once and settles once it has committed; a host process spawns only after its downgrade has committed and the boundary is still the host fallback; a type folder translation that cannot be recorded refuses the turn.
+- Updated dependencies [e1b8980]
+- Updated dependencies [c60f956]
+- Updated dependencies [bddd0a4]
+- Updated dependencies [1f032f9]
+- Updated dependencies [2d21e91]
+- Updated dependencies [2fe4005]
+- Updated dependencies [603a754]
+- Updated dependencies [caae12d]
+- Updated dependencies [4349af3]
+- Updated dependencies [cf70a33]
+- Updated dependencies [3b3485e]
+- Updated dependencies [b63276f]
+- Updated dependencies [7eedceb]
+- Updated dependencies [07bf0ee]
+- Updated dependencies [04a6595]
+- Updated dependencies [d2bb3b3]
+- Updated dependencies [11239d6]
+- Updated dependencies [8fc9663]
+- Updated dependencies [fb219e0]
+- Updated dependencies [39d16cb]
+- Updated dependencies [0316ccf]
+- Updated dependencies [1977f52]
+- Updated dependencies [d3a49c1]
+- Updated dependencies [498270f]
+- Updated dependencies [800d965]
+- Updated dependencies [3fb5199]
+- Updated dependencies [8351c98]
+- Updated dependencies [aeaaf77]
+- Updated dependencies [9a3af9b]
+- Updated dependencies [4ba50d8]
+- Updated dependencies [bde209b]
+- Updated dependencies [5e6446a]
+- Updated dependencies [cf25c12]
+- Updated dependencies [498a601]
+- Updated dependencies [ff70ec1]
+- Updated dependencies [f3c6fdc]
+- Updated dependencies [477c8f7]
+- Updated dependencies [62cb35c]
+- Updated dependencies [1135899]
+- Updated dependencies [ea4c76c]
+- Updated dependencies [c06dbb4]
+- Updated dependencies [d6a07c4]
+- Updated dependencies [c89045b]
+- Updated dependencies [b2f2f25]
+- Updated dependencies [abf5b3e]
+- Updated dependencies [85873db]
+- Updated dependencies [07bf0ee]
+- Updated dependencies [00a583b]
+- Updated dependencies [e261d53]
+- Updated dependencies [3f68a36]
+- Updated dependencies [9bebef7]
+- Updated dependencies [5322d30]
+- Updated dependencies [69151ca]
+- Updated dependencies [b70d422]
+- Updated dependencies [1794e72]
+- Updated dependencies [d9ac37b]
+- Updated dependencies [9f930f6]
+- Updated dependencies [046b6ae]
+- Updated dependencies [5b34b6f]
+- Updated dependencies [498270f]
+- Updated dependencies [49c8b1d]
+- Updated dependencies [5600c72]
+- Updated dependencies [caae12d]
+- Updated dependencies [066107c]
+- Updated dependencies [6099bdf]
+- Updated dependencies [d85a649]
+- Updated dependencies [6470786]
+- Updated dependencies [ce3345b]
+- Updated dependencies [a90490e]
+- Updated dependencies [b9805a4]
+- Updated dependencies [0125555]
+- Updated dependencies [19b43c6]
+- Updated dependencies [8823a28]
+- Updated dependencies [d9f4405]
+- Updated dependencies [1c5666e]
+- Updated dependencies [918b34a]
+- Updated dependencies [c164899]
+- Updated dependencies [61399d1]
+- Updated dependencies [775cd1b]
+- Updated dependencies [613f1bd]
+- Updated dependencies [498270f]
+- Updated dependencies [3cc0a60]
+- Updated dependencies [caae12d]
+- Updated dependencies [650caaf]
+- Updated dependencies [f62ce30]
+- Updated dependencies [9c52e8c]
+- Updated dependencies [e7c037b]
+- Updated dependencies [965578d]
+- Updated dependencies [cb5db6e]
+- Updated dependencies [790d593]
+- Updated dependencies [335ee04]
+- Updated dependencies [02c74a3]
+- Updated dependencies [1ba7673]
+- Updated dependencies [8f7430c]
+- Updated dependencies [a19ce13]
+- Updated dependencies [8d06beb]
+- Updated dependencies [b192ca0]
+- Updated dependencies [8822aed]
+- Updated dependencies [55dbf1c]
+- Updated dependencies [8476426]
+- Updated dependencies [25a97da]
+- Updated dependencies [caae12d]
+- Updated dependencies [caae12d]
+- Updated dependencies [2d86dc5]
+- Updated dependencies [d6ad60a]
+- Updated dependencies [1411f0c]
+- Updated dependencies [79bab30]
+- Updated dependencies [086db5b]
+- Updated dependencies [9b8239d]
+- Updated dependencies [c452cf1]
+- Updated dependencies [6492291]
+- Updated dependencies [9423920]
+- Updated dependencies [1faf79c]
+- Updated dependencies [7d1a31d]
+  - @schlessera/brain-ui-sdk@0.44.0
+  - @schlessera/brain-common@0.44.0
+  - @schlessera/brain-geo@0.44.0
+  - @schlessera/brain-render-template@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes

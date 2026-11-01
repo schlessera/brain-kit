@@ -146,7 +146,7 @@ export function releaseEntries(packagesRoot: string = root): ReleaseEntry[] {
 }
 
 async function main(): Promise<void> {
-  // `bun run release -- --dry-run [root]` prints what would be published, in
+  // `bun scripts/publish.ts --dry-run [root]` prints what would be published, in
   // order, and stops: no artifact checks, no registry, no publish, no tag.
   const args = process.argv.slice(2);
   if (args.includes("--dry-run")) {

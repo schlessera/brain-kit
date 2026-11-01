@@ -15,7 +15,7 @@ import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
 const roots: string[] = [];
@@ -43,7 +43,7 @@ function brainWithCli(command: string, output: unknown, afterMs: number | null) 
   const cli = join(bin, "brain");
   writeFileSync(cli, `#!/usr/bin/env bun
 const args = process.argv.slice(2);
-if (args.includes("--version")) { console.log("0.42.0"); process.exit(0); }
+if (args.includes("--version")) { console.log("${MIN_BRAIN_CLI_VERSION}"); process.exit(0); }
 if (args[0] !== ${JSON.stringify(command)}) { console.log("{}"); process.exit(0); }
 ${afterMs === null ? "setInterval(() => {}, 1000);" : `await Bun.sleep(${afterMs});\nconsole.log(${JSON.stringify(JSON.stringify(output))});`}
 `);

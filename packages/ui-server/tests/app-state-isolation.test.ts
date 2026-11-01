@@ -8,7 +8,7 @@ import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 // Real createApp wiring, databases and password verification; the explicit
 // offline storage fixture does not claim native filesystem qualification.
 test("createApp isolates login and passkey option buckets (#1364)", async () => {
@@ -62,7 +62,7 @@ test("two differently configured apps isolate exec wrappers and login/passkey bu
       mkdirSync(binDir, { recursive: true });
       const bin = join(binDir, "brain");
       writeFileSync(bin, `#!/usr/bin/env bun\n` +
-        `if (process.argv.includes("--version")) console.log("0.43.1");\n` +
+        `if (process.argv.includes("--version")) console.log("${MIN_BRAIN_CLI_VERSION}");\n` +
         `else console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
       chmodSync(bin, 0o755);
       const wrapper = join(brainPath, `${name}.sh`);

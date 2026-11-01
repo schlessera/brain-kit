@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
@@ -295,7 +295,7 @@ async function withBootPruneApp(source: string, action: (fixture: {
   try {
     mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
     writeFileSync(bin, `#!/usr/bin/env bun\n` +
-      `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` + source);
+      `if (process.argv.includes("--version")) { console.log("${MIN_BRAIN_CLI_VERSION}"); process.exit(0); }\n` + source);
     chmodSync(bin, 0o755);
     const observability = createRecordingObservability();
     app = await createApp({
@@ -382,7 +382,7 @@ describe("the shared test-app helper", () => {
         writeFileSync(
           join(binDir, "brain"),
           `#!/usr/bin/env bun\n` +
-            `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
+            `if (process.argv.includes("--version")) { console.log("${MIN_BRAIN_CLI_VERSION}"); process.exit(0); }\n` +
             `await Bun.sleep(60_000);\n`
         );
         chmodSync(join(binDir, "brain"), 0o755);

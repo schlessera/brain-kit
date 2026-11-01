@@ -36,7 +36,7 @@ Ask what they want:
 **Always verify repo visibility after `gh repo create`.** A brain pushed to a public repo is a
 serious leak; confirm private before pushing content, and stop if the check disagrees.
 
-The server refuses to boot against `@schlessera/brain` older than 0.42.0 — a
+The server refuses to boot against `@schlessera/brain` older than 0.44.0 — a
 floor covering every command and flag the server invokes, including scratch pin
 input and hygiene review. From 0.44.0 the server reads the index in
 `.brain-index/`, so pair it with a 0.44.0 CLI. Bump the content repo's pin and

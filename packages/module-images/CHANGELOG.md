@@ -1,5 +1,52 @@
 # @schlessera/brain-module-images
 
+## 0.44.0
+
+### Minor Changes
+
+- 69151ca: The `brain` CLI's paid providers work again in governed and strict turn workers, through a metered host relay, and the worker still holds no provider key (#1673). On a host with managed native storage, each such turn gets a relay beside its egress proxy. Gemini embeddings, Gemini completions without video, Anthropic completions, and OpenAI and Gemini images send their native requests to it. The server adds the key, records each request's usage on the turn, counts it toward the turn, conversation and day budgets, and refuses the next request with `budget_exceeded` once a budget is blocked. Nothing is reserved, so requests already in flight can take a budget slightly past its stop. `brain search` uses its vectors again instead of falling back to keyword results. The relay refuses streamed requests, caps how many requests and request bytes it holds at once, and replaces any copy of the key in a response with `[redacted]`. `brain video watch` and the `jev` reranker are not relayed and still report `provider_unavailable`.
+
+  A relayed Claude API-key turn no longer breaks `anthropic-haiku`. The CLI used to send the turn's inference placeholder and fail authentication; it now reaches the host's `ANTHROPIC_API_KEY` through the relay.
+
+  Credentialed maintenance (search from the UI, cron jobs, module actions) on those hosts also runs without `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or the brain's `.env*`, and uses its own relay. A run started from a turn's tool is charged to that turn; any other run counts toward the UTC day. Keys the relay does not carry, such as `TYPESAFE_API_KEY`, stay as before. Hosts without managed native storage are unchanged, and worker-host status says so.
+
+  The budget receipt's `coverage` now reads "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered". Receipts stored earlier keep the old text, and the schema accepts both. Gemini embeddings are priced at Google's list price per input modality. Image requests stay unpriced, and their reported tokens count toward the unpriced-token stops.
+
+  **Migration:** the relay sends a key only to its own first-party origin. If you point a built-in provider at a custom endpoint (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_BASE_URL`, `OPENAI_BASE_URL`), or use a custom `apiKeyEnv`, list that key and exact origin in the new `BRAIN_UI_CLI_PROVIDER_ORIGINS`, for example `GEMINI_API_KEY=https://gateway.ithaca.invalid`. Until you do, the relay refuses those requests. Keys must be in the server's environment; a key kept only in the brain's `.env` no longer reaches relayed maintenance. A governed turn with an `allowlist` egress policy needs the provider's host on that allowlist.
+
+### Patch Changes
+
+- 05d6c73: Ship the diagram authoring skill and generated module workflow instructions, with worked examples and type-reference routing. Distinguish structured diagram figures from pictorial image generation and correct the shipped node-link check commands.
+- 1faf79c: Governed and strict turn workers no longer receive the `brain` CLI's provider keys (#1666). A worker keeps only its own inference credential where the host does not relay it, plus any name an operator admits through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. `GEMINI_API_KEY`, `OPENAI_API_KEY`, `TYPESAFE_API_KEY` and the other provider credentials stay on the host. The brain's `.env*` files were already unreadable in these workers, and now there is a test for that.
+
+  A `brain` command that needs a withheld key names the provider and the key, and falls back where it can. `brain search` returns keyword results, `brain index --embeddings` builds a keyword index, and an enabled `jev` reranker keeps lifecycle order. `brain process`, `brain image` and `brain video watch` refuse, because the built-in providers' own missing-key errors name a withheld key too. Each notice ends in a `[provider_unavailable …]` token. The worker learns which keys it lacks from the new `BRAIN_WITHHELD_KEYS` variable, which holds names only. The server records each token in a tool's result as a `provider_unavailable` governance event, at most 20 per turn. The capabilities note now says that secrets are hidden and names the keys a worker keeps.
+
+  To keep the old behaviour for a key until the metered relays land (#1673), admit it explicitly with `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. Outside a worker, a brain without keys behaves as before.
+
+- Updated dependencies [603a754]
+- Updated dependencies [c69d04e]
+- Updated dependencies [04a6595]
+- Updated dependencies [d2bb3b3]
+- Updated dependencies [61c73e2]
+- Updated dependencies [800d965]
+- Updated dependencies [bde209b]
+- Updated dependencies [ff70ec1]
+- Updated dependencies [dc5d3c7]
+- Updated dependencies [69151ca]
+- Updated dependencies [4931275]
+- Updated dependencies [caae12d]
+- Updated dependencies [066107c]
+- Updated dependencies [918b34a]
+- Updated dependencies [caae12d]
+- Updated dependencies [c5d2755]
+- Updated dependencies [8476426]
+- Updated dependencies [caae12d]
+- Updated dependencies [79bab30]
+- Updated dependencies [d5692af]
+- Updated dependencies [1faf79c]
+  - @schlessera/brain@0.44.0
+  - @schlessera/brain-common@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes

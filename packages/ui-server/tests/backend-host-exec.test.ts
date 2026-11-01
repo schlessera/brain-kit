@@ -8,7 +8,7 @@ import * as pi from "../../ui-backend-pi/src/backend.js";
 import { createFixtureApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createRecordingObservability } from "../src/observability/index.js";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 mockWorkerHostForSdkStream();
 
 for (const backendId of ["claude", "pi"] as const) test(`apps pass their host wrapper to ${backendId} turns, including empty/absent compatibility (#1429)`, async () => {
@@ -55,7 +55,7 @@ for (const backendId of ["claude", "pi"] as const) test(`apps pass their host wr
     for (const [index, exec] of [{ wrapper: a.path }, { wrapper: c.path }, {}, undefined].entries()) {
       const brain = join(root, "brain-" + index);
       mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-      writeFileSync(join(brain, "node_modules/.bin/brain"), '#!/bin/sh\necho "0.42.0"\n', { mode: 0o755 });
+      writeFileSync(join(brain, "node_modules/.bin/brain"), `#!/bin/sh\necho "${MIN_BRAIN_CLI_VERSION}"\n`, { mode: 0o755 });
       const config = resolveServerConfig({ NODE_ENV: "test", AUTH_MODE: "none", HOST: "127.0.0.1",
         DB_PATH: ":memory:", BRAIN_PATH: brain, AGENT_BACKEND: backendId, CLAUDE_CODE_PATH: binary,
         PI_MODEL: "anthropic/claude-sonnet-4-5", BRAIN_UI_PRICING_DISCOVERY: "0" });

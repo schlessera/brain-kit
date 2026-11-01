@@ -11,7 +11,7 @@ import { createTestApp } from "./helpers/test-app";
 import { prepareFixtureWorkerOutput as prepareMaintenanceOutput } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { listDirectory } from "../src/files/walker.js";
 import { installNativeHostFixtures } from "./helpers/native-host-fixture.js";
-
+import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
 import { createUiDb } from "../src/db/client.js";
 import { processStateLedger } from "../../ui-sdk/src/server/worker-state-budget.js";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
@@ -408,7 +408,7 @@ test("separate maintenance clients serialize frozen preparation through publicat
 test("app close drains its real deferred maintenance refresh before closing the writer gate database", async () => {
   const fixture = await createTestApp({ prepare(brain) {
     mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-    writeFileSync(join(brain, "node_modules/.bin/brain"), `#!${process.execPath}\nif(process.argv.includes("--version")) console.log("0.42.0");
+    writeFileSync(join(brain, "node_modules/.bin/brain"), `#!${process.execPath}\nif(process.argv.includes("--version")) console.log("${MIN_BRAIN_CLI_VERSION}");
 else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");} else console.log("{}");`, { mode: 0o755 });
   } });
   try {

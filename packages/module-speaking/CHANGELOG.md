@@ -1,5 +1,31 @@
 # @schlessera/brain-module-speaking
 
+## 0.44.0
+
+### Patch Changes
+
+- Updated dependencies [603a754]
+- Updated dependencies [c69d04e]
+- Updated dependencies [04a6595]
+- Updated dependencies [d2bb3b3]
+- Updated dependencies [61c73e2]
+- Updated dependencies [800d965]
+- Updated dependencies [bde209b]
+- Updated dependencies [ff70ec1]
+- Updated dependencies [dc5d3c7]
+- Updated dependencies [69151ca]
+- Updated dependencies [4931275]
+- Updated dependencies [caae12d]
+- Updated dependencies [918b34a]
+- Updated dependencies [caae12d]
+- Updated dependencies [c5d2755]
+- Updated dependencies [8476426]
+- Updated dependencies [caae12d]
+- Updated dependencies [79bab30]
+- Updated dependencies [d5692af]
+- Updated dependencies [1faf79c]
+  - @schlessera/brain@0.44.0
+
 ## 0.43.1
 
 ### Patch Changes
