@@ -80,8 +80,11 @@ commit together; events report only committed `savedThroughMs`. The store
 holds service-worker update reloads until capture and finalization finish.
 
 Pending audio has no age expiry and is never evicted to make room. The store
-limits each recording to ten minutes and all partitions together to 100 MiB,
-with the browser's estimated headroom as a tighter budget. A failed write
+limits each recording to ten minutes of actual WebM/Opus audio and all partitions
+together to 100 MiB, with the browser's estimated headroom as a tighter budget.
+A separate eleven-minute monotonic wall backstop retains interrupted audio;
+a suspended browser applies overdue checks on resume. Unsupported formats,
+including Safari audio/mp4, retain conservative wall-time accounting. A failed write
 stops capture and keeps the committed prefix. Encoded chunks are never sliced
 to fit a limit: playback uses the contiguous chunks that committed.
 

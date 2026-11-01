@@ -1,3 +1,5 @@
+import { createEncodedDurationMeter } from "./encoded-duration.js";
+
 /**
  * Local audio capture (#1012, #578 T1): the microphone recorded on the device,
  * with no server voice session and no network request at any point.
@@ -30,7 +32,7 @@ export interface LocalCaptureChunk {
   /** 0 for the first chunk of a recording, then 1, 2, … */
   index: number;
   data: Blob;
-  /** Milliseconds from the start of the recording. */
+  /** Milliseconds of recorded audio; conservative wall time for unsupported containers. */
   startMs: number;
   endMs: number;
 }
@@ -143,16 +145,22 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => { resolveStopped = resolve; });
 
+  const duration = createEncodedDurationMeter(mimeType);
   const deliver = (data: Blob) => {
     // After a sink failure nothing more is handed over: the sink said it
     // cannot hold audio, and a later chunk would leave a gap behind it.
     if (data.size === 0 || sinkFailed) return;
-    // Strictly after the previous chunk, even when two arrive in the same
-    // millisecond (a periodic chunk, then the one stop flushes).
-    const endMs = Math.max(lastEnd + 1, Math.round(now() - startedAt));
-    const chunk: LocalCaptureChunk = { index: index++, data, startMs: lastEnd, endMs };
-    lastEnd = endMs;
-    delivery = delivery.then(() => sinkFailed ? undefined : sink.chunk(chunk)).then(() => undefined, failSink);
+    const at = now();
+    const chunkIndex = index++;
+    delivery = delivery.then(async () => {
+      if (sinkFailed) return;
+      const samples = duration.push(new Uint8Array(await data.arrayBuffer()));
+      const raw = samples === null ? Math.round(at - startedAt) : Math.floor(samples / 48);
+      const endMs = Math.max(lastEnd + 1, raw);
+      const chunk: LocalCaptureChunk = { index: chunkIndex, data, startMs: lastEnd, endMs };
+      lastEnd = endMs;
+      await sink.chunk(chunk);
+    }).then(() => undefined, failSink);
   };
 
   recorder.addEventListener("dataavailable", (event) => deliver((event as BlobEvent).data));

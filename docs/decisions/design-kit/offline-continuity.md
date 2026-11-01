@@ -91,19 +91,19 @@ transcript-ready audio. Playback and review remain local. Transcribe requires
 its explicit upload confirmation and the server capability. Add to draft
 persists the chosen draft and its receipt before accepted metadata/deletion;
 failure keeps the recording. It never sends a message or answers an approval
-(`async accept`, `packages/ui-react/src/lib/recordings.ts:651-679`).
+(`async accept`, `packages/ui-react/src/lib/recordings.ts:688-716`).
 The [tray runtime proof](https://github.com/schlessera/brain-kit/pull/1241)
 measures focus, reading-anchor preservation, playback, failed writes and native
 transaction ordering. Surviving transcript text remains reviewable even if its
 audio is lost; ambiguous acceptance cleanup retains audio for playback/discard.
 
 The [retention ruling](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5907064902)
-sets **10 minutes per recording** and **100 MiB aggregate retained audio per
+sets **10 minutes of recorded audio per recording** and **100 MiB aggregate retained audio per
 origin/device, across account and unassigned partitions**, with no age expiry
 and no eviction to admit a new recording (`RECORDING_MAX_MS`,
-`packages/ui-react/src/lib/recordings.ts:9-12`). The lower browser capacity
+`packages/ui-react/src/lib/recordings.ts:9-16`). The lower browser capacity
 wins. Estimates are advisory; write success determines what exists
-(`async function budget`, `packages/ui-react/src/lib/recordings.ts:191-201`).
+(`async function budget`, `packages/ui-react/src/lib/recordings.ts:195-205`).
 Limits stop capture and keep a contiguous playable prefix, rather than cutting
 an encoded chunk or deleting older work. Both quota and blob I/O errors stop
 writes. The [store runtime proof](https://github.com/schlessera/brain-kit/pull/1230)
@@ -112,7 +112,7 @@ chunks and crash recovery.
 
 **Saved up to** is the last chunk end whose chunk/index transaction completed,
 not elapsed UI time or the requested MediaRecorder interval
-(`const next =`, `packages/ui-react/src/lib/recordings.ts:291-307`). Requested
+(`const next =`, `packages/ui-react/src/lib/recordings.ts:326-343`). Requested
 intervals and warning/minimum-budget defaults are tuning, never promises.
 [#1250's measured fixture correction](https://github.com/schlessera/brain-kit/pull/1253)
 further demonstrates why a visible recording sheet or a timeslice deadline is
@@ -265,8 +265,43 @@ can do with surviving data; they do not measure when a real browser evicts it:
 | Neither index nor chunks (and no other surviving record) | Nothing can be listed or reported; no loss notice can be promised |
 
 Recovery uses the surviving index and ordered chunks
-(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:516-580`).
+(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:553-617`).
 The store tests force missing-chunk states, including a full origin that cannot
 repair metadata. Requesting `navigator.storage.persist()` is best effort; no
 copy calls it a guarantee. No unload callback can save data after a crash, and
 no local UI can report a recording after all evidence of it has disappeared.
+
+
+### Recording clocks (2026-11-01, #3225)
+
+The [maintainer ruling and reviewed policy](https://github.com/schlessera/brain-kit/issues/3225)
+retain 600,000 ms of audio and 100 MiB aggregate storage, with a separate
+660,000 ms monotonic wall backstop. Complete emitted WebM/Opus packets count
+at 48 kHz, including silence; delivery timestamps and container clocks can
+span source starvation and are not duration oracles. Missing audio is never
+padded or resampled. Pre-skip and discard padding are conservatively included.
+Packet accounting follows [RFC 6716](https://www.rfc-editor.org/rfc/rfc6716.html#section-3),
+with [EBML sizes](https://www.rfc-editor.org/rfc/rfc8794.html#section-6) and
+[Matroska blocks](https://www.matroska.org/technical/notes.html#block-structure).
+Unsupported codecs, lacing or malformed containers permanently use conservative
+wall stamps. In particular audio/mp4 retains the earlier wall semantics; this
+is not universal audio-duration support.
+
+The audio stop timer is re-armed from committed audio, with 250 ms reserved for
+the final flush; over-cap encoded chunks are rejected whole to keep a playable
+prefix. Warning and audio-limit callbacks delayed by more than 1,000 ms
+re-arm from committed audio rather than treating the stall as captured sound.
+This internal scheduling tolerance accommodates ordinary callback jitter; it is
+not extra audio allowance or a public setting. If committed audio already reaches
+the warning or flush target, a late callback acts without repeatedly re-arming.
+Smaller delays can still leave a shorter final prefix. Stop requests made at or
+past the wall deadline normalize to interrupted before capture's first-stop-wins
+entry; a stop already in progress keeps its first reason. The
+independent backstop reports the existing interrupted state and last committed
+audio duration. Its deadline is also checked before admitting a resumed chunk.
+A suspended browser cannot preempt itself: overdue checks act on resume.
+Monotonic time may exclude system sleep; this is not a calendar-time promise.
+The eleven-minute bound is policy grace, not an empirical host-health guarantee.
+Native endurance retains its original 650,000 ms timeout and <605,000 ms wall
+assertion, so a broken audio limit cannot pass via the later backstop. Historical
+endurance failures remain failures; these controls establish no historical cause.

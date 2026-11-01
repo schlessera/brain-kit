@@ -604,7 +604,7 @@ for (const owner of ["store", "caller"] as const) {
       let deadline: (() => void) | undefined;
       const originalTimeout = globalThis.setTimeout;
       const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms, ...args) => {
-        if (ms === 600_000 && typeof handler === "function") deadline = () => handler(...args);
+        if (ms === 599_750 && typeof handler === "function") deadline = () => handler(...args);
         return originalTimeout(handler, ms, ...args);
       });
       c.cleanup.push(() => timer.mockRestore());

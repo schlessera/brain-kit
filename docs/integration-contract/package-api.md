@@ -4161,3 +4161,15 @@ This is an additive diagnostic/lifecycle clarification in a minor release.
 Existing successful close, FULL durability, archive retention and no-replay
 guarantees remain. The error supplements existing close rejection rather than
 turning a timeout into successful disposal.
+
+
+## Local recording duration (breaking before 1.0, 0.44.0, #3225)
+
+The [maintainer ruling](https://github.com/schlessera/brain-kit/issues/3225)
+selects ten minutes of actual audio and a separate 660,000 ms monotonic
+backstop. Exported `LocalCaptureChunk.startMs`/`endMs` and `Recording.durationMs`,
+`savedThroughMs` and `interruptedAt` now measure complete emitted WebM/Opus
+packet audio. Unsupported codec/container forms, including audio/mp4, retain
+conservative elapsed-wall timestamps for the rest of that recording. Old stored
+wall timestamps remain readable without migration. No field, stop reason or
+state is added. This semantic change ships in a minor before 1.0.

@@ -9,6 +9,7 @@ import axe from "axe-core";
 import { createBrainUiRoot } from "../../src/root.js";
 import { createLocalPartitions } from "../../src/lib/local-partitions.js";
 import { createLocalWork } from "../../src/lib/local-work.js";
+import type { LocalCaptureChunk } from "../../src/voice/local-capture.js";
 import { createRecordingStore, type Recording } from "../../src/lib/recordings.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
@@ -67,10 +68,9 @@ function fixture(ctx: TestContext) {
     return { ...row, state, transcript, mime: "audio/wav" };
   };
   // Subscribe before the tap: a visible sheet acknowledges start, not audio.
-  // MediaRecorder's requested one-second timeslice includes native dispatch
-  // latency, so it must not race expect.poll's one-second storage assertion.
-  // A premature stop also releases the wait so the saved-boundary assertion
-  // below reports missing audio instead of proceeding to a focus assertion.
+  // The requested one-second timeslice does not guarantee one second of
+  // complete emitted packets. Assert the durable, playable prefix below.
+  // A premature stop releases the wait so missing audio fails that assertion.
   const nextAudioCommit = () => new Promise<void>(resolve => {
     const off = root.recordings!.onEvent(event => {
       if (event.kind !== "committed" && event.kind !== "stopped") return;
@@ -80,6 +80,33 @@ function fixture(ctx: TestContext) {
   });
   return { root, partitions, storageName, host, react, net, ref, ready, seed, renderTray, mountChat, nextAudioCommit };
 }
+/** Prove real committed audio before exercising focus/discard, without a wall-time oracle. */
+async function committedAudio(c: ReturnType<typeof fixture>) {
+  await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs ?? 0,
+    { message: "the real microphone has committed positive encoded audio" }).toBeGreaterThan(0);
+  const row = (await c.root.recordings!.list("account:odysseus"))[0]!;
+  const chunks = (await c.partitions.open(row.partition).list(`recording:chunk:${row.id}:`))
+    .map(entry => entry.value as LocalCaptureChunk).sort((a, b) => a.index - b.index).slice(0, row.chunkCount);
+  expect(chunks.length, "the committed index has durable audio chunks").toBeGreaterThan(0);
+  expect(chunks).toHaveLength(row.chunkCount);
+  for (const [index, chunk] of chunks.entries()) {
+    expect(chunk.index).toBe(index);
+    expect(chunk.startMs).toBe(index ? chunks[index - 1]!.endMs : 0);
+    expect(chunk.endMs).toBeGreaterThan(chunk.startMs);
+    expect(chunk.data.size).toBeGreaterThan(0);
+  }
+  expect(chunks.at(-1)!.endMs, "durable audio reaches the acknowledged boundary").toBe(row.savedThroughMs);
+  expect(chunks.reduce((sum, chunk) => sum + chunk.data.size, 0)).toBe(row.bytes);
+  const bytes = await new Blob(chunks.map(chunk => chunk.data), { type: row.mime }).arrayBuffer();
+  const context = new AudioContext();
+  try {
+    const decoded = await context.decodeAudioData(bytes);
+    expect(decoded.duration, "the committed prefix contains playable audio").toBeGreaterThan(0);
+    expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs), "durable boundary agrees with decoded audio").toBeLessThan(150);
+  } finally { await context.close(); }
+  return row;
+}
+
 async function tap(el: Element) {
   el.scrollIntoView({ block: "nearest", inline: "nearest" });
   await settled();
@@ -463,7 +490,7 @@ test("local sheet renders the store's warning, limit and storage outcomes", asyn
   const c = fixture(ctx); await c.ready(); c.host.style.cssText += ";position:relative;overflow:visible;margin-top:500px;height:0";
   const timers = new Map<number, () => void>(); const original = globalThis.setTimeout;
   vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
-    if (typeof fn === "function" && (ms === 540000 || ms === 600000)) timers.set(ms, () => fn(...args));
+    if (typeof fn === "function" && (ms === 540000 || ms === 599750)) timers.set(ms, () => fn(...args));
     return original(fn, ms, ...args);
   }) as typeof setTimeout);
   const sink = c.root.recordings!.sink(); await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
@@ -474,7 +501,8 @@ test("local sheet renders the store's warning, limit and storage outcomes", asyn
   expect(timers.get(540000), "store supplies the nine-minute warning timer").toBeTypeOf("function");
   timers.get(540000)!();
   await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "store warning reaches local sheet" }).toBe("1 minute left in this recording");
-  timers.get(600000)!();
+  expect(timers.get(599750), "store supplies the audio-limit timer with its final-flush margin").toBeTypeOf("function");
+  timers.get(599750)!();
   await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "store limit outcome reaches local sheet" }).toBe("Stopped at the 10-minute limit. Your recording is saved.");
   await navigator.locks.request("brain-ui:recording", async () => {});
   const next = c.root.recordings!.sink(); await next.begin!({ mimeType: "audio/webm;codecs=opus" });
@@ -593,8 +621,7 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     await tap(button(c.host, "Record on this device"));
     await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
     await audioCommitted;
-    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs ?? 0, { message: "a real audio chunk commits before the automatic-stop race" }).toBeGreaterThanOrEqual(1000);
-    const row = (await c.root.recordings!.list("account:odysseus"))[0]!;
+    const row = await committedAudio(c);
     await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
     const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]) === `recording:index:${row.id}` && (typeof value === "object" && value !== null && ["saved", "interrupted"].includes((value as { state: string }).state)));
@@ -769,7 +796,7 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     await tap(button(c.host, "Record on this device"));
     await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
     await audioCommitted;
-    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs, { message: "the real microphone has committed an audio boundary" }).toBeGreaterThanOrEqual(1000);
+    await committedAudio(c);
     await expect.poll(() => button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"), { message: "the settled sheet offers Discard before confirmation" }).toBeTruthy();
     await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");

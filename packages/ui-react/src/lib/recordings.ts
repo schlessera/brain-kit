@@ -7,6 +7,10 @@ import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
 export const RECORDING_MAX_MS = 600_000;
+export const RECORDING_WALL_BACKSTOP_MS = 660_000;
+const LIMIT_FLUSH_MARGIN_MS = 250;
+// Internal scheduler tolerance: modest callback jitter is not evidence of lost audio.
+const AUDIO_TIMER_LATENESS_MS = 1000;
 export const RECORDING_MAX_BYTES = 100 * 1024 * 1024;
 const MIN_BYTES = 30 * 16_000; // 30 seconds at a conservative 128 kbit/s.
 const SAFETY_BYTES = 1024 * 1024;
@@ -216,6 +220,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     blobs: Blob[];
     release: () => Promise<void>;
     timers: ReturnType<typeof setTimeout>[];
+    beganAt: number;
+    armAudio: (saved: number) => void;
     capture: Pick<LocalCapture, "stop"> | null;
     accepting: boolean;
     authInterrupted: boolean;
@@ -236,10 +242,36 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         notify();
         // Capture is already live. Storage initialization must not delay the
         // deadline; stop the microphone while the queued prefix still drains.
-        const timers = [
-          setTimeout(() => emit("warning", "1 minute left in this recording", session?.row.savedThroughMs ?? 0), 540_000),
-          setTimeout(() => { void (stop ? stop("limit") : store.stop("limit")); }, RECORDING_MAX_MS),
-        ];
+        const beganAt = performance.now();
+        let warned = false;
+        const timers: ReturnType<typeof setTimeout>[] = [];
+        const normalizeStopReason = (reason: LocalCaptureStopReason): LocalCaptureStopReason =>
+          performance.now() - beganAt >= RECORDING_WALL_BACKSTOP_MS ? "interrupted" : reason;
+        const normalizedStop = stop ? (reason: LocalCaptureStopReason) => stop(normalizeStopReason(reason)) : undefined;
+        pending.stop = normalizedStop;
+        const stopCapture = (reason: LocalCaptureStopReason) => { void (normalizedStop ? normalizedStop(reason) : store.stop(normalizeStopReason(reason))); };
+        const armAudio = (saved: number) => {
+          clearTimeout(timers[0]); clearTimeout(timers[1]);
+          const armedAt = performance.now();
+          const currentAudio = () => session?.row.savedThroughMs ?? saved;
+          const late = (delay: number) => performance.now() - armedAt > delay + AUDIO_TIMER_LATENESS_MS;
+          const warningDelay = Math.max(0, 540_000 - saved);
+          if (!warned) timers[0] = setTimeout(() => {
+            if (normalizeStopReason("limit") === "interrupted") { stopCapture("interrupted"); return; }
+            if (late(warningDelay) && currentAudio() < 540_000) { armAudio(currentAudio()); return; }
+            warned = true;
+            emit("warning", "1 minute left in this recording", session?.row.savedThroughMs ?? 0);
+          }, warningDelay);
+          const limitTarget = RECORDING_MAX_MS - LIMIT_FLUSH_MARGIN_MS;
+          const limitDelay = Math.max(0, limitTarget - saved);
+          timers[1] = setTimeout(() => {
+            if (normalizeStopReason("limit") === "interrupted") { stopCapture("interrupted"); return; }
+            if (late(limitDelay) && currentAudio() < limitTarget) { armAudio(currentAudio()); return; }
+            stopCapture("limit");
+          }, limitDelay);
+        };
+        armAudio(0);
+        timers[2] = setTimeout(() => stopCapture("interrupted"), RECORDING_WALL_BACKSTOP_MS);
         let release: (() => Promise<void>) | undefined;
         const checkStart = () => {
           preflight?.signal.throwIfAborted();
@@ -265,7 +297,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             await handle.write([{ delete: indexKey(row.id) }]).catch(() => {});
             throw error;
           }
-          session = { row, partition, generation: pending.generation, blobs: [], release, timers, capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
+          session = { row, partition, generation: pending.generation, blobs: [], release, timers, beganAt, armAudio, capture: normalizedStop ? { stop: normalizedStop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
           running = session;
           notify();
         } catch (error) { for (const timer of timers) clearTimeout(timer); await release?.(); throw error; }
@@ -277,6 +309,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         if (chunk.index !== s.row.chunkCount || chunk.startMs !== s.row.savedThroughMs) {
           s.failure = "write"; s.accepting = false;
           throw new Error("Audio chunks must be contiguous and ordered");
+        }
+        if (performance.now() - s.beganAt >= RECORDING_WALL_BACKSTOP_MS) {
+          s.accepting = false; void s.capture?.stop("interrupted"); return;
         }
         // Do not truncate an encoded chunk: retain a playable contiguous prefix.
         if (chunk.endMs > RECORDING_MAX_MS) { s.accepting = false; void s.capture?.stop("limit"); return; }
@@ -298,6 +333,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           await write;
           s.row = next;
           s.blobs.push(chunk.data);
+          s.armAudio(next.savedThroughMs);
           emit("committed", null, next.savedThroughMs);
           notify();
         } catch (error) {
@@ -468,9 +504,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         } });
         openingCapture = capture;
         try { await begun; } catch (error) { await capture.ended; throw error; }
-        if (running) (running as Session).capture = capture;
+        const controlledCapture = { ...capture, stop: (running as Session | null)?.capture?.stop ?? capture.stop };
         if (controller.signal.aborted || disposed) await capture.stop("interrupted");
-        return capture;
+        return controlledCapture;
       } catch (error) { await release?.(); throw error; }
       finally { opening = false; openingGeneration = null; openingAbort = null; openingCapture = null; notify(); }
     },
@@ -494,6 +530,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         s.authInterrupted = true;
         s.accepting = false; // queued/final chunks cannot start writes.
       }
+      if (performance.now() - s.beganAt >= RECORDING_WALL_BACKSTOP_MS) reason = "interrupted";
       if (s.capture || openingCapture) await (s.capture ?? openingCapture)!.stop(reason);
       else { await s.write?.catch(() => {}); s.ending ??= finish(s, reason); await s.ending; }
     },

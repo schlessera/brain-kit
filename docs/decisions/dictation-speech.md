@@ -108,8 +108,8 @@ permission and send no chat message.
 
 Local capture opens the microphone only on an explicit start and sends encoded
 chunks to the durable sink without a network call
-(`startLocalCapture`, `packages/ui-react/src/voice/local-capture.ts:93-115`;
-`const deliver`, `packages/ui-react/src/voice/local-capture.ts:146-158`).
+(`startLocalCapture`, `packages/ui-react/src/voice/local-capture.ts:95-117`;
+`const deliver`, `packages/ui-react/src/voice/local-capture.ts:149-166`).
 Online streaming dictation remains its separate path; a connection transition
 never converts a running take between the two. Provider-ended streaming words
 reach review exactly once through the existing dictation ending path, as
@@ -146,7 +146,7 @@ Reconnection, reload and sign-in do not upload or retry audio. Status recovery
 uses read-only queries; an explicit earlier accept/discard may also flush its
 queued receipt deletion. Missing status after a lost reply is not proof that
 nothing was sent (`async syncTranscriptions`,
-`packages/ui-react/src/lib/recordings.ts:758-806`). The transcript commits locally
+`packages/ui-react/src/lib/recordings.ts:795-843`). The transcript commits locally
 before review. Add to draft commits a hash-bound draft receipt before deleting
 the audio; acceptance stays device-local and resumes ordinary host draft
 workflow only after a subsequent user edit or explicit Send

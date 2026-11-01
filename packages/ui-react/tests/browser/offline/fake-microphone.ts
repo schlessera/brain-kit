@@ -29,7 +29,7 @@ export interface MicrophoneWatch {
   restore(): void;
 }
 
-export function installWavMicrophone(wav: Uint8Array): { restore(): void } {
+export function installWavMicrophone(wav: Uint8Array): { readonly contexts: readonly AudioContext[]; restore(): void } {
   const media = navigator.mediaDevices;
   const original = media.getUserMedia;
   const contexts: AudioContext[] = [];
@@ -51,6 +51,7 @@ export function installWavMicrophone(wav: Uint8Array): { restore(): void } {
     return destination.stream;
   };
   return {
+    contexts,
     restore() {
       media.getUserMedia = original;
       for (const context of contexts) void context.close().catch(() => {});
