@@ -573,6 +573,64 @@ unchanged proof limits and combined job capacity. All native assertions,
 per-command deadlines, selection gates, runtime/action pins, offline images
 and diagnostic uploads retain their existing behavior.
 
+#### Verify partitions and command completion
+
+The [#3197 maintainer ruling](https://github.com/schlessera/brain-kit/issues/3197#issuecomment-6558352070)
+sets frozen installation to one minute and affected planning to a separate one
+minute. These are partitioned setup limits: neither borrows unused time from
+the other. Strict types and any selected fast tests retain their existing
+selection and run in the existing coordinator with a four-minute step limit.
+The outer verify cap is **exactly seven minutes = 1 + 1 + 4 + 1**. The last
+minute allows checkout, Bun setup, summaries and cleanup within that cap;
+it is not another shared deadline or a per-action watchdog. Existing pinned
+checkout/setup-bun actions remain separate. There are no automatic retries.
+
+In [cancelled verify job 124168678451](https://github.com/schlessera/brain-kit/actions/runs/41086253829/job/124168678451),
+installation took 13 seconds and planning four seconds. Their approved limits
+leave 47 and 56 seconds respectively above those observations. The unfinished
+compiler interval was at least 131 seconds, so four minutes exceeds the
+observed lower bound by 109 seconds; this does **not** establish that it would
+have completed within that limit. The separately successful same-checkout
+[recovery job 124180446438](https://github.com/schlessera/brain-kit/actions/runs/41089670550/job/124180446438)
+took 61 seconds for verification and 81 seconds overall, leaving 179 seconds
+of proof margin against that control. The later bounded ten-success sample
+in #3197 had verification maxima of 84 seconds and whole-job maxima of 119
+seconds (156 and 301 seconds below the new respective limits). Whole-job
+less verification ranged from 14 to 39 seconds in that sample; it includes
+installation/planning and is not a measurement of overhead alone. One minute
+of overhead is a finite allowance, not guaranteed cleanup capacity.
+
+The retained 162-second installation in #3098 exceeds verify's approved
+one-minute installation partition and may fail visibly as setup. That pack
+observation neither changes this ruling nor diagnoses its underlying delay.
+The original verify cancellation remains nonpassing; the recovery checked out
+synthetic merge `2771c2f5119e5b8aaf3234ae24452f6dfde86e70`, the same source
+as the cancelled job. Neither recovery nor these limits explains the original
+slowdown, whose cause the maintainer accepted as unknown for this repair.
+
+The compiler retains `tsc --noEmit` and the 4096 MiB `NODE_OPTIONS` setting;
+only verify appends `--extendedDiagnostics`, forwarded through Bun's existing
+package script. Compiler totals and memory describe that invocation, not
+process RSS or runner capacity. Bun's advertised Node compatibility version
+is not the compiler's Node runtime. Runtime identity, when measured, must use
+the compiler's actual PATH/environment and executable, not that compatibility
+value or the action's embedded Node.
+
+The shared coordinator emits timestamped command start and settled-child
+receipts with elapsed milliseconds, exit code and signal, without environment
+contents. Interrupted commands receive an interrupted event; a hard-killed
+coordinator can leave only a start. Only a successful entire verification
+writes its final completion marker. Original command failure messages and
+owned process-group cleanup remain unchanged for every coordinator consumer.
+The always summary keeps raw installation, planning and proof outcomes
+separate and explicitly names missing/unreadable completion evidence. A
+successful proof step without affirmative completion evidence fails summary
+validation. A forced whole-job cancellation can prevent the summary itself;
+absence is unknown/nonpassing, never a promise of completion. These controls
+preserve aggregate refusal and all offline and proof-reuse rules. Changing
+the audited coordinator invalidates optional generated-build binding until a
+separate post-merge re-audit under #2408; this repair does not repin it.
+
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
 Bun `--parallel=2` failed all four hosted partitions in
