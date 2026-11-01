@@ -35,8 +35,9 @@ As a conservative engineering default, refuse deletion admission while a host
 task, queued follow-up, handoff preparation, share application or native
 archive/restore operation still owns the chat. Offer existing stop/reconcile
 paths separately; deletion never silently cancels an effect or changes unknown
-into completed. Voice/provider opening and history-only readers can be retired by the lifecycle fence, but all holders
-must be drained before content removal is complete.
+into completed. Voice/provider opening and history-only readers can be retired
+by the lifecycle fence, but all holders must be drained before content removal
+is complete.
 
 Alternative A, catalog-only hiding, is cheap and useful as an explicitly named
 archive/hide operation, but is rejected for deletion: native list/read/resume,
@@ -53,8 +54,7 @@ alternative is authorized as the deletion promise.
 
 [Retained discussion](../decisions/live-conversation.md#retained-discussion--2026-10-30-3177)
 keeps dialogue with its chat; pages, provider input and pending memory are bounded
-separately. Its “Native provider transcripts stay intact” sentence now has the
-explicit
+separately. Its “Native provider transcripts stay intact” sentence now has the explicit
 [authorized-deletion exception](../decisions/chat-history-deletion.md#native-preservation-amendment).
 Preservation remains binding for ordinary live operation and undeleted chats.
 Task-recovery eviction is not archive eviction. The
@@ -74,8 +74,8 @@ There is no general delete operation: `createSessionRoutes` only lists/reads
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
 ships in a minor. The approved retention exception is recorded before runtime
-work; any other
-altered retention meaning or fence lifetime needs a separate breaking ruling.
+work; any other altered retention meaning or fence lifetime needs a separate
+breaking ruling.
 This document changes no machine surface or shipped retention behavior.
 
 ## Ownership inventory

@@ -10,8 +10,9 @@ open implementation scope lives in the tracker.
 ## Authority and extent
 
 Only an authenticated owner may delete its own chat. Preserve exact principal
-ownership at admission and across asynchronous boundaries. No cross-principal
-power, reassignment, agent authority or arbitrary filesystem authority follows.
+ownership and recheck current authorization, including revocation, at admission
+and across asynchronous boundaries. No cross-principal power, reassignment,
+agent authority or arbitrary filesystem authority follows.
 Ambient authentication requires an explicit owner mapping; otherwise deletion
 is unavailable. Read access, labels, voice recognition and conversation content
 are not authorization. Existing [principal boundaries](session-principals.md)
@@ -26,6 +27,8 @@ matching text. Unrelated/unbound drafts and other chats remain intact.
 Independent saved content, effects, Inbox/Activity/audit/journal records,
 handoff destinations, provider copies, exports, recordings and backups remain.
 These independent owners may contain copied text; disclose their retention.
+Any direct embedded chat copy must be disclosed as retained or removed by its
+actual owner under the approved policy.
 Local chat-history deletion is not recursive erasure of every derivative.
 Offline devices may retain cached text until they reconnect and validate the
 retired identity. No physical secure-erasure or provider-forgetting claim is allowed.

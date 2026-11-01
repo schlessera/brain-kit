@@ -2349,7 +2349,8 @@ native-preservation exception, permanent minimized identity/replay fences and
 accepted old-backup restoration limits. Runtime deletion remains unbuilt; this
 records policy without adding frames, endpoints or changing shipped retention.
 Independent saved content/effects, provider copies and backups remain excluded
-and must be disclosed. Clearing browser state on authentication teardown does not delete retained chat history.
+and must be disclosed. Clearing browser state on authentication teardown does
+not delete retained chat history.
 
 #3178 separately owns authorized bounded historical provider input. This feature
 supplies canonical read/provenance data; it does not claim that the new engine
