@@ -5,7 +5,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Options, SDKMessage, HookCallback } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKMessage, SDKUserMessage, HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { createFixture, fixtureTurn, connectBrainSurface, installedRuntime } from "./turn-surface-fixture.js";
 import { type Peer } from "./turn-surface-routing.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -135,7 +135,7 @@ export async function captureSurface(control?: {
     };
     if (control) {
       overlapped = await startOverlappedTurn({ options, parkingDirectory: home, projectDirectory: fixture.root,
-        prompt: String(prepared.turn.prompt), decision: control.decision,
+        prompt: await promptText(prepared.turn.prompt), decision: control.decision,
         skillCatalogue: control.skillCatalogue,
         subscriptionGate: control.testSubscriptionRefusal || control.testPolicyModelRefusal || false,
         onGateRefused: reason => { gateRefusal = reason; },
@@ -177,4 +177,15 @@ if (import.meta.main) {
   // Await the file write: exiting after a large console.log can lose the
   // trailing bytes when stdout is a pipe.
   await Bun.write(args[1], JSON.stringify(await captureSurface(), null, 2) + "\n");
+}
+
+/** The production turn streams one owned user message; the overlapped claim takes its text. */
+async function promptText(prompt: string | AsyncIterable<SDKUserMessage>): Promise<string> {
+  if (typeof prompt === "string") return prompt;
+  for await (const message of prompt) {
+    const content = message.message.content;
+    if (typeof content === "string") return content;
+    throw new Error("Overlapped capture admits only a text prompt.");
+  }
+  throw new Error("Production turn yielded no prompt.");
 }

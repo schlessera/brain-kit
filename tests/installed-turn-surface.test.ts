@@ -4,7 +4,7 @@
 // their schemas, and the emitted skill listing reaches the request. Package
 // tests check only the MCP `_meta` stamp; this is the half where the CLI
 // honours it. Split verbatim from the turn-surface measurement test (#1386),
-// whose token-group arithmetic stays in experiments/turn-surface-capture.test.ts.
+// whose token-group arithmetic stays in experiments/turn-surface-capture.parked.ts (parked, #3240).
 // Keyless: the capture runs against a loopback fixture model.
 import { expect, test } from "bun:test";
 import { captureSurface } from "../scripts/capture-turn-surface";

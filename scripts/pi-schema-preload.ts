@@ -37,7 +37,7 @@ plugin({
         source = replaceExactly(source, 'send({ type: "prompt", text: ownedPrompt?.text ?? text, options })',
           'send({ type: "prompt", text: ownedPrompt?.text ?? text, options, __measurementPrompt: measurementPreparedPrompt(text, preparedPrompt) })');
         source = replaceExactly(source, 'command: [process.execPath,', `command: [process.execPath, "--preload", ${JSON.stringify(workerPreload)},`);
-        source = replaceExactly(source, 'env: workerEnv, sandbox,', 'env: { ...workerEnv, ...measurementWorkerEnv() }, sandbox,');
+        source = replaceExactly(source, 'env: workerEnv, credentialEnv, sandbox,', 'env: { ...workerEnv, ...measurementWorkerEnv() }, credentialEnv, sandbox,');
         source = replaceExactly(source, 'if (msg.event.type === "tool_execution_end") {', 'if (acceptMeasurementFiles(msg.event)) continue;\n        if (msg.event.type === "tool_execution_end") {');
       }
       return { contents: source, loader: "ts" };

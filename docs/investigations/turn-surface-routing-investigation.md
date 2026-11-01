@@ -19,6 +19,10 @@ bun scripts/measure-turn-surface-keyless.ts > mechanics.json
 bun run test experiments/turn-surface-routing.test.ts
 ```
 
+From 0.44.0 this file is parked as `experiments/turn-surface-routing.parked.ts`,
+outside the experiment tier, until the router reads streamed turn prompts
+([#3240](https://github.com/schlessera/brain-kit/issues/3240)).
+
 The command creates disposable fictional brains outside the checkout,
 connects to real MCP servers and supplies scripted responses through the
 existing Jev client's injected fetch. Ambient credentials are ignored. Its
