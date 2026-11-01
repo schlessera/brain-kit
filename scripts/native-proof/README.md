@@ -294,6 +294,27 @@ checkpoints and grants it to a running non-root bubblewrap worker through an
 access generation, then parks it, adopts an interrupted grant on restart and
 closes the generation.
 
+Case 18's S7 allocations use `createFixtureWorktrees`: at most three allocation
+attempts (the initial allocation plus two fresh identities). Only an
+`unavailable` worktree creation error with the exact changing-pool message may
+defer, and the original create/checkpoint error must independently have that
+exact native error class, code and message. Receipts name the refusing phase.
+Before proceeding, each refused root and baseline must have a release
+receipt in `deleted` or `reclaimed`, no path or grant, and no retained worktree
+row; the recovery census must agree. A reclaimed checkpoint may have been
+forgotten, so its release receipt remains required. Deletion does not claim
+reclamation or zero charge. Every generated identity is checked for reuse
+before reaching the pool. Exhaustion and all other errors fail immediately.
+This wraps only allocation, including allocation inside the tools request;
+it never repeats access, a tool call, a turn or a case. It adds no wait, sync
+or deadline. The three direct allocation sites and the tools request are the
+complete S7 inventory in this fixture; S8 and S10/S11 remain separate.
+At the tools request, fixture assertion exceptions become a generic `ok: false`
+result, which fails `REFERENCE_TOOLS_NATIVE_RESULTS`. Receipt order distinguishes
+exhaustion (`worktree-allocation-cleanup-proven` with no subsequent
+`worktree-allocation-deferred`) from failed cleanup (`worktree-allocation-refused`
+only).
+
 ### Integrated app proof
 
 `bun scripts/prove-reference-pool.ts --integrated [--backend=claude|--backend=pi]`

@@ -8,6 +8,7 @@ import { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server
 import { reservePhysical } from "../../packages/ui-sdk/src/server/native-reference-pool.js";
 import type { NativePoolRecord, NativePoolStatus } from "../../packages/ui-sdk/src/server/native-brain-manager-protocol.js";
 
+import { createFixtureWorktrees } from "./reference-worktree-allocation.js";
 import { settledWorktreeRelease } from "./reference-worktree-release.js";
 
 const MIB = 1024 ** 2, POOL = "/reference-pool", ARTIFACTS = process.env.BRAIN_REFERENCE_POOL_ARTIFACTS ?? "/proof";
@@ -593,7 +594,7 @@ const shapes = await create("staging", 32 * MIB);
   const { createReferenceGrant } = await import("../../packages/ui-server/src/db/reference-grants.js");
   const { createReferenceSources } = await import("../../packages/ui-server/src/brain/reference-source.js");
   const { createReferenceTransport } = await import("../../packages/ui-server/src/brain/reference-transport.js");
-  const { createReferenceWorktrees, referenceWorktreeDependents } = await import("../../packages/ui-server/src/brain/reference-worktrees.js");
+  const { referenceWorktreeDependents } = await import("../../packages/ui-server/src/brain/reference-worktrees.js");
   const { createTurnJournal } = await import("../../packages/ui-server/src/brain/turn-journal.js");
   const { referenceWorktreeJournalPath } = await import("../../packages/ui-server/src/brain/reference-worktree-journal.js");
   const { prepareWorkerSandbox, workerCommand } = await import("../../packages/ui-sdk/src/server/worker-launcher.js");
@@ -611,7 +612,7 @@ const shapes = await create("staging", 32 * MIB);
     const journal = createTurnJournal(db, { nativeManager: client, brainPath: "/brain-fixture/brain", dbPath: join(state, "ui.db"), objectsRoot: join(state, "objects"), referencePool: client });
     const facts = new Map<string, { changedPaths: number; partial: boolean }>();
     journal.onObservation((turnId, value) => facts.set(turnId, value));
-    const worktrees = createReferenceWorktrees({ db, pool: client, sources, coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) });
+    const worktrees = createFixtureWorktrees({ db, pool: client, sources, coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) }, note);
     const repository = `file://${srv}/ithaca.git`, commit = command(["git", "--git-dir", join(srv, "ithaca.git"), "rev-parse", "main"]).trim();
     const sandbox = (generation: string, script: string) => command(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/tmp", "--bind", generation, "/tmp/brain-worktrees",
       "--proc", "/proc", "--dev", "/dev", "--unshare-pid", "--die-with-parent", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1000", "--groups=0", "/bin/sh", "-c", script]);
