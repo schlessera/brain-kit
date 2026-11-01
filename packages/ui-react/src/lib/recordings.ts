@@ -7,6 +7,8 @@ import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
 export const RECORDING_MAX_MS = 600_000;
+export const RECORDING_WALL_BACKSTOP_MS = 660_000;
+const LIMIT_FLUSH_MARGIN_MS = 250;
 export const RECORDING_MAX_BYTES = 100 * 1024 * 1024;
 const MIN_BYTES = 30 * 16_000; // 30 seconds at a conservative 128 kbit/s.
 const SAFETY_BYTES = 1024 * 1024;
@@ -216,6 +218,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     blobs: Blob[];
     release: () => Promise<void>;
     timers: ReturnType<typeof setTimeout>[];
+    beganAt: number;
+    armAudio: (saved: number) => void;
     capture: Pick<LocalCapture, "stop"> | null;
     accepting: boolean;
     authInterrupted: boolean;
@@ -236,10 +240,20 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         notify();
         // Capture is already live. Storage initialization must not delay the
         // deadline; stop the microphone while the queued prefix still drains.
-        const timers = [
-          setTimeout(() => emit("warning", "1 minute left in this recording", session?.row.savedThroughMs ?? 0), 540_000),
-          setTimeout(() => { void (stop ? stop("limit") : store.stop("limit")); }, RECORDING_MAX_MS),
-        ];
+        const beganAt = performance.now();
+        let warned = false;
+        const timers: ReturnType<typeof setTimeout>[] = [];
+        const stopCapture = (reason: LocalCaptureStopReason) => { void (stop ? stop(reason) : store.stop(reason)); };
+        const armAudio = (saved: number) => {
+          clearTimeout(timers[0]); clearTimeout(timers[1]);
+          if (!warned) timers[0] = setTimeout(() => {
+            warned = true;
+            emit("warning", "1 minute left in this recording", session?.row.savedThroughMs ?? 0);
+          }, Math.max(0, 540_000 - saved));
+          timers[1] = setTimeout(() => stopCapture("limit"), Math.max(0, RECORDING_MAX_MS - LIMIT_FLUSH_MARGIN_MS - saved));
+        };
+        armAudio(0);
+        timers[2] = setTimeout(() => stopCapture("interrupted"), RECORDING_WALL_BACKSTOP_MS);
         let release: (() => Promise<void>) | undefined;
         const checkStart = () => {
           preflight?.signal.throwIfAborted();
@@ -265,7 +279,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             await handle.write([{ delete: indexKey(row.id) }]).catch(() => {});
             throw error;
           }
-          session = { row, partition, generation: pending.generation, blobs: [], release, timers, capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
+          session = { row, partition, generation: pending.generation, blobs: [], release, timers, beganAt, armAudio, capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
           running = session;
           notify();
         } catch (error) { for (const timer of timers) clearTimeout(timer); await release?.(); throw error; }
@@ -277,6 +291,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         if (chunk.index !== s.row.chunkCount || chunk.startMs !== s.row.savedThroughMs) {
           s.failure = "write"; s.accepting = false;
           throw new Error("Audio chunks must be contiguous and ordered");
+        }
+        if (performance.now() - s.beganAt >= RECORDING_WALL_BACKSTOP_MS) {
+          s.accepting = false; void s.capture?.stop("interrupted"); return;
         }
         // Do not truncate an encoded chunk: retain a playable contiguous prefix.
         if (chunk.endMs > RECORDING_MAX_MS) { s.accepting = false; void s.capture?.stop("limit"); return; }
@@ -298,6 +315,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           await write;
           s.row = next;
           s.blobs.push(chunk.data);
+          s.armAudio(next.savedThroughMs);
           emit("committed", null, next.savedThroughMs);
           notify();
         } catch (error) {

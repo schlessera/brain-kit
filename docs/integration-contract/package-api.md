@@ -4127,3 +4127,15 @@ The host helper `ConversationHost.profile(contextualTasks?)` supplies the same k
 provider-free effective disclosure for hello, admission comparison and opened
 receipts. The host refuses undisclosed legacy starts before touching their scope;
 the wire section records the deliberate privacy admission compatibility correction.
+
+
+## Local recording duration (breaking before 1.0, 0.44.0, #3225)
+
+The [maintainer ruling](https://github.com/schlessera/brain-kit/issues/3225)
+selects ten minutes of actual audio and a separate 660,000 ms monotonic
+backstop. Exported `LocalCaptureChunk.startMs`/`endMs` and `Recording.durationMs`,
+`savedThroughMs` and `interruptedAt` now measure complete emitted WebM/Opus
+packet audio. Unsupported codec/container forms, including audio/mp4, retain
+conservative elapsed-wall timestamps for the rest of that recording. Old stored
+wall timestamps remain readable without migration. No field, stop reason or
+state is added. This semantic change ships in a minor before 1.0.

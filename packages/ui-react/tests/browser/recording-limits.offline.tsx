@@ -3,8 +3,9 @@ import { expect, test, vi } from "vitest";
 import { createRecordingStore, RECORDING_MAX_BYTES, RECORDING_MAX_MS } from "../../src/lib/recordings.js";
 import type { LocalCaptureStopReason } from "../../src/voice/local-capture.js";
 import { updateHeld } from "../../src/lib/update-holds.js";
+import { generateWav, AUDIO_FIXTURES } from "./offline/audio-fixtures.ts";
 import { recordingCell } from "./offline/recording-cell.ts";
-import { watchMicrophone } from "./offline/fake-microphone.ts";
+import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
 
 test("registered production warning and deadline finalize short native audio and release capture resources", async (ctx) => {
   const c = recordingCell(ctx);
@@ -14,7 +15,7 @@ test("registered production warning and deadline finalize short native audio and
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
   const originalTimeout = globalThis.setTimeout;
   const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms, ...args) => {
-    if ((ms === 540_000 || ms === 600_000) && typeof handler === "function") registered.set(ms, () => handler(...args));
+    if ((ms === 540_000 || ms === 599_750) && typeof handler === "function") registered.set(ms, () => handler(...args));
     return originalTimeout(handler, ms, ...args);
   });
   c.cleanup.push(() => { timer.mockRestore(); Object.defineProperty(globalThis, "setTimeout", descriptor); });
@@ -25,7 +26,7 @@ test("registered production warning and deadline finalize short native audio and
   // short recording nor synthetic boundary blobs prove ten-minute endurance.
   await expect.poll(() => c.events.filter((event) => event.kind === "committed").length).toBeGreaterThanOrEqual(2);
   expect(registered.has(540_000), "production warning registered at nine minutes").toBe(true);
-  expect(registered.has(600_000), "production deadline registered at ten minutes").toBe(true);
+  expect(registered.has(599_750), "production deadline registered at ten minutes").toBe(true);
   expect(updateHeld(c.root)).toBe(true);
   expect(c.events.filter((event) => event.kind === "warning")).toEqual([]);
   registered.get(540_000)!();
@@ -33,7 +34,7 @@ test("registered production warning and deadline finalize short native audio and
     kind: "warning", message: "1 minute left in this recording",
     savedThroughMs: c.events.filter((event) => event.kind === "committed").at(-1)!.savedThroughMs,
   }]);
-  registered.get(600_000)!();
+  registered.get(599_750)!();
   expect(await capture.ended, "registered deadline invokes production limit stop").toBe("limit");
   const row = (await c.store.list("account:odysseus"))[0]!;
   expect(row.state).toBe("saved");
@@ -64,7 +65,7 @@ test("registered production warning and deadline finalize short native audio and
   await expect(fetch(play.url), "playback URL is revoked after use").rejects.toThrow();
 });
 
-test("production warning and deadline fire at exactly 540000 and 600000 milliseconds", async (ctx) => {
+test("production warning and deadline fire at exactly 540000 and 599750 milliseconds", async (ctx) => {
   const c = recordingCell(ctx);
   expect(RECORDING_MAX_MS, "independent production duration oracle").toBe(600_000);
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -77,10 +78,10 @@ test("production warning and deadline fire at exactly 540000 and 600000 millisec
   expect(stop).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(c.events.filter((event) => event.kind === "warning")).toEqual([{ kind: "warning", message: "1 minute left in this recording", savedThroughMs: 0 }]);
-  await vi.advanceTimersByTimeAsync(59_999);
+  await vi.advanceTimersByTimeAsync(59_749);
   expect(stop).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
-  expect(stop.mock.calls, "production deadline fires exactly at 600000 ms").toEqual([["limit"]]);
+  expect(stop.mock.calls, "production deadline fires exactly at 599750 ms").toEqual([["limit"]]);
   await sink.end!("limit");
   await vi.advanceTimersByTimeAsync(600_000);
   expect(stop).toHaveBeenCalledTimes(1);
@@ -105,7 +106,7 @@ test("ending a recording cancels its timers and the next recording starts a fres
   expect(c.events.filter((event) => event.kind === "warning"), "ended warning was cancelled; next warning has not elapsed").toEqual([]);
   await vi.advanceTimersByTimeAsync(1);
   expect(c.events.filter((event) => event.kind === "warning")).toHaveLength(1);
-  await vi.advanceTimersByTimeAsync(59_999);
+  await vi.advanceTimersByTimeAsync(59_749);
   expect(nextStop).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(nextStop.mock.calls).toEqual([["limit"]]);
@@ -114,6 +115,8 @@ test("ending a recording cancels its timers and the next recording starts a fres
 
 test("production chunk boundary accepts exactly 600000 ms and rejects the next millisecond durably", async (ctx) => {
   const c = recordingCell(ctx);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  c.cleanup.push(() => vi.useRealTimers());
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   const sink = c.store.sink();
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
@@ -164,4 +167,136 @@ test("production aggregate budget accepts exactly 100 MiB and rejects one byte m
   expect(retained + (audio[0]!.value as { data: Blob }).data.size).toBe(104_857_600);
   expect(sizes.find((entry) => entry.partition === "account:penelope")?.bytes).toBe(retained / 2);
   expect(sizes.find((entry) => entry.partition === "unassigned")?.bytes).toBe(retained / 2);
+});
+
+
+test("source starvation reports only encoded audio", async (ctx) => {
+  const c = recordingCell(ctx);
+  const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s));
+  c.cleanup.push(() => mic.restore());
+  const start = performance.now();
+  const capture = await c.store.start({ timesliceMs: 250 });
+  await expect.poll(() => c.events.filter(e => e.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  await mic.contexts[0]!.suspend();
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  await mic.contexts[0]!.resume();
+  const before = c.events.filter(e => e.kind === "committed").length;
+  await expect.poll(() => c.events.filter(e => e.kind === "committed").length).toBeGreaterThanOrEqual(before + 2);
+  await capture.stop("user");
+  const elapsed = performance.now() - start;
+  const row = (await c.store.list("account:odysseus"))[0]!;
+  const play = await c.store.playback(row.partition, row.id);
+  c.cleanup.push(() => play.revoke());
+  const context = new AudioContext();
+  c.cleanup.push(() => context.close());
+  const decoded = await context.decodeAudioData(await (await fetch(play.url)).arrayBuffer());
+  expect(decoded.duration * 1000, "source suspension did not starve encoder").toBeLessThan(elapsed - 800);
+  expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs), "saved duration agrees with emitted samples").toBeLessThan(150);
+});
+
+test("wall backstop fires at 660000 and retains interrupted audio", async (ctx) => {
+  const c = recordingCell(ctx);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  c.cleanup.push(() => vi.useRealTimers());
+  const sink = c.store.sink();
+  const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
+  await vi.advanceTimersByTimeAsync(659_999);
+  expect(stop.mock.calls.filter(([r]) => r === "interrupted")).toEqual([]);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(stop.mock.calls.filter(([r]) => r === "interrupted")).toEqual([["interrupted"]]);
+  await sink.end!("interrupted");
+  expect((await c.store.list("account:odysseus"))[0]).toMatchObject({ state: "interrupted", savedThroughMs: 1000, interruptedAt: 1000 });
+});
+
+test("resumed chunk cannot beat the overdue wall backstop", async (ctx) => {
+  const c = recordingCell(ctx);
+  const original = Object.getOwnPropertyDescriptor(performance, "now");
+  let clock = 0;
+  Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
+  c.cleanup.push(() => { if (original) Object.defineProperty(performance, "now", original); else delete (performance as {now?: unknown}).now; });
+  const sink = c.store.sink();
+  const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
+  clock = 660_000;
+  await sink.chunk({ index: 1, startMs: 1000, endMs: 2000, data: new Blob(["b"]) });
+  expect(stop.mock.calls).toEqual([["interrupted"]]);
+  await sink.end!("interrupted");
+  expect((await c.store.list("account:odysseus"))[0]).toMatchObject({ bytes: 1, chunkCount: 1, savedThroughMs: 1000, interruptedAt: 1000 });
+});
+
+test("audio deadline is re-armed from the last committed audio", async (ctx) => {
+  const c = recordingCell(ctx);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  c.cleanup.push(() => vi.useRealTimers());
+  const sink = c.store.sink();
+  const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  await vi.advanceTimersByTimeAsync(2000);
+  await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
+  await vi.advanceTimersByTimeAsync(598_749);
+  expect(stop).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(stop.mock.calls).toEqual([["limit"]]);
+  await sink.end!("limit");
+});
+
+test("registered wall backstop finalizes native audio as interrupted", async (ctx) => {
+  const c = recordingCell(ctx);
+  const microphone = watchMicrophone();
+  c.cleanup.push(() => microphone.restore());
+  const registered = new Map<number, () => void>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const originalTimeout = globalThis.setTimeout;
+  const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms, ...args) => {
+    if ((ms === 540_000 || ms === 599_750 || ms === 660_000) && typeof handler === "function") registered.set(ms, () => handler(...args));
+    return originalTimeout(handler, ms, ...args);
+  });
+  c.cleanup.push(() => { timer.mockRestore(); Object.defineProperty(globalThis, "setTimeout", descriptor); });
+  const capture = await c.store.start({ timesliceMs: 250 });
+  // Native MediaRecorder, performance.now and the audio clock all advance in
+  // real time. Invoking a registered callback proves its real stop path; the
+  // separate controlled-timer test proves when it is scheduled. Neither this
+  // short recording nor synthetic boundary blobs prove ten-minute endurance.
+  await expect.poll(() => c.events.filter((event) => event.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  expect(registered.has(540_000), "production warning registered at nine minutes").toBe(true);
+  expect(registered.has(599_750), "production deadline registered at ten minutes").toBe(true);
+  expect(updateHeld(c.root)).toBe(true);
+  expect(c.events.filter((event) => event.kind === "warning")).toEqual([]);
+  registered.get(540_000)!();
+  expect(c.events.filter((event) => event.kind === "warning")).toEqual([{
+    kind: "warning", message: "1 minute left in this recording",
+    savedThroughMs: c.events.filter((event) => event.kind === "committed").at(-1)!.savedThroughMs,
+  }]);
+  registered.get(660_000)!();
+  expect(await capture.ended, "registered deadline invokes production limit stop").toBe("interrupted");
+  const row = (await c.store.list("account:odysseus"))[0]!;
+  expect(row.state).toBe("interrupted");
+  expect(row.savedThroughMs).toBeGreaterThan(0);
+  expect(row.savedThroughMs).toBeLessThan(10_000);
+  expect(row.durationMs).toBe(row.savedThroughMs);
+  expect(c.events.filter((event) => event.kind === "warning")).toHaveLength(1);
+  expect(c.events.at(-1)).toEqual({ kind: "stopped", savedThroughMs: row.savedThroughMs, message: `Recording stopped. Saved up to 0:00; the end may be missing.` });
+  expect(microphone.streams).toHaveLength(1);
+  expect(microphone.streams[0]!.getTracks().every((track) => track.readyState === "ended")).toBe(true);
+  expect(c.store.active()).toBeNull();
+  expect(c.store.busy()).toBe(false);
+  expect(updateHeld(c.root)).toBe(false);
+  await navigator.locks.request("brain-ui:recording", { ifAvailable: true }, (lock) => {
+    expect(lock, "native recording lock is released after finalization").not.toBeNull();
+  });
+  const reloaded = createRecordingStore({ root: c.root, partitions: c.partitions, heldAccountKey: () => "odysseus" });
+  ctx.onTestFinished(() => reloaded.dispose());
+  expect((await reloaded.recover(row.partition)).recordings).toEqual([row]);
+  const play = await reloaded.playback(row.partition, row.id);
+  ctx.onTestFinished(() => play.revoke());
+  const context = new AudioContext();
+  ctx.onTestFinished(() => context.close());
+  const decoded = await context.decodeAudioData(await (await fetch(play.url)).arrayBuffer());
+  expect(decoded.duration, "real encoded audio is playable").toBeGreaterThan(0.25);
+  expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs), "native elapsed metadata agrees with decoded audio").toBeLessThan(150);
+  play.revoke();
+  await expect(fetch(play.url), "playback URL is revoked after use").rejects.toThrow();
 });

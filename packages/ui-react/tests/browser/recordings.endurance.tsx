@@ -60,6 +60,7 @@ test("ten-minute native endurance preserves sustained commits, full-length decod
   console.info("recording endurance", JSON.stringify({ elapsedMs: performance.now() - started, chunks: row.chunkCount, bytes: row.bytes, savedThroughMs: row.savedThroughMs, decodedSeconds: decoded.duration }));
   expect(decoded.duration).toBeGreaterThan(598);
   expect(decoded.duration).toBeLessThanOrEqual(600.1);
+  expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs)).toBeLessThan(150);
   play.revoke();
   await expect(fetch(play.url), "full-length playback URL is released").rejects.toThrow();
 }, 650_000);
