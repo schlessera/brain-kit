@@ -168,9 +168,11 @@ this independently from transport continuity.
 
 ### Keeping and accepting audio
 
-Recordings have a **10-minute limit each** and a **100 MiB total retained-audio
+Recordings have a **10 minutes of recorded audio each** and a **100 MiB total retained-audio
 limit per app origin/device**, across all account partitions and unassigned
-recordings. Browser capacity can be lower. A limit or failed write stops
+recordings. A separate eleven-minute monotonic backstop keeps interrupted audio;
+a suspended browser applies the deadline on resume. Unsupported formats, including
+audio/mp4, retain conservative wall-time accounting. Browser capacity can be lower. A limit or failed write stops
 capture and keeps the committed playable prefix; older recordings are never
 evicted to admit a new one. There is **no automatic age expiry**. Keep audio
 until you explicitly discard it or accept its transcript into a safely saved

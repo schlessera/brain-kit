@@ -1,3 +1,4 @@
+import { retainRecordingProof } from "./offline/recording-proof-client.ts";
 /// <reference types="@vitest/browser-playwright" />
 import { expect, test } from "vitest";
 import type { LocalCaptureChunk } from "../../src/voice/local-capture.js";
@@ -16,9 +17,15 @@ test("ten-minute native endurance preserves sustained commits, full-length decod
   c.cleanup.push(() => microphone.restore());
   const started = performance.now();
   const capture = await c.store.start();
-  expect(await capture.ended).toBe("limit");
-  expect(performance.now() - started).toBeLessThan(605_000);
+  const ended = await capture.ended;
+  const stoppedAfterMs = performance.now() - started;
   const row = (await c.store.list("account:odysseus"))[0]!;
+  const evidencePlay = await c.store.playback(row.partition, row.id);
+  try {
+    await retainRecordingProof("endurance", await (await fetch(evidencePlay.url)).arrayBuffer(), { row, ended, stoppedAfterMs });
+  } finally { evidencePlay.revoke(); }
+  expect(ended).toBe("limit");
+  expect(stoppedAfterMs).toBeLessThan(605_000);
   expect(row.savedThroughMs, "capture reaches the ten-minute boundary").toBeGreaterThan(598_000);
   expect(row.savedThroughMs).toBeLessThanOrEqual(600_000);
   expect(c.events.filter((e) => e.kind === "warning")).toHaveLength(1);
@@ -58,6 +65,7 @@ test("ten-minute native endurance preserves sustained commits, full-length decod
   expect(digest, "all retained encoded chunks participate in the final hash").toBe(row.contentHash);
   const decoded = await context.decodeAudioData(bytes);
   console.info("recording endurance", JSON.stringify({ elapsedMs: performance.now() - started, chunks: row.chunkCount, bytes: row.bytes, savedThroughMs: row.savedThroughMs, decodedSeconds: decoded.duration }));
+  await retainRecordingProof("endurance", bytes, { row, decodedSeconds: decoded.duration, elapsedMs: performance.now() - started });
   expect(decoded.duration).toBeGreaterThan(598);
   expect(decoded.duration).toBeLessThanOrEqual(600.1);
   expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs)).toBeLessThan(150);

@@ -1,3 +1,4 @@
+import { recordingProof } from "../ui-react/tests/browser/offline/recording-proof.ts";
 import { conversationServer } from "../ui-react/tests/browser/conversation-server-command.ts";
 import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../ui-react/tests/browser/diagram-export-command.ts";
 import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
@@ -170,7 +171,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
@@ -196,7 +197,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { recordingProof, buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

@@ -1,3 +1,4 @@
+import { retainRecordingProof } from "./offline/recording-proof-client.ts";
 /// <reference types="@vitest/browser-playwright" />
 import { expect, test, vi } from "vitest";
 import { createRecordingStore, RECORDING_MAX_BYTES, RECORDING_MAX_MS } from "../../src/lib/recordings.js";
@@ -59,6 +60,7 @@ test("registered production warning and deadline finalize short native audio and
   const context = new AudioContext();
   ctx.onTestFinished(() => context.close());
   const decoded = await context.decodeAudioData(await (await fetch(play.url)).arrayBuffer());
+  await retainRecordingProof("control", await (await fetch(play.url)).arrayBuffer(), { row, decodedSeconds: decoded.duration });
   expect(decoded.duration, "real encoded audio is playable").toBeGreaterThan(0.25);
   expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs), "native elapsed metadata agrees with decoded audio").toBeLessThan(150);
   play.revoke();
@@ -73,6 +75,7 @@ test("production warning and deadline fire at exactly 540000 and 599750 millisec
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   const sink = c.store.sink();
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
   await vi.advanceTimersByTimeAsync(539_999);
   expect(c.events.filter((event) => event.kind === "warning")).toEqual([]);
   expect(stop).not.toHaveBeenCalled();
@@ -120,6 +123,7 @@ test("production chunk boundary accepts exactly 600000 ms and rejects the next m
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   const sink = c.store.sink();
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
   await sink.chunk({ index: 0, startMs: 0, endMs: 599_999, data: new Blob(["a"]) });
   await expect(sink.chunk({ index: 1, startMs: 599_999, endMs: 600_000, data: new Blob(["b"]) }), "exact duration boundary commits").resolves.toBeUndefined();
   expect(stop, "exact boundary is accepted").not.toHaveBeenCalled();
@@ -150,6 +154,7 @@ test("production aggregate budget accepts exactly 100 MiB and rejects one byte m
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   const sink = c.store.sink();
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
   await expect(sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob([new Uint8Array(remaining)]) }), "exact aggregate byte boundary commits").resolves.toBeUndefined();
   expect(stop, "exact 100-MiB boundary is accepted").not.toHaveBeenCalled();
   expect(await c.store.budget()).toMatchObject({ bytes: 0, canRecord: false });
@@ -190,6 +195,7 @@ test("source starvation reports only encoded audio", async (ctx) => {
   const context = new AudioContext();
   c.cleanup.push(() => context.close());
   const decoded = await context.decodeAudioData(await (await fetch(play.url)).arrayBuffer());
+  await retainRecordingProof("starvation", await (await fetch(play.url)).arrayBuffer(), { row, decodedSeconds: decoded.duration, elapsed });
   expect(decoded.duration * 1000, "source suspension did not starve encoder").toBeLessThan(elapsed - 800);
   expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs), "saved duration agrees with emitted samples").toBeLessThan(150);
 });
@@ -201,6 +207,7 @@ test("wall backstop fires at 660000 and retains interrupted audio", async (ctx) 
   const sink = c.store.sink();
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
   await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
   await vi.advanceTimersByTimeAsync(659_999);
   expect(stop.mock.calls.filter(([r]) => r === "interrupted")).toEqual([]);
@@ -219,6 +226,7 @@ test("resumed chunk cannot beat the overdue wall backstop", async (ctx) => {
   const sink = c.store.sink();
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
   await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
   clock = 660_000;
   await sink.chunk({ index: 1, startMs: 1000, endMs: 2000, data: new Blob(["b"]) });
@@ -234,6 +242,7 @@ test("audio deadline is re-armed from the last committed audio", async (ctx) => 
   const sink = c.store.sink();
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
   await vi.advanceTimersByTimeAsync(2000);
   await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
   await vi.advanceTimersByTimeAsync(598_749);
