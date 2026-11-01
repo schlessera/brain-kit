@@ -166,10 +166,33 @@ test("reduced motion leaves no release animations", async () => {
 test("ordinary snap-back is 200ms ease-out", async () => {
   await mount(); await commands.dictationMotion("no-preference");
   await expect.poll(() => surface().getAnimations().every(a => a.playState === "finished")).toBe(true);
-  const p = await start(); await move(p,30); await end(p,30);
-  const animation = surface().getAnimations().find(a => !(a instanceof CSSAnimation)); expect(animation,"snap-back animation").toBeDefined();
-  expect(animation!.effect!.getTiming().duration).toBe(200); expect(animation!.effect!.getTiming().easing).toBe("ease-out");
-  await expect.poll(offset).toBe(0);
+  const target = surface();
+  let pointerId: number | undefined;
+  let animation: Animation | undefined;
+  const down = (event: PointerEvent) => { pointerId = event.pointerId; };
+  // Window bubble observes the same release after the real document-capture handler.
+  const up = (event: PointerEvent) => {
+    if (event.pointerId !== pointerId || event.target !== target) return;
+    window.removeEventListener("pointerup", up);
+    animation = target.getAnimations().find(a => !(a instanceof CSSAnimation));
+  };
+  target.addEventListener("pointerdown", down, {once: true});
+  window.addEventListener("pointerup", up);
+  try {
+    const p = await start(); await move(p,30); expect(offset(), "gesture started").toBe(30); await end(p,30);
+    expect(animation, "snap-back native object capture").toBeInstanceOf(Animation);
+    expect((animation!.effect as KeyframeEffect).target, "snap-back target").toBe(target);
+    expect(animation!.effect!.getTiming().duration).toBe(200); expect(animation!.effect!.getTiming().easing).toBe("ease-out");
+    // Cross the finite animation's completion boundary deliberately: the old
+    // post-transport getAnimations lookup cannot observe it here.
+    await animation!.finished;
+    expect(animation!.playState, "captured snap-back finished").toBe("finished");
+    expect(target.getAnimations(), "finished snap-back is no longer current").not.toContain(animation);
+    await expect.poll(offset).toBe(0);
+  } finally {
+    target.removeEventListener("pointerdown", down);
+    window.removeEventListener("pointerup", up);
+  }
 });
 test("header close button remains operable", async () => {
   await mount(); await userEvent.click(host!.querySelector('[aria-label="Close More"]')!); expect(reasons, "mouse header close reason").toEqual(["close-button","after-focus"]);
