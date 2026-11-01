@@ -633,3 +633,32 @@ test("verify summary keeps raw setup/proof outcomes and refuses missing completi
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+test("verify successful step requires final marker and zero unsignalled finishes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "verify-evidence-"));
+  try {
+    const start = { event: "start", id: "one", name: "strict typecheck" };
+    for (const [label, end, marker, expected, message] of [
+      ["finish without final marker", { event: "finish", exitCode: 0, signal: null }, false, 1, "finished successfully"],
+      ["nonzero finish", { event: "finish", exitCode: 3, signal: null }, true, 1, "failed (exit 3)"],
+      ["signal finish", { event: "finish", exitCode: 0, signal: "SIGTERM" }, true, 1, "terminated by signal SIGTERM (exit 0)"],
+      ["recorded interruption", { event: "interrupted", exitCode: 0, signal: null }, false, 1, "interrupted (exit 0, signal none)"],
+      ["start only", null, false, 1, "Missing end receipt: strict typecheck; completion unknown"],
+      ["complete success", { event: "finish", exitCode: 0, signal: null }, true, 0, "finished successfully"],
+    ] as const) {
+      const receipts = join(dir, "receipts.jsonl"), output = join(dir, "summary.md");
+      writeFileSync(receipts, [start, ...(end ? [{ ...end, id: "one" }] : []), ...(marker ? [{ event: "complete" }] : [])].map(e => JSON.stringify(e)).join("\n") + "\n");
+      writeFileSync(output, "");
+      const child = Bun.spawnSync([process.execPath, join(ROOT, "scripts/ci-verify-summary.ts")], { cwd: ROOT,
+        env: { ...process.env, INSTALL_OUTCOME: "success", PLAN_OUTCOME: "success", PROOF_OUTCOME: "success",
+          CI_COMMAND_RECEIPTS: receipts, GITHUB_STEP_SUMMARY: output }, stdout: "pipe", stderr: "pipe" });
+      expect(child.exitCode, `VERIFY_SUCCESS_EVIDENCE: ${label}`).toBe(expected);
+      const text = readFileSync(output, "utf8");
+      expect(text, `VERIFY_COMMAND_ATTRIBUTION: ${label}`).toContain(message);
+      if (end?.event === "interrupted") expect(text).not.toContain("Missing end receipt:");
+      expect(text).not.toMatch(/timed out|timeout/i);
+      expect(text).toContain(JSON.stringify(start));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

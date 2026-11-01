@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests } from "./test-shards";
 
-export interface Command { name: string; argv: string[]; env?: Record<string, string>; completed?: (elapsedMs: number) => void; }
+export interface Command { name: string; argv: string[]; env?: Record<string, string>; compilerRuntime?: boolean; completed?: (elapsedMs: number) => void; }
 
 export function verificationCommands(plan: CheckPlan, root: string): Command[] {
   const commands: Command[] = [];
@@ -12,7 +12,7 @@ export function verificationCommands(plan: CheckPlan, root: string): Command[] {
     throw new Error(`Selected CI test is missing: ${file}`);
   }
   if (plan.typecheck) commands.push({ name: "strict typecheck", argv: [process.execPath, "run", "typecheck", "--extendedDiagnostics"],
-    env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
+    env: { NODE_OPTIONS: "--max-old-space-size=4096" }, compilerRuntime: true });
   if (plan.tests.length && (!plan.local.fullTests || plan.cadence === "feedback")) {
     const batches = balanceTests(plan.tests, Math.min(2, plan.tests.length));
     for (const [index, files] of batches.entries()) commands.push({ name: `fast contract and integrity tests ${index + 1}/${batches.length}`,
@@ -62,9 +62,19 @@ export async function runCommands(commands: readonly Command[], cwd: string, con
           console.log(`Checking ${command.name}`);
           const started = performance.now();
           receipt({ event: "start", id, name: command.name });
-          const child = Bun.spawn(command.argv, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "inherit", "inherit"],
-            env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
-              GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "", CI_COMMAND_RECEIPTS: "", ...command.env } });
+          const env = { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
+            GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "", CI_COMMAND_RECEIPTS: "", ...command.env };
+          if (command.compilerRuntime) {
+            // Same Bun-run binary lookup and env as tsc's Node shebang. A failed
+            // observation never replaces the compiler command or its error.
+            try {
+              const probe = Bun.spawnSync([process.execPath, "run", "node", join(import.meta.dir, "ci-compiler-runtime.cjs")],
+                { cwd, env, stdout: "pipe", stderr: "pipe", timeout: 5000 });
+              const output = new TextDecoder().decode(probe.stdout).trim();
+              console.log(probe.exitCode === 0 && output.startsWith("BRAIN_COMPILER_RUNTIME {") ? output : "BRAIN_COMPILER_RUNTIME unavailable");
+            } catch { console.log("BRAIN_COMPILER_RUNTIME unavailable"); }
+          }
+          const child = Bun.spawn(command.argv, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "inherit", "inherit"], env });
           children.push(child);
           const code = await child.exited;
           const elapsedMs = performance.now() - started;

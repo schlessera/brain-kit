@@ -12,12 +12,19 @@ try {
   const events = raw.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
   const starts = events.filter(e => e.event === "start");
   const finishes = events.filter(e => e.event === "finish");
-  const missing = starts.filter(start => !finishes.some(end => end.id === start.id));
+  const ends = events.filter(e => e.event === "finish" || e.event === "interrupted");
   complete = events.at(-1)?.event === "complete" && starts.length === finishes.length &&
     new Set(starts.map(e => e.id)).size === starts.length &&
     starts.every(start => finishes.filter(end => end.id === start.id && end.exitCode === 0 && !end.signal).length === 1);
   lines.push(`Command completion evidence: ${complete ? "complete" : "missing or nonpassing"}`);
-  for (const start of missing) lines.push(`Missing end receipt: ${start.name}; completion unknown`);
+  for (const start of starts) {
+    const end = ends.find(e => e.id === start.id);
+    if (!end) lines.push(`Missing end receipt: ${start.name}; completion unknown`);
+    else if (end.event === "interrupted") lines.push(`Command ${start.name}: interrupted (exit ${end.exitCode}, signal ${end.signal ?? "none"})`);
+    else if (end.signal) lines.push(`Command ${start.name}: terminated by signal ${end.signal} (exit ${end.exitCode})`);
+    else if (end.exitCode !== 0) lines.push(`Command ${start.name}: failed (exit ${end.exitCode})`);
+    else lines.push(`Command ${start.name}: finished successfully`);
+  }
   lines.push("", "```json", raw.trim() || "No command receipts", "```");
 } catch {
   lines.push("Command completion evidence: missing or unreadable; completion unknown");

@@ -616,6 +616,18 @@ is not the compiler's Node runtime. Runtime identity, when measured, must use
 the compiler's actual PATH/environment and executable, not that compatibility
 value or the action's embedded Node.
 
+Verify's typecheck-only runtime observation launches actual Node through the
+same Bun-run executable lookup and environment as the compiler's Node
+shebang. It records the safe executable basename, runtime and installed
+TypeScript versions, effective V8 heap limit and OS-visible total/free memory.
+The capacity scope explicitly warns that a cgroup limit may be lower; these
+values are not compiler RSS or a hosted capacity guarantee. No raw environment
+or executable path is printed. This observation has a five-second bound inside
+the proof allowance. Unavailable/failed observations print an unavailable
+receipt and still run the unchanged compiler command with its original
+`NODE_OPTIONS`, exit and signal handling. Other shared-coordinator consumers
+and selected checks do not acquire another verification command.
+
 The shared coordinator emits timestamped command start and settled-child
 receipts with elapsed milliseconds, exit code and signal, without environment
 contents. Interrupted commands receive an interrupted event; a hard-killed
@@ -623,7 +635,10 @@ coordinator can leave only a start. Only a successful entire verification
 writes its final completion marker. Original command failure messages and
 owned process-group cleanup remain unchanged for every coordinator consumer.
 The always summary keeps raw installation, planning and proof outcomes
-separate and explicitly names missing/unreadable completion evidence. A
+separate and explicitly names missing/unreadable completion evidence. Recorded
+interruption, nonzero exit and signal termination receive their own labels;
+a start-only receipt leaves completion unknown. A generic GitHub failure
+outcome never establishes a definite timeout cause. A
 successful proof step without affirmative completion evidence fails summary
 validation. A forced whole-job cancellation can prevent the summary itself;
 absence is unknown/nonpassing, never a promise of completion. These controls

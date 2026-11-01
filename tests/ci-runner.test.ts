@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runCommands, verificationCommands } from "../scripts/ci-runner";
+import { runCommands, verificationCommands, type Command } from "../scripts/ci-runner";
 import { planChecks } from "../scripts/ci-plan";
 
 const dirs: string[] = [];
@@ -110,10 +110,11 @@ test("verification adds compiler diagnostics while preserving strict invocation 
   const command = verificationCommands(planChecks(["tsconfig.json"], []), join(import.meta.dir, ".."))[0]!;
   expect(command?.argv).toEqual([process.execPath, "run", "typecheck", "--extendedDiagnostics"]);
   expect(command.env).toEqual({ NODE_OPTIONS: "--max-old-space-size=4096" });
+  expect(command.compilerRuntime).toBe(true);
 });
 
 
-function recordedRunner(dir: string, commands: { name: string; argv: string[]; env?: Record<string, string> }[]) {
+function recordedRunner(dir: string, commands: Command[]) {
   const script = join(dir, "coordinator.ts");
   writeFileSync(script, `import { runCommands } from ${JSON.stringify(join(import.meta.dir, "../scripts/ci-runner.ts"))};
     try { await runCommands(${JSON.stringify(commands)}, ${JSON.stringify(dir)}, 2, 100); }
@@ -237,4 +238,63 @@ test("a sibling stopped by failure cannot emit successful completion after handl
   const running = receipts(dir).filter(r => r.name === "running");
   expect(running.map(r => r.event)).toEqual(["start", "interrupted"]);
   expect(running[1]!.exitCode).toBe(0);
+});
+
+
+test("typecheck runtime diagnostic uses the compiler Node PATH and heap environment", async () => {
+  for (const code of [0, 3]) {
+    const dir = fixture();
+    const lookup = Bun.spawnSync(["node", "-p", "process.execPath"], { stdout: "pipe", stderr: "pipe" });
+    expect(lookup.exitCode).toBe(0);
+    const realNode = new TextDecoder().decode(lookup.stdout).trim();
+    mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+    writeFileSync(join(dir, "node_modules/.bin/node"), `#!${realNode}
+      require("node:fs").appendFileSync("node-options.jsonl", JSON.stringify(process.env.NODE_OPTIONS ?? null) + "\\n");
+      process.argv.splice(1, 1); process.argv[1] = require("node:path").resolve(process.argv[1]); require(process.argv[1]);`);
+    chmodSync(join(dir, "node_modules/.bin/node"), 0o755);
+    mkdirSync(join(dir, "node_modules/typescript"), { recursive: true });
+    writeFileSync(join(dir, "node_modules/typescript/package.json"), JSON.stringify({ name: "typescript", version: "0.0.0" }));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { typecheck: "./compiler --noEmit" } }));
+    writeFileSync(join(dir, "compiler"), `#!/usr/bin/env node
+      const path = require("node:path"), v8 = require("node:v8");
+      require("node:fs").writeFileSync("actual.json", JSON.stringify({ executable: path.basename(process.execPath), version: process.version,
+        heapLimitBytes: v8.getHeapStatistics().heap_size_limit, options: process.env.NODE_OPTIONS, argv: process.argv.slice(2) }));
+      process.exit(${code});`);
+    chmodSync(join(dir, "compiler"), 0o755);
+    const command = verificationCommands({ ...planChecks([], []), typecheck: true }, dir)[0]!;
+    const child = recordedRunner(dir, [command]);
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(exit, stderr).toBe(code ? 1 : 0);
+    if (code) expect(stderr.trim()).toEndWith("strict typecheck failed (3)");
+    else expect(stderr).not.toContain("strict typecheck failed");
+    const line = stdout.split("\n").find(line => line.startsWith("BRAIN_COMPILER_RUNTIME {"));
+    expect(line, "ACTUAL_COMPILER_NODE_RUNTIME_RECEIPT").toBeDefined();
+    const runtime = JSON.parse(line!.slice("BRAIN_COMPILER_RUNTIME ".length));
+    const actual = JSON.parse(readFileSync(join(dir, "actual.json"), "utf8"));
+    expect(runtime.runtime, "ACTUAL_NODE_NOT_BUN_COMPATIBILITY").toBe("node");
+    expect(runtime.executable).toBe(actual.executable); expect(runtime.version).toBe(actual.version);
+    expect(runtime.heapLimitBytes, "COMPILER_ENV_EFFECTIVE_HEAP").toBe(actual.heapLimitBytes);
+    expect(runtime.typescript).toBe("0.0.0");
+    expect(runtime.capacity.scope).toBe("OS-visible memory; cgroup limit may be lower");
+    expect(runtime.capacity.totalBytes).toBeGreaterThan(0);
+    expect(actual.options).toBe("--max-old-space-size=4096");
+    expect(readFileSync(join(dir, "node-options.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)),
+      "COMPILER_NODE_OPTIONS_FORWARDING").toEqual(["--max-old-space-size=4096", "--max-old-space-size=4096"]);
+    expect(actual.argv).toEqual(["--noEmit", "--extendedDiagnostics"]);
+    expect(runtime).not.toHaveProperty("env");
+    expect(runtime.executable).not.toContain("/");
+  }
+});
+
+test("unavailable compiler runtime probe still runs compiler and preserves its failure", async () => {
+  const dir = fixture(); mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(dir, "node_modules/.bin/node"), "#!/bin/sh\nexit 7\n"); chmodSync(join(dir, "node_modules/.bin/node"), 0o755);
+  writeFileSync(join(dir, "compiler.ts"), 'await Bun.write("compiler-ran", "yes"); process.exit(3);');
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { typecheck: `${JSON.stringify(process.execPath)} compiler.ts` } }));
+  const command = verificationCommands({ ...planChecks([], []), typecheck: true }, dir)[0]!;
+  const child = recordedRunner(dir, [command]);
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(exit).toBe(1); expect(stderr.trim()).toEndWith("strict typecheck failed (3)");
+  expect(stdout, "PROBE_FAILURE_IS_DIAGNOSTIC_ONLY").toContain("BRAIN_COMPILER_RUNTIME unavailable");
+  expect(existsSync(join(dir, "compiler-ran"))).toBe(true);
 });
