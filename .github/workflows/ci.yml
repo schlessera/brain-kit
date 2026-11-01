@@ -104,7 +104,7 @@ jobs:
     needs: changeset
     if: needs.changeset.outputs.verify == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v7
         with:
@@ -113,15 +113,32 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
+      - id: verify_install
+        timeout-minutes: 1
+        run: bun install --frozen-lockfile
       - name: Recompute the same affected selection
+        id: verify_plan
+        timeout-minutes: 1
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Strict types and curated fast tests concurrently on this runner
+        id: verify_proof
+        timeout-minutes: 4
+        env:
+          CI_COMMAND_RECEIPTS: tmp/verify-commands.jsonl
         run: bun scripts/ci-runner.ts
+
+      - name: Verify setup and proof outcomes (best effort)
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.verify_install.outcome }}
+          PLAN_OUTCOME: ${{ steps.verify_plan.outcome }}
+          PROOF_OUTCOME: ${{ steps.verify_proof.outcome }}
+          CI_COMMAND_RECEIPTS: tmp/verify-commands.jsonl
+        run: bun scripts/ci-verify-summary.ts
 
   pack:
     needs: changeset

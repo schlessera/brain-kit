@@ -144,7 +144,7 @@ describe("the authoritative jobs retain their important phases", () => {
       expect(job.steps.some(s => s.run === install)).toBe(true);
     }
     expect(ci.jobs.changeset!["timeout-minutes"]).toBe(3);
-    expect(ci.jobs.verify!["timeout-minutes"]).toBe(3);
+    expect(ci.jobs.verify!["timeout-minutes"]).toBe(7);
     expect(ci.jobs.pack!["timeout-minutes"]).toBe(5);
     // Browser shards keep buffer above the measured ~900 s whole-job peak (#2414).
     expect(ci.jobs.browser!["timeout-minutes"]).toBe(20);
@@ -564,4 +564,101 @@ test("runtime categories have distinct complete commands and strict aggregate de
   expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts runtime\n", "run: bun scripts/ci-proof.ts runtime_host\n"), "ci.yml")).toContain("ci.yml: runtime: complete proof command is missing");
   expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts runtime_host\n", "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: runtime_host: complete proof command is missing");
   expect(workflowProblems(original.replace("unit, runtime, runtime_host, browser", "unit, runtime, browser"), "ci.yml")).toContain("ci.yml: proof: aggregate must observe every selected category");
+});
+
+
+describe("verify partitioned setup and proof budgets", () => {
+  test("verify retains separate one-minute partitions and exact 2+4+1 outer cap", () => {
+    const job = ci.jobs.verify!;
+    for (const [id, command, minutes] of [["verify_install", "bun install --frozen-lockfile", 1],
+      ["verify_plan", "bun scripts/ci-plan.ts", 1], ["verify_proof", "bun scripts/ci-runner.ts", 4]] as const) {
+      const step = job.steps.find(s => s.id === id);
+      expect(step?.run).toBe(command);
+      expect(step?.["timeout-minutes"]).toBe(minutes);
+      expect(step?.if).toBeUndefined();
+      expect(step?.["continue-on-error"]).toBeUndefined();
+    }
+    expect(job["timeout-minutes"]).toBe(1 + 1 + 4 + 1);
+  });
+  test("verify workflow guard refuses missing partitions, wrong equality, omitted proof and conflated summary", () => {
+    const mutate = (change: (job: Job) => void) => {
+      const workflow = Bun.YAML.parse(read("ci.yml")) as Workflow;
+      change(workflow.jobs.verify!);
+      return workflowProblems(Bun.YAML.stringify(workflow), "ci.yml");
+    };
+    for (const id of ["verify_install", "verify_plan", "verify_proof"]) {
+      expect(mutate(j => { delete j.steps.find(s => s.id === id)!["timeout-minutes"]; }))
+        .toContain(`ci.yml: verify: ${id} must retain its separate ${id === "verify_proof" ? 4 : 1}-minute limit and command`);
+    }
+    for (const cap of [6, 8]) expect(mutate(j => { j["timeout-minutes"] = cap; }))
+      .toContain("ci.yml: verify: job limit must equal 1+1+4+1 minutes");
+    expect(mutate(j => { j.steps.find(s => s.id === "verify_proof")!.run = "echo skipped"; }))
+      .toContain("ci.yml: verify: verify_proof must retain its separate 4-minute limit and command");
+    expect(mutate(j => { j.steps.find(s => s.run === "bun scripts/ci-verify-summary.ts")!.env!.PROOF_OUTCOME = "${{ steps.verify_install.outcome }}"; }))
+      .toContain("ci.yml: verify: always summary must separate raw install, planning and proof outcomes and receipts");
+  });
+});
+
+
+test("verify summary keeps raw setup/proof outcomes and refuses missing completion even after step success", () => {
+  const job = ci.jobs.verify!;
+  const summary = job.steps.find(s => s.run === "bun scripts/ci-verify-summary.ts")!;
+  expect(summary.if).toBe("always()");
+  expect(summary.env).toEqual({ INSTALL_OUTCOME: "${{ steps.verify_install.outcome }}", PLAN_OUTCOME: "${{ steps.verify_plan.outcome }}",
+    PROOF_OUTCOME: "${{ steps.verify_proof.outcome }}", CI_COMMAND_RECEIPTS: "tmp/verify-commands.jsonl" });
+  const dir = mkdtempSync(join(tmpdir(), "verify-outcomes-"));
+  try {
+    const receipts = join(dir, "commands.jsonl");
+    for (const [install, plan, proof, evidence, code] of [
+      ["failure", "skipped", "skipped", "absent", 0], ["cancelled", "skipped", "skipped", "absent", 0],
+      ["success", "failure", "skipped", "absent", 0], ["success", "success", "failure", "unfinished", 0],
+      ["success", "success", "cancelled", "unfinished", 0], ["success", "success", "success", "absent", 1],
+      ["success", "success", "success", "unfinished", 1], ["success", "success", "success", "complete", 0],
+    ] as const) {
+      rmSync(receipts, { force: true });
+      if (evidence !== "absent") writeFileSync(receipts, JSON.stringify({ event: "start", id: "one", name: "strict typecheck" }) + "\n" +
+        (evidence === "complete" ? JSON.stringify({ event: "finish", id: "one", exitCode: 0, signal: null }) + "\n" + JSON.stringify({ event: "complete" }) + "\n" : ""));
+      const output = join(dir, "summary.md"); writeFileSync(output, "");
+      const result = Bun.spawnSync([process.execPath, join(ROOT, "scripts/ci-verify-summary.ts")], { cwd: ROOT,
+        env: { ...process.env, INSTALL_OUTCOME: install, PLAN_OUTCOME: plan, PROOF_OUTCOME: proof,
+          CI_COMMAND_RECEIPTS: receipts, GITHUB_STEP_SUMMARY: output }, stdout: "pipe", stderr: "pipe" });
+      expect(result.exitCode).toBe(code);
+      const text = readFileSync(output, "utf8");
+      expect(text).toContain(`Frozen install (1-minute setup partition): ${install}`);
+      expect(text).toContain(`Affected planning (1-minute setup partition): ${plan}`);
+      expect(text).toContain(`Strict types and selected fast tests (4-minute proof limit): ${proof}`);
+      expect(text).toContain(`Command completion evidence: ${evidence === "complete" ? "complete" : "missing"}`);
+      if (evidence === "unfinished") expect(text).toContain("Missing end receipt: strict typecheck; completion unknown");
+      expect(text).toContain("forced job cancellation may prevent summary/cleanup");
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test("verify successful step requires final marker and zero unsignalled finishes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "verify-evidence-"));
+  try {
+    const start = { event: "start", id: "one", name: "strict typecheck" };
+    for (const [label, end, marker, expected, message] of [
+      ["finish without final marker", { event: "finish", exitCode: 0, signal: null }, false, 1, "finished successfully"],
+      ["nonzero finish", { event: "finish", exitCode: 3, signal: null }, true, 1, "failed (exit 3)"],
+      ["signal finish", { event: "finish", exitCode: 0, signal: "SIGTERM" }, true, 1, "terminated by signal SIGTERM (exit 0)"],
+      ["recorded interruption", { event: "interrupted", exitCode: 0, signal: null }, false, 1, "interrupted (exit 0, signal none)"],
+      ["start only", null, false, 1, "Missing end receipt: strict typecheck; completion unknown"],
+      ["complete success", { event: "finish", exitCode: 0, signal: null }, true, 0, "finished successfully"],
+    ] as const) {
+      const receipts = join(dir, "receipts.jsonl"), output = join(dir, "summary.md");
+      writeFileSync(receipts, [start, ...(end ? [{ ...end, id: "one" }] : []), ...(marker ? [{ event: "complete" }] : [])].map(e => JSON.stringify(e)).join("\n") + "\n");
+      writeFileSync(output, "");
+      const child = Bun.spawnSync([process.execPath, join(ROOT, "scripts/ci-verify-summary.ts")], { cwd: ROOT,
+        env: { ...process.env, INSTALL_OUTCOME: "success", PLAN_OUTCOME: "success", PROOF_OUTCOME: "success",
+          CI_COMMAND_RECEIPTS: receipts, GITHUB_STEP_SUMMARY: output }, stdout: "pipe", stderr: "pipe" });
+      expect(child.exitCode, `VERIFY_SUCCESS_EVIDENCE: ${label}`).toBe(expected);
+      const text = readFileSync(output, "utf8");
+      expect(text, `VERIFY_COMMAND_ATTRIBUTION: ${label}`).toContain(message);
+      if (end?.event === "interrupted") expect(text).not.toContain("Missing end receipt:");
+      expect(text).not.toMatch(/timed out|timeout/i);
+      expect(text).toContain(JSON.stringify(start));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

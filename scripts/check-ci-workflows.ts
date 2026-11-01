@@ -5,7 +5,7 @@ import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
-type Step = { uses?: string; run?: string; if?: string; "timeout-minutes"?: unknown; env?: Record<string, unknown>; with?: Record<string, unknown> };
+type Step = { id?: string; "continue-on-error"?: unknown; uses?: string; run?: string; if?: string; "timeout-minutes"?: unknown; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
@@ -57,6 +57,22 @@ export function workflowProblems(text: string, file: string): string[] {
       const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
       if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
+    const verify = workflow.jobs?.verify;
+    const verifySteps = verify?.steps ?? [];
+    for (const [id, command, minutes] of [["verify_install", "bun install --frozen-lockfile", 1],
+      ["verify_plan", "bun scripts/ci-plan.ts", 1], ["verify_proof", "bun scripts/ci-runner.ts", 4]] as const) {
+      const step = verifySteps.find(s => s.id === id);
+      if (step?.run !== command || step["timeout-minutes"] !== minutes || step.if !== undefined || step["continue-on-error"] !== undefined)
+        fail(`verify: ${id} must retain its separate ${minutes}-minute limit and command`);
+    }
+    if (verify?.["timeout-minutes"] !== 1 + 1 + 4 + 1) fail("verify: job limit must equal 1+1+4+1 minutes");
+    const summary = verifySteps.find(s => s.run === "bun scripts/ci-verify-summary.ts");
+    if (summary?.if !== "always()" || summary.env?.INSTALL_OUTCOME !== "${{ steps.verify_install.outcome }}" ||
+        summary.env?.PLAN_OUTCOME !== "${{ steps.verify_plan.outcome }}" || summary.env?.PROOF_OUTCOME !== "${{ steps.verify_proof.outcome }}" ||
+        summary.env?.CI_COMMAND_RECEIPTS !== "tmp/verify-commands.jsonl" ||
+        verifySteps.find(s => s.id === "verify_proof")?.env?.CI_COMMAND_RECEIPTS !== "tmp/verify-commands.jsonl" ||
+        verifySteps.indexOf(summary) <= verifySteps.findIndex(s => s.id === "verify_proof"))
+      fail("verify: always summary must separate raw install, planning and proof outcomes and receipts");
     // Network prerequisites cannot spend proof capacity; measured basis: docs/decisions/ci-utility.md (#2658).
     for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
       const job = workflow.jobs?.[name];
