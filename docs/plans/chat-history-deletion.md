@@ -1,79 +1,63 @@
 # Explicit chat-history deletion ownership
 
-This is the design deliverable for [#3180](https://github.com/schlessera/brain-kit/issues/3180),
-source-audited against main `7d57849fe920e7b57aff4b3399ffbdcae5bcb251` on
-2026-11-01. Every proposal below requires the recorded maintainer choices
-before implementation. It grants no deletion authority, retention policy,
-endpoint, automatic expiry or release commitment.
+This is the implementation design for [#3180](https://github.com/schlessera/brain-kit/issues/3180),
+source-audited against main `6fa3ec1305e8b52991252d6a28959a68c56be1c1` on
+2026-11-01. The [binding decision](../decisions/chat-history-deletion.md)
+records the approved authority, extent and permanent-fence/backup policy.
+Deletion runtime, endpoint and UI are not built. Approval supplies no automatic
+expiry, routine live cutoff or implementation release commitment.
 
-## Recommendation and choices to record
+## Selected local lifecycle
 
-Recommend a concrete ui-server lifecycle owner in the existing operational
+Use a concrete ui-server lifecycle owner in the existing operational
 catalog/write worker. One explicit operation retires a chat identity before
 coordinating its owned stores. Backend implementations retain responsibility
 for native layout and removal; browser clients invalidate their projections.
 There is no generic storage plugin, second dialogue store or replacement timeline.
 
-The maintainer should record these choices on #3180, then put the adopted
-invariants in a decision record:
+Only an authenticated owner may delete its own chat, with exact principal
+ownership and current authorization at admission and asynchronous boundaries.
+Agent principals cannot delete history. Ambient authentication requires an
+explicit owner mapping; without one deletion is unavailable. Neither labels,
+history-read access nor speech grants authority. No cross-principal deletion
+or owner reassignment is authorized.
 
-1. **Authority.** Recommend an authenticated owner principal with fresh current
-   authorization at admission and every asynchronous boundary. Agent principals
-   cannot delete history. Ambient authentication needs an explicit host-owner
-   mapping or the operation is unavailable; do not infer owner authority from a
-   label, successful history read or a conversation's speech. This is a proposed
-   additional restriction, not a claim about today's history readers. Dialogue
-   ownership checks remain exact even for an owner credential: no cross-principal
-   deletion or owner reassignment is inferred. Decide separately whether a host
-   owner may erase another principal's chat; recommend withholding that ability
-   until its authorization is specified.
-2. **Extent.** Recommend deleting the selected chat's local native history,
-   canonical dialogue, direct display/provenance copies, retained request/result
-   content and its bound drafts, while retaining minimal non-content fences and
-   necessary accounting/effect records. Independent content files, Inbox work,
-   previously created handoff destinations, recordings, exports, remote providers
-   and old backups are excluded and disclosed. This is **local chat-history
-   deletion**, not deletion of every derivative of information ever discussed.
-   If the desired promise includes those independent records, choose the broader
-   alternative below and require its provenance/retention design first. Never
-   present that broader promise over a narrower implementation. Native-history
-   deletion also requires an explicit extent ruling amending #3177's “Native
-   provider transcripts stay intact” sentence; the existing ruling does not
-   authorize the proposed removal.
-3. **Fences and recovery.** Recommend no automatic tombstone expiry while the
-   installation can admit any old session/task/request identity. Retire identities
-   permanently within that installation namespace. A future compaction/namespace
-   reset needs its own replay and restore ruling. Accept and disclose that an old
-   backup predating deletion can restore text; preventing that requires a separate
-   durable deletion ledger outside the restored image, not a claim that generation
-   increments solve recovery-point loss.
+The selected extent removes local native history, canonical dialogue and directly
+bound copies, including display/provenance, request/result content and bound
+drafts. Independent saved content, effects, provider copies and backups remain
+and must be disclosed. The decision explicitly amends #3177's native-preservation
+rule only for authorized explicit deletion. It never permits rewriting a live
+provider prefix. Minimized non-content identity/replay fences survive permanently
+within the installation. Old backups may restore text; that limitation is accepted
+and disclosed. No outside-image ledger or secure-erasure guarantee is approved.
 
 As a conservative engineering default, refuse deletion admission while a host
 task, queued follow-up, handoff preparation, share application or native
 archive/restore operation still owns the chat. Offer existing stop/reconcile
 paths separately; deletion never silently cancels an effect or changes unknown
-into completed. Voice/provider opening and history-only readers can be retired by the lifecycle fence, but all holders
-must be drained before content removal is complete.
+into completed. Voice/provider opening and history-only readers can be retired
+by the lifecycle fence, but all holders must be drained before content removal
+is complete.
 
 Alternative A, catalog-only hiding, is cheap and useful as an explicitly named
 archive/hide operation, but is rejected for deletion: native list/read/resume,
 archival restore and retained facts can recreate visible text. Alternative B,
-the recommended local lifecycle, requires first-party backend removal support
+the selected local lifecycle, requires first-party backend removal support
 and honest retained-record exclusions. Alternative C, recursive erasure of all
 content/effect/audit/Inbox/handoff derivatives, changes independent owners and
 recovery guarantees; present provenance does not establish a complete reversible
 association. It is a separately scoped policy/design project, not a cascade on
-`session_id`. A documented decision not to offer deletion is also a valid outcome
-of this spike; preservation continues unchanged.
+`session_id`. The maintainer selected B; neither the hide-only nor recursive-erasure
+alternative is authorized as the deletion promise.
 
 ## Bindings and current source
 
 [Retained discussion](../decisions/live-conversation.md#retained-discussion--2026-10-30-3177)
 keeps dialogue with its chat; pages, provider input and pending memory are bounded
-separately. Its “Native provider transcripts stay intact” sentence remains
-binding until a separately recorded extent ruling explicitly amends it for
-native-history deletion. This proposal does not assume that amendment has been
-approved. Task-recovery eviction is not archive eviction. The
+separately. Its “Native provider transcripts stay intact” sentence now has the explicit
+[authorized-deletion exception](../decisions/chat-history-deletion.md#native-preservation-amendment).
+Preservation remains binding for ordinary live operation and undeleted chats.
+Task-recovery eviction is not archive eviction. The
 [explicit Start rule](../decisions/live-conversation.md#new-live-epochs-receive-existing-chat-text--2026-10-31-3178)
 requires Enter to send nothing, and binds startup to the exact disclosed profile,
 principal, session and entry lifetime. Deletion cannot count as Start or preserve
@@ -89,8 +73,10 @@ There is no general delete operation: `createSessionRoutes` only lists/reads
 (`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:708-751`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
-ships in a minor. Altered retention meaning or fence lifetime needs a separate
-breaking ruling. This document changes no machine surface.
+ships in a minor. The approved retention exception is recorded before runtime
+work; any other altered retention meaning or fence lifetime needs a separate
+breaking ruling.
+This document changes no machine surface or shipped retention behavior.
 
 ## Ownership inventory
 
@@ -177,7 +163,7 @@ must be tested through their installed runtime, not inferred from directory name
   governance/journal/budgets/lifecycle: `038`, `042`, `045`, `046`,
   `051_turn_lifecycle`). The journal
   uses its own database and object store; a UI-table cascade cannot purge it.
-  Recommend retaining these independent workflows/effect/accounting guarantees
+  Retain these independent workflows/effect/accounting guarantees
   under an explicit exclusion. Any direct embedded chat copy discovered there
   must be named in the retained-scope disclosure or removed by its actual owner
   under an approved policy. Do not silently claim they are content-free.
@@ -355,9 +341,10 @@ restoring an old transcript must never bypass a surviving deletion tombstone.
 
 ## Bounded implementation brief and proof owed
 
-First record authority, extent (including the native-history amendment) and
-restore/tombstone rulings. Retain the conservative busy-work refusal default. Then
-implement the lifecycle transaction/read-write gate and first-party native removal
+The binding decision settles authority, extent (including the native-history
+amendment) and restore/tombstone policy. Retain the conservative busy-work refusal
+default. Implement the lifecycle transaction/read-write gate and first-party native
+removal
 under existing owners; add an additive backend capability only when both concrete
 implementations and unsupported behavior are specified. Next join projections,
 drafts and startup fences, then targeted browser invalidation. Expose an endpoint
@@ -411,4 +398,4 @@ browser harness. Never touch a live transcript or call an actual provider.
 
 These are proposed acceptance/proof obligations, not executed deletion tests.
 This spike verifies the written source inventory and citations; it does not
-claim deletion, browser erasure, provider forgetting or a maintainer ruling.
+claim implemented deletion, browser erasure or provider forgetting.

@@ -365,10 +365,14 @@ memory have finite bounds; those are not permission to expire old dialogue or
 routinely stop ongoing conversation at a small archive cap. Actual storage/quota
 failure or actual pending-write pressure preserves the committed prefix and exposes the unsaved tail and cause-specific recovery
 prerequisite. No general whole-chat deletion feature exists at this source;
-#3180 records that explicit lifecycle design rather than inventing expiry/UI.
+#3180 records the [approved explicit local-deletion policy](chat-history-deletion.md),
+including the native-preservation exception below; deletion runtime/UI is not built.
 
 The existing operational catalog/write worker owns evidence and order metadata;
-the existing root timeline projects it. Native provider transcripts stay intact.
+the existing root timeline projects it. Native provider transcripts stay intact
+during ordinary live operation. The [2026-11-01 amendment](chat-history-deletion.md#native-preservation-amendment)
+authorizes their local removal only through an authenticated owner's explicit
+delete of its own chat; it does not permit live provider-prefix rewriting.
 Reopening history is read-only and conveys no native replay, tool admission or
 microphone consent. #3178 owns the separately authorized, bounded historical-data
 projection into a new provider epoch, preserving the same-conversation/earlier-
