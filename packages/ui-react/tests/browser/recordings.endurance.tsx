@@ -65,7 +65,7 @@ test("ten-minute native endurance preserves sustained commits, full-length decod
   expect(digest, "all retained encoded chunks participate in the final hash").toBe(row.contentHash);
   const decoded = await context.decodeAudioData(bytes);
   console.info("recording endurance", JSON.stringify({ elapsedMs: performance.now() - started, chunks: row.chunkCount, bytes: row.bytes, savedThroughMs: row.savedThroughMs, decodedSeconds: decoded.duration }));
-  await retainRecordingProof("endurance", bytes, { row, decodedSeconds: decoded.duration, elapsedMs: performance.now() - started });
+  await retainRecordingProof("endurance", await (await fetch(play.url)).arrayBuffer(), { row, decodedSeconds: decoded.duration, elapsedMs: performance.now() - started });
   expect(decoded.duration).toBeGreaterThan(598);
   expect(decoded.duration).toBeLessThanOrEqual(600.1);
   expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs)).toBeLessThan(150);
