@@ -1,8 +1,8 @@
 # Explicit chat-history deletion ownership
 
 This is the design deliverable for [#3180](https://github.com/schlessera/brain-kit/issues/3180),
-inspected against main `e09ae24b9cdc6322586f75a13493212e7ac22cdb` on
-2026-10-31. Every proposal below requires the recorded maintainer choices
+source-audited against main `7d57849fe920e7b57aff4b3399ffbdcae5bcb251` on
+2026-11-01. Every proposal below requires the recorded maintainer choices
 before implementation. It grants no deletion authority, retention policy,
 endpoint, automatic expiry or release commitment.
 
@@ -84,7 +84,7 @@ consent for a replacement identity. Existing [session principals](../decisions/s
 and [operational recovery](../inbox-recovery.md) remain binding.
 
 There is no general delete operation: `createSessionRoutes` only lists/reads
-(`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:8-149`).
+(`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:8-147`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
 (`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:708-751`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
@@ -102,7 +102,7 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native Claude history.** Live JSONL, per-session subordinate files, titles,
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
-  (`createHistory`, `packages/ui-backend-claude/src/history.ts:41-94`;
+  (`createHistory`, `packages/ui-backend-claude/src/history.ts:41-90`;
   `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:146-173`).
   The live/archive roots are resolved by the backend
   (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:30-39`).
@@ -136,7 +136,7 @@ must be tested through their installed runtime, not inferred from directory name
   native/task/request identities. Content retention and identity retention differ
   (`saveConversationTask`, `packages/ui-server/src/ws/conversation-storage.ts:35-71`).
   Loading may return receipts/results even without a current provider session
-  (`loadConversation`, `packages/ui-server/src/ws/conversation-storage.ts:72-101`).
+  (`loadConversation`, `packages/ui-server/src/ws/conversation-storage.ts:72-98`).
   Clear receipt/result content while preserving replay refusal under a new lifecycle
   fence; do not cascade away consumed identities and then allow their reuse.
 - **Session projections.** `sessions` title and `034_session_labels.sql` label/source;
@@ -149,7 +149,7 @@ must be tested through their installed runtime, not inferred from directory name
   readable projections according to the adopted extent. Retained digests can
   reveal guessed short text; discard unnecessary hashes, not just plaintext.
   Native history joins several of these owners
-  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:630-642`).
+  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:638-650`).
 - **Independent session ledgers.** `retry_receipts`, `session_work`, `turn_boundaries`,
   draft send/save/upload receipts and revisions, handoff IDs/lineage, Claude usage
   deduplication, worker profiles, provider-exposure and born-masked lineage are
@@ -187,7 +187,7 @@ must be tested through their installed runtime, not inferred from directory name
   These are independent retained content, not automatically owned by the source
   chat. Scratch-pin references are operational metadata that must stop re-reading
   the retired chat, without deleting the pinned artifact
-  (`createScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:49-74`).
+  (`createScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:49-70`).
 - **Volatile host state.** Coordinator turns/queues, retry and failure-replay state,
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
@@ -200,7 +200,7 @@ must be tested through their installed runtime, not inferred from directory name
   work/follow-up/retry/approval state, draft edit/send snapshots, handoff summaries,
   attachment object URLs and current history selection can expose text. Principal
   purge is an existing boundary, not a per-chat deletion API
-  (`clearPrivateDialogue`, `packages/ui-react/src/voice/conversation-client.ts:532-543`).
+  (`clearPrivateDialogue`, `packages/ui-react/src/voice/conversation-client.ts:533-545`).
   Root-owned IndexedDB answer delivery and account-partitioned local work can retain
   answers, drafts or transcripts independently
   (`persistent`, `packages/ui-react/src/root.ts:223-246`). Include positively bound
@@ -236,10 +236,10 @@ The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`; gating its
 resume case alone would leave HTTP, background readers and provider startup open.
 
 Existing ordinary history publication checks concurrent turn changes
-(`publishHistory`, `packages/ui-server/src/ws/host.ts:556-590`). Future deletion
+(`publishHistory`, `packages/ui-server/src/ws/host.ts:564-598`). Future deletion
 must additionally invalidate it even when no turn starts or ends. Startup reads
 native history, canonical evidence and completed facts, and freezes a snapshot
-(`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:8-73`). Recheck the
+(`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:8-65`). Recheck the
 lifecycle after each await and immediately before provider open/seed. A native-only
 chat with no dialogue owner still needs a fence; checking only page generation
 leaves that path unprotected.
@@ -264,6 +264,19 @@ consent, stop capture/playback, clear pending text callbacks and invalidate froz
 provider seeds. Never edit an already-sent provider prefix. Close the old epoch
 and refuse resume; any future conversation is a new identity with a fresh Start
 and disclosure. A vendor may already possess earlier bytes: say so.
+
+Preserve the existing bounded-wait ownership distinction during that drain.
+`guardSqliteCleanup` observes the shared UI/journal and separate native-lease
+writers; rejection retains the original cleanup continuation, writer and reader
+until genuine settlement, rather than authorizing their replacement
+(`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1205-1254`).
+The native lease manager retains its own pending operations and durable unknown
+root outcomes through close (`return { client, writer, recoverDeadOwners`,
+`packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline
+is not proof that native I/O stopped, cleanup succeeded or deletion completed.
+Keep the proposed partial/unknown outcome and identity fence while that cleanup
+remains owned; follow the existing [shutdown ownership contract](../decisions/sqlite-write-worker.md#bounded-caller-waits-retain-real-cleanup-ownership-3185).
 
 Backend-owned removal must enumerate and identity-check its concrete files,
 including archives, crash stages, display mappings and prompt snapshots. Coordinate
