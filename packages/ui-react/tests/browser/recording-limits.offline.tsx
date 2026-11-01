@@ -235,22 +235,64 @@ test("resumed chunk cannot beat the overdue wall backstop", async (ctx) => {
   expect((await c.store.list("account:odysseus"))[0]).toMatchObject({ bytes: 1, chunkCount: 1, savedThroughMs: 1000, interruptedAt: 1000 });
 });
 
-test("audio deadline is re-armed from the last committed audio", async (ctx) => {
+test("late limit past the wall backstop retains interrupted audio without limit copy", async (ctx) => {
   const c = recordingCell(ctx);
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   c.cleanup.push(() => vi.useRealTimers());
+  const descriptor = Object.getOwnPropertyDescriptor(performance, "now");
+  let clock = 0;
+  Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
+  c.cleanup.push(() => { if (descriptor) Object.defineProperty(performance, "now", descriptor); else delete (performance as { now?: unknown }).now; });
+  const sink = c.store.sink();
+  let first: LocalCaptureStopReason | undefined;
+  const stop = vi.fn(async (reason: LocalCaptureStopReason) => first ??= reason);
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!(first ?? "interrupted"); });
+  await sink.chunk({ index: 0, startMs: 0, endMs: 300_000, data: new Blob(["a"]) });
+  clock = 700_000;
+  await vi.advanceTimersByTimeAsync(299_750);
+  expect(first, "expired wall deadline takes precedence before first-stop-wins").toBe("interrupted");
+  await sink.end!(first!);
+  expect((await c.store.list("account:odysseus"))[0]).toMatchObject({ state: "interrupted", savedThroughMs: 300_000, interruptedAt: 300_000 });
+  expect(c.events.filter(e => e.kind === "warning"), "five minutes of audio must not announce one minute left").toEqual([]);
+  expect(c.events.at(-1)?.message).toBe("Recording stopped. Saved up to 5:00; the end may be missing.");
+});
+
+for (const timerKind of ["warning", "limit"]) {
+test(`late ${timerKind} below backstop re-arms from short saved audio`, async (ctx) => {
+  const c = recordingCell(ctx);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  c.cleanup.push(() => vi.useRealTimers());
+  const descriptor = Object.getOwnPropertyDescriptor(performance, "now");
+  let clock = 0;
+  Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
+  c.cleanup.push(() => { if (descriptor) Object.defineProperty(performance, "now", descriptor); else delete (performance as { now?: unknown }).now; });
+  const callbacks = new Map<number, () => void>();
+  const timeout = globalThis.setTimeout;
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms, ...args) => {
+    if (typeof handler === "function") callbacks.set(ms!, () => handler(...args));
+    return timeout(handler, ms, ...args);
+  });
+  c.cleanup.push(() => { timer.mockRestore(); Object.defineProperty(globalThis, "setTimeout", timeoutDescriptor); });
   const sink = c.store.sink();
   const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
   await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
   c.cleanup.push(async () => { await sink.end!("interrupted"); });
-  await vi.advanceTimersByTimeAsync(2000);
-  await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob(["a"]) });
-  await vi.advanceTimersByTimeAsync(598_749);
-  expect(stop).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(1);
-  expect(stop.mock.calls).toEqual([["limit"]]);
-  await sink.end!("limit");
+  await sink.chunk({ index: 0, startMs: 0, endMs: 10_000, data: new Blob(["a"]) });
+  clock = 650_000;
+  const wallCallback = callbacks.get(660_000);
+  callbacks.get(timerKind === "warning" ? 530_000 : 589_750)!();
+  expect(c.events.filter(e => e.kind === "warning"), "late warning does not mistake elapsed wall for audio").toEqual([]);
+  expect(stop, "late limit does not save ten seconds as ten minutes").not.toHaveBeenCalled();
+  expect(c.events.filter(e => e.kind === "stopped")).toEqual([]);
+  expect(callbacks.get(660_000), "independent wall backstop was not re-armed").toBe(wallCallback);
+  wallCallback!();
+  expect(stop.mock.calls).toEqual([["interrupted"]]);
+  await sink.end!("interrupted");
 });
+
+}
 
 test("registered wall backstop finalizes native audio as interrupted", async (ctx) => {
   const c = recordingCell(ctx);
@@ -308,4 +350,35 @@ test("registered wall backstop finalizes native audio as interrupted", async (ct
   expect(Math.abs(decoded.duration * 1000 - row.savedThroughMs), "native elapsed metadata agrees with decoded audio").toBeLessThan(150);
   play.revoke();
   await expect(fetch(play.url), "playback URL is revoked after use").rejects.toThrow();
+});
+
+test("late limit at the committed flush target stops without a zero-delay re-arm loop", async (ctx) => {
+  const c = recordingCell(ctx);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  c.cleanup.push(() => vi.useRealTimers());
+  const descriptor = Object.getOwnPropertyDescriptor(performance, "now");
+  let clock = 0;
+  Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
+  c.cleanup.push(() => { if (descriptor) Object.defineProperty(performance, "now", descriptor); else delete (performance as { now?: unknown }).now; });
+  const sink = c.store.sink();
+  const stop = vi.fn(async (reason: LocalCaptureStopReason) => reason);
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus", stop });
+  c.cleanup.push(async () => { await sink.end!("interrupted"); });
+  await sink.chunk({ index: 0, startMs: 0, endMs: 599_750, data: new Blob(["a"]) });
+  clock = 650_000;
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stop.mock.calls).toEqual([["limit"]]);
+  await sink.end!("limit");
+});
+
+test("caller stop at expired wall deadline normalizes before first-stop-wins", async (ctx) => {
+  const c = recordingCell(ctx);
+  const capture = await c.store.start({ timesliceMs: 250 });
+  await expect.poll(() => c.events.filter(e => e.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  const descriptor = Object.getOwnPropertyDescriptor(performance, "now");
+  Object.defineProperty(performance, "now", { configurable: true, value: () => 1e12 });
+  c.cleanup.push(() => { if (descriptor) Object.defineProperty(performance, "now", descriptor); else delete (performance as { now?: unknown }).now; });
+  expect(await capture.stop("user")).toBe("interrupted");
+  expect(await capture.stop("limit")).toBe("interrupted");
+  expect((await c.store.list("account:odysseus"))[0]?.state).toBe("interrupted");
 });
