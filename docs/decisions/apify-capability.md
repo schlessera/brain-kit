@@ -389,7 +389,7 @@ both chat backends; none widens it.
   anything is sent.
 - **One robots.txt checker, owned by core.** A robots-authorized profile's
   targets are checked before the start request by core's checker
-  (`createApifySitePermission`, `packages/core/src/lib/apify/site-permission.ts:54-61`),
+  (`createApifySitePermission`, `packages/core/src/lib/apify/site-permission.ts:60-70`),
   built on the scrape package's `RobotsCache`, its identifying User-Agent and
   its `public-only` address policy, under the
   [scraping politeness](scraping-politeness.md) rules: a real `Disallow`

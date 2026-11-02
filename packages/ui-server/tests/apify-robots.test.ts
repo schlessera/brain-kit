@@ -18,7 +18,7 @@ import { join } from "node:path";
 import type { ApifyEnvelope } from "@schlessera/brain-common/internal/apify-operations";
 import { APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
 import { qualifyProfile } from "@schlessera/brain-common/internal/apify";
-import { APIFY_ROBOTS_USER_AGENT, createApifySitePermission, createStandaloneApify, type StandaloneApify } from "@schlessera/brain/internal/apify";
+import { apifyRobotsUserAgent, createApifySitePermission, createStandaloneApify, type StandaloneApify } from "@schlessera/brain/internal/apify";
 import type { ApifyHost, ApifyHostTurn } from "../src/apify/host.js";
 import { coreSitePermission } from "../src/apify/site-permission.js";
 import { APIFY_LIMITS, APIFY_SENTINEL, apifyGrant, apifyPolicy, fakeApify, fixtureApifyHost, type FakeApify } from "./fixtures/apify-host-fixture.js";
@@ -108,14 +108,14 @@ describe("robots-authorized Apify runs", () => {
       expect(refused, `APIFY_ROBOTS_${door.toUpperCase()}_DISALLOWED`).toMatchObject({ ok: false, error: { code: "policy_denied", reason: "robots_disallowed" } });
       expect(fake.starts(), `APIFY_ROBOTS_${door.toUpperCase()}_NO_START`).toBe(0);
       // Checked through the scrape package's cache: one robots.txt fetch for the origin, as the scrape client.
-      expect(robotsHits, `APIFY_ROBOTS_${door.toUpperCase()}_CHECKED_THROUGH_SCRAPE`).toEqual([{ path: "/robots.txt", ua: APIFY_ROBOTS_USER_AGENT, startsBefore: 0 }]);
+      expect(robotsHits, `APIFY_ROBOTS_${door.toUpperCase()}_CHECKED_THROUGH_SCRAPE`).toEqual([{ path: "/robots.txt", ua: await apifyRobotsUserAgent(), startsBefore: 0 }]);
     });
 
     test(`${door}: allowed targets are checked before the start request, which is sent once`, async () => {
       const started = await runThrough(open(), ALLOWED);
       expect(data<{ state: string }>(started).state).toBe("succeeded");
       expect(fake.starts(), `APIFY_ROBOTS_${door.toUpperCase()}_ONE_START`).toBe(1);
-      expect(robotsHits, `APIFY_ROBOTS_${door.toUpperCase()}_CHECKED_BEFORE_START`).toEqual([{ path: "/robots.txt", ua: APIFY_ROBOTS_USER_AGENT, startsBefore: 0 }]);
+      expect(robotsHits, `APIFY_ROBOTS_${door.toUpperCase()}_CHECKED_BEFORE_START`).toEqual([{ path: "/robots.txt", ua: await apifyRobotsUserAgent(), startsBefore: 0 }]);
     });
   }
 

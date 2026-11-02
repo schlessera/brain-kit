@@ -17,15 +17,21 @@
  * each of its redirect hops) never reaches a private, loopback or link-local
  * address from this host. A 404 or an unreachable robots.txt means no rules,
  * as it does for every scraping client; only a real `Disallow` refuses.
+ *
+ * Scrape is a hard dependency of core, but it is loaded on the first check,
+ * not when the CLI starts: every `brain` command loads this module, and only a
+ * robots-authorized run needs the scraping stack.
  */
-import { RobotsCache, type AddressPolicy } from "@schlessera/brain-scrape";
-import { DEFAULT_USER_AGENT } from "@schlessera/brain-scrape/internal";
+import type { AddressPolicy, RobotsCache } from "@schlessera/brain-scrape";
 import type { ApifySitePermission } from "@schlessera/brain-common/internal/apify";
 
 /** The address policy every robots.txt fetch for an Apify run is held to. */
 export const APIFY_ROBOTS_ADDRESS_POLICY: AddressPolicy = "public-only";
-/** The User-Agent the robots.txt is fetched with and matched against. */
-export const APIFY_ROBOTS_USER_AGENT = DEFAULT_USER_AGENT;
+
+/** The User-Agent the robots.txt is fetched with and matched against: the scrape package's own. */
+export async function apifyRobotsUserAgent(): Promise<string> {
+  return (await import("@schlessera/brain-scrape/internal")).DEFAULT_USER_AGENT;
+}
 
 export interface ApifySitePermissionOptions {
   /**
@@ -52,10 +58,13 @@ function abortable<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
  * service treats as a refusal.
  */
 export function createApifySitePermission(options: ApifySitePermissionOptions = {}): ApifySitePermission {
-  const robots = new RobotsCache({ addressPolicy: options.addressPolicy ?? APIFY_ROBOTS_ADDRESS_POLICY, userAgent: APIFY_ROBOTS_USER_AGENT });
+  let robots: Promise<{ cache: RobotsCache; userAgent: string }> | undefined;
   return async (url, signal) => {
     signal?.throwIfAborted();
-    const rules = await abortable(robots.forUrl(url), signal);
-    return rules.isAllowed(url, APIFY_ROBOTS_USER_AGENT);
+    robots ??= Promise.all([import("@schlessera/brain-scrape"), apifyRobotsUserAgent()]).then(([{ RobotsCache }, userAgent]) =>
+      ({ cache: new RobotsCache({ addressPolicy: options.addressPolicy ?? APIFY_ROBOTS_ADDRESS_POLICY, userAgent }), userAgent }));
+    const { cache, userAgent } = await robots;
+    const rules = await abortable(cache.forUrl(url), signal);
+    return rules.isAllowed(url, userAgent);
   };
 }

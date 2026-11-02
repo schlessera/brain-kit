@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { DEFAULT_USER_AGENT } from "@schlessera/brain-scrape/internal";
-import { APIFY_ROBOTS_ADDRESS_POLICY, APIFY_ROBOTS_USER_AGENT, createApifySitePermission } from "../src/lib/apify/site-permission.js";
+import { APIFY_ROBOTS_ADDRESS_POLICY, apifyRobotsUserAgent, createApifySitePermission } from "../src/lib/apify/site-permission.js";
 
 let server: ReturnType<typeof Bun.serve>;
 let hits: Array<{ path: string; ua: string | null }>;
@@ -28,8 +28,8 @@ beforeEach(() => {
 afterEach(() => { void server.stop(true); });
 
 describe("Apify site permission", () => {
-  test("uses the scrape package's User-Agent and public-only address policy", () => {
-    expect(APIFY_ROBOTS_USER_AGENT, "APIFY_ROBOTS_SCRAPE_USER_AGENT").toBe(DEFAULT_USER_AGENT);
+  test("uses the scrape package's User-Agent and public-only address policy", async () => {
+    expect(await apifyRobotsUserAgent(), "APIFY_ROBOTS_SCRAPE_USER_AGENT").toBe(DEFAULT_USER_AGENT);
     expect(APIFY_ROBOTS_ADDRESS_POLICY, "APIFY_ROBOTS_PUBLIC_ONLY").toBe("public-only");
   });
 
@@ -46,6 +46,15 @@ describe("Apify site permission", () => {
     const check = createApifySitePermission();
     await check(`${origin}/suitors/list`);
     expect(hits, "APIFY_ROBOTS_DEFAULT_REFUSES_LOOPBACK").toEqual([]);
+  });
+
+  test("loading the checker does not load the scraping stack", () => {
+    // Every `brain` command loads core's Apify module; only a robots check needs scrape.
+    const probe = Bun.spawnSync([process.execPath, "-e",
+      `await import(${JSON.stringify(new URL("../src/lib/apify/site-permission.ts", import.meta.url).pathname)}); console.log(Object.keys(require.cache).some(path => path.includes("/packages/scrape/")))`],
+      { stdout: "pipe", stderr: "pipe" });
+    expect(probe.exitCode, probe.stderr.toString()).toBe(0);
+    expect(probe.stdout.toString().trim(), "APIFY_ROBOTS_SCRAPE_LOADED_LAZILY").toBe("false");
   });
 
   test("an aborted turn rejects instead of answering", async () => {
