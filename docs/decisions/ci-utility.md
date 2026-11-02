@@ -1411,7 +1411,14 @@ The expedited merge mode is [#2940](https://github.com/schlessera/brain-kit/issu
 and preemption is [#2943](https://github.com/schlessera/brain-kit/issues/2943).
 Each implementation task is tracked separately:
 
-- path set and timeout-change check: [#3268](https://github.com/schlessera/brain-kit/issues/3268);
+- path set and timeout-change check: [#3268](https://github.com/schlessera/brain-kit/issues/3268).
+  The globs live only in `scripts/proof-system-paths.json`;
+  `bun scripts/proof-system.ts classify --base <sha> --head <sha> [--json]`
+  and its exported `classify` report the decision with its reasons. The
+  timeout check flags a changed, added or removed timeout or deadline value
+  where a hunk rewrites existing test lines, and a `setDefaultTimeout` added to
+  or removed from an existing test file. A new test or test file that sets its
+  own timeout changes no existing budget and is not flagged;
 - lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
 - automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
