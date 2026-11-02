@@ -168,7 +168,7 @@ export const hostExecution = {
 
 /** Worker-host status for turn egress (#1665); also stated in docs/hosting/agent-workers.md. */
 const TURN_EGRESS_ACTIVE = "Governed and strict Claude and pi turns run on their own turn egress proxy and the host inference relay. A pi turn whose credential runs a command, or whose provider and credential type the relay does not carry, is refused.";
-const TURN_EGRESS_INACTIVE = "This host has no managed native storage, so governed and strict turns keep their current network without the turn egress proxy, and their egress is unrecorded.";
+const TURN_EGRESS_INACTIVE = "This brain is not on managed native storage, which the server requires at boot, so the turn egress relay cannot run and every governed and strict turn is refused.";
 /** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
 const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
 const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
@@ -576,7 +576,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
         ...identity, configurationView: profile === "governed" ? "live" : "startup",
         egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
-          : { active: false, detail: `${TURN_EGRESS_INACTIVE} ${PROVIDERS_NOT_RELAYED}` } };
+          : { active: false, detail: TURN_EGRESS_INACTIVE } };
     },
     withGate,
     async run(execution) {

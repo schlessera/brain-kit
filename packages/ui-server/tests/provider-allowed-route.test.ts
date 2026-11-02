@@ -14,6 +14,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, write
 import { join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view";
+// Captured before the fixture helper's hooks stand in for it.
+const realRefusal = startup.assertManagedTurnStartupView;
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns, type GovernedTurnRoute } from "../src/brain/governed-turn";
@@ -175,9 +177,12 @@ test("a conversation that showed a folder to one recipient refuses a later turn,
     expect(error!.message, `LATER_TURN_NAMES_THE_FOLDER ${label}`).toContain("showed `me/` to anthropic, and");
     expect(error!.message).toContain(named);
   }
+  // A later turn whose view is not on managed native storage never reaches a recipient: admission refuses it (#3314).
   f.managed.mockReturnValue(false);
-  expect((await refusal("unmanaged", { inferenceOrigin: ANTHROPIC, sessionId: "voyage" }))?.name, "UNPROVEN_LATER_TURN_REFUSED").toBe("ProviderRecipientRefusedError");
-  f.managed.mockReturnValue(true);
+  const unmanaged = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(realRefusal);
+  try {
+    expect((await refusal("unmanaged", { inferenceOrigin: ANTHROPIC, sessionId: "voyage" }))?.message, "UNMANAGED_LATER_TURN_REFUSED").toBe(startup.UNMANAGED_TURN_STORAGE);
+  } finally { unmanaged.mockRestore(); f.managed.mockReturnValue(true); }
 
   // A handoff's destination carries its source's exposure into its own history.
   await (await f.begin("handoff", { inferenceOrigin: ANTHROPIC, inherit: ["voyage"] })).end();
