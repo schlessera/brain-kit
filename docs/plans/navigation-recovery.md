@@ -385,7 +385,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:128-193`).
 
-- Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:622-686`).
+- Host resume: (`export const handleSessionResume`, `packages/ui-server/src/ws/handlers/session-resume.ts:7-71`).
 
 - Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:479-486`).
 
