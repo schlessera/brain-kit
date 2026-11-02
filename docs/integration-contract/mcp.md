@@ -943,7 +943,10 @@ roster, after the reference tools, and auto-allowed: the host raises a per-use
 run without an exact grant. A remembered tool grant authorizes none of them.
 Voice and no-grant-surface turns refuse them at call time; restricted
 autonomous rosters do not include them; the host refuses any non-interactive
-turn with `policy_denied`. A run is refused as `accounting_unavailable`
+turn with `policy_denied`. A chat worker that also loads the
+brain's own `brain mcp` sees that server's `brain_apify_*` tools too (deferred,
+as every core tool is there); they refuse, because the worker holds neither
+the token nor the ledger. A run is refused as `accounting_unavailable`
 (`session_unbound`) until the conversation is named, so the turn budgets can
 attribute its liability. A turn's cancellation, timeout or budget stop aborts
 the runs it started.
