@@ -1,0 +1,746 @@
+{
+  "version": 1,
+  "coverage": {
+    "runAttempts": 1,
+    "runs": 1,
+    "prs": 0,
+    "pairedPRs": 0,
+    "incompleteAttempts": 0,
+    "jobs": 14,
+    "unobservedJobs": 0,
+    "unobservedCancelledAttempts": 0,
+    "observedJobsWithoutDuration": 0,
+    "resourceReceipts": 0,
+    "retainedJobs": 0,
+    "excludedOrUnresolvedSkippedJobs": 0,
+    "resourceProblems": 10,
+    "unattributedCIAttempts": 0
+  },
+  "observedRunnerSeconds": 9458,
+  "cancelledAttemptRunnerSeconds": 0,
+  "failedAttemptRunnerSeconds": 0,
+  "attemptElapsedSeconds": {
+    "n": 1,
+    "mean": 1665,
+    "median": 1665,
+    "p90": 1665
+  },
+  "initialQueueSeconds": {
+    "n": 1,
+    "mean": 5,
+    "median": 5,
+    "p90": 5
+  },
+  "ciByEvent": {
+    "workflow_dispatch": {
+      "attempts": 1,
+      "observedRunnerSeconds": 9458,
+      "elapsedSeconds": {
+        "n": 1,
+        "mean": 1665,
+        "median": 1665,
+        "p90": 1665
+      }
+    }
+  },
+  "successfulCandidateElapsedSeconds": {
+    "n": 0,
+    "mean": null,
+    "median": null,
+    "p90": null
+  },
+  "categories": {
+    "workflow_dispatch/browser": {
+      "n": 2,
+      "mean": 730,
+      "median": 730,
+      "p90": 736
+    },
+    "workflow_dispatch/captures": {
+      "n": 1,
+      "mean": 561,
+      "median": 561,
+      "p90": 561
+    },
+    "workflow_dispatch/changeset": {
+      "n": 1,
+      "mean": 28,
+      "median": 28,
+      "p90": 28
+    },
+    "workflow_dispatch/layout": {
+      "n": 2,
+      "mean": 801,
+      "median": 801,
+      "p90": 1177
+    },
+    "workflow_dispatch/pack": {
+      "n": 1,
+      "mean": 161,
+      "median": 161,
+      "p90": 161
+    },
+    "workflow_dispatch/proof": {
+      "n": 1,
+      "mean": 16,
+      "median": 16,
+      "p90": 16
+    },
+    "workflow_dispatch/runtime": {
+      "n": 1,
+      "mean": 549,
+      "median": 549,
+      "p90": 549
+    },
+    "workflow_dispatch/unit": {
+      "n": 4,
+      "mean": 1253.75,
+      "median": 1210,
+      "p90": 1610
+    },
+    "workflow_dispatch/verify": {
+      "n": 1,
+      "mean": 66,
+      "median": 66,
+      "p90": 66
+    }
+  },
+  "steps": {
+    "workflow_dispatch/browser/Complete browser proof": {
+      "n": 2,
+      "mean": 712.5,
+      "median": 712.5,
+      "p90": 721
+    },
+    "workflow_dispatch/browser/Complete job": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/browser/Post Run actions/checkout@v7": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/browser/Post Run oven-sh/setup-bun@v2": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/browser/Proof receipts and failure diagnostics": {
+      "n": 2,
+      "mean": 1.5,
+      "median": 1.5,
+      "p90": 2
+    },
+    "workflow_dispatch/browser/Recompute affected proof on the actual checkout": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/browser/Run actions/checkout@v7": {
+      "n": 2,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/browser/Run bun install --frozen-lockfile": {
+      "n": 2,
+      "mean": 5,
+      "median": 5,
+      "p90": 6
+    },
+    "workflow_dispatch/browser/Run oven-sh/setup-bun@v2": {
+      "n": 2,
+      "mean": 1.5,
+      "median": 1.5,
+      "p90": 2
+    },
+    "workflow_dispatch/browser/Set up job": {
+      "n": 2,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/captures/Complete captures proof": {
+      "n": 1,
+      "mean": 541,
+      "median": 541,
+      "p90": 541
+    },
+    "workflow_dispatch/captures/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/captures/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/captures/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/captures/Proof receipts and failure diagnostics": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "workflow_dispatch/captures/Recompute affected proof on the actual checkout": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/captures/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 6,
+      "median": 6,
+      "p90": 6
+    },
+    "workflow_dispatch/captures/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 3,
+      "median": 3,
+      "p90": 3
+    },
+    "workflow_dispatch/captures/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "workflow_dispatch/captures/Set up job": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "workflow_dispatch/changeset/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/changeset/Env documentation matches its descriptors": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/changeset/Lint, leakage and contribution workflow guards": {
+      "n": 1,
+      "mean": 11,
+      "median": 11,
+      "p90": 11
+    },
+    "workflow_dispatch/changeset/Plan affected fast and local checks": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/changeset/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/changeset/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/changeset/Require a changeset for shipped package changes": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/changeset/Retain only validated equivalent automatic proof": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/changeset/Retention ledger and diagnostics": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/changeset/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/changeset/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "workflow_dispatch/changeset/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/changeset/Set up job": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "workflow_dispatch/changeset/Validate all pending changeset package names": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/layout/Complete job": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/layout/Complete layout proof": {
+      "n": 2,
+      "mean": 782,
+      "median": 782,
+      "p90": 1158
+    },
+    "workflow_dispatch/layout/Post Run actions/checkout@v7": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/layout/Post Run oven-sh/setup-bun@v2": {
+      "n": 2,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/layout/Proof receipts and failure diagnostics": {
+      "n": 2,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/layout/Recompute affected proof on the actual checkout": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/layout/Run actions/checkout@v7": {
+      "n": 2,
+      "mean": 6,
+      "median": 6,
+      "p90": 6
+    },
+    "workflow_dispatch/layout/Run bun install --frozen-lockfile": {
+      "n": 2,
+      "mean": 5.5,
+      "median": 5.5,
+      "p90": 6
+    },
+    "workflow_dispatch/layout/Run oven-sh/setup-bun@v2": {
+      "n": 2,
+      "mean": 1.5,
+      "median": 1.5,
+      "p90": 2
+    },
+    "workflow_dispatch/layout/Set up job": {
+      "n": 2,
+      "mean": 1.5,
+      "median": 1.5,
+      "p90": 2
+    },
+    "workflow_dispatch/pack/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/pack/Pack, install and probe every publishable package": {
+      "n": 1,
+      "mean": 54,
+      "median": 54,
+      "p90": 54
+    },
+    "workflow_dispatch/pack/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/pack/Post Run actions/setup-node@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/pack/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/pack/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "workflow_dispatch/pack/Run actions/setup-node@v7": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/pack/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/pack/Run bun run build": {
+      "n": 1,
+      "mean": 90,
+      "median": 90,
+      "p90": 90
+    },
+    "workflow_dispatch/pack/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/pack/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/proof/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/proof/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/proof/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/proof/Require every selected proof category to pass": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/proof/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/proof/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 6,
+      "median": 6,
+      "p90": 6
+    },
+    "workflow_dispatch/proof/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/proof/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/runtime/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/runtime/Complete runtime proof": {
+      "n": 1,
+      "mean": 499,
+      "median": 499,
+      "p90": 499
+    },
+    "workflow_dispatch/runtime/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/runtime/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/runtime/Proof receipts and failure diagnostics": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/runtime/Real Chrome and offline Linux namespace prerequisites": {
+      "n": 1,
+      "mean": 34,
+      "median": 34,
+      "p90": 34
+    },
+    "workflow_dispatch/runtime/Recompute affected proof on the actual checkout": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/runtime/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/runtime/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/runtime/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/runtime/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/unit/Complete job": {
+      "n": 4,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/unit/Complete unit proof": {
+      "n": 4,
+      "mean": 1218.25,
+      "median": 1175,
+      "p90": 1581
+    },
+    "workflow_dispatch/unit/Post Run actions/checkout@v7": {
+      "n": 4,
+      "mean": 0.25,
+      "median": 0,
+      "p90": 1
+    },
+    "workflow_dispatch/unit/Post Run oven-sh/setup-bun@v2": {
+      "n": 4,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/unit/Proof receipts and failure diagnostics": {
+      "n": 4,
+      "mean": 1.25,
+      "median": 1,
+      "p90": 2
+    },
+    "workflow_dispatch/unit/Real Chrome and offline Linux namespace prerequisites": {
+      "n": 4,
+      "mean": 11.25,
+      "median": 11,
+      "p90": 13
+    },
+    "workflow_dispatch/unit/Recompute affected proof on the actual checkout": {
+      "n": 4,
+      "mean": 0.25,
+      "median": 0,
+      "p90": 1
+    },
+    "workflow_dispatch/unit/Run actions/checkout@v7": {
+      "n": 4,
+      "mean": 5.25,
+      "median": 5.5,
+      "p90": 6
+    },
+    "workflow_dispatch/unit/Run bun install --frozen-lockfile --backend=copyfile": {
+      "n": 4,
+      "mean": 10.5,
+      "median": 9,
+      "p90": 16
+    },
+    "workflow_dispatch/unit/Run oven-sh/setup-bun@v2": {
+      "n": 4,
+      "mean": 1.75,
+      "median": 1.5,
+      "p90": 3
+    },
+    "workflow_dispatch/unit/Set up job": {
+      "n": 4,
+      "mean": 1.5,
+      "median": 1.5,
+      "p90": 2
+    },
+    "workflow_dispatch/verify/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/verify/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/verify/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/verify/Recompute the same affected selection": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "workflow_dispatch/verify/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 6,
+      "median": 6,
+      "p90": 6
+    },
+    "workflow_dispatch/verify/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "workflow_dispatch/verify/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "workflow_dispatch/verify/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "workflow_dispatch/verify/Strict types and curated fast tests concurrently on this runner": {
+      "n": 1,
+      "mean": 48,
+      "median": 48,
+      "p90": 48
+    }
+  },
+  "commands": {},
+  "prs": [],
+  "baseline": {
+    "label": "Historical successful exhaustive-run proxy; different source/queue conditions, not measured savings",
+    "samples": [],
+    "runnerSeconds": {
+      "n": 0,
+      "mean": null,
+      "median": null,
+      "p90": null
+    },
+    "elapsedSeconds": {
+      "n": 0,
+      "mean": null,
+      "median": null,
+      "p90": null
+    },
+    "estimatedElapsedPerPRBeforeAndAfter": null,
+    "pairedObservedCIRunnerSeconds": 0,
+    "onceBeforeAndAfterEstimate": null,
+    "everyAttemptEstimate": null
+  },
+  "limitations": [
+    "Observed runner time is a lower bound when jobs or execution timestamps are missing; unobserved cancellations are not measured zero.",
+    "Averages include failures/cancellations where execution was observed. Successful command averages exclude failed phases.",
+    "Windowed PR totals are not complete lifetime cost. Multiple-PR attribution is excluded from per-PR accounting.",
+    "Queue is request-to-first-observed-job for first attempts only; dependent-job eligibility/queue is not reconstructed.",
+    "Elapsed time ends at the last observed executed job completion, not a measured ready-to-merge or human review interval.",
+    "Resource receipts are untrusted timing data, not validated passing proof. CPU/memory are VM-wide, not process peaks.",
+    "No local checks, human review, reservation wait or exact counterfactual speedup is inferred."
+  ],
+  "lifecycleAcquisition": {
+    "version": 1,
+    "repository": "schlessera/brain-kit",
+    "collectedAt": "2026-11-02T18:07:25.736Z",
+    "expectedPRs": [],
+    "errors": [],
+    "missingPRs": [],
+    "scopes": [
+      {
+        "version": 1,
+        "repository": "schlessera/brain-kit",
+        "collectedAt": "2026-11-02T18:07:25.736Z",
+        "expectedPRs": [],
+        "errors": []
+      }
+    ]
+  },
+  "reservationAcquisition": null,
+  "throughput": null,
+  "collectionCoverage": {
+    "missingAttempts": [],
+    "scopes": [
+      {
+        "repository": "schlessera/brain-kit",
+        "since": null,
+        "until": "2026-11-02T17:52:08.049Z",
+        "requestedRun": "38549344893",
+        "collectedAt": "2026-11-02T18:07:08.049Z",
+        "status": "completed",
+        "errors": [],
+        "requestBudget": {
+          "limit": 200,
+          "reserve": 500,
+          "requests": 15,
+          "remaining": 4879,
+          "stopped": null
+        },
+        "seed": null
+      }
+    ]
+  }
+}

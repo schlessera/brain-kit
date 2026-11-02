@@ -1,0 +1,9 @@
+run	source	job	file	case	seconds
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (2)	packages/ui-react/tests/turn-journal-runtime.test.ts	journal configuration coverage keeps small changes first and preserves inspection dark 320	3.074063
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (2)	packages/ui-react/tests/turn-journal-runtime.test.ts	journal configuration coverage keeps small changes first and preserves inspection light 320	3.138775
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (2)	packages/ui-react/tests/turn-journal-runtime.test.ts	journal configuration coverage keeps small changes first and preserves inspection dark 1280	3.21529
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (2)	packages/ui-react/tests/turn-journal-runtime.test.ts	journal configuration coverage keeps small changes first and preserves inspection light 1280	3.215023
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (3)	packages/ui-react/tests/answer-delivery-runtime.test.ts	1887: Other has explicit current-text Submit at 320px in dark	2.10931
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (3)	packages/ui-react/tests/answer-delivery-runtime.test.ts	1887: Other has explicit current-text Submit at 1280px in dark	2.516514
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (3)	packages/ui-react/tests/answer-delivery-runtime.test.ts	1887: Other has explicit current-text Submit at 320px in light	2.581497
+41382713082	8e9855e706ab43dc1bb5b822296f171431e2546d	unit (3)	packages/ui-react/tests/answer-delivery-runtime.test.ts	1887: Other has explicit current-text Submit at 1280px in light	2.483504

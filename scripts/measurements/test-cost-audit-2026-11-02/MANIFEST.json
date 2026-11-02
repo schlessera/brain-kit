@@ -1,0 +1,105 @@
+{
+  "schema": "brain-kit-test-cost-audit-archive/1",
+  "issue": "https://github.com/schlessera/brain-kit/issues/2763",
+  "epic": "https://github.com/schlessera/brain-kit/issues/1849",
+  "archiveBase": "bbd52e8e0bc2fe6d1e292c89a904daf9285a7da6",
+  "measuredSource": {
+    "baseline": "5cf1d548f7bd3a314eb36394dc5db0268db97da6",
+    "comparison": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+    "mainTipContext": "c23a5811c323aeb2e9582a07788dfa44eb0ceff6",
+    "waitInventorySource": "5dc2595ca07042f2e2024c95bbc361f31637559f"
+  },
+  "runs": {
+    "baseline": 38549344893,
+    "comparison": 41382713082,
+    "mainTipContext": 41490214079
+  },
+  "collectedAt": "2026-11-02",
+  "units": {
+    "seconds": "seconds",
+    "minutes": "minutes",
+    "memory": "GiB"
+  },
+  "controlled": false,
+  "limits": "different source, runner image and shard layout; uncontrolled comparison; no local re-measurement",
+  "files": [
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/README.md",
+      "bytes": 3990,
+      "sha256": "24f682bd3225db2cb0a767656312ea8340fadbae005a629d2238f360ba883ce5",
+      "gitBlob": "226f30d95bdd6037604a4021df7c6b3ec31962bf"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/hosted/run-38549344893-attempt-1.json",
+      "bytes": 29109,
+      "sha256": "5acca13c4204e491be76bf78e57f5114ee79c47e253f557e5903732c131d42aa",
+      "gitBlob": "8cb33627895da377bd6d1919581596a1a377e4fd"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/hosted/run-41382713082-attempt-1.json",
+      "bytes": 48528,
+      "sha256": "cb11fb1618cb7f878fc0e416bc879dddb01558ee1e4cdd38194fba7659b2bc62",
+      "gitBlob": "73d6a914dff562e9523854381096bd57145c36ae"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/hosted/run-41490214079-attempt-1.json",
+      "bytes": 10816,
+      "sha256": "a2c2f68de6bf3115aeaa44bdafcbd24fe377d70fafb6cb428210976d3e6bc6d5",
+      "gitBlob": "a186f6bf33485470c7be857d9dc5de98b41a3046"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/hosted/summary-38549344893.json",
+      "bytes": 17387,
+      "sha256": "474c946fc50904cd180e48ba13ea20d7d7c28a372a31a8d934cdbf67a8f5aa46",
+      "gitBlob": "3d7a45df6efd09748ac9c6c1cedce04bd03112bc"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/hosted/summary-41382713082.json",
+      "bytes": 24019,
+      "sha256": "73e3b1416608aa1da9b672a40f6e967e498a319f4fa1865e1750161db4626e14",
+      "gitBlob": "dec750b3927faf6dd5ae1cb6a6ffae2a053c99f5"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/jobs.tsv",
+      "bytes": 5405,
+      "sha256": "58e676917d9d72f4d6878ba6d017ecf89b8064ffbd7102b813cb13872f74f776",
+      "gitBlob": "993ec47fed568c6b8ffe728a9b416cc3150bc003"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/profiled-tests.tsv",
+      "bytes": 6205,
+      "sha256": "37c4b6a16fb14a62118b81633e2a092ffdb374901dbfa37be449d025bccce879",
+      "gitBlob": "ca6d3532ac73d899d1a80195830559384969b251"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/runtime-theme-cartesian.tsv",
+      "bytes": 1655,
+      "sha256": "23512d0cbc3fb57a8fd3b7591c9fd488437aa851a7ee5fb3c6f63ff15ae5bef6",
+      "gitBlob": "16544f3d9297f08b71b40d2a6f8a686dae471fd9"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/theme-named-browser-cases.tsv",
+      "bytes": 1349,
+      "sha256": "781e80242b59eeaa42d5b56e970f78ef66755517a3ee7d75ccd6599cdc512fdc",
+      "gitBlob": "0bc3c5c76ae67903f0e9f593aa59d3eeeba9c457"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/wait-census-files-5dc2595c.tsv",
+      "bytes": 23745,
+      "sha256": "379d5931a6af4da7973592398d639b88dee8898b9c11ca4e53d42cefaf4eb01a",
+      "gitBlob": "2831f05a05880632a77dc7cefca7d03b4f726449"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/wait-census-files-8e9855e7.tsv",
+      "bytes": 42353,
+      "sha256": "760c409fc7b2ccdae7b7ddcec7c8b1379200f7fb4cbe4579136cff578b985d79",
+      "gitBlob": "d9698c8a26b88ae4b7df80bc5769943cb825b85a"
+    },
+    {
+      "path": "scripts/measurements/test-cost-audit-2026-11-02/wait-census-files-new-since-5dc2595c.txt",
+      "bytes": 10634,
+      "sha256": "b59cdd66067e035f4969c819c96a5c6aab96dd3e54a9edd27dc11d0c9e3d01e7",
+      "gitBlob": "4b0faa804107ce90449dc8d185d44e69e6d57632"
+    }
+  ]
+}

@@ -1,0 +1,1145 @@
+{
+  "version": 1,
+  "repository": "schlessera/brain-kit",
+  "collectedAt": "2026-11-02T18:07:08.821Z",
+  "run": {
+    "id": 38549344893,
+    "attempt": 1,
+    "workflow": "CI",
+    "path": ".github/workflows/ci.yml",
+    "event": "workflow_dispatch",
+    "head": "5cf1d548f7bd3a314eb36394dc5db0268db97da6",
+    "branch": "main",
+    "headRepository": "schlessera/brain-kit",
+    "createdAt": "2026-10-14T10:24:26Z",
+    "startedAt": "2026-10-14T10:24:26Z",
+    "status": "completed",
+    "conclusion": "success",
+    "prs": [],
+    "attribution": "run payload"
+  },
+  "jobs": [
+    {
+      "id": 115803210595,
+      "name": "changeset",
+      "category": "changeset",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:24:31Z",
+      "completedAt": "2026-10-14T10:24:59Z",
+      "seconds": 28,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Plan affected fast and local checks",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Lint, leakage and contribution workflow guards",
+          "conclusion": "success",
+          "seconds": 11
+        },
+        {
+          "number": 7,
+          "name": "Env documentation matches its descriptors",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 8,
+          "name": "Validate all pending changeset package names",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Require a changeset for shipped package changes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 10,
+          "name": "Retain only validated equivalent automatic proof",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 11,
+          "name": "Retention ledger and diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 21,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 22,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 23,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    },
+    {
+      "id": 115803408431,
+      "name": "verify",
+      "category": "verify",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:26:08Z",
+      "seconds": 66,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 5,
+          "name": "Recompute the same affected selection",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Strict types and curated fast tests concurrently on this runner",
+          "conclusion": "success",
+          "seconds": 48
+        },
+        {
+          "number": 11,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 12,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 13,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    },
+    {
+      "id": 115803408478,
+      "name": "runtime",
+      "category": "runtime",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:34:11Z",
+      "seconds": 549,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 34
+        },
+        {
+          "number": 7,
+          "name": "Complete runtime proof",
+          "conclusion": "success",
+          "seconds": 499
+        },
+        {
+          "number": 8,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 15,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 16,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 17,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408507,
+      "name": "pack",
+      "category": "pack",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:27:43Z",
+      "seconds": 161,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run actions/setup-node@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 5,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 6,
+          "name": "Run bun run build",
+          "conclusion": "success",
+          "seconds": 90
+        },
+        {
+          "number": 7,
+          "name": "Pack, install and probe every publishable package",
+          "conclusion": "success",
+          "seconds": 54
+        },
+        {
+          "number": 12,
+          "name": "Post Run actions/setup-node@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    },
+    {
+      "id": 115803408508,
+      "name": "browser (1)",
+      "category": "browser",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:37:06Z",
+      "seconds": 724,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete browser proof",
+          "conclusion": "success",
+          "seconds": 704
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408527,
+      "name": "layout (2)",
+      "category": "layout",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:44:39Z",
+      "seconds": 1177,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete layout proof",
+          "conclusion": "success",
+          "seconds": 1158
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408540,
+      "name": "layout (1)",
+      "category": "layout",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:32:07Z",
+      "seconds": 425,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete layout proof",
+          "conclusion": "success",
+          "seconds": 406
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408542,
+      "name": "unit (3)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:45:23Z",
+      "seconds": 1221,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 8
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 12
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 1185
+        },
+        {
+          "number": 8,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 15,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 16,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 17,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408555,
+      "name": "browser (2)",
+      "category": "browser",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:37:18Z",
+      "seconds": 736,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete browser proof",
+          "conclusion": "success",
+          "seconds": 721
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408569,
+      "name": "captures",
+      "category": "captures",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:34:23Z",
+      "seconds": 561,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Complete captures proof",
+          "conclusion": "success",
+          "seconds": 541
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408618,
+      "name": "unit (4)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:41:27Z",
+      "seconds": 985,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 16
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 13
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 942
+        },
+        {
+          "number": 8,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 15,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 16,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 17,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408706,
+      "name": "unit (2)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:51:52Z",
+      "seconds": 1610,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 9
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 10
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 1581
+        },
+        {
+          "number": 8,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 15,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 16,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 17,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115803408721,
+      "name": "unit (1)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:25:02Z",
+      "completedAt": "2026-10-14T10:45:01Z",
+      "seconds": 1199,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 9
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 10
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 1165
+        },
+        {
+          "number": 8,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 15,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 16,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 17,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": "Error: Resource receipt missing or ambiguous"
+    },
+    {
+      "id": 115813685038,
+      "name": "proof",
+      "category": "proof",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-10-14T10:51:55Z",
+      "completedAt": "2026-10-14T10:52:11Z",
+      "seconds": 16,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 5,
+          "name": "Require every selected proof category to pass",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 10,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 11,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    }
+  ],
+  "problems": [],
+  "selectionProblem": "Error: Selected-proof timing metadata missing or ambiguous"
+}

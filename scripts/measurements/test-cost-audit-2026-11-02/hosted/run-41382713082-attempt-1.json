@@ -1,0 +1,1851 @@
+{
+  "version": 1,
+  "repository": "schlessera/brain-kit",
+  "collectedAt": "2026-11-02T18:07:58.235Z",
+  "run": {
+    "id": 41382713082,
+    "attempt": 1,
+    "workflow": "CI",
+    "path": ".github/workflows/ci.yml",
+    "event": "schedule",
+    "head": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+    "branch": "main",
+    "headRepository": "schlessera/brain-kit",
+    "createdAt": "2026-11-02T03:22:06Z",
+    "startedAt": "2026-11-02T03:22:06Z",
+    "status": "completed",
+    "conclusion": "success",
+    "prs": [],
+    "attribution": "run payload"
+  },
+  "jobs": [
+    {
+      "id": 125076779614,
+      "name": "changeset",
+      "category": "changeset",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:09Z",
+      "completedAt": "2026-11-02T03:22:50Z",
+      "seconds": 41,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 5,
+          "name": "Plan affected fast and local checks",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Validate requested candidate before product proof",
+          "conclusion": "skipped",
+          "seconds": null
+        },
+        {
+          "number": 7,
+          "name": "Discover product scenario and assertion ownership",
+          "conclusion": "success",
+          "seconds": 10
+        },
+        {
+          "number": 8,
+          "name": "Lint, leakage and contribution workflow guards",
+          "conclusion": "success",
+          "seconds": 13
+        },
+        {
+          "number": 9,
+          "name": "Env documentation matches its descriptors",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 10,
+          "name": "Validate all pending changeset package names",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 11,
+          "name": "Require a changeset for shipped package changes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 12,
+          "name": "Retain only validated equivalent automatic proof",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 13,
+          "name": "Retention ledger and diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 25,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 26,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 27,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980903,
+      "name": "pack",
+      "category": "pack",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:25:43Z",
+      "seconds": 170,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run actions/setup-node@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 5,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 6,
+          "name": "Run bun run build --jobs=2",
+          "conclusion": "success",
+          "seconds": 91
+        },
+        {
+          "number": 7,
+          "name": "Pack, install and probe every publishable package",
+          "conclusion": "success",
+          "seconds": 61
+        },
+        {
+          "number": 12,
+          "name": "Post Run actions/setup-node@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980914,
+      "name": "runtime_host",
+      "category": "runtime_host",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:33:07Z",
+      "seconds": 614,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 30
+        },
+        {
+          "number": 7,
+          "name": "Start btrfs dead-root kernel trace",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 8,
+          "name": "Start optional owned-loop kernel trace",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Complete native hosted runtime proof",
+          "conclusion": "success",
+          "seconds": 563
+        },
+        {
+          "number": 10,
+          "name": "Stop optional owned-loop kernel trace",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 11,
+          "name": "Stop and classify btrfs dead-root kernel trace",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 12,
+          "name": "Environment setup and proof outcomes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 13,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 25,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 26,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 27,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "runtime_host",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 563.2317691009999,
+        "phases": [
+          {
+            "name": "native managed hosted admission",
+            "elapsedSeconds": 338.109136381,
+            "success": true
+          },
+          {
+            "name": "native separate-UID worker identity",
+            "elapsedSeconds": 180.10450643400003,
+            "success": true
+          },
+          {
+            "name": "native reference pool allocation",
+            "elapsedSeconds": 45.01766437899997,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 408.65,
+          "sampledPeakUsedBytes": 2050650112
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980938,
+      "name": "runtime",
+      "category": "runtime",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:25:32Z",
+      "seconds": 159,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 43
+        },
+        {
+          "number": 7,
+          "name": "Complete runtime proof",
+          "conclusion": "success",
+          "seconds": 101
+        },
+        {
+          "number": 8,
+          "name": "Environment setup and proof outcomes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 17,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 18,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 19,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "runtime",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 101.14890790599999,
+        "phases": [
+          {
+            "name": "measure-claude-runtime",
+            "elapsedSeconds": 9.907044822,
+            "success": true
+          },
+          {
+            "name": "measure-claude-enforcement",
+            "elapsedSeconds": 8.952300020000001,
+            "success": true
+          },
+          {
+            "name": "native delegation, capabilities and measurement isolation",
+            "elapsedSeconds": 5.421198866999999,
+            "success": true
+          },
+          {
+            "name": "shared-process Chrome then child cleanup",
+            "elapsedSeconds": 76.867817922,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760336384,
+          "activeCpuSeconds": 172.6,
+          "sampledPeakUsedBytes": 2337513472
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980949,
+      "name": "verify",
+      "category": "verify",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:24:02Z",
+      "seconds": 69,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute the same affected selection",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Strict types and curated fast tests concurrently on this runner",
+          "conclusion": "success",
+          "seconds": 57
+        },
+        {
+          "number": 7,
+          "name": "Verify setup and proof outcomes (best effort)",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980975,
+      "name": "unit (3)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:39:39Z",
+      "seconds": 1006,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 8
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 12
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 977
+        },
+        {
+          "number": 8,
+          "name": "Environment setup and proof outcomes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 17,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 18,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 19,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "unit",
+        "shard": "3/4",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 975.6546847129999,
+        "phases": [
+          {
+            "name": "complete affected unit and integration suite",
+            "elapsedSeconds": 975.6358663579999,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760340480,
+          "activeCpuSeconds": 2657.46,
+          "sampledPeakUsedBytes": 5734031360
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980980,
+      "name": "endurance",
+      "category": "endurance",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:35:18Z",
+      "seconds": 745,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete endurance proof",
+          "conclusion": "success",
+          "seconds": 727
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "endurance",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 726.369723267,
+        "phases": [
+          {
+            "name": "workspace build for real browser checks",
+            "elapsedSeconds": 81.359623012,
+            "success": true
+          },
+          {
+            "name": "complete pinned endurance suite",
+            "elapsedSeconds": 645.009619221,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 300.1,
+          "sampledPeakUsedBytes": 3767103488
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076980996,
+      "name": "browser (2)",
+      "category": "browser",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:34:30Z",
+      "seconds": 697,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete browser proof",
+          "conclusion": "success",
+          "seconds": 682
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "browser",
+        "shard": "2/3",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 667.153550286,
+        "phases": [
+          {
+            "name": "workspace build for real browser checks",
+            "elapsedSeconds": 109.524714308,
+            "success": true
+          },
+          {
+            "name": "complete pinned visual/accessibility/pointer suite",
+            "elapsedSeconds": 557.628022531,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 1446.78,
+          "sampledPeakUsedBytes": 9555664896
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981006,
+      "name": "layout (2)",
+      "category": "layout",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:36:26Z",
+      "seconds": 813,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete layout proof",
+          "conclusion": "success",
+          "seconds": 794
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 1
+        }
+      ],
+      "resource": {
+        "category": "layout",
+        "shard": "2/2",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 783.064980259,
+        "phases": [
+          {
+            "name": "workspace build for real browser checks",
+            "elapsedSeconds": 82.988792487,
+            "success": true
+          },
+          {
+            "name": "complete pinned layout/offline suite",
+            "elapsedSeconds": 700.0756406749999,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 1013.8600000000001,
+          "sampledPeakUsedBytes": 5170130944
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981020,
+      "name": "unit (2)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:40:12Z",
+      "seconds": 1039,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 7
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 13
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 1007
+        },
+        {
+          "number": 8,
+          "name": "Environment setup and proof outcomes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 17,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 18,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 19,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "unit",
+        "shard": "2/4",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 1004.925985498,
+        "phases": [
+          {
+            "name": "complete affected unit and integration suite",
+            "elapsedSeconds": 1004.906876089,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 2808.98,
+          "sampledPeakUsedBytes": 4786950144
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981027,
+      "name": "browser (1)",
+      "category": "browser",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:34:44Z",
+      "seconds": 711,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Complete browser proof",
+          "conclusion": "success",
+          "seconds": 695
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "browser",
+        "shard": "1/3",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 680.29037387,
+        "phases": [
+          {
+            "name": "workspace build for real browser checks",
+            "elapsedSeconds": 109.468773722,
+            "success": true
+          },
+          {
+            "name": "complete pinned visual/accessibility/pointer suite",
+            "elapsedSeconds": 570.820850309,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 1711.52,
+          "sampledPeakUsedBytes": 11302932480
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981039,
+      "name": "unit (1)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:37:48Z",
+      "seconds": 895,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 8
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 11
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 865
+        },
+        {
+          "number": 8,
+          "name": "Environment setup and proof outcomes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 17,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 18,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 19,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "unit",
+        "shard": "1/4",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 864.218530204,
+        "phases": [
+          {
+            "name": "complete affected unit and integration suite",
+            "elapsedSeconds": 864.2007269789999,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 2122.59,
+          "sampledPeakUsedBytes": 3850240000
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981046,
+      "name": "unit (4)",
+      "category": "unit",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:39:28Z",
+      "seconds": 995,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 6
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile --backend=copyfile",
+          "conclusion": "success",
+          "seconds": 9
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Real Chrome and offline Linux namespace prerequisites",
+          "conclusion": "success",
+          "seconds": 14
+        },
+        {
+          "number": 7,
+          "name": "Complete unit proof",
+          "conclusion": "success",
+          "seconds": 962
+        },
+        {
+          "number": 8,
+          "name": "Environment setup and proof outcomes",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 9,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 17,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 18,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 19,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "unit",
+        "shard": "4/4",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 955.8366200270001,
+        "phases": [
+          {
+            "name": "pinned offline workspace lease container prerequisite",
+            "elapsedSeconds": 26.061106830000003,
+            "success": true
+          },
+          {
+            "name": "complete affected unit and integration suite",
+            "elapsedSeconds": 929.756535729,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 2344.2200000000003,
+          "sampledPeakUsedBytes": 3761135616
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981067,
+      "name": "browser (3)",
+      "category": "browser",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:32:10Z",
+      "seconds": 557,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 6,
+          "name": "Complete browser proof",
+          "conclusion": "success",
+          "seconds": 542
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "browser",
+        "shard": "3/3",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 532.378620963,
+        "phases": [
+          {
+            "name": "workspace build for real browser checks",
+            "elapsedSeconds": 70.174367814,
+            "success": true
+          },
+          {
+            "name": "complete pinned visual/accessibility/pointer suite",
+            "elapsedSeconds": 462.2037327599999,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 1121.56,
+          "sampledPeakUsedBytes": 11436593152
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981127,
+      "name": "captures",
+      "category": "captures",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:30:47Z",
+      "seconds": 474,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Complete captures proof",
+          "conclusion": "success",
+          "seconds": 459
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "captures",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 458.71302267,
+        "phases": [
+          {
+            "name": "pinned capture fonts and original notices",
+            "elapsedSeconds": 0.80054124,
+            "success": true
+          },
+          {
+            "name": "editorial provenance and reproducibility",
+            "elapsedSeconds": 457.912037474,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 670.54,
+          "sampledPeakUsedBytes": 3935019008
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125076981485,
+      "name": "layout (1)",
+      "category": "layout",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:22:53Z",
+      "completedAt": "2026-11-02T03:39:39Z",
+      "seconds": 1006,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Recompute affected proof on the actual checkout",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 6,
+          "name": "Complete layout proof",
+          "conclusion": "success",
+          "seconds": 988
+        },
+        {
+          "number": 7,
+          "name": "Proof receipts and failure diagnostics",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "number": 13,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 14,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 15,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": {
+        "category": "layout",
+        "shard": "1/2",
+        "checkout": {
+          "sha": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+          "tree": "1900a271ae2d0a90f27a0a9629ae2eaad60c408f",
+          "parents": [
+            "23e3288acb9fe65a21f3e00076f8e2e4e55ce118"
+          ]
+        },
+        "elapsedSeconds": 975.870181967,
+        "phases": [
+          {
+            "name": "workspace build for real browser checks",
+            "elapsedSeconds": 104.6125522,
+            "success": true
+          },
+          {
+            "name": "complete pinned layout/offline suite",
+            "elapsedSeconds": 871.257045248,
+            "success": true
+          }
+        ],
+        "machine": {
+          "logicalCpus": 4,
+          "totalBytes": 16760344576,
+          "activeCpuSeconds": 1593.5100000000002,
+          "sampledPeakUsedBytes": 7171108864
+        }
+      },
+      "resourceProblem": null
+    },
+    {
+      "id": 125081770555,
+      "name": "integrated or exhaustive proof",
+      "category": "proof",
+      "conclusion": "success",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "execution": "observed",
+      "startedAt": "2026-11-02T03:40:15Z",
+      "completedAt": "2026-11-02T03:40:31Z",
+      "seconds": 16,
+      "steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 2,
+          "name": "Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "number": 3,
+          "name": "Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 4,
+          "name": "Run bun install --frozen-lockfile",
+          "conclusion": "success",
+          "seconds": 4
+        },
+        {
+          "number": 5,
+          "name": "Require every selected proof category to pass",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "number": 9,
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 10,
+          "name": "Post Run actions/checkout@v7",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "number": 11,
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ],
+      "resource": null,
+      "resourceProblem": null
+    }
+  ],
+  "problems": [],
+  "context": {
+    "cadence": "exhaustive",
+    "global": true,
+    "head": "8e9855e706ab43dc1bb5b822296f171431e2546d"
+  },
+  "selection": {
+    "selections": {
+      "verify": "true",
+      "pack": "true",
+      "unit": "true",
+      "browser": "true",
+      "layout": "true",
+      "captures": "true",
+      "runtime": "true",
+      "runtime_host": "true",
+      "endurance": "true"
+    },
+    "retained": []
+  }
+}

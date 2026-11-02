@@ -1,0 +1,1051 @@
+{
+  "version": 1,
+  "coverage": {
+    "runAttempts": 1,
+    "runs": 1,
+    "prs": 0,
+    "pairedPRs": 0,
+    "incompleteAttempts": 0,
+    "jobs": 17,
+    "unobservedJobs": 0,
+    "unobservedCancelledAttempts": 0,
+    "observedJobsWithoutDuration": 0,
+    "resourceReceipts": 13,
+    "retainedJobs": 0,
+    "excludedOrUnresolvedSkippedJobs": 0,
+    "resourceProblems": 0,
+    "unattributedCIAttempts": 0
+  },
+  "observedRunnerSeconds": 10007,
+  "cancelledAttemptRunnerSeconds": 0,
+  "failedAttemptRunnerSeconds": 0,
+  "attemptElapsedSeconds": {
+    "n": 1,
+    "mean": 1105,
+    "median": 1105,
+    "p90": 1105
+  },
+  "initialQueueSeconds": {
+    "n": 1,
+    "mean": 3,
+    "median": 3,
+    "p90": 3
+  },
+  "ciByEvent": {
+    "schedule": {
+      "attempts": 1,
+      "observedRunnerSeconds": 10007,
+      "elapsedSeconds": {
+        "n": 1,
+        "mean": 1105,
+        "median": 1105,
+        "p90": 1105
+      }
+    }
+  },
+  "successfulCandidateElapsedSeconds": {
+    "n": 0,
+    "mean": null,
+    "median": null,
+    "p90": null
+  },
+  "categories": {
+    "schedule/browser": {
+      "n": 3,
+      "mean": 655,
+      "median": 697,
+      "p90": 711
+    },
+    "schedule/captures": {
+      "n": 1,
+      "mean": 474,
+      "median": 474,
+      "p90": 474
+    },
+    "schedule/changeset": {
+      "n": 1,
+      "mean": 41,
+      "median": 41,
+      "p90": 41
+    },
+    "schedule/endurance": {
+      "n": 1,
+      "mean": 745,
+      "median": 745,
+      "p90": 745
+    },
+    "schedule/layout": {
+      "n": 2,
+      "mean": 909.5,
+      "median": 909.5,
+      "p90": 1006
+    },
+    "schedule/pack": {
+      "n": 1,
+      "mean": 170,
+      "median": 170,
+      "p90": 170
+    },
+    "schedule/proof": {
+      "n": 1,
+      "mean": 16,
+      "median": 16,
+      "p90": 16
+    },
+    "schedule/runtime": {
+      "n": 1,
+      "mean": 159,
+      "median": 159,
+      "p90": 159
+    },
+    "schedule/runtime_host": {
+      "n": 1,
+      "mean": 614,
+      "median": 614,
+      "p90": 614
+    },
+    "schedule/unit": {
+      "n": 4,
+      "mean": 983.75,
+      "median": 1000.5,
+      "p90": 1039
+    },
+    "schedule/verify": {
+      "n": 1,
+      "mean": 69,
+      "median": 69,
+      "p90": 69
+    }
+  },
+  "steps": {
+    "schedule/browser/Complete browser proof": {
+      "n": 3,
+      "mean": 639.6666666666666,
+      "median": 682,
+      "p90": 695
+    },
+    "schedule/browser/Complete job": {
+      "n": 3,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/browser/Post Run actions/checkout@v7": {
+      "n": 3,
+      "mean": 0.3333333333333333,
+      "median": 0,
+      "p90": 1
+    },
+    "schedule/browser/Post Run oven-sh/setup-bun@v2": {
+      "n": 3,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/browser/Proof receipts and failure diagnostics": {
+      "n": 3,
+      "mean": 2.3333333333333335,
+      "median": 2,
+      "p90": 3
+    },
+    "schedule/browser/Recompute affected proof on the actual checkout": {
+      "n": 3,
+      "mean": 0.3333333333333333,
+      "median": 0,
+      "p90": 1
+    },
+    "schedule/browser/Run actions/checkout@v7": {
+      "n": 3,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/browser/Run bun install --frozen-lockfile": {
+      "n": 3,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/browser/Run oven-sh/setup-bun@v2": {
+      "n": 3,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/browser/Set up job": {
+      "n": 3,
+      "mean": 0.3333333333333333,
+      "median": 0,
+      "p90": 1
+    },
+    "schedule/captures/Complete captures proof": {
+      "n": 1,
+      "mean": 459,
+      "median": 459,
+      "p90": 459
+    },
+    "schedule/captures/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/captures/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/captures/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/captures/Proof receipts and failure diagnostics": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/captures/Recompute affected proof on the actual checkout": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/captures/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/captures/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 3,
+      "median": 3,
+      "p90": 3
+    },
+    "schedule/captures/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/captures/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/changeset/Discover product scenario and assertion ownership": {
+      "n": 1,
+      "mean": 10,
+      "median": 10,
+      "p90": 10
+    },
+    "schedule/changeset/Env documentation matches its descriptors": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Lint, leakage and contribution workflow guards": {
+      "n": 1,
+      "mean": 13,
+      "median": 13,
+      "p90": 13
+    },
+    "schedule/changeset/Plan affected fast and local checks": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/changeset/Require a changeset for shipped package changes": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/changeset/Retain only validated equivalent automatic proof": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/changeset/Retention ledger and diagnostics": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/changeset/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/changeset/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/changeset/Validate all pending changeset package names": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/endurance/Complete endurance proof": {
+      "n": 1,
+      "mean": 727,
+      "median": 727,
+      "p90": 727
+    },
+    "schedule/endurance/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/endurance/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/endurance/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/endurance/Proof receipts and failure diagnostics": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/endurance/Recompute affected proof on the actual checkout": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/endurance/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/endurance/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/endurance/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/endurance/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/layout/Complete job": {
+      "n": 2,
+      "mean": 0.5,
+      "median": 0.5,
+      "p90": 1
+    },
+    "schedule/layout/Complete layout proof": {
+      "n": 2,
+      "mean": 891,
+      "median": 891,
+      "p90": 988
+    },
+    "schedule/layout/Post Run actions/checkout@v7": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/layout/Post Run oven-sh/setup-bun@v2": {
+      "n": 2,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/layout/Proof receipts and failure diagnostics": {
+      "n": 2,
+      "mean": 3,
+      "median": 3,
+      "p90": 3
+    },
+    "schedule/layout/Recompute affected proof on the actual checkout": {
+      "n": 2,
+      "mean": 0.5,
+      "median": 0.5,
+      "p90": 1
+    },
+    "schedule/layout/Run actions/checkout@v7": {
+      "n": 2,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/layout/Run bun install --frozen-lockfile": {
+      "n": 2,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/layout/Run oven-sh/setup-bun@v2": {
+      "n": 2,
+      "mean": 1.5,
+      "median": 1.5,
+      "p90": 2
+    },
+    "schedule/layout/Set up job": {
+      "n": 2,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/pack/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/pack/Pack, install and probe every publishable package": {
+      "n": 1,
+      "mean": 61,
+      "median": 61,
+      "p90": 61
+    },
+    "schedule/pack/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/pack/Post Run actions/setup-node@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/pack/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/pack/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 3,
+      "median": 3,
+      "p90": 3
+    },
+    "schedule/pack/Run actions/setup-node@v7": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/pack/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/pack/Run bun run build --jobs=2": {
+      "n": 1,
+      "mean": 91,
+      "median": 91,
+      "p90": 91
+    },
+    "schedule/pack/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/pack/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/proof/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/proof/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/proof/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/proof/Require every selected proof category to pass": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/proof/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/proof/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/proof/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/proof/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/runtime/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime/Complete runtime proof": {
+      "n": 1,
+      "mean": 101,
+      "median": 101,
+      "p90": 101
+    },
+    "schedule/runtime/Environment setup and proof outcomes": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime/Proof receipts and failure diagnostics": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/runtime/Real Chrome and offline Linux namespace prerequisites": {
+      "n": 1,
+      "mean": 43,
+      "median": 43,
+      "p90": 43
+    },
+    "schedule/runtime/Recompute affected proof on the actual checkout": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/runtime/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/runtime/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/runtime/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/runtime/Set up job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Complete native hosted runtime proof": {
+      "n": 1,
+      "mean": 563,
+      "median": 563,
+      "p90": 563
+    },
+    "schedule/runtime_host/Environment setup and proof outcomes": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Proof receipts and failure diagnostics": {
+      "n": 1,
+      "mean": 2,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/runtime_host/Real Chrome and offline Linux namespace prerequisites": {
+      "n": 1,
+      "mean": 30,
+      "median": 30,
+      "p90": 30
+    },
+    "schedule/runtime_host/Recompute affected proof on the actual checkout": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/runtime_host/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/runtime_host/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/runtime_host/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/runtime_host/Start btrfs dead-root kernel trace": {
+      "n": 1,
+      "mean": 5,
+      "median": 5,
+      "p90": 5
+    },
+    "schedule/runtime_host/Start optional owned-loop kernel trace": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/runtime_host/Stop and classify btrfs dead-root kernel trace": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/runtime_host/Stop optional owned-loop kernel trace": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/unit/Complete job": {
+      "n": 4,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/unit/Complete unit proof": {
+      "n": 4,
+      "mean": 952.75,
+      "median": 969.5,
+      "p90": 1007
+    },
+    "schedule/unit/Environment setup and proof outcomes": {
+      "n": 4,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/unit/Post Run actions/checkout@v7": {
+      "n": 4,
+      "mean": 0.25,
+      "median": 0,
+      "p90": 1
+    },
+    "schedule/unit/Post Run oven-sh/setup-bun@v2": {
+      "n": 4,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/unit/Proof receipts and failure diagnostics": {
+      "n": 4,
+      "mean": 1.75,
+      "median": 2,
+      "p90": 2
+    },
+    "schedule/unit/Real Chrome and offline Linux namespace prerequisites": {
+      "n": 4,
+      "mean": 12.5,
+      "median": 12.5,
+      "p90": 14
+    },
+    "schedule/unit/Recompute affected proof on the actual checkout": {
+      "n": 4,
+      "mean": 0.25,
+      "median": 0,
+      "p90": 1
+    },
+    "schedule/unit/Run actions/checkout@v7": {
+      "n": 4,
+      "mean": 5.5,
+      "median": 5.5,
+      "p90": 6
+    },
+    "schedule/unit/Run bun install --frozen-lockfile --backend=copyfile": {
+      "n": 4,
+      "mean": 8,
+      "median": 8,
+      "p90": 9
+    },
+    "schedule/unit/Run oven-sh/setup-bun@v2": {
+      "n": 4,
+      "mean": 0.75,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/unit/Set up job": {
+      "n": 4,
+      "mean": 0.75,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/verify/Complete job": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/verify/Post Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/verify/Post Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/verify/Recompute the same affected selection": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    },
+    "schedule/verify/Run actions/checkout@v7": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/verify/Run bun install --frozen-lockfile": {
+      "n": 1,
+      "mean": 4,
+      "median": 4,
+      "p90": 4
+    },
+    "schedule/verify/Run oven-sh/setup-bun@v2": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/verify/Set up job": {
+      "n": 1,
+      "mean": 1,
+      "median": 1,
+      "p90": 1
+    },
+    "schedule/verify/Strict types and curated fast tests concurrently on this runner": {
+      "n": 1,
+      "mean": 57,
+      "median": 57,
+      "p90": 57
+    },
+    "schedule/verify/Verify setup and proof outcomes (best effort)": {
+      "n": 1,
+      "mean": 0,
+      "median": 0,
+      "p90": 0
+    }
+  },
+  "commands": {
+    "schedule/browser/complete pinned visual/accessibility/pointer suite": {
+      "n": 3,
+      "mean": 530.2175352,
+      "median": 557.628022531,
+      "p90": 570.820850309
+    },
+    "schedule/browser/workspace build for real browser checks": {
+      "n": 3,
+      "mean": 96.38928528133333,
+      "median": 109.468773722,
+      "p90": 109.524714308
+    },
+    "schedule/captures/editorial provenance and reproducibility": {
+      "n": 1,
+      "mean": 457.912037474,
+      "median": 457.912037474,
+      "p90": 457.912037474
+    },
+    "schedule/captures/pinned capture fonts and original notices": {
+      "n": 1,
+      "mean": 0.80054124,
+      "median": 0.80054124,
+      "p90": 0.80054124
+    },
+    "schedule/endurance/complete pinned endurance suite": {
+      "n": 1,
+      "mean": 645.009619221,
+      "median": 645.009619221,
+      "p90": 645.009619221
+    },
+    "schedule/endurance/workspace build for real browser checks": {
+      "n": 1,
+      "mean": 81.359623012,
+      "median": 81.359623012,
+      "p90": 81.359623012
+    },
+    "schedule/layout/complete pinned layout/offline suite": {
+      "n": 2,
+      "mean": 785.6663429615,
+      "median": 785.6663429615,
+      "p90": 871.257045248
+    },
+    "schedule/layout/workspace build for real browser checks": {
+      "n": 2,
+      "mean": 93.8006723435,
+      "median": 93.8006723435,
+      "p90": 104.6125522
+    },
+    "schedule/runtime/measure-claude-enforcement": {
+      "n": 1,
+      "mean": 8.952300020000001,
+      "median": 8.952300020000001,
+      "p90": 8.952300020000001
+    },
+    "schedule/runtime/measure-claude-runtime": {
+      "n": 1,
+      "mean": 9.907044822,
+      "median": 9.907044822,
+      "p90": 9.907044822
+    },
+    "schedule/runtime/native delegation, capabilities and measurement isolation": {
+      "n": 1,
+      "mean": 5.421198866999999,
+      "median": 5.421198866999999,
+      "p90": 5.421198866999999
+    },
+    "schedule/runtime/shared-process Chrome then child cleanup": {
+      "n": 1,
+      "mean": 76.867817922,
+      "median": 76.867817922,
+      "p90": 76.867817922
+    },
+    "schedule/runtime_host/native managed hosted admission": {
+      "n": 1,
+      "mean": 338.109136381,
+      "median": 338.109136381,
+      "p90": 338.109136381
+    },
+    "schedule/runtime_host/native reference pool allocation": {
+      "n": 1,
+      "mean": 45.01766437899997,
+      "median": 45.01766437899997,
+      "p90": 45.01766437899997
+    },
+    "schedule/runtime_host/native separate-UID worker identity": {
+      "n": 1,
+      "mean": 180.10450643400003,
+      "median": 180.10450643400003,
+      "p90": 180.10450643400003
+    },
+    "schedule/unit/complete affected unit and integration suite": {
+      "n": 4,
+      "mean": 943.62500128875,
+      "median": 952.6962010435,
+      "p90": 1004.906876089
+    },
+    "schedule/unit/pinned offline workspace lease container prerequisite": {
+      "n": 1,
+      "mean": 26.061106830000003,
+      "median": 26.061106830000003,
+      "p90": 26.061106830000003
+    }
+  },
+  "prs": [],
+  "baseline": {
+    "label": "Historical successful exhaustive-run proxy; different source/queue conditions, not measured savings",
+    "samples": [
+      {
+        "run": 41382713082,
+        "attempt": 1,
+        "head": "8e9855e706ab43dc1bb5b822296f171431e2546d",
+        "runnerSeconds": 10007,
+        "labels": [
+          "ubuntu-24.04"
+        ]
+      }
+    ],
+    "runnerSeconds": {
+      "n": 1,
+      "mean": 10007,
+      "median": 10007,
+      "p90": 10007
+    },
+    "elapsedSeconds": {
+      "n": 1,
+      "mean": 1105,
+      "median": 1105,
+      "p90": 1105
+    },
+    "estimatedElapsedPerPRBeforeAndAfter": 2210,
+    "pairedObservedCIRunnerSeconds": 0,
+    "onceBeforeAndAfterEstimate": 0,
+    "everyAttemptEstimate": 0
+  },
+  "limitations": [
+    "Observed runner time is a lower bound when jobs or execution timestamps are missing; unobserved cancellations are not measured zero.",
+    "Averages include failures/cancellations where execution was observed. Successful command averages exclude failed phases.",
+    "Windowed PR totals are not complete lifetime cost. Multiple-PR attribution is excluded from per-PR accounting.",
+    "Queue is request-to-first-observed-job for first attempts only; dependent-job eligibility/queue is not reconstructed.",
+    "Elapsed time ends at the last observed executed job completion, not a measured ready-to-merge or human review interval.",
+    "Resource receipts are untrusted timing data, not validated passing proof. CPU/memory are VM-wide, not process peaks.",
+    "No local checks, human review, reservation wait or exact counterfactual speedup is inferred."
+  ],
+  "lifecycleAcquisition": {
+    "version": 1,
+    "repository": "schlessera/brain-kit",
+    "collectedAt": "2026-11-02T18:08:20.648Z",
+    "expectedPRs": [],
+    "errors": [],
+    "missingPRs": [],
+    "scopes": [
+      {
+        "version": 1,
+        "repository": "schlessera/brain-kit",
+        "collectedAt": "2026-11-02T18:08:20.648Z",
+        "expectedPRs": [],
+        "errors": []
+      }
+    ]
+  },
+  "reservationAcquisition": null,
+  "throughput": null,
+  "collectionCoverage": {
+    "missingAttempts": [],
+    "scopes": [
+      {
+        "repository": "schlessera/brain-kit",
+        "since": null,
+        "until": "2026-11-02T17:52:57.360Z",
+        "requestedRun": "41382713082",
+        "collectedAt": "2026-11-02T18:07:57.360Z",
+        "status": "completed",
+        "errors": [],
+        "requestBudget": {
+          "limit": 200,
+          "reserve": 500,
+          "requests": 18,
+          "remaining": 4801,
+          "stopped": null
+        },
+        "seed": null
+      }
+    ]
+  }
+}

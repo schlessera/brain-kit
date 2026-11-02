@@ -198,3 +198,21 @@ Use the bundle's full containing commit when citing it. Verify its
 the original snapshot and do not claim these newly measured bytes came
 from the old main-tree commit. The report selects no product optimization,
 latency SLA or change to retained-history, cap or freeze semantics.
+
+## Test-cost epic acceptance audit — 2026-11-02 (#2763)
+
+This later bundle is separate from the original copied main-tree snapshot and
+from the 2026-10-16 journal bundle. It holds the read-only hosted timing
+snapshots, extracted per-test durations, theme-named case counts and wait
+census used by the acceptance audit of
+https://github.com/schlessera/brain-kit/issues/1849, which is recorded as a
+comment on that epic. Its baseline is exhaustive run 38549344893 at
+`5cf1d548f7bd3a314eb36394dc5db0268db97da6`; its comparison is exhaustive
+scheduled run 41382713082 at `8e9855e706ab43dc1bb5b822296f171431e2546d`.
+Files, commands, runtime identities and limits are in
+`scripts/measurements/test-cost-audit-2026-11-02/README.md`.
+
+Use the bundle's full containing commit when citing it. Verify its own
+`SHA256SUMS`; the top-level manifest/checksums still describe only the original
+snapshot. Every before/after figure in this bundle is uncontrolled: the runs
+differ in source, runner image and shard layout.
