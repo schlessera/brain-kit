@@ -103,6 +103,11 @@ export type ApifyInferenceSpend = (scope: { session_id: string; turn_id: string 
 /** Whether the site's robots.txt lets this exact URL be fetched, checked by the host before dispatch. */
 export type ApifySitePermission = (url: string, signal?: AbortSignal) => Promise<boolean>;
 
+/** Thrown by a {@link ApifySitePermission} that has no robots.txt checker to consult, such as a host without core (#3330). */
+export class ApifySitePermissionUnavailable extends Error {
+  constructor(message = "This host cannot check robots.txt.") { super(message); this.name = "ApifySitePermissionUnavailable"; }
+}
+
 export interface ApifyRunsOptions {
   authority: ApifyAuthority;
   consent: ApifyConsent;
@@ -438,7 +443,11 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
       if (!options.sitePermission) throw refuse("policy_denied", "site_permission_unproven", "This host cannot check the targets' robots.txt, so the run was not started.");
       for (const url of profiled.urls) {
         let allowed = false;
-        try { allowed = await options.sitePermission(url, context.signal); } catch { allowed = false; }
+        try { allowed = await options.sitePermission(url, context.signal); }
+        catch (error) {
+          if (error instanceof ApifySitePermissionUnavailable) throw refuse("policy_denied", "site_permission_unproven", "This host cannot check the targets' robots.txt, so the run was not started.");
+          allowed = false;
+        }
         if (!allowed) throw refuse("policy_denied", "robots_disallowed", "A target's robots.txt does not allow fetching it (or could not be checked), so the run was not started.");
       }
     }

@@ -7,7 +7,9 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApifyAuthority, governanceApifyPolicy, qualifyProfile, type ApifyAuthority, type ApifyAuthorityRecord } from "@schlessera/brain-common/internal/apify";
+import {
+  createApifyAuthority, governanceApifyPolicy, qualifyProfile, type ApifyAuthority, type ApifyAuthorityRecord, type ApifyQualifiedProfile, type ApifySitePermission,
+} from "@schlessera/brain-common/internal/apify";
 import { createApifyHost, type ApifyHost } from "../../src/apify/host.js";
 import { SEA_CHARTS_PRICING, SEA_CHARTS_SCHEMA, seaChartsProfile } from "./apify-odysseus.js";
 
@@ -114,9 +116,11 @@ export function fixtureAuthority(brain: string, fake: Pick<FakeApify, "origin">,
 }
 
 /** A real hosted Apify service on the fake: the module both chat backends' bridges call. */
-export function fixtureApifyHost(brain: string, fake: Pick<FakeApify, "origin">, ledgerPath: string, options: { authority?: ApifyAuthority; untrusted?: string[] } = {}): ApifyHost {
-  return createApifyHost({ brainPath: brain, ledgerPath, authority: options.authority ?? fixtureAuthority(brain, fake), profiles: [APIFY_PROFILE],
+export function fixtureApifyHost(brain: string, fake: Pick<FakeApify, "origin">, ledgerPath: string,
+  options: { authority?: ApifyAuthority; untrusted?: string[]; profiles?: ApifyQualifiedProfile[]; sitePermission?: ApifySitePermission } = {}): ApifyHost {
+  return createApifyHost({ brainPath: brain, ledgerPath, authority: options.authority ?? fixtureAuthority(brain, fake), profiles: options.profiles ?? [APIFY_PROFILE],
     inference: async () => ({ turn_usd: 0, session_usd: 0, day_usd: 0 }), waitSeconds: 1, pollMs: 1,
+    ...(options.sitePermission ? { sitePermission: options.sitePermission } : {}),
     ...(options.untrusted ? { untrusted: async (_turn, event) => { options.untrusted!.push(event.operation); } } : {}) });
 }
 
