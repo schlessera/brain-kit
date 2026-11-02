@@ -70,6 +70,11 @@
       "bun": "./src/provider-relay.ts",
       "types": "./dist/provider-relay.d.ts",
       "default": "./dist/provider-relay.js"
+    },
+    "./internal/claude-subscription": {
+      "bun": "./src/claude-subscription.ts",
+      "types": "./dist/claude-subscription.d.ts",
+      "default": "./dist/claude-subscription.js"
     }
   },
   "files": [
