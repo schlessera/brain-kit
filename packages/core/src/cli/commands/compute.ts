@@ -42,7 +42,7 @@ Run options:
   --source PATH          repository-relative file to upload (repeatable); nothing else is uploaded
   --artifact PATH[:MAX]  file to fetch back, with an optional byte cap (repeatable; default 1 MiB)
   --lease SECONDS        lease length; default and maximum is the instance's lease.maxSeconds
-  --retain               keep the sandbox's data on release (provider retention applies)
+  --retain               keep the sandbox's data on release; only where the instance sets retainOnRelease
   --detach               run only: return once the command has started
 
 Nothing runs remotely unless --provider names an instance. Job ids belong to

@@ -33,7 +33,10 @@ with the external-compute refusal codes and nothing allocated. A refusal exits
 `1`, a `run` whose job ended with its cleanup not confirmed exits `2`, one
 whose job ended other than `succeeded` exits `3`, and a second SIGINT or
 SIGTERM leaves an attached run with `130` or `143`. The
-`ComputeRunRequest` of the internal service gains an optional `retain`. A new
+`ComputeRunRequest` of the internal service gains an optional `retain`, which
+may only narrow the instance's `retainOnRelease` (`retain: true` elsewhere is
+`policy_denied`), and a retained job holds a concurrency slot until its
+retention ends. A new
 core skill, `external-compute`, is emitted by `brain skills sync`. Nothing
 changes for existing commands, tools or envelopes, and a brain without
 `compute` gets refusals only. See [the CLI component](integration-contract/cli.md#external-compute-additive-0450-3107)

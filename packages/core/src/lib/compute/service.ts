@@ -21,6 +21,7 @@ import {
   checkCommand,
   checkEnv,
   checkLease,
+  checkRetain,
   checkSecretFree,
   refuse,
   resolveSource,
@@ -206,9 +207,19 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     return listed;
   }
 
+  /**
+   * Jobs holding a slot: still active, awaiting cleanup, or retained with
+   * their retention not yet over (the provider still holds their data).
+   */
   function slotsUsed(jobs: ComputeJobRecord[], instance: string): number {
+    const now = clock.now();
     return jobs.filter(
-      (j) => j.instance === instance && (!isTerminal(j.state) || j.cleanup.state === "pending" || j.cleanup.state === "release_failed")
+      (j) =>
+        j.instance === instance &&
+        (!isTerminal(j.state) ||
+          j.cleanup.state === "pending" ||
+          j.cleanup.state === "release_failed" ||
+          (j.cleanup.state === "retained" && (j.cleanup.retainedUntil === null || j.cleanup.retainedUntil > now)))
     ).length;
   }
 
@@ -223,6 +234,8 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     if ("ok" in instance) return instance;
     const unsupported = checkCapabilities(instance, request);
     if (unsupported) return unsupported;
+    const retention = checkRetain(instance, request);
+    if (retention) return retention;
     const lease = checkLease(instance, request.leaseSeconds);
     if ("ok" in lease) return lease;
     const secretFree = checkSecretFree(request, instance.secret);

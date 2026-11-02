@@ -126,13 +126,44 @@ describe("refusals allocate nothing", () => {
     expect(declined).toMatchObject({ ok: true, plan: { retain: false } });
   });
 
-  test("retain: true keeps the sandbox's data on release", async () => {
-    const { ops, clock } = setup();
+  test("retain: true keeps the sandbox's data on release where the instance allows retention", async () => {
+    const { ops, clock } = setup({}, { retainOnRelease: true });
     const run = await ops().run({ provider: "pylos-memory", argv: ["exit", "0"], retain: true });
     if (!run.ok) throw new Error(run.error.code);
     clock.advance(1_000);
     const status = await ops().status({ job: run.job.id });
     expect(status).toMatchObject({ ok: true, job: { cleanup: { state: "retained" } } });
+  });
+
+  test("a job may only narrow retention: retain: true is policy_denied unless the instance sets retainOnRelease", async () => {
+    const { ops, memory, box } = setup();
+    for (const r of [
+      await ops().plan({ provider: "pylos-memory", argv: ["true"], retain: true }),
+      await ops().run({ provider: "pylos-memory", argv: ["true"], retain: true }),
+    ]) {
+      expect(r).toMatchObject({ ok: false, error: { code: "policy_denied", message: expect.stringContaining("retainOnRelease") } });
+    }
+    expect(memory.created()).toBe(0);
+    expect(jobDirs(box.state)).toEqual([]);
+    expect(await ops().plan({ provider: "pylos-memory", argv: ["true"], retain: false })).toMatchObject({ ok: true, plan: { retain: false } });
+
+    const allowed = setup({}, { retainOnRelease: true });
+    expect(await allowed.ops().plan({ provider: "pylos-memory", argv: ["true"], retain: false })).toMatchObject({ ok: true, plan: { retain: false } });
+    expect(await allowed.ops().plan({ provider: "pylos-memory", argv: ["true"] })).toMatchObject({ ok: true, plan: { retain: true } });
+  });
+
+  test("a retained job holds its slot until its retention ends", async () => {
+    const { ops, clock } = setup({}, { retainOnRelease: true });
+    for (let i = 0; i < 2; i++) {
+      const run = await ops().run({ provider: "pylos-memory", argv: ["exit", "0"] });
+      if (!run.ok) throw new Error(run.error.code);
+      clock.advance(1_000);
+      expect(await ops().status({ job: run.job.id })).toMatchObject({ ok: true, job: { state: "succeeded", cleanup: { state: "retained" } } });
+    }
+    expect(await ops().plan({ provider: "pylos-memory", argv: ["true"] })).toMatchObject({ ok: true, plan: { slots: { used: 2, max: 2 } } });
+    expect(await ops().run({ provider: "pylos-memory", argv: ["true"] })).toMatchObject({ ok: false, error: { code: "concurrency_exhausted" } });
+    clock.advance(3_600_000);
+    expect(await ops().run({ provider: "pylos-memory", argv: ["true"] })).toMatchObject({ ok: true });
   });
 
   test("an invalid governance policy refuses plan and run with policy_denied", async () => {

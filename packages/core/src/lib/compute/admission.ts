@@ -94,6 +94,17 @@ export function checkCapabilities(
   return undefined;
 }
 
+/**
+ * A job may only narrow the operator's retention: `retain: false` is always
+ * allowed, `retain: true` only on an instance that sets `retainOnRelease`.
+ */
+export function checkRetain(instance: ResolvedComputeInstance, request: ComputeRunRequest): ComputeRefusal | undefined {
+  if (request.retain === true && instance.config.retainOnRelease !== true) {
+    return refuse("policy_denied", `"${instance.id}" does not set retainOnRelease, so a job may not ask to retain its data`);
+  }
+  return undefined;
+}
+
 /** The job's own choice, else the instance's `retainOnRelease`. */
 export function wantsRetain(instance: ResolvedComputeInstance, request: ComputeRunRequest): boolean {
   return typeof request.retain === "boolean" ? request.retain : instance.config.retainOnRelease === true;

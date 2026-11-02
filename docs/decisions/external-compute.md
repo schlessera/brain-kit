@@ -585,3 +585,9 @@ choices "Still open" assigned to it, within the bounds above:
   a hosted turn or maintenance worker launch (`BRAIN_WORKER_DATA_ROOT` set).
   Such a worker already lacks provider credentials and a writable state home;
   the refusal makes that explicit instead of accidental.
+- **Retention only narrows (review of #3107).** A job's `retain` may turn the
+  instance's `retainOnRelease` off but never on: `retain: true` on an instance
+  that does not set `retainOnRelease` refuses with `policy_denied`, so the
+  operator's choice bounds what an agent can keep at the provider. A retained
+  job counts toward `maxConcurrent` until its `retainedUntil` passes, since
+  the provider still holds its data. This refines "Per-job retention" above.

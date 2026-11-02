@@ -8,7 +8,7 @@ Its [shared scope and versioning policy](../integration-contract.md) apply to ev
 `brain compute` exposes the [external compute](../decisions/external-compute.md)
 operation set. The CLI and the [`brain_compute_*` MCP tools](mcp.md#external-compute-tools-additive-0450-3107)
 call one core implementation (`createComputeOps`,
-`packages/core/src/lib/ops/compute.ts:228-308`) and print the same envelopes.
+`packages/core/src/lib/ops/compute.ts:231-311`) and print the same envelopes.
 
 ```
 brain compute health [--provider ID]
@@ -25,7 +25,11 @@ Run options: `--provider ID` (required; no instance is a default), `--cwd
 PATH`, `--env NAME=VALUE` (repeatable; non-secret values only),
 `--source PATH` (repeatable, repository-relative), `--artifact
 PATH[:MAX_BYTES]` (repeatable; default cap 1 MiB), `--lease SECONDS` and
-`--retain`. The command and its arguments follow a bare `--`. A flag a verb
+`--retain`. `--retain` (MCP `retain: true`) is refused with `policy_denied`
+unless the instance sets `retainOnRelease`; a job may only narrow retention,
+so `retain: false` is always allowed. A retained job holds one of its
+instance's `maxConcurrent` slots until its `retainedUntil` has passed. The
+command and its arguments follow a bare `--`. A flag a verb
 does not take is a usage error, and no flag names a caller: the caller is
 `{ kind: "cli", principal: <operating-system user> }`. A job is addressable
 only by the caller kind and principal that started it, so a job started

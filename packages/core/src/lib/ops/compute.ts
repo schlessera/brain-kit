@@ -75,7 +75,10 @@ export const computeRequestInput = z.strictObject({
     .optional()
     .describe("Files to fetch back after the command exits"),
   lease_seconds: z.number().int().positive().optional().describe("Lease length; default and maximum is the instance's lease.maxSeconds"),
-  retain: z.boolean().optional().describe("Keep the sandbox's data on release; default is the instance's retainOnRelease"),
+  retain: z
+    .boolean()
+    .optional()
+    .describe("Keep the sandbox's data on release; default is the instance's retainOnRelease. false is always allowed; true only where the instance sets retainOnRelease"),
 });
 
 /** `brain compute status|cancel|collect|abandon JOB` / `brain_compute_status|cancel|collect`. */
