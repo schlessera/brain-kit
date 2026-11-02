@@ -131,6 +131,43 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+## Native history removal (additive, #3229)
+
+`BackendCapabilities` adds optional `historyRemoval?: boolean`, and
+`AgentBackend` adds optional `removeSessionHistory?(req:
+SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>`, exported
+from `@schlessera/brain-ui-sdk/server` with
+`SessionHistoryRemovalRequest` (`{ operationId: string; sessionId: string;
+signal?: AbortSignal }`), `SessionHistoryRemovalResult` (`{ outcome }`) and
+`SessionHistoryRemovalOutcome` (`"removed" | "partial" | "unknown"`).
+Removal is supported only when the capability is `true` and the method exists;
+the conformance suite in `@schlessera/brain-ui-sdk/testing` checks that they
+agree. A host refuses deletion of a chat on any other backend before it
+retires anything; older backends remain valid and simply do not support it.
+
+A host calls it only for a chat its owner explicitly retired, under that
+retirement's operation identity, as the
+[deletion policy](../decisions/chat-history-deletion.md) allows. Before its first
+await the backend fences the session durably and permanently: `listSessions`
+omits it, `getHistory` returns `[]`, and resume, follow-up, archive and
+restore refuse it, after a restart too. It then waits for the session's running
+turns and readers to drain and removes every native artifact it owns: live,
+archived, staged and conflict copies, subordinate and branch files, display and
+prompt metadata and file observations. Only names derived from the validated
+session identity are touched; a link, hard-linked file, redirected root or
+artifact whose own header names another session is left in place.
+
+The outcome is content-free and maps onto the host's per-store ledger:
+`removed` only when every owned artifact is confirmed absent and the installed
+runtime no longer lists the session; `partial` while owned content may remain,
+including when `signal` aborts the caller's wait first (the removal keeps its
+single owner and finishes after a genuine drain); `unknown` when an unexpected
+failure left the state unconfirmed. Every outcome but `removed` is retried under
+the same operation. A second operation for the same session, an invalid
+identity or a redirected tombstone root rejects with `BackendRequestError`.
+Previously sent provider bytes are never rewritten, and provider-held copies
+are outside it. The first-party Claude and Pi backends implement it.
+
 ## Inbox provenance (additive, #2741)
 
 The intake `createInboxIntake` returns adds `person(input, key, principal)`:

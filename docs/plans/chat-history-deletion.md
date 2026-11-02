@@ -16,7 +16,20 @@ targets before retiring, and makes later dialogue/task writers and readers
 refuse the retired identities. It removes no content and reports every store
 pending until that store's owner confirms removal. A typed native-only chat
 with no recorded owner refuses as unknown ownership; no ownership is backfilled.
-Native removal, host-copy cleanup, the endpoint and UI are not built.
+Host-copy cleanup, the endpoint and UI are not built.
+
+**Built (#3229):** first-party native removal behind the optional
+`historyRemoval` backend capability
+([package contract](../integration-contract/package-api.md#native-history-removal-additive-3229)).
+Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:296-322`)
+and Pi (`removePiSession`, `packages/ui-backend-pi/src/session-storage.ts:101-117`)
+name their owned artifacts; the shared fence
+(`createSessionRetirement`, `packages/ui-sdk/src/server/native-history-removal.ts:117-224`)
+writes a content-free tombstone before anything is removed, drains turns and
+readers, and reports `partial` for links, hard links, redirected roots and
+replaced files instead of touching them. The host records the native store
+under the retirement (`removeRetiredNativeHistory`, `packages/ui-server/src/ws/native-history-removal.ts:29-48`); coordinating it with the other stores and
+restart reconciliation remains with the endpoint work.
 
 ## Selected local lifecycle
 
@@ -81,7 +94,7 @@ and [operational recovery](../inbox-recovery.md) remain binding.
 There is no general delete operation: `createSessionRoutes` only lists/reads
 (`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:8-147`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
-(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:708-751`). A storage root
+(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:750-804`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
 ships in a minor. The approved retention exception is recorded before runtime
@@ -99,24 +112,24 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native Claude history.** Live JSONL, per-session subordinate files, titles,
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
-  (`createHistory`, `packages/ui-backend-claude/src/history.ts:41-90`;
-  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:146-173`).
+  (`createHistory`, `packages/ui-backend-claude/src/history.ts:44-102`;
+  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:157-185`).
   The live/archive roots are resolved by the backend
-  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:30-39`).
+  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
   Archive movement and crash recovery must join the same lifecycle fence
-  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:217-274`).
+  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:229-286`).
   Delete all owned branches/subagents/copies, not just the displayed branch.
   Unknown/unattributable archive remnants mean removal is incomplete.
 - **Native Pi history.** SessionManager JSONL trees retain inactive branches and
   tool results beyond the active branch rendered by `getPiHistory`
-  (`getPiHistory`, `packages/ui-backend-pi/src/history.ts:60-112`). Remove the entire
+  (`getPiHistory`, `packages/ui-backend-pi/src/history.ts:64-128`). Remove the entire
   backend-verified session tree and metadata, not a normalized history array.
   Runtime in-memory sessions, worker input/state copies and open descriptors
   must be quiescent as well; unlink alone does not stop a holder republishing.
 - **Native-adjacent host files.** Display text mappings and replay receipts include
-  tool inputs/outputs (`sessionReplay`, `packages/ui-sdk/src/server/session-replay.ts:19-73`).
+  tool inputs/outputs (`sessionReplay`, `packages/ui-sdk/src/server/session-replay.ts:24-78`).
   Prompt context retains original user text, the frozen append and delivered facts
-  (`sessionPromptContext`, `packages/ui-sdk/src/server/session-prompt-context.ts:21-82`).
+  (`sessionPromptContext`, `packages/ui-sdk/src/server/session-prompt-context.ts:26-87`).
   These hashed session files are outside the brain and are not fully enumerated
   by the backend's transcript roots. Removal must explicitly include them.
 - **Canonical dialogue and provenance.** `071_session_dialogue.sql` owns

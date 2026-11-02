@@ -20,6 +20,18 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Native history removal (additive, #3229)
+
+`BackendCapabilities.historyRemoval?` and the optional
+`AgentBackend.removeSessionHistory?()` let a host remove one explicitly retired
+chat's locally owned native history, with content-free `removed`, `partial`
+and `unknown` outcomes. A backend that does not advertise and implement both is
+unsupported, and deletion refuses before retirement. The first-party Claude and
+Pi backends implement it. No wire frame, HTTP route, CLI `--json` shape or MCP
+tool changes; the deletion endpoint is not part of this change. See
+[the package component](integration-contract/package-api.md#native-history-removal-additive-3229).
+This ships in a minor; no breaking ruling is required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets

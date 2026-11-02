@@ -1,4 +1,4 @@
-import { transcriptPaths } from "./transcript-archive.js";
+import { listArchivedSessions, removeClaudeSession, retiredDirectory, transcriptPaths } from "./transcript-archive.js";
 import {
   getSessionMessages as sdkGetSessionMessages,
   listSessions as sdkListSessions,
@@ -18,7 +18,8 @@ import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import { resolveClaudeProfiles } from "./options.js";
-import { resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { createSessionRetirement, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { isSessionId } from "./worker-state.js";
 import { getProfile, listProfiles, listUnavailableProfiles } from "./profiles.js";
 import { selectedInferenceUpstream, turnEnv } from "./sdk-options.js";
 import { createClaudeTurnRunner } from "./turn-runner.js";
@@ -84,8 +85,11 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
             `[claude-backend] ignoring unparseable confirmBashPatterns entry ${JSON.stringify(source)}: ${message}`
           )
   );
+  // Explicit chat deletion (#3229): one durable fence for every native path.
+  const retirement = createSessionRetirement({ directory: () => retiredDirectory(options.brainPath), validSessionId: isSessionId });
   const history = createHistory({
     brainPath: options.brainPath,
+    retirement,
     listSessionsFn: options.listSessionsFn ?? sdkListSessions,
     getSessionMessagesFn: options.getSessionMessagesFn ?? sdkGetSessionMessages,
   });
@@ -97,7 +101,8 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
         attrs ?? ""
       ));
   const writeLock = options.writeLock ?? createKeyedLock();
-  const { startTurn, followUp } = createClaudeTurnRunner({
+  const { startTurn, followUp, forget } = createClaudeTurnRunner({
+    retirement,
     backend: options,
     resolveProfiles,
     confirmPatterns,
@@ -124,6 +129,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     // next tool result, without interrupting the running step (#1003,
     // turn-input.ts).
     followUp: true,
+    historyRemoval: true,
   };
 
   return {
@@ -164,6 +170,18 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     },
     getHistory(sessionId: string): Promise<SessionHistoryMessage[]> {
       return history.getHistory(sessionId);
+    },
+    removeSessionHistory(req) {
+      return retirement.remove(req, {
+        release: forget,
+        remove: (id) => removeClaudeSession(id, { brainPath: options.brainPath }),
+        // The installed SDK's own listing, archive included, is the last word.
+        async stillListed(id) {
+          const listSessionsFn = options.listSessionsFn ?? sdkListSessions;
+          const live = await listSessionsFn({ dir: options.brainPath });
+          return live.some(session => session.sessionId === id) || listArchivedSessions({ brainPath: options.brainPath }).some(session => session.id === id);
+        },
+      });
     },
   };
 }

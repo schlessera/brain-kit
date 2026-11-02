@@ -34,11 +34,15 @@ async function syncDirectory(path: string): Promise<void> {
   const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try { await handle.sync(); } finally { await handle.close(); }
 }
+/** The record's name below its directory, from the brain's real path; removal (#3229) uses it too. */
+export function nativeObservationIdentity(realBrainPath: string, sessionId: string): string {
+  return digest(JSON.stringify([realBrainPath, sessionId]));
+}
 async function location(storage: NativeObservationStorage): Promise<{ path: string; identity: string }> {
   const brain = await realpath(storage.brainPath), root = resolve(storage.directory);
   if (brain === root || brain.startsWith(root + "/")) throw new Error("Native observation storage must not contain the brain.");
   await directory(root, brain);
-  const identity = digest(JSON.stringify([brain, storage.sessionId]));
+  const identity = nativeObservationIdentity(brain, storage.sessionId);
   return { path: join(root, identity + ".json"), identity };
 }
 function validVersion(value: unknown): value is NativeFileVersion {
