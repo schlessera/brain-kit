@@ -18,14 +18,20 @@ function fixture(idleObservationMs?: number) {
   const checkpoints: { id: string; phase: string }[] = [], deltas: string[] = [];
   let phase = "boot", clock = Date.parse("2026-07-12T08:00:00Z");
   const checkpoint = native.manager.checkpoint.bind(native.manager), delta = native.manager.delta.bind(native.manager);
-  native.manager.checkpoint = async (id, signal) => { const made = await checkpoint(id, signal); checkpoints.push({ id: made.id, phase }); return made; };
+  let block: ((signal?: AbortSignal) => Promise<never>) | undefined;
+  native.manager.checkpoint = async (id, signal) => {
+    if (block) await block(signal);
+    const made = await checkpoint(id, signal); checkpoints.push({ id: made.id, phase }); return made;
+  };
   native.manager.delta = async (from, to, signal) => { deltas.push(from); return delta(from, to, signal); };
   const db = createUiDb(path);
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"),
     now: () => clock, ...(idleObservationMs !== undefined ? { idleObservationMs } : {}) });
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  let closed = false;
   return { brain, db, journal, checkpoints, deltas, begin, setPhase(next: string) { phase = next; }, advance(ms: number) { clock += ms; },
-    async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
+    blockCheckpoints(next: typeof block) { block = next; },
+    async close() { if (closed) return; closed = true; await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
 test("the observer is initialized once startup recovery commits, before any admission", async () => {
@@ -86,4 +92,23 @@ test("an active turn suspends idle maintenance", async () => {
     expect(f.checkpoints.length, "NO_IDLE_OBSERVATION_DURING_A_TURN").toBe(before);
     await f.journal.finish("turn-active");
   } finally { await f.close(); }
+});
+
+test("closing abandons an idle pass instead of waiting for its native work", async () => {
+  const f = fixture(3_600_000);
+  let entered!: () => void;
+  const blocked = new Promise<void>(resolve => { entered = resolve; });
+  let unblock = () => {};
+  try {
+    await f.journal.ready; await f.journal.maintain();
+    await f.begin("turn-ithaca"); await f.journal.finish("turn-ithaca");
+    // The next idle pass blocks inside its checkpoint until it is aborted.
+    f.blockCheckpoints(signal => { entered(); return new Promise((_, reject) => {
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true }); unblock = () => reject(Error("released by cleanup"));
+    }); });
+    void f.journal.maintain();
+    await blocked;
+    const closed = await Promise.race([f.journal.close().then(() => "closed"), Bun.sleep(5_000).then(() => "waiting")]);
+    expect(closed, "CLOSE_ABANDONS_THE_IDLE_PASS").toBe("closed");
+  } finally { f.blockCheckpoints(undefined); unblock(); await f.close().catch(() => {}); }
 });

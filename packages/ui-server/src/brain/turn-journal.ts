@@ -334,12 +334,14 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
    * that admission to meet again.
    */
   let maintaining: Promise<void> | undefined, idleTimer: ReturnType<typeof setInterval> | undefined, closing = false;
+  // Closing abandons an idle pass rather than waiting for its native work.
+  const shutdown = new AbortController();
   function maintain(): Promise<void> {
     if (closing || active.size || holds) return Promise.resolve();
     return maintaining ??= serialize(async () => {
       if (closing || active.size) return;
-      await capture.initialize();
-      await observe();
+      await capture.initialize(shutdown.signal);
+      await observe(false, undefined, shutdown.signal);
       await expireBacklog();
     }).catch(() => {}).finally(() => { maintaining = undefined; });
   }
@@ -370,7 +372,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const pin = (turnId: string, entry: JournalVersion | null): JournalStatement[] =>
     entry?.hash ? [statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, entry.hash)] : [];
 
-  async function observe(userPolicy: boolean = false, timing?: PhaseTimer): Promise<void> {
+  async function observe(userPolicy: boolean = false, timing?: PhaseTimer, signal?: AbortSignal): Promise<void> {
     await releaseReads();
     const overlaps = [...active.keys()];
     const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
@@ -385,7 +387,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       await Promise.all(recorded);
     };
     let observation: Awaited<ReturnType<typeof capture.observe>>;
-    try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy])), undefined, timing); }
+    try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy])), signal, timing); }
     catch (error) { observationFailures++; const failure = storageError(error); await stopActive(failure); throw failure; }
     // Each managed worktree is observed through its own checkpoints, for the one turn that holds it.
     const separate: { worktreeId: string; turnId: string; observation: Awaited<ReturnType<typeof capture.observe>> }[] = [];
@@ -757,7 +759,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** @internal Runs one idle maintenance pass now; settles once it has (#3355). */
     maintain,
     async close() {
-      closing = true; clearInterval(idleTimer);
+      closing = true; clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
       clearInterval(scopeTimer);
       try { await tail; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
       finally { objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
