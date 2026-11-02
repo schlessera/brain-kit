@@ -225,6 +225,23 @@ export function needsAgent(run: RunEnvelope, interactive: boolean): boolean {
   );
 }
 
+/**
+ * What bare `brain sync` says when the rules left something for an agent and
+ * no runner can take it (#3243). In a credential-free maintenance worker
+ * (`BRAIN_AGENT_RUNNER_UNAVAILABLE`) no agent can log in, so the notice says
+ * judgment is unavailable there rather than launching one that must fail. The
+ * next step is named: a conflict is resolved by hand with the sync verbs.
+ */
+export function noRunnerNotice(run: RunEnvelope, hosted = resolveEnv().agentRunnerUnavailable): string {
+  const why = hosted
+    ? "agent judgment is unavailable in hosted maintenance (no agent can log in there)"
+    : "no agent runner is available";
+  const next = run.status === "needs-judgment"
+    ? "the merge is left in progress and nothing was pushed; resolve it manually: `brain sync conflicts`, write and `git add` each file, then `brain sync conclude` and `brain sync`"
+    : "the files listed above were left for someone to decide";
+  return `brain sync: ${why}; ${next}`;
+}
+
 export const syncCommand: CoreCommand = {
   summary: "Sync the brain with its git remote (run the whole sync, or one verb of it)",
   helpBlock: HELP,
@@ -261,6 +278,8 @@ export const syncCommand: CoreCommand = {
       const wanted = needsAgent(result, interactive);
       if (!wanted || !cli.agentRunner) {
         if (cli.json) printResult({ invoked: false, reason: wanted ? "no-runner" : "not-needed" });
+        // On stderr in both modes: in JSON mode stdout is the result alone.
+        if (wanted) console.error(noRunnerNotice(result));
         return RUN_EXIT[result.status];
       }
       try {

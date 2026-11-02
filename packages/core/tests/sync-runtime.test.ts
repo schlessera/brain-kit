@@ -26,7 +26,7 @@ const { sameNote, codeConflict } = SCENARIO_SETUPS;
  * text, and ends with a result — or, with `fail`, exits 1 without one.
  * `launched` exists once it has been started at all.
  */
-function fakeClaude(opts: { version?: string; fail?: boolean }): { env: Record<string, string>; launched: string } {
+function fakeClaude(opts: { version?: string; fail?: boolean; failWithResult?: boolean }): { env: Record<string, string>; launched: string } {
   const dir = mkdtempSync(join(tmpdir(), "fake-claude-sync-"));
   scratch.push(dir);
   const launched = join(dir, "launched");
@@ -54,6 +54,11 @@ for await (const chunk of process.stdin) {
       out({ type: "system", subtype: "init", ...${JSON.stringify(init)} });
       out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "git status" } }, { type: "text", text: "looking" }] } });
       if (${JSON.stringify(!!opts.fail)}) { process.stderr.write("fake claude gave up\\n"); process.exit(1); }
+      if (${JSON.stringify(!!opts.failWithResult)}) {
+        out({ type: "result", subtype: "error_during_execution", is_error: true, result: "Not logged in", errors: ["no credentials for the Ithaca workspace"] });
+        process.stderr.write("fake claude: the login token is missing\\n");
+        process.exit(1);
+      }
       out({ type: "result", subtype: "success", result: "the agent's final word" });
     }
   }
@@ -106,6 +111,46 @@ describe("brain sync --json, end to end (#290)", () => {
     expect(body.agent.runtime).toEqual({ name: "claude-code", version: "9.8.7-fake" });
     expect(body.agent.error).toContain("claude CLI failed (exit 1)");
     expect(result.stderr).toContain("claude CLI failed (exit 1)");
+  });
+
+  test("a failing CLI's own words reach the error: its result, the errors it listed and its stderr (#3243)", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const claude = fakeClaude({ failWithResult: true });
+    const result = await runCli(brain.root, ["sync", "--json"], claude.env);
+
+    expect(result.code).toBe(2);
+    const error = JSON.parse(result.stdout).agent.error as string;
+    expect(error).toContain("claude CLI failed (exit 1): Not logged in");
+    expect(error).toContain("no credentials for the Ithaca workspace");
+    expect(error).toContain("fake claude: the login token is missing");
+  });
+
+  test("where no agent can log in, a conflict launches nothing and says judgment is unavailable (#3243)", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const claude = fakeClaude({ version: "9.8.7-fake" });
+    const result = await runCli(brain.root, ["sync", "--json"], { ...claude.env, BRAIN_AGENT_RUNNER_UNAVAILABLE: "1" });
+
+    expect(result.code).toBe(3);
+    const body = JSON.parse(result.stdout);
+    expect(body.run.status).toBe("needs-judgment");
+    expect(body.agent).toEqual({ invoked: false, reason: "no-runner" });
+    expect(existsSync(claude.launched)).toBe(false);
+    expect(result.stderr).toContain("agent judgment is unavailable in hosted maintenance");
+    expect(result.stderr).toContain("resolve it manually");
+  });
+
+  test("where no agent can log in, human mode keeps the report and adds the notice", async () => {
+    const brain = brainWithRemote();
+    codeConflict(brain);
+    const claude = fakeClaude({ version: "9.8.7-fake" });
+    const result = await runCli(brain.root, ["sync", "--human"], { ...claude.env, BRAIN_AGENT_RUNNER_UNAVAILABLE: "1" });
+
+    expect(result.code).toBe(3);
+    expect(result.stdout).toStartWith("brain sync: needs-judgment");
+    expect(result.stderr).toContain("agent judgment is unavailable in hosted maintenance");
+    expect(existsSync(claude.launched)).toBe(false);
   });
 
   test("a sync the rules finish never launches the CLI to learn a version", async () => {
