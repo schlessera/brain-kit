@@ -1609,6 +1609,31 @@ branch, so the request always runs main's admission code.
   [#2942](https://github.com/schlessera/brain-kit/issues/2942). Whichever of
   #2942 and #3272 lands second adds that gate to the admission job.
 
+### Conditional concurrency direction
+
+The [2026-11-02 maintainer decision on #2934](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6574700840)
+replaces the October deferral with a conditional direction. Concurrent integration
+is permitted: base-tolerant confirmation for candidates whose affected closures are
+disjoint, with reservations keyed by closure. That permission only takes effect
+once all three of these hold:
+
+1. **Stability gate.** Seven consecutive days within one proof-policy epoch,
+   first-main green at or above 80%, and every red incident attributed.
+2. **Measured benefit.** A complete measured baseline shows a material benefit
+   from reducing lease waits and reconfirmation.
+3. **Qualification.**
+   - Complete affected closures and global inputs are qualified.
+   - Unknown or changed graphs, and conflicts, are serialized conservatively.
+   - Coordination is deterministic.
+   - Each merge has an exact head/base/squash audit.
+   - Main runs full combined-tree proof, and each incident has an owner.
+
+Selected proof, the red-main controls and the current permissions are preserved.
+This is a policy direction, not a finding that any gate is met. Until a
+qualified rollout, the exact-base confirmation and the single exact-candidate
+reservation above still apply. Before any implementation, this record and the
+concrete child task briefs on #2934 are updated.
+
 ## Historical measurement and upstream guidance
 
 The following guidance records the paid-provider investigation which motivated
