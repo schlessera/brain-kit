@@ -499,11 +499,16 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
       const stop = stopId ? rec(body(read).stop) : rec(sandboxNow?.stop);
       const state = s(stop?.status) ?? (s(sandboxNow?.state) === "archived" ? "completed" : undefined);
       if (state === "completed") return retainedUntil(id, ctx, red, req, s(stop?.endedAt));
-      if (state === "failing") return { kind: "failed", reason: red.text(`Boat could not save the disk${s(stop?.error) ? `: ${s(stop?.error)}` : ""}; the sandbox keeps running`) };
       if (state === "superseded") return { kind: "failed", reason: "the stop was superseded by a resume" };
       if (!stopId && !state) return { kind: "failed", reason: why(red, "stopping the sandbox", r) };
       const wait = Math.min(250 * 2 ** i, 2000);
-      if (ctx.signal.aborted || remaining(ctx) <= wait) return { kind: "uncertain", reason: `the stop was still ${state ?? "pending"} at the call deadline` };
+      if (ctx.signal.aborted || remaining(ctx) <= wait) {
+        // A failing stop is not over: Boat retries it until the sandbox archives.
+        if (state === "failing") {
+          return { kind: "uncertain", reason: red.text(`Boat could not save the disk yet${s(stop?.error) ? `: ${s(stop?.error)}` : ""}; it retries the stop and the sandbox keeps running`) };
+        }
+        return { kind: "uncertain", reason: `the stop was still ${state ?? "pending"} at the call deadline` };
+      }
       await clock.sleep(wait, ctx.signal);
     }
   }

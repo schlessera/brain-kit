@@ -102,7 +102,7 @@ A job therefore never receives account administration authority.
 | `kill` | `DELETE /sandboxes/{id}/commands/{processId}`. |
 | `collect` | `GET /sandboxes/{id}/files/info` for the size, then `GET /sandboxes/{id}/artifacts` (at most 50 MiB per file). |
 | `release("discard")` | `DELETE /sandboxes/{id}`, then the deletion operation until `completed`. |
-| `release("retain")` | `POST /sandboxes/{id}/stop` without `force`, then the stop until `completed`. |
+| `release("retain")` | `POST /sandboxes/{id}/stop` without `force`, then the stop until `completed`. A stop whose disk save is `failing` is one Boat retries itself, so it is read until the call deadline and then reported `uncertain`, never `failed`; the host retries the release. |
 | `usage` | `GET /sandboxes/{id}/usage`. |
 | `remoteExpiry` | `ttlSeconds`: the host deadline plus its release allowance, at most 30 days, never disabled. |
 
@@ -158,9 +158,9 @@ harmless. A detached command is sent again only when Boat says it did not run.
 | `429 rate_limited` | one retry in the `minute` window, then refused `provider_unavailable` | — |
 | `429 IP_RATE_LIMIT_EXCEEDED`, `503 no_ready_machine`, `503 out_of_capacity` | retried, then refused `provider_unavailable` | retried when repeatable |
 | `409 idempotency_in_progress` | retried under the same key, then `uncertain` | — |
-| `409 idempotency_key_reused` | `uncertain` (the host reconciles through `find`) | — |
+| `409 idempotency_key_reused` | looked up by the allocation key once more and adopted if found, otherwise `uncertain` | — |
 | `409 sandbox_starting` / `boat_starting`, `502` with `sandbox_restoring` | — | retried: the command did not run |
-| `502 sandbox_direct_failed` / `boat_direct_failed` otherwise | — | a command is `uncertain`; a file transfer is retried |
+| `502 sandbox_direct_failed` / `boat_direct_failed` otherwise | — | a command (the staging extract included) is `uncertain`; a file transfer is retried |
 | a lost answer, a timeout or another `5xx` | retried under the same key, then `uncertain` | `uncertain` for an effect; retried when repeatable |
 | aborted before sending | `failed`, nothing sent | `failed`, nothing sent |
 

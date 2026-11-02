@@ -28,13 +28,22 @@ describe("cleanup failures", () => {
     expect(second.kind).toBe("released");
   });
 
-  test("a stop that cannot save the disk fails, never retained; once Boat archives, the release retains", async () => {
+  test("a stop that cannot save the disk is uncertain, never retained or failed; once Boat's own retry archives, the release retains", async () => {
     const { fake, fakeOpts, provider, now, sandbox } = await allocated({ stopFailing: true }, true);
-    expect((await provider.release(sandbox, "retain", contextFor(fake, { now }))).kind).toBe("failed");
+    const first = await provider.release(sandbox, "retain", contextFor(fake, { now }));
+    expect(first.kind).toBe("uncertain");
+    expect(first.kind === "uncertain" && first.reason).toContain("snapshot upload failed");
+    // Boat retries a failing stop itself, so the adapter keeps reading it until the call deadline.
+    expect(fake.routes().filter((r) => r === "get-stop").length).toBeGreaterThan(1);
     expect(fake.sandboxes.get(sandbox.id)!.state).toBe("ready");
     fakeOpts.stopFailing = false;
-    fake.sandboxes.get(sandbox.id)!.stop!.status = "pending";
     expect((await provider.release(sandbox, "retain", contextFor(fake, { now }))).kind).toBe("retained");
+  });
+
+  test("a stop that fails once and then archives within the call retains", async () => {
+    const { fake, provider, now, sandbox } = await allocated({ stopFailingReads: 2 }, true);
+    expect((await provider.release(sandbox, "retain", contextFor(fake, { now }))).kind).toBe("retained");
+    expect(fake.requests.filter((r) => r.route === "stop").length).toBe(1);
   });
 
   test("a deletion whose answer is lost on every attempt is uncertain", async () => {

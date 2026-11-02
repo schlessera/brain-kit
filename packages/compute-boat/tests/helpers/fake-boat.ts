@@ -99,6 +99,8 @@ export interface FakeBoatOptions {
   deletionBlocked?: boolean;
   /** Every stop reports `failing`. */
   stopFailing?: boolean;
+  /** A failing stop reads `failing` this many times, then Boat's own retry archives the sandbox. */
+  stopFailingReads?: number;
   /** A new sandbox is missing from lists until it is first read by id, as one still being minted can be. */
   listLag?: boolean;
 }
@@ -438,8 +440,9 @@ export function fakeBoat(opts: FakeBoatOptions) {
         const s = live(params[0]!);
         if (!s) return json(404, envelope(404, "not_found"));
         if (!s.stop || s.stop.status === "superseded") {
-          s.stop = { id: `stop_${hex(8)}`, status: opts.stopFailing ? "failing" : "pending", error: opts.stopFailing ? "snapshot upload failed" : null, requestedAt: now(), endedAt: null };
-          if (!opts.stopFailing) {
+          const failing = opts.stopFailing || (opts.stopFailingReads ?? 0) > 0;
+          s.stop = { id: `stop_${hex(8)}`, status: failing ? "failing" : "pending", error: failing ? "snapshot upload failed" : null, requestedAt: now(), endedAt: null };
+          if (!failing) {
             s.state = "archiving";
             for (const p of s.procs.values()) if (refresh(p), p.status === "running") p.status = "lost";
           }
@@ -449,6 +452,13 @@ export function fakeBoat(opts: FakeBoatOptions) {
       case "get-stop": {
         const s = sandboxes.get(params[0]!);
         if (!s || !s.stop || s.stop.id !== params[1]) return json(404, envelope(404, "not_found"));
+        if (s.stop.status === "failing" && !opts.stopFailing && (opts.stopFailingReads ?? 0) <= 0) {
+          // Boat retries a failing stop itself until the sandbox archives.
+          s.stop.status = "pending";
+          s.stop.error = null;
+          s.state = "archiving";
+          for (const p of s.procs.values()) if (refresh(p), p.status === "running") p.status = "lost";
+        } else if (s.stop.status === "failing" && opts.stopFailingReads) opts.stopFailingReads -= 1;
         if (s.stop.status === "pending") {
           s.stop.status = "completed";
           s.stop.endedAt = now();
