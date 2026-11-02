@@ -10,13 +10,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
-import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "../src/apify/authority.js";
-import { ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy, type ApifyCallContext, type ApifyConsent } from "../src/apify/consent.js";
-import { openApifyLedger, utcDay, type ApifyLedger } from "../src/apify/ledger.js";
-import { qualifyProfile, type ApifyQualifiedProfile } from "../src/apify/profiles.js";
+import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "@schlessera/brain-common/internal/apify";
+import { ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy, type ApifyCallContext, type ApifyConsent } from "@schlessera/brain-common/internal/apify";
+import { openApifyLedger, utcDay, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
+import { qualifyProfile, type ApifyQualifiedProfile } from "@schlessera/brain-common/internal/apify";
 import {
   APIFY_COVERAGE, ApifyRunError, createApifyRequestMeter, createApifyRuns, governanceApifyRunPolicy, type ApifyRuns, type ApifyRunsOptions,
-} from "../src/apify/runs.js";
+} from "@schlessera/brain-common/internal/apify";
 import { SEA_CHARTS_PRICING, SEA_CHARTS_SCHEMA, seaChartsProfile } from "./fixtures/apify-odysseus.js";
 
 const SENTINEL = "apify_api_ODYSSEUS_SENTINEL_0f1e2d3c";
@@ -159,7 +159,7 @@ function harness(overrides: Partial<ApifyRunsOptions> & { brainPath?: string; br
 }
 function context(overrides: Partial<ApifyCallContext> = {}): ApifyCallContext {
   return { principal_id: "p-penelope", session_id: "s-voyage", turn_id: "t-1", posture: "interactive",
-    approvals: { requestPermission: async request => { asked.push(request); return answer(request); }, activity: () => undefined },
+    approvals: { requestPermission: async request => { asked.push(request); return answer(request); } },
     exposures: () => [], untrusted: event => { untrusted.push(event.operation); }, ...overrides };
 }
 async function proposal(h: Harness, ctx = context(), input: Record<string, unknown> = INPUT, cap = 2): Promise<string> {

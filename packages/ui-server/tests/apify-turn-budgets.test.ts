@@ -18,7 +18,7 @@ import {
   type ApifyBudgetLiability, type ApifyBudgetSource,
 } from "../src/brain/turn-budgets.js";
 import { apifyBudgetSource } from "../src/apify/budget-liability.js";
-import { openApifyLedger, type ApifyReservation } from "../src/apify/ledger.js";
+import { openApifyLedger, type ApifyReservation } from "@schlessera/brain-common/internal/apify";
 import { expectRejection } from "./helpers/expect-rejection.js";
 
 const policy = () => resolveGovernancePolicy({ schema_version: 1, budgets: { turn: { warn_usd: 1, block_usd: 2, block_tokens: 10 },

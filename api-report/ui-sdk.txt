@@ -411,6 +411,11 @@ export "." (./src/index.ts)
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -455,6 +460,12 @@ export "./client" (./src/client/index.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -937,6 +948,7 @@ export "./client" (./src/client/index.ts)
   type WorkerLimitName
   type WorkerLimitSource
   type WorkerLimitsStatus
+  apifyOperationOf
   bridgeContractForToolName
   composeHandoffText
   createAsrClient
@@ -1831,6 +1843,11 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -1878,6 +1895,12 @@ export "./server" (./src/server/index.ts)
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -2453,6 +2476,7 @@ export "./server" (./src/server/index.ts)
   type WorkerLimitsStatus
   type WrappedKillOptions
   type WriteLock
+  apifyOperationOf
   assertLiveConversationProvider
   assertLiveConversationSession
   assertLoadedSdk
@@ -2485,6 +2509,7 @@ export "./server" (./src/server/index.ts)
   fetchCoastline
   filterSubprocessEnv
   geoConfigSchema
+  handleApifyTool
   handleAskUser
   handleAskUserForm
   handleAskUserList
@@ -2581,6 +2606,11 @@ export "./testing" (./src/testing/index.ts)
   runSpeechProviderContract
 
 export "./tool-contracts" (./src/tool-contracts/index.ts)
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_FORM_CONTRACT
@@ -2602,6 +2632,12 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
   type AskUserFormAnswer
   type AskUserFormAnswers
   type AskUserFormInput
@@ -2702,6 +2738,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ToolInput
   type ToolPayload
   type TurnTempInput
+  apifyOperationOf
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
@@ -2713,6 +2750,24 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
 signatures (every public export and the types it is made of)
   ALLOWED_IMAGE_MEDIA_TYPES (packages/ui-sdk/src/protocol.ts)
     const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  APIFY_ERROR_CODES (packages/common/src/apify-operations.ts)
+    const APIFY_ERROR_CODES: readonly ["provider_disabled", "authentication_required", "policy_denied", "approval_required", "proposal_stale", "actor_unsupported", "budget_exceeded", "accounting_unavailable", "result_expired", "remote_outcome_unknown", "upstream_incompatible", "provider_unavailable", "invalid_input"];
+  APIFY_GUIDANCE (packages/common/src/apify-operations.ts)
+    const APIFY_GUIDANCE: string;
+  APIFY_OPERATIONS (packages/common/src/apify-operations.ts)
+    const APIFY_OPERATIONS: readonly ["discover", "inspect", "prepare", "run", "status", "results", "abort"];
+  APIFY_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/apify.ts)
+    const APIFY_TOOL_CONTRACTS: readonly ToolContract<ApifyToolName>[];
+  APIFY_TOOL_NAMES (packages/common/src/apify-operations.ts)
+    const APIFY_TOOL_NAMES: Readonly<{
+        abort: "brain_apify_abort";
+        discover: "brain_apify_discover";
+        inspect: "brain_apify_inspect";
+        prepare: "brain_apify_prepare";
+        results: "brain_apify_results";
+        run: "brain_apify_run";
+        status: "brain_apify_status";
+    }>;
   API_FAILURE_DETAIL (packages/ui-sdk/src/testing/index.ts)
     const API_FAILURE_DETAIL: "model not supported by this runtime";
   ASK_ANSWER_UPDATE_REQUIRED (packages/ui-sdk/src/protocol.ts)
@@ -3490,6 +3545,33 @@ signatures (every public export and the types it is made of)
         protectedPaths: string[];
         workerLimits: WorkerLimitsStatus | null;
     }
+  ApifyEnvelope (packages/common/src/apify-operations.ts)
+    export type ApifyEnvelope = {
+        ok: true;
+        operation: ApifyOperation;
+        data: unknown;
+    } | {
+        ok: false;
+        operation: ApifyOperation;
+        error: {
+            code: ApifyErrorCode;
+            reason: string | null;
+            message: string;
+        };
+    };
+  ApifyErrorCode (packages/common/src/apify-operations.ts)
+    export type ApifyErrorCode = typeof APIFY_ERROR_CODES[number];
+  ApifyOperation (packages/common/src/apify-operations.ts)
+    export type ApifyOperation = typeof APIFY_OPERATIONS[number];
+  ApifyToolCall (packages/ui-sdk/src/tool-contracts/apify.ts)
+    export interface ApifyToolCall {
+        tool: ApifyToolName;
+        input: Record<string, unknown>;
+    }
+  ApifyToolName (packages/common/src/apify-operations.ts)
+    export type ApifyToolName = typeof APIFY_TOOL_NAMES[ApifyOperation];
+  ApifyToolResult (packages/ui-sdk/src/tool-contracts/apify.ts)
+    export type ApifyToolResult = ApifyEnvelope;
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
   AskAnswerBinding (packages/ui-sdk/src/protocol.ts)
@@ -5214,6 +5296,7 @@ signatures (every public export and the types it is made of)
         }>;
         completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
         referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
+        apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -11208,6 +11291,8 @@ signatures (every public export and the types it is made of)
         acquire(): Promise<() => void>;
         withLock<T>(fn: () => Promise<T> | T): Promise<T>;
     }
+  apifyOperationOf (packages/common/src/apify-operations.ts)
+    export function apifyOperationOf(name: string): ApifyOperation | undefined;
   assertLiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
     export function assertLiveConversationProvider(provider: LiveConversationProvider): void;
   assertLiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
@@ -12490,6 +12575,11 @@ signatures (every public export and the types it is made of)
   geoConfigSchema (packages/geo/src/config.ts) recorded in api-report/geo.txt
   getShareStore (packages/ui-sdk/src/client/share-store.ts)
     export function getShareStore(): ShareStore;
+  handleApifyTool (packages/ui-sdk/src/server/bridge-tools/apify.ts)
+    export function handleApifyTool(name: ApifyToolName, input: unknown, bridge: Pick<BackendBridge, "apify">): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handleAskUser (packages/ui-sdk/src/server/bridge-tools/ask-user.ts)
     export function handleAskUser(input: AskUserInput, bridge: BackendBridge, requestId?: string): Promise<AskUserPayload>;
   handleAskUserForm (packages/ui-sdk/src/server/bridge-tools/ask-user-form.ts)

@@ -142,6 +142,7 @@ export {
 // is tagged `@experimental` until 1.0; see
 // docs/decisions/backend-authoring-toolkit.md for the inventory.
 export {
+  handleApifyTool,
   handleAskUser,
   handleAskUserForm,
   handleAskUserList,

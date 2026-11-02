@@ -24,7 +24,7 @@ The existing provider catalog only configures Pi's upstream search extension
 (`WEB_SEARCH_PROVIDERS`, `packages/ui-sdk/src/server/web-search.ts:52-153`).
 It is not an Apify adapter. Existing policy has turn/session/day budgets,
 egress, outward rules and recipient restrictions, but no discovery or Actor grant
-fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:98-127`).
+fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`).
 Name-based permission admission cannot distinguish different Actors supplied to
 one execution tool (`decideToolPermission`,
 `packages/ui-sdk/src/server/permission-gate.ts:62-92`). Provider accounting is
@@ -350,6 +350,47 @@ The maintainer selected A in response to the explicit scope question on
 enablement, live account qualification or a paid experiment. The MCP/REST cap
 coverage and remote-target constraints remain qualification requirements for
 individual executable profiles; the ruling does not waive them.
+
+## Front doors and memberships (#3162)
+
+These choices apply the selected contract to the CLI, the core MCP server and
+both chat backends; none widens it.
+
+- **One implementation.** The authority, consent, ledger, profile and run
+  modules and the one dispatcher live in
+  `@schlessera/brain-common/internal/apify`, so `brain apify`, the
+  `brain_apify_*` MCP tools and the hosted bridge validate the same strict
+  schemas and call the same functions. The contract names core as their
+  owner; they sit in the shared common package because the UI server reaches
+  core only as an optional peer and must load without it. Core keeps the
+  standalone glue (`@schlessera/brain/internal/apify`). The host supplies only what it alone
+  knows: the authenticated turn, its approval surface, provider-folder
+  routing, inference spend and session taint.
+- **Voice and autonomous memberships do not expand.** Consent never prompts
+  those turns, but an exact standing grant would still admit a run from them.
+  Neither roster gains the tools: voice and no-grant-surface turns refuse them
+  at call time, restricted autonomous rosters do not list them, and the host
+  refuses any non-interactive turn before reading or sending anything. An
+  unattended or spoken turn starting paid remote work would be the expansion
+  the requirements above forbid; a grant remains a policy fact for interactive
+  and operator use.
+- **Standalone use is explicit.** A standalone process needs its own
+  `APIFY_TOKEN` and the shared ledger named by `BRAIN_APIFY_LEDGER` (the
+  server's default is beside its UI database). Its principal is `local`, its
+  session a name the operator chooses, and its turn that session's UTC day.
+  Candidates and proposals live in the ledger so one invocation can use what
+  an earlier one found; a proposal still admits once, under the ledger's write
+  lock. Nothing is asked on a terminal: only an exact grant admits a run.
+  Neither variable reaches a worker, so a shell call inside a chat turn
+  refuses.
+- **Two additive codes.** `provider_unavailable` (the API could not be reached
+  or verified, so nothing was admitted) keeps that case distinct from an
+  incompatible answer; `invalid_input` is the operation's own refusal before
+  anything is sent.
+- **Not yet supplied:** a robots.txt checker for robots-authorized profiles
+  needs an internal dependency edge on the scrape package
+  ([#3330](https://github.com/schlessera/brain-kit/issues/3330)); until then
+  such a profile refuses every run.
 
 ## Implementation ownership and proof
 

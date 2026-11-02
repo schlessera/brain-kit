@@ -31,7 +31,7 @@
  * still belongs to the binding's account. Without that, the run stays unresolved.
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
-import { checkGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { checkGovernancePolicy } from "../governance-policy.js";
 
 /** The host settings key holding {@link ApifyAuthorityRecord}. */
 export const APIFY_AUTHORITY_SETTING = "apify.authority";

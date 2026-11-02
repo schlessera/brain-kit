@@ -7,7 +7,7 @@ import { priceProviderAttempt } from "../pricing/provider-pricing.js";
 import type { ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import type { BudgetObservation, TurnBudgetReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
-import type { ApifyInferenceSpend } from "../apify/runs.js";
+import type { ApifyInferenceSpend } from "@schlessera/brain-common/internal/apify";
 export class BudgetUnavailable extends Error {
   constructor() { super("Inference budget accounting became unavailable. The turn stopped; review any partial work before continuing."); }
 }

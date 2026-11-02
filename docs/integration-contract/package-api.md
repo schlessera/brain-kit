@@ -248,6 +248,21 @@ for storage and supported-host requirements.
 
 <a id="package-entry-points"></a>
 
+## Apify bridge tools (additive, 0.45.0, #3162)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+`APIFY_TOOL_CONTRACTS`, the seven `brain_apify_*` contracts, with
+`APIFY_OPERATIONS`, `APIFY_TOOL_NAMES`, `APIFY_ERROR_CODES`, `APIFY_GUIDANCE`,
+`apifyOperationOf` and the `ApifyToolCall`, `ApifyToolResult`,
+`ApifyEnvelope`, `ApifyErrorCode`, `ApifyOperation` and `ApifyToolName`
+types. `@schlessera/brain-ui-sdk/server` adds `handleApifyTool(name, input,
+bridge)`, which validates the strict input and forwards `{ tool, input }` to
+the optional new `BackendBridge.apify(call)`; without it the tool refuses as
+`provider_disabled`. The host binds principal, session, turn, posture and
+approvals; a backend sends the parsed input only. Names, schemas and the
+envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
+Both first-party backends register the tools in every interactive session.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each
@@ -258,7 +273,8 @@ behavior. A member tagged `@internal` in its own JSDoc is excluded, as a
 private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
-`@schlessera/brain/internal/graph`,
+`@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
+`@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,

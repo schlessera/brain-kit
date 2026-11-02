@@ -29,13 +29,23 @@
  * Request counts are durable when the host supplies a {@link ApifyRequestMeter}
  * (#3161, shared with the run service's ledger); the in-memory fallback is for
  * a host without one.
+ *
+ * The hosted server keeps candidates and proposals in this process. A
+ * standalone CLI or MCP process keeps them in the shared ledger instead
+ * ({@link ApifyConsentState}, #3162), so one `brain apify` invocation can
+ * inspect what an earlier one discovered; the references stay bound to their
+ * principal and session, and a proposal still admits at most once, now across
+ * processes.
+ *
+ * This module lives in core so the CLI, the core MCP wrappers and the hosted
+ * bridge share it (#3162). It names no UI type: the host passes its approval
+ * surface and provider-folder routing in.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { APIFY_LIMIT_BOUNDS, APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
-import { requestToolPermission, type BackendBridge, type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
-import { exposureConflicts, providerDeniedFolders, unsupportedProviderSelectors, type ProviderExposure } from "../brain/governance-policy.js";
+import { APIFY_LIMIT_BOUNDS, APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "../governance-policy.js";
 import { APIFY_API_ORIGIN, APIFY_MCP_ORIGIN, type ApifyAuthority, type ApifyBinding } from "./authority.js";
+import type { ApifyLedger } from "./ledger.js";
 import { canonicalJson, sha256 } from "./canonical.js";
 import { APIFY_QUALIFIED_PROFILES, ApifyProfileInputError, profileInput, type ApifyQualifiedProfile } from "./profiles.js";
 
@@ -85,6 +95,35 @@ export class ApifyInputError extends TypeError {
   constructor(message: string) { super(message); this.name = "ApifyInputError"; }
 }
 
+/** What an approval card is asked to show: the host's permission request, by structure. */
+export interface ApifyPermissionRequest {
+  toolUseId: string;
+  toolName: string;
+  description: string;
+  input: Record<string, unknown>;
+  /** Always a per-use command confirmation: never a rememberable tool grant. */
+  kind: "command";
+}
+/** A live turn's approval surface: the host bridge's `requestPermission`, by structure. */
+export interface ApifyApprovalSurface {
+  requestPermission(request: ApifyPermissionRequest): Promise<{ behavior: "allow" | "deny"; updatedInput?: unknown; message?: string }>;
+}
+/** What one earlier turn of the conversation showed its recipient of the provider folders (G2). */
+export interface ApifyProviderExposure {
+  readonly recipient: string;
+  readonly visible: readonly string[];
+  readonly hidden: readonly string[];
+}
+/**
+ * The host's provider-folder routing rules (G2), passed in so this module
+ * names no host type. Without them, any provider rule refuses as unproven.
+ */
+export interface ApifyProviderRouting {
+  unsupportedProviderSelectors(policy: Pick<EffectiveGovernancePolicy, "providers">): string[];
+  providerDeniedFolders(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: Readonly<Record<string, readonly string[]>>, recipient: string | undefined): string[];
+  exposureConflicts(exposures: readonly ApifyProviderExposure[], denied: readonly string[]): unknown[];
+}
+
 /** What the governance policy says, read anew for every decision. */
 export interface ApifyConsentPolicy {
   valid: boolean;
@@ -125,9 +164,9 @@ export interface ApifyCallContext {
   /** Only an interactive turn can raise an approval card; voice and autonomous turns never can. */
   readonly posture: "interactive" | "voice" | "autonomous";
   /** The live turn's approval surface, or null when nobody can be asked. */
-  readonly approvals: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null;
+  readonly approvals: ApifyApprovalSurface | null;
   /** The session's recorded provider-folder exposures, this turn's included. Absent: unknown, so restricted policies refuse. */
-  readonly exposures?: () => readonly ProviderExposure[];
+  readonly exposures?: () => readonly ApifyProviderExposure[];
   /** Each provider type selector's folders, from the brain taxonomy. */
   readonly typeFolders?: Readonly<Record<string, readonly string[]>>;
   /**
@@ -254,19 +293,91 @@ export interface ApifyConsentOptions {
   profiles?: readonly ApifyQualifiedProfile[];
   /** The durable per-turn request count shared with the run service; without it, counts live in this process. */
   meter?: ApifyRequestMeter;
+  /** The host's provider-folder routing (G2). Without it, any provider rule refuses as unproven. */
+  routing?: ApifyProviderRouting;
+  /** Where candidates and proposals are kept; default this process ({@link memoryConsentState}). */
+  state?: ApifyConsentState;
   now?: () => number;
 }
 
-interface Candidate {
+/** A discovered Actor, bound to the principal and session that discovered it. */
+export interface ApifyStoredCandidate {
   principal_id: string; session_id: string; binding: ApifyBinding;
   actor_id: string; actor: string;
   inspected: ApifyActorFacts | null;
 }
-interface Proposal {
+export type ApifyProposalState = "prepared" | "admitting" | "consumed" | "refused";
+/** A prepared run, bound to everything consent was asked for. */
+export interface ApifyStoredProposal {
   principal_id: string; session_id: string; turn_id: string; binding: ApifyBinding; policy_hash: string;
   facts: ApifyActorFacts; input: Record<string, unknown>; input_sha256: string; origins: string[];
   max_charge_usd: number; expires_at: number;
-  state: "prepared" | "admitting" | "consumed" | "refused";
+  state: ApifyProposalState;
+}
+type Candidate = ApifyStoredCandidate;
+type Proposal = ApifyStoredProposal;
+
+/**
+ * Where consent keeps its opaque references. Every read returns a copy: a
+ * change takes effect only through these methods, so the ledger-backed store
+ * behaves as the in-memory one does.
+ */
+export interface ApifyConsentState {
+  candidate(ref: string): ApifyStoredCandidate | null;
+  /** Remember new candidates, then forget the session's oldest beyond `keep`. */
+  addCandidates(entries: ReadonlyArray<readonly [string, ApifyStoredCandidate]>, session_id: string, keep: number): void;
+  inspected(ref: string, facts: ApifyActorFacts): void;
+  proposal(ref: string): ApifyStoredProposal | null;
+  /** Forget spent, refused and expired proposals, then store this one. */
+  addProposal(ref: string, proposal: ApifyStoredProposal, now: number): void;
+  /** Move a proposal from `from` to `to` in one step; false when it was not in `from`. */
+  transition(ref: string, from: ApifyProposalState, to: ApifyProposalState): boolean;
+}
+
+/** References held only in this process: a restart forgets them, which refuses rather than grants. */
+export function memoryConsentState(): ApifyConsentState {
+  const candidates = new Map<string, Candidate>();
+  const proposals = new Map<string, Proposal>();
+  return {
+    candidate: ref => { const found = candidates.get(ref); return found ? structuredClone(found) : null; },
+    addCandidates(entries, session_id, keep) {
+      for (const [ref, candidate] of entries) candidates.set(ref, structuredClone(candidate));
+      const mine = [...candidates].filter(([, candidate]) => candidate.session_id === session_id);
+      for (const [ref] of mine.slice(0, Math.max(0, mine.length - keep))) candidates.delete(ref);
+    },
+    inspected(ref, facts) { const found = candidates.get(ref); if (found) found.inspected = structuredClone(facts); },
+    proposal: ref => { const found = proposals.get(ref); return found ? structuredClone(found) : null; },
+    addProposal(ref, proposal, at) {
+      // Spent, refused and expired proposals refuse the same whether kept or forgotten.
+      for (const [key, entry] of proposals) if (entry.expires_at <= at || entry.state === "consumed" || entry.state === "refused") proposals.delete(key);
+      proposals.set(ref, structuredClone(proposal));
+    },
+    transition(ref, from, to) {
+      const found = proposals.get(ref);
+      if (!found || found.state !== from) return false;
+      found.state = to;
+      return true;
+    },
+  };
+}
+
+/**
+ * References kept in the shared ledger, for a standalone CLI or MCP process
+ * (#3162): a later invocation of the same principal and session finds them,
+ * and a proposal's one admission is decided by the ledger's write lock.
+ */
+export function ledgerConsentState(ledger: () => ApifyLedger): ApifyConsentState {
+  return {
+    candidate: ref => ledger().reference<Candidate>("candidate", ref)?.body ?? null,
+    addCandidates(entries, session_id, keep) { ledger().addReferences("candidate", entries.map(([ref, body]) => ({ ref, session_id, state: "found", expires_at: null, body })), keep); },
+    inspected(ref, facts) { ledger().updateReference<Candidate>("candidate", ref, body => ({ ...body, inspected: facts })); },
+    proposal(ref) {
+      const found = ledger().reference<Proposal>("proposal", ref);
+      return found ? { ...found.body, state: found.state as ApifyProposalState } : null;
+    },
+    addProposal(ref, proposal, at) { ledger().addProposalReference(ref, proposal.session_id, proposal.state, proposal.expires_at, proposal, at); },
+    transition: (ref, from, to) => ledger().transitionReference(ref, from, to),
+  };
 }
 
 const ACTOR_ID = /^[A-Za-z0-9]{1,64}$/u;
@@ -389,8 +500,7 @@ function schemaFields(schema: Record<string, unknown> | null) {
 export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
   const now = options.now ?? Date.now;
   const profiles = options.profiles ?? APIFY_QUALIFIED_PROFILES;
-  const candidates = new Map<string, Candidate>();
-  const proposals = new Map<string, Proposal>();
+  const state = options.state ?? memoryConsentState();
   const turnRequests = new Map<string, number>();
 
   function policyGate(): ApifyConsentPolicy {
@@ -425,20 +535,21 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     if (!policy.providers.length) return;
     const restricting = policy.providers.filter(rule => !rule.allow.includes(APIFY_RECIPIENT));
     const selectsTypes = restricting.some(rule => rule.types?.length);
+    const routing = options.routing;
     // A selector no folder mask can express cannot be checked against exposures either.
-    const unexpressible = unsupportedProviderSelectors({ providers: restricting }).length > 0;
-    if (!context.exposures || unexpressible || (selectsTypes && !context.typeFolders))
+    const unexpressible = !routing || routing.unsupportedProviderSelectors({ providers: restricting }).length > 0;
+    if (!routing || !context.exposures || unexpressible || (selectsTypes && !context.typeFolders))
       throw refuse("policy_denied", "recipient_unproven",
         "The provider policy restricts folders and this conversation's exposure to them is unknown here, so nothing was sent to Apify.");
-    const denied = providerDeniedFolders(policy, context.typeFolders ?? {}, APIFY_RECIPIENT);
-    if (exposureConflicts(context.exposures(), denied).length)
+    const denied = routing.providerDeniedFolders(policy, context.typeFolders ?? {}, APIFY_RECIPIENT);
+    if (routing.exposureConflicts(context.exposures(), denied).length)
       throw refuse("policy_denied", "recipient_restricted",
         "This conversation has shown folders the provider policy does not allow Apify to receive, so nothing was sent to Apify. Start a new conversation for Apify work.");
   }
 
-  function scoped<T extends { principal_id: string; session_id: string }>(map: Map<string, T>, context: ApifyCallContext, ref: unknown): T {
+  function scoped<T extends { principal_id: string; session_id: string }>(read: (ref: string) => T | null, context: ApifyCallContext, ref: unknown): T {
     if (typeof ref !== "string" || !REFERENCE.test(ref)) throw STALE_REFERENCE();
-    const found = map.get(ref);
+    const found = read(ref);
     if (!found || found.principal_id !== context.principal_id || found.session_id !== context.session_id) throw STALE_REFERENCE();
     return found;
   }
@@ -448,17 +559,19 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
    * approval; every other outcome throws. Voice and autonomous turns, and a
    * turn without a surface, are never prompted.
    */
-  async function approve(context: ApifyCallContext, request: Omit<PermissionRequest, "toolUseId" | "kind">): Promise<void> {
+  async function approve(context: ApifyCallContext, request: Omit<ApifyPermissionRequest, "toolUseId" | "kind">): Promise<void> {
     const noGrantSurface = context.posture !== "interactive" || context.approvals === null;
     if (noGrantSurface) {
       throw refuse("approval_required", "no_grant_surface",
         "This needs a person's approval, and nobody can be asked from here. Ask in an interactive conversation, or add an exact grant through a policy change.");
     }
-    const full: PermissionRequest = { ...request, toolUseId: randomUUID(), kind: "command" };
-    const decision = await requestToolPermission(context.approvals, full);
+    const full: ApifyPermissionRequest = { ...request, toolUseId: randomUUID(), kind: "command" };
+    const decision = await context.approvals!.requestPermission(full);
+    // Each field is read once: an accessor cannot answer the check one way and the use another.
+    const behavior = decision.behavior, updatedInput = decision.updatedInput;
     if (context.signal?.aborted) throw refuse("approval_required", "cancelled", "The turn ended before the approval was given; nothing was sent.");
-    if (decision.behavior !== "allow") throw refuse("policy_denied", "declined", "The approval was declined; nothing was sent to Apify.");
-    if (decision.updatedInput !== undefined)
+    if (behavior !== "allow") throw refuse("policy_denied", "declined", "The approval was declined; nothing was sent to Apify.");
+    if (updatedInput !== undefined)
       throw refuse("proposal_stale", "edited", "The approval came back with a changed request, which nobody reviewed as it is; nothing was sent. Prepare it again as wanted.");
   }
 
@@ -609,16 +722,14 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
           developer: clip(record(card.developer)?.username, 100), pricing_model: clip(record(card.pricing)?.model, 64), deprecated: card.isDeprecated === true });
       }
       await context.untrusted({ operation: "discover", detail: `apify search-actors: ${found.length} candidates` });
-      for (const [ref, candidate] of fresh) candidates.set(ref, candidate);
-      const mine = [...candidates].filter(([, candidate]) => candidate.session_id === context.session_id);
-      for (const [ref] of mine.slice(0, Math.max(0, mine.length - APIFY_DISCOVERY_LIMITS.candidates_per_session))) candidates.delete(ref);
+      state.addCandidates(fresh, context.session_id, APIFY_DISCOVERY_LIMITS.candidates_per_session);
       return { candidates: found, untrusted: true };
     },
 
     async inspect(context, input) {
       const raw = record(input);
       if (!raw || Object.keys(raw).some(key => key !== "candidate")) throw new ApifyInputError("Expected { candidate }.");
-      const candidate = scoped(candidates, context, raw.candidate);
+      const candidate = scoped(state.candidate, context, raw.candidate);
       const policy = policyGate();
       // Inspection sends the chosen identifier, so it follows discovery policy.
       if (policy.discovery === "deny") throw refuse("policy_denied", "discovery_denied", "Apify catalog discovery is denied by apify.discovery in the governance policy.");
@@ -638,14 +749,14 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
         arguments: { actor: candidate.actor_id, output: { readme: true } }, ...(context.signal ? { signal: context.signal } : {}) });
       const readme = details.isError ? null : clip(details.text, APIFY_DISCOVERY_LIMITS.readme_chars);
       await context.untrusted({ operation: "inspect", detail: `apify actor ${candidate.actor_id}` });
-      candidate.inspected = facts;
+      state.inspected(raw.candidate as string, facts);
       return { candidate: raw.candidate as string, ...facts, readme, untrusted: true };
     },
 
     async prepare(context, input) {
       const raw = record(input);
       if (!raw || Object.keys(raw).some(key => !["candidate", "input", "max_charge_usd"].includes(key))) throw new ApifyInputError("Expected { candidate, input, max_charge_usd }.");
-      const candidate = scoped(candidates, context, raw.candidate);
+      const candidate = scoped(state.candidate, context, raw.candidate);
       const cap = raw.max_charge_usd;
       if (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0 || cap > APIFY_MAX_RUN_USD) throw new ApifyInputError("max_charge_usd is a positive amount in USD.");
       const actorInput = plainInput(raw.input);
@@ -680,10 +791,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
         policy_hash: policy.hash, facts: live, input: actorInput, input_sha256: sha256(canonicalJson(actorInput)), origins,
         max_charge_usd: cap, expires_at: now() + APIFY_DISCOVERY_LIMITS.proposal_ttl_ms, state: "prepared",
       };
-      // Spent, refused and expired proposals refuse the same whether kept or forgotten.
-      for (const [key, entry] of proposals) if (entry.expires_at <= now() || entry.state === "consumed" || entry.state === "refused") proposals.delete(key);
       const ref = reference();
-      proposals.set(ref, proposal);
+      state.addProposal(ref, proposal, now());
       return { proposal: ref, review: review(proposal), admission: policy.actors === "allow" && grantFor(policy, proposal) ? "grant" : "ask",
         expires_at: new Date(proposal.expires_at).toISOString() };
     },
@@ -691,10 +800,12 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     async admitRun(context, input, dispatch) {
       const raw = record(input);
       if (!raw || Object.keys(raw).some(key => key !== "proposal")) throw new ApifyInputError("Expected { proposal }.");
-      const proposal = scoped(proposals, context, raw.proposal);
-      if (proposal.turn_id !== context.turn_id || proposal.expires_at <= now() || proposal.state !== "prepared") throw STALE_REFERENCE();
-      // One admission at a time, and each proposal admits at most once.
-      proposal.state = "admitting";
+      const proposal = scoped(state.proposal, context, raw.proposal);
+      const ref = raw.proposal as string;
+      // One admission at a time, and each proposal admits at most once, across processes where the state is shared.
+      if (proposal.turn_id !== context.turn_id || proposal.expires_at <= now() || proposal.state !== "prepared"
+        || !state.transition(ref, "prepared", "admitting")) throw STALE_REFERENCE();
+      let admitting = true;
       try {
         let policy = await revalidate(context, proposal);
         let grant = policy.actors === "allow" ? grantFor(policy, proposal) : null;
@@ -711,7 +822,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
           if (policy.hash !== proposal.policy_hash || !grantFor(policy, proposal)) throw refuse("proposal_stale", "grant_changed", "The standing grant changed; prepare the run again.");
         }
         await options.authority.check(proposal.binding);
-        proposal.state = "consumed";
+        admitting = false;
+        if (!state.transition(ref, "admitting", "consumed")) throw STALE_REFERENCE();
         const facts = proposal.facts;
         const ticket: ApifyRunTicket = Object.freeze({
           proposal: raw.proposal as string, binding: proposal.binding, actor_id: facts.actor_id, build_id: facts.build_id,
@@ -724,7 +836,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
         });
         return await dispatch(ticket);
       } catch (error) {
-        if (proposal.state === "admitting") proposal.state = "refused";
+        // An unrecordable refusal leaves the proposal admitting, which never admits again.
+        if (admitting) try { state.transition(ref, "admitting", "refused"); } catch { /* the original refusal stands */ }
         throw error;
       }
     },

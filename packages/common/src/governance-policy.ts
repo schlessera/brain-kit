@@ -35,8 +35,9 @@ const outwardRules = z.array(z.strictObject({ command: text, remotes: strings })
 /** Each Apify consent family independently refuses, asks per operation, or admits what policy names (#3160). */
 const apifyMode = z.enum(["deny", "ask", "allow"]);
 export const APIFY_MAX_ACTOR_GRANTS = 64;
-/** The largest single-run cap a grant may name; keeps integer microdollars exact. */
-export const APIFY_MAX_RUN_USD = 1_000_000;
+/** The largest single-run cap a grant may name; keeps integer microdollars exact. Shared with the operation schemas. */
+export { APIFY_MAX_RUN_USD } from "./apify-operations.js";
+import { APIFY_MAX_RUN_USD } from "./apify-operations.js";
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/u, "Use a lowercase hex SHA-256 digest");
 /** YAML reads an unquoted timestamp as a Date; either form names one instant, kept as ISO 8601. */
 const instant = z.union([z.iso.datetime({ offset: true }), z.date()]).transform((value, ctx) => {

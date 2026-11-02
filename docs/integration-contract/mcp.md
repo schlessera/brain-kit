@@ -17,6 +17,7 @@ Tool names and input schemas are stable:
 | `brain_list` | readOnly | `{ documents, warnings }` |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
+| `brain_apify_discover` … `brain_apify_abort` (additive, 0.45.0) | open-world; read-only except `run` and `abort` | the Apify envelope; see [Apify tools](#apify-tools-additive-0450-3162) |
 
 `brain_search`, `brain_list` and `brain_graph` repeat their structuredContent
 as the first `content` block, and the write tools return their result object
@@ -33,7 +34,10 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:77-89`). Tool descriptions are descriptive in the
+(`serverInstructions`, `packages/core/src/mcp-server.ts:79-93`). Since 0.45.0
+they add one sentence: the `brain_apify_*` tools reach Apify's paid remote
+extractors under the governance policy, are not web search, and discovering or
+inspecting an Actor never runs it. Tool descriptions are descriptive in the
 same way. The read tools' descriptions state their defaults and the server
 caps: `brain_search` `limit` at 50 and `brain_graph` `depth` at 5, and
 `brain_list`'s accepted `limit` range of 1 to 100.
@@ -898,6 +902,54 @@ compensation lifecycle. The path also works with dispatch disabled. Voice,
 restricted and unbound sessions cannot complete interactive shares.
 
 <a id="reference-source-and-managed-worktree-tools-additive-0440-2432"></a>
+
+## Apify tools (additive, 0.45.0, #3162)
+
+Seven tools reach Apify, with the same names, strict input schemas and
+envelope on every surface that offers them: the core MCP server (`brain mcp`),
+and both first-party chat backends' bridges (Claude names them
+`mcp__brain-ui__<name>` and loads them eagerly; pi attaches plain names). Each
+calls the operation `brain apify <operation> --json` calls
+([CLI component](cli.md#apify-operations-additive-0450-3162), which documents
+every input bound and `data` shape).
+
+| Tool | Input |
+|---|---|
+| `brain_apify_discover` | `query` (1–80 characters), `limit?` (integer 1–10) |
+| `brain_apify_inspect` | `candidate` (1–64 characters) |
+| `brain_apify_prepare` | `candidate`, `input` (object), `max_charge_usd` (positive, at most 1,000,000) |
+| `brain_apify_run` | `proposal` |
+| `brain_apify_status` | `run` |
+| `brain_apify_results` | `run`, `cursor?` (1–64 characters), `limit?` (integer 1–100) |
+| `brain_apify_abort` | `run` |
+
+Inputs are strict objects: an Actor id, URL, token, run option or any other
+field is invalid. The result is the envelope `{ ok, operation, data }` or
+`{ ok: false, operation, error: { code, reason, message } }`, a tool error when
+`ok` is false. On the core server it is also `structuredContent`; a schema
+violation is an error result without it, as for every core tool. Discovered
+Actor schemas, READMEs and results are returned as data marked
+`untrusted: true`; no tool is ever added or removed for an Actor, and the
+roster is fixed for a server process and for a chat session.
+
+On the core server the operator's own policy, `APIFY_TOKEN` and
+`BRAIN_APIFY_LEDGER` apply, as for the CLI; the session is `default` and
+nobody can be asked, so a run needs an exact standing grant. In the chat
+backends the host takes principal, session, turn, posture and approvals from
+the authenticated turn and holds the credential and the ledger; the worker
+sends the input only. The tools are in every interactive session's fixed
+roster, after the reference tools, and auto-allowed: the host raises a per-use
+`command` approval for each discovery or inspection under `ask` and for each
+run without an exact grant. A remembered tool grant authorizes none of them.
+Voice and no-grant-surface turns refuse them at call time; restricted
+autonomous rosters do not include them; the host refuses any non-interactive
+turn with `policy_denied`. A chat worker that also loads the
+brain's own `brain mcp` sees that server's `brain_apify_*` tools too (deferred,
+as every core tool is there); they refuse, because the worker holds neither
+the token nor the ledger. A run is refused as `accounting_unavailable`
+(`session_unbound`) until the conversation is named, so the turn budgets can
+attribute its liability. A turn's cancellation, timeout or budget stop aborts
+the runs it started.
 
 ## Reference source and managed worktree tools (additive, 0.44.0, #2432)
 
