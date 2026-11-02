@@ -211,6 +211,15 @@ test("fences survive content cascades and restart; consumed identities never exe
       expect(await settle(catalog.dialogueOpen!({ conversationId: "ithaca", principalId: f.owner, epoch: 1, providerId: "gemini-live" }))).toBe(RETIRED);
       expect(await settle(catalog.dialogueOpen!({ conversationId: "troy", principalId: f.owner, epoch: 1, providerId: "gemini-live", sessionId: "voyage" })), "RETIRED_SESSION_NEVER_REOPENS").toBe(RETIRED);
       expect(await catalog.loadConversation!("odyssey-new", f.owner)).toMatchObject({ requestIds: [] });
+      // The session accepts no new revision, retry or projection, and its scrubbed row is not recreated.
+      const accepted: boolean[] = [];
+      catalog.acceptWork!("voyage", "request-after", "claude", stored => accepted.push(stored));
+      catalog.acceptWork!("aeaea", "request-control", "claude", stored => accepted.push(stored));
+      catalog.persistSessionStub("voyage", MARKER, null, "claude");
+      expect(await settle(catalog.reserveRetry!("voyage", "voyage-turn", "retry-after", f.owner)), "RETIRED_SESSION_NEVER_RETRIES").toBe(RETIRED);
+      await catalog.settled!();
+      expect(accepted, "RETIRED_SESSION_ACCEPTS_NO_REVISION").toEqual([false, true]);
+      expect(host.db.query("SELECT COUNT(*) AS n FROM sessions WHERE id='voyage'").get(), "RETIRED_SESSION_ROW_NOT_RECREATED").toEqual({ n: 0 });
       expect(await readable(catalog, f.other, "aeaea")).toEqual([CONTROL]);
       expect(await catalog.chatRetirement!("retire-voyage", f.owner)).toMatchObject({ status: "retired", generation: 2, cleanup: "pending" });
     } finally { await host.close(); }
