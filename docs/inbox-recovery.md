@@ -29,6 +29,15 @@ marks incomplete continuity explicitly; it restores no microphone consent,
 audio, executable native response or permission grant. Re-indexing Markdown
 cannot recreate missing dialogue.
 
+Retired chat identities (#3228) are minimized fences without content: the
+chat, its former session, dialogue owners and aliases, conversations, consumed
+task and request identities, the owner, terminal generation and per-store
+cleanup outcomes. They are permanent within the installation. A backup taken
+after a retirement restores them, and the restored host still refuses those
+identities. **A backup taken before a retirement restores the chat's text and
+predates its fence**: an older recovery point can bring deleted history back.
+That limit is accepted; no ledger outside the image replays later retirements.
+
 Activity spans/rollups preserve observed spend; principal records preserve
 identity attribution. Other UI state, including sessions, authentication
 records and settings, travels with the same image. The turn journal keeps its
