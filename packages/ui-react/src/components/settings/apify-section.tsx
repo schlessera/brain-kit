@@ -55,7 +55,7 @@ export function ApifySection({ active, layout = "inline", onOpen, onPresence }: 
 
   /** Every continuation checks it still belongs to this root, owner and load. */
   const current = useCallback((token: number) => token === generation.current && owner.current === root.authLock.epoch(), [root]);
-  const announce = (text: string) => setAnnouncement(value => value === text ? `${text} ` : text);
+  const announce = (text: string) => setAnnouncement(value => value === text ? `${text}\u00a0` : text);
   const setEditBoth = (next: ApifyEdit | null) => { editRef.current = next; setEdit(next); };
 
   const load = useCallback(async (options: { refresh?: boolean; quiet?: boolean } = {}) => {

@@ -115,7 +115,7 @@ function yamlBlock(key: string, value: Plain, indent: string): string[] {
   return [`${indent}${key}: ${yamlScalar(value)}`];
 }
 
-const FRONTMATTER = /^(﻿?---[ \t]*\r?\n)([\s\S]*?\r?\n)?((?:---|\.\.\.)[ \t]*(?:\r?\n|$))/u;
+const FRONTMATTER = /^(\uFEFF?---[ \t]*\r?\n)([\s\S]*?\r?\n)?((?:---|\.\.\.)[ \t]*(?:\r?\n|$))/u;
 const TOP_LEVEL = /^[^\s#]/u;
 
 /**
