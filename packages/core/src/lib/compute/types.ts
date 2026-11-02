@@ -158,6 +158,11 @@ export interface ComputeRunRequest {
   artifacts?: { path: string; maxBytes: number }[];
   /** Defaults to the instance's `lease.maxSeconds`. */
   leaseSeconds?: number;
+  /**
+   * Keep the sandbox's data on release. Defaults to the instance's
+   * `retainOnRelease`; `true` is refused unless the instance sets it.
+   */
+  retain?: boolean;
 }
 
 export interface ComputePlan {

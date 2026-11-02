@@ -11,7 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { resolveEnv } from "../../config/env.js";
@@ -38,6 +38,27 @@ function inside(parent: string, child: string): boolean {
  * the brain checkout, is refused.
  */
 export function resolveComputeStateDir(opts: { root: string; override?: string; env?: NodeJS.ProcessEnv }): string {
+  const { dir, refuseInside } = locate(opts);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const canonical = realpathSync(dir);
+  refuseInside(canonical);
+  return canonical;
+}
+
+/**
+ * The state directory when it already exists, without creating anything, for
+ * read-only callers (`plan`); undefined when it does not exist yet. The same
+ * refusals apply.
+ */
+export function existingComputeStateDir(opts: { root: string; override?: string; env?: NodeJS.ProcessEnv }): string | undefined {
+  const { dir, refuseInside } = locate(opts);
+  if (!existsSync(dir)) return undefined;
+  const canonical = realpathSync(dir);
+  refuseInside(canonical);
+  return canonical;
+}
+
+function locate(opts: { root: string; override?: string; env?: NodeJS.ProcessEnv }): { dir: string; refuseInside: (path: string) => void } {
   const env = resolveEnv(opts.env);
   const configured = opts.override ?? env.computeStateDir;
   if (configured !== undefined && !isAbsolute(configured)) {
@@ -54,10 +75,7 @@ export function resolveComputeStateDir(opts: { root: string; override?: string; 
     }
   };
   refuseInside(prospectivePath(dir));
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const canonical = realpathSync(dir);
-  refuseInside(canonical);
-  return canonical;
+  return { dir, refuseInside };
 }
 
 /** Where `dir` would resolve once created: its deepest existing ancestor's real path plus the rest. */

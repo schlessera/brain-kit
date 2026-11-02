@@ -540,3 +540,54 @@ Review of #3106 refined two of #3105's rules:
   rather than what remains of the lease, so a provider that rejects a reused
   idempotency key with a different body (Boat answers `409
   idempotency_key_reused`) never sees one.
+## Settled by #3107
+
+[#3107](https://github.com/schlessera/brain-kit/issues/3107) settled the
+choices "Still open" assigned to it, within the bounds above:
+
+- **Envelopes.** Success is `{ ok: true, ... }` with the operation's fields,
+  and a refusal is `{ ok: false, error: { code, message } }` on both
+  surfaces. A job's times are ISO 8601, and its view keeps the cleanup fact
+  and cost apart from its state, with unknown cost `null`. The exact shapes
+  are in the [CLI component](../integration-contract/cli.md#external-compute-additive-0450-3107).
+- **One operation set.** `createComputeOps` in core builds the input schemas,
+  calls the job service and shapes every envelope; the CLI command and the MCP
+  tools only parse, print and map exit codes. MCP inputs are strict objects in
+  snake case (`lease_seconds`, `artifacts[].max_bytes`), and the CLI parses its
+  flags into the same object.
+- **Callers.** The CLI is `{ kind: "cli" }` and the MCP server `{ kind: "mcp"
+  }`, each with the operating-system user of its process as principal. No
+  input carries a caller or provider identity.
+- **Attached run.** `brain compute run` stays attached until the job ends,
+  advancing it through `status`, so a standalone job without remote expiry is
+  still bounded while the command waits. SIGINT or SIGTERM cancels it and
+  reports the release; `--detach` returns once the command has started.
+  `brain_compute_run` always returns once started, and the MCP server
+  advances the jobs it started while it lives, cancelling nothing when it
+  stops.
+- **A stable roster.** The six tools are registered whatever the config says
+  and refuse at call time, so configuring compute never changes a session's
+  tool definitions.
+- **Operator verbs.** `reconcile` and `abandon` (with `--confirm`) are CLI
+  only; there is no seventh MCP tool.
+- **Per-job retention.** A request may set `retain`; the instance's
+  `retainOnRelease` is its default, and a provider that cannot retain refuses
+  either with `capability_unsupported`.
+- **Governance.** Plan and run apply the brain's governance policy
+  `providers` rules to the declared source with the instance id as recipient,
+  and an invalid policy file refuses them with `policy_denied`.
+- **Guidance.** The `external-compute` core skill holds judgment only: local
+  first, a provider for isolation or overflow, minimal sources, no secrets in
+  argv or env, and every job ends with collect or cancel. Boat's upstream
+  agent skills were reviewed through their documentation and are not vendored.
+- **No admission inside a worker.** Until hosted admission lands (#3108),
+  `plan` and `run` refuse with `policy_denied` when the process was started by
+  a hosted turn or maintenance worker launch (`BRAIN_WORKER_DATA_ROOT` set).
+  Such a worker already lacks provider credentials and a writable state home;
+  the refusal makes that explicit instead of accidental.
+- **Retention only narrows (review of #3107).** A job's `retain` may turn the
+  instance's `retainOnRelease` off but never on: `retain: true` on an instance
+  that does not set `retainOnRelease` refuses with `policy_denied`, so the
+  operator's choice bounds what an agent can keep at the provider. A retained
+  job counts toward `maxConcurrent` until its `retainedUntil` passes, since
+  the provider still holds its data. This refines "Per-job retention" above.

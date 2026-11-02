@@ -21,14 +21,16 @@ import {
   checkCommand,
   checkEnv,
   checkLease,
+  checkRetain,
   checkSecretFree,
   refuse,
   resolveSource,
   sameCaller,
+  wantsRetain,
 } from "./admission.js";
 import { JobDriver, callProvider, type DriveMode, type LifecycleDeps } from "./lifecycle.js";
 import { acquireLock, tryLock, type HeldLock } from "./lock.js";
-import { computeBrainKey, resolveComputeStateDir } from "./state-dir.js";
+import { computeBrainKey, existingComputeStateDir, resolveComputeStateDir } from "./state-dir.js";
 import { ComputeJobStore, newComputeJobId, receipt } from "./store.js";
 import {
   isTerminal,
@@ -82,7 +84,8 @@ export interface ComputeReconcileReport {
 export interface ComputeService {
   health(instance?: string): Promise<ComputeHealthReport | ComputeRefusal>;
   plan(caller: ComputeCaller, request: ComputeRunRequest): Promise<{ ok: true; plan: ComputePlan } | ComputeRefusal>;
-  run(caller: ComputeCaller, request: ComputeRunRequest): Promise<ComputeJobResult>;
+  /** `hooks.onCreated` hears the job id once its record exists, before any provider call. */
+  run(caller: ComputeCaller, request: ComputeRunRequest, hooks?: ComputeRunHooks): Promise<ComputeJobResult>;
   status(caller: ComputeCaller, jobId: string): Promise<ComputeJobResult>;
   cancel(caller: ComputeCaller, jobId: string): Promise<ComputeJobResult>;
   collect(caller: ComputeCaller, jobId: string): Promise<ComputeCollection | ComputeRefusal>;
@@ -90,6 +93,10 @@ export interface ComputeService {
   abandon(caller: ComputeCaller, jobId: string): Promise<ComputeJobResult>;
   /** Visit every unfinished job of this brain not held by a live process. */
   reconcile(): Promise<ComputeReconcileReport | ComputeRefusal>;
+}
+
+export interface ComputeRunHooks {
+  onCreated?(jobId: string): void;
 }
 
 export function computeJobView(job: ComputeJobRecord, blocked: string | null = null): ComputeJobView {
@@ -153,6 +160,13 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     return { store, brain: brain! };
   };
 
+  /** Every readable record without creating the state directory or writing anything. */
+  function peekJobs(): ComputeJobRecord[] {
+    if (store) return listJobs(store).jobs;
+    const dir = existingComputeStateDir({ root: options.root, override: options.stateDir, env: options.env });
+    return dir === undefined ? [] : listJobs(new ComputeJobStore(dir, options.storeHooks, { create: false })).jobs;
+  }
+
   async function instanceFor(id: string): Promise<ResolvedComputeInstance | ComputeRefusal> {
     if (typeof id !== "string" || !providers || !Object.hasOwn(providers, id)) {
       return refuse("provider_unknown", `no compute instance named "${String(id)}"; configured: ${Object.keys(providers ?? {}).sort().join(", ") || "none"}`);
@@ -200,9 +214,19 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     return listed;
   }
 
+  /**
+   * Jobs holding a slot: still active, awaiting cleanup, or retained with
+   * their retention not yet over (the provider still holds their data).
+   */
   function slotsUsed(jobs: ComputeJobRecord[], instance: string): number {
+    const now = clock.now();
     return jobs.filter(
-      (j) => j.instance === instance && (!isTerminal(j.state) || j.cleanup.state === "pending" || j.cleanup.state === "release_failed")
+      (j) =>
+        j.instance === instance &&
+        (!isTerminal(j.state) ||
+          j.cleanup.state === "pending" ||
+          j.cleanup.state === "release_failed" ||
+          (j.cleanup.state === "retained" && (j.cleanup.retainedUntil === null || j.cleanup.retainedUntil > now)))
     ).length;
   }
 
@@ -212,10 +236,13 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     const who = checkCaller(caller);
     if (who) return who;
     if (!request || typeof request !== "object") return refuse("policy_denied", "a compute request is required");
+    if (request.retain !== undefined && typeof request.retain !== "boolean") return refuse("policy_denied", "retain must be true or false");
     const instance = await instanceFor(request.instance);
     if ("ok" in instance) return instance;
     const unsupported = checkCapabilities(instance, request);
     if (unsupported) return unsupported;
+    const retention = checkRetain(instance, request);
+    if (retention) return retention;
     const lease = checkLease(instance, request.leaseSeconds);
     if ("ok" in lease) return lease;
     const secretFree = checkSecretFree(request, instance.secret);
@@ -238,7 +265,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       source,
       artifacts,
       estimate: ceiling !== undefined ? { usd: (ceiling * lease.seconds) / 3600, basis: "ceiling" } : { usd: null, basis: "none" },
-      retain: instance.config.retainOnRelease === true,
+      retain: wantsRetain(instance, request),
       slots: { used: 0, max: instance.config.maxConcurrent ?? 1 },
     };
     if (options.approve) {
@@ -358,12 +385,13 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     async plan(caller, request) {
       const admitted = await admit(caller, request);
       if ("ok" in admitted) return admitted;
-      const { store: jobStore } = state();
-      admitted.plan.slots.used = slotsUsed(listJobs(jobStore).jobs, admitted.instance.id);
+      // Plan has no effect: it counts slots from whatever records exist and
+      // creates neither the state directory nor its brain.json.
+      admitted.plan.slots.used = slotsUsed(peekJobs(), admitted.instance.id);
       return { ok: true, plan: admitted.plan };
     },
 
-    async run(caller, request) {
+    async run(caller, request, hooks) {
       const admitted = await admit(caller, request);
       if ("ok" in admitted) return admitted;
       const { store: jobStore, brain: brainKey } = state();
@@ -399,6 +427,11 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
         }
       } finally {
         admission.release();
+      }
+      try {
+        hooks?.onCreated?.(job.id);
+      } catch (error) {
+        log.warn("compute: a run hook threw", { id: job.id, reason: (error as Error).message });
       }
       return { ok: true, job: view(await advance(job, jobStore, "start", owner)) };
     },

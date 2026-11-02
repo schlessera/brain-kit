@@ -89,9 +89,25 @@ export function checkCapabilities(
     const over = request.artifacts!.find((a) => typeof a?.maxBytes === "number" && a.maxBytes > limit);
     if (over) return unsupported(`collect more than ${limit} bytes for ${over.path}`);
   }
-  if (instance.config.retainOnRelease === true && caps.retain === false) return unsupported("retain data on release");
+  if (wantsRetain(instance, request) && caps.retain === false) return unsupported("retain data on release");
   if (caps.findByKey && typeof p.find !== "function") return unsupported("find a lost allocation (find is missing)");
   return undefined;
+}
+
+/**
+ * A job may only narrow the operator's retention: `retain: false` is always
+ * allowed, `retain: true` only on an instance that sets `retainOnRelease`.
+ */
+export function checkRetain(instance: ResolvedComputeInstance, request: ComputeRunRequest): ComputeRefusal | undefined {
+  if (request.retain === true && instance.config.retainOnRelease !== true) {
+    return refuse("policy_denied", `"${instance.id}" does not set retainOnRelease, so a job may not ask to retain its data`);
+  }
+  return undefined;
+}
+
+/** The job's own choice, else the instance's `retainOnRelease`. */
+export function wantsRetain(instance: ResolvedComputeInstance, request: ComputeRunRequest): boolean {
+  return typeof request.retain === "boolean" ? request.retain : instance.config.retainOnRelease === true;
 }
 
 export interface ResolvedSource {

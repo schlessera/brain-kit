@@ -9,12 +9,13 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 import { discoverSkills } from "../src/lib/skills/discover";
 import { lintSkills } from "../src/lib/skills/lint";
+import { syncSkills } from "../src/lib/skills/sync";
 
 const CORE_SKILLS_DIR = resolve(import.meta.dir, "..", "skills");
 
@@ -42,6 +43,24 @@ describe("shipped core skills", () => {
     expect(warnings).toEqual([]);
     expect(skills.length).toBeGreaterThanOrEqual(12);
     expect(skills.every((s) => s.source === "core")).toBe(true);
+  });
+
+  test("include external-compute, which skills sync emits for Claude (#3107)", () => {
+    const found = shippedSkills().skills.find((s) => s.name === "external-compute");
+    expect(found?.source).toBe("core");
+    expect(found?.description).toStartWith("Use when a command should run on an external compute provider");
+    const root = mkdtempSync(join(tmpdir(), "brain-skills-emit-"));
+    try {
+      const result = syncSkills({ root, modules: [] }, { coreSkillsDir: CORE_SKILLS_DIR });
+      expect(result.warnings).toEqual([]);
+      expect(result.materialized).toContain("external-compute");
+      expect(result.emitters.find((e) => e.agent === "claude")?.written).toContain(".claude/skills/external-compute");
+      expect(lstatSync(join(root, ".claude/skills/external-compute")).isSymbolicLink()).toBe(true);
+      expect(existsSync(join(root, ".claude/skills/external-compute/SKILL.md"))).toBe(true);
+      expect(readFileSync(join(root, ".agents/skills/external-compute/SKILL.md"), "utf8")).toContain("name: external-compute");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("produce no lint errors", () => {

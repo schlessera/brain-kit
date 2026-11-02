@@ -629,9 +629,9 @@ compute: {
 | `apiKeyEnv` | The environment variable name holding the instance's key. The key never appears in config, job records, receipts, tool arguments, results or the sandbox environment. Without it a built-in reads its own default variable. |
 | `options` | Opaque to core; validated by the implementation's `configSchema`. |
 | `lease.maxSeconds` | Required. The longest lease a job on this instance may hold, at most seven days and never more than the provider's own ceiling. A job asks for this lease unless it names a shorter one. |
-| `maxConcurrent` | Jobs at once on this instance, counting finished jobs whose cleanup has not been confirmed. Default 1. |
+| `maxConcurrent` | Jobs at once on this instance, counting finished jobs whose cleanup has not been confirmed and retained jobs until their retention ends. Default 1. |
 | `hourlyCeilingUsd` | Optional. When set, admission reserves `ceiling × lease` against the host's budgets. When absent the job runs with its cost recorded as unknown, bounded by the lease and the concurrency cap. |
-| `retainOnRelease` | Release keeps the sandbox's data for the provider's retention limit instead of discarding it. Refused when the provider cannot retain. |
+| `retainOnRelease` | Release keeps the sandbox's data for the provider's retention limit instead of discarding it. Refused when the provider cannot retain. A job may opt out (`retain: false`) but may only ask to retain (`--retain`, `retain: true`) on an instance that sets this. |
 
 ### Boat
 
@@ -660,7 +660,8 @@ state directory outside the brain checkout and outside `brain.db`: by default
 agent-editable. A state directory inside the brain is refused. `brain index
 --force` neither reads nor rebuilds it. See
 [extending/compute-providers.md](extending/compute-providers.md) for the job
-lifecycle and how to write a provider.
+lifecycle and how to write a provider, and [`brain compute`](cli.md#external-compute)
+and the [`brain_compute_*` MCP tools](mcp.md#tools) for running jobs.
 
 ## `graph`
 
