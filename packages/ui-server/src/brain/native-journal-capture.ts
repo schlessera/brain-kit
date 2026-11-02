@@ -137,7 +137,9 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
             return before ? classified(before, changed.has(path) ? observation.beforeRoot : observation.afterRoot) : undefined;
           }, steeringOptions);
         for (const item of unreadable.values()) if (item.kind === "directory" || item.bytes === null) steering.unavailable.push(item.path);
-        return { changes, steering, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };
+        // Without a change the inventory is not taken: an empty set then says
+        // nothing about the brain's configuration (#3257).
+        return { changes, steering: { ...steering, inventoried: snapshots.length > 0 }, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };
       } catch (error) { await observation.abort().catch(() => {}); throw error; }
     },
     releases() { return observer.releases(); },

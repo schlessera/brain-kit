@@ -16,6 +16,16 @@ function fixture(prefix: string) {
   return { root, path, close(...dbs: Database[]) { for (const db of dbs) db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 const journalTables = (db: Database, schema: string) => (db.query(`SELECT name FROM ${schema}.sqlite_schema WHERE type='table' AND name GLOB 'turn_journal_*' ORDER BY name`).all() as { name: string }[]).map(row => row.name);
+// Objects that journal migrations after the split create: they are new, not moved.
+const laterJournalObjects = (kind: "TABLE" | "TRIGGER") => readdirSync(join(import.meta.dir, "../migrations"))
+  .filter(name => name.endsWith(".journal.sql"))
+  .flatMap(name => [...readFileSync(join(import.meta.dir, "../migrations", name), "utf8").matchAll(new RegExp(`\\bCREATE\\s+${kind}\\s+journal\\.(\\w+)`, "gi"))].map(match => match[1]!));
+/** The journal's row counts for the tables the move carried, and every later table empty. */
+const movedCounts = (db: Database) => {
+  const after = counts(db, "journal");
+  for (const name of laterJournalObjects("TABLE")) { expect(after[name], `LATER_JOURNAL_TABLE_STARTS_EMPTY_${name}`).toBe(0); delete after[name]; }
+  return after;
+};
 // The receipts of later journal migrations exist only in the journal file.
 const counts = (db: Database, schema: string) => Object.fromEntries(journalTables(db, schema).filter(name => name !== "turn_journal_migrations").map(name => [name, (db.query(`SELECT count(*) AS n FROM ${schema}."${name}"`).get() as { n: number }).n]));
 
@@ -54,10 +64,11 @@ test("a database from before the journal file moves every journal table, row and
   const db = createUiDb(f.path);
   try {
     expect(journalTables(db, "main"), "JOURNAL_MOVE_LEAVES_NO_TABLE_IN_UI_DATABASE").toEqual([]);
-    expect(counts(db, "journal"), "JOURNAL_MOVE_KEEPS_EVERY_ROW").toEqual(before);
+    expect(movedCounts(db), "JOURNAL_MOVE_KEEPS_EVERY_ROW").toEqual(before);
     expect(db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='index' AND name='turn_journal_session'").get(), "JOURNAL_MOVE_KEEPS_INDEXES").toEqual({ n: 1 });
     expect(db.query("PRAGMA journal.foreign_key_check").all(), "JOURNAL_MOVE_KEEPS_REFERENCES").toEqual([]);
-    expect(db.query("SELECT name FROM journal.sqlite_schema WHERE type='trigger'").all(), "JOURNAL_MOVE_KEEPS_TRIGGERS").toEqual([{ name: "fixture_keep_turns" }]);
+    expect((db.query("SELECT name FROM journal.sqlite_schema WHERE type='trigger'").all() as { name: string }[]).map(row => row.name)
+      .filter(name => !laterJournalObjects("TRIGGER").includes(name)), "JOURNAL_MOVE_KEEPS_TRIGGERS").toEqual(["fixture_keep_turns"]);
     expect(() => db.query("DELETE FROM turn_journal_turns WHERE turn_id='voyage'").run(), "JOURNAL_MOVED_TRIGGER_STILL_GUARDS").toThrow("fixture keeps the voyage");
     // Unqualified journal SQL, as every caller writes it, reaches the moved rows.
     expect(db.query("SELECT summary FROM turn_journal_turns WHERE turn_id='voyage'").get()).toEqual({ summary: "Ithaca".repeat(4_000) });
@@ -81,7 +92,7 @@ test("a move interrupted after copying is copied again, never duplicated, before
   const db = createUiDb(f.path);
   try {
     expect(journalTables(db, "main"), "JOURNAL_RERUN_DROPS_UI_COPIES").toEqual([]);
-    expect(counts(db, "journal"), "JOURNAL_RERUN_COPIES_EACH_ROW_ONCE").toEqual(before);
+    expect(movedCounts(db), "JOURNAL_RERUN_COPIES_EACH_ROW_ONCE").toEqual(before);
   } finally { f.close(db); }
 });
 
@@ -215,7 +226,10 @@ test("the derived journal index name cannot hide an incompatible backup schema",
 test("migrations after the split keep the journal file and the UI database apart", () => {
   const migrations = join(import.meta.dir, "../migrations");
   for (const file of readdirSync(migrations).filter(name => name.endsWith(".sql") && name.slice(0, 3) > JOURNAL_SPLIT_MIGRATION)) {
-    const sql = readFileSync(join(migrations, file), "utf8");
+    // Comments are not statements, and a trigger's `UPDATE [OF columns] ON t`
+    // event names only the table after ON.
+    const sql = readFileSync(join(migrations, file), "utf8").replace(/--[^\n]*/g, "")
+      .replace(/\bUPDATE\s+(?:OF\s+\w+(?:\s*,\s*\w+)*\s+)?(?=ON\s)/gi, "");
     const named = [...sql.matchAll(/\b(?:TABLE|INTO|UPDATE|FROM|ON|INDEX|TRIGGER|REFERENCES)\s+(?:IF (?:NOT )?EXISTS\s+)?(?:\w+\.)?"?(\w+)"?/gi)].map(match => match[1]!);
     // A journal migration commits with its receipt only if it touches the journal file alone:
     // journal names only, and every object it creates created as journal.<name>.

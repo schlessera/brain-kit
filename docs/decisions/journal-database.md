@@ -78,6 +78,28 @@ that no pre-charge covers. The evidence is on the issue.
 - **The journal file is operational state.** It is masked from workers, refused
   inside the brain like the UI database, and inventoried as retained file
   history. A ledger on any connection attaches it and enforces its references.
+- **Configuration coverage is a brain property, stored once per distinct set**
+  ([#3257](https://github.com/schlessera/brain-kit/issues/3257), following the
+  maintainer ruling on #3254, Q2, 2026-11-02). The configuration inputs steering
+  could not trace describe the brain's configuration, not a turn, so the journal
+  keeps each distinct set once in `turn_journal_configuration_sets`, keyed by
+  the SHA-256 of its sorted path list
+  (`export function configurationSet`, `packages/ui-server/src/brain/journal-configuration-sets.ts:11-15`),
+  and a turn row references it. Triggers release a set when its last turn stops
+  referencing it, whichever path deletes or re-points the turn. Each turn still
+  takes its own inventory, since configuration can change within a turn; only
+  the storage is shared. The empty set is a set: a turn that recorded none stays
+  distinguishable from one that recorded nothing, and a turn records whether
+  capture took an inventory at all, which it does only for an observation that
+  saw a change. Per-turn arrays from earlier releases move into sets at open, a
+  bounded batch per accounted commit, because SQLite cannot hash
+  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:230-238`);
+  readers understand the arrays until then, and an empty legacy array stays
+  "no set recorded". The brain's current set is the one the most recent complete,
+  inventoried turn recorded
+  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:672-678`).
+  The sets table is an ordinary rowid table, as every journal table is: the
+  operational backup copies and compares journal rows in rowid order.
 
 ## Not done here
 

@@ -11,6 +11,7 @@ import type { JournalObservationReference, JournalVersion } from "@schlessera/br
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
+import { configurationSet, recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { createJournalObjects, JournalCapacityError, type JournalObjectReservation } from "./journal-objects.js";
 import { INDEX_FAMILY_PATHS, INDEX_PUBLICATION_COPY } from "./native-journal-policy.js";
 
@@ -71,7 +72,7 @@ const indexPins = ["before_json", "after_json"].flatMap(column => [
 const namedHashes = `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
   UNION ALL SELECT json_extract(file.value,'$.retained.hash') FROM turn_journal_storage_operations s, json_each(s.private_versions) file`;
 
-type TurnRow = { session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; model: string | null; profile: "strict" | "governed"; steering_inventory_missing: string; missing: string };
+type TurnRow = { session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; model: string | null; profile: "strict" | "governed"; steering_inventory_missing: string; configuration_set: string | null; missing: string };
 
 /** One observed change of a turn, as `observe()` classified it before admission. */
 export interface ObservedChange { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }
@@ -89,6 +90,8 @@ export interface ObservationRecord {
   /** Changes of this turn's managed worktrees, already in journal path form. */
   worktree: { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }[];
   steeringUnavailable: string[];
+  /** Whether this observation took the configuration inventory; without one its empty set proves nothing brain-wide. */
+  steeringInventoried?: boolean;
   unreadable: { path: string; kind?: string; bytes?: number; ms: number; [key: string]: unknown }[];
 }
 
@@ -114,6 +117,16 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
       db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
     }
     return { objects: unused.length, bytes: unused.reduce((sum, row) => sum + row.bytes, 0) };
+  };
+  /** Stores a configuration set once, by its hash, and returns that hash (#3257). */
+  const storeConfigurationSet = (paths: Iterable<string>) => {
+    const set = configurationSet(paths);
+    db.query("INSERT OR IGNORE INTO turn_journal_configuration_sets (hash,paths,count) VALUES (?,?,?)").run(set.hash, JSON.stringify(set.paths), set.paths.length);
+    return set.hash;
+  };
+  const configurationPaths = (hash: string) => {
+    const row = db.query("SELECT paths FROM turn_journal_configuration_sets WHERE hash=?").get(hash) as { paths: string } | null;
+    return row ? JSON.parse(row.paths) as string[] : undefined;
   };
   const purgeState = () => (db.query("SELECT index_purge FROM turn_journal_allocation WHERE id=1").get() as { index_purge: number }).index_purge;
   const turnContext = (turnId: string) => {
@@ -208,6 +221,21 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         });
       } finally { db.exec(`PRAGMA foreign_keys = ${enforced ? "ON" : "OFF"}`); }
     },
+    /**
+     * One step of moving per-turn configuration arrays recorded before #3257
+     * into stored sets, run at each open until none is left. Each step is one
+     * accounted commit of at most `limit` turns; returns how many it moved.
+     * A legacy empty array stays as it is: it reads as "no set recorded".
+     */
+    migrateConfigurationSets(limit = 500): number {
+      return accounting.write(() => {
+        const rows = db.query("SELECT turn_id,steering_inventory_missing FROM turn_journal_turns WHERE steering_inventory_missing!='[]' LIMIT ?").all(limit) as { turn_id: string; steering_inventory_missing: string }[];
+        // A nonempty legacy array proves an inventory was taken.
+        for (const row of rows) db.query("UPDATE turn_journal_turns SET configuration_set=?,steering_inventory_missing='[]',configuration_inventoried=1 WHERE turn_id=?")
+          .run(storeConfigurationSet(JSON.parse(row.steering_inventory_missing) as string[]), row.turn_id);
+        return rows.length;
+      });
+    },
     /** The changes of one turn's observation window; the turn's last sequence after them. */
     recordObservation(record: ObservationRecord): number {
       const { turnId, at } = record;
@@ -247,7 +275,11 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
               change.after ? JSON.stringify(change.after) : null, "content", metadata.kind === "revert" ? "user" : "agent", "[]", null);
           pin(turnId, change.before); pin(turnId, change.after);
         }
-        db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...record.steeringUnavailable])]), turnId);
+        // Every observation records the turn's set, the empty one included,
+        // and the set accumulates across the turn's observations.
+        const recorded = recordedConfigurationSet(metadata, configurationPaths).paths;
+        db.query("UPDATE turn_journal_turns SET configuration_set=?,steering_inventory_missing='[]',configuration_inventoried=max(configuration_inventoried,?) WHERE turn_id=?")
+          .run(storeConfigurationSet([...recorded, ...record.steeringUnavailable]), record.steeringInventoried ? 1 : 0, turnId);
         if (record.unreadable.length) {
           const missing = new Map<string, object>((JSON.parse(metadata.missing) as { path: string; reason: string }[]).map(item => [item.path, item]));
           for (const item of record.unreadable) {

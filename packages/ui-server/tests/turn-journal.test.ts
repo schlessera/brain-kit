@@ -10,8 +10,10 @@ import { createUiDb } from "../src/db/client.js";
 import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { journalStatement } from "../src/brain/journal-store.js";
+import { configurationSet } from "../src/brain/journal-configuration-sets.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
+import { exportInboxSnapshot } from "../src/inbox/snapshot.js";
 
 function fixture(capBytes?: number) {
   const root = mkdtempSync(join(tmpdir(), "turn-journal-odysseus-")), brain = join(root, "brain"), path = join(root, "ui.db");
@@ -78,15 +80,25 @@ test("configuration coverage summary follows retained inventory, independently o
     await f.begin("coverage");
     expect(f.journal.summary("coverage"), "RECORDING_COVERAGE_IS_UNKNOWN").toHaveProperty("configurationCoverage", "unknown");
     await f.journal.finish("coverage");
+    expect(f.journal.summary("coverage"), "FINISHED_TURN_RECORDS_EMPTY_SET").toHaveProperty("configurationCoverage", "complete");
+    expect(f.journal.summary("coverage"), "EMPTY_SET_HAS_NO_SET_FIELD").not.toHaveProperty("configurationCoverageSet");
     for (const state of ["complete", "recording", "partial", "expired"] as const) {
       for (const incomplete of [false, true]) {
-        await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'",
-          state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }]))]);
+        const set = configurationSet(incomplete ? ["workspaces/412/brain.config.ts"] : []);
+        await f.journal.writeOperation([
+          journalStatement("INSERT OR IGNORE INTO turn_journal_configuration_sets (hash,paths,count) VALUES (?,?,?)", set.hash, JSON.stringify(set.paths), set.paths.length),
+          journalStatement("UPDATE turn_journal_turns SET state=?,configuration_set=?,missing=? WHERE turn_id='coverage'",
+            state, set.hash, JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }]))]);
         expect(f.journal.summary("coverage"), "COVERAGE_COMES_FROM_CONFIGURATION_INVENTORY")
           .toHaveProperty("configurationCoverage", incomplete ? "incomplete" : state === "complete" ? "complete" : "unknown");
+        expect(f.journal.summary("coverage").configurationCoverageSet, "SET_FIELD_ONLY_FOR_NONEMPTY_SET").toBe(incomplete ? set.hash : undefined);
         expect(f.journal.summary("coverage").changedFiles, "COVERAGE_NEVER_CHANGES_PATH_ACCOUNTING").toBe(state === "partial" ? null : 0);
       }
     }
+    // A row from before #3257 with an empty array never recorded a set it can prove.
+    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state='complete',configuration_set=NULL,steering_inventory_missing='[]' WHERE turn_id='coverage'")]);
+    expect(f.journal.summary("coverage"), "LEGACY_EMPTY_ROW_NEVER_COMPLETE").toHaveProperty("configurationCoverage", "unknown");
+    expect(f.journal.summary("coverage")).not.toHaveProperty("configurationCoverageSet");
   } finally { await f.close(); }
 });
 
@@ -472,6 +484,113 @@ test("opaque configuration input limitations survive replay without executing co
   } finally { await f.close(); }
 });
 
+
+const OPAQUE_CONFIG = 'import("./" + selectRoute() + ".json"); throw new Error("no host evaluation");\n';
+const setRows = (db: Database) => db.query("SELECT hash,paths,count FROM turn_journal_configuration_sets ORDER BY hash").all() as { hash: string; paths: string; count: number }[];
+const turnSets = (db: Database, ...ids: string[]) => ids.map(id => db.query("SELECT configuration_set,steering_inventory_missing FROM turn_journal_turns WHERE turn_id=?").get(id) as { configuration_set: string | null; steering_inventory_missing: string });
+
+test("two turns with the same untraced configuration set store its paths once (#3257)", async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.brain, "brain.config.ts"), OPAQUE_CONFIG);
+    for (const id of ["penelope", "telemachus"]) {
+      await f.begin(id); writeFileSync(join(f.brain, `notes/${id}.md`), `${id} waits in Ithaca.\n`); await f.journal.finish(id);
+    }
+    const rows = setRows(f.db), [first, second] = turnSets(f.db, "penelope", "telemachus");
+    expect(rows, "ONE_SET_ROW_FOR_ONE_DISTINCT_SET").toHaveLength(1);
+    expect(JSON.parse(rows[0]!.paths)).toContain("brain.config.ts");
+    expect(rows[0]!.count).toBe(JSON.parse(rows[0]!.paths).length);
+    expect(first!.configuration_set, "TURNS_REFERENCE_THE_SET").toBe(rows[0]!.hash);
+    expect(second!.configuration_set, "TURNS_REFERENCE_THE_SET").toBe(rows[0]!.hash);
+    expect([first!.steering_inventory_missing, second!.steering_inventory_missing], "NO_PER_TURN_ARRAY").toEqual(["[]", "[]"]);
+    expect(f.journal.summary("telemachus")).toMatchObject({ configurationCoverage: "incomplete", configurationCoverageSet: rows[0]!.hash });
+    expect(f.journal.details("ithaca", "telemachus")!.missing).toContainEqual({ path: "brain.config.ts", reason: "configuration_inputs_not_fully_identified" });
+    // The operational backup copies sets and references like any journal row.
+    const backup = await exportInboxSnapshot(f.db, f.brain, 1000);
+    const image = Database.deserialize(Buffer.from(backup.database.data, "base64"));
+    try {
+      expect(image.query("SELECT hash FROM turn_journal_configuration_sets").all(), "BACKUP_KEEPS_SETS").toEqual([{ hash: rows[0]!.hash }]);
+      expect(image.query("SELECT count(*) AS n FROM turn_journal_turns WHERE configuration_set=?").get(rows[0]!.hash)).toEqual({ n: 2 });
+    } finally { image.close(); }
+    // A set lives as long as a turn references it.
+    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET configuration_set=NULL WHERE turn_id='penelope'")]);
+    expect(setRows(f.db), "A_STILL_REFERENCED_SET_STAYS").toHaveLength(1);
+    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET configuration_set=NULL WHERE turn_id='telemachus'")]);
+    expect(setRows(f.db), "UNREFERENCED_SET_IS_RELEASED").toHaveLength(0);
+  } finally { await f.close(); }
+});
+
+test("per-turn arrays recorded before #3257 move into sets at open and read the same (#3257)", async () => {
+  const f = fixture();
+  try {
+    for (const id of ["achilles", "ajax", "hector", "empty"]) { await f.begin(id); await f.journal.finish(id); }
+    const legacy = { achilles: ["scripts/b.ts", "brain.config.ts"], ajax: ["brain.config.ts", "scripts/b.ts"], hector: ["workspaces/412/brain.config.ts"], empty: [] as string[] };
+    await f.journal.writeOperation(Object.entries(legacy).map(([id, paths]) =>
+      journalStatement("UPDATE turn_journal_turns SET configuration_set=NULL,steering_inventory_missing=? WHERE turn_id=?", JSON.stringify(paths), id)));
+    expect(setRows(f.db), "LEGACY_FIXTURE_HAS_NO_SETS").toHaveLength(0);
+    const read = (journal: typeof f.journal) => Object.fromEntries(Object.keys(legacy).map(id => [id, {
+      coverage: journal.summary(id).configurationCoverage, set: journal.summary(id).configurationCoverageSet,
+      missing: journal.details("ithaca", id)!.missing.filter(item => item.reason === "configuration_inputs_not_fully_identified").map(item => item.path).sort(),
+    }]));
+    const before = read(f.journal);
+    expect(before.achilles!.coverage).toBe("incomplete");
+    expect(before.empty!.coverage, "LEGACY_EMPTY_ROW_NEVER_COMPLETE").toBe("unknown");
+    await f.journal.close();
+    const reopened = createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: join(f.root, "ui.db"), objectsRoot: join(f.root, "objects") });
+    try {
+      await reopened.writeOperation([]);
+      expect(read(reopened), "MIGRATION_PRESERVES_COVERAGE_AND_MISSING").toEqual(before);
+      const rows = setRows(f.db), turns = turnSets(f.db, "achilles", "ajax", "hector", "empty");
+      expect(rows, "EQUAL_SETS_IN_ANY_ORDER_SHARE_ONE_ROW").toHaveLength(2);
+      expect(turns[0]!.configuration_set).toBe(turns[1]!.configuration_set);
+      expect(turns.map(turn => turn.steering_inventory_missing), "ARRAYS_MOVED").toEqual(["[]", "[]", "[]", "[]"]);
+      expect(turns[3]!.configuration_set, "LEGACY_EMPTY_STAYS_UNRECORDED").toBeNull();
+      expect(before.achilles!.set).toBe(turns[0]!.configuration_set!);
+    } finally { await reopened.close(); }
+  } finally { await f.close(); }
+});
+
+test("the brain's current configuration set is the latest complete turn's, and unknown until one records it (#3257)", async () => {
+  const f = fixture();
+  try {
+    const routes = createJournalRoutes({ journal: f.journal });
+    const current = async () => { const response = await routes.request("/journal/configuration-coverage"); expect(response.status).toBe(200); return response.json(); };
+    expect(await current(), "NO_TURN_IS_UNKNOWN").toEqual({ state: "unknown" });
+    await f.begin("legacy"); await f.journal.finish("legacy");
+    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET configuration_set=NULL,steering_inventory_missing='[]' WHERE turn_id='legacy'")]);
+    expect(await current(), "LEGACY_EMPTY_ROW_IS_UNKNOWN_NOT_EMPTY").toEqual({ state: "unknown" });
+
+    // A turn that changes nothing takes no configuration inventory: its empty
+    // set covers the turn, not the brain.
+    await f.begin("idle"); await f.journal.finish("idle");
+    expect(f.journal.summary("idle"), "IDLE_TURN_COVERAGE_UNCHANGED").toHaveProperty("configurationCoverage", "complete");
+    expect(await current(), "UNINVENTORIED_TURN_IS_NOT_A_BRAIN_SET").toEqual({ state: "unknown" });
+
+    await f.begin("clean"); writeFileSync(join(f.brain, "notes/clean.md"), "Odysseus sets sail.\n"); await f.journal.finish("clean");
+    const clean = await current();
+    expect(clean, "RECORDED_EMPTY_SET_IS_KNOWN").toMatchObject({ state: "known", paths: [], count: 0, turnId: "clean", hash: configurationSet([]).hash });
+
+    writeFileSync(join(f.brain, "brain.config.ts"), OPAQUE_CONFIG);
+    await f.begin("opaque"); writeFileSync(join(f.brain, "notes/route.md"), "Odysseus charts the route.\n"); await f.journal.finish("opaque");
+    const opaque = await current() as { state: string; hash: string; paths: string[]; count: number; turnId: string; observedAt: number };
+    expect(opaque).toMatchObject({ state: "known", turnId: "opaque" });
+    expect(opaque.paths).toContain("brain.config.ts");
+    expect(opaque.count).toBe(opaque.paths.length);
+    expect(opaque.hash).toBe(f.journal.summary("opaque").configurationCoverageSet!);
+    expect(opaque.observedAt).toBe(f.journal.summary("opaque").observedAt!);
+
+    // Later partial and expired turns with another set never replace it, and
+    // neither does a complete turn that took no inventory.
+    await f.begin("chat"); await f.journal.finish("chat");
+    expect(await current(), "IDLE_TURN_NEVER_REPLACES").toEqual(opaque);
+    rmSync(join(f.brain, "brain.config.ts"));
+    for (const [id, state] of [["broken", "partial"], ["faded", "expired"]] as const) {
+      await f.begin(id); writeFileSync(join(f.brain, `notes/${id}.md`), `${id}\n`); await f.journal.finish(id);
+      await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state=?,ended_at=ended_at+60000 WHERE turn_id=?", state, id)]);
+    }
+    expect(await current(), "PARTIAL_OR_EXPIRED_NEVER_REPLACES").toEqual(opaque);
+  } finally { await f.close(); }
+});
 
 test("runtime main-model binding only updates the correlated active journal", async () => {
   const f = fixture();

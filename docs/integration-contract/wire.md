@@ -55,7 +55,20 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:45-48`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
+
+**Configuration coverage set (additive, #3257).** Untraced configuration inputs
+are a property of the brain's configuration, so the host stores each distinct
+set once and a turn references it. The optional `configurationCoverageSet` is
+that set's identity: the lowercase hex SHA-256 of the sorted, de-duplicated
+path list as JSON. It is present only when the turn's set is nonempty, so equal
+values are equal sets, and a client compares a turn with the brain's current
+set ([`GET /api/journal/configuration-coverage`](http.md#brain-wide-configuration-coverage-additive-3257))
+without fetching details. `complete` now also requires that the turn recorded a
+set: a turn journaled before #3257 with an empty inventory cannot show that it
+took one, and reads `unknown`. A nonempty legacy inventory still reads
+`incomplete`, and details still name every path with
+`configuration_inputs_not_fully_identified`.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -92,7 +105,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1886-1888`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1887-1889`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,

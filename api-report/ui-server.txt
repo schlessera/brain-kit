@@ -2232,6 +2232,7 @@ signatures (every public export and the types it is made of)
             note: string;
         };
         close(): Promise<void>;
+        configurationCoverage(): ConfigurationCoverageRead;
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
         finish(turnId: string): Promise<void>;
