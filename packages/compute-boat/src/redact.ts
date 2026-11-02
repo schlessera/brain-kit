@@ -2,14 +2,22 @@
  * Redaction for everything the adapter writes outside the request itself:
  * log lines and the `reason` of an outcome. The instance key and every signed
  * file URL Boat issued during the call are removed verbatim; anything shaped
- * like a Boat key or a URL query string is removed by pattern as well, so a
- * vendor message that echoes one cannot carry it into a job record.
+ * like a Boat key (new or legacy) or a URL query string is removed by pattern
+ * as well, so a vendor message that echoes one cannot carry it into a job
+ * record. Boat's own error codes are kept.
  */
 
 import type { ComputeLogger } from "@schlessera/brain";
 
 const MASK = "[redacted]";
-const KEY_SHAPE = /\bboat_[A-Za-z0-9_-]{6,}/g;
+/**
+ * A Boat key, new (`boat_`) or legacy (`box_`). Boat's error codes share the
+ * prefix (`boat_direct_failed`), so a match counts only when its tail is long
+ * and carries a digit or a capital, as a random token does and a lower-case
+ * snake_case code never does.
+ */
+const KEY_SHAPE = /\b(?:boat|box)_[A-Za-z0-9_-]{12,}/g;
+const keyLike = (match: string) => (/[0-9A-Z]/.test(match.slice(match.indexOf("_") + 1)) ? MASK : match);
 const URL_QUERY = /(https?:\/\/[^\s?#"'<>]+)[?#][^\s"'<>]*/g;
 
 export interface Redactor {
@@ -28,7 +36,7 @@ export function createRedactor(secret: string | undefined): Redactor {
   const text = (value: string): string => {
     let out = value;
     for (const s of secrets) out = out.split(s).join(MASK);
-    return out.replace(KEY_SHAPE, MASK).replace(URL_QUERY, `$1?${MASK}`);
+    return out.replace(KEY_SHAPE, keyLike).replace(URL_QUERY, `$1?${MASK}`);
   };
   const scrub = (value: unknown, depth = 0): unknown => {
     if (typeof value === "string") return text(value);
