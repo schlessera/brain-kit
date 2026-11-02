@@ -1335,7 +1335,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:341`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -3828,6 +3828,27 @@ widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
+**The runtime's own traffic — 2026-11-02
+([#3244](https://github.com/schlessera/brain-kit/issues/3244)).** The Claude
+runtime's own calls to its vendor were worker connections too. Its first-party
+event logging and feature-flag fetches, and WebFetch's domain check, reached
+`api.anthropic.com` as plain `CONNECT`s. So every governed session was tainted
+within its first second, before any tool ran, and WebFetch and the brain CLI's
+relayed providers were then refused any new host. A relayed turn now pins the
+runtime's traffic opt-out in its environment and its flag settings
+(`RELAYED_TURN_TRAFFIC_ENV`,
+`packages/ui-backend-claude/src/relayed-turn-traffic.ts:10-12`). It also skips
+WebFetch's domain check, so on the turn proxy the host's egress policy is the
+only check on a fetch (`RELAYED_TURN_SETTINGS`,
+`packages/ui-backend-claude/src/relayed-turn-traffic.ts:18`). The runtime then
+sends only relayed inference, and WebSearch runs inside that inference. The
+taint rule is unchanged: any other worker connection still taints, including
+one a tool opens to the vendor's host. A relayed provider request (#1673) is
+the turn's own egress and taints as before. The host's own opt-out does not
+count as the operator's, so title usage is still observed
+(`telemetryConfigured`,
+`packages/ui-backend-claude/src/relayed-turn-traffic.ts:26-30`).
+
 The capabilities note states the taint sources, these rules, whether this
 turn's egress is narrowed or explicitly not enforced, and the session's first
 recorded source once it is tainted (`workerOutwardNote`,
@@ -3856,7 +3877,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:308-325`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.

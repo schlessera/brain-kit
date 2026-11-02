@@ -40,6 +40,7 @@ import { workerStateLimit } from "./worker-state.js";
 import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
+import { RELAYED_TURN_SETTINGS, RELAYED_TURN_TRAFFIC_ENV, telemetryConfigured } from "./relayed-turn-traffic.js";
 import type { TurnLockBinding } from "./turn-lock.js";
 
 export interface ClaudeSdkTurn {
@@ -125,8 +126,8 @@ export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTur
         attempted = true;
         // Respect operator telemetry and opt-outs in the actual launch env.
         // Merely assembling options never opens an observability listener.
-        const configured = Object.entries(input.env).some(([key, value]) => value &&
-          (key.startsWith("OTEL_") || key.includes("TELEMETRY") || key === "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"));
+        const configured = telemetryConfigured(input.env, options.hostInference
+          ? options.turnEnvironment ?? turnEnv(options.profile) : undefined);
         if (!configured) {
           try {
             collector = createClaudeTitleUsageCollector();
@@ -236,6 +237,7 @@ function assembleClaudeSdkTurn(
     ...(options.hostInference.placeholders ?? { CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER }),
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
+    ...RELAYED_TURN_TRAFFIC_ENV,
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
   const childEnv = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
@@ -461,7 +463,7 @@ function assembleClaudeSdkTurn(
   } else if (subscriptionOnly || inferenceEnv) {
     // Flag settings outrank every settings file: none can reroute inference
     // or put a credential back in front of the relay's placeholder.
-    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env,
+    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, ...(inferenceEnv ? RELAYED_TURN_SETTINGS : {}), env: { ...NEUTRALISED_SETTINGS.env,
       ...(inferenceEnv ?? {}),
     } };
   }
