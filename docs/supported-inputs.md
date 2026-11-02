@@ -430,6 +430,7 @@ consumer rather than written into the user's file.
 | `completions` | `provider`, `fallback`, `apiKeyEnv`, `fallbackApiKeyEnv`. | Omitted block resolves the Gemini Flash built-in; a present block requires `provider`. Fallback is used when primary throws. Explicit key-variable names are nonempty strings. |
 | `agentRunner` | Built-in name or passed-in runner. | Claude by default; registry resolution rejects unknown names. |
 | `reranker` | `enabled`, `provider`, `model`, `apiKeyEnv`, `exclude`, `timeoutMs`, `depth`, `skipMargin`. | Model judgment is off unless `enabled: true`; credentials and mode overrides cannot enable it. Positive integer timeout, depth at least two, nonnegative margin. See [activation](decisions/reranker-activation.md). |
+| `compute` | `providers.<id>`: `provider`, `apiKeyEnv`, `options`, `lease.maxSeconds`, `maxConcurrent`, `hourlyCeilingUsd`, `retainOnRelease`. | Absent: no provider, and compute operations refuse with `compute_disabled`. Strict; ids match `^[a-z0-9][a-z0-9-]{0,62}$`; `lease.maxSeconds` required, a positive integer up to seven days; `options` validated by the provider. See [configuration](configuration.md#compute). |
 | `graph` | `root`: document from which graph distances are measured. | Root defaults to `AGENTS.md`, then `CLAUDE.md`; contained relative path. This does not enable a search-ranking boost. |
 | `skills` | `emitters`: extra skill emitters. | Claude always runs; extras are optional string names. |
 | `stats` | `coverageFloor`, `brokenLinkCeiling`: health warning ratios. | Defaults 0.9 and 0.05; values in 0–1. |
@@ -474,7 +475,7 @@ promote ambient SDK variables to supported inputs.
 
 | Owner reference | Declared literal names |
 | --- | --- |
-| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
+| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `BRAIN_COMPUTE_STATE_DIR`, `XDG_STATE_HOME`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
 | [module-images](../packages/module-images/README.md#environment) | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | [module-jobs](../packages/module-jobs/README.md#environment) | `CHROME_CDP_URL` |
 | [scrape](../packages/scrape/README.md#configuration) | `SCRAPE_USER_AGENT`, `SCRAPE_CHROME_URL`, `SCRAPE_CHROME_PATH`, `SCRAPE_CHROME_NO_SANDBOX`, `SCRAPE_RESPECT_ROBOTS` |
@@ -530,6 +531,7 @@ metadata. Supported name sources remain distinct from internal transport snapsho
 | Owner and name source | Meaning and boundary |
 | --- | --- |
 | Core `embeddings.apiKeyEnv`, `completions.apiKeyEnv`, `completions.fallbackApiKeyEnv`, `reranker.apiKeyEnv` | Select built-in provider credential names at call time; omission uses that provider's default name. Primary and fallback are independent. |
+| Core `compute.providers.<id>.apiKeyEnv` | One compute instance's credential, read on the trusted host when the instance is used; omission uses the built-in's own default name. Never forwarded into a sandbox or written to a job record. |
 | Images provider catalog `apiKeyEnv` | Provider-declared credential lookup; current OpenAI/Gemini names are in the literal table. This does not introduce a provider-registration seam. |
 | Claude inference-profile `authTokenEnv` / `apiKeyEnv` | Query-time credential and availability lookup; values are not config-file secrets. The profile authentication rules still apply. |
 | UI server and pi `WEB_SEARCH_PROVIDERS[].envVar` | Catalog-selected key-presence checks for environment-configured web-search providers. Presence is returned, not secret values or copied settings. |

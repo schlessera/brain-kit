@@ -375,7 +375,7 @@ their own, keep repository-controlled code off the host
 Each case below was reproduced on a disposable fixture:
 
 - **The config's dependencies.** The host imports `brain.config.ts`
-  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:594`).
+  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:644`).
   The config can import local helpers and local module entries, and those
   files are not on any fixed list.
 - **Bun startup.** A newly created `bunfig.toml` preload runs before any
@@ -3866,7 +3866,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 `context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
 
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
-  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:644-678`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
   `packages/ui-server/src/brain/host-boundary.ts:511-522`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal

@@ -20,6 +20,20 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## External compute provider seam (additive, 0.45.0, #3105)
+
+`ComputeProvider` becomes the thirteenth `@experimental` extension seam,
+exported from `@schlessera/brain` with `defineComputeProvider` and the types it
+is made of; `@schlessera/brain/testing` adds its provider and lifecycle
+conformance suites. `brain.config` gains the optional `compute.providers` key,
+and core reads two new optional environment inputs, `BRAIN_COMPUTE_STATE_DIR`
+and `XDG_STATE_HOME`. Nothing changes for a brain without `compute`: no
+provider, no network access, and compute operations refuse with
+`compute_disabled`. No CLI word, MCP tool or JSON shape is added yet.
+See [the package component](integration-contract/package-api.md#external-compute-seam-additive-3105)
+and [the decision](decisions/external-compute.md). This ships in a minor; no
+breaking ruling is required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets
