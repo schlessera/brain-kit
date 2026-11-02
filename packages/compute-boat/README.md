@@ -96,7 +96,7 @@ A job therefore never receives account administration authority.
 | `allocate` | Looks for a sandbox labelled with the allocation key first, then `POST /sandboxes` with that key as `Idempotency-Key`, the key and instance as labels, `ttlSeconds` and `noEnv`. Answers as soon as Boat accepts it. |
 | readiness | Before staging or a command, `GET /sandboxes/{id}` until the state is `ready`, `idle` or `running`. `setupStatus` and `hydrated` are not readiness and are not waited for. |
 | `find` | `GET /sandboxes?label=…`; two matches are `uncertain`, never a guess. |
-| `stage` | A tar of the declared files with a checksum manifest, uploaded to a signed URL and extracted into `~/work` by a command that verifies every checksum. |
+| `stage` | A tar of the declared files with a checksum manifest, uploaded to a signed URL and extracted by a command that verifies every checksum in a fresh directory before copying the files into `~/work`. The command is never resent on an unknown outcome, which is `uncertain`; it keeps the archive, so the host may stage again safely. |
 | `exec` | A detached command (`detached: true`) in `~/work`, with only the allowlisted variables added. Boat gives it no time limit; the host lease bounds it. |
 | `poll` | `GET /sandboxes/{id}/commands/{processId}` with the last 1 MiB of each log. |
 | `kill` | `DELETE /sandboxes/{id}/commands/{processId}`. |

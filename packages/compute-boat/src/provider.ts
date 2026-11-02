@@ -44,6 +44,8 @@ import { commandLine, quote, safeRelative, WORK_DIR } from "./shell.js";
 import { writeTar } from "./tar.js";
 
 export const STAGE_MAX_BYTES = 256 * 1024 * 1024;
+/** Where the staging archive is uploaded and extracted before it reaches the work directory. */
+const STAGE_DIR = "/tmp/brain-kit";
 /** `GET /sandboxes/{id}/artifacts` serves files up to 50 MiB. */
 export const COLLECT_MAX_BYTES = 50 * 1024 * 1024;
 /** Boat keeps a stopped sandbox's data 14 days. */
@@ -261,7 +263,7 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
       }
       const ready = await ensureReady(ctx, red, req, sandbox.id);
       if (!ready.ok) return { kind: "failed", reason: ready.reason };
-      const tarPath = `/tmp/brain-kit/${hash.slice(0, 64)}.tar`;
+      const tarPath = `${STAGE_DIR}/${hash.slice(0, 64)}.tar`;
       const url = await req({
         method: "POST",
         path: `/sandboxes/${seg(sandbox.id)}/files/upload-url`,
@@ -274,16 +276,20 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
       red.add(signed);
       const put = await req({ method: "PUT", signedUrl: signed, label: "PUT <signed upload URL>", bytes: tar.bytes, retry: "safe" });
       if (!ok(put)) return readFailure(red, "uploading the source", put);
-      // Extraction and the checksum check are repeatable, so this synchronous command may be retried.
+      // Boat never retries a command and neither does this adapter on an
+      // unknown outcome: a lost answer or a 502 may mean it still runs, so
+      // it is `uncertain`. The command is safe for the host to run again
+      // alongside one still in flight: it keeps the archive, extracts and
+      // checks into a fresh directory, and only then copies verified files.
       const seconds = Math.max(1, Math.min(600, Math.floor(remaining(ctx) / 1000)));
       const extract = await req({
         method: "POST",
         path: `/sandboxes/${seg(sandbox.id)}/commands`,
         label: "POST /sandboxes/{id}/commands (stage)",
         json: { command: stageCommand(tarPath, manifestName), timeoutSeconds: seconds },
-        retry: "safe",
+        retry: "exec",
       });
-      if (!ok(extract)) return readFailure(red, "extracting the source", extract);
+      if (!ok(extract)) return effectFailure(red, "extracting the source", extract);
       const result = body(extract);
       if (n(result.exitCode) !== 0) return { kind: "failed", reason: red.text(`extracting the source exited ${n(result.exitCode) ?? "without a code"}${result.timedOut === true ? " (timed out)" : ""}`) };
       return { kind: "ok" };
@@ -539,14 +545,22 @@ export function createBody(ttl: number, retain: boolean, token: string, instance
   return out;
 }
 
+/**
+ * Extract into a fresh directory, check every file there, then copy into the
+ * work directory. The archive is left in place, so a second run while an
+ * earlier one is still in flight reads the same bytes, and copying the same
+ * verified files twice leaves the same tree.
+ */
 function stageCommand(tarPath: string, manifest: string): string {
   return [
     "set -e",
-    `mkdir -p ${WORK_DIR}`,
-    `tar -xf ${quote(tarPath)} -C ${WORK_DIR}`,
-    `cd ${WORK_DIR}`,
-    `sha256sum -c --quiet ${quote(manifest)}`,
-    `rm -f ${quote(manifest)} ${quote(tarPath)}`,
+    `mkdir -p ${WORK_DIR} ${STAGE_DIR}`,
+    `d=$(mktemp -d ${STAGE_DIR}/x.XXXXXXXX)`,
+    `trap 'rm -rf "$d"' EXIT`,
+    `tar -xf ${quote(tarPath)} -C "$d"`,
+    `(cd "$d" && sha256sum -c --quiet ${quote(manifest)})`,
+    `rm -f "$d"/${quote(manifest)}`,
+    `cp -a "$d"/. ${WORK_DIR}/`,
   ].join("; ");
 }
 

@@ -235,19 +235,20 @@ export function fakeBoat(opts: FakeBoatOptions) {
   /** Run one command line; the sandbox is ready. */
   function interpret(s: FakeSandbox, command: string): Proc {
     const proc: Proc = { pid: pids++, commandId: `cmd_${hex(6)}`, command, argv: [], env: {}, status: "exited", exitCode: 0, signal: null, oomKilled: false, stdout: "", stderr: "" };
-    const stage = /^set -e; mkdir -p work; tar -xf '([^']+)' -C work; cd work; sha256sum -c --quiet '([^']+)'; rm -f '[^']+' '[^']+'$/.exec(command);
+    const stage = /^set -e; mkdir -p work \/tmp\/brain-kit; d=\$\(mktemp -d \/tmp\/brain-kit\/x\.XXXXXXXX\); trap 'rm -rf "\$d"' EXIT; tar -xf '([^']+)' -C "\$d"; \(cd "\$d" && sha256sum -c --quiet '([^']+)'\); rm -f "\$d"\/'[^']+'; cp -a "\$d"\/\. work\/$/.exec(command);
     if (stage) {
+      // Extracted and checked aside; only verified files reach the work directory. The archive stays.
       const tar = s.files.get(stage[1]!);
       if (!tar) return { ...proc, exitCode: 2, stderr: "tar: cannot open" };
-      for (const entry of readTar(tar)) s.files.set(`${HOME}/work/${entry.path}`, entry.data);
-      const manifest = new TextDecoder().decode(s.files.get(`${HOME}/work/${stage[2]!}`) ?? new Uint8Array());
+      const aside = new Map(readTar(tar).map((entry) => [entry.path, entry.data]));
+      const manifest = new TextDecoder().decode(aside.get(stage[2]!) ?? new Uint8Array());
       for (const line of manifest.split("\n").filter(Boolean)) {
         const [sum, path] = [line.slice(0, 64), line.slice(66)];
-        const data = s.files.get(`${HOME}/work/${path}`);
+        const data = aside.get(path);
         if (!data || sha256(data) !== sum) return { ...proc, exitCode: 1, stderr: `${path}: FAILED` };
       }
-      s.files.delete(`${HOME}/work/${stage[2]!}`);
-      s.files.delete(stage[1]!);
+      aside.delete(stage[2]!);
+      for (const [path, data] of aside) s.files.set(`${HOME}/work/${path}`, data);
       return proc;
     }
     const run = /^mkdir -p work && cd ('(?:[^']|'\\'')*') && exec env -- (.*)$/.exec(command);

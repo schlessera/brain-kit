@@ -155,6 +155,36 @@ describe("command and file errors", () => {
     expect(fake.routes().filter((r) => r === "upload-url" || r === "signed-put")).toEqual(["upload-url", "upload-url", "signed-put", "signed-put"]);
   });
 
+  test("the extract command is never sent again on an unknown outcome: a lost answer is uncertain after one send", async () => {
+    const { fake, provider, now, sandbox } = await ready();
+    const data = new TextEncoder().encode("# Ithaca\n");
+    const sha = new Bun.CryptoHasher("sha256").update(data).digest("hex");
+    const bundle = { files: [{ path: "notes/voyage.md", sha256: sha, bytes: data.byteLength, read: async () => data }], hash: sha };
+    fake.failNext("exec", "lose-response");
+    const lost = await provider.stage!(sandbox, bundle, contextFor(fake, { now }));
+    expect([lost.kind, fake.routes().filter((r) => r === "exec").length]).toEqual(["uncertain", 1]);
+    fake.failNext("exec", { status: 502, code: "boat_direct_failed" });
+    const failed = await provider.stage!(sandbox, bundle, contextFor(fake, { now }));
+    expect([failed.kind, fake.routes().filter((r) => r === "exec").length]).toEqual(["uncertain", 2]);
+    // The host repeats the whole stage; the extract is safe to run again.
+    expect((await provider.stage!(sandbox, bundle, contextFor(fake, { now }))).kind).toBe("ok");
+    expect(new TextDecoder().decode(fake.sandboxes.get(sandbox.id)!.files.get("/home/user/work/notes/voyage.md"))).toBe("# Ithaca\n");
+  });
+
+  test("the extract command keeps the uploaded archive and extracts into a fresh directory, so a run still in flight is never disturbed", async () => {
+    const { fake, provider, now, sandbox } = await ready();
+    const data = new TextEncoder().encode("# Ithaca\n");
+    const sha = new Bun.CryptoHasher("sha256").update(data).digest("hex");
+    await provider.stage!(sandbox, { files: [{ path: "notes/voyage.md", sha256: sha, bytes: data.byteLength, read: async () => data }], hash: sha }, contextFor(fake, { now }));
+    const command = String(JSON.parse(fake.requests.filter((r) => r.route === "exec").at(-1)!.body).command);
+    const tar = /tar -xf '([^']+)'/.exec(command)?.[1];
+    expect(tar).toBeDefined();
+    expect(command).not.toContain(`rm -f '${tar}'`);
+    expect(command).toContain("mktemp -d");
+    expect(command).not.toMatch(/-C work\b/);
+    expect(fake.sandboxes.get(sandbox.id)!.files.has(tar!)).toBe(true);
+  });
+
   test("an expired key on poll, kill and release is a failure the host can retry, never success", async () => {
     const { fake, provider, now, sandbox } = await ready();
     const started = await provider.exec(sandbox, { argv: ["sleep", "60"], env: {} }, contextFor(fake, { now }));
