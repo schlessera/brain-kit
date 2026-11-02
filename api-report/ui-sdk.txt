@@ -7,6 +7,13 @@ export "." (./src/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
+  ATTACHMENT_DIR
+  ATTACHMENT_GRACE_MS
+  ATTACHMENT_MAX_FILES
+  ATTACHMENT_MAX_FILE_BYTES
+  ATTACHMENT_MAX_TOTAL_BYTES
+  ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_UNBOUND_TTL_MS
   type ActionDigestEntry
   type ActionDigestState
   type ActionDigestSummary
@@ -52,13 +59,21 @@ export "." (./src/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  type AttachmentErrorCode
+  type AttachmentErrorResponse
+  type AttachmentFile
+  type AttachmentKind
+  type AttachmentLimits
+  type AttachmentReader
   type BillingMode
   type BrainSearchResult
   type BrainStats
   type BudgetObservation
   type BudgetScope
+  COMPOSER_FILES_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatAttachmentReference
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -133,6 +148,7 @@ export "." (./src/index.ts)
   type DraftErrorCode
   type DraftErrorResponse
   type DraftListResponse
+  type DraftOutgoing
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
@@ -434,6 +450,13 @@ export "./client" (./src/client/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  ATTACHMENT_DIR
+  ATTACHMENT_GRACE_MS
+  ATTACHMENT_MAX_FILES
+  ATTACHMENT_MAX_FILE_BYTES
+  ATTACHMENT_MAX_TOTAL_BYTES
+  ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_UNBOUND_TTL_MS
   type ActionDigestEntry
   type ActionDigestState
   type ActionDigestSummary
@@ -489,6 +512,12 @@ export "./client" (./src/client/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  type AttachmentErrorCode
+  type AttachmentErrorResponse
+  type AttachmentFile
+  type AttachmentKind
+  type AttachmentLimits
+  type AttachmentReader
   BLOCK_SCHEMA
   BRIDGE_MCP_PREFIX
   BRIDGE_TOOL_CONTRACTS
@@ -504,8 +533,10 @@ export "./client" (./src/client/index.ts)
   type BudgetScope
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
+  COMPOSER_FILES_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatAttachmentReference
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -586,6 +617,7 @@ export "./client" (./src/client/index.ts)
   type DraftErrorCode
   type DraftErrorResponse
   type DraftListResponse
+  type DraftOutgoing
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
@@ -1270,6 +1302,13 @@ export "./protocol" (./src/protocol.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
+  ATTACHMENT_DIR
+  ATTACHMENT_GRACE_MS
+  ATTACHMENT_MAX_FILES
+  ATTACHMENT_MAX_FILE_BYTES
+  ATTACHMENT_MAX_TOTAL_BYTES
+  ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_UNBOUND_TTL_MS
   type ActionDigestEntry
   type ActionDigestState
   type ActionDigestSummary
@@ -1315,13 +1354,21 @@ export "./protocol" (./src/protocol.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  type AttachmentErrorCode
+  type AttachmentErrorResponse
+  type AttachmentFile
+  type AttachmentKind
+  type AttachmentLimits
+  type AttachmentReader
   type BillingMode
   type BrainSearchResult
   type BrainStats
   type BudgetObservation
   type BudgetScope
+  COMPOSER_FILES_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatAttachmentReference
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -1394,6 +1441,7 @@ export "./protocol" (./src/protocol.ts)
   type DraftErrorCode
   type DraftErrorResponse
   type DraftListResponse
+  type DraftOutgoing
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
@@ -1683,6 +1731,8 @@ export "./schemas" (./src/schemas.ts)
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
+  attachmentFileSchema
+  attachmentLimitsSchema
   classifySessionRecoveryResponse
   clientActivitySubscribeSchema
   clientActivityUnsubscribeSchema
@@ -1853,6 +1903,13 @@ export "./server" (./src/server/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  ATTACHMENT_DIR
+  ATTACHMENT_GRACE_MS
+  ATTACHMENT_MAX_FILES
+  ATTACHMENT_MAX_FILE_BYTES
+  ATTACHMENT_MAX_TOTAL_BYTES
+  ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_UNBOUND_TTL_MS
   type ActionDigestEntry
   type ActionDigestState
   type ActionDigestSummary
@@ -1911,6 +1968,12 @@ export "./server" (./src/server/index.ts)
   type AsrEvent
   type AsrFinal
   type AsrPartial
+  type AttachmentErrorCode
+  type AttachmentErrorResponse
+  type AttachmentFile
+  type AttachmentKind
+  type AttachmentLimits
+  type AttachmentReader
   type AutonomousTurnOptions
   type BBox
   BLOCK_SCHEMA
@@ -1965,8 +2028,10 @@ export "./server" (./src/server/index.ts)
   type BudgetScope
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
+  COMPOSER_FILES_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatAttachmentReference
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -2056,6 +2121,7 @@ export "./server" (./src/server/index.ts)
   type DraftErrorCode
   type DraftErrorResponse
   type DraftListResponse
+  type DraftOutgoing
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
@@ -3149,6 +3215,20 @@ signatures (every public export and the types it is made of)
     const ASK_USER_RANK_TOOL_NAME: "ask_user_rank";
   ASK_USER_TOOL_NAME (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const ASK_USER_TOOL_NAME: "ask_user";
+  ATTACHMENT_DIR (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_DIR: ".brain-ui/attachments";
+  ATTACHMENT_GRACE_MS (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_GRACE_MS: number;
+  ATTACHMENT_MAX_FILES (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_MAX_FILES: 10;
+  ATTACHMENT_MAX_FILE_BYTES (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_MAX_FILE_BYTES: 25000000;
+  ATTACHMENT_MAX_TOTAL_BYTES (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_MAX_TOTAL_BYTES: 50000000;
+  ATTACHMENT_POOL_DEFAULT_BYTES (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_POOL_DEFAULT_BYTES: 1073741824;
+  ATTACHMENT_UNBOUND_TTL_MS (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_UNBOUND_TTL_MS: number;
   ActionDigestEntry (packages/ui-sdk/src/protocol.ts)
     export interface ActionDigestEntry {
         itemId: string;
@@ -3677,6 +3757,54 @@ signatures (every public export and the types it is made of)
         type: "partial";
         text: string;
     }
+  AttachmentErrorCode (packages/ui-sdk/src/protocol.ts)
+    export type AttachmentErrorCode = "ATTACHMENT_TOO_LARGE" | "ATTACHMENT_CAPACITY" | "ATTACHMENT_INVALID" | "ATTACHMENT_KEY_REUSED" | "ATTACHMENT_NOT_FOUND";
+  AttachmentErrorResponse (packages/ui-sdk/src/protocol.ts)
+    export type AttachmentErrorResponse = {
+        error: "ATTACHMENT_TOO_LARGE";
+        message: string;
+        limit: number;
+        bound: "file" | "draftFiles" | "draftCount";
+    } | {
+        error: "ATTACHMENT_CAPACITY";
+        message: string;
+        limit: number;
+        bound: "pool" | "drafts";
+    } | {
+        error: "ATTACHMENT_INVALID";
+        message: string;
+    } | {
+        error: "ATTACHMENT_KEY_REUSED";
+        message: string;
+    } | {
+        error: "ATTACHMENT_NOT_FOUND";
+        message: string;
+    };
+  AttachmentFile (packages/ui-sdk/src/protocol.ts)
+    export interface AttachmentFile {
+        fileId: string;
+        name: string;
+        incomingName?: string;
+        path: string;
+        mediaType: string;
+        bytes: number;
+        sha256: string;
+        kind: AttachmentKind;
+        reader: AttachmentReader;
+        trackRejected?: true;
+        track?: SharedFileMeta;
+    }
+  AttachmentKind (packages/ui-sdk/src/protocol.ts)
+    export type AttachmentKind = "pdf" | "text" | "track" | "image" | "archive" | "binary";
+  AttachmentLimits (packages/ui-sdk/src/protocol.ts)
+    export interface AttachmentLimits {
+        maxFiles: number;
+        maxFileBytes: number;
+        maxTotalBytes: number;
+        poolBytes: number;
+    }
+  AttachmentReader (packages/ui-sdk/src/protocol.ts)
+    export type AttachmentReader = "pdf" | "text" | "track" | "image" | "none";
   AutonomousTurnOptions (packages/ui-sdk/src/server/backend.ts)
     export interface AutonomousTurnOptions {
         origin: "autonomous";
@@ -5541,6 +5669,8 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>], "disposition">>;
         receiptIds: z.ZodArray<z.ZodString>;
     }, z.core.$strict>;
+  COMPOSER_FILES_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const COMPOSER_FILES_CAPABILITY: "composerFiles";
   CONVERSATION_CAPABILITY_KEYS (packages/ui-sdk/src/protocol.ts)
     const CONVERSATION_CAPABILITY_KEYS: readonly ["nonblockingWork", "manualEndpoint", "finalTranscript", "remoteOutputCancelAck", "exactPermissionSpeech", "echoIsolatedInput", "outputWordAlignment"];
   CONVERSATION_LIMITS (packages/ui-sdk/src/protocol.ts)
@@ -5581,6 +5711,11 @@ signatures (every public export and the types it is made of)
         has(cacheName: string): Promise<boolean>;
         open(cacheName: string): Promise<CacheLike>;
     }
+  ChatAttachmentReference (packages/ui-sdk/src/protocol.ts)
+    export interface ChatAttachmentReference {
+        kind: "attachment";
+        fileId: string;
+    }
   ChatFileAttachment (packages/ui-sdk/src/protocol.ts)
     export interface ChatFileAttachment {
         kind: "file";
@@ -5590,6 +5725,7 @@ signatures (every public export and the types it is made of)
     export interface ChatImageAttachment {
         data: string;
         mediaType: (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+        fileId?: string;
     }
   ChatSession (packages/ui-sdk/src/protocol.ts)
     export interface ChatSession {
@@ -5682,6 +5818,7 @@ signatures (every public export and the types it is made of)
         providerId?: string;
         attachments?: ChatImageAttachment[];
         files?: ChatFileAttachment[];
+        attachmentRefs?: ChatAttachmentReference[];
         thinkingLevel?: ThinkingLevel;
         requestId?: string;
         draftId?: string;
@@ -6289,6 +6426,8 @@ signatures (every public export and the types it is made of)
         updatedAt: number;
         text: string;
         attachments: DraftAttachment[];
+        files?: AttachmentFile[];
+        outgoing?: DraftOutgoing | null;
     }
   DraftAttachment (packages/ui-sdk/src/protocol.ts)
     export interface DraftAttachment {
@@ -6325,7 +6464,7 @@ signatures (every public export and the types it is made of)
         error: "DRAFT_TOO_LARGE";
         message: string;
         limit: number;
-        bound: "text" | "draft" | "image" | "images" | "imageCount";
+        bound: "text" | "draft" | "image" | "images" | "imageCount" | "draftFiles" | "draftCount";
     } | {
         error: "DRAFT_CAPACITY";
         message: string;
@@ -6351,6 +6490,13 @@ signatures (every public export and the types it is made of)
     export interface DraftListResponse {
         drafts: DraftSummary[];
     }
+  DraftOutgoing (packages/ui-sdk/src/protocol.ts)
+    export interface DraftOutgoing {
+        requestId: string;
+        text: string;
+        fileIds: string[];
+        state: "held" | "dispatched";
+    }
   DraftRef (packages/ui-sdk/src/protocol.ts)
     export interface DraftRef {
         draftId: string;
@@ -6361,6 +6507,8 @@ signatures (every public export and the types it is made of)
         sessionId: string | null;
         text: string;
         attachmentIds: string[];
+        fileIds?: string[];
+        outgoing?: DraftOutgoing | null;
     }
   DraftSaveResponse (packages/ui-sdk/src/protocol.ts)
     export interface DraftSaveResponse {
@@ -6375,6 +6523,7 @@ signatures (every public export and the types it is made of)
         updatedAt: number;
         preview: string;
         attachmentCount: number;
+        fileCount?: number;
     }
   ENV_VARS (packages/ui-sdk/src/config/env-vars.ts)
     const ENV_VARS: readonly [{
@@ -9686,6 +9835,7 @@ signatures (every public export and the types it is made of)
         principalKey?: string;
         capabilities?: Record<string, boolean>;
         sessionDraftLimits?: SessionDraftLimits;
+        attachmentLimits?: AttachmentLimits;
     }
   ServerLocalExchangeResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerLocalExchangeResult extends SessionScoped {
@@ -9899,10 +10049,14 @@ signatures (every public export and the types it is made of)
         maxDraftBytes: number;
         maxDrafts: number;
         maxTotalBytes: number;
+        maxDraftFiles?: number;
+        maxDraftFileBytes?: number;
+        maxDraftFilesBytes?: number;
     }
   SessionHistoryMessage (packages/ui-sdk/src/protocol.ts)
     export interface SessionHistoryMessage {
         files?: SharedFileMeta[];
+        attachmentFiles?: AttachmentFile[];
         role: "user" | "assistant";
         content: string;
         thinking?: string;
@@ -11226,6 +11380,15 @@ signatures (every public export and the types it is made of)
     export function assertTurnPosture(req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge" | "posture">>, supportsAutonomous?: boolean, supportsRestricted?: boolean): void;
   assertVersionRequirements (packages/ui-sdk/src/server/version-requirements.ts)
     export function assertVersionRequirements(check: VersionRequirementCheck): void;
+  attachmentFileSchema (packages/ui-sdk/src/track-schemas.ts)
+    const attachmentFileSchema: z.ZodType<import("./protocol.js").AttachmentFile>;
+  attachmentLimitsSchema (packages/ui-sdk/src/schemas.ts)
+    const attachmentLimitsSchema: z.ZodObject<{
+        maxFileBytes: z.ZodNumber;
+        maxFiles: z.ZodNumber;
+        maxTotalBytes: z.ZodNumber;
+        poolBytes: z.ZodNumber;
+    }, z.core.$loose>;
   bashLockKey (packages/ui-sdk/src/server/lock-keys.ts)
     export function bashLockKey(command: string): string | null;
   brainApplicationInput (packages/ui-sdk/src/server/brain-application.ts)
@@ -11395,8 +11558,13 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   clientChatMessageSchema (packages/ui-sdk/src/schemas.ts)
     const clientChatMessageSchema: z.ZodObject<{
+        attachmentRefs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            fileId: z.ZodString;
+            kind: z.ZodLiteral<"attachment">;
+        }, z.core.$strip>>>;
         attachments: z.ZodOptional<z.ZodArray<z.ZodObject<{
             data: z.ZodString;
+            fileId: z.ZodOptional<z.ZodString>;
             mediaType: z.ZodEnum<{
                 "image/gif": "image/gif";
                 "image/jpeg": "image/jpeg";
@@ -11734,8 +11902,13 @@ signatures (every public export and the types it is made of)
         protocolRev: z.ZodNumber;
         type: z.ZodLiteral<"client_hello">;
     }, z.core.$loose>, z.ZodObject<{
+        attachmentRefs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            fileId: z.ZodString;
+            kind: z.ZodLiteral<"attachment">;
+        }, z.core.$strip>>>;
         attachments: z.ZodOptional<z.ZodArray<z.ZodObject<{
             data: z.ZodString;
+            fileId: z.ZodOptional<z.ZodString>;
             mediaType: z.ZodEnum<{
                 "image/gif": "image/gif";
                 "image/jpeg": "image/jpeg";
@@ -12438,6 +12611,7 @@ signatures (every public export and the types it is made of)
         drafts: z.ZodArray<z.ZodObject<{
             attachmentCount: z.ZodNumber;
             draftId: z.ZodString;
+            fileCount: z.ZodOptional<z.ZodNumber>;
             preview: z.ZodString;
             revision: z.ZodNumber;
             sessionId: z.ZodNullable<z.ZodString>;
@@ -12468,6 +12642,16 @@ signatures (every public export and the types it is made of)
             name: z.ZodNullable<z.ZodString>;
         }, z.core.$loose>>;
         draftId: z.ZodString;
+        files: z.ZodOptional<z.ZodArray<z.ZodType<import("./protocol.js").AttachmentFile, unknown, z.core.$ZodTypeInternals<import("./protocol.js").AttachmentFile, unknown>>>>;
+        outgoing: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            fileIds: z.ZodArray<z.ZodString>;
+            requestId: z.ZodString;
+            state: z.ZodEnum<{
+                dispatched: "dispatched";
+                held: "held";
+            }>;
+            text: z.ZodString;
+        }, z.core.$loose>>>;
         revision: z.ZodNumber;
         sessionId: z.ZodNullable<z.ZodString>;
         text: z.ZodString;
@@ -12477,6 +12661,7 @@ signatures (every public export and the types it is made of)
     const draftSummarySchema: z.ZodObject<{
         attachmentCount: z.ZodNumber;
         draftId: z.ZodString;
+        fileCount: z.ZodOptional<z.ZodNumber>;
         preview: z.ZodString;
         revision: z.ZodNumber;
         sessionId: z.ZodNullable<z.ZodString>;
@@ -15663,6 +15848,12 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   serverHelloSchema (packages/ui-sdk/src/schemas.ts)
     const serverHelloSchema: z.ZodObject<{
+        attachmentLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            maxFileBytes: z.ZodNumber;
+            maxFiles: z.ZodNumber;
+            maxTotalBytes: z.ZodNumber;
+            poolBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
         conversationProfile: z.ZodCatch<z.ZodOptional<z.ZodLazy<z.ZodObject<{
             capabilities: z.ZodObject<{
@@ -15717,6 +15908,9 @@ signatures (every public export and the types it is made of)
         protocolRev: z.ZodNumber;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             maxDraftBytes: z.ZodNumber;
+            maxDraftFileBytes: z.ZodOptional<z.ZodNumber>;
+            maxDraftFiles: z.ZodOptional<z.ZodNumber>;
+            maxDraftFilesBytes: z.ZodOptional<z.ZodNumber>;
             maxDrafts: z.ZodNumber;
             maxTextBytes: z.ZodNumber;
             maxTotalBytes: z.ZodNumber;
@@ -16323,6 +16517,12 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"retry_receipt">;
     }, z.core.$loose>, z.ZodObject<{
+        attachmentLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            maxFileBytes: z.ZodNumber;
+            maxFiles: z.ZodNumber;
+            maxTotalBytes: z.ZodNumber;
+            poolBytes: z.ZodNumber;
+        }, z.core.$loose>>>;
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
         conversationProfile: z.ZodCatch<z.ZodOptional<z.ZodLazy<z.ZodObject<{
             capabilities: z.ZodObject<{
@@ -16377,6 +16577,9 @@ signatures (every public export and the types it is made of)
         protocolRev: z.ZodNumber;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             maxDraftBytes: z.ZodNumber;
+            maxDraftFileBytes: z.ZodOptional<z.ZodNumber>;
+            maxDraftFiles: z.ZodOptional<z.ZodNumber>;
+            maxDraftFilesBytes: z.ZodOptional<z.ZodNumber>;
             maxDrafts: z.ZodNumber;
             maxTextBytes: z.ZodNumber;
             maxTotalBytes: z.ZodNumber;
@@ -16595,6 +16798,7 @@ signatures (every public export and the types it is made of)
         append: z.ZodOptional<z.ZodBoolean>;
         messages: z.ZodArray<z.ZodObject<{
             attachmentCount: z.ZodOptional<z.ZodNumber>;
+            attachmentFiles: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodType<import("./protocol.js").AttachmentFile, unknown, z.core.$ZodTypeInternals<import("./protocol.js").AttachmentFile, unknown>>>>>;
             blocks: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 block: z.ZodDiscriminatedUnion<[z.ZodObject<{
                     columns: z.ZodArray<z.ZodObject<{
@@ -19014,6 +19218,7 @@ signatures (every public export and the types it is made of)
         append: z.ZodOptional<z.ZodBoolean>;
         messages: z.ZodArray<z.ZodObject<{
             attachmentCount: z.ZodOptional<z.ZodNumber>;
+            attachmentFiles: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodType<import("./protocol.js").AttachmentFile, unknown, z.core.$ZodTypeInternals<import("./protocol.js").AttachmentFile, unknown>>>>>;
             blocks: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 block: z.ZodDiscriminatedUnion<[z.ZodObject<{
                     columns: z.ZodArray<z.ZodObject<{
@@ -19956,6 +20161,9 @@ signatures (every public export and the types it is made of)
   sessionDraftLimitsSchema (packages/ui-sdk/src/schemas.ts)
     const sessionDraftLimitsSchema: z.ZodObject<{
         maxDraftBytes: z.ZodNumber;
+        maxDraftFileBytes: z.ZodOptional<z.ZodNumber>;
+        maxDraftFiles: z.ZodOptional<z.ZodNumber>;
+        maxDraftFilesBytes: z.ZodOptional<z.ZodNumber>;
         maxDrafts: z.ZodNumber;
         maxTextBytes: z.ZodNumber;
         maxTotalBytes: z.ZodNumber;

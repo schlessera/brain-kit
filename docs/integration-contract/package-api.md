@@ -174,6 +174,11 @@ pool (default 1,073,741,824 bytes). The governed worker profile mounts
 internal worker protection). It is not a protected path: no policy names it
 and nothing is quarantined when the host writes it.
 
+In `@schlessera/brain-ui-server`, `ServerConfig` gains `attachmentPoolBytes`
+and `SessionCatalog.recordMessageSource`'s optional effort argument gains
+`attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
+`inline` flag), which the host records so replay can reproduce the block.
+
 ## UI-kit Button reach (additive #3252)
 
 `ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's
