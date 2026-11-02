@@ -8,7 +8,7 @@ Its [shared scope and versioning policy](../integration-contract.md) apply to ev
 `brain compute` exposes the [external compute](../decisions/external-compute.md)
 operation set. The CLI and the [`brain_compute_*` MCP tools](mcp.md#external-compute-tools-additive-0450-3107)
 call one core implementation (`createComputeOps`,
-`packages/core/src/lib/ops/compute.ts:219-290`) and print the same envelopes.
+`packages/core/src/lib/ops/compute.ts:228-308`) and print the same envelopes.
 
 ```
 brain compute health [--provider ID]
@@ -76,16 +76,27 @@ is prose. `plan` and `run` read the brain's
 refuses them with `policy_denied`.
 
 **`run`.** Attached by default: after the command starts, the CLI advances
-the job through `status` with backoff (250 ms rising to 5 s) until it ends,
-and prints only the final envelope. The first SIGINT or SIGTERM cancels the
-job and prints the `cancel` envelope, whose `cleanup.state` says whether
-release was confirmed; a second one leaves at once, naming the job on stderr.
-`--detach` prints the `run` envelope once the command has started.
+the job through `status` with backoff (250 ms rising to 5 s) until it has
+ended and its cleanup is no longer `pending` or `release_failed`, giving up
+three visits after the job ended, and prints only the final envelope.
+SIGINT and SIGTERM are handled from before admission: the first one cancels
+the job, as soon as it has started when it arrives during allocation, staging
+or start, and prints the `cancel` envelope, whose `cleanup.state` says
+whether release was confirmed. A second one leaves at once with exit `130`
+(SIGINT) or `143` (SIGTERM), naming the job on stderr, or pointing at
+`brain compute reconcile` when no job was recorded yet. In human mode the job
+id is printed on stderr as soon as its record exists; machine mode still
+prints one final envelope on stdout. `--detach` prints the `run` envelope
+once the command has started.
 
 **Exit codes.** `0` success; `1` a usage error or a refusal; `2` an internal
-failure, or an attached run that could not advance its job (`blocked`); `3` an
-attached or detached `run` whose job ended in a state other than `succeeded`.
-`status`, `cancel` and `collect` exit `0` whatever state they report.
+failure, an attached run that could not advance its job (`blocked`), or a
+`run` whose job ended with its cleanup not confirmed (`pending`,
+`release_failed` or `unknown`: a sandbox may still be running; stderr points
+at `brain compute reconcile`); `3` an attached or detached `run` whose job
+ended in a state other than `succeeded` with its cleanup confirmed; `130` or
+`143` a second SIGINT or SIGTERM during `run`. `status`, `cancel` and
+`collect` exit `0` whatever state they report.
 
 ## Agent runner unavailable in a maintenance worker (additive, 0.45.0, #3243)
 

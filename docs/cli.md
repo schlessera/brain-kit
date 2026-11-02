@@ -347,9 +347,12 @@ provider's own command history. Collected artifacts are stored with their
 sha256 in the compute state directory, outside the brain.
 
 `run` waits for the job by default and prints its final state, exit, cleanup
-fact and cost; Ctrl-C cancels the job and reports whether the sandbox was
-released. `--detach` returns once the command has started. Exit `1` is a usage
-error or a refusal (nothing was allocated), and exit `3` is a job that ended
+fact and cost; Ctrl-C cancels the job, even while it is still starting, and
+reports whether the sandbox was released. A second Ctrl-C leaves at once
+(exit `130`, or `143` for a second SIGTERM) and names the job to cancel.
+`--detach` returns once the command has started. Exit `1` is a usage error or
+a refusal (nothing was allocated), exit `2` a job whose cleanup was not
+confirmed (run `brain compute reconcile`), and exit `3` a job that ended
 other than `succeeded`. Job ids belong to the operating-system user that
 started them from the CLI; jobs started through the MCP tools are separate.
 Operators can run `brain compute reconcile` to settle jobs a dead process left

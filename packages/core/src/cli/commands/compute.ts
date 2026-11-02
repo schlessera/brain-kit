@@ -6,13 +6,14 @@
  * name another caller.
  *
  * `run` stays attached by default: it advances the job through `status`
- * with backoff until the job ends, and on SIGINT or SIGTERM cancels it and
- * reports whether release was confirmed. `--detach` returns once the
- * command has started.
+ * with backoff until the job ends and its cleanup settles, and on SIGINT or
+ * SIGTERM (handled from before admission) cancels it and reports whether
+ * release was confirmed. `--detach` returns once the command has started.
  *
- * Exit codes: 0 success; 1 usage error or refusal; 2 internal failure, or an
- * attached run that could not advance its job; 3 an attached run whose job
- * ended other than `succeeded`.
+ * Exit codes: 0 success; 1 usage error or refusal; 2 internal failure, an
+ * attached run that could not advance its job, or a job that ended with its
+ * cleanup not confirmed; 3 a job that ended other than `succeeded`; 130 or
+ * 143 a second SIGINT or SIGTERM during `run`.
  */
 
 import { emit, UsageError } from "../io.js";
@@ -46,8 +47,9 @@ Run options:
 
 Nothing runs remotely unless --provider names an instance. Job ids belong to
 the operating-system user that started them through the CLI. Exit 1 is a usage
-error or a refusal (nothing allocated); exit 3 is an attached run whose job
-ended other than succeeded.`;
+error or a refusal (nothing allocated); exit 2 a job whose cleanup was not
+confirmed (run \`brain compute reconcile\`); exit 3 a job that ended other
+than succeeded. A second Ctrl-C leaves an attached run at once (exit 130).`;
 
 const VALUE_FLAGS = new Set(["provider", "cwd", "env", "source", "artifact", "lease"]);
 const BOOLEAN_FLAGS = new Set(["retain", "detach", "confirm", "json", "human"]);
@@ -209,47 +211,146 @@ function human(envelope: ComputeEnvelope): void {
 export const ATTACH_BACKOFF = { initialMs: 250, factor: 1.5, maxMs: 5_000 };
 
 /**
- * Drive one job to its end through `status`. On the first SIGINT or SIGTERM
- * the job is cancelled (after any visit in flight) and the cancel result is
- * the answer; a second signal leaves at once with the job id on stderr.
+ * Visits an attached run makes after its job has ended while cleanup is not
+ * yet settled. A failed release is retried on a backoff of 30 s or more, so
+ * waiting longer cannot help; `brain compute reconcile` takes over from here.
  */
-export async function attach(ops: ComputeOps, started: ComputeJobOutput, log: (line: string) => void): Promise<ComputeJobEnvelope> {
-  let interrupted = false;
-  let wake: (() => void) | undefined;
-  const onSignal = (signal: NodeJS.Signals) => {
-    if (interrupted) {
-      console.error(`brain compute: left ${started.id} without confirming cancellation; run \`brain compute cancel ${started.id}\``);
+export const ATTACH_CLEANUP_VISITS = 3;
+
+/** Cleanup facts that leave a sandbox possibly running after the job ended. */
+const UNCONFIRMED_CLEANUP = new Set(["pending", "release_failed", "unknown"]);
+
+/**
+ * SIGINT and SIGTERM for one `run`, installed before admission so a signal
+ * that arrives while the job is allocated, staged or started is not lost:
+ * the first one is remembered and the job is cancelled as soon as it can be;
+ * a second one leaves at once (exit 130 or 143), naming the job on stderr.
+ */
+export class RunSignals {
+  signal: NodeJS.Signals | null = null;
+  jobId: string | undefined;
+  private wakeUp: (() => void) | undefined;
+  private readonly onSignal = (signal: NodeJS.Signals) => {
+    if (this.signal) {
+      console.error(
+        this.jobId
+          ? `brain compute: left ${this.jobId} without confirming cancellation; run \`brain compute cancel ${this.jobId}\``
+          : "brain compute: left before a job was recorded; `brain compute reconcile` settles anything left behind"
+      );
       process.exit(signal === "SIGINT" ? 130 : 143);
     }
-    interrupted = true;
-    log(`brain compute: ${signal} received, cancelling ${started.id}`);
-    wake?.();
+    this.signal = signal;
+    this.log(
+      this.jobId
+        ? `brain compute: ${signal} received, cancelling ${this.jobId}`
+        : `brain compute: ${signal} received, cancelling the job as soon as it has started`
+    );
+    this.wakeUp?.();
   };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
+
+  constructor(private readonly log: (line: string) => void) {
+    process.on("SIGINT", this.onSignal);
+    process.on("SIGTERM", this.onSignal);
+  }
+
+  /** Wait `ms`, or less if a signal arrives. */
+  sleep(ms: number): Promise<void> {
+    if (this.signal) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(done, ms);
+      function done() {
+        clearTimeout(timer);
+        resolve();
+      }
+      this.wakeUp = done;
+    }).finally(() => {
+      this.wakeUp = undefined;
+    });
+  }
+
+  dispose(): void {
+    process.off("SIGINT", this.onSignal);
+    process.off("SIGTERM", this.onSignal);
+  }
+}
+
+/**
+ * Drive one job through `status` until it is settled: ended, with its
+ * cleanup no longer pending or failing (the predicate the MCP driver uses),
+ * or ATTACH_CLEANUP_VISITS visits after it ended. A signal stops the wait and
+ * the job is cancelled; the cancel result is then the answer.
+ */
+export async function attach(
+  ops: ComputeOps,
+  started: ComputeJobOutput,
+  log: (line: string) => void,
+  signals: Pick<RunSignals, "signal" | "sleep">,
+  options: { cleanupVisits?: number } = {}
+): Promise<ComputeJobEnvelope> {
+  const cleanupVisits = options.cleanupVisits ?? ATTACH_CLEANUP_VISITS;
+  const { jobSettled } = await import("../../lib/ops/compute.js");
+  let current: ComputeJobEnvelope = { ok: true, job: started };
+  let delay = ATTACH_BACKOFF.initialMs;
+  let afterEnd = 0;
+  while (!signals.signal && current.ok && !jobSettled(current.job) && current.job.blocked === null) {
+    if (current.job.terminal !== null && afterEnd++ >= cleanupVisits) break;
+    await signals.sleep(delay);
+    if (signals.signal) break;
+    delay = Math.min(ATTACH_BACKOFF.maxMs, Math.ceil(delay * ATTACH_BACKOFF.factor));
+    const before = current.ok ? current.job.state : undefined;
+    current = await ops.status({ job: started.id });
+    if (current.ok && current.job.state !== before) log(`brain compute: ${started.id} ${current.job.state}`);
+  }
+  if (signals.signal && (!current.ok || current.job.terminal === null)) current = await ops.cancel({ job: started.id });
+  return current;
+}
+
+/**
+ * `run`'s exit code: 1 a refusal; 2 a job an attached run could not finish
+ * (still active, or blocked), or one that ended with its cleanup not
+ * confirmed (`pending`, `release_failed` or `unknown`); 3 a job that ended
+ * other than `succeeded`; else 0.
+ */
+export function runExitCode(envelope: ComputeJobEnvelope, attached: boolean): number {
+  if (!envelope.ok) return 1;
+  const job = envelope.job;
+  if (job.terminal === null) return attached ? 2 : 0;
+  if (UNCONFIRMED_CLEANUP.has(job.cleanup.state)) return 2;
+  return job.state === "succeeded" ? 0 : 3;
+}
+
+/**
+ * `run`: admit and start the job with signal handlers already installed,
+ * name it on stderr (human mode) as soon as it is recorded, then follow it
+ * unless detached. A signal before the job has started cancels it once
+ * `ops.run` returns.
+ */
+export async function runJob(
+  ops: ComputeOps,
+  request: ComputeRequestInput,
+  options: { detach: boolean; human: boolean; log: (line: string) => void; cleanupVisits?: number }
+): Promise<{ envelope: ComputeJobEnvelope; code: number }> {
+  const { log } = options;
+  const signals = new RunSignals(log);
   try {
-    let current: ComputeJobEnvelope = { ok: true, job: started };
-    let delay = ATTACH_BACKOFF.initialMs;
-    while (!interrupted && current.ok && current.job.terminal === null && current.job.blocked === null) {
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, delay);
-        wake = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-      wake = undefined;
-      if (interrupted) break;
-      delay = Math.min(ATTACH_BACKOFF.maxMs, Math.ceil(delay * ATTACH_BACKOFF.factor));
-      const before = current.ok ? current.job.state : undefined;
-      current = await ops.status({ job: started.id });
-      if (current.ok && current.job.state !== before) log(`brain compute: ${started.id} ${current.job.state}`);
+    const started = await ops.run(request, {
+      onCreated(id) {
+        signals.jobId = id;
+        if (options.human) log(`brain compute: recorded ${id}; Ctrl-C cancels it`);
+      },
+    });
+    if (!started.ok) return { envelope: started, code: 1 };
+    signals.jobId = started.job.id;
+    if (signals.signal) {
+      const final = started.job.terminal === null ? await ops.cancel({ job: started.job.id }) : started;
+      return { envelope: final, code: runExitCode(final, true) };
     }
-    if (interrupted && (!current.ok || current.job.terminal === null)) current = await ops.cancel({ job: started.id });
-    return current;
+    if (options.detach) return { envelope: started, code: runExitCode(started, false) };
+    if (options.human && started.job.terminal === null) log(`brain compute: started ${started.job.id} (${started.job.state})`);
+    const final = await attach(ops, started.job, log, signals, { cleanupVisits: options.cleanupVisits });
+    return { envelope: final, code: runExitCode(final, true) };
   } finally {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
+    signals.dispose();
   }
 }
 
@@ -280,17 +381,15 @@ export const computeCommand: CoreCommand = {
         envelope = await ops.plan(await requestFromArgs(p));
         break;
       case "run": {
-        const started = await ops.run(await requestFromArgs(p));
-        if (!started.ok || p.booleans.has("detach") || started.job.terminal !== null) {
-          envelope = started;
-          break;
-        }
-        if (!cli.json) console.error(`brain compute: started ${started.job.id} (${started.job.state}); Ctrl-C cancels it`);
-        const final = await attach(ops, started.job, (line) => console.error(line));
+        const log = (line: string) => console.error(line);
+        const { envelope: final, code } = await runJob(ops, await requestFromArgs(p), { detach: p.booleans.has("detach"), human: !cli.json, log });
         out(final);
-        if (!final.ok) return 1;
-        if (final.job.terminal === null) return 2;
-        return final.job.state === "succeeded" ? 0 : 3;
+        if (final.ok && code === 2 && final.job.terminal !== null) {
+          console.error(
+            `brain compute: ${final.job.id} ended but its cleanup is ${final.job.cleanup.state}: a sandbox may still be running. Run \`brain compute reconcile\` to retry the release.`
+          );
+        }
+        return code;
       }
       case "status":
         envelope = await ops.status(job);
@@ -308,8 +407,6 @@ export const computeCommand: CoreCommand = {
         envelope = await ops.reconcile();
     }
     out(envelope);
-    if (!envelope.ok) return 1;
-    if (p.verb === "run" && "job" in envelope && envelope.job.terminal !== null && envelope.job.state !== "succeeded") return 3;
-    return 0;
+    return envelope.ok ? 0 : 1;
   },
 };

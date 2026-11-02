@@ -83,7 +83,8 @@ export interface ComputeReconcileReport {
 export interface ComputeService {
   health(instance?: string): Promise<ComputeHealthReport | ComputeRefusal>;
   plan(caller: ComputeCaller, request: ComputeRunRequest): Promise<{ ok: true; plan: ComputePlan } | ComputeRefusal>;
-  run(caller: ComputeCaller, request: ComputeRunRequest): Promise<ComputeJobResult>;
+  /** `hooks.onCreated` hears the job id once its record exists, before any provider call. */
+  run(caller: ComputeCaller, request: ComputeRunRequest, hooks?: ComputeRunHooks): Promise<ComputeJobResult>;
   status(caller: ComputeCaller, jobId: string): Promise<ComputeJobResult>;
   cancel(caller: ComputeCaller, jobId: string): Promise<ComputeJobResult>;
   collect(caller: ComputeCaller, jobId: string): Promise<ComputeCollection | ComputeRefusal>;
@@ -91,6 +92,10 @@ export interface ComputeService {
   abandon(caller: ComputeCaller, jobId: string): Promise<ComputeJobResult>;
   /** Visit every unfinished job of this brain not held by a live process. */
   reconcile(): Promise<ComputeReconcileReport | ComputeRefusal>;
+}
+
+export interface ComputeRunHooks {
+  onCreated?(jobId: string): void;
 }
 
 export function computeJobView(job: ComputeJobRecord, blocked: string | null = null): ComputeJobView {
@@ -365,7 +370,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       return { ok: true, plan: admitted.plan };
     },
 
-    async run(caller, request) {
+    async run(caller, request, hooks) {
       const admitted = await admit(caller, request);
       if ("ok" in admitted) return admitted;
       const { store: jobStore, brain: brainKey } = state();
@@ -401,6 +406,11 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
         }
       } finally {
         admission.release();
+      }
+      try {
+        hooks?.onCreated?.(job.id);
+      } catch (error) {
+        log.warn("compute: a run hook threw", { id: job.id, reason: (error as Error).message });
       }
       return { ok: true, job: view(await advance(job, jobStore, "start", owner)) };
     },

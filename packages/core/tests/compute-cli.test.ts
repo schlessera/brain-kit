@@ -6,22 +6,25 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { BRAIN_BIN, keylessEnv, runCli } from "./cli-harness";
-import { computeBrain, type ComputeBrain } from "./helpers/compute/cli-brain";
+import { computeBrain, FAULT_CONFIG, type ComputeBrain } from "./helpers/compute/cli-brain";
 
 let box: ComputeBrain;
 let bare: ComputeBrain;
+let faults: ComputeBrain;
 
 beforeAll(() => {
   box = computeBrain();
   bare = computeBrain(null);
+  faults = computeBrain(FAULT_CONFIG);
 });
 afterAll(() => {
   box?.dispose();
   bare?.dispose();
+  faults?.dispose();
 });
 
 const cli = (b: ComputeBrain, args: string[], env: Record<string, string> = {}) => runCli(b.root, ["compute", ...args], { ...b.env, ...env });
@@ -226,6 +229,78 @@ describe("run", () => {
     const { job } = json(stdout);
     expect(job).toMatchObject({ id, state: "cancelled", cancelRequested: true, cleanup: { state: "released" } });
     expect(liveSandboxes(box)).toBe(0);
+  }, 30_000);
+});
+
+describe("a run interrupted or left unclean", () => {
+  const gate = () => join(faults.work, "open-stage");
+  const spawnRun = (args: string[]) =>
+    Bun.spawn(["bun", BRAIN_BIN, "compute", "run", ...args], {
+      env: { ...keylessEnv(faults.root), ...faults.env },
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+
+  /** Wait until a new job of `faults` is recorded in `state`. */
+  async function newJobIn(before: Set<string>, state: string): Promise<string> {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      const id = jobIds(faults).find((j) => !before.has(j));
+      if (id && existsSync(join(faults.state, "jobs", id, "job.json")) && JSON.parse(readFileSync(join(faults.state, "jobs", id, "job.json"), "utf8")).state === state) return id;
+      await Bun.sleep(50);
+    }
+    throw new Error(`no new job reached ${state}`);
+  }
+
+  test("a signal while the job is still starting is kept: the job is cancelled once it has started", async () => {
+    rmSync(gate(), { force: true });
+    const before = new Set(jobIds(faults));
+    const proc = spawnRun(["--provider", "ithaca-gated", "--source", "notes/raft.md", "--json", "--", "sleep", "60"]);
+    const id = await newJobIn(before, "staging");
+    proc.kill("SIGTERM");
+    await Bun.sleep(200);
+    writeFileSync(gate(), "");
+    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    rmSync(gate(), { force: true });
+    expect(code).toBe(3);
+    expect(stderr).toContain("SIGTERM received, cancelling");
+    const { job } = json(stdout);
+    expect(job).toMatchObject({ id, state: "cancelled", cancelRequested: true, cleanup: { state: "released" } });
+    expect(liveSandboxes(faults)).toBe(0);
+  }, 30_000);
+
+  test("human mode names the job on stderr as soon as it is recorded, before it has started", async () => {
+    rmSync(gate(), { force: true });
+    const before = new Set(jobIds(faults));
+    const proc = spawnRun(["--provider", "ithaca-gated", "--source", "notes/route.md", "--human", "--", "sleep", "60"]);
+    const id = await newJobIn(before, "staging");
+    const reader = proc.stderr.getReader();
+    let seen = "";
+    const deadline = Date.now() + 10_000;
+    while (!seen.includes(id) && Date.now() < deadline) {
+      const chunk = await Promise.race([reader.read(), Bun.sleep(500).then(() => undefined)]);
+      if (chunk?.value) seen += new TextDecoder().decode(chunk.value);
+      if (chunk?.done) break;
+    }
+    expect(seen).toContain(id);
+    proc.kill("SIGINT");
+    await Bun.sleep(200);
+    writeFileSync(gate(), "");
+    reader.releaseLock();
+    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    rmSync(gate(), { force: true });
+    expect(code).toBe(3);
+    expect(stdout).toContain(`job ${id}: cancelled`);
+    expect(liveSandboxes(faults)).toBe(0);
+  }, 30_000);
+
+  test("an attached run whose release is never confirmed exits 2 and points at reconcile", async () => {
+    const r = await cli(faults, ["run", "--provider", "ithaca-leaky", "--json", "--", "true"]);
+    const { job } = json(r.stdout);
+    expect(job).toMatchObject({ state: "succeeded", cleanup: { state: "release_failed" } });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("brain compute reconcile");
   }, 30_000);
 });
 

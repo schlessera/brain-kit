@@ -10,7 +10,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { describeCost } from "../src/cli/commands/compute";
+import { attach, describeCost, runExitCode } from "../src/cli/commands/compute";
 import { createComputeDriver, createComputeOps, jobOutput, localPrincipal, type ComputeJobOutput } from "../src/lib/ops/compute";
 import { fakeClock, jobDirs, PENELOPE, sandbox, START, TELEMACHUS, type Sandbox } from "./helpers/compute/fixture";
 import { memoryCompute } from "./helpers/compute/memory-provider";
@@ -218,6 +218,44 @@ describe("the background driver", () => {
     for (const id of ["a", "b", "c"]) driver.track(id);
     expect(driver.tracked()).toEqual(["a", "b"]);
     driver.stop();
+  });
+});
+
+describe("an attached run", () => {
+  const ended = (cleanup: ComputeJobOutput["cleanup"]["state"]): ComputeJobOutput => ({
+    id: "cj_aaaaaaaaaaaaaaaaaaaaaaaaaa", instance: "pylos-memory", provider: "memory", state: "succeeded",
+    createdAt: new Date(START).toISOString(), updatedAt: new Date(START).toISOString(),
+    lease: { seconds: 60, deadline: new Date(START + 60_000).toISOString() }, source: { hash: "h", files: 0 },
+    exit: { code: 0, signal: null, reason: "exited" }, artifacts: [],
+    cleanup: { state: cleanup, retainedUntil: null, lastError: cleanup === "release_failed" ? "failed: the harbour is closed" : null },
+    cost: { estimate: { usd: null, basis: "none" }, actual: { usd: null, coverage: "unknown", source: "none" } },
+    cancelRequested: false, uncertain: null, terminal: { state: "succeeded", at: new Date(START).toISOString(), reason: "exited 0" }, blocked: null,
+  });
+  const fakeOps = (states: ComputeJobOutput["cleanup"]["state"][]) => {
+    let visits = 0;
+    const ops = {
+      status: async () => ({ ok: true as const, job: ended(states[Math.min(visits++, states.length - 1)]!) }),
+      cancel: async () => { throw new Error("nothing to cancel"); },
+    } as unknown as Parameters<typeof attach>[0];
+    return { ops, visits: () => visits };
+  };
+  const noSignal = { signal: null, sleep: async () => {} };
+
+  test("keeps visiting a job that ended until its cleanup is settled", async () => {
+    const { ops, visits } = fakeOps(["release_failed", "release_failed", "released"]);
+    const final = await attach(ops, ended("pending"), () => {}, noSignal);
+    expect(visits()).toBe(3);
+    expect(final).toMatchObject({ ok: true, job: { cleanup: { state: "released" } } });
+    expect(runExitCode(final, true)).toBe(0);
+  });
+
+  test("gives up after a bounded number of visits and reports the unconfirmed cleanup as exit 2", async () => {
+    const { ops, visits } = fakeOps(["release_failed"]);
+    const final = await attach(ops, ended("release_failed"), () => {}, noSignal, { cleanupVisits: 4 });
+    expect(visits()).toBe(4);
+    expect(runExitCode(final, true)).toBe(2);
+    for (const state of ["pending", "unknown"] as const) expect(runExitCode({ ok: true, job: ended(state) }, true)).toBe(2);
+    expect(runExitCode({ ok: true, job: ended("retained") }, true)).toBe(0);
   });
 });
 

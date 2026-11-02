@@ -16,7 +16,13 @@ import { z } from "zod";
 import type { BrainConfig } from "../config.js";
 import { maintenanceConfigRoots } from "../../config/env.js";
 import { checkGovernancePolicy } from "../governance-policy.js";
-import { createComputeService, type ComputeCollection, type ComputeHealthReport, type ComputeReconcileReport } from "../compute/service.js";
+import {
+  createComputeService,
+  type ComputeCollection,
+  type ComputeHealthReport,
+  type ComputeReconcileReport,
+  type ComputeRunHooks,
+} from "../compute/service.js";
 import type {
   ComputeCaller,
   ComputeJobView,
@@ -80,6 +86,7 @@ export const computeJobInput = z.strictObject({
 export type ComputeHealthInput = z.infer<typeof computeHealthInput>;
 export type ComputeRequestInput = z.infer<typeof computeRequestInput>;
 export type ComputeJobInput = z.infer<typeof computeJobInput>;
+export type { ComputeRunHooks };
 
 /** A refusal: nothing was allocated or changed. */
 export interface ComputeErrorEnvelope {
@@ -134,7 +141,8 @@ export interface ComputeOps {
   readonly caller: ComputeCaller;
   health(input: ComputeHealthInput): Promise<ComputeHealthEnvelope>;
   plan(input: ComputeRequestInput): Promise<ComputePlanEnvelope>;
-  run(input: ComputeRequestInput): Promise<ComputeJobEnvelope>;
+  /** `hooks.onCreated` hears the job id as soon as its record exists, before the provider is called. */
+  run(input: ComputeRequestInput, hooks?: ComputeRunHooks): Promise<ComputeJobEnvelope>;
   status(input: ComputeJobInput): Promise<ComputeJobEnvelope>;
   cancel(input: ComputeJobInput): Promise<ComputeJobEnvelope>;
   collect(input: ComputeJobInput): Promise<ComputeCollectEnvelope>;
@@ -264,10 +272,10 @@ export function createComputeOps(options: ComputeOpsOptions): ComputeOps {
       return planned.ok ? { ok: true, plan: planned.plan } : refusal(planned);
     },
 
-    async run(input) {
+    async run(input, hooks) {
       const svc = admission();
       if ("ok" in svc) return svc;
-      const result = await svc.run(caller, toRunRequest(input));
+      const result = await svc.run(caller, toRunRequest(input), hooks);
       return result.ok ? { ok: true, job: jobOutput(result.job) } : refusal(result);
     },
 

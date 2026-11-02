@@ -30,7 +30,9 @@ registered after the eight document tools whether or not `compute` is
 configured. Both surfaces call one core operation set and print the same
 envelopes: `{ ok: true, ... }`, or `{ ok: false, error: { code, message } }`
 with the external-compute refusal codes and nothing allocated. A refusal exits
-`1`, and a `run` whose job ended other than `succeeded` exits `3`. The
+`1`, a `run` whose job ended with its cleanup not confirmed exits `2`, one
+whose job ended other than `succeeded` exits `3`, and a second SIGINT or
+SIGTERM leaves an attached run with `130` or `143`. The
 `ComputeRunRequest` of the internal service gains an optional `retain`. A new
 core skill, `external-compute`, is emitted by `brain skills sync`. Nothing
 changes for existing commands, tools or envelopes, and a brain without

@@ -46,6 +46,45 @@ export default defineConfig({
 });
 `;
 
+/**
+ * The local-process provider with two faults, for the CLI's signal and
+ * cleanup paths: `ithaca-gated` holds staging until `<work>/open-stage`
+ * exists (at most 20 s), and `ithaca-leaky` never confirms a release, with a
+ * reason carrying terminal escape sequences.
+ */
+export const FAULT_CONFIG = `
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { defineConfig } from "@schlessera/brain";
+import { localProcessCompute } from ${JSON.stringify(join(HELPERS, "local-process-provider.ts"))};
+
+const work = process.env.ODYSSEUS_WORK_ROOT!;
+const local = localProcessCompute(work);
+const gated = {
+  ...local.provider,
+  async stage(ref, source, ctx) {
+    for (let i = 0; i < 400 && !existsSync(join(work, "open-stage")); i++) await Bun.sleep(50);
+    return local.provider.stage(ref, source, ctx);
+  },
+};
+const leaky = {
+  ...local.provider,
+  async release() {
+    return { kind: "failed", reason: "the harbour \\u001b]0;Scylla\\u0007is closed \\u001b[2J" };
+  },
+};
+
+export default defineConfig({
+  profile: { name: "Odysseus" },
+  compute: {
+    providers: {
+      "ithaca-gated": { provider: gated, lease: { maxSeconds: 600 }, maxConcurrent: 4 },
+      "ithaca-leaky": { provider: leaky, lease: { maxSeconds: 600 }, maxConcurrent: 4 },
+    },
+  },
+});
+`;
+
 /** A brain with a few Odysseus notes; `config` is the brain.config.ts body, or none at all. */
 export function computeBrain(config: string | null = COMPUTE_CONFIG): ComputeBrain {
   const root = makeTempBrain({ empty: true });
