@@ -991,8 +991,8 @@ signatures (every public export and the types it is made of)
     }): ShareOption[];
   cancel (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function cancel(requestId: string): Promise<void>;
-  checkRetryDelivery (packages/ui-react/src/connection.ts)
-    function checkRetryDelivery(sessionId: string): boolean;
+  checkDelivery (packages/ui-react/src/ws-client/turn-retry.ts)
+    function checkDelivery(sessionId: string): boolean;
   commit (packages/ui-react/src/voice/conversation-client.ts)
     function commit(own: number): boolean;
   configureBrainUi (packages/ui-react/src/config.ts)
@@ -1347,7 +1347,7 @@ signatures (every public export and the types it is made of)
             discard(): void;
             dispose(): void;
             enter(): void;
-            frame: (message: ServerMessage) => ServerMessage | null;
+            frame: (message: import("@schlessera/brain-ui-sdk").ServerMessage) => import("@schlessera/brain-ui-sdk").ServerMessage | null;
             historyOwnerFor: (key: string) => string | undefined;
             leave: () => void;
             loadDialogue: (key: string, older?: boolean) => void;
@@ -1355,7 +1355,7 @@ signatures (every public export and the types it is made of)
             permissions: {
                 clear(): void;
                 dispose(): void;
-                frame: (message: ServerMessage) => void;
+                frame: (message: import("@schlessera/brain-ui-sdk").ServerMessage) => void;
                 input: (event: Extract<import("@schlessera/brain-ui-sdk").ConversationWireEvent, {
                     kind: "input_fragment";
                 }>) => boolean;
@@ -1381,10 +1381,10 @@ signatures (every public export and the types it is made of)
             resend: (requestId: string) => boolean;
         };
         flushChatDeltas: () => void;
-        handleServerMessage: (msg: ServerMessage) => void;
+        handleServerMessage: (msg: import("@schlessera/brain-ui-sdk").ServerMessage) => void;
         reconnectNow: () => void;
         retryTurn: (failedTurnId: string) => "pending" | "refused" | "sent";
-        send: (msg: ClientMessage) => boolean;
+        send: (message: ClientMessage) => boolean;
     };
   detectLocalCaptureSupport (packages/ui-react/src/voice/local-capture.ts)
     export function detectLocalCaptureSupport(env?: LocalCaptureEnvironment & {
@@ -1397,13 +1397,11 @@ signatures (every public export and the types it is made of)
     function dismissed(requestId: string): void;
   edit (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function edit(requestId: string): void;
-  flushChatDeltas (packages/ui-react/src/connection.ts)
-    function flushChatDeltas(): void;
   frame (packages/ui-react/src/voice/conversation-client.ts)
     function frame(message: ServerMessage): ServerMessage | null;
   frame (packages/ui-react/src/voice/conversation-permissions.ts)
     function frame(message: ServerMessage): void;
-  handleServerMessage (packages/ui-react/src/connection.ts)
+  handleServerMessage (packages/ui-react/src/ws-client/inbound.ts)
     function handleServerMessage(msg: ServerMessage): void;
   hasPendingShare (packages/ui-react/src/stores/share-state.ts)
     export function hasPendingShare(state: ShareShellState): boolean;
@@ -1427,8 +1425,6 @@ signatures (every public export and the types it is made of)
     function quiet(): void;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function receipt(frame: ServerAskAnswerReceipt): void;
-  reconnectWebSocketNow (packages/ui-react/src/connection.ts)
-    function reconnectWebSocketNow(): void;
   registerContentRendererPack (packages/ui-react/src/content-renderers/register.ts)
     export function registerContentRendererPack(pack: ContentRendererPack, module: {
         name: string;
@@ -1440,12 +1436,12 @@ signatures (every public export and the types it is made of)
     export function renderBlockHtml(block: Block, trackDisplay?: TrackDisplay): Promise<string>;
   retry (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function retry(requestId: string): Promise<void>;
-  retryTurn (packages/ui-react/src/connection.ts)
+  retryTurn (packages/ui-react/src/ws-client/turn-retry.ts)
     function retryTurn(failedTurnId: string): "sent" | "pending" | "refused";
   runStats (packages/ui-react/src/components/chat/use-chat-commands.ts)
     export function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void>;
-  sendClientMessage (packages/ui-react/src/connection.ts)
-    function sendClientMessage(msg: ClientMessage): boolean;
+  send (packages/ui-react/src/connection.ts)
+    function send(message: ClientMessage): boolean;
   shareMarkdown (packages/ui-react/src/components/chat/share-document.tsx)
     export function shareMarkdown(message: Pick<ChatMessage, "content" | "parts" | "toolCalls" | "blocks">, deps: ShareDeps): Promise<string>;
   softwareDetails (packages/ui-react/src/lib/stats/software.ts)
