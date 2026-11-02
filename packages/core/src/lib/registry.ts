@@ -9,7 +9,7 @@
 
 import type { BrainConfig } from "./config.js";
 import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
-import { readEnvVar } from "../config/env.js";
+import { readEnvVar, resolveEnv } from "../config/env.js";
 import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import { buildPathMatcher, envRerankMode, isRerankMode, RERANK_MODES } from "./reranker.js";
@@ -253,7 +253,9 @@ export function resolveProviders(config?: BrainConfig | null): ResolvedProviders
     resolved.warnings.completions = `completion provider unavailable — ${(e as Error).message}`;
   }
   try {
-    resolved.agentRunner = resolveAgentRunner(config?.agentRunner);
+    // A credential-free maintenance worker can log no agent in (#3243): a
+    // runner there could only fail, so it is absent, as when none resolves.
+    if (!resolveEnv().agentRunnerUnavailable) resolved.agentRunner = resolveAgentRunner(config?.agentRunner);
   } catch (e) {
     resolved.warnings.agentRunner = `agent runner unavailable — ${(e as Error).message}`;
   }

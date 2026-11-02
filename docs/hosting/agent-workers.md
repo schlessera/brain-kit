@@ -615,7 +615,12 @@ refuses rather than run git on the host.
   temporary directory for an in-memory database or standalone client).
   Commit, pull, merge, judgment and indexing run without credentials or host
   network access, using complete immutable startup inputs and a separate
-  validated output workspace. Local outputs publish before the next credentialed
+  validated output workspace. Judgment there is the deterministic strategies
+  only: no agent can log in, so the worker's launcher sets
+  `BRAIN_AGENT_RUNNER_UNAVAILABLE=1` and a conflict no strategy resolves ends
+  `needs-judgment` (exit `3`, nothing pushed) with a "judgment unavailable;
+  resolve manually" notice, instead of launching an agent CLI that can only
+  fail (#3243). Local outputs publish before the next credentialed
   transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
   root remain read-only. Maintenance completion awaits both the outer

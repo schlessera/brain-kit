@@ -181,6 +181,9 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
     // No Bun process in the worker loads an `.env`, whatever the brain links
     // it to at the moment it starts; the masks below cover the files too.
     env.BUN_OPTIONS = "--no-env-file";
+    // No agent can log in here (#3243): `brain sync` reports judgment
+    // unavailable instead of launching a runner that can only fail.
+    env.BRAIN_AGENT_RUNNER_UNAVAILABLE = "1";
   }
   const home = input.credentials && input.home ? realpathSync(input.home) : undefined;
   return {
