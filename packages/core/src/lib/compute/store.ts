@@ -40,12 +40,14 @@ export function sha256Hex(data: string | Uint8Array): string {
 export class ComputeJobStore {
   readonly jobsDir: string;
 
+  /** `create: false` opens an existing directory for reading only and creates nothing. */
   constructor(
     readonly stateDir: string,
-    private readonly hooks: { beforePublish?: (path: string) => void } = {}
+    private readonly hooks: { beforePublish?: (path: string) => void } = {},
+    options: { create?: boolean } = {}
   ) {
     this.jobsDir = join(stateDir, "jobs");
-    mkdirSync(this.jobsDir, { recursive: true, mode: 0o700 });
+    if (options.create !== false) mkdirSync(this.jobsDir, { recursive: true, mode: 0o700 });
   }
 
   /** Record which brain uses this directory, once; diagnostic only. */
@@ -122,6 +124,7 @@ export class ComputeJobStore {
   list(): { jobs: ComputeJobRecord[]; unreadable: { id: string; reason: string }[] } {
     const jobs: ComputeJobRecord[] = [];
     const unreadable: { id: string; reason: string }[] = [];
+    if (!existsSync(this.jobsDir)) return { jobs, unreadable };
     for (const name of readdirSync(this.jobsDir)) {
       if (!COMPUTE_JOB_ID.test(name)) continue;
       try {

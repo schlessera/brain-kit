@@ -30,7 +30,7 @@ import {
 } from "./admission.js";
 import { JobDriver, callProvider, type DriveMode, type LifecycleDeps } from "./lifecycle.js";
 import { acquireLock, tryLock, type HeldLock } from "./lock.js";
-import { computeBrainKey, resolveComputeStateDir } from "./state-dir.js";
+import { computeBrainKey, existingComputeStateDir, resolveComputeStateDir } from "./state-dir.js";
 import { ComputeJobStore, newComputeJobId, receipt } from "./store.js";
 import {
   isTerminal,
@@ -159,6 +159,13 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     }
     return { store, brain: brain! };
   };
+
+  /** Every readable record without creating the state directory or writing anything. */
+  function peekJobs(): ComputeJobRecord[] {
+    if (store) return listJobs(store).jobs;
+    const dir = existingComputeStateDir({ root: options.root, override: options.stateDir, env: options.env });
+    return dir === undefined ? [] : listJobs(new ComputeJobStore(dir, options.storeHooks, { create: false })).jobs;
+  }
 
   async function instanceFor(id: string): Promise<ResolvedComputeInstance | ComputeRefusal> {
     if (typeof id !== "string" || !providers || !Object.hasOwn(providers, id)) {
@@ -378,8 +385,9 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     async plan(caller, request) {
       const admitted = await admit(caller, request);
       if ("ok" in admitted) return admitted;
-      const { store: jobStore } = state();
-      admitted.plan.slots.used = slotsUsed(listJobs(jobStore).jobs, admitted.instance.id);
+      // Plan has no effect: it counts slots from whatever records exist and
+      // creates neither the state directory nor its brain.json.
+      admitted.plan.slots.used = slotsUsed(peekJobs(), admitted.instance.id);
       return { ok: true, plan: admitted.plan };
     },
 

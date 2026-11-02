@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Subprocess } from "bun";
@@ -86,6 +86,8 @@ describe("lock ownership", () => {
     box = sandbox();
     const svc = service(box, { providers: { ithaca: { provider: memoryCompute().provider, lease: { maxSeconds: 600 } } } }, { lockWaitMs: 200 });
     expect((await svc.plan(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] })).ok).toBe(true);
+    // Plan creates nothing; the holder needs the state directory to exist.
+    mkdirSync(box.state, { recursive: true, mode: 0o700 });
     await killed(await hold(join(box.state, "admission.lock")));
     const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] });
     expect(run.ok).toBe(true);
@@ -96,6 +98,8 @@ describe("lock ownership", () => {
     const memory = memoryCompute();
     const svc = service(box, { providers: { ithaca: { provider: memory.provider, lease: { maxSeconds: 600 } } } }, { lockWaitMs: 200 });
     expect((await svc.plan(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] })).ok).toBe(true);
+    // Plan creates nothing; the holder needs the state directory to exist.
+    mkdirSync(box.state, { recursive: true, mode: 0o700 });
     const holder = await hold(join(box.state, "admission.lock"));
     const started = performance.now();
     const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] });

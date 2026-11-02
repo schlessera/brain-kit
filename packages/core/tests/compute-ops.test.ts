@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { attach, describeCost, runExitCode } from "../src/cli/commands/compute";
@@ -44,6 +44,14 @@ describe("envelopes", () => {
     expect(status.job.terminal?.at).toBe(new Date(START + 61_000).toISOString());
     const collect = await ops().collect({ job: run.job.id });
     expect(collect).toMatchObject({ ok: true, output: { stdout: "", stderr: "", truncated: false }, artifacts: [] });
+  });
+
+  test("plan writes nothing: no state directory appears when none existed", async () => {
+    const { ops, box, memory } = setup();
+    expect(existsSync(box.state)).toBe(false);
+    expect(await ops().plan({ provider: "pylos-memory", argv: ["true"], source: ["notes/raft.md"] })).toMatchObject({ ok: true, plan: { slots: { used: 0, max: 2 } } });
+    expect(existsSync(box.state)).toBe(false);
+    expect(memory.created()).toBe(0);
   });
 
   test("unknown cost stays null in the envelope and reads 'unknown' to a person", async () => {
