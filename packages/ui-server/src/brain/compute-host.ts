@@ -61,6 +61,7 @@ type ComputeCaller = import("@schlessera/brain/internal").ComputeCaller;
 type ComputeOps = import("@schlessera/brain/internal").ComputeOps;
 type ComputeJobOutput = import("@schlessera/brain/internal").ComputeJobOutput;
 type ComputeServiceOptions = import("@schlessera/brain/internal").ComputeServiceOptions;
+type HostServiceOverrides = Partial<Omit<ComputeServiceOptions, "root" | "config" | "env" | "stateDir" | "budget" | "approve" | "sourcePolicy" | "recheck">>;
 type ComputePlan = import("@schlessera/brain/internal").ComputePlan;
 type ComputeBudget = import("@schlessera/brain/internal").ComputeBudget;
 type HostedCaller = Extract<ComputeCaller, { kind: "hosted" }>;
@@ -154,10 +155,18 @@ export interface ComputeHostOptions {
   budgets?: Pick<TurnBudgets, "compute">;
   activity?: Pick<ActivityRuntime, "store" | "stream" | "governance">;
   log?: Logger;
-  /** Core's internal entry; tests inject it, production imports the optional peer lazily. */
-  core?: () => Promise<CoreInternal>;
-  /** Test overrides for the core service: registry, clock, transport, timeouts. */
-  serviceOptions?: Partial<Omit<ComputeServiceOptions, "root" | "config" | "env" | "stateDir" | "budget" | "approve" | "sourcePolicy" | "recheck">>;
+  /**
+   * Core's internal entry; tests inject it, production imports the optional
+   * peer lazily. Typed opaquely so published declarations never reference the
+   * optional core peer.
+   */
+  core?: () => Promise<unknown>;
+  /**
+   * Test overrides for the core service (registry, clock, transport,
+   * timeouts), passed through as core's service options. Opaque for the same
+   * reason as `core`.
+   */
+  serviceOptions?: Readonly<Record<string, unknown>>;
   /** Host driver cadence. */
   driver?: { initialDelayMs?: number; maxDelayMs?: number; visitsPerPass?: number; maxFailures?: number };
   /** Credential reader; defaults to the ui-sdk env chokepoint. */
@@ -215,7 +224,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
   const { db, brainPath } = options;
   const now = options.clock ?? Date.now;
   const credential = options.credential ?? hostComputeCredential;
-  const loadCore = options.core ?? (() => import("@schlessera/brain/internal"));
+  const loadCore = (options.core as (() => Promise<CoreInternal>) | undefined) ?? (() => import("@schlessera/brain/internal"));
   const turnConfigs = new Map<string, Promise<ComputeConfigRead>>();
   let core: CoreInternal | null | undefined;
   let lastInstances: ComputeReadiness["instances"] = null;
@@ -231,7 +240,8 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     return core;
   }
 
-  const registry = () => options.serviceOptions?.registry;
+  const serviceOverrides = options.serviceOptions as HostServiceOverrides | undefined;
+  const registry = () => serviceOverrides?.registry;
 
   /** What a bound built-in is, learned without any vendor call: its package, default variable and remote expiry. */
   async function builtin(provider: string): Promise<{ package: "present" | "missing"; remoteExpiry: boolean | null; defaultKeyEnv: string | null }> {
@@ -393,7 +403,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       config: config as never,
       caller,
       env,
-      serviceOptions: { ...options.serviceOptions, stateDir: options.stateDir! },
+      serviceOptions: { ...serviceOverrides, stateDir: options.stateDir! },
       hosted: {
         sourcePolicy: { providers: hosted?.sourcePolicy.providers ?? [] },
         approve: hosted ? plan => hosted.approve(plan) : () => "denied",
