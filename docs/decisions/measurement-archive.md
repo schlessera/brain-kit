@@ -275,6 +275,21 @@ lists 240 of them, and the triage answers file under
   suggestions documents and one to the site-model spike's README. It links them
   at the pinned commit `c577320cb4b9e3224a84a374e975ef5910db1edd`, which still
   contains them, so those links stay valid and were not changed.
+- Three root scripts lost their last consumer once their driving issues closed,
+  and were removed from `main` by
+  [#2510](https://github.com/schlessera/brain-kit/issues/2510). They are
+  harnesses, not measurement output, so they were not added to the archive
+  branch. Main commit `a62db8f27a22fd2df744308e9b1ee12bc50f3da2` is the last
+  to contain all four files; read them there:
+  - `scripts/measure-graph-routes.ts` timed graph reads for
+    [#1030](https://github.com/schlessera/brain-kit/issues/1030), after #697
+    moved them onto `./queries`.
+  - `scripts/replay-ci-consumers.ts` replayed root-proof consumer selection
+    for #2149 (closing #2123). It read a 100-PR snapshot that was never
+    committed.
+  - `scripts/generated-inputs.ts` and its test `tests/generated-inputs.test.ts`
+    came from #2178 (refs #2126 and #2190). It was library code with no
+    production caller, so only its own test ran it.
 
 ## Pointers moved to the archive
 
