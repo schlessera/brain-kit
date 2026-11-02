@@ -45,7 +45,7 @@ const user = () => typeof process.getuid === "function" ? process.getuid() : "us
  * through its ancestry and never queues behind the host's real heavy commands.
  */
 export function testLedgerFor(pid, start) {
-  return join(tmpdir(), `brain-host-admission-tests-${user()}`, `${pid}-${start}`);
+  return join(tmpdir(), `brain-host-admission-test-${user()}-${pid}-${start}`);
 }
 
 /** This process's ancestors, nearest first (Linux only). */

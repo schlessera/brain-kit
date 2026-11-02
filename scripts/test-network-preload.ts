@@ -14,9 +14,11 @@ if (coordinated !== undefined) process.exit(coordinated);
 // convention in scripts/host-admission.mjs, so a descendant whose environment
 // was replaced finds it through its ancestry. A test exercising the host ledger
 // names its own directory; an admitted caller's descendants inherit its slot.
-const privateAdmission = join(tmpdir(), `brain-host-admission-tests-${process.getuid?.() ?? "user"}`,
-  `${process.pid}-${processIdentity(process.pid)?.start ?? "0"}`);
-mkdirSync(privateAdmission, { recursive: true, mode: 0o700 });
+// One flat entry, removed in afterAll, so a test asserting an empty TMPDIR
+// after its child exits sees nothing left behind.
+const privateAdmission = join(tmpdir(),
+  `brain-host-admission-test-${process.getuid?.() ?? "user"}-${process.pid}-${processIdentity(process.pid)?.start ?? "0"}`);
+mkdirSync(privateAdmission, { mode: 0o700 });
 process.env.BRAIN_HOST_ADMISSION_DIR = privateAdmission;
 afterEach(() => guard.assertNoEscapes());
 // A preload hook runs after all files; a hook in the cached helper would run
