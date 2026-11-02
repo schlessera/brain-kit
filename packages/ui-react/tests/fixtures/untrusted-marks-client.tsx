@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { FilePanel } from "../../src/components/files/file-panel.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
+import { useFileStore } from "../../src/stores/file-store.js";
 
 // #2673: the real Files panel (drawer below 900px, panes from there) against a real server.
 const params = new URLSearchParams(location.search);
@@ -11,9 +12,15 @@ const mount = document.getElementById("app");
 if (!mount) throw new Error("Untrusted marks fixture has no mount");
 document.documentElement.dataset.theme = params.get("theme") ?? "dark";
 document.documentElement.classList.toggle("dark", params.get("theme") !== "light");
+/** The open path as React last committed it, beside the panel in the same tree (#3361). */
+function RenderedPath() {
+  const path = useFileStore((s) => s.currentPath);
+  return <span hidden data-rendered-path={path ?? ""} />;
+}
 createRoot(mount).render(
   <BrainUiProvider root={root}>
     <FilePanel open onClose={() => {}} />
+    <RenderedPath />
   </BrainUiProvider>,
 );
 Object.assign(window, { __marks: {

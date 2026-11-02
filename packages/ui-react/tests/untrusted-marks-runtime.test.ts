@@ -114,6 +114,10 @@ async function open(who: "owner" | "reader", width: number, height: number, them
 async function openFile(page: Page, path: string) {
   await page.evaluate((target) => (window as unknown as { __marks: { open(path: string): Promise<void> } }).__marks.open(target), path);
   await page.waitForFunction(() => { const s = (window as unknown as { __marks: { state(): { loading: boolean } } }).__marks.state(); return !s.loading; });
+  // The store switches synchronously. Wait until React has rendered this path,
+  // or switching away and straight back can commit no change of path at all, so
+  // the panel never rereads the file's mark (#3361).
+  await page.waitForFunction(target => document.querySelector("[data-rendered-path]")?.getAttribute("data-rendered-path") === target, path);
 }
 const dialog = (page: Page) => page.getByRole("dialog");
 const focusedName = (page: Page) => page.evaluate(() => {
