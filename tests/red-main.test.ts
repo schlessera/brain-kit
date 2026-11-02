@@ -172,7 +172,7 @@ describe("hosted gate", () => {
 });
 
 /** In-memory GitHub plus a real-shape record store for the coordinator. */
-function fakeGitHub(options: { jobs: Job[]; junit?: string; closure?: boolean | null; pulls?: Record<string, number>; prRuns?: WorkflowRun[]; history?: WorkflowRun[]; historyJobs?: Record<number, Job[]> }) {
+function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<string, string>; closure?: boolean | null; pulls?: Record<string, number>; prRuns?: WorkflowRun[]; history?: WorkflowRun[]; historyJobs?: Record<number, Job[]> }) {
   let snapshot: Snapshot = { oid: null, redMain: emptyRedMain() }, version = 0, clock = NOW;
   const issues: { number: number; title: string; body: string; labels: string[] }[] = [];
   const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [];
@@ -204,7 +204,13 @@ function fakeGitHub(options: { jobs: Job[]; junit?: string; closure?: boolean | 
     async now() { return clock += 1000; },
     read() { return { oid: String(version), redMain: snapshot.redMain }; },
     publish(seen, record) { if (seen.oid !== String(version)) return false; version++; snapshot = { oid: String(version), redMain: parseRedMain(JSON.stringify(record)) }; return true; },
-    async artifactFiles(_run, name) { return name === "unit-proof-2" && options.junit ? [options.junit] : []; },
+    // Like the hosted unit job, the artifact holds one report per worker under tmp/;
+    // a failing shard has no merged report unless a test supplies one (#3324).
+    async artifactFiles(_run, name, file) {
+      if (name !== "unit-proof-2") return [];
+      const artifact = options.artifact ?? (options.junit ? { "tmp/unit-worker-1-report.xml": options.junit, "tmp/unit-worker-2-report.xml": "<testsuites></testsuites>", "tmp/unit-worker-1-timings.json": "{}" } : {});
+      return Object.entries(artifact).map(([path, text]) => ({ name: path.split("/").at(-1)!, text })).filter(entry => file.test(entry.name));
+    },
     async log() { return ""; },
     inClosure: () => options.closure ?? true,
     range: (since, until) => since === A && until === C ? [B, C] : [],
@@ -220,6 +226,16 @@ const mainRun = (sha: string, conclusion: string, id = 100): WorkflowRun => ({ i
 const junit = `<testsuites><testsuite name="packages/core/tests/raft.test.ts" file="packages/core/tests/raft.test.ts" failures="1"><testcase name="t"><failure>expect(received).toBe(expected)</failure></testcase></testsuite></testsuites>`;
 
 describe("coordinator", () => {
+  test("a failing shard's test is read from its unit workers' reports, and a merged report is not counted twice (#3324)", async () => {
+    const jobs: Job[] = [{ id: 1, name: "changeset", conclusion: "success" }, { id: 2, name: "unit (2)", conclusion: "failure", steps: [] }];
+    const workersOnly = fakeGitHub({ jobs, junit });
+    await coordinate(workersOnly.io, mainRun(B, "failure"));
+    expect(workersOnly.record().open?.failures.map(f => f.test), "WORKER_REPORT_ATTRIBUTES_THE_TEST").toEqual(["packages/core/tests/raft.test.ts"]);
+    const both = fakeGitHub({ jobs, artifact: { "tmp/unit-report.xml": junit, "tmp/unit-worker-1-report.xml": junit, "tmp/unit-worker-2-report.xml": "<testsuites></testsuites>" } });
+    await coordinate(both.io, mainRun(B, "failure"));
+    expect(both.record().open?.failures.map(f => f.test), "MERGED_REPORT_PREFERRED_ONCE").toEqual(["packages/core/tests/raft.test.ts"]);
+  });
+
   test("two coordinator runs for the same bad SHA and test leave exactly one incident issue and cancel doomed PR proof", async () => {
     const gh = fakeGitHub({ jobs: [{ id: 1, name: "changeset", conclusion: "success" }, { id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], junit,
       prRuns: [{ ...mainRun(A, "", 300), event: "pull_request", head_branch: "feat", status: "in_progress", pull_requests: [{ number: 7 }], created_at: "2026-07-12T00:00:01Z" },

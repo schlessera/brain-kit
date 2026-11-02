@@ -74,8 +74,8 @@ function liveIO(repository: string): CoordinatorIO {
       const dir = mkdtempSync(join(tmpdir(), "red-main-artifact-"));
       try {
         await gh(["run", "download", String(runId), "--repo", repository, "--name", name, "--dir", dir]);
-        const found: string[] = [];
-        const walk = (path: string) => { for (const entry of readdirSync(path)) { const full = join(path, entry); if (statSync(full).isDirectory()) walk(full); else if (entry === file) found.push(readFileSync(full, "utf8")); } };
+        const found: { name: string; text: string }[] = [];
+        const walk = (path: string) => { for (const entry of readdirSync(path)) { const full = join(path, entry); if (statSync(full).isDirectory()) walk(full); else if (file.test(entry)) found.push({ name: entry, text: readFileSync(full, "utf8") }); } };
         walk(dir);
         return found;
       } finally { rmSync(dir, { recursive: true, force: true }); }

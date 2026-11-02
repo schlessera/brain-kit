@@ -9,6 +9,8 @@ import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, cove
   reportLanded, settleSuspect, type Category, type FailureEvidence, type IncludedRedSet, type RedFailure, type RedMainRecord, type Signature } from "./red-main";
 
 export const PROBE_WORKFLOW = "red-main-probe.yml";
+/** The shard's merged JUnit report, or one per unit worker (`scripts/unit-workers.ts`). */
+export const UNIT_REPORT = /^unit-(?:worker-\d+-)?report\.xml$/;
 /** Bisect only bounded ranges; a wider range keeps the conservative first red. */
 export const MAX_BISECT = 10;
 const SETUP_STEP = /prerequisites|environment setup/i;
@@ -27,8 +29,8 @@ export interface CoordinatorIO {
   now(): Promise<number>;
   read(): Snapshot;
   publish(snapshot: Snapshot, record: RedMainRecord): boolean;
-  /** Text of every named file inside the run's artifacts matching the prefix. */
-  artifactFiles(run: number, prefix: string, file: string): Promise<string[]>;
+  /** Every file, at any depth inside the named artifact, whose base name matches. */
+  artifactFiles(run: number, artifact: string, file: RegExp): Promise<{ name: string; text: string }[]>;
   log(job: number): Promise<string>;
   /** Whether a failing test or category belongs to the commit's own affected closure; null when unknown. */
   inClosure(sha: string, failure: { test: string | null; category: Category }): boolean | null;
@@ -74,8 +76,11 @@ export async function runFailures(io: CoordinatorIO, run: WorkflowRun, jobs: Job
     const fallback: Signature = setup ? "setup" : job.conclusion === "timed_out" ? "timeout" : "unknown";
     if (category === "unit" && !setup) {
       const shard = /\((\d+)\)/.exec(job.name)?.[1];
-      const reports = shard ? await io.artifactFiles(run.id, `unit-proof-${shard}`, "unit-report.xml") : [];
-      const tests = reports.flatMap(junitFailures);
+      // The shard's merged report exists only once every worker's report
+      // reconciled; a failing shard may carry only its workers' own reports (#3324).
+      const files = shard ? await io.artifactFiles(run.id, `unit-proof-${shard}`, UNIT_REPORT) : [];
+      const merged = files.filter(file => file.name === "unit-report.xml");
+      const tests = (merged.length ? merged : files).flatMap(file => junitFailures(file.text));
       if (tests.length) {
         for (const { test, signature } of tests) out.push({ test, category, signature, inClosure: io.inClosure(run.head_sha, { test, category }) });
         continue;
