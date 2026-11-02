@@ -25,14 +25,14 @@ retain sanitized tool requests.
 ## What the source already supplies
 
 `generateBriefing` performs the mechanical work
-(`generateBriefing`, `packages/core/src/cli/commands/briefing.ts:184-320`):
+(`generateBriefing`, `packages/core/src/cli/commands/briefing.ts:186-293`):
 focus warnings and linked documents; non-archived deadlines from today
 through sixty days; overdue reviews strictly before today, with a five-item
 cap and remaining count; module-aware audit totals and hygiene counts;
 recent activity, silent modifications and taxonomy-driven staleness. Its
 existing `now` option permits the evaluation clock without changing product
 code. The CLI exposes the plain-text report
-(`briefingCommand`, `packages/core/src/cli/commands/briefing.ts:322-341`).
+(`briefingCommand`, `packages/core/src/cli/commands/briefing.ts:295-314`).
 
 The shipped `whatsup` skill gathers that report, may read up to three files,
 then interprets urgency, groups action and FYI, and writes terse bullets.
