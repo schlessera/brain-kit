@@ -14,6 +14,7 @@ import { userInfo } from "node:os";
 import { z } from "zod";
 
 import type { BrainConfig } from "../config.js";
+import { maintenanceConfigRoots } from "../../config/env.js";
 import { checkGovernancePolicy } from "../governance-policy.js";
 import { createComputeService, type ComputeCollection, type ComputeHealthReport, type ComputeReconcileReport } from "../compute/service.js";
 import type {
@@ -227,6 +228,15 @@ export function createComputeOps(options: ComputeOpsOptions): ComputeOps {
   function admission(): ReturnType<typeof service> | ComputeErrorEnvelope {
     // Disabled: the service refuses with compute_disabled before any read.
     if (!config?.compute) return service();
+    // A hosted turn or maintenance worker has no admission of its own: its
+    // caller identity, budgets, approvals and Activity live on the host, so a
+    // worker-side run would bypass them. Hosted admission (#3108) routes work
+    // through the host instead. The launch marker is defense in depth; the
+    // worker also lacks provider credentials and a writable state home.
+    const workerRoot = env ? env.BRAIN_WORKER_DATA_ROOT : maintenanceConfigRoots().data;
+    if (workerRoot) {
+      return { ok: false, error: { code: "policy_denied", message: "external compute does not run from inside a hosted or maintenance worker; a host must admit it" } };
+    }
     const policy = checkGovernancePolicy(root);
     if (policy.status === "invalid") {
       return { ok: false, error: { code: "policy_denied", message: `the governance policy is invalid, so no data may go to a provider: ${policy.errors[0] ?? "unreadable"}` } };

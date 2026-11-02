@@ -580,4 +580,8 @@ choices "Still open" assigned to it, within the bounds above:
   first, a provider for isolation or overflow, minimal sources, no secrets in
   argv or env, and every job ends with collect or cancel. Boat's upstream
   agent skills were reviewed through their documentation and are not vendored.
-
+- **No admission inside a worker.** Until hosted admission lands (#3108),
+  `plan` and `run` refuse with `policy_denied` when the process was started by
+  a hosted turn or maintenance worker launch (`BRAIN_WORKER_DATA_ROOT` set).
+  Such a worker already lacks provider credentials and a writable state home;
+  the refusal makes that explicit instead of accidental.

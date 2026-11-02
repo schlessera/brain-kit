@@ -88,6 +88,27 @@ describe("refusals allocate nothing", () => {
     expect(jobDirs(box.state)).toEqual([]);
   });
 
+  test("policy_denied inside a hosted or maintenance worker: hosted admission (#3108) is the only way in", async () => {
+    const box = sandbox();
+    boxes.push(box);
+    const clock = fakeClock();
+    const memory = memoryCompute({ clock });
+    const config = { compute: { providers: { "pylos-memory": { provider: memory.provider, lease: { maxSeconds: 600 } } } } };
+    const ops = createComputeOps({
+      root: box.root, config, caller: PENELOPE,
+      env: { BRAIN_WORKER_DATA_ROOT: "/run/brain-worker/ithaca" },
+      serviceOptions: { stateDir: box.state, clock },
+    });
+    for (const result of [
+      await ops.plan({ provider: "pylos-memory", argv: ["true"] }),
+      await ops.run({ provider: "pylos-memory", argv: ["true"] }),
+    ]) {
+      expect(result).toMatchObject({ ok: false, error: { code: "policy_denied", message: expect.stringContaining("worker") } });
+    }
+    expect(memory.created()).toBe(0);
+    expect(jobDirs(box.state)).toEqual([]);
+  });
+
   test("capability_unsupported: staging on a provider that cannot stage", async () => {
     const { ops, memory, box } = setup({ stage: false });
     const r = await ops().run({ provider: "pylos-memory", argv: ["true"], source: ["notes/raft.md"] });
