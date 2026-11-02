@@ -223,11 +223,6 @@ if (import.meta.main) {
       else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N] [--check-timeout=<seconds>] [--skip <check name>]... [--receipt <path>]");
     }
     const root = resolve(import.meta.dir, "..");
-    if (full && !print) {
-      // Full local suites are for debugging only and run through host admission (#2939, #2943).
-      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
-      if (admitted !== undefined) process.exit(admitted);
-    }
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root), root);
     let mergeBase: string | undefined;
@@ -271,6 +266,16 @@ if (import.meta.main) {
       for (const check of receipt.checks) check.reason = `not run: preflight setup refused (${String(error).slice(0, 200)})`;
       receipt.finishedAt = new Date().toISOString(); save(receipt);
       throw error;
+    }
+    if (full) {
+      // Full local suites are for debugging only and run through host admission
+      // (#2939, #2943), after the cheap prerequisite refusals above.
+      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
+      if (admitted !== undefined) {
+        for (const check of receipt.checks) check.reason = "not run: host admission did not admit this run";
+        receipt.finishedAt = new Date().toISOString(); save(receipt);
+        process.exit(admitted);
+      }
     }
     const report = () => {
       console.log(`check:pr receipt written to ${receiptPath}. Paste this block into the PR body, replacing any earlier one:\n${receiptBlock(receipt)}`);
