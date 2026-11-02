@@ -53,6 +53,8 @@ export const SUBPROCESS_ENV = Object.freeze({
   // The trusted host's bound on pinned scratch paths a media inventory reads
   // (#2780); the brain CLI reads it for hygiene review and sync's count.
   BRAIN_MEDIA_PINNED_PATH_LIMIT: AGENT_AND_BRAIN_CLI,
+  // Its bounds on the declared reference scan behind media fingerprints (#2781).
+  BRAIN_MEDIA_REFERENCE_LIMITS: AGENT_AND_BRAIN_CLI,
   BRAIN_CHROME_NO_SANDBOX: AGENT_AND_BRAIN_CLI,
   BRAIN_UI_CHROME_NO_SANDBOX: AGENT_AND_BRAIN_CLI,
   // Names (never values) of the provider keys a turn worker's launcher held

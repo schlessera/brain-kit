@@ -8,6 +8,7 @@
 import { canonicalFindings, mediaReviewCounts, readHygieneLog, type HygieneLogEntry } from "./hygiene.js";
 import type { MediaPolicy } from "./media.js";
 import { mediaCandidates, mediaInventory, pinnedPathLimit, readScratchPins, type ScratchPins } from "./media-inventory.js";
+import { mediaReferenceLimits, type MediaReferenceScanOptions } from "./media-references.js";
 import type { AssessedFile } from "./sync/artifacts.js";
 import { resolveEnv } from "../config/env.js";
 
@@ -31,7 +32,16 @@ export function syncMediaCounts(root: string, policy: MediaPolicy, assessed: rea
   } catch {
     pins = { state: "unknown", sessions: new Map(), observed: 0, limit: 0 };
   }
-  const findings = canonicalFindings(mediaCandidates(mediaInventory(root, policy, assessed, pins)));
+  // The same reference bounds review uses, so both fingerprint a file alike.
+  // Invalid bounds stop review's detection; here the scan is refused instead,
+  // so the count stays truthful and nothing claims references were checked.
+  let references: MediaReferenceScanOptions;
+  try {
+    references = { limits: mediaReferenceLimits(resolveEnv().mediaReferenceLimits) };
+  } catch {
+    references = { limits: { notes: 0, noteBytes: 1, perNote: 1, scanTime: 1, refsPerFinding: 1 } };
+  }
+  const findings = canonicalFindings(mediaCandidates(mediaInventory(root, policy, assessed, pins, references)));
   let entries: HygieneLogEntry[] = [];
   try {
     entries = readHygieneLog(root);

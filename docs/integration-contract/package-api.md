@@ -1558,9 +1558,16 @@ in the count. Its fingerprint fields are `sha256`, `bytes`, `classes`, `policy`
 (the matching `media.track`/`media.ignore` entries), `refs`, `pins` (the sorted
 session keys whose pin list holds that exact path, so an unrelated
 conversation never changes it), `severity` and `urgency`. `refs` is the
-reference-inventory digest. It records `unscanned` until the declared reference
-scan ships with the governed media effects (#2781); that change reopens every
-media disposition once.
+reference-inventory digest (#2781): `none` when no note references the file, a
+16-hex digest of each reference's note, form and destination as written (line
+numbers left out), or `too-large`/`unscannable` when the bounded scan was
+refused. One scan of the brain's `*.md` notes outside hidden directories and
+`context/hygiene/` finds Markdown inline links and images, `<…>` destinations,
+reference definitions, wiki links and embeds, frontmatter values and HTML
+`src`/`href`/`poster`; code is never a reference. Its bounds are
+`BRAIN_MEDIA_REFERENCE_LIMITS` (`notes` 50,000, `noteBytes` 256 MiB, `perNote`
+4 MiB, `scanTime` 20 s, `refsPerFinding` 500). Replacing the earlier
+`unscanned` value reopens every media disposition once.
 
 A fifth log state, `kept`, holds a media original whose permanent copy was
 made, in `context/hygiene/kept.md` under `## Kept as a permanent copy`. Each
