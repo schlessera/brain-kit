@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1066`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1050-1068`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -105,7 +105,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1887-1889`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1889-1891`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -128,6 +128,23 @@ without reported usage adds to `unknownRuns` and never blocks by itself. The
 top-level `listPriceCostUsd` and `tokens` stay the agent's own completed
 inference. Nothing is reserved: requests already in flight when a scope
 becomes blocked complete and are counted, so a scope can end above its stop.
+
+**Apify liability (0.45.0, #3307).** On a host that wires its Apify ledger
+into the turn budgets, every scope also counts the Apify liability that ledger
+holds once, in USD: the turn's runs, the conversation's, and this brain's UTC
+day, where an unsettled run stays on every later day until it settles. It is
+known spend, so it adds to `costUsd` (which is then never null) and is
+reported again, already included, in the optional `apifyUsd`; it never adds
+tokens. Such a receipt's `coverage` is `"Built-in inference, relayed brain CLI
+providers and Apify runs this host admitted; other provider and tool spend is
+not metered"`. When that ledger cannot be read, inference keeps its own
+behaviour, `apifyUsd` is absent and `coverage` is `"Built-in inference and
+relayed brain CLI providers; Apify accounting is unavailable, so Apify spend
+is not counted; other provider and tool spend is not metered"`; the missing
+spend is unknown, not zero. A host without an Apify ledger keeps the earlier
+value and never sends `apifyUsd`. A client that validated the earlier
+literals must accept both new values. `listPriceCostUsd` and `tokens` stay
+the agent's own completed inference.
 
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries

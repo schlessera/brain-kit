@@ -1936,7 +1936,7 @@ covers everything.
 non-video completions, Anthropic completions, and OpenAI and Gemini images.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
-(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 The receipt's coverage names the relayed providers. Pricing follows the
 [cost-tracking rules](cost-tracking.md#relayed-cli-provider-requests-1673):
 unpriced tokens count toward the token stops, and missing usage is unknown and
@@ -1944,7 +1944,7 @@ never blocks by itself. An attempt is recorded as unknown spend just before it
 leaves and completed when it settles, so a crash leaves it disclosed. Before
 each request, and again just before dispatch, the relay asks whether any scope
 is blocked and refuses with `budget_exceeded` if one is
-(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:326-330`).
+(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:379-384`).
 A request that crosses a block does not stop the turn by itself, under the
 ruling: each further relayed request is refused, and the agent's next
 completed response, which sees the same scopes, stops the turn as any usage
@@ -1984,7 +1984,7 @@ rows remain historical inputs with explicit legacy attribution. Completed
 responses contribute once to their server-observed UTC day; legacy history
 uses its recorded start day. A terminal rollup never adds the live ledger a
 second time. The concrete ledger is (`createTurnBudgets`,
-`packages/ui-server/src/brain/turn-budgets.ts:228-350`).
+`packages/ui-server/src/brain/turn-budgets.ts:262-419`).
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 

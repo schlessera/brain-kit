@@ -29,7 +29,7 @@ Name-based permission admission cannot distinguish different Actors supplied to
 one execution tool (`decideToolPermission`,
 `packages/ui-sdk/src/server/permission-gate.ts:62-92`). Provider accounting is
 already attributed and settled on the host (`observeProvider`,
-`packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+`packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 
 The official [Apify MCP source](https://github.com/apify/apify-mcp-server/tree/2ba58ba29ecf050874cd2186effa375c5cf6ec60)
 was inspected at commit `2ba58ba29ecf050874cd2186effa375c5cf6ec60`.

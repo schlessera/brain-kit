@@ -5504,6 +5504,7 @@ signatures (every public export and the types it is made of)
         scope: BudgetScope;
         legacyRuns?: number;
         costUsd: number | null;
+        apifyUsd?: number;
         tokens: number | null;
         unknownRuns: number;
         warnUsd: number;
@@ -10891,7 +10892,7 @@ signatures (every public export and the types it is made of)
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
   TurnBudgetCoverage (packages/ui-sdk/src/turn-budgets.ts)
-    export type TurnBudgetCoverage = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
+    export type TurnBudgetCoverage = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
   TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
     export interface TurnBudgetReceipt {
         listPriceCostUsd: number | null;
@@ -16145,13 +16146,16 @@ signatures (every public export and the types it is made of)
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                     "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                     "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                 }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
                 scopes: z.ZodArray<z.ZodObject<{
+                    apifyUsd: z.ZodOptional<z.ZodNumber>;
                     blockTokens: z.ZodNumber;
                     blockUsd: z.ZodNumber;
                     blocked: z.ZodBoolean;
@@ -16257,13 +16261,16 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>, z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -16974,13 +16981,16 @@ signatures (every public export and the types it is made of)
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                     coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                         "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                         "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                        "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                     }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
                     scopes: z.ZodArray<z.ZodObject<{
+                        apifyUsd: z.ZodOptional<z.ZodNumber>;
                         blockTokens: z.ZodNumber;
                         blockUsd: z.ZodNumber;
                         blocked: z.ZodBoolean;
@@ -19393,13 +19403,16 @@ signatures (every public export and the types it is made of)
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                     coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                         "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                         "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                        "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                     }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
                     scopes: z.ZodArray<z.ZodObject<{
+                        apifyUsd: z.ZodOptional<z.ZodNumber>;
                         blockTokens: z.ZodNumber;
                         blockUsd: z.ZodNumber;
                         blocked: z.ZodBoolean;
@@ -19795,13 +19808,16 @@ signatures (every public export and the types it is made of)
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                     "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                     "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                 }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
                 scopes: z.ZodArray<z.ZodObject<{
+                    apifyUsd: z.ZodOptional<z.ZodNumber>;
                     blockTokens: z.ZodNumber;
                     blockUsd: z.ZodNumber;
                     blocked: z.ZodBoolean;
@@ -19909,13 +19925,16 @@ signatures (every public export and the types it is made of)
     const serverUsageSchema: z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -20053,13 +20072,16 @@ signatures (every public export and the types it is made of)
   turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const turnBudgetReceiptSchema: z.ZodObject<{
         coverage: z.ZodEnum<{
+            "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
             "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
             "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+            "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
         }>;
         listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
         listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         observedAt: z.ZodNumber;
         scopes: z.ZodArray<z.ZodObject<{
+            apifyUsd: z.ZodOptional<z.ZodNumber>;
             blockTokens: z.ZodNumber;
             blockUsd: z.ZodNumber;
             blocked: z.ZodBoolean;
@@ -20088,13 +20110,16 @@ signatures (every public export and the types it is made of)
         }>>;
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;

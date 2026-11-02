@@ -7,6 +7,7 @@ import { priceProviderAttempt } from "../pricing/provider-pricing.js";
 import type { ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import type { BudgetObservation, TurnBudgetReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
+import type { ApifyInferenceSpend } from "../apify/runs.js";
 export class BudgetUnavailable extends Error {
   constructor() { super("Inference budget accounting became unavailable. The turn stopped; review any partial work before continuing."); }
 }
@@ -14,7 +15,7 @@ export class BudgetExceeded extends Error {
   constructor(readonly observation: BudgetObservation, readonly stage: "admission" | "mid_turn" | "sdk_backstop") {
     const amount = stage === "sdk_backstop" ? `Claude's SDK reached the $${observation.blockUsd} turn backstop; completed-response price remains ${observation.costUsd === null ? "unknown" : `at least $${observation.costUsd}`}.`
       : observation.costUsd !== null && observation.costUsd >= observation.blockUsd
-        ? `At least $${observation.costUsd} list-price inference usage; stop $${observation.blockUsd}.`
+        ? `At least $${observation.costUsd} list-price inference usage${observation.apifyUsd ? `, including $${observation.apifyUsd} admitted Apify liability` : ""}; stop $${observation.blockUsd}.`
         : `${observation.tokens ?? "Unknown"} observed tokens while usage is unpriced; stop ${observation.blockTokens} tokens.`;
     super(`${observation.scope === "day" ? "UTC day" : observation.scope === "session" ? "Conversation" : "Turn"} inference budget reached. ${amount} ${observation.scope === "session" ? "Review the partial work and start a new conversation to continue; the day balance still applies." : observation.scope === "day" ? `Review the partial work. The day resets at ${new Date(observation.resetAt!).toISOString()}.` : "Review the partial work before continuing."}`);
   }
@@ -44,18 +45,45 @@ const tokensOf = (usage: TurnUsage): number | null => {
 };
 /** What a budget receipt covers: the agent's own inference and the CLI's relayed providers (#1673). */
 export const TURN_BUDGET_COVERAGE = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" as const;
+/** With an Apify ledger wired and read: its admitted liability counts too (#3307). */
+export const TURN_BUDGET_APIFY_COVERAGE = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" as const;
+/** With an Apify ledger wired but unreadable: its spend is unknown, never zero, and not counted. */
+export const TURN_BUDGET_APIFY_UNAVAILABLE_COVERAGE = "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered" as const;
+
+/** Admitted Apify liability in the global budget scopes, USD: this turn, its session and this brain's UTC day. */
+export interface ApifyBudgetLiability { turn_usd: number; session_usd: number; day_usd: number }
+/**
+ * Reads admitted Apify liability from the shared ledger (#3307), for the turn
+ * budgets' own turn and session identities (null outside a turn or before a
+ * session is bound) at `now`. Throwing means the ledger is unavailable.
+ */
+export type ApifyBudgetSource = (scope: { turn_id: string | null; session_id: string | null }, now: number) => ApifyBudgetLiability;
+/**
+ * One reading of {@link ApifyBudgetSource}, taken where the call was made and
+ * passed to the ledger's transaction: `null` when no Apify ledger is wired,
+ * `"unavailable"` when it could not be read.
+ */
+export type ApifyReading = ApifyBudgetLiability | "unavailable" | null;
+const coverageOf = (apify: ApifyReading) => apify === null ? TURN_BUDGET_COVERAGE : apify === "unavailable" ? TURN_BUDGET_APIFY_UNAVAILABLE_COVERAGE : TURN_BUDGET_APIFY_COVERAGE;
+const apifyIn = (apify: ApifyReading, scope: BudgetObservation["scope"]): number | undefined =>
+  apify === null || apify === "unavailable" ? undefined : apify[`${scope}_usd`];
 interface ProviderTotals { attempts: number; cost: number; priced: number; tokens: number; measured: number; unpriced_measured: number }
 const NO_PROVIDER_ATTEMPTS: ProviderTotals = { attempts: 0, cost: 0, priced: 0, tokens: 0, measured: 0, unpriced_measured: 0 };
-/** One scope's totals against its limits. Unknown is never zero, and never blocks by itself. */
-function observation(scope: BudgetObservation["scope"], selected: Row[], provider: ProviderTotals, policy: EffectiveGovernancePolicy, day: number): BudgetObservation {
+/**
+ * One scope's totals against its limits. Unknown is never zero, and never
+ * blocks by itself. Admitted Apify liability, when read, is known USD and
+ * counts once, beside inference; it never adds tokens.
+ */
+function observation(scope: BudgetObservation["scope"], selected: Row[], provider: ProviderTotals, policy: EffectiveGovernancePolicy, day: number, apifyUsd?: number): BudgetObservation {
   const limits = policy.budgets[scope];
   const knownCosts = selected.filter(row => row.cost_lower_bound !== null), knownTokens = selected.filter(row => row.tokens !== null);
   const total = selected.length + provider.attempts;
-  const costUsd = total && !knownCosts.length && !provider.priced ? null : knownCosts.reduce((sum, row) => sum + row.cost_lower_bound!, 0) + provider.cost;
+  const costUsd = total && !knownCosts.length && !provider.priced && apifyUsd === undefined ? null
+    : knownCosts.reduce((sum, row) => sum + row.cost_lower_bound!, 0) + provider.cost + (apifyUsd ?? 0);
   const tokens = total && !knownTokens.length && !provider.measured ? null : knownTokens.reduce((sum, row) => sum + row.tokens!, 0) + provider.tokens;
   const unknownRuns = selected.filter(row => row.cost_usd === null).length + provider.attempts - provider.priced;
   const unpricedMeasured = selected.some(row => row.cost_usd === null && row.tokens !== null) || provider.unpriced_measured > 0;
-  return { scope, legacyRuns: selected.filter(row => row.legacy).length, costUsd, tokens, unknownRuns, warnUsd: limits.warn_usd, blockUsd: limits.block_usd,
+  return { scope, legacyRuns: selected.filter(row => row.legacy).length, costUsd, ...(apifyUsd !== undefined ? { apifyUsd } : {}), tokens, unknownRuns, warnUsd: limits.warn_usd, blockUsd: limits.block_usd,
     blockTokens: limits.block_tokens, ...(limits.warn_tokens !== undefined ? { warnTokens: limits.warn_tokens } : {}),
     ...(scope === "day" ? { resetAt: day + DAY } : {}),
     warning: costUsd !== null && costUsd >= limits.warn_usd || unpricedMeasured && limits.warn_tokens !== undefined && tokens !== null && tokens >= limits.warn_tokens,
@@ -70,8 +98,8 @@ export type BudgetObservationResult = { receipt: TurnBudgetReceipt; warnings: Bu
 /**
  * The ledger's reads and transaction bodies, on whichever connection commits
  * them: the hosted server's write worker (`turn-budget-writes.ts`) or, without
- * one, the caller's own. `policy` is the turn's frozen admission fact and
- * `now` is taken where the call was made.
+ * one, the caller's own. `policy` is the turn's frozen admission fact;
+ * `now` and the Apify reading are taken where the call was made.
  */
 export function budgetLedger(db: Database) {
   const retained = (id: string, sessionId: string | null, day: number): Row[] => db.query(`SELECT 1 AS legacy, pricing_estimate, run_id AS turn_id, session_id, started_at, cost_usd, cost_usd AS cost_lower_bound,
@@ -121,8 +149,8 @@ export function budgetLedger(db: Database) {
       throw new Error("Turn has no frozen budget admission");
     return JSON.parse(row.receipt) as TurnBudgetReceipt;
   };
-  /** An active turn's receipt under its frozen policy, as of `now`. */
-  const receipt = (id: string, policy: EffectiveGovernancePolicy, now: number): TurnBudgetReceipt => {
+  /** An active turn's receipt under its frozen policy, as of `now`, with Apify liability where it was read. */
+  const receipt = (id: string, policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading): TurnBudgetReceipt => {
     const day = utcBudgetDay(now);
     const ownRow = db.query("SELECT session_id FROM turn_budget_usage WHERE turn_id=?").get(id) as {
       session_id: string | null;
@@ -133,16 +161,16 @@ export function budgetLedger(db: Database) {
       const provider = scope === "turn" ? providerTotals("turn_id = ?", id)
         : scope === "session" ? own.session_id === null ? NO_PROVIDER_ATTEMPTS : providerTotals("turn_id IN (SELECT turn_id FROM turn_budget_usage WHERE session_id = ?)", own.session_id)
         : providerTotals("day_start = ?", day);
-      return observation(scope, selected, provider, policy, day);
+      return observation(scope, selected, provider, policy, day, apifyIn(apify, scope));
     });
     return { listPriceCostUsd: own.cost_usd, listPriceIsEstimate: own.pricing_estimate === null ? null : Boolean(own.pricing_estimate), tokens: own.tokens, observedAt: now,
-      coverage: TURN_BUDGET_COVERAGE, scopes };
+      coverage: coverageOf(apify), scopes };
   };
   /** The day scope alone, for a relayed maintenance run that belongs to no turn. */
-  const dayObservation = (policy: EffectiveGovernancePolicy, now: number): BudgetObservation => {
+  const dayObservation = (policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading): BudgetObservation => {
     const day = utcBudgetDay(now);
     const selected = daySelection(rows("", null, day), day);
-    return observation("day", selected, providerTotals("day_start = ?", day), policy, day);
+    return observation("day", selected, providerTotals("day_start = ?", day), policy, day, apifyIn(apify, "day"));
   };
   const warningCrossings = (id: string, result: TurnBudgetReceipt) => {
     const row = db.query("SELECT session_id FROM turn_budget_usage WHERE turn_id=?").get(id) as {
@@ -157,16 +185,16 @@ export function budgetLedger(db: Database) {
   };
   return {
     receipt, saved, dayObservation,
-    begin(id: string, sessionId: string | null, policy: EffectiveGovernancePolicy, now: number): TurnBudgetReceipt {
+    begin(id: string, sessionId: string | null, policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading = null): TurnBudgetReceipt {
       return db.transaction(() => {
         db.query("INSERT INTO turn_budget_usage (turn_id,session_id,started_at,cost_usd,tokens,observed_at) VALUES (?,?,?,NULL,NULL,?) ON CONFLICT(turn_id) DO NOTHING").run(id, sessionId, now, now);
-        const result = receipt(id, policy, now);
+        const result = receipt(id, policy, now, apify);
         db.query("UPDATE turn_budget_usage SET receipt = ? WHERE turn_id = ?").run(JSON.stringify(result), id);
         return result;
       }).immediate();
     },
     bind(id: string, sessionId: string): void { db.query("UPDATE turn_budget_usage SET session_id = ? WHERE turn_id = ?").run(sessionId, id); },
-    observe(id: string, policy: EffectiveGovernancePolicy, measured: MeasuredUsage, now: number): BudgetObservationResult {
+    observe(id: string, policy: EffectiveGovernancePolicy, measured: MeasuredUsage, now: number, apify: ApifyReading = null): BudgetObservationResult {
       return db.transaction(() => {
         const previous = db.query("SELECT * FROM turn_budget_usage WHERE turn_id = ?").get(id) as Row;
         const { tokens, cost, partialCost } = measured;
@@ -178,21 +206,21 @@ export function budgetLedger(db: Database) {
         const deltaTokens = tokens === null ? null : tokens - (previous.tokens ?? 0);
         db.query("INSERT INTO turn_budget_days(turn_id,day_start,cost_usd,cost_lower_bound,tokens) VALUES(?,?,?,?,?) ON CONFLICT(turn_id,day_start) DO UPDATE SET cost_usd = CASE WHEN turn_budget_days.cost_usd IS NULL OR excluded.cost_usd IS NULL THEN NULL ELSE turn_budget_days.cost_usd+excluded.cost_usd END, cost_lower_bound = CASE WHEN turn_budget_days.cost_lower_bound IS NULL AND excluded.cost_lower_bound IS NULL THEN NULL ELSE COALESCE(turn_budget_days.cost_lower_bound,0)+COALESCE(excluded.cost_lower_bound,0) END, tokens = CASE WHEN turn_budget_days.tokens IS NULL OR excluded.tokens IS NULL THEN NULL ELSE turn_budget_days.tokens+excluded.tokens END").run(id, day, cost === null ? null : deltaCost, deltaCost, deltaTokens);
         db.query("UPDATE turn_budget_usage SET cost_usd=?,cost_lower_bound=?,pricing_estimate=?,tokens=?,observed_at=? WHERE turn_id=?").run(cost, lower, measured.estimate, tokens, now, id);
-        const result = receipt(id, policy, now);
+        const result = receipt(id, policy, now, apify);
         db.query("UPDATE turn_budget_usage SET receipt = ? WHERE turn_id = ?").run(JSON.stringify(result), id);
         const warnings = warningCrossings(id, result);
         return { receipt: result, warnings, blocked: result.scopes.find(item => item.blocked) };
       }).immediate();
     },
-    warnings(id: string, policy: EffectiveGovernancePolicy, now: number) { return db.transaction(() => warningCrossings(id, receipt(id, policy, now))).immediate(); },
-    backstop(id: string, policy: EffectiveGovernancePolicy, now: number): TurnBudgetReceipt {
-      const result = receipt(id, policy, now);
+    warnings(id: string, policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading = null) { return db.transaction(() => warningCrossings(id, receipt(id, policy, now, apify))).immediate(); },
+    backstop(id: string, policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading = null): TurnBudgetReceipt {
+      const result = receipt(id, policy, now, apify);
       result.scopes[0] = { ...result.scopes[0]!, blocked: true };
       db.query("UPDATE turn_budget_usage SET receipt=? WHERE turn_id=?").run(JSON.stringify(result), id);
       return result;
     },
     /** `policy` is the active turn's, or null for a run that belongs to no active turn. */
-    observeProvider(turnId: string | null, policy: EffectiveGovernancePolicy | null, attempt: ProviderRelayReceipt, priced: PricedAttempt, now: number): BudgetObservationResult | undefined {
+    observeProvider(turnId: string | null, policy: EffectiveGovernancePolicy | null, attempt: ProviderRelayReceipt, priced: PricedAttempt, now: number, apify: ApifyReading = null): BudgetObservationResult | undefined {
       return db.transaction(() => {
         const inserted = db.query(`INSERT INTO provider_relay_usage (attempt_id, turn_id, day_start, observed_at, family, operation, origin, model,
           outcome, status, usage, cost_usd, pricing_estimate, tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -202,7 +230,7 @@ export function budgetLedger(db: Database) {
           attempt.family, attempt.operation, attempt.origin, attempt.model, attempt.outcome, attempt.status,
           attempt.usage ? JSON.stringify(attempt.usage) : null, priced.costUsd, priced.estimate === null ? null : Number(priced.estimate), priced.tokens).changes > 0;
         if (!policy || !inserted) return undefined;
-        const result = receipt(turnId!, policy, now);
+        const result = receipt(turnId!, policy, now, apify);
         db.query("UPDATE turn_budget_usage SET receipt = ? WHERE turn_id = ?").run(JSON.stringify(result), turnId);
         return { receipt: result, warnings: warningCrossings(turnId!, result), blocked: result.scopes.find(item => item.blocked) };
       }).immediate();
@@ -224,10 +252,18 @@ export function setup(db: Database): WriteProcedures {
  * reported, so a turn's list price is known at once; its receipt, warnings
  * and any block follow its commit. Admission waits for every budget write
  * submitted before it.
+ *
+ * With `apify`, every receipt, admission and block decision also counts the
+ * Apify liability the shared ledger holds for the turn, its session and this
+ * brain's UTC day, read where the call is made (#3307). A failed read keeps
+ * inference's own behaviour and says Apify is not counted; it never reads as
+ * zero.
  */
-export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: () => number = Date.now, writer?: SqliteWriter) {
+export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: () => number = Date.now, writer?: SqliteWriter, apify?: ApifyBudgetSource) {
   const active = new Map<string, {
     policy: EffectiveGovernancePolicy;
+    /** The turn's session once known, for its Apify session scope. */
+    sessionId: string | null;
     route?: PricingRoute;
     pricing: RollupPricing;
     /** A write this turn depends on failed: its accounting is unavailable. */
@@ -255,21 +291,33 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     const partialCost = knownPrices.length ? knownPrices.reduce((sum, value) => sum + value.costUsd, 0) : null;
     return { tokens, cost: priced?.costUsd ?? null, estimate: priced ? Number(priced.estimate) : null, partialCost };
   };
+  /** Admitted Apify liability as of `now`; a reading that fails or is not a finite amount is unavailable. */
+  const apifyReading = (turnId: string | null, now: number): ApifyReading => {
+    if (!apify) return null;
+    try {
+      const read = apify({ turn_id: turnId, session_id: turnId === null ? null : active.get(turnId)?.sessionId ?? null }, now);
+      const amounts = [read.turn_usd, read.session_usd, read.day_usd];
+      return amounts.every(value => Number.isFinite(value) && value >= 0) ? { turn_usd: read.turn_usd, session_usd: read.session_usd, day_usd: read.day_usd } : "unavailable";
+    } catch { return "unavailable"; }
+  };
   const receipt = (id: string): TurnBudgetReceipt => {
     const turn = active.get(id);
-    return turn ? ledger.receipt(id, turn.policy, clock()) : ledger.saved(id);
+    if (!turn) return ledger.saved(id);
+    const now = clock();
+    return ledger.receipt(id, turn.policy, now, apifyReading(id, now));
   };
   return {
     /** Settles once the turn's admission row and receipt have committed; rejects with `BudgetExceeded` when a session or day scope is blocked. */
     async begin(id: string, sessionId: string | undefined, policy: EffectiveGovernancePolicy, route?: PricingRoute): Promise<TurnBudgetReceipt> {
       const rates = new Map<string, ReturnType<RollupPricing["resolve"]>>();
-      active.set(id, { policy, route, pricing: { resolve(model, route) {
+      active.set(id, { policy, sessionId: sessionId ?? null, route, pricing: { resolve(model, route) {
             const key = JSON.stringify([model, route]);
             if (!rates.has(key))
               rates.set(key, structuredClone(pricing.resolve(model, route)));
             return rates.get(key)!;
           } } });
-      const result = await call<TurnBudgetReceipt>("begin", id, sessionId ?? null, policy, clock());
+      const now = clock();
+      const result = await call<TurnBudgetReceipt>("begin", id, sessionId ?? null, policy, now, apifyReading(id, now));
       const blocked = result.scopes.find(item => item.blocked && item.scope !== "turn");
       if (blocked)
         throw new BudgetExceeded(blocked, "admission");
@@ -277,6 +325,8 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     },
     /** A failed binding makes the turn's accounting unavailable: its session scope would miss it. */
     bind(id: string, sessionId: string): Promise<void> {
+      const bound = active.get(id);
+      if (bound) bound.sessionId = sessionId;
       return call<void>("bind", id, sessionId).catch((error: unknown) => {
         const turn = active.get(id);
         if (turn) turn.failed ??= error;
@@ -292,7 +342,8 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
       const turn = current(id);
       if (!turn)
         return undefined;
-      return call<BudgetObservationResult>("observe", id, turn.policy, measure(turn, usage), clock());
+      const now = clock();
+      return call<BudgetObservationResult>("observe", id, turn.policy, measure(turn, usage), now, apifyReading(id, now));
     },
     /** The list price the receipt of this report will carry, known before it commits. */
     listPrice(id: string, usage: TurnUsage): number | null {
@@ -303,12 +354,14 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     warnings(id: string): Promise<BudgetObservation[]> {
       const turn = current(id);
       if (!turn) return Promise.reject(new Error("Turn has no frozen budget admission"));
-      return call<BudgetObservation[]>("warnings", id, turn.policy, clock());
+      const now = clock();
+      return call<BudgetObservation[]>("warnings", id, turn.policy, now, apifyReading(id, now));
     },
     backstop(id: string): Promise<TurnBudgetReceipt> {
       const turn = current(id);
       if (!turn) return Promise.reject(new Error("Turn has no frozen budget admission"));
-      return call<TurnBudgetReceipt>("backstop", id, turn.policy, clock());
+      const now = clock();
+      return call<TurnBudgetReceipt>("backstop", id, turn.policy, now, apifyReading(id, now));
     },
     saved(id: string): TurnBudgetReceipt | undefined {
       // Presentation must not turn a missing accounting receipt into a failed journal observation.
@@ -326,7 +379,8 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     async providerAdmission(turnId: string | null, policy: EffectiveGovernancePolicy): Promise<BudgetObservation | undefined> {
       await settled();
       if (turnId !== null && current(turnId)) return receipt(turnId).scopes.find(item => item.blocked);
-      const day = ledger.dayObservation(policy, clock());
+      const now = clock();
+      const day = ledger.dayObservation(policy, now, apifyReading(null, now));
       return day.blocked ? day : undefined;
     },
     /**
@@ -339,9 +393,24 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     observeProvider(turnId: string | null, attempt: ProviderRelayReceipt): Promise<BudgetObservationResult | undefined> {
       const turn = turnId !== null ? active.get(turnId) : undefined;
       const priced = priceProviderAttempt(attempt, turn?.pricing ?? pricing);
+      const now = clock();
       return call<BudgetObservationResult | undefined>("observeProvider", turnId, turn?.policy ?? null, attempt,
-        { costUsd: priced.costUsd, estimate: priced.estimate, tokens: priced.tokens }, clock());
+        { costUsd: priced.costUsd, estimate: priced.estimate, tokens: priced.tokens }, now, turn ? apifyReading(turnId, now) : null);
     },
+    /**
+     * Inference and relayed provider spend alone, for Apify admission
+     * ({@link ApifyInferenceSpend}): Apify's own liability is left out, since
+     * admission counts it from its ledger, so neither side counts it twice.
+     * Settles once every budget write submitted before it has committed;
+     * rejects for a turn without an active admission.
+     */
+    inferenceSpend: (async scope => {
+      await settled();
+      const turn = current(scope.turn_id);
+      if (!turn) throw new Error("Turn has no frozen budget admission");
+      const [own, session, day] = ledger.receipt(scope.turn_id, turn.policy, clock(), null).scopes;
+      return { turn_usd: own!.costUsd, session_usd: session!.costUsd, day_usd: day!.costUsd };
+    }) satisfies ApifyInferenceSpend,
     remaining(id: string) { const own = receipt(id).scopes[0]!; return Math.max(0, own.blockUsd - (own.costUsd ?? 0)); },
     /** Settles once every budget write submitted before it has committed. */
     settled,
