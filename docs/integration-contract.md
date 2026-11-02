@@ -119,11 +119,7 @@ renames it. Under the binding rule that `brain.db` is disposable, an existing
 brain migrates by rebuilding, never by moving: the first writable command
 creates `.brain-index/` and `brain index` fills it. The old root-level files are
 ignored. `brain doctor` reports them as `legacy-index` and `--fix` deletes
-them; ui-server deletes them at boot and starts one index run. That run is
-plain, so assets stay out of search until an existing installation runs `brain
-index --embeddings` once, which reuses every committed description without a
-provider call; from 0.44.1 a plain run never prunes an asset description while
-the index lacks a current hash for any asset on disk (#3242). The 0.44.0
+them; ui-server deletes them at boot and starts one index run. The 0.44.0
 release raises ui-server's content CLI floor to 0.44.0, superseding the 0.42.0
 floor above: an older CLI would keep writing the root-level index the server no
 longer reads. The template ignores `.brain-index/`; its existing unanchored
