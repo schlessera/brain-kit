@@ -104,9 +104,9 @@ everything else
 The route is removed by the story cleanup and by a Vitest finalizer.
 
 The stories mirror the two runtime families that multiply theme by width:
-(`LayoutPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:125-163`)
+(`LayoutPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:137-176`)
 and `LayoutDesktop` match `artifact layout <theme> <width>`;
-(`StatesPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:168-213`)
+(`StatesPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:181-227`)
 and `StatesDesktop` match `artifact full state matrix <theme> <width>`. Both
 Storybook projects run all four stories at 320/1280px, which gives the same
 eight width/theme cells as the original runtime matrices. Every transient
