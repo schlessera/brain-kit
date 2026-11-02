@@ -198,6 +198,16 @@ describe("command and file errors", () => {
     expect(ended.kind === "exited" && ended.reason).toBe("provider_error");
   });
 
+  test("file info and artifact downloads name the absolute path under /home/user/work", async () => {
+    const { fake, provider, now, sandbox } = await ready();
+    const started = await provider.exec(sandbox, { argv: ["write", "out/log.txt", "twenty trees"], env: {} }, contextFor(fake, { now }));
+    expect(started.kind).toBe("ok");
+    const got = await provider.collect!(sandbox, { paths: [{ path: "out/log.txt", maxBytes: 1024 }] }, contextFor(fake, { now }));
+    expect(got.kind === "ok" && got.artifacts[0]!.status).toBe("collected");
+    const paths = fake.requests.filter((r) => r.route === "file-info" || r.route === "artifact").map((r) => new URL(r.url).searchParams.get("path"));
+    expect(paths).toEqual(["/home/user/work/out/log.txt", "/home/user/work/out/log.txt"]);
+  });
+
   test("an expired key on poll, kill and release is a failure the host can retry, never success", async () => {
     const { fake, provider, now, sandbox } = await ready();
     const started = await provider.exec(sandbox, { argv: ["sleep", "60"], env: {} }, contextFor(fake, { now }));

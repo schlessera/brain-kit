@@ -40,7 +40,7 @@ import type {
 import { boatError, call, describe, realClock, type Attempt, type CallResult, type CallSpec, type ClientDeps } from "./client.js";
 import { boatOptionsSchema, type BoatOptions } from "./options.js";
 import { createRedactor, type Redactor } from "./redact.js";
-import { commandLine, quote, safeRelative, WORK_DIR } from "./shell.js";
+import { commandLine, quote, safeRelative, WORK_DIR, WORK_PATH } from "./shell.js";
 import { writeTar } from "./tar.js";
 
 export const STAGE_MAX_BYTES = 256 * 1024 * 1024;
@@ -385,7 +385,7 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
       for (const wanted of request.paths) {
         const rel = safeRelative(wanted.path);
         if (!rel) return { kind: "failed", reason: `the artifact path ${JSON.stringify(wanted.path)} is outside the work directory` };
-        const path = `${WORK_DIR}/${rel}`;
+        const path = `${WORK_PATH}/${rel}`;
         const cap = Math.min(wanted.maxBytes, COLLECT_MAX_BYTES);
         const info = await req({ method: "GET", path: `/sandboxes/${seg(sandbox.id)}/files/info?${new URLSearchParams({ path })}`, label: "GET /sandboxes/{id}/files/info", retry: "safe" });
         if (missing(info)) {

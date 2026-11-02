@@ -3,8 +3,10 @@
  * quoted, so nothing the host passes is interpreted by the sandbox shell.
  */
 
-/** The work directory under the sandbox user's home (`/home/user`). */
+/** The work directory under the sandbox user's home (`/home/user`), where commands start. */
 export const WORK_DIR = "work";
+/** The same directory as an absolute path, for file API calls that do not promise to resolve a relative one. */
+export const WORK_PATH = `/home/user/${WORK_DIR}`;
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const NUL = "\u0000";
