@@ -1226,6 +1226,16 @@ appear to need 17px.
 A new reaching control uses the utility rather than another one-off
 pseudo-element.
 
+**A wrapping row of reaching Buttons widens its row gap under a coarse
+pointer.** `flex flex-wrap gap-2` is the usual action row, and at 320px it
+wraps. Two reaching Buttons then stack 8px apart, which is less than either
+size needs. Such a row adds `any-pointer-coarse:gap-y-4`, a 16px row gap on
+touch only, and keeps its column gap and its fine-pointer layout. A row with a
+single reaching Button among text or inputs needs nothing, because one reach
+of at most 7.8px fits in 8px. The probe found the case it exists for: Storage's
+sort row, at 320px under a coarse pointer, gave the bottom edge of "Sort by
+name" to "Descending" before the row gap was added.
+
 **Proof.** `native-buttons.visual.tsx` runs in the fine, coarse and mixed
 pointer lanes. It probes `elementFromPoint` 1px inside every edge of two
 stacked reaching Buttons at their least gap, and requires the paint to keep its

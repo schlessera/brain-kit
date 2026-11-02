@@ -157,7 +157,7 @@ function PrincipalCard({ principal, onRevoke }: { principal: PrincipalRowData; o
               <dd>{principal.expires}</dd>
             </dl>
           </div>
-          <Button label="Revoke" ariaLabel={`Revoke ${principal.label}`} tone="danger" size="sm" block={false} style={{ minHeight: 44 }} onClick={onRevoke} />
+          <Button label="Revoke" ariaLabel={`Revoke ${principal.label}`} tone="danger" size="sm" block={false} reach onClick={onRevoke} />
         </div>
       </Surface>
     </li>

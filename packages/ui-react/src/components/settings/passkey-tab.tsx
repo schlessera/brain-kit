@@ -184,9 +184,9 @@ export function PasskeyTab({ active }: { active: boolean }) {
       {loss.unknown && <p role="alert" className="text-sm text-destructive">Local storage could not be read. All local drafts, recordings and transcripts for this account will be deleted if accessible.</p>}
       <p className="text-sm text-foreground">They can't be recovered.</p>
       {loss.unassigned > 0 && <div role="group" aria-label="Unassigned recordings" className="my-3"><ChoiceOption multiple title={`Also delete ${loss.unassigned} recordings not linked to any account`} selected={alsoDelete} onClick={() => { consentVersion.current++; setAlsoDelete(value => !value); }} /></div>}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <span data-initial-focus tabIndex={-1}><Button label="Keep working" tone="ghost" block={false} style={{ minHeight: 44 }} onClick={cancelSignOut} /></span>
-        <Button label="Sign out and delete" tone="danger" block={false} style={{ minHeight: 44 }} onClick={() => void confirmSignOut()} />
+      <div className="mt-3 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+        <span data-initial-focus tabIndex={-1}><Button label="Keep working" tone="ghost" block={false} reach onClick={cancelSignOut} /></span>
+        <Button label="Sign out and delete" tone="danger" block={false} reach onClick={() => void confirmSignOut()} />
       </div>
     </LocalWorkDialog>}
     </>
