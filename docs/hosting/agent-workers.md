@@ -1392,7 +1392,12 @@ namespace. Runtime-state and turn-temp mounts are verified and initial state
 is populated while that gate is closed. The trusted bootstrap still rejects
 unexpected inherited descriptors; a fixed host shell opens only the status
 and gate channels afterwards, and bubblewrap closes both before the payload
-runs. Setup refusal ends the unstarted worker.
+runs. Setup refusal ends the unstarted worker. bubblewrap starts the payload
+on the gate's end-of-file as it does on its go byte, so a refused gate stays
+open until bubblewrap and every process it gated are confirmed dead. The
+refusal stops bubblewrap and kills its children and the verified sandbox
+process itself; bubblewrap's own death does not end that process, even with
+`--die-with-parent`. A gate whose processes never die stays open.
 
 This startup qualification does not provide a separate worker UID or the
 external descriptor broker. The separate-UID implementation remains tracked
