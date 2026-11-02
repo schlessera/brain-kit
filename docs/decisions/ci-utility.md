@@ -1477,8 +1477,18 @@ metadata job prints the included set. The record is cleared only by a green
 main run that printed the same open record as included. The first step of a
 non-draft PR run refuses with `main red at <sha>, incident #<n>` when its merge
 ref contains the bad commit and the PR is not a declared fix. Draft runs keep
-their cheap gates. The coordinator also cancels queued and running PR proof
-created after the bad commit landed, except declared fixes. A non-fix squash
+their cheap gates. One ancestry rule decides every refusal and cancellation
+(`gateDecision`, `scripts/red-main.ts:209-216`): proof is doomed only when the
+tree it tests contains the bad commit and its PR is not a declared fix
+([#3321](https://github.com/schlessera/brain-kit/issues/3321)). The coordinator
+cancels a queued or running PR proof run only when its PR's base or head, as
+recorded when the run was created, descends from the bad commit
+(`cancelDoomed`, `scripts/red-main-coordinator.ts:154-179`). A run whose base
+GitHub did not record, or whose ancestry cannot be determined, is left alone.
+So proof for a PR against an integration or release branch forked before the
+bad commit keeps running. `integrate.ts` applies the same rule to the
+candidate's base and head before confirming or merging, and refuses when
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:62-66`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
@@ -1606,8 +1616,11 @@ branch, so the request always runs main's admission code.
   feedback run. The [#2952](https://github.com/schlessera/brain-kit/issues/2952)
   runner-slot wait measures whether this is enough.
 - **Red main.** The refusal while main is red is the red-main gate from
-  [#2942](https://github.com/schlessera/brain-kit/issues/2942). Whichever of
-  #2942 and #3272 lands second adds that gate to the admission job.
+  [#2942](https://github.com/schlessera/brain-kit/issues/2942). The admission
+  job runs it on the requested head after admission
+  (`redMain.name`, `scripts/heavy-feedback-workflow.ts:85`), so feedback is
+  refused only when that head contains the bad commit and the PR is not a
+  declared fix ([#3321](https://github.com/schlessera/brain-kit/issues/3321)).
 
 ### Conditional concurrency direction
 
