@@ -24,8 +24,11 @@ const REVIEW = {
 };
 function Approval({ onApproval }: { width: number; onApproval: (id: string, approved: boolean, always?: boolean) => void }) {
   const [root] = useState(() => createBrainUiRoot({ storage: null, request: async input => new URL(String(input), location.href).pathname === "/api/apify"
-    ? Response.json({ policy: { limits: { run_usd: 1, turn_usd: 2, session_usd: 5, day_usd: 5, max_runs_per_turn: 2, max_requests_per_turn: 40, max_concurrent_runs: 1,
-      max_runtime_seconds: 600, max_result_items: 200, max_result_bytes: 5_242_880, max_retention_seconds: 604_800 } } })
+    ? Response.json({ state: "configured", reason: null, account: { id: "OdysseusOps7c2f", username: "odysseus-ops" }, pending_account: null, checked_at: "2026-07-12T09:00:00.000Z",
+      policy: { path: "context/policies/governance.md", hash: "a".repeat(64), valid: true, enabled: true, discovery: "ask", actors: "ask", grants: [], budgets: { turn_usd: 4, session_usd: 20, day_usd: 40 },
+        limits: { run_usd: 1, turn_usd: 2, session_usd: 5, day_usd: 5, max_runs_per_turn: 2, max_requests_per_turn: 40, max_concurrent_runs: 1,
+          max_runtime_seconds: 600, max_result_items: 200, max_result_bytes: 5_242_880, max_retention_seconds: 604_800 } },
+      spend: { ledger: "absent", observed_at: "2026-07-12T09:00:00.000Z", coverage: null, day: null, brain_day: null, unresolved: [] } })
     : Response.json({ error: "none" }, { status: 404 }) }));
   useEffect(() => () => root.dispose(), [root]);
   const tool: ToolCall = { id: "apify-run-1", name: "Apify Actor run", input: REVIEW, inputJson: JSON.stringify(REVIEW), status: "pending_approval", approvalKind: "command",

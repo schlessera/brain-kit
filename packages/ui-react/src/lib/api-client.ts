@@ -653,7 +653,14 @@ export function createBrainApi(
       const query = new URLSearchParams();
       if (options.refresh) query.set("refresh", "1");
       if (options.session && options.turn) { query.set("session", options.session); query.set("turn", options.turn); }
-      return fetchJson<ApifySettingsRead>(`/apify${query.size ? `?${query}` : ""}`, { cache: "no-store", ...(options.signal ? { signal: options.signal } : {}) });
+      return fetchJson<ApifySettingsRead>(`/apify${query.size ? `?${query}` : ""}`, { cache: "no-store", ...(options.signal ? { signal: options.signal } : {}) }).then(read => {
+        // A server without the #3163 fields (or anything else) has no Apify section to show.
+        const value = read as Partial<ApifySettingsRead> | null;
+        if (!value || typeof value.state !== "string" || !value.policy || typeof value.policy !== "object" || !Array.isArray(value.policy.grants)
+          || !value.spend || typeof value.spend !== "object" || !Array.isArray(value.spend.unresolved))
+          throw new ApiRequestError("Apify settings are not available on this server.", 404);
+        return read;
+      });
     },
     /** Confirm the token's changed account (#3159). */
     apifyConfirmAccount: (accountId: string) => fetchJson<unknown>("/apify/account", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),

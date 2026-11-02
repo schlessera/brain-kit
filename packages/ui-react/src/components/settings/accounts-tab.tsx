@@ -47,7 +47,8 @@ export function AccountsTab({ active }: { active: boolean }) {
     <div className="px-4 py-4"><ApifySection active={active} layout="detail" /></div>
   </div>;
 
-  const none = a === false && s === false && p === false;
+  // The pi and web-search empty state is about those two; Apify keeps its own section.
+  const none = a === false && s === false;
   return <div ref={tab} className="min-h-0 flex-1 overflow-y-auto">
     <ScreenHeader variant="nav" title="Accounts" subtitle="provider connections · web search · external services" back={false} divider={false} />
     <div className="px-4 pb-4">
