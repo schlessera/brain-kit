@@ -168,8 +168,12 @@ export async function collisions(options: CollisionOptions): Promise<CollisionRe
         found.push({ kind: "unknown", prs, paths: [], categories: [], workspaces: [], reason: `Trial merge failed: ${merge.message}` });
         continue;
       }
-      if (merge.status === 1) {
-        const paths = [...new Set(merge.stdout.split("\0").filter(Boolean).slice(1))].sort();
+      // Heads on different bases also conflict where only base drift differs
+      // (the other side carries newer main). A pairwise conflict needs a path
+      // both PRs changed; drift-only conflicts belong to each PR's own refresh.
+      const both = new Set(changed.get(a.number)!.filter(path => changed.get(b.number)!.includes(path)));
+      const paths = merge.status === 1 ? [...new Set(merge.stdout.split("\0").filter(Boolean).slice(1))].filter(path => both.has(path)).sort() : [];
+      if (paths.length) {
         found.push({ kind: "textual", prs, paths, categories: [], workspaces: [] });
         continue;
       }

@@ -54,7 +54,7 @@ function fixture() {
     ...Object.values(prs).map(pr => `${pr.head}:refs/pull/${pr.number}/head`));
   // --no-local: a local clone would copy every object, hiding the fetch path.
   run(dir, "clone", "-q", "--no-local", origin, root);
-  return { root, prs };
+  return { root, prs, seed, origin };
 }
 
 /** Everything the command must not touch: refs, HEAD, the index, the working tree and FETCH_HEAD. */
@@ -120,6 +120,22 @@ test("a PR head that cannot be read is unknown, not disjoint", async () => {
   const missing = { ...prs.chart, head: "0".repeat(39) + "1" };
   const report = await collisions({ root, listPrs: list(prs.rowers, missing), fetch: false });
   expect(report.collisions.map(c => c.kind)).toEqual(["unknown"]);
+});
+
+test("conflicts that come only from base drift are not textual pairs", async () => {
+  const { root, prs, seed, origin } = fixture();
+  // Main moves on after #101 branched, rewriting the same line; #105 starts from that newer main.
+  run(seed, "switch", "-q", "main");
+  writeFileSync(join(seed, "packages/ithaca/src/oars.ts"), "export const oars = 50;\n");
+  run(seed, "commit", "-qam", "main moves");
+  run(seed, "switch", "-q", "-c", "pr-105");
+  writeFileSync(join(seed, "docs/sea-chart.md"), "# Later chart\n");
+  run(seed, "add", "-A"); run(seed, "commit", "-qm", "pr 105");
+  const later: OpenPr = { number: 105, head: run(seed, "rev-parse", "HEAD"), base: run(seed, "rev-parse", "main"), baseRef: "main", draft: false };
+  run(seed, "push", "-q", origin, "main:refs/heads/main", `${later.head}:refs/pull/105/head`);
+  run(root, "fetch", "-q", "origin");
+  const report = await collisions({ root, listPrs: list(prs.rowers, later), fetch: true });
+  expect(report.collisions, "BASE_DRIFT_IS_NOT_TEXTUAL").toEqual([]);
 });
 
 test("--pr reports only collisions involving that PR", async () => {
