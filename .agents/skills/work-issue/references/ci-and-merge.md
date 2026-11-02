@@ -38,6 +38,14 @@ runtimes, failures/cancellations and unexpected skips leave proof unfinished.
 Keep drafts cheap and batch pushes. Ready synchronize runs fast feedback and
 leaves `proof` nonpassing; convert to draft and mark ready after the final push
 to request candidate confirmation. Open/reopen ready events also request it.
+For heavy iteration on a draft, run `bun scripts/request-heavy-feedback.ts
+<pr>` (`--json` prints the run identity). It dispatches the PR's affected heavy
+categories at its live head without the reservation, and refuses a ready,
+closed, foreign or moved head. A newer request or push cancels the earlier run,
+and admission waits while a ready confirmation holds the reservation. Its
+aggregate, `draft heavy feedback`, is feedback only: the merge gate never reads
+it, and exact-head ready confirmation remains the only `proof`. Use long local
+suites only to debug a specific failure.
 Draft runs report `draft gates`, not `proof`. A ready PR without a passing
 `proof` from its confirmation run is unconfirmed, even if `draft gates` passed
 or failed because its live read found the PR ready; request confirmation again.

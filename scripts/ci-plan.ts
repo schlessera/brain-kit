@@ -25,7 +25,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
     "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
     "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
     "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
-    "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
+    "tests/ci-workflows.test.ts", "tests/heavy-feedback.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
     "tests/decision-citations.test.ts", "tests/dependency-edges.test.ts",
@@ -391,10 +391,17 @@ export function unitShards(plan: CheckPlan): number[] {
   return Array.from({length: Math.min(4, count)}, (_, i) => i + 1);
 }
 
-export type ProofCadence = "draft" | "feedback" | "confirmation" | "integrated" | "exhaustive";
+export type ProofCadence = "draft" | "feedback" | "feedback-heavy" | "confirmation" | "integrated" | "exhaustive";
 
-/** A request is an event, never a sticky label that can approve a later head. */
+/** A draft heavy feedback dispatch names its PR and head; ci.yml's bare dispatch declares no inputs. */
+export function heavyFeedbackDispatch(env: NodeJS.ProcessEnv, event: any): boolean {
+  return env.GITHUB_EVENT_NAME === "workflow_dispatch" && event?.inputs?.pr !== undefined && event?.inputs?.head_sha !== undefined;
+}
+
+/** A request is an event, never a sticky label that can approve a later head.
+ * `feedback-heavy` selects like confirmation but is never proof (#3272). */
 export function proofCadence(env: NodeJS.ProcessEnv, event: any): ProofCadence {
+  if (heavyFeedbackDispatch(env, event)) return "feedback-heavy";
   if (env.GITHUB_EVENT_NAME === "pull_request") {
     if (event.pull_request?.draft === true) return "draft";
     if (["opened", "reopened", "ready_for_review"].includes(event.action)) return "confirmation";
@@ -437,8 +444,10 @@ export function changedFiles(root: string, base: string, head = "HEAD", mergeBas
 }
 
 export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): CheckPlan {
-  if (["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
-  const pr = env.GITHUB_EVENT_NAME === "pull_request";
+  // Draft heavy feedback plans its PR's affected selection against the PR base (#3272).
+  const feedback = env.GITHUB_EVENT_NAME === "workflow_dispatch" && Boolean(env.FEEDBACK_PR);
+  if (!feedback && ["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
+  const pr = feedback || env.GITHUB_EVENT_NAME === "pull_request";
   const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
   return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root), root, pr);

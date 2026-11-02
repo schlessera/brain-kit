@@ -1451,7 +1451,46 @@ The dispatch workflow and request script are
 [#3272](https://github.com/schlessera/brain-kit/issues/3272). The `check:pr` and
 guidance changes are [#3273](https://github.com/schlessera/brain-kit/issues/3273).
 Runner-slot wait is [#2952](https://github.com/schlessera/brain-kit/issues/2952).
-Until #3272 lands, drafts keep running cheap gates only.
+
+#### How the request runs
+
+`bun scripts/request-heavy-feedback.ts <pr>` reads the live head and
+dispatches `.github/workflows/heavy-feedback.yml` from the default branch with
+the PR number and that SHA. It prints the run URL, or the run identity with
+`--json`. A dispatch can only start a workflow file that exists on the default
+branch, so the request always runs main's admission code.
+
+- **Same jobs and pins.** `scripts/heavy-feedback-workflow.ts` generates the
+  workflow from `ci.yml`. It copies the category jobs and replaces only their
+  checkout ref, which becomes the requested head, and their planner
+  environment. `bun run lint` refuses a stale copy, so a change to a
+  category job in `ci.yml` regenerates this file in the same PR.
+- **Exact head.** The admission job refuses unless the live PR is open, a
+  draft, from this repository and at exactly the requested SHA. It checks this
+  again on every wait poll. It then plans the PR's affected selection against
+  the live PR base with the `feedback-heavy` cadence, which selects what
+  confirmation would.
+- **Never proof.** The aggregate is named `draft heavy feedback` and prints no
+  candidate receipt. The candidate gate refuses the `feedback-heavy` cadence.
+  The merge gate reads only `ci.yml`'s `pull_request` runs and their `proof`
+  job, so a feedback run cannot satisfy it.
+- **One run per PR.** The concurrency group is
+  `heavy-feedback-<pr>` with `cancel-in-progress`. The same workflow also runs
+  a one-step job on the PR's `synchronize`, `ready_for_review` and `closed`
+  events. That job joins the group and so cancels the in-flight feedback run.
+- **Ready confirmations first.** GitHub Actions has no job priority. The
+  chosen approximation is admission-time yielding. The admission job waits
+  while the exact-candidate integration reservation holds a live lease,
+  because every ordinary confirmation runs under one. It also waits while
+  another feedback run is queued or in progress, which caps feedback at two
+  runs repository-wide. Waiting polls every 30 seconds and refuses after 30
+  minutes. A confirmation requested after a feedback run was admitted still
+  competes with that run for runners. A ready transition cancels the PR's own
+  feedback run. The [#2952](https://github.com/schlessera/brain-kit/issues/2952)
+  runner-slot wait measures whether this is enough.
+- **Red main.** The refusal while main is red is the red-main gate from
+  [#2942](https://github.com/schlessera/brain-kit/issues/2942). Whichever of
+  #2942 and #3272 lands second adds that gate to the admission job.
 
 ## Historical measurement and upstream guidance
 

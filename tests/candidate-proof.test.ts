@@ -87,3 +87,12 @@ test("the hosted entry point reads live readiness through its own API client", a
   }
   expect(reads).toEqual(Array(2).fill(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/pulls/7`));
 });
+
+test("the candidate gate refuses a draft heavy feedback dispatch as proof (#3272)", async () => {
+  const dispatch = { inputs: { pr: "7", head_sha: actual.parents[1] } };
+  const feedbackEnv = { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_SHA: actual.sha, GITHUB_REPOSITORY: env.GITHUB_REPOSITORY };
+  expect(proofCadence(feedbackEnv, dispatch)).toBe("feedback-heavy");
+  // ci.yml's bare dispatch declares no inputs and stays exhaustive.
+  expect(proofCadence(feedbackEnv, { inputs: {} })).toBe("exhaustive");
+  await expect(validateCandidate("unused", dispatch, feedbackEnv, api(), actual), "FEEDBACK_IS_NEVER_PROOF").rejects.toThrow("Draft heavy feedback is never proof");
+});
