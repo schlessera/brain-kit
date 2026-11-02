@@ -59,9 +59,9 @@ inside core. Core declares it as an optional peer; an instance naming `boat`
 without the package installed is `provider_unavailable` and names the install
 it needs. A built-in package is loaded only when an instance names it; it
 exports `computeProvider` and may export `defaultKeyEnv`, the variable an
-instance without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-455`).
+instance without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-461`).
 Resolution gives each instance its own options and secret
-(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:500-546`).
+(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:515-561`).
 
 ## The Boat built-in
 
@@ -132,7 +132,7 @@ Core drives every job through `admitted`, `allocating`, `staging`, `running`,
 is unknown. Before each provider call it writes an intent receipt, and after
 it an outcome receipt, so a process that dies mid-call leaves a record that
 reconciliation resolves without repeating a non-idempotent effect
-(`private async resolveUncertain`, `packages/core/src/lib/compute/lifecycle.ts:362-396`):
+(`private async resolveUncertain`, `packages/core/src/lib/compute/lifecycle.ts:368-402`):
 
 - A lost allocation is retried under the same key when the provider is
   idempotent, looked up when it can find by key, and otherwise left
