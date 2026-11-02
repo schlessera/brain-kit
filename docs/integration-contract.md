@@ -66,6 +66,51 @@ inspected and none can run; spend admission, CLI/MCP operations and their
 presentation follow in #3161–#3163. It ships in a minor; no breaking ruling is
 required.
 
+## Apify spending limits, qualified profiles and the run ledger (additive, 0.45.0, #3161)
+
+The governance policy's `apify` block adds `limits`
+([supported inputs](supported-inputs.md#governance-policy),
+[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)):
+`{ run_usd, turn_usd, session_usd, day_usd, max_runs_per_turn, max_requests_per_turn, max_concurrent_runs, max_runtime_seconds, max_result_items, max_result_bytes, max_retention_seconds }`.
+Absent, `effective.apify.limits` is `null` and no Apify run is admitted;
+there is no default spending entitlement. Present, every field is required.
+A missing, negative, nonfinite or out-of-range field invalidates the policy,
+which disables Apify. Zero refuses what it bounds. `day_usd` and
+`max_concurrent_runs` are account-wide: they count every brain and principal
+that uses the same Apify account through the same ledger. With limits set,
+`max_requests_per_turn` replaces the fixed 32-operation discovery bound and
+counts every Apify request a turn makes, durably.
+
+A run is admitted only for a build with a qualified profile. The profile pins
+the build's exact input schema and price list, and qualifies only all-in
+pay-per-event builds with a verified currency cap and every event priced.
+The full input is validated against that schema. URLs may appear only in the
+profile's target fields. Work bounds are mapped to `max_result_items`. Targets
+need robots.txt permission checked by the host, or a written site permission
+for named origins. The cap must be at least Apify's minimum charge.
+No production build is qualified yet. Admission intersects
+`apify.limits` with the global `budgets` less inference already spent. It
+reserves the run cap plus the profile's bounded lifecycle (status, result and
+abort requests, and remote storage retention) in one atomic transaction before
+the start request. That request is sent once, with `build`, `timeout`,
+`memory`, `maxTotalChargeUsd`, `waitForFinish=0` and `restartOnError=false`
+as run options.
+
+The ledger is private operational state: a host-owned SQLite file (mode 0600)
+outside every brain and never `brain.db`. Every process opening the same file
+shares its `ledger_id` and one write lock. An unknown start
+(`remote_outcome_unknown`) keeps its reservation and is never sent again;
+only the run's own identity or an operator's attestation resolves it.
+Charge reports settle a run's liability exactly once, and a late report only
+raises it. A missing or unpriced report keeps the reservation. An abort, even
+a confirmed one, never zeroes a charge. Results are read only from the
+validated run's own dataset, under the session's opaque handle, within the
+item, byte, request and retention bounds. Redirects and signed URLs are refused.
+New refusal codes are `accounting_unavailable`, `remote_outcome_unknown` and
+`result_expired`. This adds no CLI command, MCP tool, wire frame or route;
+those follow in #3162 and #3163. It ships in a minor; no breaking ruling is
+required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets

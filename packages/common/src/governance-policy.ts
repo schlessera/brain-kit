@@ -66,6 +66,35 @@ const apifyActorGrant = z.strictObject({
   max_run_usd: z.number().finite().positive().max(APIFY_MAX_RUN_USD),
 });
 
+/** Upper bounds that keep every Apify limit an exact integer in microdollars, bytes or seconds. */
+export const APIFY_LIMIT_BOUNDS = Object.freeze({
+  usd: APIFY_MAX_RUN_USD,
+  count: 1_000_000,
+  runtime_seconds: 7 * 86_400,
+  result_items: 1_000_000,
+  result_bytes: 1024 ** 3,
+  retention_seconds: 30 * 86_400,
+});
+const apifyUsd = z.number().finite().nonnegative().max(APIFY_LIMIT_BOUNDS.usd);
+const apifyCount = (max: number) => z.number().int().nonnegative().max(max);
+/**
+ * Independent Apify limits (#3161). Every field is required once the block is
+ * present: a missing, negative, nonfinite or overflowing limit invalidates the
+ * policy, which disables Apify. A zero limit refuses the operation it bounds.
+ * Absent, there is no spending entitlement and no paid run is admitted. These
+ * intersect the global `budgets` and the Actor grant and proposal caps; they
+ * never enlarge any of them. `day_usd` and `max_concurrent_runs` are
+ * account-wide: they count every brain and principal using the same account.
+ */
+const apifyLimits = z.strictObject({
+  run_usd: apifyUsd, turn_usd: apifyUsd, session_usd: apifyUsd, day_usd: apifyUsd,
+  max_runs_per_turn: apifyCount(APIFY_LIMIT_BOUNDS.count), max_requests_per_turn: apifyCount(APIFY_LIMIT_BOUNDS.count),
+  max_concurrent_runs: apifyCount(APIFY_LIMIT_BOUNDS.count), max_runtime_seconds: apifyCount(APIFY_LIMIT_BOUNDS.runtime_seconds),
+  max_result_items: apifyCount(APIFY_LIMIT_BOUNDS.result_items), max_result_bytes: apifyCount(APIFY_LIMIT_BOUNDS.result_bytes),
+  max_retention_seconds: apifyCount(APIFY_LIMIT_BOUNDS.retention_seconds),
+});
+export type ApifyLimits = z.output<typeof apifyLimits>;
+
 export const GovernancePolicySchema = z.strictObject({
   schema_version: z.literal(1),
   profiles: z.strictObject({ interactive: z.enum(["governed", "strict"]).optional(), voice: z.enum(["governed", "strict"]).optional() }).optional(),
@@ -85,14 +114,15 @@ export const GovernancePolicySchema = z.strictObject({
    * keeps the provider off whatever host credential exists. Catalog discovery
    * and concrete Actor consent are independent modes (#3160); enablement
    * grants neither, discovery grants no Actor, and `actors: allow` admits only
-   * an exact unexpired `actor_grants` entry, never every Actor. Spending
-   * limits are a separate later field.
+   * an exact unexpired `actor_grants` entry, never every Actor. `limits`
+   * (#3161) is the only spending entitlement; without it no run is admitted.
    */
   apify: z.strictObject({
     enabled: z.boolean().optional(),
     discovery: apifyMode.optional(),
     actors: apifyMode.optional(),
     actor_grants: z.array(apifyActorGrant).max(APIFY_MAX_ACTOR_GRANTS).optional(),
+    limits: apifyLimits.optional(),
   }).optional(),
 });
 export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
@@ -113,7 +143,7 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[] },
   taint: { egress: { allow: [] as string[] } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
   apify: { enabled: false as boolean, discovery: "ask" as "deny" | "ask" | "allow", actors: "ask" as "deny" | "ask" | "allow",
-    actor_grants: [] as Array<z.output<typeof apifyActorGrant>> },
+    actor_grants: [] as Array<z.output<typeof apifyActorGrant>>, limits: null as ApifyLimits | null },
 };
 
 export function resolveGovernancePolicy(policy: GovernancePolicyInput) {

@@ -190,6 +190,8 @@ signatures (every public export and the types it is made of)
         turnTempBytes: number;
         turnTempBudgetBytes: number;
     }
+  ApifyLimits (packages/common/src/governance-policy.ts)
+    export type ApifyLimits = z.output<typeof apifyLimits>;
   AppRenderer (packages/ui-server/src/routes/render.ts)
     export interface AppRenderer {
         renderPng(options: {
@@ -1082,6 +1084,19 @@ signatures (every public export and the types it is made of)
                 deny: "deny";
             }>>;
             enabled: z.ZodOptional<z.ZodBoolean>;
+            limits: z.ZodOptional<z.ZodObject<{
+                day_usd: z.ZodNumber;
+                max_concurrent_runs: z.ZodNumber;
+                max_requests_per_turn: z.ZodNumber;
+                max_result_bytes: z.ZodNumber;
+                max_result_items: z.ZodNumber;
+                max_retention_seconds: z.ZodNumber;
+                max_runs_per_turn: z.ZodNumber;
+                max_runtime_seconds: z.ZodNumber;
+                run_usd: z.ZodNumber;
+                session_usd: z.ZodNumber;
+                turn_usd: z.ZodNumber;
+            }, z.core.$strict>>;
         }, z.core.$strict>>;
         budgets: z.ZodOptional<z.ZodObject<{
             day: z.ZodOptional<z.ZodObject<{
@@ -2187,6 +2202,20 @@ signatures (every public export and the types it is made of)
         profile_id: z.ZodString;
         schema_sha256: z.ZodString;
     }, z.core.$strict>;
+  apifyLimits (packages/common/src/governance-policy.ts)
+    const apifyLimits: z.ZodObject<{
+        day_usd: z.ZodNumber;
+        max_concurrent_runs: z.ZodNumber;
+        max_requests_per_turn: z.ZodNumber;
+        max_result_bytes: z.ZodNumber;
+        max_result_items: z.ZodNumber;
+        max_retention_seconds: z.ZodNumber;
+        max_runs_per_turn: z.ZodNumber;
+        max_runtime_seconds: z.ZodNumber;
+        run_usd: z.ZodNumber;
+        session_usd: z.ZodNumber;
+        turn_usd: z.ZodNumber;
+    }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
   attribution (packages/ui-server/src/governance/events.ts)
@@ -2388,6 +2417,7 @@ signatures (every public export and the types it is made of)
             actors: "allow" | "ask" | "deny";
             discovery: "allow" | "ask" | "deny";
             enabled: boolean;
+            limits: ApifyLimits | null;
         };
         budgets: {
             day: {

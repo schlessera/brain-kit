@@ -24,8 +24,10 @@ export "./internal/frontmatter" (./src/frontmatter-parse.ts)
   parseFrontmatter
 
 export "./internal/governance-policy" (./src/governance-policy.ts)
+  APIFY_LIMIT_BOUNDS
   APIFY_MAX_ACTOR_GRANTS
   APIFY_MAX_RUN_USD
+  type ApifyLimits
   BUILTIN_GOVERNANCE_POLICY
   type EffectiveGovernancePolicy
   GOVERNANCE_POLICY_MAX_BYTES

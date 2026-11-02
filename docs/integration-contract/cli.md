@@ -256,7 +256,9 @@ the file enables it. Since #3160 (additive) `apify` also carries
 `discovery` and `actors` (each `"deny" | "ask" | "allow"`, default `"ask"`) and
 `actor_grants` (default `[]`), each grant in the
 [supported input's](../supported-inputs.md#governance-policy) exact shape with
-`expires_at` normalized to an ISO 8601 UTC instant.
+`expires_at` normalized to an ISO 8601 UTC instant. Since #3161 (additive)
+`apify` also carries `limits`, `null` unless the file sets the complete
+[limits object](../supported-inputs.md#governance-policy).
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes
