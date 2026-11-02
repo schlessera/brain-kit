@@ -334,6 +334,43 @@ export async function indexAssets(
 }
 
 /**
+ * Whether every asset on disk has an index row for its current bytes.
+ *
+ * Asset cache lines are keyed by content hash, and only the asset phase of an
+ * embeddings run hashes files. A plain run that follows a rebuild, or that
+ * sees a new or edited image, has assets the index holds no current hash for,
+ * so it cannot tell their descriptions from those of deleted files. Pruning
+ * then would delete paid descriptions of assets that still exist (#3242).
+ *
+ * The check costs one stat per asset and reads no bytes. A row counts only
+ * while its stat fingerprint still matches, so a file rewritten since the last
+ * asset phase is treated as unknown rather than as its old hash.
+ */
+export function indexCoversAssets(run: IndexRun, assets: Asset[]): boolean {
+  if (assets.length === 0) return true;
+  const rows = run.db
+    .prepare(
+      `SELECT path, stat_fingerprint FROM documents
+       WHERE asset_type != 'markdown' AND content_hash IS NOT NULL`
+    )
+    .all() as { path: string; stat_fingerprint: string | null }[];
+  const indexed = new Map(rows.map((r) => [r.path, r.stat_fingerprint]));
+  for (const asset of assets) {
+    const fingerprint = indexed.get(asset.path);
+    if (!fingerprint) return false;
+    let current: string;
+    try {
+      const st = statSync(resolve(run.root, asset.path));
+      current = `${st.mtimeMs}-${st.size}`;
+    } catch {
+      continue; // vanished since the scan: nothing on disk to protect
+    }
+    if (current !== fingerprint) return false;
+  }
+  return true;
+}
+
+/**
  * Queue on-disk assets whose chunk has no vector but which this run did not
  * flag as changed — left behind by a run whose embed call hit a rate limit, or
  * that ran without a working provider. Reuses a finished description already
