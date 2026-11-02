@@ -35,7 +35,7 @@ const budget = (warning = true, unknown = false): TurnBudgetReceipt => ({ listPr
   coverage: "Built-in inference only; provider and tool spend is not metered", scopes: (["turn", "session", "day"] as const).map(scope => ({ scope, costUsd: unknown ? null : 100, tokens: 1000, unknownRuns: unknown ? 1 : 0,
     warnUsd: scope === "turn" ? 100 : 2000, blockUsd: scope === "turn" ? 200 : 4000, blockTokens: scope === "turn" ? 512000000 : 8000000000,
     warning: warning && scope === "turn", blocked: false, ...(scope === "day" ? { resetAt: Date.UTC(2026, 6, 13) } : {}) })) });
-const summary = (receipt: TurnBudgetReceipt): TurnJournalSummary => ({ state: "complete", changedFiles: 1, steeringFiles: 0, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: false, observedAt: receipt.observedAt, budget: receipt });
+const summary = (receipt: TurnBudgetReceipt): TurnJournalSummary => ({ state: "complete", changedFiles: 1, steeringFiles: 0, keptFiles: 1, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: false, observedAt: receipt.observedAt, budget: receipt });
 async function mount(width: number, paper = false) {
   await page.viewport(width, width === 640 ? 400 : 800);
   document.documentElement.dataset.theme = paper ? "light" : "dark";
