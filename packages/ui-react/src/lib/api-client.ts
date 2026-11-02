@@ -1,4 +1,4 @@
-import type { AgentPolicyRead } from "@schlessera/brain-ui-sdk/protocol";
+import type { AgentPolicyRead, ApifyPolicyChange, ApifyPolicyProposalRead, ApifySettingsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
@@ -643,6 +643,26 @@ export function createBrainApi(
       fetchJson<{ tools: string[] }>(`/tool-permissions/${encodeURIComponent(tool)}`, {
         method: "DELETE",
       }),
+
+    /**
+     * Apify provider state, policy and spend (#3159, #3163): live human owners
+     * only. `refresh` re-verifies the token and settles open runs now; a
+     * session and turn add that turn's ledger scope.
+     */
+    apify: (options: { refresh?: boolean; session?: string; turn?: string; signal?: AbortSignal } = {}) => {
+      const query = new URLSearchParams();
+      if (options.refresh) query.set("refresh", "1");
+      if (options.session && options.turn) { query.set("session", options.session); query.set("turn", options.turn); }
+      return fetchJson<ApifySettingsRead>(`/apify${query.size ? `?${query}` : ""}`, { cache: "no-store", ...(options.signal ? { signal: options.signal } : {}) });
+    },
+    /** Confirm the token's changed account (#3159). */
+    apifyConfirmAccount: (accountId: string) => fetchJson<unknown>("/apify/account", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),
+    /** Propose one Apify setting through the existing policy-change review; writes nothing. */
+    apifyPolicyPropose: (change: ApifyPolicyChange, baseHash: string | null) =>
+      fetchJson<ApifyPolicyProposalRead>("/apify/policy", { method: "POST", body: JSON.stringify({ change, base_hash: baseHash }) }),
+    /** The proposing owner's one answer to that exact review. A repeat only reads the recorded outcome. */
+    apifyPolicyDecide: async (turnId: string, requestId: string, approve: boolean) =>
+      POLICY_CHANGE_REVIEW_SCHEMA.parse(await fetchJson(`/apify/policy/${encodeURIComponent(turnId)}/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify({ approve }) })),
 
     /** Web-search provider config; `configured: false` when pi is not in play. */
     webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
