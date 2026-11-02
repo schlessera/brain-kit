@@ -129,6 +129,7 @@ async function claudeSession(
   const decoder = new TextDecoder();
   let buffer = "";
   let resultText = "";
+  let resultErrors: string[] = [];
   let sawResult = false;
   let refusal: string | null = null;
   let promptSent = false;
@@ -212,6 +213,8 @@ async function claudeSession(
       if (event.type === "result") {
         sawResult = true;
         if (typeof event.result === "string") resultText = event.result;
+        // An error result can carry its cause here instead of in `result`.
+        if (Array.isArray(event.errors)) resultErrors = event.errors.filter((e: unknown): e is string => typeof e === "string");
         // One prompt, one result: closing stdin lets the CLI exit.
         proc.stdin.end();
       }
@@ -224,12 +227,28 @@ async function claudeSession(
     throw new Error(`claude CLI exited before its handshake (exit ${exitCode}): ${(await stderr).trim() || "(no stderr)"}`);
   }
   if (exitCode !== 0) {
-    throw new Error(`claude CLI failed (exit ${exitCode}): ${resultText || (await stderr).trim() || "(no output)"}`);
+    throw new Error(`claude CLI failed (exit ${exitCode}): ${failureDetail(resultText, resultErrors, await stderr)}`);
   }
   if (!sawResult) {
     throw new Error(`claude CLI ended without a result: ${(await stderr).trim() || "(no stderr)"}`);
   }
   return resultText.trim();
+}
+
+/** The most stderr a failure message repeats: its end, where the cause usually is. */
+const FAILURE_STDERR_CHARS = 2000;
+
+/**
+ * Everything the CLI said about a failed run (#3243): its result text, the
+ * errors its result listed, and the end of its stderr, each once. The result
+ * alone can be a generic line while stderr names the cause, or the reverse.
+ */
+function failureDetail(resultText: string, resultErrors: readonly string[], stderr: string): string {
+  const tail = stderr.trim();
+  const parts = [resultText.trim(), ...resultErrors.map((e) => e.trim()),
+    tail.length > FAILURE_STDERR_CHARS ? `…${tail.slice(-FAILURE_STDERR_CHARS)}` : tail];
+  const unique = [...new Set(parts.filter(Boolean))];
+  return unique.length > 0 ? unique.join(" — ") : "(no output)";
 }
 
 /** claude — `claude --print` over stream-json, held to the subscription. */

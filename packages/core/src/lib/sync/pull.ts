@@ -1,7 +1,8 @@
 /**
  * `brain sync pull`: fetch origin/main and bring it into HEAD, finishing merge
  * state a previous sync left pending first (#328). The derived caches are
- * merged by key, never left for anyone to resolve by hand.
+ * merged by key, and the stats history by day (#3243), never left for anyone
+ * to resolve by hand.
  */
 
 import { LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
@@ -9,6 +10,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 import { migrateSidecarCaches } from "../indexer/caches.js";
+import { parseHistory, STATS_HISTORY_FILE } from "../stats-history.js";
 import { classifyPostSyncDirt, DERIVED_CACHES, workingTreeDirt } from "./assess.js";
 import { git, isAncestor, unmergedPaths } from "./git.js";
 import { conclude, foreignReason, pendingState, rememberStash, type PendingKind } from "./merge-state.js";
@@ -20,6 +22,10 @@ export interface PullEnvelope {
   localAhead: number;
   remoteAhead: number;
   conflicts: string[];
+  /**
+   * The line-per-record files this pull merged itself: the derived caches,
+   * and the stats history when it conflicted (#3243).
+   */
   mergedCaches: string[];
   /** The pending state this pull finished before it merged, if any. */
   concluded: PendingKind | null;
@@ -117,6 +123,30 @@ function unionDerivedCaches(
   }
 }
 
+/**
+ * Resolve a conflicted stats history from its two sides' stages (#3243), as
+ * git's union driver would with the `.gitattributes` line a brain may lack:
+ * every day either clone recorded, two recordings of one day resolving to
+ * the later (`parseHistory`), sorted by date. Staged when resolved. A side
+ * that is not a history (conflict markers, a hand edit) is left unmerged for
+ * judgment, as `parseHistory` leaves it for recording.
+ */
+function mergeStatsHistory(root: string, unmerged: readonly string[]): boolean {
+  if (!unmerged.includes(STATS_HISTORY_FILE)) return false;
+  const sides = [2, 3].map((stage) => {
+    const shown = git(root, ["show", `:${stage}:${STATS_HISTORY_FILE}`], true);
+    return shown.code === 0 ? shown.stdout : "";
+  });
+  let merged;
+  try {
+    merged = parseHistory(sides.join("\n"));
+  } catch {
+    return false;
+  }
+  writeFileSync(resolve(root, STATS_HISTORY_FILE), merged.map((snapshot) => JSON.stringify(snapshot)).join("\n") + (merged.length ? "\n" : ""), "utf-8");
+  return git(root, ["add", "--", STATS_HISTORY_FILE]).code === 0;
+}
+
 /** What one pass of `pull` left, in the shape `pull` reports. */
 interface PullPass {
   status: string;
@@ -205,9 +235,11 @@ function mergeOriginMain(root: string, strategy: "rebase" | "merge"): PullPass {
   const mergedCaches = [...new Set([...aside.keys(), ...cacheConflicts, ...hookCaches])];
   if (status === "fast-forwarded" || status === "rebased" || status === "merged" || merging) {
     unionDerivedCaches(root, mergedCaches, aside, new Set(cacheConflicts), status === "rebased");
-    if (cacheConflicts.length > 0) {
-      git(root, ["add", "--", ...cacheConflicts]);
-      conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file));
+    const historyMerged = mergeStatsHistory(root, conflicts);
+    if (historyMerged) mergedCaches.push(STATS_HISTORY_FILE);
+    if (cacheConflicts.length > 0 || historyMerged) {
+      if (cacheConflicts.length > 0) git(root, ["add", "--", ...cacheConflicts]);
+      conflicts = conflicts.filter((file) => !DERIVED_CACHES.has(file) && !(historyMerged && file === STATS_HISTORY_FILE));
       if (conflicts.length === 0) {
         const done = conclude(root);
         status = done.outcome === "committed" ? "merged" : "merge-failed";
@@ -264,7 +296,8 @@ function pullOriginMain(root: string, strategy: "rebase" | "merge"): { pass: Pul
   if (pending.unmerged.length > 0 || pending.kind === "stash") {
     unionDerivedCaches(root, resolvedCaches, new Map(), new Set(resolvedCaches));
     if (resolvedCaches.length > 0) git(root, ["add", "--", ...resolvedCaches]);
-    const conflicts = pending.unmerged.filter((file) => !DERIVED_CACHES.has(file));
+    if (mergeStatsHistory(root, pending.unmerged)) resolvedCaches.push(STATS_HISTORY_FILE);
+    const conflicts = pending.unmerged.filter((file) => !resolvedCaches.includes(file));
     if (conflicts.length > 0) {
       rememberStash(root, pending);
       return { pass: { status: "conflicted", conflicts, mergedCaches: resolvedCaches }, concluded: null };
