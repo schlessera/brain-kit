@@ -28,7 +28,7 @@ export function AgentPolicyGroup({ active }: { active: boolean }) {
       <Surface emphasis="hairline">
         <div className="min-w-0 space-y-2 p-3">
           <div className="flex flex-wrap items-center gap-2"><code className="min-w-0 flex-1 text-xs">{facts.path}</code>
-            <Button label="Open" ariaLabel="Open governance policy" tone="quiet" size="md" block={false} style={{ minHeight: 44 }} onClick={() => {
+            <Button label="Open" ariaLabel="Open governance policy" tone="quiet" size="md" block={false} reach onClick={() => {
               if (owner.current !== root.authLock.epoch()) return;
               const opener = document.activeElement; if (opener instanceof HTMLElement) rememberFileEntry(root, opener, opener.matches(":focus-visible"));
               root.stores.ui.getState().openPanel("files"); void root.stores.file.getState().openFile(facts.path);

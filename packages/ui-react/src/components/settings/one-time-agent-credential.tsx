@@ -72,7 +72,7 @@ function OneTimeCredential({
           <code className="block break-all text-xs text-foreground">{credential.cookie}</code>
         </div>
         <div className="mt-3" ref={node => { copyRef.current = node?.querySelector<HTMLElement>('[role="button"]') ?? null; }}>
-          <Button label={copied ? "Copied" : "Copy credential"} tone="ghost" size="md" center block={false} icon={copied ? "confirm" : "copy"} style={{ minHeight: 44, width: "100%" }} onClick={() => void copyCredential()} />
+          <Button label={copied ? "Copied" : "Copy credential"} tone="ghost" size="md" center block={false} icon={copied ? "confirm" : "copy"} reach style={{ width: "100%" }} onClick={() => void copyCredential()} />
         </div>
         {copyError ? (
           <p role="alert" className="mt-2 text-xs text-destructive">
@@ -88,7 +88,7 @@ function OneTimeCredential({
           />
           I have saved this credential somewhere safe.
         </label>
-        <div className="mt-3"><Button label="Done" tone="primary" size="md" center block={false} disabled={!saved} style={{ minHeight: 44, width: "100%" }} onClick={onDone} /></div>
+        <div className="mt-3"><Button label="Done" tone="primary" size="md" center block={false} disabled={!saved} reach style={{ width: "100%" }} onClick={onDone} /></div>
       </div>
     </Overlay>
   );

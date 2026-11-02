@@ -183,9 +183,21 @@ async function signIn(page: Page) {
 async function act(page: Page, control: Locator) { await settled(page); if (await page.evaluate(() => matchMedia("(pointer:coarse)").matches)) await control.tap(); else await control.click(); }
 async function click(page: Page, name: string) { await act(page, page.getByRole("button", {name,exact:true})); }
 async function accessible(page: Page, dialog: Locator) {
-  const targets = await dialog.locator('[role=button],[role=checkbox]').evaluateAll(nodes => nodes.map(n => { const r = n.getBoundingClientRect(); return {width:r.width,height:r.height}; }));
+  // A reaching Button (`.bk-hit`, #3252) keeps its kit paint. Under a coarse
+  // pointer it must own elementFromPoint 1px inside each edge of its 44px
+  // target; a fine pointer has no 44px floor. Every other control keeps its box.
+  const targets = await dialog.locator('[role=button],[role=checkbox]').evaluateAll(nodes => nodes.map(n => {
+    const el = n as HTMLElement, r = el.getBoundingClientRect();
+    if (!el.classList.contains("bk-hit")) return { name: el.textContent, ok: r.width >= 44 && r.height >= 44 };
+    if (el.style.minHeight === "44px") return { name: el.textContent, ok: false };
+    if (!matchMedia("(any-pointer: coarse)").matches || el.getAttribute("aria-disabled") === "true") return { name: el.textContent, ok: true };
+    el.scrollIntoView({ block: "center" });
+    const b = el.getBoundingClientRect(), w = Math.max(b.width, 44), h = Math.max(b.height, 44), x = b.left + b.width / 2, y = b.top + b.height / 2;
+    const owned = [[x, y - h / 2 + 1], [x, y + h / 2 - 1], [x - w / 2 + 1, y], [x + w / 2 - 1, y]].every(([px, py]) => { const hit = document.elementFromPoint(px!, py!); return !!hit && (hit === el || el.contains(hit)); });
+    return { name: el.textContent, ok: owned };
+  }));
   expect(targets.length, "dialog has actual controls").toBeGreaterThan(0);
-  expect(targets.every(r => r.width >= 44 && r.height >= 44), "all dialog targets measure at least 44 by 44").toBe(true);
+  expect(targets.filter(t => !t.ok).map(t => t.name), "all dialog targets reach at least 44 by 44").toEqual([]);
   await page.addScriptTag({path: resolve(repo,"node_modules/axe-core/axe.min.js")});
   const failures = await page.evaluate(async () => {
     const axe = (window as unknown as {axe:typeof import("axe-core")}).axe;

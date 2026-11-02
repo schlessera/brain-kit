@@ -65,6 +65,14 @@ export interface ButtonProps {
   /** Centres the content even when `block`. */
   center?: boolean;
   onClick?: () => void;
+  /**
+   * Under a coarse pointer, extend the tap target to 44px past the paint
+   * without changing the visible size (`.bk-hit`, #3252). Use it instead of a
+   * `minHeight: 44` that inflates the box. The caller keeps a gap of at least
+   * twice the reach to each interactive neighbour: 16px between `sm` Buttons,
+   * 9px between `md` ones. Ignored without `onClick`.
+   */
+  reach?: boolean;
   /** Read by the source's renderVals(), absent from its data-props. */
   radius?: number;
   /**
@@ -233,7 +241,7 @@ export function Button(p: ButtonProps) {
     <div
       data-bk-button=""
       style={box}
-      className={interactive ? "bk-control" : undefined}
+      className={interactive ? (p.reach ? "bk-control bk-hit" : "bk-control") : undefined}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? (disabled ? -1 : 0) : undefined}
       aria-disabled={interactive && (disabled || p.ariaDisabled === true) ? true : undefined}
