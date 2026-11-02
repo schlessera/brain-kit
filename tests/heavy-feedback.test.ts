@@ -119,6 +119,12 @@ test("the workflow is ci.yml's category jobs with per-PR cancellation and an agg
   expect(workflow.jobs.aggregate.name).toBe(FEEDBACK_AGGREGATE);
   expect(Object.entries(workflow.jobs).map(([id, job]: [string, any]) => job.name ?? id)).not.toContain("proof");
   expect(workflow.on.pull_request.types, "PUSH_CANCELS_FEEDBACK").toContain("synchronize");
+  // Feedback on a head containing main's recorded bad commit is refused like proof (#2942).
+  const admission = workflow.jobs.changeset.steps.map((step: any) => step.run ?? step.uses);
+  expect(admission.indexOf("bun scripts/red-main-cli.ts gate"), "RED_MAIN_GATE").toBeGreaterThan(admission.lastIndexOf("bun install --frozen-lockfile"));
+  expect(admission.indexOf("bun scripts/red-main-cli.ts gate"), "GATE_BEFORE_PLAN").toBeLessThan(admission.indexOf("bun scripts/ci-plan.ts"));
+  expect(workflow.jobs.changeset.steps.find((step: any) => step.run === "bun scripts/red-main-cli.ts gate").env).toEqual({ PR_NUMBER: "${{ inputs.pr }}" });
+  expect(() => renderHeavyFeedbackWorkflow(ci.replace("run: bun scripts/red-main-cli.ts gate", "run: bun scripts/red-main-cli.ts noop")), "GATE_REQUIRED").toThrow("lost its red-main gate");
   for (const name of ["unit", "runtime_host", "browser"]) {
     const pins = (job: any) => job.steps.filter((step: any) => step.uses).map((step: any) => `${step.uses} ${JSON.stringify({ ...step.with, ref: undefined })}`);
     expect(pins(workflow.jobs[name]), `${name}_SAME_PINS`).toEqual(pins(source.jobs[name]));

@@ -41,6 +41,7 @@ jobs:
       run_browser: ${{ steps.reuse.outputs.run_browser }}
       run_layout: ${{ steps.reuse.outputs.run_layout }}
       reuse: ${{ steps.reuse.outputs.reuse }}
+      red_main_oid: ${{ steps.plan.outputs.red_main_oid }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,6 +51,13 @@ jobs:
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
+      # Fail fast while main is red (#2942): hosted proof whose merge ref contains
+      # the recorded bad commit is refused, except declared fixes. Drafts run cheap gates only.
+      - name: Refuse doomed proof while main is red
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bun scripts/red-main-cli.ts gate
       - name: Plan affected fast and local checks
         id: plan
         env:
@@ -66,6 +74,14 @@ jobs:
       - name: Discover product scenario and assertion ownership
         if: steps.plan.outputs.cadence != 'draft'
         run: bun scripts/proof-inventory.ts
+      # Plan outputs and retention decisions are set before any metadata gate can
+      # fail, so a main push still runs its complete selected proof (#2942).
+      - name: Retain only validated equivalent automatic proof
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: bun scripts/proof-reuse.ts
       - name: Lint, leakage and contribution workflow guards
         run: bun run lint
       - name: Env documentation matches its descriptors
@@ -82,12 +98,6 @@ jobs:
           elif [ "$GITHUB_EVENT_NAME" = push ]; then
             bun scripts/check-changeset.ts "$BEFORE_SHA"
           fi
-      - name: Retain only validated equivalent automatic proof
-        id: reuse
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
-        run: bun scripts/proof-reuse.ts
       - name: Retention ledger and diagnostics
         if: always()
         uses: actions/upload-artifact@v7
@@ -102,7 +112,7 @@ jobs:
   verify:
     # Packaging and verification are independent after cheap rejection gates.
     needs: changeset
-    if: needs.changeset.outputs.verify == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.verify == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     steps:
@@ -123,6 +133,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Strict types and curated fast tests concurrently on this runner
         id: verify_proof
@@ -142,7 +153,7 @@ jobs:
 
   pack:
     needs: changeset
-    if: needs.changeset.outputs.pack == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.pack == 'true' }}
     timeout-minutes: 5
     runs-on: ubuntu-24.04
     env:
@@ -170,7 +181,7 @@ jobs:
 
   unit:
     needs: changeset
-    if: needs.changeset.outputs.unit == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.unit == 'true' }}
     runs-on: ubuntu-24.04
     # Separate network setup from the unchanged proof budget (#2658).
     # 12 minutes setup + 30 minutes proof + 3 minutes for other steps.
@@ -194,6 +205,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
         id: runtime_setup
@@ -250,7 +262,7 @@ jobs:
 
   runtime:
     needs: changeset
-    if: needs.changeset.outputs.runtime == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.runtime == 'true' }}
     runs-on: ubuntu-24.04
     # 12 minutes setup + unchanged 15 minutes proof + 3 minutes for other steps (#2658).
     timeout-minutes: 30
@@ -268,6 +280,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
         id: runtime_setup
@@ -318,7 +331,7 @@ jobs:
 
   runtime_host:
     needs: changeset
-    if: needs.changeset.outputs.runtime_host == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.runtime_host == 'true' }}
     runs-on: ubuntu-24.04
     # 12 minutes setup + unchanged 15 minutes proof + 3 minutes for other steps (#2658).
     timeout-minutes: 30
@@ -336,6 +349,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
         id: runtime_setup
@@ -407,7 +421,7 @@ jobs:
 
   browser:
     needs: changeset
-    if: needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -428,6 +442,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Complete browser proof
         run: bun scripts/ci-proof.ts browser --shard=${{ matrix.shard }}/3
@@ -471,7 +486,7 @@ jobs:
 
   layout:
     needs: changeset
-    if: needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -492,6 +507,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Complete layout proof
         run: bun scripts/ci-proof.ts layout --shard=${{ matrix.shard }}/2
@@ -529,7 +545,7 @@ jobs:
 
   captures:
     needs: changeset
-    if: needs.changeset.outputs.captures == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.captures == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -546,6 +562,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Complete captures proof
         run: bun scripts/ci-proof.ts captures
@@ -581,7 +598,7 @@ jobs:
 
   endurance:
     needs: changeset
-    if: needs.changeset.outputs.endurance == 'true'
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.endurance == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -598,6 +615,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
         run: bun scripts/ci-plan.ts
       - name: Complete endurance proof
         run: bun scripts/ci-proof.ts endurance
