@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { planChecks, workspaces } from "../scripts/ci-plan";
+import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
 import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures,
   openRed, parseRedMain, type RedFailure, type RedMainRecord } from "../scripts/red-main";
@@ -96,13 +96,18 @@ describe("red-main record", () => {
 
 describe("main selection includes the open red set", () => {
   test("a later main run that does not touch the red test's closure still runs it", () => {
-    const packages = workspaces(ROOT), replan = (changed: string[]) => planChecks(changed, packages, ROOT, false);
-    const plan = replan(["docs/README.md"]);
-    expect(plan.local.fullTests).toBe(false); expect(plan.local.browser).toBe(false);
+    // The planner itself runs end to end in the executable test below; this one
+    // pins how the open set widens a narrow docs-only plan.
+    const plan = { changed: ["docs/README.md"], typecheck: false, pack: false, unitTests: ["tests/docs.test.ts"],
+      local: { fullTests: false, runtime: false, browser: false, layout: false, captures: false, endurance: false } } as unknown as CheckPlan;
+    const replanned: string[][] = [];
+    const replan = (changed: string[]) => { replanned.push(changed); return { ...plan, changed, local: { ...plan.local } } as CheckPlan; };
     const record = openRed(emptyRedMain(), { firstBad: B, run: 11, failures: [failure("packages/core/tests/frontmatter.test.ts"), failure(null, "browser")] }, NOW);
     const widened = includeRedSet(plan, record, replan);
+    expect(replanned, "RED_TEST_JOINS_THE_CLOSURE").toEqual([["docs/README.md", "packages/core/tests/frontmatter.test.ts"]]);
     expect(widened.local.fullTests, "RED_UNIT_TEST_SELECTED_WITHOUT_CLOSURE_CHANGE").toBe(true);
     expect(widened.local.browser, "RED_CATEGORY_SELECTED").toBe(true);
+    expect(widened.unitTests, "NARROWED_INVENTORY_NAMES_THE_RED_TEST").toEqual(["packages/core/tests/frontmatter.test.ts", "tests/docs.test.ts"]);
     expect(widened.changed).toEqual(["docs/README.md"]);
     expect(widened.redMain).toEqual({ run: 11, firstBad: B, failures: record.open!.failures });
     expect(includeRedSet(plan, emptyRedMain(), replan)).toBe(plan);
