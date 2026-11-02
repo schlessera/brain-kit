@@ -1051,6 +1051,7 @@ export const turnJournalSummarySchema = z.looseObject({
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
   changedFiles: z.number().int().nonnegative().nullable(),
   steeringFiles: z.number().int().nonnegative().nullable(),
+  keptFiles: z.number().int().nonnegative().nullable().optional(),
   costUsd: z.number().finite().nonnegative().nullable(),
   costIsEstimate: z.boolean().nullable(),
   profile: z.enum(["strict", "governed"]).nullable(),

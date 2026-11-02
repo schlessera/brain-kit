@@ -34,6 +34,18 @@ const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
  * metadata-only file.
  */
 const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY_PATHS);
+/**
+ * One change row the turn retained as a reviewable change: neither version is
+ * metadata-only (by flag or, for history recorded before #2873, by index
+ * family path) or ignored, and the entry is not an `other` kind. The client's
+ * grouping applies the same rule to presented details (`const kept`,
+ * `packages/ui-react/src/components/chat/turn-journal.tsx:68`). Binds the
+ * index family paths, then the publication copy glob.
+ */
+const KEPT_CHANGE = `NOT (path IN (SELECT value FROM json_each(?)) OR path GLOB ?)
+  AND coalesce(json_extract(before_json,'$.metadataOnly'),0)!=1 AND coalesce(json_extract(after_json,'$.metadataOnly'),0)!=1
+  AND coalesce(json_extract(before_json,'$.ignored'),0)!=1 AND coalesce(json_extract(after_json,'$.ignored'),0)!=1
+  AND coalesce(json_extract(before_json,'$.kind'),json_extract(after_json,'$.kind'))!='other'`;
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
@@ -250,13 +262,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
 
   function summary(turnId: string): TurnJournalSummary {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
-    if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
-    const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; sharedAttribution: boolean } : undefined;
-    const counts = db.query("SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?").get(turnId) as { changedFiles: number; steeringFiles: number; sharedAttribution: number };
+    if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, keptFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
+    const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; keptFiles?: number | null; sharedAttribution: boolean } : undefined;
+    const counts = db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
+      count(DISTINCT CASE WHEN ${KEPT_CHANGE} THEN path END) AS keptFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?`)
+      .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number };
     const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
     const partial = row.state !== "expired" && (failures.has(turnId) || row.failure.trim() || row.state === "partial");
     const scope = db.query("SELECT summary FROM turn_scope WHERE turn_id=?").get(turnId) as { summary: string } | null;
     return { configurationCoverage: (JSON.parse(row.steering_inventory_missing) as string[]).length ? "incomplete" : !partial && row.state === "complete" ? "complete" : "unknown", ...(scope ? { scope: JSON.parse(scope.summary) } : {}), state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
+      // A retained summary from before keptFiles existed stays unknown; its changes are gone.
+      keptFiles: retained ? retained.keptFiles ?? null : partial && !counts.changedFiles ? null : counts.keptFiles,
       sharedAttribution: retained?.sharedAttribution ?? Boolean(counts.sharedAttribution), costUsd: cost?.effective_cost_usd ?? null,
       costIsEstimate: cost?.pricing_estimate == null ? null : Boolean(cost.pricing_estimate),
       profile: row.profile, actor: row.actor, kind: row.kind, ...(row.source_turn_id ? { sourceTurnId: row.source_turn_id } : {}), model: row.model, policyHash: row.policy_hash, observedAt: row.ended_at ?? row.started_at };
@@ -277,7 +293,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_object_refs WHERE turn_id=?", turnId),
       removeSummary ? statement("DELETE FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL", turnId)
-        : statement("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL", JSON.stringify({ changedFiles: before.changedFiles, steeringFiles: before.steeringFiles, sharedAttribution: before.sharedAttribution }), turnId),
+        : statement("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL", JSON.stringify({ changedFiles: before.changedFiles, steeringFiles: before.steeringFiles, keptFiles: before.keptFiles, sharedAttribution: before.sharedAttribution }), turnId),
     ]);
     failures.delete(turnId); await collectObjects(); publish(turnId);
   }
