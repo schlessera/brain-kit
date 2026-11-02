@@ -38,6 +38,34 @@ This adds no CLI command, MCP tool, wire frame or Actor execution; those follow
 the [Apify contract](decisions/apify-capability.md). It ships in a minor; no
 breaking ruling is required.
 
+## Apify discovery and concrete Actor consent (additive, 0.45.0, #3160)
+
+The governance policy's `apify` block adds `discovery` and `actors`
+(`deny`, `ask` or `allow`, default `ask`) and `actor_grants`, each grant
+`{ account_id, actor_id, build_number, profile_id, schema_sha256, pricing_sha256, origins, expires_at, max_run_usd }`
+([supported inputs](supported-inputs.md#governance-policy),
+[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)).
+The modes are independent: discovery permission never permits a run, and
+`actors: allow` admits only a run an unexpired grant matches exactly; every
+other run asks. The host's catalog calls use only the hosted MCP server's
+`search-actors` and `fetch-actor-details` tools, with telemetry off and no
+use-case text; build, input-schema and pricing facts come from the REST API.
+A run proposal binds account and authority generation, principal, session,
+turn, policy version, the immutable Actor id, the build id and number, the
+schema and pricing fingerprints, the qualified profile, the exact input, its
+target origins and the run cap. All of it is read again before and after the
+approval, and each proposal is consumed once before dispatch. Every approval is a
+per-use `command` confirmation, so neither a remembered tool grant nor an
+approval for a catalog tool, the MCP server or a tool name authorizes a run.
+Voice, autonomous and surfaceless turns are never prompted and get
+`approval_required`. Refusals use the contract's `provider_disabled`,
+`policy_denied`, `approval_required`, `proposal_stale`, `actor_unsupported`,
+`budget_exceeded` and `upstream_incompatible` codes. This adds no CLI command, MCP tool, wire frame,
+route or runnable Actor. No build is qualified yet, so every Actor can be
+inspected and none can run; spend admission, CLI/MCP operations and their
+presentation follow in #3161–#3163. It ships in a minor; no breaking ruling is
+required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets

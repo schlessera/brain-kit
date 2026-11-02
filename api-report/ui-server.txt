@@ -1060,6 +1060,27 @@ signatures (every public export and the types it is made of)
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
     const GovernancePolicySchema: z.ZodObject<{
         apify: z.ZodOptional<z.ZodObject<{
+            actor_grants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                account_id: z.ZodString;
+                actor_id: z.ZodString;
+                build_number: z.ZodString;
+                expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+                max_run_usd: z.ZodNumber;
+                origins: z.ZodArray<z.ZodString>;
+                pricing_sha256: z.ZodString;
+                profile_id: z.ZodString;
+                schema_sha256: z.ZodString;
+            }, z.core.$strict>>>;
+            actors: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            discovery: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
             enabled: z.ZodOptional<z.ZodBoolean>;
         }, z.core.$strict>>;
         budgets: z.ZodOptional<z.ZodObject<{
@@ -2154,6 +2175,18 @@ signatures (every public export and the types it is made of)
         isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
     }
+  apifyActorGrant (packages/common/src/governance-policy.ts)
+    const apifyActorGrant: z.ZodObject<{
+        account_id: z.ZodString;
+        actor_id: z.ZodString;
+        build_number: z.ZodString;
+        expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+        max_run_usd: z.ZodNumber;
+        origins: z.ZodArray<z.ZodString>;
+        pricing_sha256: z.ZodString;
+        profile_id: z.ZodString;
+        schema_sha256: z.ZodString;
+    }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
   attribution (packages/ui-server/src/governance/events.ts)
@@ -2351,6 +2384,9 @@ signatures (every public export and the types it is made of)
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
         apify: {
+            actor_grants: Array<z.output<typeof apifyActorGrant>>;
+            actors: "allow" | "ask" | "deny";
+            discovery: "allow" | "ask" | "deny";
             enabled: boolean;
         };
         budgets: {
