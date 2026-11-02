@@ -1,7 +1,8 @@
 /**
  * #3246: a validated provider-relay operation neither taints a governed session
  * nor is narrowed by its taint (G6), so tool order no longer decides whether
- * WebFetch or reranking works. Composed as a turn runs it: the real provider
+ * WebFetch or reranking works. Its `provider: true` connection record never
+ * makes its host a contacted one for the worker, in this turn or a later one. Composed as a turn runs it: the real provider
  * relay shares the real turn proxy's admission, and taint lives in the
  * session's governance record. The provider is a fictional loopback Gemini
  * endpoint the operator lists; nothing here needs a key or the network.
@@ -111,7 +112,11 @@ test("provider first, then WebFetch: the provider request never taints, and WebF
       { host: "127.0.0.1", port: provider.port, method: "POST", reason: "taint_allowlist", bytes: 0 }]);
     // Provider requests keep their own connection receipt, never tagged as inference.
     const providerRecords = voyage.events("egress_connection").map(event => event.payload).filter(record => record.host === "127.0.0.1" && record.outcome === "completed");
-    expect(providerRecords.map(record => [record.method, record.path, record.inference]), "PROVIDER_CONNECTION_RECEIPTS").toEqual([["POST", RERANK, undefined], ["POST", RERANK, undefined]]);
+    expect(providerRecords.map(record => [record.method, record.path, record.inference, record.provider]), "PROVIDER_CONNECTION_RECEIPTS")
+      .toEqual([["POST", RERANK, undefined, true], ["POST", RERANK, undefined, true]]);
+    // Worker records never carry the provider tag, even to the provider's host.
+    expect(voyage.events("egress_connection").filter(record => record.payload.method === "CONNECT").every(record => record.payload.provider === undefined),
+      "WORKER_RECORDS_NEVER_PROVIDER").toBe(true);
   } finally { await first.stop(); db.close(); }
 });
 
@@ -185,4 +190,26 @@ test("a cancelled turn refuses a tainted session's provider request before conta
     await current.stop();
     expect(voyage.taints()).toHaveLength(1);
   } finally { await current.stop(); db.close(); }
+});
+
+test("a provider request in one turn grants a later tainted turn's worker CONNECT no contacted-host pass (#3246)", async () => {
+  const db = createUiDb(":memory:"), voyage = session(db, "aeolus");
+  const first = await turn(db, "aeolus", "turn-provider-earlier");
+  reached.length = 0;
+  try {
+    expect((await first.rerank()).status, "EARLIER_TURN_PROVIDER_ADMITTED").toBe(200);
+    await first.stop();
+    expect(voyage.taints(), "EARLIER_PROVIDER_CREATES_NO_TAINT").toEqual([]);
+    const marked = voyage.events("egress_connection").map(event => event.payload).filter(record => record.host === "127.0.0.1");
+    expect(marked.map(record => [record.method, record.provider, record.inference]), "PROVIDER_RECORD_MARKED").toEqual([["POST", true, undefined]]);
+    const later = await turn(db, "aeolus", "turn-worker-later");
+    try {
+      expect(await connectStatus(later.egress.socketPath, `127.0.0.2:${harbour.port}`), "LATER_TURN_WEBFETCH_TAINTS").toBe(200);
+      expect(voyage.taints()).toEqual([{ source: "egress_connection", tool: null, detail: `CONNECT 127.0.0.2:${harbour.port}` }]);
+      expect(await connectStatus(later.egress.socketPath, `127.0.0.1:${provider.port}`), "CROSS_TURN_PROVIDER_HOST_NARROWED").toBe(403);
+      // The worker's own earlier contact still counts: WebFetch's host stays reachable.
+      expect(await connectStatus(later.egress.socketPath, `127.0.0.2:${harbour.port}`), "LATER_TURN_OWN_HOST_STILL_CONTACTED").toBe(200);
+      expect((await later.rerank()).status, "LATER_TURN_PROVIDER_STILL_ADMITTED").toBe(200);
+    } finally { await later.stop(); }
+  } finally { await first.stop(); db.close(); }
 });

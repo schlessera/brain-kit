@@ -3875,16 +3875,28 @@ The maintainer selected option C. An approved host-relayed provider request
 neither taints the session nor is narrowed by its taint. It still passes the
 ordinary deny and allowlist rules, the exact origin, recipient and route
 authorization, the byte ceilings, budget admission, cancellation and
-accounting. It keeps its own `egress_connection` record, which never carries
-`inference: true`. The exemption belongs to the operation, never to a
+accounting. It keeps its own `egress_connection` record, which carries
+`provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:250`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:252`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
-(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:126`). Turn egress
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:128`). Turn egress
 records neither a taint nor a contacted host for the operation
 (`admitted`, `packages/ui-server/src/brain/turn-egress.ts:133-136`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
+
+A later turn rebuilds its contacted hosts from the session's earlier
+`egress_connection` records, and a provider record there would look like a
+worker's. So the maintainer added the optional `provider: true` tag, mirroring
+`inference: true`, on the record of every validated provider-relay operation
+(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:107-114`). The rebuild
+excludes those records (`contactedHosts`,
+`packages/ui-server/src/governance/session-taint.ts:45-51`), so a provider
+request never gives the worker's own `CONNECT` a contacted-host pass, in the
+same turn or a later one. Records written before the tag existed stay
+unmarked, so they can still count for a session that already has them. That is
+an additive event field, so it ships in a minor.
 
 The accepted tradeoff is explicit. After untrusted input enters a session,
 content the turn sends through the relay can still reach that session's
@@ -3897,8 +3909,8 @@ Rejected: (A) keep both restrictions and document them, which leaves both
 tool-order failures; (B) stop the taint but keep the narrowing, which repairs
 only the provider-first order.
 
-This changes documented taint-policy semantics without changing any event,
-configuration or wire shape, so it is a pre-1.0 breaking minor
+This changes documented taint-policy semantics, with no configuration or wire
+change and one additive event field, so it is a pre-1.0 breaking minor
 ([integration contract](../integration-contract.md#provider-relay-requests-and-session-taint-breaking-before-10-3246)).
 There is no opt-out field. A host that relied on taint to fence its approved
 providers after untrusted input has two levers left: the ordinary egress deny

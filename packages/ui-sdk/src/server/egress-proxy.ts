@@ -14,6 +14,8 @@ export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_P
 export interface EgressRecord {
   /** Only the server's concrete inference-relay admission supplies this tag. */
   inference?: true;
+  /** Only a validated provider-relay operation supplies this tag (#3246); never with `inference`. */
+  provider?: true;
   method: string;
   host: string;
   port: number;
@@ -96,7 +98,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
    * CONNECT traffic has none and cannot claim one, whatever its destination.
    */
   function operation(method: string, url: URL, relay?: "inference" | "provider") {
-    const inference = relay === "inference";
+    const inference = relay === "inference", provider = relay === "provider";
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
@@ -106,7 +108,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finished) return;
       finished = true; finalOutcome = outcome; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ ...(inference ? { inference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
@@ -142,7 +144,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference, provider: relay === "provider" }); } catch { finish("failed", "proxy_error"); return false; }
+      try { await options.admitted?.({ host, port, method, inference, provider }); } catch { finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };

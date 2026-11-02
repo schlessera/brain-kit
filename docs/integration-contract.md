@@ -30,9 +30,16 @@ order. Before, whichever came first tainted the session, and the other then
 failed with `taint_allowlist`. Reranking degraded with a `provider_unavailable`
 event.
 
-This changes documented taint-policy semantics. No event, configuration or
-wire shape changes. A relayed request still records its own
-`egress_connection` without `inference: true`. It is still refused by the
+This changes documented taint-policy semantics. No configuration or wire
+shape changes. A relayed request still records its own `egress_connection`,
+never with `inference: true`. That record gains one additive field: the
+optional `provider: true` literal, mirroring `inference: true` and set only
+by a validated provider-relay operation
+([governance events](http-api.md#governance-events-additive-1651)). A later turn excludes
+those records when it rebuilds the session's contacted hosts, so a provider
+request never lets worker `CONNECT` reach the provider's host after taint, in
+the same turn or a later one. Records written before this field stay
+unmarked. The relayed request is still refused by the
 ordinary egress deny or allowlist rules, an unlisted origin, recipient or
 route, the byte ceilings, budget stops and cancellation. Worker HTTP and
 `CONNECT` traffic cannot claim the exemption, even to a provider's host, and

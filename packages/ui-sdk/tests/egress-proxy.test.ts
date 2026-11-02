@@ -298,6 +298,10 @@ test("a tainted turn reaches only taint-allowed or already contacted hosts; the 
     expect(await provider.admit(), "EGRESS_TAINT_EXEMPTS_PROVIDER_RELAY").toBe(true); provider.finish("completed");
     expect(admitted.at(-1), "EGRESS_PROVIDER_ADMISSION_REPORTED").toEqual({ host: "127.0.0.1", inference: false, provider: true });
     expect(records.at(-1)?.inference, "EGRESS_PROVIDER_RECORD_NOT_INFERENCE").toBeUndefined();
+    expect(records.at(-1)?.provider, "EGRESS_PROVIDER_RECORD_MARKED").toBe(true);
+    // Worker and inference records never carry the provider tag.
+    expect(records.slice(0, -1).map(record => [record.inference, record.provider]), "EGRESS_ONLY_PROVIDER_RECORD_MARKED")
+      .toEqual([[undefined, undefined], [undefined, undefined], [undefined, undefined], [true, undefined]]);
     contacted.add("127.0.0.1");
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_KEEPS_CONTACTED_HOST").toBe(200);
     contacted.clear(); allow.push("127.0.0.1");
