@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Module discovery outcome at crontab emission (additive, 0.45.0, #3381)
+
+`brain-ui-cron crontab` retries a failed module discovery a bounded number of
+times, names each failed attempt's cause on stderr, and records the final
+outcome as a finished `modules` job: one `cron_runs` row, so authenticated
+`GET /api/status` lists it under `cronJobs`, and one `cron` root span in
+Activity. A skipped module cron is an `error` whose reason starts
+`module cron skipped:`; a successful discovery is a `success`. The crontab's
+bytes do not change. See [wire semantics](integration-contract/wire.md#module-discovery-outcome-additive-0450-3381).
+This ships in a minor; no breaking ruling is required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets
