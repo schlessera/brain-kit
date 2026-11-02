@@ -38,6 +38,7 @@ import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredenti
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
+import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
@@ -1099,8 +1100,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
-  app.route("/api", createApifyRoutes({ authority: apify,
-    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } }));
+  const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
+  // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
+  const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });
+  bootCleanup.push(() => apifyEdits.close());
+  app.route("/api", createApifyRoutes({ authority: apify, authorized: apifyOwner, brainPath: config.brainPath, edits: apifyEdits,
+    spend: { ledgerPath: apifyLedgerFile, ledger: openApifyLedgerOnce, runs: apifyHost.runs, brain_id: apifyHost.brain_id },
+    reconcile: () => apifyHost.reconcile() }));
   app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));
   app.route("/api", createModuleRoutes(brain));
   app.route("/api", createGovernanceRoutes({ db }));

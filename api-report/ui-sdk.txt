@@ -28,6 +28,19 @@ export "." (./src/index.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -460,12 +473,25 @@ export "./client" (./src/client/index.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
   type ApifyEnvelope
   type ApifyErrorCode
+  type ApifyGrantRead
+  type ApifyLimitsRead
   type ApifyOperation
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
   type ApifyToolCall
   type ApifyToolName
   type ApifyToolResult
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -1304,6 +1330,19 @@ export "./protocol" (./src/protocol.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -1895,12 +1934,25 @@ export "./server" (./src/server/index.ts)
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
+  type ApifyAccountRead
   type ApifyEnvelope
   type ApifyErrorCode
+  type ApifyGrantRead
+  type ApifyLimitsRead
   type ApifyOperation
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
   type ApifyToolCall
   type ApifyToolName
   type ApifyToolResult
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -3545,6 +3597,11 @@ signatures (every public export and the types it is made of)
         protectedPaths: string[];
         workerLimits: WorkerLimitsStatus | null;
     }
+  ApifyAccountRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyAccountRead {
+        id: string;
+        username: string | null;
+    }
   ApifyEnvelope (packages/common/src/apify-operations.ts)
     export type ApifyEnvelope = {
         ok: true;
@@ -3561,8 +3618,110 @@ signatures (every public export and the types it is made of)
     };
   ApifyErrorCode (packages/common/src/apify-operations.ts)
     export type ApifyErrorCode = typeof APIFY_ERROR_CODES[number];
+  ApifyGrantRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyGrantRead {
+        account_id: string;
+        actor_id: string;
+        build_number: string;
+        profile_id: string;
+        origins: string[];
+        expires_at: string;
+        max_run_usd: number;
+        status: "active" | "expired" | "other_account";
+    }
+  ApifyLimitsRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyLimitsRead {
+        run_usd: number;
+        turn_usd: number;
+        session_usd: number;
+        day_usd: number;
+        max_runs_per_turn: number;
+        max_requests_per_turn: number;
+        max_concurrent_runs: number;
+        max_runtime_seconds: number;
+        max_result_items: number;
+        max_result_bytes: number;
+        max_retention_seconds: number;
+    }
   ApifyOperation (packages/common/src/apify-operations.ts)
     export type ApifyOperation = typeof APIFY_OPERATIONS[number];
+  ApifyPolicyChange (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyPolicyChange = {
+        enabled: boolean;
+    } | {
+        discovery: ApifyPolicyMode;
+    } | {
+        actors: ApifyPolicyMode;
+    } | {
+        remove_grant: {
+            account_id: string;
+            actor_id: string;
+            build_number: string;
+            profile_id: string;
+            expires_at: string;
+        };
+    };
+  ApifyPolicyMode (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyPolicyMode = "deny" | "ask" | "allow";
+  ApifyPolicyProposalRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyPolicyProposalRead {
+        turn_id: string;
+        request_id: string;
+        review: import("./tool-contracts/policy.js").PolicyChangeReview;
+    }
+  ApifyPolicyRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyPolicyRead {
+        path: "context/policies/governance.md";
+        hash: string | null;
+        valid: boolean;
+        enabled: boolean;
+        discovery: ApifyPolicyMode;
+        actors: ApifyPolicyMode;
+        grants: ApifyGrantRead[];
+        limits: ApifyLimitsRead | null;
+        budgets: {
+            turn_usd: number;
+            session_usd: number;
+            day_usd: number;
+        };
+    }
+  ApifyProviderReason (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyProviderReason = "not_enabled" | "policy_invalid" | "token_missing" | "token_rejected" | "account_changed" | "upstream_unreachable" | "upstream_incompatible";
+  ApifyProviderState (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyProviderState = "disabled" | "authentication_required" | "configured" | "unavailable";
+  ApifySettingsRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySettingsRead {
+        state: ApifyProviderState;
+        reason: ApifyProviderReason | null;
+        account: ApifyAccountRead | null;
+        pending_account: ApifyAccountRead | null;
+        checked_at: string | null;
+        policy: ApifyPolicyRead;
+        spend: ApifySpendRead;
+    }
+  ApifySpendRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySpendRead {
+        ledger: "absent" | "read" | "unavailable";
+        observed_at: string;
+        coverage: string | null;
+        day: ApifySpendScopeRead | null;
+        brain_day: ApifySpendScopeRead | null;
+        turn?: ApifySpendScopeRead | null;
+        unresolved: ApifyUnresolvedRunRead[];
+    }
+  ApifySpendScopeRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySpendScopeRead {
+        scope: "turn" | "session" | "day" | "brain_day";
+        liability_usd: number;
+        charged_usd: number;
+        reserved_usd: number;
+        residual_usd: number;
+        runs: number;
+        open_runs: number;
+        unknown_runs: number;
+        operator_resolved: number;
+        limit_usd: number | null;
+    }
   ApifyToolCall (packages/ui-sdk/src/tool-contracts/apify.ts)
     export interface ApifyToolCall {
         tool: ApifyToolName;
@@ -3572,6 +3731,23 @@ signatures (every public export and the types it is made of)
     export type ApifyToolName = typeof APIFY_TOOL_NAMES[ApifyOperation];
   ApifyToolResult (packages/ui-sdk/src/tool-contracts/apify.ts)
     export type ApifyToolResult = ApifyEnvelope;
+  ApifyUnresolvedRunRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyUnresolvedRunRead {
+        key: string;
+        actor_id: string;
+        build_number: string;
+        state: "dispatching" | "unknown" | "running" | "aborting" | "succeeded" | "failed" | "timed_out" | "aborted" | "refused";
+        abort: "requested" | "confirmed" | "unresolved" | null;
+        cost_basis: "reserved" | "events" | "unknown" | "operator" | "none";
+        reserved_usd: number;
+        charged_usd: number | null;
+        liability_usd: number;
+        remote_outcome_unknown: boolean;
+        session_id: string;
+        turn_id: string;
+        started_at: string;
+        updated_at: string;
+    }
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
   AskAnswerBinding (packages/ui-sdk/src/protocol.ts)

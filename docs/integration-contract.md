@@ -20,6 +20,27 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Apify settings, policy edits and spend for the owner (additive, 0.45.0, #3163)
+
+Internal `GET /api/apify` ([inventory](http-api.md)) keeps every field it had
+and adds two: `policy`, the effective `apify` block with each grant's
+`active`, `expired` or `other_account` status and the policy's content hash,
+and `spend`, this brain's ledger read (`absent`, `read` or `unavailable`, never
+zero for an unread ledger), today's account-wide and brain scopes and the runs
+whose charges are not final. `?session=&turn=` adds that turn's scope and
+`?refresh=1` re-verifies the token and settles open runs first. Two internal
+owner routes edit the policy from Settings through the existing policy-change
+review: `POST /api/apify/policy` turns one change (`enabled`, `discovery`,
+`actors` or `remove_grant`) against a named base hash into a pending
+`PolicyChangeReview` of the complete proposed `governance.md` and writes
+nothing; `POST /api/apify/policy/:turnId/:requestId` is the proposing owner's
+one answer. Only an approval lets the existing policy writer publish, inside a
+user journal window; a repeated or late answer returns the recorded receipt.
+Agents get 403 on all four routes, no route accepts or returns a token, and the
+shapes are typed as `ApifySettingsRead` and its parts in
+`@schlessera/brain-ui-sdk/protocol`. It ships in a minor; no breaking ruling is
+required.
+
 ## Apify enablement and host-owned authentication (additive, 0.45.0, #3159)
 
 The governance policy accepts an optional strict `apify` block whose only field
