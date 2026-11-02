@@ -35,7 +35,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function expectJobShape(job: Record<string, any>): void {
   expect(Object.keys(job).sort()).toEqual(
-    ["artifacts", "blocked", "cancelRequested", "cleanup", "cost", "createdAt", "exit", "id", "instance", "lease", "provider", "source", "state", "terminal", "uncertain", "updatedAt"].sort()
+    ["artifacts", "blocked", "cancelRequested", "cleanup", "cost", "createdAt", "exit", "id", "instance", "lease", "provider", "settled", "source", "state", "terminal", "uncertain", "updatedAt"].sort()
   );
   expect(job.id).toMatch(/^cj_[a-z2-7]{26}$/);
   expect(job.createdAt).toMatch(ISO);

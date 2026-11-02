@@ -115,6 +115,8 @@ export interface ComputeJobOutput {
   uncertain: ComputeJobView["uncertain"];
   terminal: { state: NonNullable<ComputeJobView["terminal"]>["state"]; at: string; reason: string } | null;
   blocked: string | null;
+  /** Terminal, cleanup final and cost settled: no visit will change the job (#3108). */
+  settled: boolean;
 }
 
 export type ComputeHealthEnvelope =
@@ -217,6 +219,7 @@ export function jobOutput(view: ComputeJobView): ComputeJobOutput {
     uncertain: view.uncertain,
     terminal: view.terminal === null ? null : { state: view.terminal.state, at: iso(view.terminal.at), reason: view.terminal.reason },
     blocked: view.blocked,
+    settled: view.settled,
   };
 }
 

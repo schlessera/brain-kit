@@ -135,6 +135,12 @@ export interface ComputeJobView {
    * reconfigured since the job started. Not stored; `null` otherwise.
    */
   blocked: string | null;
+  /**
+   * Nothing will change the job any more (#3108): it is terminal, its
+   * cleanup is final and its cost has settled against the caller's budget.
+   * A job that ended but whose reservation has not settled is not settled.
+   */
+  settled: boolean;
 }
 
 export interface ComputeRefusal {

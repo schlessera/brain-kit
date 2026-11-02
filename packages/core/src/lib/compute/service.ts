@@ -96,7 +96,13 @@ export interface ComputeService {
 }
 
 export interface ComputeRunHooks {
-  onCreated?(jobId: string): void;
+  /**
+   * Hears the job id once its record exists, before any provider call.
+   * Returning `"cancel"` records a cancel request first, so a caller whose
+   * authority ended while the job was being admitted (#3108) has it stop
+   * before anything is allocated, and its reservation settles.
+   */
+  onCreated?(jobId: string): void | "cancel";
 }
 
 export function computeJobView(job: ComputeJobRecord, blocked: string | null = null): ComputeJobView {
@@ -116,6 +122,7 @@ export function computeJobView(job: ComputeJobRecord, blocked: string | null = n
     cancelRequested: job.cancelRequested,
     uncertain: job.uncertain,
     terminal: job.terminal,
+    settled: isTerminal(job.state) && job.reservation.settled && job.cleanup.state !== "pending" && job.cleanup.state !== "release_failed",
     blocked,
   };
 }
@@ -437,11 +444,13 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       } finally {
         admission.release();
       }
+      let stop = false;
       try {
-        hooks?.onCreated?.(job.id);
+        stop = hooks?.onCreated?.(job.id) === "cancel";
       } catch (error) {
         log.warn("compute: a run hook threw", { id: job.id, reason: (error as Error).message });
       }
+      if (stop) writeFileSafely(jobStore.cancelMarkerPath(job.id), `${clock.now()}\n`, { mode: 0o600 });
       return { ok: true, job: view(await advance(job, jobStore, "start", owner)) };
     },
 
@@ -532,8 +541,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       const report: ComputeReconcileReport = { ok: true, visited: [], skipped: [...listed.unreadable] };
       for (const job of listed.jobs) {
         if (job.brain !== brainKey) continue;
-        const settled = isTerminal(job.state) && job.reservation.settled && job.cleanup.state !== "release_failed" && job.cleanup.state !== "pending";
-        if (settled) continue;
+        if (computeJobView(job).settled) continue;
         const lock = tryLock(jobStore.ownerLockPath(job.id));
         if (!lock) {
           report.skipped.push({ id: job.id, reason: "held by a live process" });

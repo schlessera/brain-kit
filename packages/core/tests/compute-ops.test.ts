@@ -73,7 +73,7 @@ describe("envelopes", () => {
       lease: { seconds: 1, deadline: START }, source: { hash: "h", files: 0 }, exit: null, artifacts: [],
       cleanup: { state: "none" as const, retainedUntil: null, lastError: null },
       cost: { estimate: { usd: null, basis: "none" as const }, actual: { usd: null, coverage: "unknown" as const, source: "none" as const } },
-      cancelRequested: false, uncertain: null, terminal: null, blocked: null,
+      cancelRequested: false, uncertain: null, terminal: null, blocked: null, settled: false,
     };
     expect(Object.keys(jobOutput(view)).sort()).toEqual(Object.keys(view).sort());
   });
@@ -335,6 +335,7 @@ describe("an attached run", () => {
     cleanup: { state: cleanup, retainedUntil: null, lastError: cleanup === "release_failed" ? "failed: the harbour is closed" : null },
     cost: { estimate: { usd: null, basis: "none" }, actual: { usd: null, coverage: "unknown", source: "none" } },
     cancelRequested: false, uncertain: null, terminal: { state: "succeeded", at: new Date(START).toISOString(), reason: "exited 0" }, blocked: null,
+    settled: cleanup !== "pending" && cleanup !== "release_failed",
   });
   const fakeOps = (states: ComputeJobOutput["cleanup"]["state"][]) => {
     let visits = 0;

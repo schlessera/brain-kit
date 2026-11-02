@@ -86,6 +86,45 @@ describe("hosted operation set", () => {
     expect(books.settled.map((s) => s.id), "HOSTED_LEDGER_SETTLES_ON_STATUS").toEqual([run.job.id]);
   });
 
+  test("a run hook that answers cancel stops the job before any allocation, and its reservation settles", async () => {
+    const { ops, memory, books } = setup();
+    const run = await ops.run({ provider: "pylos-memory", argv: ["sleep", "5"] }, { onCreated: () => "cancel" });
+    if (!run.ok) throw new Error(run.error.code);
+    expect({ state: run.job.state, cleanup: run.job.cleanup.state, created: memory.created() }, "HOOK_CANCEL_BEFORE_ALLOCATE").toEqual({ state: "cancelled", cleanup: "none", created: 0 });
+    expect(books.settled.map((s) => s.id), "HOOK_CANCEL_SETTLES_RESERVATION").toEqual([run.job.id]);
+  });
+
+  test("a job reads settled only once its reservation has settled, not merely once it ended", async () => {
+    let failing = true;
+    const settled: string[] = [];
+    const { ops, clock } = setup({ budget: { reserve: () => "ok", settle: (id) => { if (failing) throw new Error("ledger offline"); settled.push(id); } } });
+    const run = await ops.run({ provider: "pylos-memory", argv: ["sleep", "5"] });
+    if (!run.ok) throw new Error(run.error.code);
+    expect(run.job.settled, "RUNNING_JOB_NOT_SETTLED").toBe(false);
+    clock.advance(6_000);
+    const ended = await ops.status({ job: run.job.id });
+    if (!ended.ok) throw new Error(ended.error.code);
+    expect({ terminal: ended.job.terminal?.state, cleanup: ended.job.cleanup.state, settled: ended.job.settled }, "SETTLED_WAITS_FOR_RESERVATION")
+      .toEqual({ terminal: "succeeded", cleanup: "released", settled: false });
+    failing = false;
+    const later = await ops.status({ job: run.job.id });
+    expect(later.ok && later.job.settled, "SETTLED_AFTER_RESERVATION").toBe(true);
+    expect(settled).toEqual([run.job.id]);
+  });
+
+  test("a hosted job belongs to its conversation: a later principal of the same session reaches it, another session does not", async () => {
+    const { ops, box, clock } = setup();
+    const run = await ops.run({ provider: "pylos-memory", argv: ["sleep", "5"] });
+    if (!run.ok) throw new Error(run.error.code);
+    const as = (caller: typeof HOSTED) => createComputeOps({ root: box.root, config: { compute: { providers: { "pylos-memory": { provider: memoryCompute({ clock }).provider, lease: { maxSeconds: 600 }, maxConcurrent: 2 } } } },
+      caller, env: {}, serviceOptions: { stateDir: box.state, clock, callTimeoutMs: 2_000 } });
+    expect((await as({ ...HOSTED, principal: "odysseus-relogin", turn: "t-2" }).status({ job: run.job.id })).ok, "HOSTED_SAME_SESSION_NEW_PRINCIPAL").toBe(true);
+    expect(await as({ ...HOSTED, session: "s-aeaea", turn: "t-3" }).status({ job: run.job.id }), "HOSTED_OTHER_SESSION_UNKNOWN")
+      .toMatchObject({ ok: false, error: { code: "job_unknown" } });
+    expect(await createComputeOps({ root: box.root, config: {}, caller: { kind: "cli", principal: "odysseus" }, env: {}, serviceOptions: { stateDir: box.state, clock } })
+      .status({ job: run.job.id }), "CLI_NEVER_REACHES_HOSTED").toMatchObject({ ok: false });
+  });
+
   test("an approval the host withholds refuses with approval_required and allocates nothing", async () => {
     const { ops, memory, books } = setup({ approve: () => "required" });
     expect(await ops.run({ provider: "pylos-memory", argv: ["true"] })).toMatchObject({ ok: false, error: { code: "approval_required" } });

@@ -8,7 +8,7 @@ Its [shared scope and versioning policy](../integration-contract.md) apply to ev
 `brain compute` exposes the [external compute](../decisions/external-compute.md)
 operation set. The CLI and the [`brain_compute_*` MCP tools](mcp.md#external-compute-tools-additive-0450-3107)
 call one core implementation (`createComputeOps`,
-`packages/core/src/lib/ops/compute.ts:245-325`) and print the same envelopes.
+`packages/core/src/lib/ops/compute.ts:248-328`) and print the same envelopes.
 
 ```
 brain compute health [--provider ID]
@@ -52,7 +52,7 @@ unfinished job of this brain that no live process holds.
 `Job` is `{ id, instance, provider, state, createdAt, updatedAt, lease: {
 seconds, deadline }, source: { hash, files }, exit, artifacts, cleanup: {
 state, retainedUntil, lastError }, cost, cancelRequested, uncertain,
-terminal, blocked }`. Times are ISO 8601 UTC. `id` is an opaque `cj_` handle,
+terminal, blocked, settled }`. Times are ISO 8601 UTC. `id` is an opaque `cj_` handle,
 never a vendor id. `state` is one of `admitted`, `allocating`, `staging`,
 `running`, `collecting`, `releasing`, `uncertain`, `succeeded`, `failed`,
 `cancelled`, `expired` or `abandoned`. `exit` is `null` or `{ code, signal,
@@ -66,7 +66,10 @@ usd, coverage: "complete" | "partial" | "unknown", source: "provider" | "none"
 } }`; an unknown amount is `null`, never `0`. `uncertain` is `null` or `{
 step, reason }`, `terminal` is `null` or `{ state, at, reason }`, and
 `blocked` says why this visit could not advance a job no live process holds
-(its instance is unavailable or was reconfigured), else `null`. No sandbox or
+(its instance is unavailable or was reconfigured), else `null`. `settled`
+(additive, #3108) is `true` once no visit will change the job: it is terminal,
+its cleanup is final and its cost has settled against the caller's budget; a
+job that ended with its reservation still open is not settled. No sandbox or
 command id, environment value or credential appears in any envelope.
 
 **Refusals** print `{ ok: false, error: { code, message } }` and allocate
