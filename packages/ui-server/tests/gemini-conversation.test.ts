@@ -506,7 +506,7 @@ test.each(["text", "binary"] as const)("real %s adapter and host keep chat progr
   } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: f.provider });
   const oldCleanup = cleanup!;
-  cleanup = async () => { release(); host.coordinator.reset(); await host.close(); db.close(); await oldCleanup(); };
+  cleanup = async () => { release(); await host.close(); db.close(); await oldCleanup(); };
   const handlers = createWsHandlers(host, testPrincipal());
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;

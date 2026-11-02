@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:677`). Before this, a resume replaced
+`packages/ui-server/src/ws/dispatch.ts:651`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 
@@ -91,7 +91,7 @@ symptom.
 Each answer carries a client-minted `submissionId`, reused for every retry of
 that answer. The host settles the request at most once, records the outcome,
 and answers the sender with `ask_answer_receipt` (`handleAskAnswer`,
-`packages/ui-server/src/ws/ask-answers.ts:105-181`). A repeat of the same
+`packages/ui-server/src/ws/ask-answers.ts:84-138`). A repeat of the same
 submission gets the same receipt and settles nothing.
 
 Revision 3's echo is negotiated per connection: a client that declares
@@ -106,7 +106,7 @@ capability flag is what peers check, because a revision number alone was
 ruled not to establish receipt support.
 
 Outcomes are remembered in memory for 24 hours, at most 1,024 of them
-(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:374`). That is the
+(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:412`). That is the
 client's maximum replay age, so any answer a client may still replay finds
 its outcome. Persisting outcomes would not help after a restart: the
 requests themselves are gone then, and an answer for them must stop, not

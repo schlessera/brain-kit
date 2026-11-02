@@ -140,7 +140,7 @@ import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory
 import { createGovernedTurns } from "./brain/governed-turn.js";
 import { createProviderExposures } from "./brain/provider-exposure.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
-import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock, validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { createScratchPins } from "./cron/scratch-pins.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
@@ -657,7 +657,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const scope = createTurnScope(db, { brainPath: config.brainPath, journal, writer, governance: activity.governanceWrites, log: brainLog,
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
+  // Built before the host it is handed to, so the two share one worker lock.
+  const workerLock = createKeyedLock();
+  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, governance: activity.governanceWrites,
+    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+    refresh() { host.governedTurns?.refresh(host.workerLock); } });
   const host = new WsHost({
+    turnReverts: reverts,
+    workerLock,
     identitySentinelDirectory,
     scope,
     policyProposals,
@@ -1024,11 +1031,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => storageRemoval.close());
   app.route("/api", createStorageRemovalRoutes(storageRemoval));
 
-  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock, governance: activity.governanceWrites,
-    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
-    refresh() { host.governedTurns?.refresh(host.workerLock); } });
   bootCleanup.push(() => reverts.close());
-  host.turnReverts = reverts;
   app.route("/api", createTurnRevertRoutes(reverts));
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
@@ -1205,7 +1208,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     close: () => closing ??= guardSqliteCleanup([writer, nativeLeases.writer], (async () => {
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
-      host.closing = true;
+      host.beginClosing();
       // Queued module metadata is cancelled now (#2457). In-flight work gets a
       // short grace period; then shared CLI runs (reads and plain index) are
       // cancelled so they cannot hold close open (#2473).

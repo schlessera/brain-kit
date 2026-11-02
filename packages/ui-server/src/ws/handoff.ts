@@ -131,7 +131,7 @@ export async function startHandoff(
     return;
   }
   const entry: { sessionId?: string } = {};
-  coordinator.handoffs.set(handoff.handoffId, entry);
+  coordinator.registerHandoff(handoff.handoffId, entry);
   let handedOver = false;
   let recorded = false;
   let settled = false;
@@ -140,7 +140,7 @@ export async function startHandoff(
     // stored keeps its key here, so a retry still finds it rather than
     // starting a second one. It lasts as long as the process does.
     if (entry.sessionId && !recorded) return;
-    if (coordinator.handoffs.get(handoff.handoffId) === entry) coordinator.handoffs.delete(handoff.handoffId);
+    coordinator.releaseHandoff(handoff.handoffId, entry);
   };
   try {
     const sourceBackendId = catalog.getStoredBackendId(handoff.sourceSessionId);
@@ -291,7 +291,7 @@ export async function prepareHandoff(
     return answer({ state: "failed", message: "The server is busy, so no summary was drafted." });
   }
   const abort = new AbortController();
-  coordinator.handoffPreparations.set(msg.handoffId, { abort, owner: connection });
+  coordinator.registerHandoffPreparation(msg.handoffId, { abort, owner: connection });
   const releaseAuthorization = connection.authorization.retain();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; abort.abort(); }, HANDOFF_PREPARATION_TIMEOUT_MS);
@@ -408,7 +408,6 @@ export async function prepareHandoff(
     clearTimeout(timer);
     recorder?.finish(outcome, failureReason);
     releaseAuthorization();
-    const current = coordinator.handoffPreparations.get(msg.handoffId);
-    if (current?.abort === abort) coordinator.handoffPreparations.delete(msg.handoffId);
+    coordinator.releaseHandoffPreparation(msg.handoffId, abort);
   }
 }
