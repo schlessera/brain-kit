@@ -1491,6 +1491,55 @@ trusted default-branch tooling and parses candidate logs and artifacts as data.
 `red-main-probe.yml` has `contents: read` only. The incident workflow in the
 skills is #2944, and the expedited fix merge is #2940.
 
+#### Incident workflow and recovery
+
+[#2944](https://github.com/schlessera/brain-kit/issues/2944) is how
+orchestrators work the incident, following the 2026-10-25 direction that they
+work it like any other issue. All coordination goes through the record and
+the incident issue; agents never message each other.
+
+- **One fix claim, written atomically.** `bun scripts/red-main-incident.ts
+  claim` writes `open.claim` into `red-main.json` through the same
+  compare-and-swap: the claimant's worker and orchestrator IDs (opaque
+  tokens), when it claimed and last renewed, and an expiry one hour after the
+  last renewal. Exactly one concurrent claimant wins. The claim is then
+  mirrored to the issue's assignment and a claim comment; a rerun mirrors it
+  once. `renew` extends the term and `release` drops it. An expired claim may
+  be taken over: the new claim keeps the expired claimant in `takeover`, and a
+  takeover comment names it on the issue. Clearing the record removes the
+  claim. Records written before claims existed have no `claim` field and stay
+  valid; a present claim is validated strictly.
+- **Evidence in one fixed format.** `evidence` appends one comment to the
+  incident named in the record: a marker, the kind, the incident, who posted
+  it and whether they hold the claim, an optional SHA or issue, a one-line
+  summary and fenced details. The kinds are reproduction, bisect, log,
+  ruled-out, related, duplicate, fix-attempt and decision. A duplicate issue is
+  linked on the incident and pointed back to it. The command never files an
+  issue and never writes the record, and every comment passes the leakage
+  gate.
+- **Waiting.** Workers whose proof was refused or cancelled keep coding, run
+  fast checks or add evidence, and resume proof when `main-status` reports
+  green.
+
+The [2026-11-02 recovery ruling](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6574880345)
+settles what the claimant does:
+
+1. **Fix or targeted revert, from evidence.** After a quick assessment the
+   incident owner chooses a fix PR or a targeted revert PR. The choice rests on
+   causal and current-tree evidence; a red check or the latest squash alone is
+   not proof of cause.
+2. **The rationale is on the incident.** The owner records the choice and why
+   as `decision` evidence (`--choice fix|revert|uncertain`, with details),
+   including the dependency and conflict assessment. A revert preserves
+   unrelated and later good work. When neither change is supportable, the
+   decision says so explicitly instead of guessing.
+3. **The normal route, no shortcut.** Either PR is a declared fix and follows
+   normal required review, proof and recorded merge handling, including the
+   declared-red-main-fix route where it applies, with exact proof of the
+   resulting main: the green main run that includes the failing set. The
+   controller never merges anything itself, and there is no unbounded
+   recovery loop; a failed attempt gets a new assessment and decision.
+
 ### Hosted heavy feedback on draft heads
 
 The [#2939 ruling](https://github.com/schlessera/brain-kit/issues/2939#issuecomment-6403978097)
