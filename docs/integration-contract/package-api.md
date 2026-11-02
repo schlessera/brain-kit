@@ -158,6 +158,16 @@ omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
 
+## UI-kit Button reach (additive #3252)
+
+`ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's
+`.bk-hit` class. Under `any-pointer: coarse` the target then reaches 44px on
+each axis, centred on the unchanged paint. Without the prop, without a handler
+or under a fine pointer, a Button renders and hit-tests exactly as before.
+Callers keep the gap to each interactive neighbour that the design-kit record
+states. The `.bk-hit` class is usable on any element with a handler, from the
+same stylesheet.
+
 ## UI-kit action accessibility and loading (additive #1756)
 
 `ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to

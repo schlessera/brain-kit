@@ -98,6 +98,13 @@ function targets(element: Element, zoom = 1) {
       ? control.closest("label") ?? control
       : control;
     const r = target.getBoundingClientRect();
+    // A reaching Button (#3252) keeps its kit paint; its 44px coarse-pointer
+    // target is probed edge by edge in hit-reach.settings.pointer.tsx. This
+    // project runs under a fine pointer, which has no 44px floor.
+    if (target.classList.contains("bk-hit")) {
+      expect(target.style.minHeight, "STORAGE_ACTION_NOT_INFLATED").not.toBe("44px");
+      continue;
+    }
     expect(
       r.height / zoom,
       "STORAGE_ACTION_TARGET_HEIGHT"

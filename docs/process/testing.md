@@ -673,9 +673,9 @@ The other consumer screenshot destinations have these explicit boundaries:
   `packages/ui-react/tests/artifact-recovery-runtime.test.ts:333-333`), while
   `BRAIN_REVIEW_CAPTURES` does the same for association/signout review
   (`if (process.env.BRAIN_REVIEW_CAPTURES)`,
-  `packages/ui-react/tests/association-signout-runtime.test.ts:219-219`;
+  `packages/ui-react/tests/association-signout-runtime.test.ts:231-231`;
   `if (process.env.BRAIN_REVIEW_CAPTURES)`,
-  `packages/ui-react/tests/association-signout-runtime.test.ts:253-253`). Hosted
+  `packages/ui-react/tests/association-signout-runtime.test.ts:265-265`). Hosted
   proof sets neither variable. These are optional manual review exports;
   collectors do not search arbitrary external directories.
 - Standalone navigation/software diagnostics stay **local-only**. The manual

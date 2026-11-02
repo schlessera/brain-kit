@@ -15,6 +15,7 @@ import { SettingsFields } from "../../src/components/settings/module-settings-fi
 import { createModuleSettingsSession } from "../../src/components/settings/module-settings-state.js";
 import { OneTimeAgentCredentialDialog } from "../../src/components/settings/one-time-agent-credential.js";
 import { ShareMenu } from "../../src/components/share/share-menu.js";
+import { OWNED, edgeOwners } from "./hit-reach.js";
 import variantFixture from "../../../ui-kit/tests/visual/fixtures/module-settings.json";
 import catalogFixture from "../../../ui-kit/tests/visual/fixtures/module-settings-catalog.json";
 import type { ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
@@ -107,12 +108,24 @@ export function settingsButtonCases(pointer: () => "fine" | "coarse" | "mixed") 
     test(`${prefix} target reach`, async ctx => {
       const s = await mount(ctx, width, theme);
       const results: boolean[] = [];
+      const reaches = (el: HTMLElement) => {
+        el.scrollIntoView({ block: "center" });
+        const b = el.getBoundingClientRect();
+        // A disabled Button has no target to own; it still keeps its kit paint.
+        const inert = el.getAttribute("aria-disabled") === "true";
+        return el.classList.contains("bk-hit") && el.style.minHeight !== "44px" && b.left >= 0 && b.right <= width
+          && (inert || JSON.stringify(edgeOwners(el, pointer() === "fine" ? 0 : 44)) === JSON.stringify(OWNED));
+      };
       for (const [role, name] of controls) {
         const el = s.find(role, name).element() as HTMLElement; el.scrollIntoView({ block: "center" });
         const b = el.getBoundingClientRect();
         if (role === "switch") {
           results.push([b.top - 10.5, b.bottom + 10.5].every(y => el.contains(document.elementFromPoint(b.left + b.width / 2, y))));
           results.push([b.left - 2.5, b.right + 2.5].every(x => el.contains(document.elementFromPoint(x, b.top + b.height / 2))));
+        } else if (el.classList.contains("bk-hit")) {
+          // #3252: a reaching Button keeps its kit paint; under a coarse pointer
+          // its 44px target, probed 1px inside each edge, is its own.
+          results.push(reaches(el));
         } else {
           const floor = el.classList.contains("bk-icon-btn") && el.dataset.size === "sm" && pointer() === "fine" ? 28 : 44;
           results.push(b.width >= floor && b.height >= floor && b.left >= 0 && b.right <= width);
@@ -121,7 +134,7 @@ export function settingsButtonCases(pointer: () => "fine" | "coarse" | "mixed") 
       await s.rename();
       for (const name of ["Save name", "Cancel rename"]) { const b = s.find("button", name).element().getBoundingClientRect(); const floor = pointer() === "fine" ? 28 : 44; results.push(b.width >= floor && b.height >= floor && b.left >= 0 && b.right <= width); }
       await s.credential();
-      for (const name of ["Copy credential", "Done"]) { const b = s.find("button", name).element().getBoundingClientRect(); results.push(b.width >= 44 && b.height >= 44); }
+      for (const name of ["Copy credential", "Done"]) results.push(reaches(s.find("button", name).element() as HTMLElement));
       expect(results, "batch4 targets reach their pointer floor without stealing neighbours").toEqual(Array(results.length).fill(true));
     });
     test(`${prefix} focus rings`, async ctx => {

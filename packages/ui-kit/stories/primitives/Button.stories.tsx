@@ -153,3 +153,37 @@ export const Tapped = meta.story({
     await expect(args.onClick).toHaveBeenCalled();
   },
 });
+
+/**
+ * `reach` (#3252): a 44px target, not a 44px box. Under a coarse pointer each
+ * Button's target reaches 44px about its paint; the paint keeps its size.
+ *
+ * Two `sm` Buttons stacked 16px apart: each reaches 7.8px past its 28.4px
+ * paint, so 16px is the least whole-pixel gap at which neither steals the
+ * other's edge. The probe reads `elementFromPoint` 1px inside each 44px
+ * target's edges, where a theft would show (the API rounds the point to whole
+ * pixels, so a probe closer than that can land on a touching neighbour), and a
+ * point 2px past the target belongs to nothing. Under a fine pointer there is
+ * no reach, so only the paint is hit.
+ */
+export const ReachPastPaint = meta.story({
+  render: (args) => (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 16, padding: 24 }}>
+      <Button {...args} size="sm" block={false} reach label="Hoist the sail" effect={undefined} icon={undefined} />
+      <Button {...args} size="sm" block={false} reach label="Lower the sail" effect={undefined} icon={undefined} />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    const buttons = await canvas.findAllByRole("button");
+    const coarse = matchMedia("(any-pointer: coarse)").matches;
+    for (const el of buttons) {
+      const box = el.getBoundingClientRect();
+      await expect(Math.round(box.height)).toBe(28);
+      const half = coarse ? 21 : box.height / 2 - 1;
+      const mid = box.top + box.height / 2;
+      const owner = (y: number) => document.elementFromPoint(box.left + box.width / 2, y)?.closest('[role="button"]');
+      await expect([owner(mid - half) === el, owner(mid + half) === el]).toEqual([true, true]);
+      await expect(owner(mid - (coarse ? 24 : box.height / 2 + 2)) ?? null).not.toBe(el);
+    }
+  },
+});

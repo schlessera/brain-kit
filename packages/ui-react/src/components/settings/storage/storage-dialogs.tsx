@@ -4,7 +4,6 @@ import type { BrainUiRoot } from "../../../root.js";
 import { bytes, exactBytes, humanReason, time } from "./storage-model.js";
 import { StorageDelta } from "./storage-observations.js";
 import { running, type StorageView } from "./use-storage.js";
-const touch = { minHeight: 44 };
 export function StorageDialogs({
   view,
   root,
@@ -159,17 +158,17 @@ export function StorageDialogs({
               </p>
             )}
             {file.path && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
                 <Button
                   label="Preview"
                   block={false}
-                  style={touch}
+                  reach
                   onClick={openFile}
                 />
                 <Button
                   label="Open in Files"
                   block={false}
-                  style={touch}
+                  reach
                   onClick={openFile}
                 />
               </div>
@@ -194,7 +193,7 @@ export function StorageDialogs({
                 running(receipt?.state) ||
                 receipt?.state === "unknown"
               }
-              style={touch}
+              reach
               onClick={() => {
                 view.toggle(file);
                 view.setInspected(null);
@@ -203,7 +202,7 @@ export function StorageDialogs({
             <Button
               label="Back to results"
               tone="quiet"
-              style={touch}
+              reach
               onClick={() => view.setInspected(null)}
             />
           </div>
@@ -307,7 +306,7 @@ export function StorageDialogs({
                     eligible.length === 1 ? "file" : "files"
                   }`}
                   effect={review.action === "undo" ? "restore" : "remove"}
-                  style={touch}
+                  reach
                   disabled={
                     view.busy ||
                     view.reviewChanged ||
@@ -319,7 +318,7 @@ export function StorageDialogs({
                 <Button
                   label="Keep files"
                   tone="quiet"
-                  style={touch}
+                  reach
                   onClick={() => view.setReviewOpen(false)}
                 />
               </>
@@ -370,7 +369,7 @@ export function StorageDialogs({
                         <Button
                           label="Undo removal"
                           ariaLabel={`Undo removal of ${item.path}`}
-                          style={touch}
+                          reach
                           disabled={view.busy || running(receipt.state)}
                           onClick={() => void view.undo(item.path)}
                         />
@@ -388,7 +387,7 @@ export function StorageDialogs({
                   <Button
                     label="Cancel remaining files"
                     tone="quiet"
-                    style={touch}
+                    reach
                     disabled={view.busy}
                     onClick={() => void view.cancelRemoval()}
                   />
@@ -396,7 +395,7 @@ export function StorageDialogs({
                 <Button
                   label="Check original receipt"
                   tone="quiet"
-                  style={touch}
+                  reach
                   disabled={view.busy}
                   onClick={() => void view.checkReceipt()}
                 />
@@ -416,7 +415,7 @@ export function StorageDialogs({
                 <Button
                   label="Return to filtered list"
                   tone="quiet"
-                  style={touch}
+                  reach
                   onClick={() => view.setReviewOpen(false)}
                 />
               </>

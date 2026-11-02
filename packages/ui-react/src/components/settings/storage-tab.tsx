@@ -28,7 +28,6 @@ import { StorageDialogs } from "./storage/storage-dialogs.js";
 import { useStorageGuidance } from "./storage/use-storage-guidance.js";
 import { StorageGuidance } from "./storage/storage-guidance.js";
 import { running, useStorage } from "./storage/use-storage.js";
-const touch = { minHeight: 44 };
 /** Account and root changes discard pending selections and local response ownership synchronously. */
 export function StorageTab({ active }: { active: boolean }) {
   const root = useBrainUiRoot(),
@@ -150,7 +149,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
         label="Inspect"
         ariaLabel={`Inspect ${entry.name}`}
         block={false}
-        style={touch}
+        reach
         disabled={view.busy || view.loading}
         onClick={() => open(entry)}
       />
@@ -167,11 +166,11 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
           <h2 ref={heading} tabIndex={-1} className="text-xl font-semibold">
             Storage
           </h2>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
             <Button
               label={view.filtering ? "Back to overview" : "Find large files"}
               block={false}
-              style={touch}
+              reach
               onClick={() => {
                 view.setFiltering(!view.filtering);
                 view.setSearch("");
@@ -181,7 +180,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
             <Button
               label={snapshot ? "Refresh" : "Measure"}
               block={false}
-              style={touch}
+              reach
               disabled={view.busy || view.status?.state === "scanning"}
               onClick={() => void view.refresh()}
             />
@@ -204,7 +203,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               <Button
                 label="Cancel measurement"
                 tone="quiet"
-                style={touch}
+                reach
                 disabled={view.busy}
                 onClick={() => void view.cancelScan()}
               />
@@ -221,7 +220,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               label="Show new measurement"
               ariaLabel="Show new measurement"
               subtitle="Clears selections from the previous observation"
-              style={touch}
+              reach
               onClick={view.adopt}
             />
           )}
@@ -251,7 +250,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               <Button
                 label="Check measurement status"
                 tone="quiet"
-                style={touch}
+                reach
                 disabled={view.busy}
                 onClick={() => void view.checkStatus()}
               />
@@ -379,7 +378,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                         label={crumb.name}
                         block={false}
                         tone="quiet"
-                        style={touch}
+                        reach
                         disabled={index === array.length - 1}
                         onClick={() => goUp(crumb.id)}
                       />
@@ -481,7 +480,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 <Button
                   label="Show all children"
                   tone="quiet"
-                  style={touch}
+                  reach
                   onClick={() => view.setSmaller(false)}
                 />
               )}
@@ -501,7 +500,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   className="min-h-11 min-w-0 rounded border border-border bg-surface px-2"
                 />
               </label>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
                 <Button
                   label={
                     view.sort === "name"
@@ -510,7 +509,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   }
                   tone="quiet"
                   block={false}
-                  style={touch}
+                  reach
                   onClick={() => {
                     view.setSort("name");
                     view.setDirection("asc");
@@ -524,7 +523,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   }
                   tone="quiet"
                   block={false}
-                  style={touch}
+                  reach
                   onClick={() => {
                     view.setSort("size");
                     view.setDirection("desc");
@@ -534,7 +533,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   label={view.direction === "asc" ? "Ascending" : "Descending"}
                   tone="quiet"
                   block={false}
-                  style={touch}
+                  reach
                   onClick={() =>
                     view.setDirection(view.direction === "asc" ? "desc" : "asc")
                   }
@@ -702,7 +701,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                                   label="Open"
                                   ariaLabel={`Open ${node.name}`}
                                   block={false}
-                                  style={touch}
+                                  reach
                                   disabled={view.loading}
                                   onClick={() => drill(node.id)}
                                 />
@@ -728,13 +727,13 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   .
                 </p>
               )}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
                 {view.filtering && (
                   <Button
                     label="Copy visible file list"
                     block={false}
                     tone="quiet"
-                    style={touch}
+                    reach
                     disabled={view.loading || !view.files?.entries.length}
                     onClick={() => void view.copyList()}
                   />
@@ -743,7 +742,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   <Button
                     label="First 200 items"
                     tone="quiet"
-                    style={touch}
+                    reach
                     block={false}
                     disabled={view.loading}
                     onClick={() => view.setCursor(undefined)}
@@ -753,7 +752,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   label="Next 200 items"
                   tone="quiet"
                   block={false}
-                  style={touch}
+                  reach
                   disabled={view.loading || !page?.nextCursor}
                   onClick={() => view.setCursor(page?.nextCursor ?? undefined)}
                 />
@@ -777,7 +776,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 )}
                 <Button
                   label="Review selected files"
-                  style={touch}
+                  reach
                   disabled={
                     view.busy || operationPending || view.overSelectionLimit
                   }
@@ -806,7 +805,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                   ? "Resume recorded review"
                   : "View removal receipt"
               }
-              style={touch}
+              reach
               onClick={() => {
                 trigger.current = document.activeElement as HTMLElement;
                 view.setReviewOpen(true);
@@ -846,7 +845,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               <Button
                 label={row.label}
                 effect="maintain"
-                style={touch}
+                reach
                 disabled={
                   !row.available ||
                   view.busy ||
@@ -874,7 +873,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
               <Button
                 label="Check maintenance receipt"
                 tone="quiet"
-                style={touch}
+                reach
                 disabled={view.busy}
                 onClick={() => void view.checkMaintenance()}
               />
@@ -882,7 +881,7 @@ function StorageSession({ root }: { root: BrainUiRoot }) {
                 <Button
                   label="Cancel maintenance"
                   tone="quiet"
-                  style={touch}
+                  reach
                   disabled={view.busy}
                   onClick={() => void view.cancelMaintenance()}
                 />
