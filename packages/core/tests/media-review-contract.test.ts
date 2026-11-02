@@ -113,7 +113,7 @@ describe("offline sync and review agree", () => {
     const brain = brainWithRemote();
     const { root } = brain;
     const config = join(root, "brain.config.ts");
-    writeFileSync(config, readFileSync(config, "utf8").replace("export default defineConfig({", 'export default defineConfig({\n  media: { track: ["places/ithaca/penelope-loom.png"] },'));
+    writeFileSync(config, readFileSync(config, "utf8").replace("export default defineConfig({", 'export default defineConfig({\n  media: { track: ["places/ithaca/penelope-loom.png"], ignore: [".brain/scratch/**"] },'));
     write(root, ".gitignore", `${readFileSync(join(root, ".gitignore"), "utf8")}.brain/\n`);
     git(root, "add", "-A");
     git(root, "commit", "-qm", "media policy");
@@ -152,6 +152,13 @@ describe("offline sync and review agree", () => {
     // No media path: the tracked copy is only ever named as a committed note.
     for (const path of ["photos/", ".brain/scratch", "media: "]) expect(synced.body.run.report).not.toContain(path);
     expect(synced.body.agent).toEqual({ invoked: false, reason: "not-needed" });
+    // A normally ignored (Git and media.ignore), conversation-linked scratch
+    // file reaches review with what Keep a permanent copy needs: a scratch
+    // source and a known conversation link (rev 4 §4.2).
+    const harbour = at(".brain/scratch/2026-07-12/ithaca-harbour.png");
+    const selected = await json(root, "hygiene", "next", "--finding", harbour.id, "--dry-run");
+    expect(selected.body.finding).toMatchObject({ id: harbour.id, category: "media", severity: "info",
+      media: { source: "scratch", classes: ["MEDIA"], links: { state: "complete", conversations: 1 } } });
     // The invalid kept record reopened with its receipt.
     expect(readFileSync(join(root, LOG, "open.md"), "utf8")).toContain("kept on 2026-07-12 · changed: kept-incomplete");
   }, 60_000);

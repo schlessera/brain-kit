@@ -50,6 +50,7 @@ describe("config/env descriptor", () => {
         "ANTHROPIC_API_KEY",
         "BRAIN_AGENT_RUNNER_UNAVAILABLE",
         "BRAIN_CHROME_NO_SANDBOX",
+        "BRAIN_MEDIA_PINNED_PATH_LIMIT",
         "BRAIN_PROVIDER_RELAY_SOCKET",
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",

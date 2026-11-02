@@ -90,22 +90,21 @@ test("Leave pending skips a media finding for this pass only, survives refresh a
   expect(restarted.read().review).toMatchObject({ pass: 2, deferred: [] });
 });
 
-test("a deferral lapses when its finding's fingerprint changes, and not when another file changes", async () => {
+test("a deferral lapses within the pass when its finding's fingerprint changes, and not when another file changes", async () => {
   const f = setup();
   const first = (await f.review.command(f.principal.id, "start")).action!;
+  expect(path(first)).toBe(SHIELD);
   await f.review.resolver.resolveAsync(f.principal.id, leave(first));
-  const loomCard = f.review.read().action!;
-  expect(path(loomCard)).toBe(LOOM);
-  // Another file changing leaves the shield deferred.
+  expect(path(f.review.read().action)).toBe(LOOM);
+  // Another file changing leaves the shield deferred: refresh keeps the loom card.
   put(f.root, LOOM, "loom bytes, rewoven");
   await f.review.command(f.principal.id, "refresh");
   expect(path(f.review.read().action)).toBe(LOOM);
-  await f.review.resolver.resolveAsync(f.principal.id, leave(f.review.read().action!));
-  expect(f.review.read().review.status).toBe("complete");
-  // The shield's own bytes change: its deferral no longer matches, so it is selected in the same pass.
+  // The shield's own bytes change; leaving the loom pending selects the shield again, in the same pass.
   put(f.root, SHIELD, "shield bytes, repainted");
-  await f.review.command(f.principal.id, "start");
-  const back = f.review.read().action!;
-  expect(path(back)).toBe(SHIELD);
-  expect(back.hygiene!.fingerprint).not.toBe(first.hygiene!.fingerprint);
+  await f.review.resolver.resolveAsync(f.principal.id, leave(f.review.read().action!));
+  const back = f.review.read();
+  expect(back.review).toMatchObject({ status: "active", pass: 1 });
+  expect(path(back.action)).toBe(SHIELD);
+  expect(back.action!.hygiene!.fingerprint).not.toBe(first.hygiene!.fingerprint);
 }, 60_000);
