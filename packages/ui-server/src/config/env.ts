@@ -646,6 +646,15 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "(unset)",
     required: false,
   },
+  // Apify (#3159)
+  {
+    name: "APIFY_TOKEN",
+    description:
+      "Apify API token, read only by the host. It authenticates nothing until the governance policy sets apify.enabled: true; " +
+      "the host then binds the account the fixed Apify API reports. Never passed to any subprocess, worker, prompt, log or response.",
+    default: null,
+    required: false,
+  },
   // voice
   {
     name: "DEEPGRAM_API_KEY",
@@ -1298,6 +1307,16 @@ export function subprocessEnv(
   extraNames: readonly string[] = []
 ): EnvRecord {
   return filterPackageSubprocessEnv(process.env, audience, extraNames, extra);
+}
+
+/**
+ * The host-only Apify token (#3159), read once at the edge into a closure.
+ * Only the host's Apify authority calls it; the value is placed on its fixed
+ * upstream request alone and never enters a worker, record, log or response.
+ */
+export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.APIFY_TOKEN?.trim() || undefined;
+  return () => token;
 }
 
 /**

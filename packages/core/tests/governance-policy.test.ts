@@ -50,3 +50,15 @@ test("provider selectors intersect their allowlists and unknown recipients do no
   expect(providerAllows(parsed.effective.providers, "me/identity.md", "note", undefined)).toBe(false);
   expect(providerAllows(parsed.effective.providers, "notes/voyage.md", "note", undefined)).toBe(true);
 });
+
+test("Apify stays disabled unless the policy explicitly enables it, and its block is strict", () => {
+  expect(parse("profiles: { interactive: governed }").effective.apify).toEqual({ enabled: false });
+  expect(parse("apify: {}").effective.apify).toEqual({ enabled: false });
+  expect(parse("apify: { enabled: false }").effective.apify).toEqual({ enabled: false });
+  expect(parse("apify: { enabled: true }").effective.apify).toEqual({ enabled: true });
+  for (const yaml of ["apify: { enabled: yes-please }", "apify: { enabled: 1 }", "apify: { enabled: true, token: x }", "apify: true"]) {
+    const parsed = parse(yaml);
+    expect(parsed.ok, `APIFY_POLICY_STRICT: ${yaml}`).toBe(false);
+    expect(parsed.effective.apify, `APIFY_INVALID_FALLS_BACK_DISABLED: ${yaml}`).toEqual({ enabled: false });
+  }
+});

@@ -1059,6 +1059,9 @@ signatures (every public export and the types it is made of)
     export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
     const GovernancePolicySchema: z.ZodObject<{
+        apify: z.ZodOptional<z.ZodObject<{
+            enabled: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strict>>;
         budgets: z.ZodOptional<z.ZodObject<{
             day: z.ZodOptional<z.ZodObject<{
                 block_tokens: z.ZodOptional<z.ZodNumber>;
@@ -2347,6 +2350,9 @@ signatures (every public export and the types it is made of)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
+        apify: {
+            enabled: boolean;
+        };
         budgets: {
             day: {
                 block_tokens: number;

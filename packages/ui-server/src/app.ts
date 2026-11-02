@@ -34,7 +34,9 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyTokenSource, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { APIFY_AUTHORITY_SETTING, createApifyAuthority, governanceApifyPolicy } from "./apify/authority.js";
+import { createApifyRoutes } from "./routes/apify.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
@@ -111,6 +113,7 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getSetting,
   getThinkingOverrides,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
@@ -1068,6 +1071,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  // Apify (#3159): off unless the governance policy enables it; the token never leaves the host.
+  const apify = createApifyAuthority({ policy: governanceApifyPolicy(config.brainPath), token: apifyTokenSource(),
+    store: { read: () => getSetting<unknown>(db, APIFY_AUTHORITY_SETTING, null), write: record => settingsWrites.setSetting(APIFY_AUTHORITY_SETTING, record) } });
+  app.route("/api", createApifyRoutes({ authority: apify,
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } }));
   app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));
   app.route("/api", createModuleRoutes(brain));
   app.route("/api", createGovernanceRoutes({ db }));

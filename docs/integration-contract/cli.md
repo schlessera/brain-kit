@@ -251,6 +251,8 @@ a newline:
 ```
 
 `effective` is the complete resolved [supported policy input](../supported-inputs.md#governance-policy).
+Since #3159 (additive) it includes `apify: { enabled: boolean }`, `false` unless
+the file enables it.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

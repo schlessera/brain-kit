@@ -442,7 +442,7 @@ poke method refusal and conditional static assets. HEAD dispatch suppresses
 the body; configured OPTIONS preflight is tested before authentication, with
 unconfigured and denied-origin controls.
 
-The `mounted internal router: GET PATH` tests reach pi-auth, web-search,
+The `mounted internal router: GET PATH` tests reach pi-auth, web-search, apify,
 tool-permissions, skills, graph and vpn-check through the real app and require
 successful JSON responses (`mounted internal router:`,
 `packages/ui-server/tests/http-internal-mounts.test.ts:8-17`). The inventory

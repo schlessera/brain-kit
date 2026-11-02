@@ -283,8 +283,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-55`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:99-132`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:227-231`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:234-238`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
