@@ -23,6 +23,7 @@ because the code has become the better answer to "what does this do".
 | [storage-lifecycle.md](storage-lifecycle.md) | Storage cleanup eligibility, recovery boundaries and synthetic byte-lifecycle evidence for the storage design. |
 | [host-owned-web-search.md](host-owned-web-search.md) | Pinned MCP/full-extension comparison, offline worker prototypes and authority boundaries for executor selection. |
 | [module-renderers.md](module-renderers.md) | The content-renderer seam, Mermaid on it, the diagram spec, computed geometry, the brain-kit skin, surface and print matrix, ordering, and the upstream sync procedure. |
+| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: source inventory, capability matrix, routing, admission/ownership/cleanup schema, bounded on-demand reader, composer states and the proof briefs for #3153–#3155. |
 | [chat-history-deletion.md](chat-history-deletion.md) | Approved local deletion policy with unbuilt lifecycle design, retained-record boundaries and proof obligations. |
 
 ## What does not live here

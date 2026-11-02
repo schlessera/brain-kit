@@ -641,6 +641,26 @@ question-answer rules are independent.
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
 
+<a id="generic-attachment-originals-2026-11-02"></a>
+
+> **2026-11-02 — Generic attachment originals, maintainer amendment (#3150).**
+> Approved, not yet implemented. For the new generic composer path, staged
+> files stop being tab-only. Every attachment, images included, is a
+> filesystem original owned by the exact acknowledged draft revision, then by
+> the conversation that accepted the send. A saved draft and its file bindings
+> survive reload, tab close and a normal host restart. `saved` still requires
+> the host to acknowledge that exact revision, file bindings included.
+> Unacknowledged or legacy data never reads as saved. Unresolved sends protect
+> their files. The per-draft envelope becomes 10 files, 25,000,000 bytes each
+> and 50,000,000 together, plus the separate 65,536-byte text allowance. The
+> 100-draft and 268,435,456-byte host limits stay, inside a configurable 1 GiB
+> attachment pool. The tab-only rules above (#1112, #1150) still govern the
+> legacy track path on a host without the new capability. Everything else in
+> this record is unchanged. The rulings are in
+> [chat-attachments.md](../chat-attachments.md), and the proposed schema and
+> lifecycle in [the design](../../plans/chat-attachments.md#6-admission-storage-and-ownership-3153).
+> The implementation records what it built here.
+
 > **2026-10-07 — Drafts kept on this device across a reload, implemented by
 > #1014.** Every draft in the root's store, with its images, and the work
 > context around it (the voice review text, the uploaded tracks of the view
