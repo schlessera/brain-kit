@@ -272,7 +272,11 @@ pinned browser/layout/offline/endurance/editorial and native runtime categories.
 Missing tools, skipped runtimes, failures/cancellations and unexpected job skips
 leave selected hosted proof incomplete. Never delete tests, weaken offline
 harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
-pushes. A ready PR synchronize event runs fast feedback with a deliberately
+pushes. For heavy iteration on a draft (native, runtime, browser, layout,
+endurance or complete unit categories), request hosted feedback with
+`bun scripts/request-heavy-feedback.ts <pr>` instead of running long suites
+locally. It needs no reservation, a newer push or request cancels it, and its
+`draft heavy feedback` result is never `proof`. A ready PR synchronize event runs fast feedback with a deliberately
 nonpassing final gate. Before `confirm`, run `bun scripts/collisions.ts --json --pr <pr>`
 and record its collisions (or none) with the PR head in the PR. For ordinary candidates, acquire the exact-candidate integration reservation
 with `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` before
