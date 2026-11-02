@@ -531,12 +531,16 @@ async function runRetainedSession(
         // the origin that relay forwards to; admission proves the recipient
         // from it, and the relay below refuses any other (#2695).
         const relayed = backend.id === "claude" || backend.id === "pi";
+        // Each step of governed admission and journal begin is timed (#3355).
+        const governedTimer = lifecycle?.timer("governed"), journalTimer = lifecycle?.timer("journal");
+        const originLookup = host.governedTurns && relayed && backend.inferenceOrigin ? governedTimer?.("inference_origin") : undefined;
         const inferenceOrigin = host.governedTurns && relayed && backend.inferenceOrigin
           ? await backend.inferenceOrigin({ ...(profileId ? { profileId } : {}), ...(resumeId ? { sessionId: resumeId } : {}) }).catch(() => undefined) : undefined;
+        originLookup?.();
         abortController.signal.throwIfAborted();
         const handoffSource = !resumeId && turn.turnId === firstTurnId ? initial.handoffHooks?.sourceSessionId : undefined;
         governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference, {
-          ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) });
+          ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) }, governedTimer);
         if (governedHold) lifecycle?.mark("governedAcquiredAt");
         if (!governedHold || !host.budgets) lifecycle?.skip("budget");
         if (!governedHold || !host.journal) lifecycle?.skip("journal");
@@ -563,7 +567,7 @@ async function runRetainedSession(
             journalFailure = error;
             abortController.abort(error);
             coordinator.drainPendingForTurn(turn, error.message);
-          }, abortController.signal);
+          }, abortController.signal, journalTimer);
           lifecycle?.mark("journalBeganAt");
         }
         abortController.signal.throwIfAborted();

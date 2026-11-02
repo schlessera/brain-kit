@@ -3128,6 +3128,19 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
   return v === "openrouter" || v === "direct";
 }
 
+/**
+ * One timed step inside the governed-admission or journal-begin phase (#3355).
+ * `name` is open vocabulary: consumers tolerate names they do not know.
+ */
+export interface ActivityTurnSubPhase {
+  phase: "governed" | "journal";
+  name: string;
+  startedAt: number;
+  /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
+  endedAt: number | null;
+  elapsedMs: number | null;
+}
+
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
@@ -3157,6 +3170,8 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
+  /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
+  subPhases?: ActivityTurnSubPhase[];
 }
 
 export interface ActivityRunSummary {

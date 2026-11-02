@@ -13,6 +13,7 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import { INDEX_FAMILY_PATHS, INDEX_PUBLICATION_COPY, journalMetadataOnlyPath } from "./native-journal-policy.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
+import type { PhaseTimer } from "../activity/turn-lifecycle.js";
 import { processAlive, SELF } from "./writer-gate.js";
 import { toolObservation, type ToolExecutionPath } from "./tool-observation.js";
 import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeCheckpointLedger,
@@ -331,7 +332,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const pin = (turnId: string, entry: JournalVersion | null): JournalStatement[] =>
     entry?.hash ? [statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, entry.hash)] : [];
 
-  async function observe(userPolicy: boolean = false): Promise<void> {
+  async function observe(userPolicy: boolean = false, timing?: PhaseTimer): Promise<void> {
     await releaseReads();
     const overlaps = [...active.keys()];
     const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
@@ -346,7 +347,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       await Promise.all(recorded);
     };
     let observation: Awaited<ReturnType<typeof capture.observe>>;
-    try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy]))); }
+    try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy])), undefined, timing); }
     catch (error) { observationFailures++; const failure = storageError(error); await stopActive(failure); throw failure; }
     // Each managed worktree is observed through its own checkpoints, for the one turn that holds it.
     const separate: { worktreeId: string; turnId: string; observation: Awaited<ReturnType<typeof capture.observe>> }[] = [];
@@ -370,6 +371,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         changed.set(JSON.stringify(value), value);
       }
       const steering = observation.steering;
+      const recorded = timing?.("observe_record");
       for (const [turnId, turn] of active) {
         const worktree = separate.filter(root => root.turnId === turnId).flatMap(root => (root.observation.changes.get(turnId) ?? [])
           .filter(change => identity(change.before) !== identity(change.after))
@@ -398,8 +400,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         )`).get(DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number };
         for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
       }
+      recorded?.();
+      const committed = timing?.("observe_commit");
       await observation.commit();
       for (const root of separate) await root.observation.commit();
+      committed?.();
     } catch (error) {
       observationFailures++;
       const failure = storageError(error);
@@ -415,22 +420,34 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void, signal?: AbortSignal) {
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void, signal?: AbortSignal,
+      /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
       // Taken when the admission is requested, before it queues behind other journal work.
       const releasesBefore = releaseFailures;
+      const waited = timing?.("hold_wait");
       return held(async () => {
+      waited?.();
       signal?.throwIfAborted();
+      let end = timing?.("initialize");
       try { await capture.initialize(signal); }
       catch (error) { if (signal?.aborted) throw error; throw storageError(error); }
-      for (const refused of failedAdmissions) await finalizeRefusedAdmission(refused);
-      await observe();
+      end?.();
+      if (failedAdmissions.size) { end = timing?.("refused_admissions"); for (const refused of failedAdmissions) await finalizeRefusedAdmission(refused); end?.(); }
+      end = timing?.("observe");
+      await observe(false, timing);
+      end?.();
       signal?.throwIfAborted();
+      end = timing?.("expiry");
       const expired = db.query("SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL AND ended_at<?").all(now() - RETENTION_MS) as { turn_id: string }[];
       for (const row of expired) await expire(row.turn_id, true);
+      end?.(); end = timing?.("turn_insert");
       await retain(() => write([statement("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL",
         turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now())]));
+      end?.();
       try {
+      end = timing?.("policy");
       const policy = await capture.policy(metadata.coveredPaths);
+      end?.();
       signal?.throwIfAborted();
       // A release that failed during this admission refuses it, as it did when it failed this admission's observation.
       if (releaseFailures !== releasesBefore) throw new JournalStorageUnavailable("a native checkpoint release failed during admission");

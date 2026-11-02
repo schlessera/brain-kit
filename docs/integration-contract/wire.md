@@ -526,6 +526,29 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
+Optional `subPhases` (additive, #3355) attributes the governed and journal
+phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
+measuring to `failureObservedAt` or terminal time once the record is terminal,
+and null before. Every step lies inside its phase's paired milestones, and the
+`observe_*` steps lie inside `observe`. Steps are carried by the record's next
+milestone or terminal write, never written on their own. `name` is open
+vocabulary, so a consumer tolerates names it does not know. A step that does
+not apply to a turn is absent. The current names are:
+
+- `governed`: `inference_origin` (the backend's relay origin, looked up before
+  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
+  `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
+  `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
+  `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
+- `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
+  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
+  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+
+Records written before this field have no `subPhases`; nothing is backfilled.
+
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
 in nullable `reason`. Admission refusal, cancellation/revocation and failures
