@@ -109,7 +109,7 @@ async function hostedTurn(f: Fixture, profile: "strict" | "governed", script: Sc
   const approve = async <T>(pending: Promise<T>): Promise<T> => {
     const deadline = Date.now() + 10_000;
     while (!ws!.coordinator.pendingApprovals.size) { if (Date.now() > deadline) throw new Error("no approval requested"); await Bun.sleep(5); }
-    for (const [id, entry] of ws!.coordinator.pendingApprovals) { ws!.coordinator.pendingApprovals.delete(id); entry.resolve({ behavior: "allow" }); }
+    for (const id of [...ws!.coordinator.pendingApprovals.keys()]) ws!.coordinator.claimApproval(id)!.resolve({ behavior: "allow" });
     return pending;
   };
   const backend = { ...makeFakeBackend({ id: "claude", startTurn: async request => {

@@ -332,11 +332,7 @@ export async function handleClientMessage(
 
     case "ask_user_cancel": {
       // Dismisses any ask kind: the ids share one space.
-      const pending =
-        coordinator.pendingAskUser.get(msg.requestId) ??
-        coordinator.pendingAskUserList.get(msg.requestId) ??
-        coordinator.pendingAskUserRank.get(msg.requestId) ??
-        coordinator.pendingAskUserForm.get(msg.requestId);
+      const pending = coordinator.pendingAsk(msg.requestId)?.entry;
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         // Recorded as `cancelled`, so a queued answer arriving later is told
         // the question was dismissed instead of meeting silence.
@@ -351,46 +347,38 @@ export async function handleClientMessage(
     }
 
     case "location_response": {
-      const pending = coordinator.pendingLocation.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingLocation.delete(msg.requestId);
-        pending.resolve({ coords: msg.coords, timestamp: msg.timestamp });
-      }
+      coordinator
+        .claimLocation(msg.requestId, (p) => turnIdMatches(p, msg.turnId, requireEcho))
+        ?.resolve({ coords: msg.coords, timestamp: msg.timestamp });
       break;
     }
 
     case "location_error": {
-      const pending = coordinator.pendingLocation.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingLocation.delete(msg.requestId);
-        pending.reject(new Error(locationErrorText(msg.code, msg.message)));
-      }
+      coordinator
+        .claimLocation(msg.requestId, (p) => turnIdMatches(p, msg.turnId, requireEcho))
+        ?.reject(new Error(locationErrorText(msg.code, msg.message)));
       break;
     }
 
     case "mask_response": {
-      const pending = coordinator.pendingMask.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingMask.delete(msg.requestId);
-        // Decoded here rather than in the tool: the boundary already validated
-        // the base64 and its size, so the backend gets bytes it can trust.
-        pending.resolve(Uint8Array.from(Buffer.from(msg.maskPng, "base64")));
-      }
+      // Decoded here rather than in the tool: the boundary already validated
+      // the base64 and its size, so the backend gets bytes it can trust.
+      coordinator
+        .claimMask(msg.requestId, (p) => turnIdMatches(p, msg.turnId, requireEcho))
+        ?.resolve(Uint8Array.from(Buffer.from(msg.maskPng, "base64")));
       break;
     }
 
     case "mask_error": {
-      const pending = coordinator.pendingMask.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingMask.delete(msg.requestId);
-        pending.reject(
+      coordinator
+        .claimMask(msg.requestId, (p) => turnIdMatches(p, msg.turnId, requireEcho))
+        ?.reject(
           new Error(
             msg.code === "cancelled"
               ? `The user did not mark an area${msg.message ? `: ${msg.message}` : ""}`
               : msg.message || "The mask editor failed"
           )
         );
-      }
       break;
     }
 
@@ -430,7 +418,7 @@ export async function handleClientMessage(
           );
           break;
         }
-        coordinator.pendingApprovals.delete(msg.toolUseId);
+        coordinator.claimApproval(msg.toolUseId);
         // Remember-on-approve. Kind "command" never persists (the client
         // hides the option, but the wire is not trusted to enforce policy).
         // Neither does an approval given under an enforced allowlist that
@@ -473,7 +461,9 @@ export async function handleClientMessage(
             },
           });
         }
-        pending.resolve(
+        coordinator.settleApproval(
+          msg.toolUseId,
+          pending,
           msg.updatedInput
             ? { behavior: "allow", updatedInput: msg.updatedInput }
             : { behavior: "allow" },
@@ -483,31 +473,15 @@ export async function handleClientMessage(
             ...(msg.channel ? { channel: msg.channel } : {}),
           }
         );
-        coordinator.recordApprovalOutcome(msg.toolUseId, {
-          outcome: "granted",
-          turnId: pending.turnId,
-          sessionId: pending.turn.sessionId,
-          ...(msg.channel ? { channel: msg.channel } : {}),
-        });
       }
       break;
     }
 
     case "tool_denial": {
-      const pending = coordinator.pendingApprovals.get(msg.toolUseId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingApprovals.delete(msg.toolUseId);
-        pending.resolve(
-          { behavior: "deny", message: msg.message },
-          {
-            principalId: connection.authorization.principalId,
-            ...(msg.channel ? { channel: msg.channel } : {}),
-          }
-        );
-        coordinator.recordApprovalOutcome(msg.toolUseId, {
-          outcome: "denied",
-          turnId: pending.turnId,
-          sessionId: pending.turn.sessionId,
+      const pending = coordinator.claimApproval(msg.toolUseId, (p) => turnIdMatches(p, msg.turnId, requireEcho));
+      if (pending) {
+        coordinator.settleApproval(msg.toolUseId, pending, { behavior: "deny", message: msg.message }, {
+          principalId: connection.authorization.principalId,
           ...(msg.channel ? { channel: msg.channel } : {}),
         });
       } else {

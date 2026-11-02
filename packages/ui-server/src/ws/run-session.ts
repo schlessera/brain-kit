@@ -30,18 +30,13 @@ import { resolveTurnTarget } from "./routing.js";
 import { withLocalContext } from "./local-exchanges.js";
 import { acceptDraft } from "./drafts.js";
 import { acceptRequest } from "./recovery.js";
-import type { AuthorizationContext, HostWork, HostWorkOutcome, QueuedFollowUp, RunningTurn } from "./turns.js";
+import type { AuthorizationContext, HostWork, HostWorkOutcome, QueuedFollowUp, RunningTurn, StartingSession } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes, REVOKED_REASON } from "./turns.js";
 
 /** Why a follow-up leaves when its session's slot ends without running it (#1002). */
 const SLOT_ENDED_REASON = "The session stopped before it ran.";
-import {
-  MAX_SESSION_QUEUE,
-  QUEUE_MAX_BYTES,
-  QUEUE_WARN_BYTES,
-  turnLogAttributes,
-  type WsHost,
-} from "./host.js";
+import type { WsHost } from "./host.js";
+import { MAX_SESSION_QUEUE, QUEUE_MAX_BYTES, QUEUE_WARN_BYTES, turnLogAttributes } from "./limits.js";
 
 /**
  * Run one session slot: the initial turn, then any queued follow-up turns in
@@ -205,13 +200,12 @@ async function runRetainedSession(
   initialLifecycle: ReturnType<typeof createTurnLifecycle> | undefined
 ): Promise<void> {
   const { coordinator } = host;
-  const starting: { queue: QueuedFollowUp[]; cancelled: boolean; revision?: number } = {
+  const starting: StartingSession = {
     queue: [],
     cancelled: false,
     ...(initial.revision !== undefined ? { revision: initial.revision } : {}),
   };
-  if (initial.sessionId) coordinator.startingBySession.set(initial.sessionId, starting);
-  coordinator.startingSessions += 1;
+  coordinator.beginStarting(initial.sessionId, starting);
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
   try {
     target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
@@ -236,10 +230,7 @@ async function runRetainedSession(
     });
     return;
   } finally {
-    coordinator.startingSessions = Math.max(0, coordinator.startingSessions - 1);
-    if (initial.sessionId && coordinator.startingBySession.get(initial.sessionId) === starting) {
-      coordinator.startingBySession.delete(initial.sessionId);
-    }
+    coordinator.endStarting(initial.sessionId, starting);
   }
 
   if (starting.cancelled || host.closing) {
@@ -285,8 +276,7 @@ async function runRetainedSession(
   turn.shareId = initial.shareId;
   const firstTurnId = turn.turnId;
   clearTimeout(turn.timeoutHandle);
-  coordinator.running.add(turn);
-  if (turn.sessionId) coordinator.bySession.set(turn.sessionId, turn);
+  coordinator.registerTurn(turn);
 
   let profileId = initialProfileId;
   let resumeId = initial.sessionId;
@@ -990,10 +980,7 @@ async function runRetainedSession(
     coordinator.queueChanged(turn.sessionId, {
       dropped: { entries: unstarted ? [unstarted, ...queued] : queued, reason: SLOT_ENDED_REASON },
     });
-    if (turn.sessionId && coordinator.bySession.get(turn.sessionId) === turn) {
-      coordinator.bySession.delete(turn.sessionId);
-    }
-    coordinator.running.delete(turn);
+    coordinator.unregisterTurn(turn);
     coordinator.drainPendingForTurn(turn, "Session ended");
   }
 }

@@ -443,18 +443,17 @@ async function server(): Promise<void> {
   host.clients.add({ send(text: string) {
     const frame = JSON.parse(text); frames.push(frame);
     if (frame.type === "tool_approval_request") {
-      const pending = host.coordinator.pendingApprovals.get(frame.toolUseId);
-      host.coordinator.pendingApprovals.delete(frame.toolUseId); pending?.resolve({ behavior: "allow" });
+      host.coordinator.claimApproval(frame.toolUseId)?.resolve({ behavior: "allow" });
     }
     if (frame.type === "mask_request") {
       maskRequests++;
-      const pending = host.coordinator.pendingMask.get(frame.requestId)!;
-      host.coordinator.pendingMask.delete(frame.requestId); pending.resolve(png);
+      host.coordinator.claimMask(frame.requestId)!.resolve(png);
     }
     if (frame.type === "ask_user_request") {
       askRequests++;
-      const pending = host.coordinator.pendingAskUser.get(frame.requestId)!;
-      host.coordinator.pendingAskUser.delete(frame.requestId); pending.resolve({ answers: { Policy: "context/policies/crew.md" } } as any);
+      const pending = host.coordinator.pendingAsk(frame.requestId)!;
+      host.coordinator.acceptAsk(pending, { submissionId: "policy-probe", principalId: "odysseus" });
+      (pending.entry.resolve as (result: unknown) => void)({ answers: { Policy: "context/policies/crew.md" } });
     }
   } } as any, "odysseus");
 

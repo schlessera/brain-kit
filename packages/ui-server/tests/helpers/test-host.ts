@@ -81,7 +81,6 @@ export function setToolPermissionsForTests(tp: ToolPermissions | null): void {
 
 /** Drop host, registry and cap back to pristine (db handled separately). */
 export function resetForTests(): void {
-  host?.coordinator.reset();
   host?.close();
   host = null;
   registry = null;
