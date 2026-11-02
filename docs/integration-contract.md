@@ -111,6 +111,21 @@ New refusal codes are `accounting_unavailable`, `remote_outcome_unknown` and
 those follow in #3162 and #3163. It ships in a minor; no breaking ruling is
 required.
 
+## Apify liability in the global turn budgets (additive, 0.45.0, #3307)
+
+On a host that wires the Apify ledger into its turn budgets, each
+`TurnBudgetReceipt` scope counts the Apify liability the ledger holds for that
+turn, its conversation and this brain's UTC day once, as USD in `costUsd`,
+and reports it in a new optional `apifyUsd`. Admission, mid-turn stops, the
+relay's refusals and the SDK backstop all read the same total. `TurnBudgetCoverage`
+gains two values: one naming the Apify runs this host admitted, and one saying
+Apify accounting was unavailable, so Apify spend is not counted (never zero).
+A host without the ledger keeps the existing value. Apify admission reads
+inference without its own liability, so neither side counts it twice. See
+[the wire component](integration-contract/wire.md#completed-inference-usage-and-budgets-additive-1669).
+It ships in a minor; no breaking ruling is required, under the same reading as
+#1673's coverage change.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets
