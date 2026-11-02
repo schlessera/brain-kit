@@ -25,16 +25,38 @@ const SECRETS = [DOTENV_KEY, ...Object.values(HOST_KEYS)];
 const DIMENSIONS = 1536;
 const vector = (seed: number) => Array.from({ length: DIMENSIONS }, (_, index) => ((index * 7 + seed) % 13) / 13);
 
-interface Seen { path: string; headers: Record<string, string> }
+interface Seen { method?: string; path: string; headers: Record<string, string> }
 let upstream: ReturnType<typeof Bun.serve>;
 const seen: Seen[] = [];
-let root: string, brain: string;
+let root: string, brain: string, videoBrain: string;
+/** Files the fictional provider still holds, by name. */
+const stored = new Set<string>();
 
 beforeAll(async () => {
-  // A fictional Gemini Developer API: embeddings with reported usage, nothing else.
+  // A fictional Gemini Developer API: embeddings with reported usage, and the
+  // Files lifecycle and generation a local video needs (#2738).
   upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
-    seen.push({ path: url.pathname, headers: Object.fromEntries(request.headers) });
+    seen.push({ method: request.method, path: url.pathname, headers: Object.fromEntries(request.headers) });
+    if (url.pathname === "/upload/v1beta/files" && !url.search) {
+      return Response.json({}, { headers: { "x-goog-upload-url": `${upstream.url.origin}/upload/v1beta/files?upload_id=troy-session` } });
+    }
+    if (url.pathname === "/upload/v1beta/files") {
+      await request.arrayBuffer();
+      stored.add("files/troy-1");
+      return Response.json({ file: { name: "files/troy-1", uri: `${upstream.url.origin}/v1beta/files/troy-1`, mimeType: "video/mp4", state: "PROCESSING" } },
+        { headers: { "x-goog-upload-status": "final" } });
+    }
+    if (url.pathname === "/v1beta/files/troy-1") {
+      if (request.method === "DELETE") stored.delete("files/troy-1");
+      return Response.json(request.method === "DELETE" ? {} : { name: "files/troy-1", uri: `${upstream.url.origin}/v1beta/files/troy-1`, state: "ACTIVE" });
+    }
+    if (url.pathname.endsWith(":generateContent")) {
+      const asked = await request.json() as { contents: Array<{ parts: Array<{ fileData?: { fileUri: string } }> }> };
+      const fileUri = asked.contents[0]!.parts.find(part => part.fileData)?.fileData?.fileUri;
+      return Response.json({ candidates: [{ content: { role: "model", parts: [{ text: `00:10 The fleet leaves Troy (${fileUri}).` }] } }],
+        usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 12, promptTokenDetails: [{ modality: "VIDEO", tokenCount: 290 }, { modality: "TEXT", tokenCount: 10 }] } });
+    }
     const body = await request.json() as { requests?: unknown[] };
     const count = body.requests?.length ?? 1;
     // Both synchronous shapes document usageMetadata; the installed SDK drops it.
@@ -58,6 +80,13 @@ beforeAll(async () => {
     + "Odysseus checks the harbour at Ithaca before the fleet sails.\n");
   writeFileSync(join(brain, "brain.config.json"), JSON.stringify({ embeddings: { provider: "gemini" } }));
   writeFileSync(join(brain, ".env"), `GEMINI_API_KEY=${DOTENV_KEY}\n`);
+  // A second brain with the opt-in video module and a local recording.
+  videoBrain = join(root, "video-brain");
+  mkdirSync(videoBrain, { recursive: true });
+  writeFileSync(join(videoBrain, "brain.config.ts"), `import { defineConfig } from "@schlessera/brain";
+export default defineConfig({ modules: { "@schlessera/brain-module-video": {} } });
+`);
+  writeFileSync(join(videoBrain, "troy.mp4"), "fictional-video-bytes");
   // Vectors built on the host against the fictional endpoint. Asynchronous:
   // the endpoint serves from this process while the CLI runs.
   const index = Bun.spawn([process.execPath, BRAIN_CLI, "index", "--embeddings", "--json"], { cwd: root, stdout: "pipe", stderr: "pipe",
@@ -69,11 +98,11 @@ beforeAll(async () => {
 });
 afterAll(() => { upstream.stop(true); rmSync(root, { recursive: true, force: true }); });
 
-const sandbox = (profile: "governed" | "strict"): WorkerSandbox => ({ brain, restricted: false, profile, areas: [],
+const sandbox = (profile: "governed" | "strict", brainPath = brain): WorkerSandbox => ({ brain: brainPath, restricted: false, profile, areas: [],
   scratchAliasesRemoved: [], ...(profile === "governed" ? { protection: { paths: [], ancestors: [] } } : {}) });
 
 /** One worker on a turn proxy with the provider relay linked beside it, as the server composes a turn. */
-async function run(profile: "governed" | "strict", command: string[], options: { blocked?: boolean; listed?: boolean;
+async function run(profile: "governed" | "strict", command: string[], options: { blocked?: boolean; listed?: boolean; brainPath?: string;
   env?: Record<string, string>; credentialEnv?: readonly string[]; relayEgress?: false; customKeys?: string[]; relayMode?: number } = {}) {
   const records: EgressRecord[] = [], receipts: ProviderRelayReceipt[] = [];
   // Offline by construction: the worker's proxy admits only the loopback fixture, so a
@@ -89,9 +118,9 @@ async function run(profile: "governed" | "strict", command: string[], options: {
     linkSync(relay.socketPath, join(proxy.dir, PROVIDER_RELAY_SOCKET_NAME));
     if (options.relayMode !== undefined) chmodSync(join(proxy.dir, PROVIDER_RELAY_SOCKET_NAME), options.relayMode);
     if (options.customKeys) writeFileSync(join(proxy.dir, PROVIDER_RELAY_KEYS_NAME), `${options.customKeys.join("\n")}\n`);
-    const worker = launchFixtureAgentWorker({ brainPath: brain, command, sandbox: sandbox(profile), turnTempBytes: 64 * 1024 * 1024,
+    const worker = launchFixtureAgentWorker({ brainPath: options.brainPath ?? brain, command, sandbox: sandbox(profile, options.brainPath ?? brain), turnTempBytes: 64 * 1024 * 1024,
       egress: { proxyDir: proxy.dir }, ...(options.credentialEnv ? { credentialEnv: options.credentialEnv } : {}),
-      env: { PATH: "/usr/bin:/bin", HOME: "/tmp", LANG: "C.UTF-8", BRAIN_ROOT: brain, GOOGLE_GEMINI_BASE_URL: upstream.url.origin, ...HOST_KEYS, ...options.env } });
+      env: { PATH: "/usr/bin:/bin", HOME: "/tmp", LANG: "C.UTF-8", BRAIN_ROOT: options.brainPath ?? brain, GOOGLE_GEMINI_BASE_URL: upstream.url.origin, ...HOST_KEYS, ...options.env } });
     try {
       worker.stdin.end();
       const [exit, stdout, stderr] = await Promise.all([worker.exited, new Response(worker.stdout as never).text(),
@@ -162,6 +191,35 @@ describe.each(["governed", "strict"] as const)("a %s turn worker with the provid
     expect(seen, "BUDGET_REFUSAL_BEFORE_CONTACT").toEqual([]);
     expect(receipts).toEqual([]);
     expect(found.results.map(result => result.path)).toContain("notes/ithaca.md");
+  });
+
+  test("brain video watch uploads, polls, generates and deletes through the relay with the host's key (#2738)", async () => {
+    seen.length = 0;
+    const { exit, stdout, stderr, receipts } = await run(profile, [process.execPath, BRAIN_CLI, "video", "watch", "troy.mp4",
+      "--question", "What happens first?", "--json"], { brainPath: videoBrain });
+    expect(exit, stderr).toBe(0);
+    const watched = JSON.parse(stdout) as { answer: string };
+    expect(watched.answer, "RELAYED_VIDEO_WATCH_ANSWERS").toContain("The fleet leaves Troy");
+    expect(stderr, "RELAYED_VIDEO_NOT_UNAVAILABLE").not.toContain("provider_unavailable");
+    expect(seen.map(request => `${request.method} ${request.path}`), "RELAYED_VIDEO_LIFECYCLE_REACHES_PROVIDER").toEqual([
+      "POST /upload/v1beta/files", "POST /upload/v1beta/files", "GET /v1beta/files/troy-1",
+      "POST /v1beta/models/gemini-3-flash-preview:generateContent", "DELETE /v1beta/files/troy-1",
+    ]);
+    expect(seen.every(request => request.headers["x-goog-api-key"] === HOST_KEYS.GEMINI_API_KEY), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toBe(true);
+    expect(stored, "RELAYED_VIDEO_LEAVES_NO_FILE").toEqual(new Set());
+    expect(receipts.map(receipt => receipt.operation), "RELAYED_VIDEO_METERED").toEqual(["files", "files", "files", "completions", "files"]);
+    expect(receipts[3]).toMatchObject({ model: "gemini-3-flash-preview", usage: { inputTokens: 300, outputTokens: 12, inputByModality: { VIDEO: 290, TEXT: 10 } } });
+    expect(SECRETS.some(secret => stdout.includes(secret) || stderr.includes(secret)), "WORKER_SEES_NO_KEY").toBe(false);
+  });
+
+  test("a blocked budget refuses brain video watch before any byte reaches the provider", async () => {
+    seen.length = 0;
+    const { exit, stderr, receipts } = await run(profile, [process.execPath, BRAIN_CLI, "video", "watch", "troy.mp4", "--json"],
+      { brainPath: videoBrain, blocked: true });
+    expect(exit, "BLOCKED_VIDEO_WATCH_FAILS").not.toBe(0);
+    expect(stderr).toContain("budget");
+    expect(seen, "BLOCKED_VIDEO_WATCH_SENDS_NO_BYTE").toEqual([]);
+    expect(receipts).toEqual([]);
   });
 
   test("an origin the operator did not list never receives the key", async () => {
