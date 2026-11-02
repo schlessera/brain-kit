@@ -70,8 +70,8 @@ Source anchors, checked against the reviewed commit:
 - D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:301-337`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:108-114`).
-- E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:30-39`).
-- F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:8-28`).
+- E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
+- F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:10-30`).
 - G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
   and settlement-aware cleanup (`function claim`, `packages/ui-server/src/inbox/lifecycle-writes.ts:42-61`).
   [#807](https://github.com/schlessera/brain-kit/issues/807) supplies live-work

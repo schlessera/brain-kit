@@ -82,7 +82,7 @@ Source foundations for the matrix:
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source
-  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:217-274`).
+  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:229-286`).
 - Journal collection requires no refs/reservations and only expires ended
   turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:300-320`).
   Retention is applied at admission
