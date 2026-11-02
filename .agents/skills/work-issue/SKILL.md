@@ -81,6 +81,10 @@ Before claiming the first eligible candidate, check open PRs/recent comments for
 active work, including `Refs` links and issue-number branches. An unassigned
 issue with a live implementation PR is not free work. Skip it before
 claiming; do not duplicate/resume another worker's PR without authorization.
+Run `bun scripts/collisions.ts --json --paths <cited files...>` for the
+candidate's cited files. Among candidates of the same priority, prefer one with no
+`path`/`closure`/`unknown` report. A report is detection, not a lock or a
+reason to skip priority order; name any collision in the claim comment.
 
 Re-read the candidate's state, labels and assignees. Claim only while it
 still qualifies:
@@ -269,7 +273,8 @@ Missing tools, skipped runtimes, failures/cancellations and unexpected job skips
 leave selected hosted proof incomplete. Never delete tests, weaken offline
 harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
 pushes. A ready PR synchronize event runs fast feedback with a deliberately
-nonpassing final gate. For ordinary candidates, acquire the exact-candidate integration reservation
+nonpassing final gate. Before `confirm`, run `bun scripts/collisions.ts --json --pr <pr>`
+and record its collisions (or none) with the PR head in the PR. For ordinary candidates, acquire the exact-candidate integration reservation
 with `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` before
 requesting expensive confirmation; it handles the draft-to-ready transition,
 minute renewal and shared proof-checked merge. Hold competing confirmation and
