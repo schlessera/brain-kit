@@ -76,9 +76,9 @@ Source foundations for the matrix:
 - Staging eligibility, removal and acknowledgment are separate
   (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-82`).
 - Scratch pin loading and per-entry revalidation sit inside pruning
-  (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626-707`);
+  (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641-722`);
   explicit clean is different
-  (`export function cleanScratch`, `packages/core/src/lib/scratch.ts:710-728`).
+  (`export function cleanScratch`, `packages/core/src/lib/scratch.ts:725-743`).
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source

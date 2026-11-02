@@ -19,6 +19,7 @@ import {
 import { selectHygieneNext } from "../../lib/hygiene-next.js";
 import { checkHygiene, CONFIG_BLOCKER_ID, repairHandlers, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
 import { indexAll } from "../../lib/indexer.js";
+import { mediaPolicy } from "../../lib/media.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
@@ -28,8 +29,11 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
       Refresh the index, detect issues (brain audit, brain validate's corpus
       checks, silent edits, index table lag, and --extra candidates), join
       reports of the same problem into one finding with a stable ID, and
-      apply the open/snoozed/dismissed/resolved state machine to the log,
-      writing its files only where they change. --extra is a JSON array of
+      apply the open/snoozed/dismissed/kept/resolved state machine to the
+      log, writing its files only where they change. Media awaiting a decision
+      (the uncommitted MEDIA and LARGE files sync assesses, plus the scratch
+      files a conversation links) are findings of category "media"; a kept
+      entry (kept.md) holds while its permanent copy exists and is tracked. --extra is a JSON array of
       { "category", "path", "evidence", "message" } with optional "severity"
       (error|warning|info) and "urgency"; --fixed is a JSON array of
       { "path", "fix" }, the auto-fixes to record in last-run.md. When a check
@@ -39,24 +43,28 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
       index is still refreshed.
       --json envelope: { "opened", "reopened", "resolved", "stillOpen", "snoozed", "dismissed",
       "invalidated", "invalidations", "changedFiles", "detected": [{ "id", "category", "path",
-      "message", "severity", "urgency", "sources", "fingerprint" }], "autoFixed", "failedChecks" }
+      "message", "severity", "urgency", "sources", "fingerprint" }], "autoFixed", "failedChecks",
+      "kept" }
 
-  next [--extra <file.json>] [--finding <id> --dry-run]
+  next [--extra <file.json>] [--finding <id> --dry-run] [--defer <id>=<fp>,...]
       Reconcile and select one eligible canonical finding by severity, known
       urgency, age, then identity. Informational findings are counted but not
-      shown. The finding's handlers describe every available repair or manual
-      choice; handler remains "manual" for compatibility. Returns
-      { "finding", "counts" }; invalid configuration returns
+      shown, except media, which is always shown. The finding's handlers
+      describe every available repair or manual choice; handler remains
+      "manual" for compatibility. --defer skips findings left pending this
+      review pass while their fingerprint is still <fp>. Returns
+      { "finding", "counts", "media": { "awaitingReview", "setAside", "kept",
+      "links" } }, the same media counts brain sync reports; invalid configuration returns
       { "blocker": { "kind": "configuration", "message", "path", "line", "column" } }
       with exit 1 before any indexing or hygiene writes.
       --finding <id> --dry-run reads that detected open finding without
       Markdown writes, preserving the log for counts; the index is refreshed.
 
-  list [--state open|snoozed|dismissed|resolved]
+  list [--state open|snoozed|dismissed|resolved|kept]
       The log's entries.
       --json envelope: { "entries": [{ "id", "state", "path", "issue", "firstSeen",
       "lastSeen", "until", "dueAt", "resolvedBy", "resolvedOn", "sources", "severity",
-      "fingerprint", "disposition", "invalidation" }] }
+      "fingerprint", "disposition", "invalidation", "copy", "copySha256", "keptOn" }] }
 
   dismiss <id> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>]
   snooze <id> --until <date|date-time> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>]
@@ -85,7 +93,7 @@ const REPAIR_HELP = `
       to recheck invalid brain.config without writing anything.
 `;
 
-const STATES: HygieneState[] = ["open", "snoozed", "dismissed", "resolved"];
+const STATES: HygieneState[] = ["open", "snoozed", "dismissed", "resolved", "kept"];
 const SEVERITIES: HygieneSeverity[] = ["error", "warning", "info"];
 
 /** A JSON array from a --extra or --fixed file. Anything malformed is a usage error, before any write. */
@@ -147,13 +155,24 @@ async function detectAndReconcile(cli: CliContext, opts: Omit<ReconcileOptions, 
   const db = openDatabase(cli.brain.dbPath);
   try {
     await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
-    const { candidates, failedChecks } = await detectCandidates(db, cli.brain, opts.now);
+    const { candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now);
     const docs = new Map(loadAuditDocs(db).map((d) => [d.path, d]));
-    const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks });
-    return { result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]) };
+    const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks, media: mediaPolicy(cli.brain.config) });
+    return { result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]), inventory: media };
   } finally {
     db.close();
   }
+}
+
+/** `--defer id=fp,...`: the findings left pending this review pass, at the fingerprint they were left at. */
+function readDeferred(value: string | boolean | undefined): Map<string, string> {
+  if (value === undefined) return new Map();
+  if (typeof value !== "string" || value === "") throw new UsageError("--defer needs <id>=<fingerprint>[,<id>=<fingerprint>...]");
+  return new Map(value.split(",").map((pair) => {
+    const m = /^([a-z0-9][a-z0-9_-]*-[0-9a-f]{4})=([0-9a-f]{12})$/.exec(pair);
+    if (!m) throw new UsageError(`--defer: "${pair}" is not <id>=<12-digit fingerprint>`);
+    return [m[1]!, m[2]!] as const;
+  }));
 }
 
 /** The disposition a `dismiss` or `snooze` asks for; malformed arguments are usage errors. */
@@ -212,12 +231,14 @@ export const hygieneCommand: CoreCommand = {
       const now = new Date();
       if (flags.finding !== undefined && (typeof flags.finding !== "string" || !flags.finding || flags["dry-run"] !== true))
         throw new UsageError("--finding needs an ID and --dry-run");
-      const { result, findings } = await detectAndReconcile(cli, { now, extra, dryRun: flags["dry-run"] === true });
+      const deferred = readDeferred(flags.defer);
+      const { result, findings, inventory } = await detectAndReconcile(cli, { now, extra, dryRun: flags["dry-run"] === true });
       if (result.failedChecks.length > 0) {
         emit(cli.json, { blocker: { kind: "checks", failedChecks: result.failedChecks } }, () => console.error(`Review cannot start: checks failed: ${result.failedChecks.join(", ")}`));
         return 1;
       }
-      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now, typeof flags.finding === "string" ? flags.finding : undefined);
+      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now, typeof flags.finding === "string" ? flags.finding : undefined,
+        { media: mediaPolicy(cli.brain.config), inventory, deferred });
       const payload = { ...selected, finding: selected.finding
         ? { ...selected.finding, handlers: repairHandlers(cli.brain, selected.finding) } : null };
       emit(cli.json, payload, () => {
@@ -257,7 +278,7 @@ export const hygieneCommand: CoreCommand = {
     if (sub === "list") {
       const state = flags.state;
       if (state !== undefined && !STATES.includes(state as HygieneState)) {
-        throw new UsageError("--state must be open, snoozed, dismissed or resolved");
+        throw new UsageError("--state must be open, snoozed, dismissed, resolved or kept");
       }
       const entries = readHygieneLog(cli.brain.root).filter((e) => state === undefined || e.state === state);
       emit(cli.json, { entries }, () => {

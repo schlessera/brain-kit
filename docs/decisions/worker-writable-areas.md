@@ -277,7 +277,7 @@ path, through descriptors that never follow a link (each directory from the brai
 (`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:157-193`).
 Core's prune reads every entry with `lstat`, and on Linux removes each file
 and emptied directory through its parent's descriptor in the same way
-(`function anchored`, `packages/core/src/lib/scratch.ts:498-528`), because a
+(`function anchored`, `packages/core/src/lib/scratch.ts:513-543`), because a
 hosted agent can swap a scratch directory for a link while the host prunes.
 
 ## Measurements
