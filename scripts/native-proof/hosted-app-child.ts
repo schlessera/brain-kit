@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const [source, dir, brain, socket, selectedBackend = "claude"] = process.argv.slice(2);
@@ -62,6 +62,12 @@ if (APPLY_TIMING) {
 // #2834: time every tool frame and every journal observation, without changing either.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 if (OBSERVATION_TIMING) {
+  // #3355 retention backlog: while the test holds this file, the journal's own
+  // clock reads 31 days earlier, so the turns it records end past retention.
+  const journals = await import(join(source!, "packages/ui-server/src/brain/turn-journal.ts"));
+  const createTurnJournal = journals.createTurnJournal, backdated = join(dir!, "journal-backdated");
+  spyOn(journals, "createTurnJournal").mockImplementation((...args: Parameters<typeof createTurnJournal>) =>
+    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0) }));
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {
