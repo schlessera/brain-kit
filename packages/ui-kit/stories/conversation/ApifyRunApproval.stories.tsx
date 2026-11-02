@@ -23,7 +23,10 @@ const REVIEW = {
   input_sha256: "e".repeat(64), origins: ["https://harbor.ithaca.example"], max_charge_usd: 0.8, eligibility: { executable: true, reasons: [] }, consent: "one-use",
 };
 function Approval({ onApproval }: { width: number; onApproval: (id: string, approved: boolean, always?: boolean) => void }) {
-  const [root] = useState(() => createBrainUiRoot({ storage: null, request: async () => Response.json({ error: "none" }, { status: 404 }) }));
+  const [root] = useState(() => createBrainUiRoot({ storage: null, request: async input => new URL(String(input), location.href).pathname === "/api/apify"
+    ? Response.json({ policy: { limits: { run_usd: 1, turn_usd: 2, session_usd: 5, day_usd: 5, max_runs_per_turn: 2, max_requests_per_turn: 40, max_concurrent_runs: 1,
+      max_runtime_seconds: 600, max_result_items: 200, max_result_bytes: 5_242_880, max_retention_seconds: 604_800 } } })
+    : Response.json({ error: "none" }, { status: 404 }) }));
   useEffect(() => () => root.dispose(), [root]);
   const tool: ToolCall = { id: "apify-run-1", name: "Apify Actor run", input: REVIEW, inputJson: JSON.stringify(REVIEW), status: "pending_approval", approvalKind: "command",
     approvalDescription: "Run ithaca/harbor-notices build 1.4.12 once, with the input shown, charging at most $0.8. Approving does not allow any later run." };
@@ -59,6 +62,7 @@ export const RunApproval320 = approvalMeta.story({
     for (const row of ["Actor", "Sends to Apify", "Charged to", "Cost", "Limits"]) await expect(card.querySelector(`[data-apify-row="${row}"]`), row).not.toBeNull();
     await expect(card.querySelector("[data-apify-row=\"Charged to\"]")!.textContent).toContain("…7c2f");
     await expect(card.querySelector("[data-apify-row=\"Cost\"]")!.textContent).toContain("Up to $0.80");
+    await waitFor(() => expect(card.querySelector("[data-apify-effective-limits]")?.textContent).toBe("≤ $1.00 a run · 10 min · 200 items · 5120 KB · results kept 7 days"));
     await expect(view.queryByRole("button", { name: /Always/ }), "APIFY_NO_ALWAYS_ALLOW").toBeNull();
     await expect(view.getByRole("button", { name: /Allow once/ })).toBeVisible();
     // Untrusted Actor text is plain text: no link, no markdown.

@@ -11,6 +11,8 @@ import type { RendererPack, ToolCallView } from "@schlessera/brain-ui-sdk/client
 import { APIFY_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { Button, Callout, Disclosure } from "@schlessera/brain-ui-kit";
 import { Globe } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { ApifyLimitsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../../root-context.js";
 import { openApifySettings } from "../../../lib/apify-focus.js";
 import { refusalCopy, usd } from "../../../lib/apify.js";
@@ -43,9 +45,23 @@ function Row({ name, children, warn = false }: { name: string; children: React.R
   </div>;
 }
 
+/** The policy's effective limits, read from the owner's settings; null when unknown or not an owner. */
+function useApifyLimits(): { limits: ApifyLimitsRead | null; read: boolean } {
+  const root = useBrainUiRoot();
+  const [state, setState] = useState<{ limits: ApifyLimitsRead | null; read: boolean }>({ limits: null, read: false });
+  useEffect(() => {
+    let live = true;
+    const epoch = root.authLock.epoch();
+    root.api.apify().then(read => { if (live && epoch === root.authLock.epoch()) setState({ limits: read.policy.limits, read: true }); }, () => undefined);
+    return () => { live = false; };
+  }, [root]);
+  return state;
+}
+
 /** The exact run a person approves once (rev 1 §3): Actor, what is sent, who pays, cost and what is not covered. */
 export function ApifyRunReview({ tool }: { tool: ToolCallView }) {
   const root = useBrainUiRoot();
+  const effective = useApifyLimits();
   const review = tool.input ?? {};
   const actor = record(review.actor), build = record(review.build), pricing = record(review.pricing), eligibility = record(review.eligibility);
   const origins = Array.isArray(review.origins) ? review.origins.filter((o): o is string => typeof o === "string").slice(0, 20) : [];
@@ -71,7 +87,10 @@ export function ApifyRunReview({ tool }: { tool: ToolCallView }) {
       {(uncertainty.length > 0 || (!executable && reasons.length > 0)) && <Row name="Not covered" warn>
         {[...uncertainty, ...(!executable ? reasons : [])].map(reason => reason.replaceAll("_", " ")).join(" · ")}
         <span className="block text-xs">Something here is not bounded, so no paid run of it can start.</span></Row>}
-      <Row name="Limits">Your Apify limits and overall budgets apply; the lower one wins.
+      <Row name="Limits">{effective.limits
+          ? <span data-apify-effective-limits>{`≤ ${usd(effective.limits.run_usd)} a run · ${Math.round(effective.limits.max_runtime_seconds / 60)} min · ${effective.limits.max_result_items} items · ${Math.round(effective.limits.max_result_bytes / 1024)} KB · results kept ${Math.round(effective.limits.max_retention_seconds / 86400)} days`}</span>
+          : effective.read ? "No Apify limits are set, so this can't run." : null}
+        <span className="block text-xs text-muted-foreground">Your Apify limits and overall budgets apply; the lower one wins.</span>
         <span className="mt-1 flex flex-wrap gap-2"><Button label="Show limits" tone="quiet" size="sm" block={false} reach onClick={() => openApifySettings(root, "limits")} /></span></Row>
     </dl>
     <div className="[&_[role=button]]:min-h-11"><Disclosure label={`Full input · ${fields} ${fields === 1 ? "field" : "fields"}`}>
