@@ -912,6 +912,35 @@ network denial, disabled scripting and opt-in sandbox removal retain their
 policy. The rationale and measurements are in
 [renderer-budgets.md](../decisions/renderer-budgets.md).
 
+<a id="scrape-address-policy"></a>
+
+## Scrape address policy and the bounded robots.txt fetch (#2502)
+
+`@schlessera/brain-scrape` adds `ScrapeClientOptions.addressPolicy`
+(`"any" | "public-only"`, default `"any"`) and `ScrapeClientOptions.lookup`.
+It also exports the `NonPublicAddressError` class and the `AddressPolicy`,
+`AddressLookup` and `ResolvedAddress` types. `ScrapeClient` exposes a readonly
+`addressPolicy`. With `"public-only"`, the client refuses a non-public
+address before robots.txt, pacing or the request. It checks the initial
+request, every redirect hop and the robots.txt fetch, whatever
+`respectRobots` is set to. Every resolved address must be public. On the
+native path the connection goes to the checked address, while the original
+host name travels in `Host` and the TLS server name. The proxy path cannot
+pin the address and documents its remaining window in the package README. A
+supplied `robots` cache must carry the same policy, or the constructor
+throws a `TypeError`.
+
+`RobotsCacheOptions` gains `userAgent`, `maxBytes` (default 1 MiB),
+`maxRedirects` (default 5), `addressPolicy` and `lookup`, and `RobotsCache`
+exposes a readonly `addressPolicy`. The network robots.txt fetch now sends
+the client's User-Agent instead of Bun's default. It follows redirects one
+hop at a time, holding each hop to the policy, and refuses an oversized
+body. A refusal is a failed fetch and keeps the existing permissive
+outcome. `ScrapeClient` and `createBrowserSession` pass their User-Agent
+into the cache they construct. Every HTTP redirect to a URL with embedded
+credentials is now refused. All of this is additive and ships in a minor.
+Browser navigation has no address policy.
+
 <a id="browser-scraping-navigation-policy"></a>
 
 ## Browser scraping navigation policy
