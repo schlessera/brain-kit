@@ -134,7 +134,7 @@ export async function postEvidence(io: IncidentIO, evidence: Evidence): Promise<
   if (!open) throw new Error("Main is not red; there is no incident to add evidence to");
   if (open.incident === null) throw new Error("Incident pending: the coordinator has not filed the incident issue yet; retry when main-status names it");
   const now = await io.now(), claim = open.claim ?? null;
-  const role = liveClaim(claim, now) && claim.worker === evidence.worker && claim.orchestrator === evidence.orchestrator ? "claimant" : "contributor";
+  const role = claim && liveClaim(claim, now) && claim.worker === evidence.worker && claim.orchestrator === evidence.orchestrator ? "claimant" : "contributor";
   const body = publicText("evidence comment", formatEvidence(open, evidence, role));
   await io.write("POST", `${issuePath(io, open.incident)}/comments`, { body });
   if (evidence.kind === "duplicate") await io.write("POST", `${issuePath(io, evidence.issue!)}/comments`, {

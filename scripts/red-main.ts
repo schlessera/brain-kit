@@ -117,7 +117,7 @@ export function declareFix(record: RedMainRecord, pr: number, now: number): RedM
 }
 
 const sameClaimant = (claim: FixClaim, who: Claimant) => claim.worker === who.worker && claim.orchestrator === who.orchestrator;
-export const liveClaim = (claim: FixClaim | null | undefined, now: number): claim is FixClaim => !!claim && now < claim.expires;
+export const liveClaim = (claim: FixClaim | null | undefined, now: number): boolean => !!claim && now < claim.expires;
 function claimable(record: RedMainRecord, who: Claimant): RedIncident {
   if (!agent(who.worker) || !agent(who.orchestrator)) throw new Error("Worker and orchestrator IDs must be opaque tokens matching " + AGENT_ID);
   if (!record.open) throw new Error("Main is not red; there is no incident to claim");
@@ -132,7 +132,7 @@ function claimable(record: RedMainRecord, who: Claimant): RedIncident {
  */
 export function claimFix(record: RedMainRecord, who: Claimant, now: number): RedMainRecord {
   const open = claimable(record, who), held = open.claim ?? null;
-  if (liveClaim(held, now)) {
+  if (held && liveClaim(held, now)) {
     if (sameClaimant(held, who)) return renewFixClaim(record, who, now);
     throw new Error(`Fix claimed by worker ${held.worker} (orchestrator ${held.orchestrator}) until ${new Date(held.expires).toISOString()}; add evidence to incident #${open.incident} instead`);
   }
@@ -143,7 +143,7 @@ export function claimFix(record: RedMainRecord, who: Claimant, now: number): Red
 
 export function renewFixClaim(record: RedMainRecord, who: Claimant, now: number): RedMainRecord {
   const open = claimable(record, who), held = open.claim ?? null;
-  if (!liveClaim(held, now) || !sameClaimant(held, who)) throw new Error("This worker holds no live fix claim; claim again (an expired claim may already be taken over)");
+  if (!held || !liveClaim(held, now) || !sameClaimant(held, who)) throw new Error("This worker holds no live fix claim; claim again (an expired claim may already be taken over)");
   return next(record, now, "renew-claim", open.run, { open: { ...open, claim: { ...held, renewed: now, expires: now + CLAIM_TERM_MS } } });
 }
 
