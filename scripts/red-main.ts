@@ -158,6 +158,8 @@ export function releaseFixClaim(record: RedMainRecord, who: Claimant, now: numbe
   const open = claimable(record, who), held = open.claim ?? null;
   if (!held || !sameClaimant(held, who)) throw new Error("This worker does not hold the fix claim");
   return next(record, now, "release-claim", open.run, { open: { ...open, claim: null } });
+}
+
 /** Records an expedited fix squash on the open record; the next green main run that includes the red set still clears it. */
 export function recordExpedited(record: RedMainRecord, fix: ExpeditedFix, now: number): RedMainRecord {
   if (!record.open) throw new Error("No open red-main record to record an expedited fix on");
