@@ -3,6 +3,21 @@
 # A diff in this file is a public-surface change — review it as one.
 # Names marked `type` are type-only exports; the rest are runtime values.
 
+export "./internal/apify-operations" (./src/apify-operations.ts)
+  APIFY_DESCRIPTIONS
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_INPUT_SCHEMAS
+  APIFY_MAX_RUN_USD
+  APIFY_OPERATIONS
+  APIFY_TOOL_NAMES
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyOperationInput
+  type ApifyToolName
+  apifyOperationOf
+
 export "./internal/cache-location" (./src/cache-location.ts)
   ASSET_CACHE_PATH
   CACHE_DIR

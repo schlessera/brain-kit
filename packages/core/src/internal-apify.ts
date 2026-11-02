@@ -11,3 +11,5 @@ export * from "./lib/apify/consent.js";
 export * from "./lib/apify/ledger.js";
 export * from "./lib/apify/profiles.js";
 export * from "./lib/apify/runs.js";
+export * from "./lib/apify/operations.js";
+export * from "./lib/apify/standalone.js";

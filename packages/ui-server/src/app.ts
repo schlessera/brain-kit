@@ -27,16 +27,18 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyTokenSource, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
-import { APIFY_AUTHORITY_SETTING, createApifyAuthority, governanceApifyPolicy } from "@schlessera/brain/internal/apify";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
+import { createApifyHost } from "./apify/host.js";
+import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
@@ -635,7 +637,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   // Budget writes commit on the write worker (#2850).
-  const budgets = createTurnBudgets(db, pricing, Date.now, writer);
+  // Apify (#3162, #3307): one ledger opener for the run service and the turn budgets. Until a run was ever
+  // recorded there is no file and no liability, and reading the budgets never creates one.
+  const apifyLedgerFile = apifyLedgerPath(config.dbPath);
+  let apifyLedger: ApifyLedger | undefined;
+  const openApifyLedgerOnce = (): ApifyLedger => apifyLedger ??= openApifyLedger(apifyLedgerFile);
+  const apifyLiability = apifyBudgetSource(openApifyLedgerOnce, apifyBrainId(config.brainPath));
+  const budgets = createTurnBudgets(db, pricing, Date.now, writer, (scope, now) =>
+    apifyLedger || existsSync(apifyLedgerFile) ? apifyLiability(scope, now) : { turn_usd: 0, session_usd: 0, day_usd: 0 });
   relayBudgets = budgets;
   // Catalog rows, and the profile rows and proposal binds that reference
   // them, commit on the write worker (#2850).
@@ -660,6 +669,24 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const scope = createTurnScope(db, { brainPath: config.brainPath, journal, writer, governance: activity.governanceWrites, log: brainLog,
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
+  // Apify (#3159): off unless the governance policy enables it; the token never leaves the host.
+  const apify = createApifyAuthority({ policy: governanceApifyPolicy(config.brainPath), token: apifyTokenSource(),
+    store: { read: () => getSetting<unknown>(db, APIFY_AUTHORITY_SETTING, null), write: record => settingsWrites.setSetting(APIFY_AUTHORITY_SETTING, record) } });
+  // Apify operations (#3162): one ledger the CLI and MCP can share, inference
+  // spend from the turn budgets, G2 exposures from governed turns and the
+  // session's G6 taint recorded before any remote text reaches a turn.
+  const apifyHost = createApifyHost({ brainPath: config.brainPath, ledgerPath: apifyLedgerFile, ledger: openApifyLedgerOnce, authority: apify,
+    // Inference alone: Apify's own liability is counted from the ledger, so neither side counts it twice.
+    inference: budgets.inferenceSpend,
+    exposures: sessionIds => governedTurns.exposures(sessionIds),
+    untrusted: async (turn, event) => {
+      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "apify_result", tool: `brain_apify_${event.operation}`, detail: event.detail.slice(0, 200) },
+        sessionId: turn.sessionId(), turnId: turn.turnId, actor: "interactive", model: null, profile: null });
+    },
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+  // Settle, time out and clean up open runs now and periodically; a no-op until a ledger exists.
+  const stopApifyReconciler = apifyHost.startReconciler();
+  bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
   const host = new WsHost({
     identitySentinelDirectory,
     scope,
@@ -668,6 +695,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     governedTurns,
     ...(referenceWorktrees ? { referenceWorktrees, referenceWorktreeAccess: true } : {}),
     ...(referenceTools ? { referenceTools } : {}),
+    apify: apifyHost,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
@@ -1071,9 +1099,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
-  // Apify (#3159): off unless the governance policy enables it; the token never leaves the host.
-  const apify = createApifyAuthority({ policy: governanceApifyPolicy(config.brainPath), token: apifyTokenSource(),
-    store: { read: () => getSetting<unknown>(db, APIFY_AUTHORITY_SETTING, null), write: record => settingsWrites.setSetting(APIFY_AUTHORITY_SETTING, record) } });
   app.route("/api", createApifyRoutes({ authority: apify,
     authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } }));
   app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));
@@ -1247,6 +1272,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => journal.close());
       await attempt(async () => { await referenceWorktrees?.close(); });
       await attempt(async () => { await referenceSources?.close(); });
+      await attempt(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
       await attempt(() => nativeLeases.close());
       if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
       // Gate releases commit off the event loop (#2850): every one lands first.

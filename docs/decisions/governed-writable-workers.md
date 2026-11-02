@@ -283,8 +283,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:98-127`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:173-206`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:174-207`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:234-238`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:238-242`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -1335,9 +1335,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:346`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:557`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1520,7 +1520,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:939`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -3637,7 +3637,7 @@ the path's existing cancellation or failure outcome.
 to pi cancellation before `prompt()`. The pool owns a late new or resumed
 acquisition until its awaited abort finishes, then disposes it and preserves
 the accepted cancellation (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:159-166`). After acquisition the
+`packages/ui-backend-pi/src/session-pool.ts:160-167`). After acquisition the
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
@@ -3877,7 +3877,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:313-330`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -3913,7 +3913,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:90-134`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely

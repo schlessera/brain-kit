@@ -126,6 +126,58 @@ inference without its own liability, so neither side counts it twice. See
 It ships in a minor; no breaking ruling is required, under the same reading as
 #1673's coverage change.
 
+## Apify operations through the CLI, MCP and both chat backends (additive, 0.45.0, #3162)
+
+Seven fixed operations reach Apify, each with one strict input schema shared
+by every front door: `discover`, `inspect`, `prepare`, `run`, `status`,
+`results` and `abort`. `brain apify <operation> --json`
+([CLI component](integration-contract/cli.md#apify-operations-additive-0450-3162)),
+the core MCP server's `brain_apify_<operation>` tools and both first-party
+backends' bridge tools of the same names
+([MCP component](integration-contract/mcp.md#apify-tools-additive-0450-3162))
+validate the same input and call the same consent, reservation and request
+functions, so no transport has a second consent, account or billing path.
+Each returns one envelope, `{ ok: true, operation, data }` or
+`{ ok: false, operation, error: { code, reason, message } }`. `code` is one of
+the contract's `provider_disabled`, `authentication_required`,
+`policy_denied`, `approval_required`, `proposal_stale`, `actor_unsupported`,
+`budget_exceeded`, `accounting_unavailable`, `result_expired`,
+`remote_outcome_unknown` and `upstream_incompatible`, or one of two additive
+codes: `provider_unavailable` (the Apify API could not be reached or verified;
+nothing was admitted) and `invalid_input` (the operation's own checks refused
+the input before anything was sent). Messages are fixed text; no token or
+upstream text reaches an envelope.
+
+Candidate, proposal, run and cursor references are opaque and bound to their
+brain, principal and session; a proposal also to its turn. Discovered Actor
+schemas are data: choosing an Actor never adds or removes a tool, and the
+roster is fixed for a session. `data` is the model view only: candidate
+summaries and inspected facts (both marked `untrusted: true`), a proposal and
+its review, a run's lifecycle state, one bounded page of results, an abort
+outcome. Accounting stays with the host.
+
+Both backends forward to the host, which builds each call's context from the
+authenticated turn and holds the credential and the ledger. The tools are in
+every interactive session's fixed roster and auto-allowed: the host asks per
+exact use. Voice, no-grant-surface and restricted autonomous turns keep their
+existing memberships: their rosters or availability checks refuse the tools,
+and the host refuses a non-interactive turn with `policy_denied`. Inference spend reaches admission without Apify's own liability, and the
+host's turn budgets count that liability from the same ledger (#3307); a run
+is therefore refused as `accounting_unavailable` (`session_unbound`) until the
+conversation is named, so its liability can be attributed. A
+cancelled, timed-out or budget-stopped turn aborts the runs it started. The
+first untrusted Apify text in a session records its taint with the new source
+`apify_result` ([governance events](http-api.md)).
+
+A standalone `brain apify` or `brain mcp` process uses its own `APIFY_TOKEN`
+and the shared ledger named by the new `BRAIN_APIFY_LEDGER`
+([supported inputs](supported-inputs.md)); the server opens the same variable,
+defaulting to `DB_PATH.apify-ledger.sqlite`. Without the ledger every
+standalone operation refuses as `accounting_unavailable`. Nobody can be asked
+there: a run needs an exact standing grant, else `approval_required`. Neither
+variable reaches any worker. This adds no wire frame or HTTP route. It ships
+in a minor; no breaking ruling is required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets

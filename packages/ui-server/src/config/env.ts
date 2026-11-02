@@ -655,6 +655,15 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: null,
     required: false,
   },
+  {
+    name: "BRAIN_APIFY_LEDGER",
+    description:
+      "Absolute path of the shared Apify ledger (#3161, #3162): reservations, run handles and request counts, private to the host user and outside every brain. " +
+      "A standalone `brain apify` or `brain mcp` process that sets the same path shares the account's day limit and concurrency bound with the server. " +
+      "Never passed to a worker.",
+    default: "DB_PATH.apify-ledger.sqlite (server); unset, which refuses Apify as accounting_unavailable (standalone CLI and MCP)",
+    required: false,
+  },
   // voice
   {
     name: "DEEPGRAM_API_KEY",
@@ -1314,6 +1323,11 @@ export function subprocessEnv(
  * Only the host's Apify authority calls it; the value is placed on its fixed
  * upstream request alone and never enters a worker, record, log or response.
  */
+/** The host's Apify ledger path (#3162): `BRAIN_APIFY_LEDGER`, or beside the UI database. */
+export function apifyLedgerPath(dbPath: string, env: NodeJS.ProcessEnv = process.env): string {
+  return env.BRAIN_APIFY_LEDGER?.trim() || `${dbPath}.apify-ledger.sqlite`;
+}
+
 export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
   const token = env.APIFY_TOKEN?.trim() || undefined;
   return () => token;
