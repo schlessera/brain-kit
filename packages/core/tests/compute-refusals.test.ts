@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createComputeService } from "../src/lib/compute/service";
@@ -117,6 +117,20 @@ describe("refusals before any effect", () => {
     expect(jobDirs(box.state)).toEqual([]);
   });
 
+  test("policy_denied: the instance credential in argv, cwd, an artifact or a source path, never echoed", async () => {
+    const secret = "k-secret-ithaca";
+    const keyed = [{ apiKeyEnv: "ITHACA_KEY" }, { env: { ITHACA_KEY: secret } }] as const;
+    for (const request of [
+      { argv: ["curl", "-H", `Authorization: Bearer ${secret}`] },
+      { cwd: `work/${secret}` },
+      { artifacts: [{ path: `out/${secret}.txt`, maxBytes: 64 }] },
+      { source: [`notes/${secret}.md`] },
+    ]) {
+      const refused = await expectRefusal("policy_denied", request, ...keyed);
+      expect(JSON.stringify(refused)).not.toContain(secret);
+    }
+  });
+
   test("budget_exceeded and accounting_unavailable come from the host ledger", async () => {
     await expectRefusal("budget_exceeded", {}, { hourlyCeilingUsd: 1 }, { budget: { reserve: () => "exceeded", settle() {} } });
     await expectRefusal("accounting_unavailable", {}, {}, { budget: { reserve: () => { throw new Error("ledger offline"); }, settle() {} } });
@@ -153,6 +167,24 @@ describe("refusals before any effect", () => {
     expect(effects(memory)).toBe(0);
     expect(jobDirs(box.state)).toEqual([]);
   });
+});
+
+describe("source swapped after admission", () => {
+  for (const [what, swap] of [
+    ["a symlink to an identical file outside the brain", (route: string, outside: string) => { writeFileSync(outside, readFileSync(route)); rmSync(route); symlinkSync(outside, route); }],
+    ["a regular file with other bytes", (route: string) => { writeFileSync(route, "# Route home\nSteer for Troy.\n"); }],
+  ] as const) {
+    test(`a source file replaced by ${what} between admission and staging is never staged`, async () => {
+      const ctx = setup({}, { approve: () => (swap(join(ctx.box.root, "notes", "route.md"), join(ctx.box.base, "outside.md")), "approved") });
+      const { memory, svc } = ctx;
+      const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["exit", "0"], source: ["notes/route.md"] });
+      expect(memory.calls.filter((c) => c.method === "stage").length).toBe(0);
+      expect(run.ok && [run.job.state, run.job.terminal?.reason, run.job.cleanup.state]).toEqual([
+        "failed", expect.stringContaining("notes/route.md changed after admission"), "released",
+      ]);
+      expect([...memory.sandboxes.values()].every((s) => s.files.size === 0)).toBe(true);
+    });
+  }
 });
 
 describe("local operation without compute", () => {

@@ -463,3 +463,19 @@ choices "Still open" assigned to it, within the bounds above:
   bounded only by the host. Standalone, a job whose process stopped is bounded
   when it is next visited (status, cancel, collect or reconcile). Whether
   `brain compute run` stays attached until the job ends is #3107's choice.
+- **A command that ended unseen.** Expiry and cancellation poll the command
+  once before killing it. One that had already exited keeps its real exit:
+  on expiry its artifacts are collected within the release allowance and
+  recorded `not_collected` after it, and its state follows its exit. Neither
+  can tell when it exited, because `CommandStatus` carries no time.
+- **Recovery for release.** A lost allocation on an idempotent provider whose
+  job is cancelled or expires gets one more allocate under the same key, only
+  to learn the reference and release it.
+- **Reconfigured instances.** A job records a hash of its instance's
+  implementation, `options` and credential variable. While the configured
+  instance hashes differently, the job gets no provider call and its status
+  and reconcile entry say why. Limits such as the lease, slots and ceiling are
+  outside the hash.
+- **Partial cost.** A usage report with `partial` coverage is recorded and not
+  settled, so the reservation stays held until a later report is complete.
+  Unknown coverage is recorded as `usd: null` whatever amount came with it.

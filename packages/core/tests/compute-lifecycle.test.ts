@@ -215,3 +215,108 @@ describe("cleanup and cost", () => {
     expect(filesContaining(box.state, "sk-ithaca-penelope-weaves")).toEqual([]);
   });
 });
+
+describe("a command that ended before the first visit after its lease", () => {
+  test("within the release allowance: the real exit is kept, artifacts are collected, and nothing is killed", async () => {
+    const { clock, memory, svc } = setup();
+    const job = await started(svc, ["write", "log.txt", "the raft held"], { artifacts: [{ path: "log.txt", maxBytes: 64 }] });
+    clock.advance(650_000);
+    const done = await status(svc, job.id);
+    expect(memory.calls.filter((c) => c.method === "kill").length).toBe(0);
+    expect([done.state, done.exit, done.artifacts[0].status, done.cleanup.state]).toEqual([
+      "succeeded", { code: 0, signal: null, reason: "exited" }, "collected", "released",
+    ]);
+  });
+
+  test("after the release allowance: the real exit is kept and artifacts are recorded as not collected", async () => {
+    const { clock, memory, svc } = setup();
+    const job = await started(svc, ["write", "log.txt", "the raft held"], { artifacts: [{ path: "log.txt", maxBytes: 64 }] });
+    clock.advance(1_000_000);
+    const done = await status(svc, job.id);
+    expect(memory.calls.filter((c) => c.method === "kill").length).toBe(0);
+    expect([done.state, done.exit, done.artifacts[0].status, done.terminal?.reason, done.cleanup.state]).toEqual([
+      "failed", { code: 0, signal: null, reason: "exited" }, "not_collected", "artifacts_missing", "released",
+    ]);
+    expect(memory.calls.filter((c) => c.method === "collect").length).toBe(0);
+  });
+
+  test("cancelling a command that already exited keeps its real exit", async () => {
+    const { memory, svc } = setup();
+    const job = await started(svc, ["exit", "7"]);
+    const result = await svc.cancel(PENELOPE, job.id);
+    if (!result.ok) throw new Error(result.code);
+    expect(memory.calls.filter((c) => c.method === "kill").length).toBe(0);
+    expect([result.job.state, result.job.exit, result.job.cleanup.state]).toEqual(["cancelled", { code: 7, signal: null, reason: "exited" }, "released"]);
+  });
+});
+
+describe("provider cost coverage", () => {
+  function withUsage(usage: () => { usd: number | null; seconds: number | null; coverage: "complete" | "partial" | "unknown" }) {
+    box = sandbox();
+    const clock = fakeClock();
+    const memory = memoryCompute({ clock });
+    const settled: [string, number | null][] = [];
+    const budget = { reserve: () => "ok" as const, settle: (id: string, usd: number | null) => void settled.push([id, usd]) };
+    const provider: ComputeProvider = { ...memory.provider, usage: async () => usage() };
+    const svc = service(box, { providers: { ithaca: { provider, lease: { maxSeconds: 600 }, hourlyCeilingUsd: 6 } } }, { clock, budget });
+    return { svc, settled };
+  }
+
+  test("a zero with unknown coverage is unknown, never zero, and settles as unknown", async () => {
+    const { svc, settled } = withUsage(() => ({ usd: 0, seconds: null, coverage: "unknown" }));
+    const done = await status(svc, (await started(svc, ["exit", "0"])).id);
+    expect(done.cost.actual).toEqual({ usd: null, coverage: "unknown", source: "provider" });
+    expect(settled).toEqual([[done.id, null]]);
+  });
+
+  test("partial coverage is recorded but never settled as final; the reservation is held until coverage is complete", async () => {
+    let report: { usd: number | null; seconds: number | null; coverage: "complete" | "partial" | "unknown" } = { usd: 0.5, seconds: 300, coverage: "partial" };
+    const { svc, settled } = withUsage(() => report);
+    const done = await status(svc, (await started(svc, ["exit", "0"])).id);
+    expect(settled).toEqual([]);
+    expect(done.cost.actual).toEqual({ usd: 0.5, coverage: "partial", source: "provider" });
+    report = { usd: 0.7, seconds: 420, coverage: "complete" };
+    const later = await status(svc, done.id);
+    expect(later.cost.actual).toEqual({ usd: 0.7, coverage: "complete", source: "provider" });
+    expect(settled).toEqual([[done.id, 0.7]]);
+    await status(svc, done.id);
+    expect(settled.length).toBe(1);
+  });
+});
+
+describe("the instance secret in provider reasons and logs", () => {
+  const SECRET = 'sk-"ithaca\\penelope';
+
+  test("a health check that throws or reports the secret is redacted", async () => {
+    box = sandbox();
+    const memory = memoryCompute();
+    const throwing: ComputeProvider = { ...memory.provider, health: async (ctx) => { throw new Error(`401 for key ${ctx.secret}`); } };
+    const reporting: ComputeProvider = { ...memory.provider, health: async (ctx) => ({ kind: "unavailable", reason: `key ${ctx.secret} expired` }) };
+    const svc = service(box, {
+      providers: {
+        ithaca: { provider: throwing, apiKeyEnv: "ITHACA_KEY", lease: { maxSeconds: 600 } },
+        pylos: { provider: reporting, apiKeyEnv: "ITHACA_KEY", lease: { maxSeconds: 600 } },
+      },
+    }, { env: { ITHACA_KEY: SECRET } });
+    const report = await svc.health();
+    if (!report.ok) throw new Error(report.code);
+    expect(report.instances.map((i) => i.reason)).toEqual(["the provider threw: 401 for key [redacted]", "key [redacted] expired"]);
+  });
+
+  test("a provider log carrying the secret inside structured data is redacted at every string, whatever it contains", async () => {
+    box = sandbox();
+    const memory = memoryCompute();
+    const logs: { message: string; data?: Record<string, unknown> }[] = [];
+    const chatty: ComputeProvider = {
+      ...memory.provider,
+      health: async (ctx) => {
+        ctx.log.warn(`probing with ${ctx.secret}`, { header: `Bearer ${ctx.secret}`, nested: [{ key: ctx.secret, attempts: 2 }] });
+        return { kind: "ok" };
+      },
+    };
+    const log = { debug: () => {}, warn: (message: string, data?: Record<string, unknown>) => void logs.push({ message, data }) };
+    const svc = service(box, { providers: { ithaca: { provider: chatty, apiKeyEnv: "ITHACA_KEY", lease: { maxSeconds: 600 } } } }, { env: { ITHACA_KEY: SECRET }, log });
+    await svc.health();
+    expect(logs).toEqual([{ message: "probing with [redacted]", data: { header: "Bearer [redacted]", nested: [{ key: "[redacted]", attempts: 2 }] } }]);
+  });
+});

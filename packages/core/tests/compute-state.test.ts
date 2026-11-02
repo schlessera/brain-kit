@@ -8,7 +8,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createComputeService } from "../src/lib/compute/service";
@@ -58,6 +58,16 @@ describe("where state lives", () => {
     expect(existsSync(join(box.root, "notes", "jobs", "jobs"))).toBe(false);
   });
 
+  test("a refused state directory creates nothing inside the brain, even through a symlinked ancestor", async () => {
+    box = sandbox();
+    symlinkSync(box.root, join(box.base, "brain-link"));
+    for (const stateDir of [join(box.root, ".compute", "state"), join(box.root, "notes", "jobs"), join(box.base, "brain-link", "compute")]) {
+      const svc = createComputeService({ root: box.root, stateDir, config: { compute: compute() }, env: {} });
+      await expect(svc.run(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] })).rejects.toBeInstanceOf(ComputeStateError);
+    }
+    expect([".compute", "notes/jobs", "compute"].filter((p) => existsSync(join(box!.root, p)))).toEqual([]);
+  });
+
   test("directories are 0700 and records 0600", async () => {
     box = sandbox();
     const svc = service(box, compute());
@@ -85,6 +95,26 @@ describe("records", () => {
     fail = false;
     const done = await svc.status(PENELOPE, run.job.id);
     expect(done.ok && done.job.state).toBe("succeeded");
+  });
+
+  test("a record this version cannot read is skipped and reported, never touched, and never blocks other jobs", async () => {
+    box = sandbox();
+    const svc = service(box, compute());
+    expect((await svc.run(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] })).ok).toBe(true);
+    const foreign = `cj_${"a".repeat(26)}`;
+    const broken = `cj_${"b".repeat(26)}`;
+    const records = { [foreign]: `${JSON.stringify({ schema: 2, id: foreign, state: "running" })}\n`, [broken]: "{ not json" };
+    for (const [id, text] of Object.entries(records)) {
+      mkdirSync(join(box.state, "jobs", id), { recursive: true });
+      writeFileSync(join(box.state, "jobs", id, "job.json"), text);
+    }
+    const plan = await svc.plan(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] });
+    expect(plan.ok).toBe(true);
+    expect((await svc.run(PENELOPE, { instance: "ithaca", argv: ["exit", "0"] })).ok).toBe(true);
+    const report = await svc.reconcile();
+    expect(report.ok && report.skipped.filter((s) => s.id === foreign || s.id === broken).map((s) => s.id).sort()).toEqual([foreign, broken]);
+    for (const [id, text] of Object.entries(records)) expect(readFileSync(join(box.state, "jobs", id, "job.json"), "utf8")).toBe(text);
+    expect(readdirSync(join(box.state, "jobs", foreign))).toEqual(["job.json"]);
   });
 
   test("no record, output or receipt holds a credential", async () => {

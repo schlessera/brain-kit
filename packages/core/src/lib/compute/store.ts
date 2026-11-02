@@ -114,14 +114,24 @@ export class ComputeJobStore {
     return job;
   }
 
-  list(): ComputeJobRecord[] {
+  /**
+   * Every record this version can read. A record it cannot (corrupt, or
+   * another schema) is reported in `unreadable` and never touched, so one
+   * foreign record cannot stop admission or reconciliation of the rest.
+   */
+  list(): { jobs: ComputeJobRecord[]; unreadable: { id: string; reason: string }[] } {
     const jobs: ComputeJobRecord[] = [];
+    const unreadable: { id: string; reason: string }[] = [];
     for (const name of readdirSync(this.jobsDir)) {
       if (!COMPUTE_JOB_ID.test(name)) continue;
-      const job = this.read(name);
-      if (job) jobs.push(job);
+      try {
+        const job = this.read(name);
+        if (job) jobs.push(job);
+      } catch (error) {
+        unreadable.push({ id: name, reason: `unreadable record: ${error instanceof Error ? error.message : String(error)}` });
+      }
     }
-    return jobs;
+    return { jobs, unreadable };
   }
 
   /** Store bytes under the job by content hash; returns the hash. */

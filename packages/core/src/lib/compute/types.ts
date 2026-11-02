@@ -129,6 +129,12 @@ export interface ComputeJobView {
   cancelRequested: boolean;
   uncertain: ComputeJobRecord["uncertain"];
   terminal: ComputeJobRecord["terminal"];
+  /**
+   * Why this visit could not advance the job although no live process holds
+   * it: its instance is unavailable, names another provider, or was
+   * reconfigured since the job started. Not stored; `null` otherwise.
+   */
+  blocked: string | null;
 }
 
 export interface ComputeRefusal {

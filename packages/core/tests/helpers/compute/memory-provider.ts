@@ -186,7 +186,8 @@ export function memoryCompute(opts: MemoryComputeOptions = {}): MemoryCompute {
       if (fault === "hang") return never();
       if (fault) return fault;
       const cmd = sandboxes.get(handle.sandbox.id)?.commands.get(handle.id);
-      if (cmd && !cmd.exit) cmd.exit = { code: null, signal: "SIGKILL", reason: "killed", stdout: "", stderr: "" };
+      // A command that already ended on the clock is not killed after the fact.
+      if (cmd && statusOf(cmd).kind === "running") cmd.exit = { code: null, signal: "SIGKILL", reason: "killed", stdout: "", stderr: "" };
       return leave("kill", { kind: "ok" as const });
     },
     async release(ref, mode, ctx) {

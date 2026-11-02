@@ -12,7 +12,7 @@
 
 import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { resolveEnv } from "../../config/env.js";
 
@@ -46,10 +46,32 @@ export function resolveComputeStateDir(opts: { root: string; override?: string; 
   const root = realpathSync(opts.root);
   const dir = configured ?? join(env.stateHome, "brain", "compute", computeBrainKey(root));
   if (!isAbsolute(dir)) throw new ComputeStateError(`the compute state directory must be absolute: ${dir}`);
+  // Refuse before creating anything: resolve the deepest existing ancestor,
+  // which may be a link into the checkout, and check where the rest would land.
+  const refuseInside = (path: string) => {
+    if (inside(root, path)) {
+      throw new ComputeStateError(`the compute state directory ${path} is inside the brain checkout; it must live outside it`);
+    }
+  };
+  refuseInside(prospectivePath(dir));
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const canonical = realpathSync(dir);
-  if (inside(root, canonical)) {
-    throw new ComputeStateError(`the compute state directory ${canonical} is inside the brain checkout; it must live outside it`);
-  }
+  refuseInside(canonical);
   return canonical;
+}
+
+/** Where `dir` would resolve once created: its deepest existing ancestor's real path plus the rest. */
+function prospectivePath(dir: string): string {
+  const missing: string[] = [];
+  let current = resolve(dir);
+  for (;;) {
+    try {
+      return join(realpathSync(current), ...missing.reverse());
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return resolve(dir);
+      missing.push(basename(current));
+      current = parent;
+    }
+  }
 }

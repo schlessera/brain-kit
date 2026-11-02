@@ -92,6 +92,58 @@ describe("a lost allocation response", () => {
   });
 });
 
+describe("a lost allocation response, then cancel or expiry", () => {
+  test("idempotent allocation only, cancelled while uncertain: one allocate with the same key recovers the sandbox, which is released", async () => {
+    const { memory, svc, allocations } = setup({ findByKey: false });
+    memory.lose("allocate");
+    const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["sleep", "60"] });
+    const id = run.ok ? run.job.id : "";
+    expect(run.ok && run.job.state).toBe("uncertain");
+    const cancelled = await svc.cancel(PENELOPE, id);
+    expect(cancelled.ok && [cancelled.job.state, cancelled.job.cleanup.state]).toEqual(["cancelled", "released"]);
+    expect([memory.created(), allocations(), memory.live()]).toEqual([1, 2, 0]);
+    expect(new Set([...memory.sandboxes.values()].map((s) => s.key))).toEqual(new Set([id]));
+  });
+
+  test("idempotent allocation only, the lease ends while uncertain: the same key provisions at most one sandbox, which is released", async () => {
+    const { clock, memory, svc, allocations } = setup({ findByKey: false });
+    memory.failTransport("allocate");
+    const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["sleep", "60"] });
+    const id = run.ok ? run.job.id : "";
+    clock.advance(600_000);
+    const done = await state(svc, id);
+    expect([done.state, done.cleanup.state]).toEqual(["expired", "released"]);
+    expect([memory.created(), allocations(), memory.live()]).toEqual([1, 2, 0]);
+    expect((await state(svc, id)).state).toBe("expired");
+    expect(allocations()).toBe(2);
+  });
+});
+
+describe("a reconfigured instance", () => {
+  test("a job started under other options or another credential variable gets no provider call until the configuration is restored", async () => {
+    box = sandbox();
+    const clock = fakeClock();
+    const memory = memoryCompute({ clock });
+    const env = { ITHACA_KEY: "k-ithaca", PYLOS_KEY: "k-pylos" };
+    const original = { provider: memory.provider, lease: { maxSeconds: 600 }, apiKeyEnv: "ITHACA_KEY", options: { region: "ithaca" } };
+    const first = service(box, { providers: { ithaca: original } }, { clock, env });
+    const run = await first.run(PENELOPE, { instance: "ithaca", argv: ["sleep", "60"] });
+    const id = run.ok ? run.job.id : "";
+    for (const changed of [{ ...original, options: { region: "pylos" } }, { ...original, apiKeyEnv: "PYLOS_KEY" }]) {
+      const calls = memory.calls.length;
+      const svc = service(box, { providers: { ithaca: { ...changed, maxConcurrent: 3 } } }, { clock, env });
+      const cancelled = await svc.cancel(PENELOPE, id);
+      const report = await svc.reconcile();
+      expect(memory.calls.length).toBe(calls);
+      expect(cancelled.ok && [cancelled.job.state, cancelled.job.blocked]).toEqual(["running", expect.stringContaining("reconfigured")]);
+      expect(report.ok && report.skipped).toEqual([{ id, reason: expect.stringContaining("reconfigured") }]);
+    }
+    const restored = await state(service(box, { providers: { ithaca: { ...original, maxConcurrent: 5 } } }, { clock, env }), id);
+    expect([restored.state, restored.cleanup.state, restored.blocked]).toEqual(["cancelled", "released", null]);
+    expect(new Set(memory.calls.map((c) => JSON.stringify(c.options)))).toEqual(new Set([JSON.stringify({ region: "ithaca" })]));
+  });
+});
+
 describe("a lost exec response", () => {
   test("the command is never started again; after the lease it is released with its exit unknown", async () => {
     const { clock, memory, svc } = setup();

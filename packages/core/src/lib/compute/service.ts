@@ -21,6 +21,7 @@ import {
   checkCommand,
   checkEnv,
   checkLease,
+  checkSecretFree,
   refuse,
   resolveSource,
   sameCaller,
@@ -91,7 +92,7 @@ export interface ComputeService {
   reconcile(): Promise<ComputeReconcileReport | ComputeRefusal>;
 }
 
-export function computeJobView(job: ComputeJobRecord): ComputeJobView {
+export function computeJobView(job: ComputeJobRecord, blocked: string | null = null): ComputeJobView {
   return {
     id: job.id,
     instance: job.instance,
@@ -108,6 +109,7 @@ export function computeJobView(job: ComputeJobRecord): ComputeJobView {
     cancelRequested: job.cancelRequested,
     uncertain: job.uncertain,
     terminal: job.terminal,
+    blocked,
   };
 }
 
@@ -115,6 +117,16 @@ interface Admitted {
   instance: ResolvedComputeInstance;
   plan: ComputePlan;
   env: Record<string, string>;
+}
+
+/** JSON with object keys sorted, so a reordered config hashes the same. */
+function canonicalJson(value: unknown): string {
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort);
+    if (typeof v !== "object" || v === null) return v;
+    return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sort((v as Record<string, unknown>)[k])]));
+  };
+  return JSON.stringify(sort(value)) ?? "null";
 }
 
 export function createComputeService(options: ComputeServiceOptions): ComputeService {
@@ -156,9 +168,36 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     return names;
   }
 
+  /**
+   * Where a job's provider effects go: the implementation, its options and
+   * the credential variable. A job is only driven while its instance still
+   * hashes the same, so a release never reaches another account or region.
+   * Limits (lease, slots, ceiling) are not part of it: changing them must
+   * not strand running jobs.
+   */
   function configHash(instance: ResolvedComputeInstance): string {
-    const { provider: _value, ...rest } = instance.config;
-    return createHash("sha256").update(JSON.stringify({ ...rest, provider: instance.provider.id })).digest("hex");
+    const target = { provider: instance.provider.id, options: instance.config.options ?? null, keyEnv: instance.keyEnv ?? null };
+    return createHash("sha256").update(canonicalJson(target)).digest("hex");
+  }
+
+  /** The instance a job's effects may go to, or why none may now. */
+  async function target(job: ComputeJobRecord): Promise<{ instance: ResolvedComputeInstance } | { blocked: string }> {
+    const instance = await instanceFor(job.instance);
+    if ("ok" in instance) return { blocked: instance.reason };
+    if (instance.provider.id !== job.provider) return { blocked: `"${job.instance}" now names a different provider` };
+    if (configHash(instance) !== job.configHash) {
+      return {
+        blocked: `"${job.instance}" was reconfigured after this job started (its provider options or credential variable changed); no provider call is made for it until that configuration is restored`,
+      };
+    }
+    return { instance };
+  }
+
+  /** Every readable record; an unreadable one is logged and left alone. */
+  function listJobs(jobStore: ComputeJobStore): { jobs: ComputeJobRecord[]; unreadable: { id: string; reason: string }[] } {
+    const listed = jobStore.list();
+    for (const u of listed.unreadable) log.warn("compute: skipping a job record this version cannot read", { id: u.id, reason: u.reason });
+    return listed;
   }
 
   function slotsUsed(jobs: ComputeJobRecord[], instance: string): number {
@@ -179,6 +218,8 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     if (unsupported) return unsupported;
     const lease = checkLease(instance, request.leaseSeconds);
     if ("ok" in lease) return lease;
+    const secretFree = checkSecretFree(request, instance.secret);
+    if (secretFree) return secretFree;
     const command = checkCommand(request);
     if (command) return command;
     const artifacts = checkArtifacts(request.artifacts);
@@ -262,19 +303,29 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     return { job, store: s.store };
   }
 
-  /** Advance a job when no live process holds it; otherwise report it as recorded. */
-  async function advance(job: ComputeJobRecord, jobStore: ComputeJobStore, mode: DriveMode, lock?: HeldLock): Promise<ComputeJobRecord> {
+  /**
+   * Advance a job when no live process holds it; otherwise report it as
+   * recorded. `blocked` says why a job that is not held could not be driven.
+   */
+  async function advance(
+    job: ComputeJobRecord,
+    jobStore: ComputeJobStore,
+    mode: DriveMode,
+    lock?: HeldLock
+  ): Promise<{ job: ComputeJobRecord; blocked: string | null }> {
     const held = lock ?? tryLock(jobStore.ownerLockPath(job.id));
-    if (!held) return job;
+    if (!held) return { job, blocked: null };
     try {
       const fresh = jobStore.read(job.id) ?? job;
-      const instance = await instanceFor(fresh.instance);
-      if ("ok" in instance || instance.provider.id !== fresh.provider) return fresh;
-      return await new JobDriver(fresh, deps(instance, jobStore)).drive(mode);
+      const found = await target(fresh);
+      if ("blocked" in found) return { job: fresh, blocked: found.blocked };
+      return { job: await new JobDriver(fresh, deps(found.instance, jobStore)).drive(mode), blocked: null };
     } finally {
       held.release();
     }
   }
+
+  const view = (advanced: { job: ComputeJobRecord; blocked: string | null }) => computeJobView(advanced.job, advanced.blocked);
 
   return {
     async health(id) {
@@ -308,7 +359,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       const admitted = await admit(caller, request);
       if ("ok" in admitted) return admitted;
       const { store: jobStore } = state();
-      admitted.plan.slots.used = slotsUsed(jobStore.list(), admitted.instance.id);
+      admitted.plan.slots.used = slotsUsed(listJobs(jobStore).jobs, admitted.instance.id);
       return { ok: true, plan: admitted.plan };
     },
 
@@ -321,7 +372,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       let job: ComputeJobRecord;
       let owner: HeldLock | undefined;
       try {
-        const used = slotsUsed(jobStore.list(), admitted.instance.id);
+        const used = slotsUsed(listJobs(jobStore).jobs, admitted.instance.id);
         if (used >= admitted.plan.slots.max) {
           return refuse("concurrency_exhausted", `"${admitted.instance.id}" has ${used} of ${admitted.plan.slots.max} jobs running or awaiting cleanup`);
         }
@@ -349,15 +400,14 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       } finally {
         admission.release();
       }
-      job = await advance(job, jobStore, "start", owner);
-      return { ok: true, job: computeJobView(job) };
+      return { ok: true, job: view(await advance(job, jobStore, "start", owner)) };
     },
 
     async status(caller, jobId) {
       if (!providers) return disabled();
       const found = own(caller, jobId);
       if (!found) return unknownJob(jobId);
-      return { ok: true, job: computeJobView(await advance(found.job, found.store, "progress")) };
+      return { ok: true, job: view(await advance(found.job, found.store, "progress")) };
     },
 
     async cancel(caller, jobId) {
@@ -369,14 +419,15 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       }
       const lock = await acquireLock(found.store.ownerLockPath(jobId), lockWaitMs);
       if (!lock) return { ok: true, job: computeJobView(found.store.read(jobId) ?? found.job) };
-      return { ok: true, job: computeJobView(await advance(found.job, found.store, "progress", lock)) };
+      return { ok: true, job: view(await advance(found.job, found.store, "progress", lock)) };
     },
 
     async collect(caller, jobId) {
       if (!providers) return disabled();
       const found = own(caller, jobId);
       if (!found) return unknownJob(jobId);
-      const job = await advance(found.job, found.store, "progress");
+      const advanced = await advance(found.job, found.store, "progress");
+      const job = advanced.job;
       const text = (stream: "stdout" | "stderr") => {
         const data = found.store.readOutput(jobId, stream);
         return data === undefined ? null : new TextDecoder().decode(data.subarray(0, COLLECT_TEXT_BYTES));
@@ -385,7 +436,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       const stderrBytes = job.output?.stderr?.bytes ?? 0;
       return {
         ok: true,
-        job: computeJobView(job),
+        job: view(advanced),
         output: {
           stdout: text("stdout"),
           stderr: text("stderr"),
@@ -425,7 +476,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
         job.uncertain = null;
         job.updatedAt = now;
         found.store.write(job);
-        return { ok: true, job: computeJobView(await advance(job, found.store, "progress", lock)) };
+        return { ok: true, job: view(await advance(job, found.store, "progress", lock)) };
       } catch (error) {
         lock.release();
         throw error;
@@ -435,8 +486,9 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     async reconcile() {
       if (!providers) return disabled();
       const { store: jobStore, brain: brainKey } = state();
-      const report: ComputeReconcileReport = { ok: true, visited: [], skipped: [] };
-      for (const job of jobStore.list()) {
+      const listed = listJobs(jobStore);
+      const report: ComputeReconcileReport = { ok: true, visited: [], skipped: [...listed.unreadable] };
+      for (const job of listed.jobs) {
         if (job.brain !== brainKey) continue;
         const settled = isTerminal(job.state) && job.reservation.settled && job.cleanup.state !== "release_failed" && job.cleanup.state !== "pending";
         if (settled) continue;
@@ -445,14 +497,12 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
           report.skipped.push({ id: job.id, reason: "held by a live process" });
           continue;
         }
-        const instance = await instanceFor(job.instance);
-        if ("ok" in instance || instance.provider.id !== job.provider) {
-          lock.release();
-          report.skipped.push({ id: job.id, reason: "ok" in instance ? instance.reason : `"${job.instance}" now names a different provider` });
+        const after = await advance(job, jobStore, "progress", lock);
+        if (after.blocked !== null) {
+          report.skipped.push({ id: job.id, reason: after.blocked });
           continue;
         }
-        const after = await advance(job, jobStore, "progress", lock);
-        report.visited.push({ id: after.id, state: after.state, cleanup: after.cleanup.state });
+        report.visited.push({ id: after.job.id, state: after.job.state, cleanup: after.job.cleanup.state });
       }
       return report;
     },

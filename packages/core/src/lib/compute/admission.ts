@@ -6,7 +6,7 @@
  * service.ts.
  */
 
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 import { join, posix } from "node:path";
 
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
@@ -130,23 +130,9 @@ export function resolveSource(
     if (path === ".git" || path.startsWith(".git/")) return refuse("source_refused", `${path} is repository metadata, not source`);
     if (seen.has(path)) return refuse("source_refused", `${path} is declared twice`);
     seen.add(path);
-    const abs = join(realRoot, path);
-    let entry;
-    try {
-      entry = lstatSync(abs);
-    } catch {
-      return refuse("source_refused", `${path} does not exist`);
-    }
-    if (entry.isSymbolicLink()) return refuse("source_refused", `${path} is a symlink`);
-    if (!entry.isFile()) return refuse("source_refused", `${path} is not a regular file`);
-    let real: string;
-    try {
-      real = realpathSync(abs);
-    } catch {
-      return refuse("source_refused", `${path} cannot be resolved`);
-    }
-    if (real !== abs) return refuse("source_refused", `${path} is reached through a symlink`);
-    const data = readFileSync(abs);
+    const read = readSourceFile(realRoot, path);
+    if ("refused" in read) return refuse("source_refused", read.refused);
+    const data = read.data;
     if (policy) {
       const type = path.endsWith(".md") ? String(parseFrontmatter(data.toString("utf8"), { dataOnly: true }).data.type ?? "") : "";
       if (!providerAllows(policy.providers, path, type, instanceId)) {
@@ -163,22 +149,67 @@ export function resolveSource(
   return { files, hash: manifestHash(files) };
 }
 
-/** A bundle over the resolved manifest, re-verifying each file's hash as it is read. */
-export function sourceBundle(root: string, source: ResolvedSource): SourceBundle {
+/**
+ * Read one repository-relative file without following a symlink at any
+ * point: the final component is opened `O_NOFOLLOW` and the bytes come from
+ * that descriptor, which must be a regular file and the same inode the name
+ * pointed at; the name must still resolve to itself after the read, so a
+ * directory swapped for a link while it was open is refused too.
+ */
+export function readSourceFile(realRoot: string, path: string): { data: Buffer } | { refused: string } {
+  const abs = join(realRoot, path);
+  let entry;
+  try {
+    entry = lstatSync(abs);
+  } catch {
+    return { refused: `${path} does not exist` };
+  }
+  if (entry.isSymbolicLink()) return { refused: `${path} is a symlink` };
+  if (!entry.isFile()) return { refused: `${path} is not a regular file` };
+  let fd: number;
+  try {
+    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return { refused: `${path} cannot be opened without following a link` };
+  }
+  let data: Buffer;
+  try {
+    const held = fstatSync(fd);
+    if (!held.isFile()) return { refused: `${path} is not a regular file` };
+    if (held.dev !== entry.dev || held.ino !== entry.ino) return { refused: `${path} changed while it was read` };
+    data = readFileSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  let real: string;
+  try {
+    real = realpathSync(abs);
+  } catch {
+    return { refused: `${path} cannot be resolved` };
+  }
+  if (real !== abs) return { refused: `${path} is reached through a symlink` };
+  return { data };
+}
+
+/**
+ * The bundle a provider stages: every file read now, without following a
+ * link, and checked against the hash and size admission recorded. A file
+ * that changed refuses the whole bundle, so bytes other than those admitted
+ * are never handed to a provider.
+ */
+export function loadSourceBundle(root: string, source: ResolvedSource): SourceBundle | { refused: string } {
   const realRoot = realpathSync(root);
-  return {
-    hash: source.hash,
-    files: source.files.map((f) => ({
-      path: f.path,
-      sha256: f.sha256,
-      bytes: f.bytes,
-      async read() {
-        const data = readFileSync(join(realRoot, f.path));
-        if (sha256Hex(data) !== f.sha256) throw new Error(`${f.path} changed after admission`);
-        return new Uint8Array(data);
-      },
-    })),
-  };
+  const files: SourceBundle["files"] = [];
+  for (const f of source.files) {
+    const read = readSourceFile(realRoot, f.path);
+    if ("refused" in read) return { refused: `${f.path} changed after admission: ${read.refused}` };
+    if (read.data.byteLength !== f.bytes || sha256Hex(read.data) !== f.sha256) {
+      return { refused: `${f.path} changed after admission: its content differs from the admitted hash` };
+    }
+    const bytes = new Uint8Array(read.data);
+    files.push({ path: f.path, sha256: f.sha256, bytes: f.bytes, read: async () => bytes.slice() });
+  }
+  return { hash: source.hash, files };
 }
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -216,6 +247,24 @@ export function checkCommand(request: ComputeRunRequest): ComputeRefusal | undef
     return refuse("policy_denied", "argv must be a non-empty list of strings");
   }
   if (request.cwd !== undefined && !relativePath(request.cwd)) return refuse("policy_denied", "cwd must be a relative path");
+  return undefined;
+}
+
+/**
+ * Nothing the request sends to the provider may carry the instance secret:
+ * argv, cwd, environment names, artifact paths and source paths. Runs before
+ * any other request check, so no refusal reason ever echoes it.
+ */
+export function checkSecretFree(request: ComputeRunRequest, secret: string | undefined): ComputeRefusal | undefined {
+  if (!secret) return undefined;
+  const carries = (value: unknown) => typeof value === "string" && value.includes(secret);
+  const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+  const deny = (where: string) => refuse("policy_denied", `${where} carries the instance credential; credentials are never forwarded into a sandbox`);
+  if (list(request.argv).some(carries)) return deny("argv");
+  if (carries(request.cwd)) return deny("cwd");
+  if (request.env && typeof request.env === "object" && Object.keys(request.env).some(carries)) return deny("an environment variable name");
+  if (list(request.artifacts).some((a) => carries((a as { path?: unknown } | null)?.path))) return deny("an artifact path");
+  if (list(request.source).some(carries)) return deny("a source path");
   return undefined;
 }
 

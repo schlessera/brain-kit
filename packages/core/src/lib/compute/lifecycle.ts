@@ -16,7 +16,7 @@ import type {
   ComputeUncertain,
   ReleaseOutcome,
 } from "../seams.js";
-import { sourceBundle } from "./admission.js";
+import { loadSourceBundle } from "./admission.js";
 import { receipt, sha256Hex, type ComputeJobStore } from "./store.js";
 import {
   isTerminal,
@@ -51,6 +51,8 @@ const MAX_STEPS = 32;
 const MAX_ALLOCATE_ATTEMPTS = 3;
 const MAX_STAGE_ATTEMPTS = 3;
 const MAX_COLLECT_ATTEMPTS = 3;
+/** Re-reads of a partial usage report before the host stops asking; the reservation stays held. */
+const MAX_USAGE_READS = 5;
 /** Grace after a call's deadline before the host stops waiting for it. */
 const ABORT_GRACE_MS = 250;
 const RELEASE_BACKOFF_MS = 30_000;
@@ -60,19 +62,47 @@ export function redact(text: string, secret: string | undefined): string {
   return secret ? text.split(secret).join("[redacted]") : text;
 }
 
+/**
+ * Redact every string in a value, keys included, by walking it rather than
+ * its JSON text: a secret holding a quote or a backslash is escaped in JSON
+ * and would slip past a text match.
+ */
+export function redactDeep(value: unknown, secret: string | undefined, seen = new WeakSet<object>()): unknown {
+  if (typeof value === "string") return redact(value, secret);
+  if (typeof value !== "object" || value === null) return value;
+  if (seen.has(value)) return "[circular]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, secret, seen));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) out[redact(k, secret)] = redactDeep(v, secret, seen);
+  return out;
+}
+
 /** A logger that never lets the instance secret through. */
 export function redactingLogger(log: ComputeLogger, secret: string | undefined): ComputeLogger {
   const clean = (data?: Record<string, unknown>) =>
-    data === undefined ? undefined : (JSON.parse(redact(JSON.stringify(data), secret)) as Record<string, unknown>);
+    data === undefined ? undefined : (redactDeep(data, secret) as Record<string, unknown>);
   return {
     debug: (message, data) => log.debug(redact(message, secret), clean(data)),
     warn: (message, data) => log.warn(redact(message, secret), clean(data)),
   };
 }
 
+/** An outcome with its `reason` and `detail` strings redacted. */
+function redactOutcome<T>(value: T, secret: string | undefined): T {
+  if (!secret || typeof value !== "object" || value === null) return value;
+  const fields = value as { reason?: unknown; detail?: unknown };
+  if (typeof fields.reason !== "string" && typeof fields.detail !== "string") return value;
+  const out = { ...value } as T & { reason?: unknown; detail?: unknown };
+  if (typeof fields.reason === "string") out.reason = redact(fields.reason, secret);
+  if (typeof fields.detail === "string") out.detail = redact(fields.detail, secret);
+  return out;
+}
+
 /**
  * Call the provider with a fresh context. A throw, or no answer by the
- * deadline, is `uncertain`: the effect may have happened.
+ * deadline, is `uncertain`: the effect may have happened. Every reason the
+ * outcome carries is redacted of the instance secret.
  */
 export async function callProvider<T>(
   deps: Pick<LifecycleDeps, "clock" | "instance" | "callTimeoutMs" | "fetch" | "log">,
@@ -103,7 +133,7 @@ export async function callProvider<T>(
     }, ms);
   });
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       Promise.resolve()
         .then(() => fn(ctx))
         .catch((error: unknown): ComputeUncertain => ({
@@ -112,6 +142,7 @@ export async function callProvider<T>(
         })),
       timedOut,
     ]);
+    return redactOutcome(result, instance.secret);
   } finally {
     clearTimeout(abortTimer);
     clearTimeout(graceTimer);
@@ -125,6 +156,17 @@ function outcomeLabel(value: unknown): string {
 function outcomeReason(value: unknown, secret: string | undefined): string | undefined {
   const reason = typeof value === "object" && value !== null && "reason" in value ? (value as { reason: unknown }).reason : undefined;
   return typeof reason === "string" ? redact(reason, secret).slice(0, 2000) : undefined;
+}
+
+/**
+ * A usage report as the record keeps it: unknown coverage is `null`, never a
+ * number, and a missing or invalid amount is unknown.
+ */
+export function normaliseUsage(usage: unknown): { usd: number | null; coverage: "complete" | "partial" | "unknown" } {
+  const report = typeof usage === "object" && usage !== null ? (usage as { usd?: unknown; coverage?: unknown }) : {};
+  const usd = typeof report.usd === "number" && Number.isFinite(report.usd) && report.usd >= 0 ? report.usd : null;
+  const coverage = report.coverage === "complete" || report.coverage === "partial" ? report.coverage : "unknown";
+  return usd === null || coverage === "unknown" ? { usd: null, coverage: "unknown" } : { usd, coverage };
 }
 
 export class JobDriver {
@@ -162,6 +204,19 @@ export class JobDriver {
   /** Cleanup (kill, release, find, usage) gets a fresh deadline: it must run after the lease too. */
   private cleanupDeadline(): number {
     return this.now + this.deps.callTimeoutMs;
+  }
+
+  /** The end of the release allowance after the lease. */
+  private allowanceEnd(): number {
+    return this.job.lease.deadline + this.job.lease.releaseAllowanceSeconds * 1000;
+  }
+
+  /**
+   * Collection runs within the lease; for a command found already exited at
+   * the first visit after the lease, within the release allowance.
+   */
+  private collectDeadline(): number {
+    return this.expired() ? Math.min(this.allowanceEnd(), this.now + this.deps.callTimeoutMs) : this.leaseDeadline();
   }
 
   /** One provider effect with its intent and outcome receipts. */
@@ -251,7 +306,8 @@ export class JobDriver {
         return this.running(mode, cancel, expired);
       case "collecting":
         if (cancel) return this.markUncollected(), this.conclude("cancelled", "cancelled"), true;
-        if (expired) return this.markUncollected(), this.conclude("expired", "the lease ended while collecting"), true;
+        // The command exited on its own: past the release allowance nothing more is collected.
+        if (expired && this.now >= this.allowanceEnd()) return this.markUncollected(), this.concludeFromExit(), true;
         return this.collect();
       case "releasing":
         return this.release();
@@ -330,17 +386,58 @@ export class JobDriver {
       if (found.kind !== "not_found") return false;
       // An empty listing is not proof: never provision on it, except under an idempotency key.
     }
-    if (caps.idempotentAllocate && !cancel && !expired && job.allocation.attempts < MAX_ALLOCATE_ATTEMPTS) {
-      return this.allocate();
+    if (!caps.idempotentAllocate) return false;
+    if (!cancel && !expired) return job.allocation.attempts < MAX_ALLOCATE_ATTEMPTS ? this.allocate() : false;
+    // Cancelled or expired with an allocation that may exist: one allocate
+    // with the same key only recovers its reference (idempotency means it
+    // cannot duplicate one), so it can be released rather than left running.
+    if (job.allocation.attempts > MAX_ALLOCATE_ATTEMPTS) return false;
+    return this.recoverForRelease(cancel);
+  }
+
+  private async recoverForRelease(cancel: boolean): Promise<boolean> {
+    const job = this.job;
+    const result = await this.effect(
+      "allocate",
+      this.cleanupDeadline(),
+      (ctx) =>
+        this.provider.allocate(
+          {
+            key: job.allocation.key,
+            leaseSeconds: job.lease.seconds,
+            remoteExpirySeconds: this.caps.remoteExpiry ? Math.max(1, job.lease.releaseAllowanceSeconds) : undefined,
+            retain: job.request.retain,
+          },
+          ctx
+        ),
+      () => {
+        job.allocation.attempts += 1;
+      }
+    );
+    if (result.kind !== "ok") {
+      job.uncertain = { step: "allocate", reason: outcomeReason(result, this.deps.instance.secret) ?? result.kind };
+      return false;
     }
-    return false;
+    job.allocation.sandbox = result.sandbox;
+    job.cleanup.state = "pending";
+    job.uncertain = null;
+    if (cancel) this.conclude("cancelled", "cancelled while the allocation was uncertain");
+    else this.conclude("expired", "the lease ended while the allocation was uncertain");
+    return true;
   }
 
   private async stage(): Promise<boolean> {
     const job = this.job;
     const sandbox = job.allocation.sandbox!;
     if (job.source.files.length > 0) {
-      const bundle = sourceBundle(this.deps.root, job.source);
+      // Every file is read and checked before the provider sees the bundle,
+      // so bytes other than those admitted are never handed over.
+      const bundle = loadSourceBundle(this.deps.root, job.source);
+      if ("refused" in bundle) {
+        this.note({ step: "stage", phase: "outcome", outcome: "refused", detail: bundle.refused });
+        this.conclude("failed", `staging refused: ${bundle.refused}`);
+        return true;
+      }
       const result = await this.effect("stage", this.leaseDeadline(), (ctx) => this.provider.stage!(sandbox, bundle, ctx), () => {
         job.stageAttempts += 1;
       });
@@ -393,6 +490,16 @@ export class JobDriver {
       }
     }
     if (cancel || expired) {
+      // The command may have ended on its own since the last visit: look before killing it.
+      const seen = await this.effect("poll", this.cleanupDeadline(), (ctx) => this.provider.poll(handle, ctx));
+      if (seen.kind === "exited") {
+        this.recordExit(seen);
+        if (cancel) {
+          this.markUncollected();
+          this.conclude("cancelled", "cancelled after the command exited");
+        } else job.state = "collecting";
+        return true;
+      }
       const killed = await this.effect("kill", this.cleanupDeadline(), (ctx) => this.provider.kill(handle, ctx));
       job.exit = { code: null, signal: null, reason: killed.kind === "ok" ? "killed" : "unknown" };
       this.markUncollected();
@@ -436,7 +543,7 @@ export class JobDriver {
       const sandbox = job.allocation.sandbox!;
       const result = await this.effect(
         "collect",
-        this.leaseDeadline(),
+        this.collectDeadline(),
         (ctx) => this.provider.collect!(sandbox, { paths: pending.map((a) => ({ path: a.path, maxBytes: a.maxBytes })) }, ctx),
         () => {
           job.collectAttempts += 1;
@@ -465,6 +572,13 @@ export class JobDriver {
         }
       }
     }
+    this.concludeFromExit();
+    return true;
+  }
+
+  /** The terminal state a command that exited on its own earns. */
+  private concludeFromExit(): void {
+    const job = this.job;
     const exit = job.exit!;
     if (exit.reason === "exited" && exit.code === 0) {
       if (job.artifacts.every((a) => a.status === "collected")) this.conclude("succeeded", "exited 0");
@@ -473,7 +587,6 @@ export class JobDriver {
       const why = exit.reason === "exited" ? `exited ${exit.code}` : exit.reason === "signal" ? `signal ${exit.signal ?? "unknown"}` : exit.reason;
       this.conclude("failed", why);
     }
-    return true;
   }
 
   private async release(): Promise<boolean> {
@@ -532,13 +645,13 @@ export class JobDriver {
     if (job.reservation.settled) return false;
     const sandbox = job.allocation.sandbox;
     if (sandbox && this.caps.usage === "actual" && this.provider.usage) {
+      const reads = job.receipts.filter((r) => r.step === "usage" && r.phase === "intent").length;
+      if (reads >= MAX_USAGE_READS) return false;
       const usage = await this.effect("usage", this.cleanupDeadline(), (ctx) => this.provider.usage!(sandbox, ctx));
-      if ("usd" in usage) {
-        const usd = typeof usage.usd === "number" && Number.isFinite(usage.usd) && usage.usd >= 0 ? usage.usd : null;
-        job.cost.actual = { usd, coverage: usd === null ? "unknown" : usage.coverage, source: "provider" };
-      } else {
-        job.cost.actual = { usd: null, coverage: "unknown", source: "provider" };
-      }
+      job.cost.actual = { ...normaliseUsage(usage), source: "provider" };
+      // A partial report is a lower bound: settling it would release the rest
+      // of the reservation, so it stays held until a later read is complete.
+      if (job.cost.actual.coverage === "partial") return false;
     } else {
       job.cost.actual = { usd: null, coverage: "unknown", source: "none" };
     }

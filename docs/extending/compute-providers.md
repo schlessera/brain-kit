@@ -90,7 +90,9 @@ Resolution gives each instance its own options and secret
   environment, a reference's `data` or an outcome. Commands receive only the
   explicit `env` allowlist the host passes.
 - **Unknown cost is `null`.** A `usage` report with unknown coverage has
-  `usd: null`, never zero.
+  `usd: null`, never zero; core records it that way whatever the amount. A
+  `partial` report is kept but never settled: the reservation stays held
+  until a later report is complete.
 - **`remoteExpiry`.** A provider that enforces its own auto-stop receives
   `remoteExpirySeconds` — the host lease plus the release allowance — as a
   backstop for a host that dies. Without it, only the host bounds a job: in
@@ -104,16 +106,25 @@ Core drives every job through `admitted`, `allocating`, `staging`, `running`,
 is unknown. Before each provider call it writes an intent receipt, and after
 it an outcome receipt, so a process that dies mid-call leaves a record that
 reconciliation resolves without repeating a non-idempotent effect
-(`private async resolveUncertain`, `packages/core/src/lib/compute/lifecycle.ts:306-337`):
+(`private async resolveUncertain`, `packages/core/src/lib/compute/lifecycle.ts:362-396`):
 
 - A lost allocation is retried under the same key when the provider is
   idempotent, looked up when it can find by key, and otherwise left
-  `uncertain`. An empty lookup never provisions.
+  `uncertain`. An empty lookup never provisions. When the job is cancelled or
+  its lease ends first, an idempotent provider receives one more allocate
+  under the same key, only to learn the reference so it can be released.
 - A lost exec is never run again. The job stays `uncertain` until its lease
   ends, then its sandbox is released and its exit is `unknown`.
-- Lease expiry kills the command, collects nothing further and releases.
-- Cancellation kills the command and releases, and says whether release was
-  confirmed.
+- Lease expiry polls the command once, then kills it if it still runs,
+  collects nothing further and releases. A command that had already exited
+  keeps its real exit; its artifacts are collected within the release
+  allowance and recorded `not_collected` after it.
+- Cancellation polls the same way, kills a running command and releases, and
+  says whether release was confirmed. A command that had already exited keeps
+  its real exit.
+- A job whose instance was reconfigured after it started (other `options`
+  or another credential variable) gets no provider call until that
+  configuration is restored; status and reconcile report why.
 
 Terminal states are `succeeded`, `failed`, `cancelled`, `expired` and
 `abandoned` (an operator accepted an unresolved `uncertain` outcome). Every
