@@ -135,11 +135,6 @@ if (import.meta.main) {
       else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N]");
     }
     const root = resolve(import.meta.dir, "..");
-    if (full && !print) {
-      // Full local suites are for debugging only and run through host admission (#2939, #2943).
-      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
-      if (admitted !== undefined) process.exit(admitted);
-    }
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root), root);
     let mergeBase: string | undefined;
@@ -158,6 +153,12 @@ if (import.meta.main) {
     if (print) process.exit(0);
     requireLocalSandbox();
     const chrome = full ? requireRuntimeTools(plan) : undefined;
+    if (full) {
+      // Full local suites are for debugging only and run through host admission
+      // (#2939, #2943), after the cheap prerequisite refusals above.
+      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
+      if (admitted !== undefined) process.exit(admitted);
+    }
     // Setup/metadata are ordered. Full Bun tests and strict types are the only
     // independent memory-bounded pair; browser jobs stay sequential to retain
     // the measured scheduling/isolation behavior and diagnostic artifacts.
