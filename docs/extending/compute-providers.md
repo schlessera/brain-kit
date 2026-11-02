@@ -95,6 +95,10 @@ conformance suites below against an in-process fake of Boat's API
   sandbox. With `findByKey`, `find(key)` locates an allocation whose response
   was lost. A provider with neither leaves a lost allocation unresolved; core
   then never allocates again for that job.
+- **Staged files carry bytes, not modes.** A `SourceBundle` file has a path,
+  a hash and its bytes; it carries no file mode, so a provider stages every
+  file as a regular, non-executable file. A job runs a staged script through
+  its interpreter (`sh build.sh`), not as `./build.sh`.
 - **Releasing twice is not an error.** A second `release` of a released
   sandbox reports `released`.
 - **Exit status is kept.** `poll` reports the exit code as the command

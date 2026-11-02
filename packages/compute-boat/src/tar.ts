@@ -1,7 +1,8 @@
 /**
  * A minimal ustar writer for staging: regular files only, fixed owner and
  * time, so one bundle always produces the same bytes. GNU tar creates the
- * parent directories on extraction.
+ * parent directories on extraction. Every file is mode 0644: a SourceBundle
+ * carries no mode, so an executable bit is not kept.
  */
 
 const BLOCK = 512;
