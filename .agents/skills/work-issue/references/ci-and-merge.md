@@ -275,6 +275,16 @@ proof did not run, naming each. Rerun the check locally and paste the new
 receipt, or get the category selected; never edit a receipt by hand
 ([local check receipts](../../../../docs/decisions/ci-utility.md#local-check-receipts)).
 
+A proof-system candidate (`bun scripts/proof-system.ts classify --base <merge-base>
+--head <head>`) waits its turn in the proof-system lane. `confirm` (before
+acquiring) and `merge` refuse it until the last proof-system squash on main
+has a green main-push run at its own squash and at each of the next two, and
+until its PR body has an `## Off-main qualification` section linking a replay
+or dispatch run on the exact head, or on an ancestor with no proof-system
+change after it. Read the window with `bun scripts/integrate.ts lane --json`
+instead of polling runs; product candidates and declared red-main fixes are
+never held ([proof-system lane](../../../../docs/decisions/ci-utility.md#lane-and-qualification-gates)).
+
 While main is red, a declared fix for the open record, forward fix or
 targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
 --fixes-main-run <run-id> --issues owner/repo#N,...`. It dispatches fix probes

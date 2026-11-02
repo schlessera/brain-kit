@@ -65,12 +65,28 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   setup(dir, "init", "--bare", remote); setup(root, "init"); setup(root, "remote", "add", "origin", remote);
   writeFileSync(join(root, "README.md"), "Odysseus sails.\n"); mkdirSync(join(root, "tests"));
   writeFileSync(join(root, "tests/raft.test.ts"), "// The raft breaks.\n"); setup(root, "add", ".");
-  const base = setup(root, "commit-tree", setup(root, "write-tree"), "-m", "base");
+  // Proof-system lane modes (#3269, #3271): main is ithaca, a proof-system squash
+  // (sails), one product squash (oars), then base. Unless "-product", the
+  // candidate first changes the proof system (shards), then adds raft.md.
+  const lane = mode.includes("lane-"), history: Record<string, string> = {};
+  const commitAll = (name: string, parents: string[]) => { setup(root, "add", "."); return setup(root, "commit-tree", setup(root, "write-tree"), ...parents.flatMap(parent => ["-p", parent]), "-m", name); };
+  if (lane) {
+    history.ithaca = commitAll("ithaca", []);
+    mkdirSync(join(root, ".github/workflows"), { recursive: true }); writeFileSync(join(root, ".github/workflows/ci.yml"), "name: ci\n");
+    history.sails = commitAll("sails", [history.ithaca]);
+    writeFileSync(join(root, "oars.md"), "Oars.\n"); history.oars = commitAll("oars", [history.sails]);
+  }
+  const base = commitAll("base", lane ? [history.oars!] : []);
   setup(root, "update-ref", "HEAD", base);
+  let headParent = base;
+  if (lane && !mode.includes("-product")) {
+    mkdirSync(join(root, "scripts")); writeFileSync(join(root, "scripts/ci-shards.ts"), "export const shards = 3;\n");
+    headParent = history.shards = commitAll("shards", [base]);
+  }
   writeFileSync(join(root, "raft.md"), "The crossing.\n"); setup(root, "add", ".");
   // A targeted revert deletes the failing test file its reverted commit added.
   if (mode === "expedite-revert") setup(root, "rm", "-q", "--cached", "tests/raft.test.ts");
-  const tree = setup(root, "write-tree"), head = setup(root, "commit-tree", tree, "-p", base, "-m", "head");
+  const tree = setup(root, "write-tree"), head = setup(root, "commit-tree", tree, "-p", headParent, "-m", "head");
   const synthetic = setup(root, "commit-tree", tree, "-p", base, "-p", head, "-m", "tested merge");
   const squash = setup(root, "commit-tree", tree, "-p", base, "-m", "actual squash");
   setup(root, "push", "origin", `${base}:refs/heads/main`, `${synthetic}:refs/heads/proof-fixture`, `${squash}:refs/heads/squash-fixture`);
@@ -82,7 +98,7 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
     const failure = { test: mode === "expedite-category" ? null : "tests/raft.test.ts", category: mode === "expedite-category" ? "browser" as const : "unit" as const,
       verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
     const red = openRed(emptyRedMain(), { firstBad: base, run: 11, failures: [failure] }, NOW);
-    expect(store.publishRedMain(store.read(), mode === "red-main-fix" ? declareFix(red, 7, NOW) : red)).toBe(true);
+    expect(store.publishRedMain(store.read(), mode.startsWith("red-main-fix") ? declareFix(red, 7, NOW) : red)).toBe(true);
   }
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
@@ -105,7 +121,13 @@ fi`); chmodSync(shim, 0o755);
     finishedAt: "2026-07-12T00:05:00.000Z", checks: [check("all lint and leakage gates", ["changeset"]), check("affected fast invariants", ["verify", "unit"]),
       ...(mode === "receipt-uncovered" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "timed-out"), check("complete unit and integration suite", ["unit"], "preempted")] : []),
       ...(mode === "browser-receipt-skipped" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "skipped")] : [])] };
-  const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${receiptBlock(receipt)}\n`;
+  const qualification = lane && !mode.includes("unqualified") && !mode.startsWith("expedite-") ? `## Off-main qualification\n\nReplay https://github.com/odysseus/brain-kit/actions/runs/555 compares three shards with two.\n\n` : "";
+  const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${qualification}${receiptBlock(receipt)}\n`;
+  const qualificationRuns = { 555: mode.includes("stale-run") ? base : mode.includes("ancestor-run") ? history.shards : head };
+  // Main-push CI runs at the window squashes: sails and oars green; base green only once the lane is open.
+  const window = (id: number, conclusion: string | null) => ({ id, status: conclusion ? "completed" : "in_progress", conclusion });
+  const mainRuns: Record<string, ReturnType<typeof window>> = !lane ? {} : { [history.sails!]: window(81, "success"), [history.oars!]: window(82, "success"),
+    ...(mode.includes("lane-short") ? {} : { [base]: window(83, mode.includes("cancelled") ? "cancelled" : "success") }) };
   const probeLog = (id: number) => (id === 401 ? { sha: base, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-base-green" ? 0 : 1 }
     : mode === "expedite-revert" ? { sha: head, tests: [], absent: ["tests/raft.test.ts"], exitCode: 0 }
     : { sha: head, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-head-red" ? 1 : 0 });
@@ -115,6 +137,7 @@ fi`); chmodSync(shim, 0o755);
     const args=process.argv.slice(2), file=${JSON.stringify(apiState)}, s=JSON.parse(readFileSync(file,"utf8"));
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
     const refs=${JSON.stringify(refs)}, body=${JSON.stringify(body)}, probes=${JSON.stringify({ 401: probeLog(401), 402: probeLog(402) })};s.reads??=[];
+    const mainRuns=${JSON.stringify(mainRuns)}, qualificationRuns=${JSON.stringify(qualificationRuns)};
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
     const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
@@ -146,7 +169,8 @@ fi`); chmodSync(shim, 0o755);
       else if(path.endsWith("actions/jobs/401/logs")||path.endsWith("actions/jobs/402/logs"))value="2026-07-12T00:00:00Z BRAIN_RED_MAIN_PROBE "+JSON.stringify({purpose:"fix",...probes[path.includes("/401/")?401:402]});
       else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
-      else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:[]};
+      else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:Object.entries(mainRuns).filter(([sha])=>path.includes("head_sha="+sha)).map(([sha,run])=>({...run,head_sha:sha}))};
+      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],repository:{full_name:repo}};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
       else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:[run(92,"contract")]};
       else if(path.includes("/attempts/1/jobs"))value={total_count:jobs.length,jobs};
@@ -167,8 +191,9 @@ fi`); chmodSync(shim, 0o755);
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
     Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
-  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", delivered.join(","),
-    ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])], {
+  const command = mode.endsWith("-read") ? ["lane", "--json"] : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", delivered.join(","),
+    ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
+  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), ...command], {
     cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
   });
   owner.child = child;
@@ -334,5 +359,57 @@ test("expedited fix merges only with red-on-base and green-on-head evidence, and
     expect(fix.redMain.open?.fixes).toEqual([7]);
     expect(fix.redMain.open?.expedited).toMatchObject([{ pr: 7, baseProbe: 301, headProbe: 302, feedbackRun: 91, actor: 101 }]);
     expect(fix.events).toMatchObject([{ kind: "expedited-fix", pr: 7, run: 11, repository: "odysseus/brain-kit", evidence: "https://github.com/odysseus/brain-kit/actions/runs/302" }]);
+  }
+});
+
+test("a proof-system candidate waits for the two-green-main stability window; a product candidate does not (#3269)", async () => {
+  for (const mode of ["lane-short", "lane-cancelled", "confirm-lane-short"]) {
+    const refused = await scenario(mode);
+    expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
+    expect(refused.code, refused.err).toBe(1);
+    expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
+    expect(refused.err).toContain("1 more green main run required");
+    expect(refused.err).not.toContain("Off-main qualification missing");
+    expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
+  }
+  for (const mode of ["lane-short-product", "lane-open"]) {
+    const accepted = await scenario(mode);
+    expect(accepted.code, `LANE_ACCEPTS:${mode}: ${accepted.err}`).toBe(2);
+    expect(accepted.dispatched).toBe(true);
+  }
+});
+
+test("lane --json reports the refusal's decision from the same function (#3269)", async () => {
+  const read = await scenario("lane-short-read");
+  expect(read.code, read.err).toBe(0);
+  const decision = JSON.parse(read.out);
+  expect(decision).toMatchObject({ schemaVersion: 1, open: false, missing: 1, window: [{ position: 0, green: true, run: { id: 81 } }, { position: 1, green: true, run: { id: 82 } }, { position: 2, green: false, run: null }] });
+  expect(decision.refusal).toContain("1 more green main run required");
+  expect(decision.refusal).toContain(`the last proof-system squash ${decision.proofSystemSquash}`);
+  const open = await scenario("lane-open-read");
+  expect(JSON.parse(open.out), open.err).toMatchObject({ open: true, missing: 0, refusal: null });
+});
+
+test("a proof-system candidate needs off-main qualification on its head or a proof-system-free ancestor (#3271)", async () => {
+  for (const [mode, message] of [
+    ["lane-open-unqualified", 'no "Off-main qualification" section'],
+    ["lane-open-stale-run", "the diff from there to the head is a proof-system change (scripts/ci-shards.ts)"],
+  ] as const) {
+    const refused = await scenario(mode);
+    expect(refused.dispatched, `NO_UNQUALIFIED_PROOF_SYSTEM_MERGE:${mode}`).toBe(false);
+    expect(refused.code, refused.err).toBe(1);
+    expect(refused.err).toContain("Off-main qualification missing");
+    expect(refused.err).toContain(message);
+  }
+  const ancestor = await scenario("lane-open-ancestor-run");
+  expect(ancestor.code, `QUALIFIED_BY_A_PROOF_SYSTEM_FREE_ANCESTOR: ${ancestor.err}`).toBe(2);
+  expect(ancestor.dispatched).toBe(true);
+});
+
+test("declared red-main fixes are exempt from the stability window and off-main qualification (#3269, #3271)", async () => {
+  for (const mode of ["expedite-lane-short", "red-main-fix-lane-short"]) {
+    const fix = await scenario(mode);
+    expect(fix.code, `DECLARED_FIX_EXEMPT:${mode}: ${fix.err}`).toBe(2);
+    expect(fix.dispatched).toBe(true);
   }
 });

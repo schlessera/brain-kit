@@ -38,6 +38,15 @@ bun run check:pr --base origin/main
      tested parent/head/checkout and selected proof; see
      docs/process/github.md#stacked-pull-requests. -->
 
+<!-- Proof-system PRs only (bun scripts/proof-system.ts classify): keep the
+     next heading and fill it in; otherwise delete it. Name the replay or
+     dispatch run URLs, the head SHA they ran on and the comparison they
+     establish. The merge path refuses a proof-system PR without a linked run
+     on the head, or on an ancestor with no proof-system change after it;
+     declared red-main fixes are exempt
+     (docs/decisions/ci-utility.md#lane-and-qualification-gates). -->
+### Off-main qualification
+
 <!-- check:pr prints its receipt block at the end of every run. Replace the
      two markers below with that block, keeping one receipt only. The merge
      path refuses a PR with no receipt, and refuses one whose skipped,

@@ -1429,6 +1429,37 @@ Each implementation task is tracked separately:
 - automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
 
+#### Lane and qualification gates
+
+`bun scripts/integrate.ts confirm` and `merge` classify the candidate from
+its merge base with the exact base to its exact head, using `classify` from
+`scripts/proof-system.ts`, and hold only a proof-system candidate. Both gates
+and `lane --json` live in `scripts/proof-system-lane.ts`; neither lists a
+glob.
+
+- **Stability window** ([#3269](https://github.com/schlessera/brain-kit/issues/3269),
+  answers 1 and 2). The last proof-system squash is the newest first-parent
+  main commit, within 200, whose diff to its parent classifies as one. The
+  window is that squash and the next two main squashes. Each needs the newest
+  main-push `ci.yml` run at that SHA completed with `success`; a missing,
+  queued, in-progress, cancelled or failed run, or a squash not yet made, is
+  not green. A failed window run therefore keeps the lane closed until a
+  rerun at the same squash succeeds or a maintainer revokes. The refusal
+  names the blocking squash, the run found at each position and how many
+  green runs are still required. `bun scripts/integrate.ts lane --json`
+  prints the same decision with that refusal, or `null` when the lane is
+  open. It reads at most three runs.
+- **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
+  answer 3). The PR body needs an `Off-main qualification` heading whose
+  section, outside HTML comments, links a GitHub Actions run of this
+  repository whose head SHA is the candidate head, or an ancestor of it whose
+  diff to the head is not a proof-system change. At most five linked runs are
+  read. Whether the evidence is sufficient stays a review question.
+- **Exemption.** A declared red-main fix skips both gates: one merged with
+  `--fixes-main-run`, and one declared on the open record and confirmed
+  ordinarily because its failures are category-level. A fix that had to
+  wait for the window it repairs could never land.
+
 ### Red-main record and coordinator
 
 The [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614)
