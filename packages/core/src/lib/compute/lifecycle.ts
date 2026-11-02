@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 
 import type { ResolvedComputeInstance } from "../registry.js";
 import type {
+  AllocateRequest,
   CommandStatus,
   ComputeContext,
   ComputeLogger,
@@ -315,24 +316,29 @@ export class JobDriver {
     return false;
   }
 
+  /**
+   * The allocate request, from the job's fixed values only: every attempt
+   * under one key, retry or recovery, sends the same request, so a provider
+   * that checks an idempotency key against its request body never sees a
+   * different one. Remote expiry is the lease plus the release allowance,
+   * counted from the allocate call.
+   */
+  private allocateRequest(): AllocateRequest {
+    const job = this.job;
+    return {
+      key: job.allocation.key,
+      leaseSeconds: job.lease.seconds,
+      remoteExpirySeconds: this.caps.remoteExpiry ? Math.max(1, job.lease.seconds + job.lease.releaseAllowanceSeconds) : undefined,
+      retain: job.request.retain,
+    };
+  }
+
   private async allocate(): Promise<boolean> {
     const job = this.job;
-    const caps = this.caps;
-    const result = await this.effect("allocate", this.leaseDeadline(), (ctx) =>
-      this.provider.allocate(
-        {
-          key: job.allocation.key,
-          leaseSeconds: job.lease.seconds,
-          remoteExpirySeconds: caps.remoteExpiry
-            ? Math.max(1, Math.ceil((job.lease.deadline - this.now) / 1000) + job.lease.releaseAllowanceSeconds)
-            : undefined,
-          retain: job.request.retain,
-        },
-        ctx
-      ), () => {
-        job.state = "allocating";
-        job.allocation.attempts += 1;
-      });
+    const result = await this.effect("allocate", this.leaseDeadline(), (ctx) => this.provider.allocate(this.allocateRequest(), ctx), () => {
+      job.state = "allocating";
+      job.allocation.attempts += 1;
+    });
     switch (result.kind) {
       case "ok":
         job.allocation.sandbox = result.sandbox;
@@ -400,16 +406,7 @@ export class JobDriver {
     const result = await this.effect(
       "allocate",
       this.cleanupDeadline(),
-      (ctx) =>
-        this.provider.allocate(
-          {
-            key: job.allocation.key,
-            leaseSeconds: job.lease.seconds,
-            remoteExpirySeconds: this.caps.remoteExpiry ? Math.max(1, job.lease.releaseAllowanceSeconds) : undefined,
-            retain: job.request.retain,
-          },
-          ctx
-        ),
+      (ctx) => this.provider.allocate(this.allocateRequest(), ctx),
       () => {
         job.allocation.attempts += 1;
       }

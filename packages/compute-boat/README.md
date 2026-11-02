@@ -137,8 +137,10 @@ never allowlist anything you would not keep there.
 Actual cost is the `dollars` Boat's usage report gives for the sandbox, at its
 list price, whatever plan, trial or gift paid for it. Coverage is `partial`
 while the meter runs and `complete` once it stopped. A discarded sandbox
-reports the reading taken just before its deletion, as `partial`. Without a
-report the cost is unknown (`null`), never zero. The adapter contains no rate:
+reports the reading taken just before its deletion, as `partial`; that reading
+lives in the memory of the process that deleted it, so another process reports
+unknown. Core settles either as unknown. Without a report the cost is unknown
+(`null`), never zero. The adapter contains no rate:
 an estimate comes only from an instance's `hourlyCeilingUsd`.
 
 ## Errors and retries

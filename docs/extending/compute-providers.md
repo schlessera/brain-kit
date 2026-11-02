@@ -109,11 +109,15 @@ conformance suites below against an in-process fake of Boat's API
   explicit `env` allowlist the host passes.
 - **Unknown cost is `null`.** A `usage` report with unknown coverage has
   `usd: null`, never zero; core records it that way whatever the amount. A
-  `partial` report is kept but never settled: the reservation stays held
-  until a later report is complete.
+  `partial` report is kept as a lower bound. While the sandbox is not
+  released it is read again, up to five reads in all; once the sandbox is
+  released, or the reads are spent, the reservation is settled once as
+  unknown (`null`), never with the lower bound.
 - **`remoteExpiry`.** A provider that enforces its own auto-stop receives
   `remoteExpirySeconds` — the host lease plus the release allowance — as a
-  backstop for a host that dies. Without it, only the host bounds a job: in
+  backstop for a host that dies. Every allocate under one key, retry or
+  recovery, carries the same request, so a provider may check its
+  idempotency key against the request body. Without it, only the host bounds a job: in
   standalone use, a job whose host process stopped is bounded when it is next
   visited: a status, cancel or collect call on it, or a reconcile.
 

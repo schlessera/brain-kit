@@ -534,3 +534,9 @@ Review of #3106 refined two of #3105's rules:
   sandbox is deleted, so the adapter reads usage just before a discard and
   keeps that reading in process memory only; another process reads unknown,
   and both settle the ledger the same way.
+- **One allocate request per key.** Every allocate under a job's key, a
+  retry or the recovery for release, carries the same request. Remote expiry
+  is the lease plus the release allowance, counted from the allocate call,
+  rather than what remains of the lease, so a provider that rejects a reused
+  idempotency key with a different body (Boat answers `409
+  idempotency_key_reused`) never sees one.
