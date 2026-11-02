@@ -1363,13 +1363,17 @@ remain binding. Nothing here changes what counts as `proof`.
 ### Proof-system lane
 
 The [#2938 ruling](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403426650),
-as [amended for the Phase B gate](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403467288):
+as [amended for the Phase B gate](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403467288)
+and [for the window and bundling](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6580707195):
 
 1. **Serialized lane.** Proof-system and global-tooling changes land one at a
    time, under the existing reservation. Product changes do not wait on them.
+   Related proof-system changes may land together as one squash, which counts
+   as one change for the lane, the window and the epoch. Each issue it delivers
+   still carries its own failing-first and mutation receipts.
 2. **Stability window.** After a proof-system change merges, the next one may
-   merge only when that change's own main run and the next two main runs are
-   green.
+   merge once that change's own main run is green. If a main run fails, the
+   lane reopens at the next green main run.
 3. **Off-main qualification is required.** A test optimization (shard layout,
    timeout budgets, selection rules, worker counts) is qualified by replay or
    dispatch runs before merging, with the evidence on the PR. Red-main fixes
