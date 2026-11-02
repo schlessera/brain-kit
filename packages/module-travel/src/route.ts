@@ -1,10 +1,7 @@
 import { readFileSync, lstatSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
-import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
 import { safeResolve, writeFileSafely, WriteRefusedError } from "@schlessera/brain/module";
-import { parseHtml, RobotsCache, ScrapeClient } from "@schlessera/brain-scrape";
-import { DEFAULT_USER_AGENT } from "@schlessera/brain-scrape/internal";
+import { parseHtml, ScrapeClient } from "@schlessera/brain-scrape";
 import { MAX_ROUTE_BYTES, parseGpx, quantizeRoute, routeMetrics, routePoint, trimRoute, writeGpx } from "./route-gpx.js";
 import type { RouteGeometry, RouteMetrics } from "./route-gpx.js";
 import { validateOutputNaming } from "./output-naming.js";
@@ -18,13 +15,6 @@ export interface ImportedRoute extends RouteMetrics {
   warnings: string[];
   date_source: "flag" | "none";
 }
-const forbiddenV4 = new BlockList();
-for (const [network, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
-  ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24], ["192.168.0.0", 16],
-  ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24], ["224.0.0.0", 4], ["240.0.0.0", 4]] as const) forbiddenV4.addSubnet(network, prefix, "ipv4");
-const publicV6 = new BlockList(); publicV6.addSubnet("2000::", 3, "ipv6");
-const documentationV6 = new BlockList(); documentationV6.addSubnet("2001:db8::", 32, "ipv6");
-
 function httpUrl(source: string): URL {
   let url: URL;
   try { url = new URL(source); } catch { throw new Error("Expected a valid absolute HTTP(S) route URL."); }
@@ -33,17 +23,6 @@ function httpUrl(source: string): URL {
   }
   return url;
 }
-async function publicUrl(source: string): Promise<URL> {
-  const url = httpUrl(source), host = url.hostname.replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) throw new Error("Route URLs must address public hosts.");
-  const addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
-  if (!addresses.length || addresses.some(({ address, family }) => family === 4 ? forbiddenV4.check(address, "ipv4")
-    : family !== 6 || !publicV6.check(address, "ipv6") || documentationV6.check(address, "ipv6"))) {
-    throw new Error("Route URL resolves to a non-public address.");
-  }
-  return url;
-}
-
 async function limitedBody(response: Response, limit = MAX_ROUTE_BYTES): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Route response has no body.");
@@ -62,25 +41,6 @@ async function limitedBody(response: Response, limit = MAX_ROUTE_BYTES): Promise
     for (const chunk of chunks) { buffer.set(chunk, offset); offset += chunk.length; }
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } finally { clearTimeout(timer); await reader.cancel().catch(() => {}); }
-}
-
-// ScrapeClient calls forUrl before each redirect hop. Keep its existing
-// robots/pacing policy, while also checking route URLs and DNS answers there.
-class RouteRobots extends RobotsCache {
-  constructor() {
-    super({ fetcher: async (source) => {
-      let current = source;
-      for (let redirects = 0; redirects <= 5; redirects++) {
-        const url = await publicUrl(current);
-        const response = await fetch(url.href, { redirect: "manual", signal: AbortSignal.timeout(10_000), headers: { "User-Agent": DEFAULT_USER_AGENT } });
-        const location = [301, 302, 303, 307, 308].includes(response.status) ? response.headers.get("location") : null;
-        if (!location) return { status: response.status, body: response.status === 200 ? await limitedBody(response, 1024 * 1024) : "" };
-        await response.body?.cancel(); current = new URL(location, url).href;
-      }
-      throw new Error("Too many robots.txt redirects.");
-    } });
-  }
-  override async forUrl(source: string) { await publicUrl(source); return super.forUrl(source); }
 }
 
 function komootSource(url: URL): { kind: "komoot_tour" | "komoot_smarttour"; id: string } | null {
@@ -134,7 +94,8 @@ export async function importRoute(root: string, source: string, to: string, star
     const requested = komootSource(url);
     // Public route pages need neither account credentials nor share tokens.
     if (requested) { url.search = ""; url.hash = ""; }
-    const response = await new ScrapeClient({ robots: new RouteRobots() }).get(url.href, { retries: 0 });
+    // A user-supplied URL: scrape holds every hop and the robots.txt fetch to public addresses.
+    const response = await new ScrapeClient({ addressPolicy: "public-only" }).get(url.href, { retries: 0 });
     if (!response.ok) { await response.body?.cancel(); throw new Error(`Cannot fetch route (HTTP ${response.status}); private, deleted or unavailable sources are unsupported.`); }
     const served = httpUrl(response.url || url.href), final = komootSource(served);
     if (requested && (!final || requested.id !== final.id || requested.kind !== final.kind)) {

@@ -138,8 +138,16 @@ and smarttour pages provide geometry; no route planning or geocoding is
 introduced. Travel depends on the existing scrape package for this concrete
 HTTP job, sharing its robots/pacing policy rather than adding an adapter or
 browser-driver seam. URL/DNS checks run before every route hop and bounded
-robots redirect; unavailable robots retains the shared permissive policy
-(`RouteRobots`, `packages/module-travel/src/route.ts:69-84`).
+robots redirect; unavailable robots retains the shared permissive policy.
+
+**2026-11-02 — The address guard moved into scrape**
+([#2502](https://github.com/schlessera/brain-kit/issues/2502)). Travel
+no longer subclasses the robots cache to check addresses. It constructs its
+client with scrape's `addressPolicy: "public-only"`
+(`importRoute`, `packages/module-travel/src/route.ts:82-137`), and scrape runs
+the check on every hop and robots.txt fetch, independently of
+`respectRobots`, connecting to the checked address
+(`checkPublicUrl`, `packages/scrape/src/politeness/address.ts:84-117`).
 
 **2026-10-01 — Shared ownership.** The #525 ownership ruling moves the
 concrete GPX reader, metrics and trimming to `@schlessera/brain-geo`. Travel
@@ -167,7 +175,7 @@ and duration requires ordered absolute timestamps
 (`routeMetrics`, `packages/geo/src/track.ts:236-252`).
 The package README specifies units, smoothing, shape and serialization
 tolerances. Original inputs and occupied output names remain untouched
-(`importRoute`, `packages/module-travel/src/route.ts:122-177`).
+(`importRoute`, `packages/module-travel/src/route.ts:82-137`).
 
 Outdooractive has a readable public route page, but GPX export requires
 login and its geometry API is covered by its `/api/*` robots disallow.

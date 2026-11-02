@@ -66,6 +66,58 @@ thinks about it should still behave.
   `User-Agent` will refuse it — that becomes a deliberate per-site
   configuration decision instead of a package-wide default that makes every
   consumer misrepresent themselves.
+- **The `robots.txt` fetch is bounded.** It sends the client's `User-Agent`,
+  follows at most `maxRedirects` redirects (default 5) one hop at a time, and
+  refuses a body over `maxBytes` (default 1 MiB). Hitting either bound is a
+  failed fetch, which is permissive like any other. `ScrapeClient` and
+  `createBrowserSession` pass their `userAgent` into the cache they build; a
+  cache you construct yourself takes these as `RobotsCacheOptions`. An
+  injected `fetcher` replaces the network fetch and these bounds with it.
+
+## Address policy
+
+A caller that fetches a URL a user supplied should not let that URL reach the
+process's own host or network. `addressPolicy: "public-only"` refuses
+loopback, private, link-local (including cloud metadata endpoints), shared,
+documentation, benchmarking, multicast and reserved addresses, and host names
+ending in `localhost` or `.local`. It throws `NonPublicAddressError`.
+
+```ts
+import { ScrapeClient } from "@schlessera/brain-scrape";
+
+const client = new ScrapeClient({ addressPolicy: "public-only" });
+const response = await client.get(userSuppliedUrl);
+```
+
+- The check runs on the initial request, **every redirect hop** and the
+  `robots.txt` fetch with its own redirects. It runs whether `respectRobots` is
+  on or off, and before robots.txt or pacing, so a refused address is never
+  contacted.
+- Every address a name resolves to must be public, not just the first.
+  `lookup` replaces the system resolver, which a test uses to stay off DNS.
+- The default is `"any"`. A fixed, known site, such as a job board, has
+  nothing to protect against.
+- A `robots` cache passed to a `"public-only"` client must have been built
+  with `addressPolicy: "public-only"`, or the constructor throws.
+- A redirect to a URL with embedded credentials is refused whatever the
+  policy.
+
+**DNS rebinding.** On the native path the request connects to the address
+that was checked. The request URL carries that address, while the `Host`
+header and the TLS server name (`fetch`'s `tls.serverName`) carry the original
+host name. The server therefore sees the same request, and the certificate is
+verified against the same name. A second DNS answer cannot move the
+connection somewhere else. This was verified on Bun 1.4.4: a mismatched
+server name fails certificate verification, and the server receives the
+original name over SNI.
+
+**The proxy path keeps a window.** A request with `proxy` is sent through
+curl, and the proxy resolves the host name itself. The check still runs on
+this client's own answer, but the proxy may connect to a different one.
+Do not combine `"public-only"` with a proxy you do not control.
+
+Browser sessions have no address policy. Their navigation posture is
+described under [Headless Chrome](#headless-chrome).
 
 ## Headless Chrome
 

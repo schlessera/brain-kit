@@ -8,6 +8,8 @@ export "." (./src/index.ts)
   type AdapterResult
   type AdapterRunOptions
   type AdapterStatus
+  type AddressLookup
+  type AddressPolicy
   type BrowserSession
   type BrowserSessionOptions
   type CheerioAPI
@@ -19,10 +21,12 @@ export "." (./src/index.ts)
   type FieldSelector
   type JsonLdExtraction
   type JsonLdNode
+  NonPublicAddressError
   type PageRequest
   RateLimiter
   type RateLimiterClock
   type RateLimiterOptions
+  type ResolvedAddress
   RobotsCache
   type RobotsCacheOptions
   RobotsDisallowedError
@@ -79,6 +83,10 @@ signatures (every public export and the types it is made of)
     }
   AdapterStatus (packages/scrape/src/adapter/types.ts)
     export type AdapterStatus = "ok" | "empty" | "unparseable" | "not_run";
+  AddressLookup (packages/scrape/src/politeness/address.ts)
+    export type AddressLookup = (hostname: string) => Promise<readonly ResolvedAddress[]>;
+  AddressPolicy (packages/scrape/src/politeness/address.ts)
+    export type AddressPolicy = "any" | "public-only";
   BrowserSession (packages/scrape/src/browser/session.ts)
     export interface BrowserSession {
         load<T>(request: PageRequest<T>): Promise<T>;
@@ -140,6 +148,10 @@ signatures (every public export and the types it is made of)
     }
   JsonLdNode (packages/scrape/src/parse/jsonld.ts)
     export type JsonLdNode = Record<string, unknown>;
+  NonPublicAddressError (packages/scrape/src/politeness/address.ts)
+    export class NonPublicAddressError extends Error {
+        constructor(readonly url: string, reason?: string);
+    }
   PageRequest (packages/scrape/src/browser/session.ts)
     export interface PageRequest<T> {
         url: string;
@@ -164,8 +176,14 @@ signatures (every public export and the types it is made of)
         defaultDelayMs?: number;
         clock?: RateLimiterClock;
     }
+  ResolvedAddress (packages/scrape/src/politeness/address.ts)
+    export interface ResolvedAddress {
+        address: string;
+        family: number;
+    }
   RobotsCache (packages/scrape/src/politeness/robots.ts)
     export class RobotsCache {
+        readonly addressPolicy: AddressPolicy;
         constructor(options?: RobotsCacheOptions);
         forUrl(url: string): Promise<RobotsRules>;
         reset(): void;
@@ -173,6 +191,11 @@ signatures (every public export and the types it is made of)
   RobotsCacheOptions (packages/scrape/src/politeness/robots.ts)
     export interface RobotsCacheOptions {
         fetcher?: RobotsFetcher;
+        userAgent?: string;
+        maxBytes?: number;
+        maxRedirects?: number;
+        addressPolicy?: AddressPolicy;
+        lookup?: AddressLookup;
     }
   RobotsDisallowedError (packages/scrape/src/politeness/robots.ts)
     export class RobotsDisallowedError extends Error {
@@ -202,6 +225,7 @@ signatures (every public export and the types it is made of)
         readonly userAgent: string;
         readonly rateLimiter: RateLimiter;
         readonly robots: RobotsCache;
+        readonly addressPolicy: AddressPolicy;
         constructor(options?: ScrapeClientOptions);
         get(url: string, opts?: FetchOptions): Promise<Response>;
         getJson<T = unknown>(url: string, opts?: FetchOptions): Promise<T>;
@@ -215,6 +239,8 @@ signatures (every public export and the types it is made of)
         respectRobots?: boolean;
         rateLimiter?: RateLimiter;
         robots?: RobotsCache;
+        addressPolicy?: AddressPolicy;
+        lookup?: AddressLookup;
     }
   ScrapeContext (packages/scrape/src/adapter/types.ts)
     export interface ScrapeContext {
