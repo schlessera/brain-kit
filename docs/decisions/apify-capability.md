@@ -392,6 +392,41 @@ both chat backends; none widens it.
   ([#3330](https://github.com/schlessera/brain-kit/issues/3330)); until then
   such a profile refuses every run.
 
+## Owner presentation (#3163)
+
+The maintainer's 2026-11-02 rulings on
+[#3163](https://github.com/schlessera/brain-kit/issues/3163) select where these
+facts appear and how a person changes them. None widens the contract above.
+
+- **One section (R1 A).** Settings › Accounts › External services › Apify,
+  inline on desktop and a drill-in on phones, in authority order: provider and
+  account, Catalog search, Running Actors, Approved Actors, effective Limits,
+  Today. Enablement, catalog search and exact Actor consent are shown side by
+  side so they read as independent; no marketplace destination, and no token
+  field or display. Off hides the two modes and Limits, never grants or
+  unresolved liabilities; a missing token or service keeps the modes editable.
+- **Edits go through the existing policy review (R2 A).** Each control names
+  one change; the host builds the complete proposed `governance.md`, changing
+  only its `apify` lines, and hands it to the existing policy proposals, the
+  only policy writer. The owner's approval of that exact review is the one
+  confirmation, also for revoking a grant, and the write happens in a user
+  journal window. The control keeps the host's value until the host reports
+  the write; a refused review leaves it, and a lost answer stays unconfirmed
+  and is reconciled by reading the same request, never by sending it again.
+  Grants are added in the policy file only; approving a run never creates one.
+  Agents reach none of these routes.
+- **Spend in three places (R3 A).** Today and unresolved runs appear in the
+  section, in Activity and in a turn's cost details, never in the System pane.
+  Inference and Apify stay separate figures. A reservation is shown as an
+  upper bound, an unread ledger or an unknown start as unknown, never $0, and
+  a local Stop leaves a notice until the host settles the remote run.
+- **Delivered data (R4).** The ledger lists unsettled runs one by one, so each
+  gets its own line; settled history appears as totals. The run approval shows
+  the review #3160 delivers: Actor, build and profile, what is sent and where,
+  the account, the cap and price events, and anything not covered. Profile
+  work bounds are not in that review, so the card links to Limits instead of
+  repeating them.
+
 ## Implementation ownership and proof
 
 [#3159](https://github.com/schlessera/brain-kit/issues/3159) owns enablement,

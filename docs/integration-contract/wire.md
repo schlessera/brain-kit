@@ -104,7 +104,7 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3809-3815`) and
 (`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1889-1891`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
