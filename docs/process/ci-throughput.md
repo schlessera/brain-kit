@@ -94,6 +94,8 @@ ID/time permit attributed historical observations. IDs cannot be overwritten
 with different content. Pairs are `work-started`/`work-finished` and
 `wait-started`/`wait-finished`; waits require `reason` set to `reservation`,
 `ci`, `review`, `conflict` or `other`. Each pair shares worker/task/reason.
+Host admission records each wait for a heavy local slot as a pair with reason
+`other` and task `admission-<slot>` ([host admission](testing.md#host-admission-for-heavy-local-commands)).
 Unmatched records remain unknown; overlapping tasks on one worker do not create
 two workers. Complete task intervals measure task lifetime, not CPU busy time
 or token cost. No records means unknown worker concurrency. This endpoint does
