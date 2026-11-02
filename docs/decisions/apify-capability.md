@@ -387,10 +387,21 @@ both chat backends; none widens it.
   or verified, so nothing was admitted) keeps that case distinct from an
   incompatible answer; `invalid_input` is the operation's own refusal before
   anything is sent.
-- **Not yet supplied:** a robots.txt checker for robots-authorized profiles
-  needs an internal dependency edge on the scrape package
-  ([#3330](https://github.com/schlessera/brain-kit/issues/3330)); until then
-  such a profile refuses every run.
+- **One robots.txt checker, owned by core.** A robots-authorized profile's
+  targets are checked before the start request by core's checker
+  (`createApifySitePermission`, `packages/core/src/lib/apify/site-permission.ts:54-61`),
+  built on the scrape package's `RobotsCache`, its identifying User-Agent and
+  its `public-only` address policy, under the
+  [scraping politeness](scraping-politeness.md) rules: a real `Disallow`
+  refuses, a missing or unreachable robots.txt means no rules. Decided by the
+  maintainer on 2026-11-02 in
+  [#3330](https://github.com/schlessera/brain-kit/issues/3330): core gains a
+  hard dependency on scrape, so a standalone process and the hosted server
+  share the checker the way the jobs and travel modules share the polite
+  client. ui-server gets no scrape edge; it loads the checker through its
+  optional core peer on the first such run (`coreSitePermission`,
+  `packages/ui-server/src/apify/site-permission.ts:34-42`), and a host without
+  core refuses every robots-authorized run as `site_permission_unproven`.
 
 ## Owner presentation (#3163)
 
