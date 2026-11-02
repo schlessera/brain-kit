@@ -466,3 +466,19 @@ test("browser closure composition preserves exact consumer inventories and bound
   expect(unitShards(selectBrowserClosures(base, { browser: closed, layout: closed, endurance: closed, captures: closed }))).toEqual([1, 2, 3, 4]);
   expect(selected.local.runtime).toBe(plan.local.runtime);
 });
+
+test("feedback-heavy cadence selects a changed ui-server file's heavy categories; draft selects none (#3272)", () => {
+  const f = fixture(); f.write("packages/ui-server/src/route.ts", "export const route = 1;\n");
+  f.git("add", "."); f.git("commit", "-qm", "ui-server change");
+  const env = { BASE_SHA: f.base, HEAD_SHA: "HEAD", FEEDBACK_PR: "7" };
+  const dispatch = { inputs: { pr: "7", head_sha: "a".repeat(40) } };
+  const plan = planFromEnvironment(f.dir, { ...env, GITHUB_EVENT_NAME: "workflow_dispatch" });
+  expect(plan.global, "FEEDBACK_PLANS_THE_PR_NOT_EXHAUSTIVE").toBe(false);
+  expect(plan.changed).toEqual(["packages/ui-server/src/route.ts"]);
+  plan.cadence = proofCadence({ GITHUB_EVENT_NAME: "workflow_dispatch" }, dispatch);
+  expect(plan.cadence).toBe("feedback-heavy");
+  const heavy = proofSelections(plan);
+  for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) expect(heavy[category], `FEEDBACK_HEAVY_${category}`).toBe(true);
+  const draft = { ...plan, cadence: "draft" as const };
+  expect(Object.values(proofSelections(draft)).some(Boolean), "DRAFT_STAYS_CHEAP").toBe(false);
+});

@@ -2,6 +2,8 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
+import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
+import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow } from "./heavy-feedback-workflow";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
@@ -127,6 +129,7 @@ export function checkCIWorkflows(root: string): string[] {
   const expected = ["ci.yml", "contract.yml", "project-sync.yml"];
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
   if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
+  if (files.includes("heavy-feedback.yml")) expected.push("heavy-feedback.yml");
   if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync and optional Pages/timing workflows");
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
@@ -137,9 +140,49 @@ export function checkCIWorkflows(root: string): string[] {
   }
   const pages = join(directory, "publish-pages.yml");
   if (existsSync(pages)) problems.push(...publicationWorkflowProblems(readFileSync(pages, "utf8")));
+  const feedback = join(directory, "heavy-feedback.yml");
+  if (existsSync(feedback) && existsSync(join(directory, "ci.yml"))) problems.push(...heavyFeedbackWorkflowProblems(readFileSync(feedback, "utf8"), readFileSync(join(directory, "ci.yml"), "utf8")));
   const timings = join(directory, "ci-timings.yml");
   if (existsSync(timings)) problems.push(...timingWorkflowProblems(readFileSync(timings, "utf8")));
   return problems;
+}
+
+/** Draft heavy feedback (#3272): ci.yml's own category jobs, per-PR cancellation, never `proof`. */
+export function heavyFeedbackWorkflowProblems(text: string, ciText: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`heavy-feedback.yml: ${message}`);
+  let workflow: Workflow & { concurrency?: Record<string, unknown> };
+  try { workflow = Bun.YAML.parse(text) as typeof workflow; }
+  catch { return ["heavy-feedback.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["heavy-feedback.yml: workflow must be a mapping"];
+  let rendered = "";
+  try { rendered = renderHeavyFeedbackWorkflow(ciText); } catch (error) { fail(`cannot derive from ci.yml: ${String(error)}`); }
+  if (rendered && text !== rendered) fail("stale copy of ci.yml's category jobs and pins; run bun scripts/heavy-feedback-workflow.ts");
+  if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("feedback must not expose secrets or privileged triggers");
+  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read", actions: "read", checks: "read" })) fail("token must stay read-only");
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["pull_request", "workflow_dispatch"])) fail("only a dispatch requests feedback; pull_request only cancels it");
+  const inputs = (workflow.on?.workflow_dispatch as any)?.inputs;
+  if (inputs?.pr?.required !== true || inputs?.head_sha?.required !== true) fail("dispatch must name the PR and its exact head");
+  if (workflow.concurrency?.group !== FEEDBACK_GROUP || workflow.concurrency?.["cancel-in-progress"] !== true) fail("at most one draft heavy run per PR: per-PR group with cancel-in-progress");
+  const jobs = workflow.jobs ?? {};
+  // A job's check name is its `name`, or its id when unnamed.
+  if (Object.entries(jobs).some(([id, job]) => String(job.name ?? id).trim().toLowerCase() === "proof")) fail("feedback must never be named proof");
+  if (jobs.aggregate?.name !== FEEDBACK_AGGREGATE) fail(`aggregate must be named ${FEEDBACK_AGGREGATE}`);
+  if (JSON.stringify(jobs.aggregate?.needs) !== JSON.stringify(["changeset", ...CATEGORY_JOBS])) fail("aggregate must observe every selected category");
+  if (!jobs.aggregate?.steps?.some(step => step.run === "bun scripts/heavy-feedback.ts aggregate") ||
+      jobs.aggregate?.steps?.some(step => /ci-proof\.ts aggregate|candidate-proof/.test(step.run ?? ""))) fail("aggregate must report feedback without candidate receipts");
+  const admission = jobs.changeset?.steps ?? [];
+  const admit = admission.findIndex(step => step.run === "bun scripts/heavy-feedback.ts admit");
+  const headCheckout = admission.findIndex(step => step.uses?.startsWith("actions/checkout@") && step.with?.ref === "${{ inputs.head_sha }}");
+  if (admit < 0 || headCheckout <= admit) fail("admission must refuse a stale, ready, closed or foreign head before checking it out");
+  for (const [name, job] of Object.entries(jobs)) {
+    if (job["runs-on"] !== "ubuntu-24.04") fail(`${name}: unmapped GitHub-hosted runner`);
+    if (job.permissions !== undefined) fail(`${name}: job permissions must inherit the read-only workflow token`);
+    for (const step of job.steps ?? []) {
+      if (step.uses?.startsWith("actions/checkout@") && step.with?.["persist-credentials"] !== false) fail(`${name}: checkout credentials must not persist`);
+      for (const match of (step.run ?? "").matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)) if (!RUN_EXPRESSIONS.has(match[1]!)) fail(`${name}: untrusted expression in run script: ${match[1]}`);
+    }
+  }
+  return errors;
 }
 
 /** Measurement is scheduled trusted code with no product-proof authority. */

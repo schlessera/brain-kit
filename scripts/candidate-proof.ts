@@ -8,6 +8,8 @@ const CONFIRMATION_REQUIRED = "Candidate confirmation required: convert this PR 
 export async function validateCandidate(root: string, event: any, env: NodeJS.ProcessEnv,
   api?: API, actual: Checkout = checkout(root)): Promise<void> {
   const cadence = proofCadence(env, event);
+  // Draft heavy feedback is never proof; only an exact-head ready confirmation is (#3272).
+  if (cadence === "feedback-heavy") throw new Error(`Draft heavy feedback is never proof. ${CONFIRMATION_REQUIRED}`);
   if (cadence === "feedback") throw new Error(CONFIRMATION_REQUIRED);
   if (cadence === "draft") return requireLiveDraft(event, api);
   if (cadence !== "confirmation") return;
