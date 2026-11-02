@@ -109,7 +109,11 @@ with `brain.compute.stuck: true`. `ActivitySpanOrigin` and the span schema
 accept `compute`. A host sends a compute run, in snapshots and deltas, only to
 a connection whose `client_hello` declared `capabilities.activityCompute`
 (`ACTIVITY_COMPUTE_CAPABILITY`), which the shipped client does; an older
-client never receives one. HTTP Activity reads report the origin as stored.
+client never receives one. HTTP Activity reads follow the same rule: `GET
+/api/activity/runs` lists compute runs, live and historical, only when the
+request declares `?activityCompute=1`, and `GET /api/activity/runs/:runId`
+for a `compute:` run without it answers `404` as an unknown run. The shipped
+client declares it on both.
 
 The outward `action` vocabulary gains `compute_run` (a run's approval
 decision, its target the instance id), in governance events and in the

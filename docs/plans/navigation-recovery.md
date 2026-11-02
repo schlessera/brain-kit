@@ -395,7 +395,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2996-3019`).
 
-- Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:145-283`).
+- Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:154-296`).
 
 - API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:939`).
 

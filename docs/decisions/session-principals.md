@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract/wire.md:227-241`;
-  `Activity stream`, `:577-591`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract/wire.md:231-245`;
+  `Activity stream`, `:581-595`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions

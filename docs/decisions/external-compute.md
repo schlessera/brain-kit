@@ -719,3 +719,6 @@ These refine the notes above; where they differ, these hold.
   unknown; both keep counting at the reserved amount, never zero. A job the
   driver stops advancing after repeated failures keeps its reservation active
   and its run flagged stuck until the next restart reattaches it.
+- **Activity over HTTP.** `GET /api/activity/runs` and
+  `GET /api/activity/runs/:runId` return `compute` runs only to a request that
+  declares the capability, as the live stream does.

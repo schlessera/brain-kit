@@ -34,3 +34,33 @@ test("compute runs reach capable activity subscribers only, in snapshots and del
     stream.close();
   } finally { db.close(); }
 });
+
+test("REST activity reads return compute runs only to a request that declares the capability (#3108)", async () => {
+  const { Hono } = await import("hono");
+  const { createActivityRoutes } = await import("../src/routes/activity.js");
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db);
+    const app = new Hono().route("/api", createActivityRoutes({ db, store }));
+    const at = Date.now() - 60_000;
+    for (const [runId, origin, extra] of [["compute:cj_ithaca", "compute", { jobName: "boat-small" }], ["compute:cj_pylos", "compute", { jobName: "boat-small" }],
+      ["turn-ithaca", "session", {}]] as const) {
+      store.startSpan({ spanId: runId, runId, name: origin === "compute" ? "compute_job" : "invoke_agent", kind: origin === "compute" ? "tool" : "turn", origin,
+        sessionId: "sess-ithaca", principalId: "odysseus", startedAt: at, ...extra });
+    }
+    // One compute run finished (history), one still open (live).
+    store.endSpan("compute:cj_pylos", { outcome: "success", endedAt: at + 1000 });
+    store.rollupRun("compute:cj_pylos");
+    const runs = async (query = "") => {
+      const body = await (await app.request(`/api/activity/runs${query}`)).json() as { live: Array<{ runId: string }>; history: Array<{ runId: string }> };
+      return [...body.live, ...body.history].map(run => run.runId).sort();
+    };
+    expect(await runs(), "REST_RUNS_WITHOUT_CAPABILITY").toEqual(["turn-ithaca"]);
+    expect(await runs("?origin=compute"), "REST_ORIGIN_FILTER_WITHOUT_CAPABILITY").toEqual([]);
+    expect(await runs("?activityCompute=1"), "REST_RUNS_WITH_CAPABILITY").toEqual(["compute:cj_ithaca", "compute:cj_pylos", "turn-ithaca"]);
+    expect((await app.request("/api/activity/runs/compute%3Acj_pylos")).status, "REST_DETAIL_WITHOUT_CAPABILITY").toBe(404);
+    const detail = await app.request("/api/activity/runs/compute%3Acj_pylos?activityCompute=1");
+    expect(detail.status, "REST_DETAIL_WITH_CAPABILITY").toBe(200);
+    expect(((await detail.json()) as { spans: Array<{ origin: string }> }).spans[0]!.origin).toBe("compute");
+  } finally { db.close(); }
+});
