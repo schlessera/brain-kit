@@ -35,7 +35,6 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { createComputeService } from "../lib/compute/service.js";
 import type { ComputeCaller } from "../lib/compute/types.js";
 import type {
   CommandHandle,
@@ -359,7 +358,10 @@ function filesUnder(dir: string): string[] {
 export function runComputeLifecycleContract(harness: ComputeLifecycleContractHarness, primitives: ContractTestPrimitives): void {
   const { describe, expect, test } = primitives;
 
-  const service = (root: string, stateDir: string) => {
+  // Loaded on use: the lifecycle's lock needs `bun:sqlite`, and this entry
+  // must still load under Node for the suites that do not drive it.
+  const service = async (root: string, stateDir: string) => {
+    const { createComputeService } = await import("../lib/compute/service.js");
     const provider = harness.provider();
     const extra = harness.context?.() ?? {};
     return createComputeService({
@@ -394,7 +396,7 @@ export function runComputeLifecycleContract(harness: ComputeLifecycleContractHar
     }
   }
 
-  async function settle(svc: ReturnType<typeof service>, id: string) {
+  async function settle(svc: Awaited<ReturnType<typeof service>>, id: string) {
     const until = Date.now() + SETTLE_MS;
     for (;;) {
       const status = await svc.status(CALLER, id);
@@ -408,7 +410,7 @@ export function runComputeLifecycleContract(harness: ComputeLifecycleContractHar
   describe(`ComputeProvider lifecycle contract: ${harness.name}`, () => {
     test("a job that exits 0 succeeds and releases its sandbox", async () => {
       await inBrain(async (root, stateDir) => {
-        const svc = service(root, stateDir);
+        const svc = await service(root, stateDir);
         const before = await harness.liveSandboxes();
         const run = await svc.run(CALLER, { instance: "contract", argv: harness.commands.exit(0) });
         expect(run.ok).toBe(true);
@@ -421,7 +423,7 @@ export function runComputeLifecycleContract(harness: ComputeLifecycleContractHar
 
     test("a nonzero exit fails the job and keeps its code", async () => {
       await inBrain(async (root, stateDir) => {
-        const svc = service(root, stateDir);
+        const svc = await service(root, stateDir);
         const run = await svc.run(CALLER, { instance: "contract", argv: harness.commands.exit(7) });
         if (!run.ok) throw new Error(run.code);
         const job = await settle(svc, run.job.id);
@@ -433,7 +435,7 @@ export function runComputeLifecycleContract(harness: ComputeLifecycleContractHar
       const p = harness.provider();
       if (!p.capabilities.detached) return;
       await inBrain(async (root, stateDir) => {
-        const svc = service(root, stateDir);
+        const svc = await service(root, stateDir);
         const before = await harness.liveSandboxes();
         const run = await svc.run(CALLER, { instance: "contract", argv: harness.commands.sleep(30) });
         if (!run.ok) throw new Error(run.code);
@@ -446,7 +448,7 @@ export function runComputeLifecycleContract(harness: ComputeLifecycleContractHar
 
     test("unknown cost is recorded as unknown, never zero", async () => {
       await inBrain(async (root, stateDir) => {
-        const svc = service(root, stateDir);
+        const svc = await service(root, stateDir);
         const run = await svc.run(CALLER, { instance: "contract", argv: harness.commands.exit(0) });
         if (!run.ok) throw new Error(run.code);
         const job = await settle(svc, run.job.id);
@@ -459,7 +461,7 @@ export function runComputeLifecycleContract(harness: ComputeLifecycleContractHar
 
     test("job records and outputs never hold the secret", async () => {
       await inBrain(async (root, stateDir) => {
-        const svc = service(root, stateDir);
+        const svc = await service(root, stateDir);
         const secret = harness.context?.().secret ?? SECRET;
         const p = harness.provider();
         const run = await svc.run(CALLER, {
