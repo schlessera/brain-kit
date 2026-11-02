@@ -198,6 +198,42 @@ remain independently parameterized. This gives ten tests: six responsive
 scenario cases, three stale-history cases and one readiness control. Cleanup,
 negative observation windows and timing/deadline behavior are unchanged.
 
+## Answer and journal coverage runtime cells
+
+Two later families run 320px dark and 1280px light instead of all four
+width/theme cells (#3329). The theme selector sets only `color-scheme`,
+which picks one half of each `light-dark()` colour token. No geometry,
+focus, key or settlement path in these surfaces branches on it. The removed
+copies are 320px light and 1280px dark. Every assertion in them is also made
+by the retained cell at the same width. Each theme still paints once in the
+runtime, and two central consumer stories own the paint in both Storybook
+projects.
+
+(`Phone`, `packages/ui-kit/stories/conversation/AnswerTheme.stories.tsx:33-57`)
+mounts the actual consumer `AskUserCard` with the built consumer stylesheet.
+The kit's `Decisions/AskUserCard` stories cannot stand in for it, because their
+meta disables the axe contrast rule for a known selected-option gap. The
+journal stories now render configuration coverage as well
+(`Phone`, `packages/ui-kit/stories/conversation/JournalTheme.stories.tsx:50-129`).
+
+| Assertions in the removed copies | Coverage that remains |
+| --- | --- |
+| `answer-delivery-runtime.test.ts`, `1887: Other has explicit current-text Submit`: `OTHER_LAYOUT_USES_REAL_THEME` | Both themes: 320px dark and 1280px light in the runtime. `Conversation/Answer theme/Phone`, `Desktop`: `painted` and the Other field's computed `color-scheme`, in both projects. |
+| Same case: one explicit Submit, blank text disabled, blank Enter sends nothing, draft kept across switching, keyboard reach, ≥44px Submit, no document overflow | The retained cell at each width. The story repeats aria-disabled, the ≥44px Submit and the field/Submit bounds, then runs scoped WCAG A/AA, contrast included, on the field and Submit. |
+| Same case: touch tap at 320px, Space at 1280px, single settlement of the original request, one `ask_user_response` frame | The retained cell at each width. The story's Submit dispatch is a fixture callback only. |
+| `turn-journal-runtime.test.ts`, `journal configuration coverage keeps small changes first and preserves inspection`: badge description, visible, outside truncation, not clipped; row order and counts; index group; Turn facts; ≥44px disclosure and search; complete, height-bounded inventory; filtering, announcement debounce, refetch retention and error | The retained cell at each width. `Conversation/Journal theme/Phone`, `Desktop` add badge visibility and truncation, the ≥44px coverage disclosure and search, the inventory count and bounds, and scoped WCAG A/AA on the journal with coverage open, in both projects. |
+| Same case: no external egress | The retained cell at each width. No replacement claimed. |
+
+Two mutations prove the story side. A light-only typed-text colour in
+`AskOtherField` fails `Answer theme/Phone` and `Desktop` in `storybook-light`
+on `color-contrast` (`input`). The same mutation leaves the kit
+`Decisions/AskUserCard` stories green. A light-only inventory colour in
+`JournalCoverage` fails `Journal theme/Phone` and `Desktop` in
+`storybook-light` (`.font-mono > .break-all`). The journal stories without
+coverage stay green. Both families keep the original scenario bodies, so the
+settlement, frame, keyboard, touch, filter and refetch oracles above still run
+at both widths.
+
 ## Replay assertion ownership
 
 `connection-replay.layout.tsx` keeps native Chromium, built consumer CSS,
@@ -246,6 +282,7 @@ node scripts/visual.mjs --project=storybook --project=storybook-light \
   --filter=ComposerTheme.stories --filter=SessionTheme.stories \
   --filter=AccountTheme.stories --filter=JournalTheme.stories \
   --filter=ArtifactTheme.stories \
+  --filter=AnswerTheme.stories \
   --filter=InPrint.stories
 ```
 
