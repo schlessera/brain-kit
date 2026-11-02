@@ -26,13 +26,21 @@
  *
  * Candidate and proposal references are opaque random values held only in
  * this process. A restart forgets them, which refuses rather than grants.
+ * Request counts are durable when the host supplies a {@link ApifyRequestMeter}
+ * (#3161, shared with the run service's ledger); the in-memory fallback is for
+ * a host without one.
  */
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { APIFY_LIMIT_BOUNDS, APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { requestToolPermission, type BackendBridge, type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { exposureConflicts, providerDeniedFolders, unsupportedProviderSelectors, type ProviderExposure } from "../brain/governance-policy.js";
 import { APIFY_API_ORIGIN, APIFY_MCP_ORIGIN, type ApifyAuthority, type ApifyBinding } from "./authority.js";
+import { canonicalJson, sha256 } from "./canonical.js";
+import { APIFY_QUALIFIED_PROFILES, ApifyProfileInputError, profileInput, type ApifyQualifiedProfile } from "./profiles.js";
+
+export { canonicalJson, sha256 } from "./canonical.js";
+export { APIFY_QUALIFIED_PROFILES, type ApifyQualifiedProfile } from "./profiles.js";
 
 /** The policy name an Apify recipient carries in `providers[].allow`. */
 export const APIFY_RECIPIENT = "apify";
@@ -47,7 +55,11 @@ export const APIFY_DISCOVERY_LIMITS = Object.freeze({
   default_results: 5,
   /** The upstream maximum when input fields are included. */
   max_results: 10,
-  /** Apify operations (discover, inspect, prepare, admission) within one turn, each one or more requests. */
+  /**
+   * Apify operations (discover, inspect, prepare, admission) within one turn
+   * while the policy sets no `apify.limits`; with limits,
+   * `max_requests_per_turn` replaces it and counts every Apify request.
+   */
   requests_per_turn: 32,
   description_chars: 600,
   readme_chars: 8_000,
@@ -83,7 +95,16 @@ export interface ApifyConsentPolicy {
   actors: ApifyMode;
   grants: readonly ApifyActorGrant[];
   providers: EffectiveGovernancePolicy["providers"];
+  /** `apify.limits`, or null when the policy sets none (no run is then admitted). */
+  limits: EffectiveGovernancePolicy["apify"]["limits"];
 }
+
+/**
+ * Counts one Apify request against its turn's bound, durably and across
+ * processes; throws `budget_exceeded` once the bound is reached. Supplied by
+ * the run service's ledger (#3161).
+ */
+export type ApifyRequestMeter = (scope: { principal_id: string; session_id: string; turn_id: string }, requests: number) => void | Promise<void>;
 
 export function governanceApifyConsentPolicy(brainPath: string): () => ApifyConsentPolicy {
   return () => {
@@ -92,23 +113,9 @@ export function governanceApifyConsentPolicy(brainPath: string): () => ApifyCons
     return { valid: checked.ok, hash: checked.content_hash ?? checked.status, enabled: checked.ok && apify.enabled === true,
       // An invalid policy has resolved defaults; it denies rather than asks.
       discovery: checked.ok ? apify.discovery : "deny", actors: checked.ok ? apify.actors : "deny",
-      grants: checked.ok ? apify.actor_grants : [], providers: checked.effective.providers };
+      grants: checked.ok ? apify.actor_grants : [], providers: checked.effective.providers, limits: checked.ok ? apify.limits : null };
   };
 }
-
-/**
- * Trusted integration data qualifying one exact build for execution (#3161
- * owns their contents). Not an extension seam: profiles are code in this
- * package, reviewed like any other.
- */
-export interface ApifyQualifiedProfile {
-  /** `name@revision`; a grant names it exactly. */
-  readonly id: string;
-  readonly actor_id: string;
-  readonly build_number: string;
-}
-/** No build is qualified yet; until one is, every Actor can be reviewed and none can run. */
-export const APIFY_QUALIFIED_PROFILES: readonly ApifyQualifiedProfile[] = Object.freeze([]);
 
 /** Who is asking, from where, and how they can be asked. Built by the host for one live call. */
 export interface ApifyCallContext {
@@ -127,7 +134,7 @@ export interface ApifyCallContext {
    * Remote text is about to reach the caller (G6). Awaited before any result
    * is returned: a failure returns nothing.
    */
-  untrusted(event: { operation: "discover" | "inspect"; detail: string }): void | Promise<void>;
+  untrusted(event: { operation: "discover" | "inspect" | "results"; detail: string }): void | Promise<void>;
   readonly signal?: AbortSignal;
 }
 
@@ -214,6 +221,9 @@ export interface ApifyRunTicket {
   readonly build_id: string;
   readonly build_number: string;
   readonly profile_id: string;
+  /** The live build's input-schema and price-list fingerprints, which the profile must pin exactly. */
+  readonly schema_sha256: string;
+  readonly pricing_sha256: string;
   readonly input: Readonly<Record<string, unknown>>;
   readonly input_sha256: string;
   readonly origins: readonly string[];
@@ -242,6 +252,8 @@ export interface ApifyConsentOptions {
   policy: () => ApifyConsentPolicy;
   /** @internal Test seam; production uses {@link APIFY_QUALIFIED_PROFILES}. */
   profiles?: readonly ApifyQualifiedProfile[];
+  /** The durable per-turn request count shared with the run service; without it, counts live in this process. */
+  meter?: ApifyRequestMeter;
   now?: () => number;
 }
 
@@ -268,13 +280,6 @@ const refuse = (code: ApifyConsentCode, reason: string, message: string) => new 
 const STALE_REFERENCE = () => refuse("proposal_stale", "unknown_reference",
   "That Apify reference is unknown, expired or belongs to another conversation. Discover and inspect the Actor again.");
 
-/** Deterministic JSON: object keys sorted at every depth. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
-}
-export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const reference = () => randomBytes(32).toString("base64url");
 const clip = (value: unknown, limit: number): string | null => typeof value === "string" && value.trim() ? value.trim().slice(0, limit) : null;
 const record = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -397,14 +402,20 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     return policy;
   }
 
-  /** Counts one Apify contact against this turn's pinned request bound. */
-  function spendRequest(context: ApifyCallContext): void {
+  /**
+   * Counts an operation's Apify requests against this turn's bound: the
+   * policy's `max_requests_per_turn` in the shared durable meter when the host
+   * supplies one, else the pinned bound in this process.
+   */
+  async function spendRequest(context: ApifyCallContext, policy: ApifyConsentPolicy, requests = 1): Promise<void> {
+    if (options.meter) { await options.meter(context, requests); return; }
+    const bound = policy.limits?.max_requests_per_turn ?? APIFY_DISCOVERY_LIMITS.requests_per_turn;
     const key = `${context.session_id}\u0000${context.turn_id}`;
     const used = turnRequests.get(key) ?? 0;
-    if (used >= APIFY_DISCOVERY_LIMITS.requests_per_turn)
-      throw refuse("budget_exceeded", "requests_per_turn", `This turn already made ${APIFY_DISCOVERY_LIMITS.requests_per_turn} Apify requests, the most one turn may. Continue in a new turn.`);
+    if (used + requests > bound)
+      throw refuse("budget_exceeded", "requests_per_turn", `This turn already made ${used} of its ${bound} Apify requests. Continue in a new turn.`);
     turnRequests.delete(key);
-    turnRequests.set(key, used + 1);
+    turnRequests.set(key, used + requests);
     // Bounded memory: forget the least recent turns.
     while (turnRequests.size > 1024) turnRequests.delete(turnRequests.keys().next().value!);
   }
@@ -487,15 +498,19 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     else if (permission === "FULL_PERMISSIONS") reasons.push("full_permissions");
     if (pricing.uncertainty.length) reasons.push("pricing_not_bounded");
     if (act.isDeprecated === true) reasons.push("deprecated");
-    const profile = buildNumber ? profiles.find(entry => entry.actor_id === actorId && entry.build_number === buildNumber) ?? null : null;
-    if (!profile) reasons.push("no_qualified_profile");
+    const schemaSha = sha256(canonicalJson(schema));
+    // The whole price list, scheduled changes included: any change is a different price.
+    const pricingSha = sha256(canonicalJson(Array.isArray(act.pricingInfos) ? act.pricingInfos : null));
+    const named = buildNumber ? profiles.find(entry => entry.actor_id === actorId && entry.build_number === buildNumber) ?? null : null;
+    // A profile qualifies the exact schema and price it was measured against, nothing else.
+    const profile = named && named.schema_sha256 === schemaSha && named.pricing_sha256 === pricingSha ? named : null;
+    if (!named) reasons.push("no_qualified_profile");
+    else if (!profile) reasons.push(named.schema_sha256 !== schemaSha ? "profile_schema_mismatch" : "profile_pricing_mismatch");
     return {
       actor_id: actorId, actor: `${act.username}/${act.name}`.slice(0, 201),
       title: clip(act.title, 200), description: clip(act.description, APIFY_DISCOVERY_LIMITS.description_chars),
       build_id: buildId ?? "", build_number: buildNumber ?? "", build_tag: tag.slice(0, 64),
-      schema_sha256: sha256(canonicalJson(schema)),
-      // The whole price list, scheduled changes included: any change is a different price.
-      pricing_sha256: sha256(canonicalJson(Array.isArray(act.pricingInfos) ? act.pricingInfos : null)),
+      schema_sha256: schemaSha, pricing_sha256: pricingSha,
       permission_level: permission, pricing, ...schemaFields(schema),
       profile_id: profile?.id ?? null,
       eligibility: { executable: reasons.length === 0, reasons },
@@ -543,7 +558,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       throw refuse("proposal_stale", "policy_changed", "The governance policy changed after this Actor run was prepared. Prepare it again under the current policy.");
     if (policy.actors === "deny") throw refuse("policy_denied", "actors_denied", "Running Apify Actors is denied by apify.actors in the governance policy.");
     routingGate(context, policy);
-    spendRequest(context);
+    // Two REST reads: the Actor and its build.
+    await spendRequest(context, policy, 2);
     const live = await actorFacts(proposal.binding, proposal.facts.actor_id, context);
     const difference = changed(proposal.facts, live);
     if (difference) throw refuse("proposal_stale", difference, "The Actor's build, input schema, price, permissions or qualification changed after review. Inspect and prepare it again.");
@@ -570,7 +586,7 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       const policy = policyGate();
       if (policy.discovery === "deny") throw refuse("policy_denied", "discovery_denied", "Apify catalog discovery is denied by apify.discovery in the governance policy.");
       routingGate(context, policy);
-      spendRequest(context);
+      await spendRequest(context, policy);
       const { binding } = await options.authority.admit(context.signal ? { signal: context.signal } : {});
       if (policy.discovery === "ask") {
         await approve(context, { toolName: "Apify catalog search",
@@ -608,7 +624,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       if (policy.discovery === "deny") throw refuse("policy_denied", "discovery_denied", "Apify catalog discovery is denied by apify.discovery in the governance policy.");
       await options.authority.check(candidate.binding);
       routingGate(context, policy);
-      spendRequest(context);
+      // The Actor and build reads, and one catalog call.
+      await spendRequest(context, policy, 3);
       if (policy.discovery === "ask") {
         await approve(context, { toolName: "Apify Actor inspection",
           description: `Ask Apify for the details of ${candidate.actor}. Inspecting an Actor does not let it run or spend.`,
@@ -644,8 +661,17 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       const missing = bound.required_fields.filter(key => !(key in actorInput));
       if (missing.length) throw new ApifyInputError(`Actor input lacks required fields: ${missing.join(", ")}.`);
       const origins = targetOrigins(actorInput);
+      const qualified = profiles.find(entry => entry.id === bound.profile_id) ?? null;
+      if (qualified) {
+        // The qualified profile validates the whole input against the exact build's schema now, not only at dispatch.
+        try { profileInput(qualified, actorInput, policy.limits?.max_result_items ?? APIFY_LIMIT_BOUNDS.result_items); }
+        catch (error) { if (error instanceof ApifyProfileInputError) throw new ApifyInputError(error.message); throw error; }
+      }
+      const minimum = bound.pricing.minimal_max_total_charge_usd;
+      if (minimum !== null && cap < minimum)
+        throw new ApifyInputError(`max_charge_usd is below this Actor's minimum run charge of $${minimum}.`);
       routingGate(context, policy);
-      spendRequest(context);
+      await spendRequest(context, policy, 2);
       const live = await actorFacts(candidate.binding, candidate.actor_id, context);
       const difference = changed(bound, live);
       if (difference) throw refuse("proposal_stale", difference, "The Actor changed since it was inspected. Inspect it again before preparing a run.");
@@ -689,7 +715,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
         const facts = proposal.facts;
         const ticket: ApifyRunTicket = Object.freeze({
           proposal: raw.proposal as string, binding: proposal.binding, actor_id: facts.actor_id, build_id: facts.build_id,
-          build_number: facts.build_number, profile_id: facts.profile_id!, input: deepFreeze(structuredClone(proposal.input)),
+          build_number: facts.build_number, profile_id: facts.profile_id!, schema_sha256: facts.schema_sha256, pricing_sha256: facts.pricing_sha256,
+          input: deepFreeze(structuredClone(proposal.input)),
           input_sha256: proposal.input_sha256, origins: Object.freeze([...proposal.origins]), max_charge_usd: proposal.max_charge_usd,
           max_charge_microusd: Math.ceil(Math.round(proposal.max_charge_usd * 1e9) / 1e3),
           consent: grant ? { source: "grant" as const, expires_at: grant.expires_at } : { source: "approval" as const },

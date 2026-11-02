@@ -24,7 +24,7 @@ The existing provider catalog only configures Pi's upstream search extension
 (`WEB_SEARCH_PROVIDERS`, `packages/ui-sdk/src/server/web-search.ts:52-153`).
 It is not an Apify adapter. Existing policy has turn/session/day budgets,
 egress, outward rules and recipient restrictions, but no discovery or Actor grant
-fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:69-97`).
+fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:98-127`).
 Name-based permission admission cannot distinguish different Actors supplied to
 one execution tool (`decideToolPermission`,
 `packages/ui-sdk/src/server/permission-gate.ts:62-92`). Provider accounting is

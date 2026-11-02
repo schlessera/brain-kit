@@ -14,6 +14,7 @@ import {
   APIFY_DISCOVERY_LIMITS, ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy,
   type ApifyCallContext, type ApifyConsent, type ApifyQualifiedProfile, type ApifyRunTicket,
 } from "../src/apify/consent.js";
+import { seaChartsProfile } from "./fixtures/apify-odysseus.js";
 
 const SENTINEL = "apify_api_ODYSSEUS_SENTINEL_0f1e2d3c";
 const SUITORS = "apify_api_ODYSSEUS_SENTINEL_suitors_7c6d";
@@ -122,7 +123,8 @@ let asked: PermissionRequest[];
 let answer: (request: PermissionRequest) => PermissionDecision | Promise<PermissionDecision>;
 let untrusted: string[];
 
-const PROFILE: ApifyQualifiedProfile = { id: "odysseus-sea-charts@1", actor_id: "SeaCharts01", build_number: "1.4.2" };
+// The consent fixture's own schema and price list; the run service's tests qualify the full profile (#3161).
+const PROFILE: ApifyQualifiedProfile = seaChartsProfile({ targets: [{ field: "startUrls", shape: "request_list" }] }, seaCharts().schema, seaCharts().pricing);
 
 function policy(text: string | null) {
   const path = join(brain, "context/policies/governance.md");
@@ -397,7 +399,7 @@ describe("concrete Actor consent", () => {
       ["other profile", () => withGrant({ profile_id: "odysseus-sea-charts@2" })],
       ["other schema", () => withGrant({ schema_sha256: "0".repeat(64) })],
       ["other price", () => withGrant({ pricing_sha256: "0".repeat(64) })],
-      ["missing origin", () => withGrant({}), { startUrls: [{ url: "https://ithaca.example/" }, { url: "https://pylos.example/" }] }],
+      ["missing origin", () => withGrant({}), { startUrls: [{ url: "https://ithaca.example/" }, { url: "https://pylos.example/" }], maxPages: 3 }],
       ["larger cap", () => withGrant({}), undefined, 2.01],
       ["mode ask", () => withGrant({}, "ask")],
       ["no grant", () => policy("apify: { enabled: true, discovery: allow, actors: allow }")],

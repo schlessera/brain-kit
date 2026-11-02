@@ -51,7 +51,7 @@ test("provider selectors intersect their allowlists and unknown recipients do no
   expect(providerAllows(parsed.effective.providers, "notes/voyage.md", "note", undefined)).toBe(true);
 });
 
-const APIFY_DEFAULTS = { enabled: false, discovery: "ask" as const, actors: "ask" as const, actor_grants: [] };
+const APIFY_DEFAULTS = { enabled: false, discovery: "ask" as const, actors: "ask" as const, actor_grants: [], limits: null };
 
 test("Apify stays disabled unless the policy explicitly enables it, and its block is strict", () => {
   expect(parse("profiles: { interactive: governed }").effective.apify).toEqual(APIFY_DEFAULTS);
@@ -75,7 +75,7 @@ const grantYaml = (grant: Record<string, unknown>) => `apify:\n  enabled: true\n
 test("Apify discovery and Actor modes are independent and default to asking; grants are exact and strict", () => {
   const modes = parse("apify: { enabled: true, discovery: allow, actors: deny }");
   expect(modes.ok).toBe(true);
-  expect(modes.effective.apify).toEqual({ enabled: true, discovery: "allow", actors: "deny", actor_grants: [] });
+  expect(modes.effective.apify).toEqual({ enabled: true, discovery: "allow", actors: "deny", actor_grants: [], limits: null });
   // Discovery permission never implies an Actor mode, and neither enables the provider.
   expect(parse("apify: { discovery: allow }").effective.apify).toEqual({ ...APIFY_DEFAULTS, discovery: "allow" });
   for (const yaml of ["apify: { discovery: always }", "apify: { actors: yes }", "apify: { actors: [allow] }"])
@@ -99,4 +99,31 @@ test("Apify discovery and Actor modes are independent and default to asking; gra
   expect(parse(grantYaml({ ...GRANT, wildcard: true })).ok, "APIFY_GRANT_NO_EXTRA_FIELDS").toBe(false);
   const { max_run_usd: _cap, ...uncapped } = GRANT;
   expect(parse(grantYaml(uncapped)).ok, "APIFY_GRANT_NEEDS_CAP").toBe(false);
+});
+
+const LIMITS = {
+  run_usd: 3, turn_usd: 5, session_usd: 10, day_usd: 20, max_runs_per_turn: 2, max_requests_per_turn: 40,
+  max_concurrent_runs: 2, max_runtime_seconds: 600, max_result_items: 50, max_result_bytes: 262_144, max_retention_seconds: 86_400,
+};
+const limitsYaml = (limits: Record<string, unknown>) => `apify:\n  enabled: true\n  limits: ${JSON.stringify(limits)}`;
+
+test("Apify limits are the only spending entitlement: absent grants nothing, present needs every field", () => {
+  expect(parse("apify: { enabled: true }").effective.apify.limits, "APIFY_NO_DEFAULT_ENTITLEMENT").toBeNull();
+  const limited = parse(limitsYaml(LIMITS));
+  expect(limited.ok, limited.errors.join(" ")).toBe(true);
+  expect(limited.effective.apify.limits).toEqual(LIMITS);
+  // Zero is a valid limit: it refuses the operation it bounds.
+  expect(parse(limitsYaml({ ...LIMITS, run_usd: 0, max_runs_per_turn: 0 })).ok, "APIFY_ZERO_LIMIT_VALID").toBe(true);
+  for (const field of Object.keys(LIMITS)) {
+    const { [field]: _missing, ...rest } = LIMITS as Record<string, number>;
+    const parsed = parse(limitsYaml(rest));
+    expect(parsed.ok, `APIFY_LIMIT_REQUIRED: ${field}`).toBe(false);
+    expect(parsed.effective.apify, `APIFY_INVALID_LIMIT_DISABLED: ${field}`).toEqual(APIFY_DEFAULTS);
+  }
+  for (const [field, value] of [["run_usd", -1], ["day_usd", 1e12], ["turn_usd", ".inf"], ["max_runs_per_turn", 1.5], ["max_result_bytes", 2 ** 40],
+    ["max_runtime_seconds", -5], ["max_retention_seconds", 31 * 86_400], ["session_usd", "5"]] as const) {
+    const yaml = limitsYaml({ ...LIMITS, [field]: value }).replace('".inf"', ".inf");
+    expect(parse(yaml).ok, `APIFY_LIMIT_STRICT: ${field}=${String(value)}`).toBe(false);
+  }
+  expect(parse(limitsYaml({ ...LIMITS, account_usd: 5 })).ok, "APIFY_LIMIT_NO_EXTRA_FIELDS").toBe(false);
 });
