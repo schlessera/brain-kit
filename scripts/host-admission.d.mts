@@ -2,6 +2,7 @@ export const MARKER: "BRAIN_HOST_ADMISSION";
 export const PREEMPTED_EXIT: 75;
 export const RED_MAIN_FIX: "red-main-fix";
 export const DEFAULT_GRACE_MS: number;
+export function testLedgerFor(pid: number, start: string): string;
 export function ledgerDir(env?: Record<string, string | undefined>): string;
 export function admissionLimit(env?: Record<string, string | undefined>, cpus?: number): number;
 export interface AdmissionEntry {

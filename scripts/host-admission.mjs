@@ -18,12 +18,12 @@
  * orchestrator subtree, and only to admit a waiting red-main fix. A preempted
  * run is recorded as `preempted`, which is neither a pass nor a failure.
  */
-import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { availableParallelism, constants, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { liveAncestor, processIdentity } from "./workspace-lease.mjs";
+import { inheritWorkspaceLease, liveAncestor, processIdentity } from "./workspace-lease.mjs";
 
 /** Inherited by an admitted command, so its nested heavy commands do not queue behind themselves. */
 export const MARKER = "BRAIN_HOST_ADMISSION";
@@ -37,10 +37,42 @@ const repoRoot = resolve(dirname(script), "..");
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const now = () => new Date().toISOString();
 
-/** One ledger per host user; worktrees and clones on the machine share it. */
+const user = () => typeof process.getuid === "function" ? process.getuid() : "user";
+
+/**
+ * A test process's private ledger. The test preload creates it with the same
+ * convention, so a descendant whose environment was replaced still finds it
+ * through its ancestry and never queues behind the host's real heavy commands.
+ */
+export function testLedgerFor(pid, start) {
+  return join(tmpdir(), `brain-host-admission-tests-${user()}`, `${pid}-${start}`);
+}
+
+/** This process's ancestors, nearest first (Linux only). */
+function ancestors() {
+  const found = [];
+  if (process.platform !== "linux") return found;
+  let pid = processIdentity(process.pid)?.parent;
+  for (let depth = 0; pid > 0 && depth < 128; depth++) {
+    const identity = processIdentity(pid);
+    if (!identity) break;
+    found.push({ pid, start: identity.start });
+    pid = identity.parent;
+  }
+  return found;
+}
+
+/**
+ * One ledger per host user; worktrees and clones on the machine share it.
+ * An explicit directory wins, then the nearest ancestor test process's ledger.
+ */
 export function ledgerDir(env = process.env) {
-  const user = typeof process.getuid === "function" ? process.getuid() : "user";
-  return resolve(env.BRAIN_HOST_ADMISSION_DIR || join(tmpdir(), `brain-host-admission-${user}`));
+  if (env.BRAIN_HOST_ADMISSION_DIR) return resolve(env.BRAIN_HOST_ADMISSION_DIR);
+  for (const ancestor of ancestors()) {
+    const dir = testLedgerFor(ancestor.pid, ancestor.start);
+    if (existsSync(dir)) return dir;
+  }
+  return join(tmpdir(), `brain-host-admission-${user()}`);
 }
 
 /** Heavy suites each use many cores; by default admit one per four CPUs. */
@@ -258,8 +290,10 @@ export async function runAdmitted(command, options = {}) {
     if (waited) await recordWait("wait-finished", { worker, task, timingsOut, root, ledger: dir });
     if (cancelled) { await release("cancelled"); return exitCode(null, cancelled); }
     const { spawn } = await import("node:child_process");
-    child = spawn(command[0], command.slice(1), { stdio: "inherit", detached: process.platform !== "win32",
-      env: { ...env, [MARKER]: JSON.stringify({ slot: id, pid: process.pid, start, dir }) } });
+    // Pass the workspace lease's descriptor on: a command in a nested user
+    // namespace cannot prove its inherited lease through /proc.
+    child = spawn(command[0], command.slice(1), inheritWorkspaceLease({ stdio: ["inherit", "inherit", "inherit"],
+      detached: process.platform !== "win32", env: { ...env, [MARKER]: JSON.stringify({ slot: id, pid: process.pid, start, dir }) } }, "inherit"));
     const exited = new Promise(done => {
       child.once("error", () => done(127));
       child.once("exit", (code, signal) => done(exitCode(code, signal)));
@@ -342,14 +376,19 @@ export async function status(options = {}) {
   });
 }
 
-/** True when an ancestor already holds a slot for this command tree. */
+/**
+ * True when an ancestor already holds a slot for this command tree: through
+ * the inherited marker, or, for a descendant whose environment was replaced,
+ * through a holder in the ledger that is one of its live ancestors.
+ */
 export function inheritedAdmission(env = process.env) {
   try {
-    const held = JSON.parse(env[MARKER] ?? "null");
-    if (!held || !Number.isSafeInteger(held.pid) || typeof held.start !== "string") return false;
-    if (process.platform === "linux") return liveAncestor(held.pid, held.start);
-    return alive(held.pid, held.start);
-  } catch { return false; }
+    const held = JSON.parse(env[MARKER] || "null");
+    if (held && Number.isSafeInteger(held.pid) && typeof held.start === "string" &&
+      (process.platform === "linux" ? liveAncestor(held.pid, held.start) : alive(held.pid, held.start))) return true;
+  } catch { /* A malformed marker grants nothing; the ledger may still. */ }
+  if (process.platform !== "linux") return false;
+  return readState(ledgerDir(env)).entries.some(entry => entry.state === "holding" && liveAncestor(entry.pid, entry.start));
 }
 
 /**
@@ -365,7 +404,7 @@ export async function ensureHostAdmission(label) {
   signals.forEach((signal, index) => process.on(signal, listeners[index]));
   try {
     child = spawn(process.execPath, [script, "run", "--label", label, "--", process.execPath, ...process.execArgv, ...process.argv.slice(1)],
-      { stdio: "inherit" });
+      inheritWorkspaceLease({ stdio: ["inherit", "inherit", "inherit"] }, "inherit"));
     if (pending) child.kill(pending);
     return await new Promise((done, reject) => {
       child.once("error", reject);
