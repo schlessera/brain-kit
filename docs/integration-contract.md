@@ -20,6 +20,24 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## External compute CLI and MCP tools (additive, 0.45.0, #3107)
+
+`brain compute` gains the verbs `health`, `plan`, `run`, `status`, `cancel`,
+`collect`, `abandon` and `reconcile`, and `brain mcp` six tools,
+`brain_compute_health`, `brain_compute_plan`, `brain_compute_run`,
+`brain_compute_status`, `brain_compute_cancel` and `brain_compute_collect`,
+registered after the eight document tools whether or not `compute` is
+configured. Both surfaces call one core operation set and print the same
+envelopes: `{ ok: true, ... }`, or `{ ok: false, error: { code, message } }`
+with the external-compute refusal codes and nothing allocated. A refusal exits
+`1`, and a `run` whose job ended other than `succeeded` exits `3`. The
+`ComputeRunRequest` of the internal service gains an optional `retain`. A new
+core skill, `external-compute`, is emitted by `brain skills sync`. Nothing
+changes for existing commands, tools or envelopes, and a brain without
+`compute` gets refusals only. See [the CLI component](integration-contract/cli.md#external-compute-additive-0450-3107)
+and [the MCP component](integration-contract/mcp.md#external-compute-tools-additive-0450-3107).
+This ships in a minor; no breaking ruling is required.
+
 ## Boat external compute provider (additive, 0.45.0, #3106)
 
 The new lockstep package `@schlessera/brain-compute-boat` ships the `boat`

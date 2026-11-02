@@ -17,6 +17,7 @@ Tool names and input schemas are stable:
 | `brain_list` | readOnly | `{ documents, warnings }` |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
+| `brain_compute_*` | see [External compute tools](#external-compute-tools-additive-0450-3107) | the `brain compute` envelope |
 
 `brain_search`, `brain_list` and `brain_graph` repeat their structuredContent
 as the first `content` block, and the write tools return their result object
@@ -33,7 +34,7 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:77-89`). Tool descriptions are descriptive in the
+(`serverInstructions`, `packages/core/src/mcp-server.ts:89-101`). Tool descriptions are descriptive in the
 same way. The read tools' descriptions state their defaults and the server
 caps: `brain_search` `limit` at 50 and `brain_graph` `depth` at 5, and
 `brain_list`'s accepted `limit` range of 1 to 100.
@@ -57,6 +58,48 @@ applies one:
 
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
+
+<a id="external-compute-tools-additive-0450-3107"></a>
+
+### External compute tools (additive, 0.45.0, #3107)
+
+`brain mcp` serves six `brain_compute_*` tools after the eight document tools
+and before module tools. They call the same core operation set as
+[`brain compute`](cli.md#external-compute-additive-0450-3107) and return the
+same envelopes: a success as `structuredContent` with its compact JSON text
+copy, a refusal as a tool result with `isError: true` carrying
+`{ ok: false, error: { code, message } }` in both. A schema violation is the
+usual tool error without `structuredContent`.
+
+| Tool | Annotations | Inputs | Result |
+|------|-------------|--------|--------|
+| `brain_compute_health` | readOnly, openWorld | `provider?` | the `health` envelope |
+| `brain_compute_plan` | readOnly, not openWorld | `provider`, `argv`, `cwd?`, `env?`, `source?`, `artifacts?` (`[{ path, max_bytes? }]`, default cap 1 MiB), `lease_seconds?`, `retain?` | the `plan` envelope |
+| `brain_compute_run` | not readOnly, not destructive, not idempotent, openWorld | as `brain_compute_plan` | the `run` envelope, returned once the command has started |
+| `brain_compute_status` | not readOnly, not destructive, idempotent, openWorld | `job` | the `status` envelope |
+| `brain_compute_cancel` | destructive, idempotent, openWorld | `job` | the `cancel` envelope |
+| `brain_compute_collect` | not readOnly, not destructive, idempotent, openWorld | `job` | the `collect` envelope |
+
+Every input schema is a closed object (`additionalProperties: false`), pinned
+with the others in `mcp-input-schemas.json`. No input names a caller, a
+principal, a session, a credential or a vendor id: the caller is
+`{ kind: "mcp", principal: <the server process's operating-system user> }`,
+and a job is addressable only by the caller kind and principal that started
+it. `status`, `cancel` and `collect` advance the job they report.
+
+The six tools are registered whatever the brain's configuration says, with
+fixed names, order, descriptions and schemas, so a session's tool roster does
+not change when compute is configured, disabled or reconfigured; an
+unconfigured or unavailable provider refuses at call time
+([provider-history.md](../decisions/provider-history.md)). Status and cost
+appear only in results the agent asked for.
+
+`brain_compute_run` does not wait for the job. While the server process
+lives it advances the jobs it started through the same `status` operation,
+one visit at a time with backoff (2 s rising to 15 s, at most 16 jobs), until
+each has ended and its cleanup is settled. Closing the server stops those
+visits and cancels nothing: a job is then bounded by its lease, and the next
+`status`, `cancel`, `collect` or `brain compute reconcile` settles it.
 
 <a id="hosted-authoritative-application-tools"></a>
 
@@ -689,7 +732,7 @@ reclassify previously recorded history from today's environment (#293).
 
 `ModuleContribution.tools` declares lazy MCP definitions by local name.
 `brain mcp` imports these definitions at startup and serves them after the
-eight core tools, in module config order and then declaration order. A loader
+core tools (the eight document tools, then the six `brain_compute_*` tools from 0.45.0), in module config order and then declaration order. A loader
 may resolve a `ModuleTool` directly or an object with a `default` tool export.
 Other CLI commands do not import the definitions.
 

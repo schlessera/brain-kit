@@ -1,0 +1,219 @@
+/**
+ * The shared compute operation set behind `brain compute` and
+ * `brain_compute_*` (#3107), in process with the offline memory provider and
+ * a fake clock: envelopes, refusals that allocate nothing, the governance
+ * policy as data-to-provider rules, the per-job retain choice, the MCP
+ * background driver, and that neither wrapper reaches past the operation set.
+ */
+
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+import { describeCost } from "../src/cli/commands/compute";
+import { createComputeDriver, createComputeOps, jobOutput, localPrincipal, type ComputeJobOutput } from "../src/lib/ops/compute";
+import { fakeClock, jobDirs, PENELOPE, sandbox, START, TELEMACHUS, type Sandbox } from "./helpers/compute/fixture";
+import { memoryCompute } from "./helpers/compute/memory-provider";
+
+const boxes: Sandbox[] = [];
+afterEach(() => {
+  for (const b of boxes.splice(0)) b.dispose();
+});
+
+function setup(capabilities = {}, instance: Record<string, unknown> = {}) {
+  const box = sandbox();
+  boxes.push(box);
+  const clock = fakeClock();
+  const memory = memoryCompute({ clock, capabilities });
+  const config = { compute: { providers: { "pylos-memory": { provider: memory.provider, lease: { maxSeconds: 600 }, maxConcurrent: 2, ...instance } } } };
+  const ops = (caller = PENELOPE) => createComputeOps({ root: box.root, config, caller, env: {}, serviceOptions: { stateDir: box.state, clock, callTimeoutMs: 2_000 } });
+  return { box, clock, memory, ops };
+}
+
+describe("envelopes", () => {
+  test("run, status, cancel and collect share one job shape with ISO times", async () => {
+    const { ops, clock } = setup();
+    const run = await ops().run({ provider: "pylos-memory", argv: ["sleep", "60"], source: ["notes/raft.md"] });
+    if (!run.ok) throw new Error(run.error.code);
+    expect(run.job).toMatchObject({ instance: "pylos-memory", provider: "memory", state: "running", createdAt: new Date(START).toISOString(), source: { files: 1 }, blocked: null });
+    expect(run.job.lease).toEqual({ seconds: 600, deadline: new Date(START + 600_000).toISOString() });
+    clock.advance(61_000);
+    const status = await ops().status({ job: run.job.id });
+    expect(status).toMatchObject({ ok: true, job: { state: "succeeded", exit: { code: 0, reason: "exited" }, cleanup: { state: "released" } } });
+    if (!status.ok) throw new Error();
+    expect(status.job.terminal?.at).toBe(new Date(START + 61_000).toISOString());
+    const collect = await ops().collect({ job: run.job.id });
+    expect(collect).toMatchObject({ ok: true, output: { stdout: "", stderr: "", truncated: false }, artifacts: [] });
+  });
+
+  test("unknown cost stays null in the envelope and reads 'unknown' to a person", async () => {
+    const { ops } = setup();
+    const run = await ops().run({ provider: "pylos-memory", argv: ["exit", "0"] });
+    if (!run.ok) throw new Error(run.error.code);
+    const job = (await ops().status({ job: run.job.id })) as { ok: true; job: ComputeJobOutput };
+    expect(job.job.cost.actual.usd).toBeNull();
+    expect(job.job.cost.estimate).toEqual({ usd: null, basis: "none" });
+    expect(describeCost(job.job)).toBe("unknown (unknown); no estimate");
+    expect(describeCost({ cost: { estimate: { usd: 0.05, basis: "ceiling" }, actual: { usd: 0.0125, coverage: "complete", source: "provider" } } })).toBe(
+      "$0.0125 (complete); estimate $0.0500 (ceiling)"
+    );
+  });
+
+  test("jobOutput keeps every view field and adds nothing", () => {
+    const view = {
+      id: "cj_x", instance: "i", provider: "p", state: "running" as const, createdAt: START, updatedAt: START,
+      lease: { seconds: 1, deadline: START }, source: { hash: "h", files: 0 }, exit: null, artifacts: [],
+      cleanup: { state: "none" as const, retainedUntil: null, lastError: null },
+      cost: { estimate: { usd: null, basis: "none" as const }, actual: { usd: null, coverage: "unknown" as const, source: "none" as const } },
+      cancelRequested: false, uncertain: null, terminal: null, blocked: null,
+    };
+    expect(Object.keys(jobOutput(view)).sort()).toEqual(Object.keys(view).sort());
+  });
+});
+
+describe("refusals allocate nothing", () => {
+  test("compute_disabled touches no state directory", async () => {
+    const box = sandbox();
+    boxes.push(box);
+    const ops = createComputeOps({ root: box.root, config: {}, caller: PENELOPE, env: {}, serviceOptions: { stateDir: box.state } });
+    for (const result of [
+      await ops.plan({ provider: "pylos-memory", argv: ["true"] }),
+      await ops.run({ provider: "pylos-memory", argv: ["true"] }),
+      await ops.status({ job: "cj_aaaaaaaaaaaaaaaaaaaaaaaaaa" }),
+      await ops.reconcile(),
+    ]) {
+      expect(result).toEqual({ ok: false, error: { code: "compute_disabled", message: expect.any(String) } });
+    }
+    expect(await ops.health({})).toEqual({ ok: true, enabled: false, instances: [] });
+    expect(jobDirs(box.state)).toEqual([]);
+  });
+
+  test("capability_unsupported: staging on a provider that cannot stage", async () => {
+    const { ops, memory, box } = setup({ stage: false });
+    const r = await ops().run({ provider: "pylos-memory", argv: ["true"], source: ["notes/raft.md"] });
+    expect(r).toMatchObject({ ok: false, error: { code: "capability_unsupported" } });
+    expect(memory.created()).toBe(0);
+    expect(jobDirs(box.state)).toEqual([]);
+  });
+
+  test("capability_unsupported: retain on a provider that cannot retain, unless the job declines it", async () => {
+    const { ops, memory } = setup({ retain: false }, { retainOnRelease: true });
+    expect(await ops().plan({ provider: "pylos-memory", argv: ["true"] })).toMatchObject({ ok: false, error: { code: "capability_unsupported" } });
+    expect(await ops().run({ provider: "pylos-memory", argv: ["true"], retain: true })).toMatchObject({ ok: false, error: { code: "capability_unsupported" } });
+    expect(memory.created()).toBe(0);
+    const declined = await ops().plan({ provider: "pylos-memory", argv: ["true"], retain: false });
+    expect(declined).toMatchObject({ ok: true, plan: { retain: false } });
+  });
+
+  test("retain: true keeps the sandbox's data on release", async () => {
+    const { ops, clock } = setup();
+    const run = await ops().run({ provider: "pylos-memory", argv: ["exit", "0"], retain: true });
+    if (!run.ok) throw new Error(run.error.code);
+    clock.advance(1_000);
+    const status = await ops().status({ job: run.job.id });
+    expect(status).toMatchObject({ ok: true, job: { cleanup: { state: "retained" } } });
+  });
+
+  test("an invalid governance policy refuses plan and run with policy_denied", async () => {
+    const { ops, memory, box } = setup();
+    mkdirSync(join(box.root, "context/policies"), { recursive: true });
+    writeFileSync(join(box.root, "context/policies/governance.md"), "---\nschema_version: 1\nunknown_key: true\n---\n");
+    for (const r of [await ops().plan({ provider: "pylos-memory", argv: ["true"] }), await ops().run({ provider: "pylos-memory", argv: ["true"] })]) {
+      expect(r).toMatchObject({ ok: false, error: { code: "policy_denied" } });
+    }
+    expect(memory.created()).toBe(0);
+  });
+
+  test("the governance policy's provider rules apply with the instance id as recipient", async () => {
+    const { ops, memory, box } = setup();
+    mkdirSync(join(box.root, "context/policies"), { recursive: true });
+    writeFileSync(join(box.root, "context/policies/governance.md"), "---\nschema_version: 1\nproviders:\n  - types: [health]\n    allow: [asclepius]\n---\n");
+    const refused = await ops().run({ provider: "pylos-memory", argv: ["true"], source: ["health/sea-sickness.md"] });
+    expect(refused).toMatchObject({ ok: false, error: { code: "policy_denied" } });
+    expect((refused as { error: { message: string } }).error.message).toContain("health/sea-sickness.md");
+    expect(memory.created()).toBe(0);
+    expect(await ops().plan({ provider: "pylos-memory", argv: ["true"], source: ["notes/raft.md"] })).toMatchObject({ ok: true });
+  });
+});
+
+describe("caller binding", () => {
+  test("a job belongs to the caller kind and principal the host supplied", async () => {
+    const { ops } = setup();
+    const run = await ops(PENELOPE).run({ provider: "pylos-memory", argv: ["sleep", "60"] });
+    if (!run.ok) throw new Error(run.error.code);
+    for (const other of [TELEMACHUS, { kind: "mcp" as const, principal: PENELOPE.principal }, { kind: "cli" as const, principal: "telemachus" }]) {
+      expect(await ops(other).status({ job: run.job.id })).toMatchObject({ ok: false, error: { code: "job_unknown" } });
+      expect(await ops(other).cancel({ job: run.job.id })).toMatchObject({ ok: false, error: { code: "job_unknown" } });
+    }
+    expect(await ops(PENELOPE).status({ job: run.job.id })).toMatchObject({ ok: true });
+  });
+
+  test("the local principal is the operating-system user", () => {
+    expect(localPrincipal()).toBe(require("node:os").userInfo().username);
+  });
+});
+
+describe("the background driver", () => {
+  test("advances tracked jobs through status until settled, then stops visiting", async () => {
+    const { ops, clock, memory } = setup();
+    const o = ops(TELEMACHUS);
+    const run = await o.run({ provider: "pylos-memory", argv: ["sleep", "5"] });
+    if (!run.ok) throw new Error(run.error.code);
+    const driver = createComputeDriver(o, { initialDelayMs: 5, maxDelayMs: 20 });
+    driver.track(run.job.id);
+    expect(driver.tracked()).toEqual([run.job.id]);
+    await Bun.sleep(40);
+    expect(driver.tracked()).toEqual([run.job.id]);
+    clock.advance(6_000);
+    for (let i = 0; i < 100 && driver.tracked().length > 0; i++) await Bun.sleep(10);
+    expect(driver.tracked()).toEqual([]);
+    expect(await o.status({ job: run.job.id })).toMatchObject({ ok: true, job: { state: "succeeded", cleanup: { state: "released" } } });
+    const polls = memory.calls.filter((c) => c.method === "poll").length;
+    await Bun.sleep(60);
+    expect(memory.calls.filter((c) => c.method === "poll").length).toBe(polls);
+    driver.stop();
+  });
+
+  test("stop ends every visit and cancels nothing", async () => {
+    const { ops, memory } = setup();
+    const o = ops(TELEMACHUS);
+    const run = await o.run({ provider: "pylos-memory", argv: ["sleep", "600"] });
+    if (!run.ok) throw new Error(run.error.code);
+    const driver = createComputeDriver(o, { initialDelayMs: 5, maxDelayMs: 5 });
+    driver.track(run.job.id);
+    await Bun.sleep(30);
+    driver.stop();
+    const calls = memory.calls.length;
+    await Bun.sleep(40);
+    expect(memory.calls.length).toBe(calls);
+    expect(memory.calls.some((c) => c.method === "kill" || c.method === "release")).toBe(false);
+    driver.track(run.job.id);
+    expect(driver.tracked()).toEqual([]);
+  });
+
+  test("tracks at most maxJobs", () => {
+    const { ops } = setup();
+    const driver = createComputeDriver(ops(), { maxJobs: 2, initialDelayMs: 60_000 });
+    for (const id of ["a", "b", "c"]) driver.track(id);
+    expect(driver.tracked()).toEqual(["a", "b"]);
+    driver.stop();
+  });
+});
+
+describe("the wrappers stay thin", () => {
+  const src = (path: string) => readFileSync(resolve(import.meta.dir, "../src", path), "utf8");
+
+  test("neither the CLI command nor the MCP server reaches the job service directly", () => {
+    for (const file of ["cli/commands/compute.ts", "mcp-server.ts"]) {
+      const text = src(file);
+      expect(text).not.toMatch(/lib\/compute\//);
+      expect(text).not.toMatch(/createComputeService|computeJobView|ComputeJobStore/);
+    }
+  });
+
+  test("every MCP compute handler calls the operation set", () => {
+    const text = src("mcp-server.ts");
+    const block = text.slice(text.indexOf("export function registerComputeTools"), text.indexOf("export async function startMcpServer"));
+    for (const op of ["health", "plan", "run", "status", "cancel", "collect"]) expect(block).toContain(`ops.${op}(input)`);
+  });
+});

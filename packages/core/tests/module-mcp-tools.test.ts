@@ -9,7 +9,10 @@ import { brainConfigSchema } from "../src/lib/config";
 import { loadModules } from "../src/lib/module-loader";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
-const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive"];
+const CORE = [
+  "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive",
+  "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
+];
 const roots: string[] = [];
 const clients: Client[] = [];
 afterAll(async () => {

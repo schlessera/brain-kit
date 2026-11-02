@@ -25,6 +25,7 @@ import {
   refuse,
   resolveSource,
   sameCaller,
+  wantsRetain,
 } from "./admission.js";
 import { JobDriver, callProvider, type DriveMode, type LifecycleDeps } from "./lifecycle.js";
 import { acquireLock, tryLock, type HeldLock } from "./lock.js";
@@ -212,6 +213,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
     const who = checkCaller(caller);
     if (who) return who;
     if (!request || typeof request !== "object") return refuse("policy_denied", "a compute request is required");
+    if (request.retain !== undefined && typeof request.retain !== "boolean") return refuse("policy_denied", "retain must be true or false");
     const instance = await instanceFor(request.instance);
     if ("ok" in instance) return instance;
     const unsupported = checkCapabilities(instance, request);
@@ -238,7 +240,7 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       source,
       artifacts,
       estimate: ceiling !== undefined ? { usd: (ceiling * lease.seconds) / 3600, basis: "ceiling" } : { usd: null, basis: "none" },
-      retain: instance.config.retainOnRelease === true,
+      retain: wantsRetain(instance, request),
       slots: { used: 0, max: instance.config.maxConcurrent ?? 1 },
     };
     if (options.approve) {
