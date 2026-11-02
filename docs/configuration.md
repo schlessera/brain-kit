@@ -660,7 +660,8 @@ state directory outside the brain checkout and outside `brain.db`: by default
 agent-editable. A state directory inside the brain is refused. `brain index
 --force` neither reads nor rebuilds it. See
 [extending/compute-providers.md](extending/compute-providers.md) for the job
-lifecycle and how to write a provider.
+lifecycle and how to write a provider, and [`brain compute`](cli.md#external-compute)
+and the [`brain_compute_*` MCP tools](mcp.md#tools) for running jobs.
 
 ## `graph`
 

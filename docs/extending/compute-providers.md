@@ -169,6 +169,20 @@ serialised across processes by kernel-released locks, so a CLI run and a
 hosted run cannot both take the last slot, and a lock whose process died is
 free again without guessing.
 
+## Using a configured instance
+
+Callers never reach a provider directly. `brain compute`
+([CLI reference](../cli.md#external-compute)) and the six `brain_compute_*`
+MCP tools ([MCP reference](../mcp.md#tools)) call one core operation set and
+print the same envelopes ([CLI contract](../integration-contract/cli.md#external-compute-additive-0450-3107),
+[MCP contract](../integration-contract/mcp.md#external-compute-tools-additive-0450-3107)).
+They expose health, plan, run, status, cancel and collect; the CLI adds the
+operator verbs reconcile and abandon. The caller is the CLI's or the MCP
+server's operating-system user, so jobs from the two surfaces stay apart. The
+`/external-compute` skill tells an agent when a provider is justified and how
+to finish every job it starts. A provider sees none of this: the same calls
+reach it whichever surface asked.
+
 ## Conformance
 
 `@schlessera/brain/testing` publishes two suites. Run both against your
