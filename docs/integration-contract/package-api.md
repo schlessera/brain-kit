@@ -418,6 +418,32 @@ shape changes. The cron runner adds a `[cron-run]` line and prefixes the
 recorded error with the same explanation when a worker job exits nonzero with
 an unexplained `EROFS` or "read-only file system" in its stderr.
 
+<a id="module-repositories"></a>
+
+**Additive module repositories (0.45.0, #3380).** A module's config block
+accepts an optional core-owned `repositories: string[]`, removed before the
+module's `configSchema` sees the block, like `enabled`. Each entry must be an
+`https://` URL (or a loopback `http://` URL) with no credential, query,
+fragment or dot segment; at most 16 are allowed, and duplicates collapse. An
+invalid list is a load error for that module. `LoadedModule` gains the optional
+`repositories` field, and `brain module list --json` reports it on every
+configured module (see the [CLI component](cli.md)). The list is a request:
+`@schlessera/brain-ui-server`'s cron runner fetches a repository for a module
+job only when the operator's `BRAIN_UI_MODULE_REPOSITORIES` names it too. That
+allow-list is read from the runner's host environment, is never forwarded to a
+job, and compares repositories by origin and path, ignoring a trailing `/` or
+`.git`. The runner maps a job named `<module>-<entry>` to its module through a
+credential-free `brain module list --json`, matching both the name and the
+entry's `brain …` command. A job whose module asks for a repository the list
+does not allow, or whose fetch fails, is refused before it starts: it exits 1,
+its `cron_runs` error names the repository and the setting, and nothing is
+fetched for it. A granted repository is fetched into a host-private bare mirror
+beside the sync mirror by the sync transport, with `BRAIN_UI_SYNC_GITHUB_TOKEN`
+(else `GITHUB_TOKEN`) sent only to `https://github.com`. The job's worker gets
+the mirror read-only and `url.file://<mirror>.insteadOf` rewrites for the
+URL's plain, `/`, `.git` and `.git/` spellings. It never receives a Git
+credential. The crontab layout is unchanged.
+
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
 `options.protectedPaths: readonly string[]`. These brain-relative or absolute

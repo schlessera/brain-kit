@@ -84,6 +84,25 @@ const contributionSchema = z
   .strict();
 
 /**
+ * A repository a module's cron job asks the host to fetch for it (#3380): a
+ * plain HTTPS repository URL, or a loopback HTTP one for local fixtures. No
+ * credential, query, fragment or dot segment. Declaring one grants nothing by
+ * itself: the host fetches it only when its operator allow-list, outside the
+ * brain, names it too (docs/decisions/governed-writable-workers.md).
+ */
+const MODULE_REPOSITORY_URL =
+  /^(?:https:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]))(?::[0-9]{1,5})?(?:\/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+\/?$/;
+
+const moduleRepositoriesSchema = z
+  .array(
+    z.string().regex(MODULE_REPOSITORY_URL, {
+      message: "each repository must be a plain https:// URL (or loopback http://) with no credential, query, fragment or dot segment",
+    }),
+    { message: "repositories must be an array of repository URLs" },
+  )
+  .max(16, { message: "a module may declare at most 16 repositories" });
+
+/**
  * Load the modules declared in brain.config. The `modules:` keys ARE the
  * registry — package names import `<key>/module`, `./local/path` keys import
  * `<root>/<key>/module.ts`. No filesystem scanning; load order = config order.
@@ -110,15 +129,24 @@ export async function loadModules(
     }
     seenNames.add(manifest.name);
 
-    // enabled belongs to core, never to a module's strict domain schema.
+    // enabled and repositories belong to core, never to a module's strict domain schema.
     let domainConfig: unknown = moduleConfig ?? {};
     let enabled = true;
-    if (domainConfig && typeof domainConfig === "object" && !Array.isArray(domainConfig) && Object.hasOwn(domainConfig, "enabled")) {
-      const { enabled: flag, ...domain } = domainConfig as Record<string, unknown>;
+    let repositories: string[] | undefined;
+    if (domainConfig && typeof domainConfig === "object" && !Array.isArray(domainConfig)
+      && (Object.hasOwn(domainConfig, "enabled") || Object.hasOwn(domainConfig, "repositories"))) {
+      const { enabled: flag, repositories: declared, ...domain } = domainConfig as Record<string, unknown>;
       if (flag !== undefined) {
         const parsedFlag = z.boolean().safeParse(flag);
         if (!parsedFlag.success) throw new Error(`Invalid enabled flag for module "${manifest.name}": expected a boolean`);
         enabled = parsedFlag.data;
+      }
+      if (declared !== undefined) {
+        const parsedRepositories = moduleRepositoriesSchema.safeParse(declared);
+        if (!parsedRepositories.success) {
+          throw new Error(`Invalid repositories for module "${manifest.name}": ${parsedRepositories.error.issues.map((i) => i.message).join("; ")}`);
+        }
+        repositories = [...new Set(parsedRepositories.data)];
       }
       domainConfig = domain;
     }
@@ -182,6 +210,7 @@ export async function loadModules(
       declaration: manifest,
       configInput,
       state: enabled ? "active" : "dormant",
+      ...(repositories ? { repositories } : {}),
     });
   }
 

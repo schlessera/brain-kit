@@ -20,6 +20,18 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Module repositories (additive, 0.45.0, #3380)
+
+A module's config block accepts an optional core-owned `repositories` list of
+repository URLs its cron jobs may read, and `brain module list --json` adds
+`repositories: string[]` to each configured module. The cron runner fetches a
+listed repository only when the operator's new `BRAIN_UI_MODULE_REPOSITORIES`
+host setting names it too; otherwise the job is refused before it starts. The
+host fetches with its sync credential into a private mirror, and the job's
+worker reads the mirror through a Git URL rewrite without any credential. See
+[the package API component](integration-contract/package-api.md#module-repositories).
+This ships in a minor; no breaking ruling is required.
+
 ## Module state area (additive, 0.45.0, #3380)
 
 A module keeps durable state in `<brain>/.brain-ui/modules/<module-name>/`,

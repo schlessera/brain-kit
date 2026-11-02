@@ -37,6 +37,7 @@ import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMod
 import { createGovernancePolicyReader } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
+import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
@@ -83,6 +84,11 @@ export interface BrainExecution {
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
   sync?: boolean;
+  /**
+   * @internal Host-fetched repositories a module cron job may read (#3380): each
+   * mirror read-only, with a Git URL rewrite onto it. Never a credential.
+   */
+  repositories?: readonly ModuleRepositoryAccess[];
   /** @internal Take the contention lock after writer-gate admission, never before it. */
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
   /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
@@ -452,6 +458,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     const argv = absoluteArgv(brain, execution.argv, path);
     // The wrapper runs inside the worker; one that is not there fails here, as a host spawn of it would.
     if (exec.wrapper && !existsSync(exec.wrapper)) throw new Error(`The exec wrapper ${exec.wrapper} does not exist`);
+    const repositories = execution.repositories?.length ? moduleRepositoryWorkerAccess(execution.repositories) : undefined;
     return {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
@@ -464,7 +471,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       credentials: execution.credentials,
       ...(relay ? { providerRelay: relay.dir, maskEnvFiles: true } : {}),
       ...(execution.credentials && options.home ? { home: options.home } : {}),
-      readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation()],
+      readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation(), ...(repositories?.readPaths ?? [])],
+      ...(repositories ? { gitConfig: repositories.gitConfig } : {}),
       maskPaths,
       ...(execution.writeFiles?.length ? { writeFiles: execution.writeFiles } : {}),
     };

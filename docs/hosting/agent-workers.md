@@ -654,6 +654,14 @@ refuses rather than run git on the host.
   process and must not load the brain's `bunfig.toml` or `.env`. The runner
   starts each repository job in the brain itself, in a maintenance worker,
   and reconciles any governed turn a dead server left behind first.
+- **A module job's repositories** are fetched by the host, never by the job
+  (#3380). Before a module job, the runner reads `brain module list --json`
+  in a credential-free worker. It fetches each repository the job's module
+  asks for only if `BRAIN_UI_MODULE_REPOSITORIES`, the operator's allow-list,
+  names it too, and refuses the job otherwise. The sync transport fetches
+  into a private mirror beside the sync mirror, using the sync credential.
+  The job's worker reads that mirror through a Git URL rewrite and holds no
+  Git credential. Leave the setting empty to fetch nothing.
 
 **When the boundary holds.** `governed` is the default profile, so the
 boundary holds wherever `governed` can run, and from then on for good: once

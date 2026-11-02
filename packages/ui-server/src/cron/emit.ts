@@ -19,6 +19,8 @@ export interface BrainModuleListEnabledModule {
   types: string[];
   commands: string[];
   cron: BrainModuleListCronEntry[];
+  /** Repositories the module's config asks the host to fetch for its jobs (#3380); absent from older CLIs. */
+  repositories?: string[];
 }
 
 /** One disabled-but-available module in the core CLI's module-list payload. */
@@ -309,6 +311,8 @@ export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
   "BRAIN_UI_EXEC_KILLER",
   "BRAIN_UI_MAINTENANCE_TEMP_BYTES",
   "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES",
+  // The operator's module repository allow-list (#3380): the runner reads it, no job receives it.
+  "BRAIN_UI_MODULE_REPOSITORIES",
 ];
 
 export function emitEnvironment(

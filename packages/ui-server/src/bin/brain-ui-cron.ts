@@ -12,6 +12,7 @@ import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/interna
 import { createNativeBrainLeaseManager } from "../brain/native-brain-leases.js";
 import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
 import { runDigest } from "../cron/digest.js";
+import { cronJobRepositories } from "../cron/job-repositories.js";
 import {
   emitCrontab,
   emitEnvironment,
@@ -202,6 +203,9 @@ if (subcommand === "run") {
       exec: config.exec,
       brainPath: config.brainPath,
       boundary: host.boundary,
+      // Module jobs only: the operator's allow-list, never the brain, bounds what is fetched (#3380).
+      repositories: cronJobRepositories({ boundary: host.boundary, dbPath: config.dbPath, moduleDiscoveryEnv: config.moduleDiscoveryEnv,
+        env: config.childEnv, allowList: config.moduleRepositories.allowed }),
     });
   } finally { await host.close(); }
   process.exit(code);

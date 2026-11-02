@@ -51,7 +51,7 @@ export function assertMirrorStorage(mirror: string): void {
 }
 
 /** Prepare only host-owned Git metadata, never evaluating the brain or its Git configuration. */
-function prepareMirror(mirror: string, brain: string): void {
+export function prepareMirror(mirror: string, brain: string): void {
   const parent = dirname(mirror);
   mkdirSync(parent, { recursive: true, mode: 0o700 });
   if (within(brain, realpathSync(parent))) throw new Error("the host sync mirror must be outside the brain");
@@ -85,8 +85,13 @@ async function origin(command: MaintenanceCommand): Promise<string | null> {
   return remote;
 }
 
-/** Host-owned transport input; no complete home, brain PATH, arbitrary extra env or repository helper reaches it. */
-export function syncTransportCommand(input: { brain: string; mirror: string; remote: string; env: MaintenanceCommand["env"]; args: readonly string[]; tempLimits?: MaintenanceCommand["tempLimits"]; tempDomain?: MaintenanceCommand["tempDomain"] }): MaintenanceCommand {
+/**
+ * Host-owned transport input; no complete home, brain PATH, arbitrary extra env or repository helper reaches it.
+ * The host credential goes to `https://github.com` only, or to `credentialOrigin` when a host-side caller names one.
+ */
+export function syncTransportCommand(input: { brain: string; mirror: string; remote: string; env: MaintenanceCommand["env"]; args: readonly string[]; tempLimits?: MaintenanceCommand["tempLimits"]; tempDomain?: MaintenanceCommand["tempDomain"];
+  /** @internal A fixture origin that receives the credential instead; never derived from repository input. */
+  credentialOrigin?: string }): MaintenanceCommand {
   const git = Bun.which("git", { PATH: "/usr/bin:/bin" });
   if (!git) throw new Error("host sync needs system git");
   const readPaths: string[] = [];
@@ -112,7 +117,7 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
       const socket = input.env.SSH_AUTH_SOCK;
       if (socket && existsSync(socket)) { readPaths.push(socket); env.SSH_AUTH_SOCK = socket; }
     }
-    if (url.protocol === "https:" && url.hostname === "github.com" && !url.port) {
+    if (input.credentialOrigin ? url.origin === input.credentialOrigin : url.protocol === "https:" && url.hostname === "github.com" && !url.port) {
       const token = input.env.BRAIN_UI_SYNC_GITHUB_TOKEN ?? input.env.GITHUB_TOKEN;
       if (token) env.BRAIN_SYNC_TOKEN = token;
     }

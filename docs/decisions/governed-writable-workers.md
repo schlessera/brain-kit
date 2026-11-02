@@ -543,7 +543,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:420-427`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:426-433`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
@@ -576,6 +576,29 @@ remote, through the mirror transport). The
 
 Forwarding a generic `GITHUB_TOKEN` into maintenance workers and restoring
 host-directory writes remain out of scope.
+
+A second ruling the same day settled how point 2 grants and finds a repository:
+
+3. **The grant is an intersection.** The module's config block declares the
+   repositories it wants (a core-owned `repositories` key), and the host
+   refuses any that the operator's allow-list, `BRAIN_UI_MODULE_REPOSITORIES`
+   in host configuration outside the brain, does not also name.
+   `brain.config.ts` is protected by default, but a governance policy may
+   release it to governed turns. Without the host list, a governed edit
+   could have turned the host credential into a read of every private
+   repository it reaches. With it, the brain can narrow the host's grant but
+   never widen it.
+4. **The runner maps a job to its module at run time.** Before each module
+   job, the runner runs a credential-free `brain module list --json`, which
+   reports each module's `repositories`, and matches the job by its
+   `<module>-<entry>` name and its command. Names alone are ambiguous because
+   both parts may contain `-`. The crontab layout stays as it is.
+
+A refused or failed fetch refuses the job before it starts. The fetch reuses
+the sync transport unchanged: the same fixed mirror configuration, the
+credential sent only to `https://github.com`, and a transport worker that
+never mounts the brain
+([the contract](../integration-contract/package-api.md#module-repositories)).
 
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
@@ -3943,7 +3966,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:511-522`).
+  `packages/ui-server/src/brain/host-boundary.ts:519-530`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -3986,8 +4009,8 @@ is now consumer-qualified independently of reference classification (#2028). The
 | Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
 
 This mapping was checked against core's (`loadModules`,
-`packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
-`packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
+`packages/core/src/lib/module-loader.ts:114-122`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:221-253`), Pi's (`build`,
 `packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
