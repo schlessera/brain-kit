@@ -53,14 +53,32 @@ export default defineConfig({
 });
 ```
 
-The one built-in name is `boat`, reserved for the separate first-party package
-`@schlessera/brain-compute-boat`, so vendor transport never ships inside core.
-Until that package ships, an instance naming `boat` is `provider_unavailable`.
-A built-in package is loaded only when an instance names it; it exports
-`computeProvider` and may export `defaultKeyEnv`, the variable an instance
-without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-446`).
+The one built-in name is `boat`, which resolves the separate first-party
+package `@schlessera/brain-compute-boat`, so vendor transport never ships
+inside core. Core declares it as an optional peer; an instance naming `boat`
+without the package installed is `provider_unavailable` and names the install
+it needs. A built-in package is loaded only when an instance names it; it
+exports `computeProvider` and may export `defaultKeyEnv`, the variable an
+instance without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-461`).
 Resolution gives each instance its own options and secret
-(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:486-532`).
+(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:515-561`).
+
+## The Boat built-in
+
+`@schlessera/brain-compute-boat` is the shipped worked example of this guide.
+It uses plain `fetch` through `ctx.fetch`, imports `@schlessera/brain` for
+types only and depends on nothing but `zod`. Its capabilities are fixed:
+detached commands, idempotent allocation and lookup by key, staging up to
+256 MiB, collection up to 50 MiB per file, retention for 14 days, a 30-day
+remote auto-stop and actual usage. Its default key variable is
+`BRAIN_COMPUTE_BOAT_API_KEY`, and its `options` are `machine`, `from`,
+`environment` and `org`. It creates every sandbox without Boat's account
+environment unless an instance names one, never treats a stop as a pause and
+never resumes a sandbox. The [package README](../../packages/compute-boat/README.md)
+documents the key actions it needs, the full mapping, the error table and
+Boat's retention, command-history and cost limitations. Its tests run both
+conformance suites below against an in-process fake of Boat's API
+(`packages/compute-boat/tests/contract.test.ts`).
 
 ## What a provider promises
 
@@ -77,6 +95,10 @@ Resolution gives each instance its own options and secret
   sandbox. With `findByKey`, `find(key)` locates an allocation whose response
   was lost. A provider with neither leaves a lost allocation unresolved; core
   then never allocates again for that job.
+- **Staged files carry bytes, not modes.** A `SourceBundle` file has a path,
+  a hash and its bytes; it carries no file mode, so a provider stages every
+  file as a regular, non-executable file. A job runs a staged script through
+  its interpreter (`sh build.sh`), not as `./build.sh`.
 - **Releasing twice is not an error.** A second `release` of a released
   sandbox reports `released`.
 - **Exit status is kept.** `poll` reports the exit code as the command
@@ -91,11 +113,15 @@ Resolution gives each instance its own options and secret
   explicit `env` allowlist the host passes.
 - **Unknown cost is `null`.** A `usage` report with unknown coverage has
   `usd: null`, never zero; core records it that way whatever the amount. A
-  `partial` report is kept but never settled: the reservation stays held
-  until a later report is complete.
+  `partial` report is kept as a lower bound. While the sandbox is not
+  released it is read again, up to five reads in all; once the sandbox is
+  released, or the reads are spent, the reservation is settled once as
+  unknown (`null`), never with the lower bound.
 - **`remoteExpiry`.** A provider that enforces its own auto-stop receives
   `remoteExpirySeconds` — the host lease plus the release allowance — as a
-  backstop for a host that dies. Without it, only the host bounds a job: in
+  backstop for a host that dies. Every allocate under one key, retry or
+  recovery, carries the same request, so a provider may check its
+  idempotency key against the request body. Without it, only the host bounds a job: in
   standalone use, a job whose host process stopped is bounded when it is next
   visited: a status, cancel or collect call on it, or a reconcile.
 
@@ -106,7 +132,7 @@ Core drives every job through `admitted`, `allocating`, `staging`, `running`,
 is unknown. Before each provider call it writes an intent receipt, and after
 it an outcome receipt, so a process that dies mid-call leaves a record that
 reconciliation resolves without repeating a non-idempotent effect
-(`private async resolveUncertain`, `packages/core/src/lib/compute/lifecycle.ts:362-396`):
+(`private async resolveUncertain`, `packages/core/src/lib/compute/lifecycle.ts:368-402`):
 
 - A lost allocation is retried under the same key when the provider is
   idempotent, looked up when it can find by key, and otherwise left

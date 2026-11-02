@@ -251,15 +251,17 @@ describe("a command that ended before the first visit after its lease", () => {
 });
 
 describe("provider cost coverage", () => {
-  function withUsage(usage: () => { usd: number | null; seconds: number | null; coverage: "complete" | "partial" | "unknown" }) {
+  type Report = { usd: number | null; seconds: number | null; coverage: "complete" | "partial" | "unknown" };
+  function withUsage(usage: () => Report, instance: Record<string, unknown> = {}) {
     box = sandbox();
     const clock = fakeClock();
     const memory = memoryCompute({ clock });
     const settled: [string, number | null][] = [];
+    let reads = 0;
     const budget = { reserve: () => "ok" as const, settle: (id: string, usd: number | null) => void settled.push([id, usd]) };
-    const provider: ComputeProvider = { ...memory.provider, usage: async () => usage() };
-    const svc = service(box, { providers: { ithaca: { provider, lease: { maxSeconds: 600 }, hourlyCeilingUsd: 6 } } }, { clock, budget });
-    return { svc, settled };
+    const provider: ComputeProvider = { ...memory.provider, usage: async () => (reads++, usage()) };
+    const svc = service(box, { providers: { ithaca: { provider, lease: { maxSeconds: 600 }, hourlyCeilingUsd: 6, ...instance } } }, { clock, budget });
+    return { svc, settled, reads: () => reads };
   }
 
   test("a zero with unknown coverage is unknown, never zero, and settles as unknown", async () => {
@@ -269,10 +271,11 @@ describe("provider cost coverage", () => {
     expect(settled).toEqual([[done.id, null]]);
   });
 
-  test("partial coverage is recorded but never settled as final; the reservation is held until coverage is complete", async () => {
-    let report: { usd: number | null; seconds: number | null; coverage: "complete" | "partial" | "unknown" } = { usd: 0.5, seconds: 300, coverage: "partial" };
-    const { svc, settled } = withUsage(() => report);
+  test("a retained sandbox's partial report is held and read again until it is complete", async () => {
+    let report: Report = { usd: 0.5, seconds: 300, coverage: "partial" };
+    const { svc, settled } = withUsage(() => report, { retainOnRelease: true });
     const done = await status(svc, (await started(svc, ["exit", "0"])).id);
+    expect(done.cleanup.state).toBe("retained");
     expect(settled).toEqual([]);
     expect(done.cost.actual).toEqual({ usd: 0.5, coverage: "partial", source: "provider" });
     report = { usd: 0.7, seconds: 420, coverage: "complete" };
@@ -281,6 +284,36 @@ describe("provider cost coverage", () => {
     expect(settled).toEqual([[done.id, 0.7]]);
     await status(svc, done.id);
     expect(settled.length).toBe(1);
+  });
+
+  test("a released sandbox's partial report is final: recorded as partial and settled once as unknown", async () => {
+    const { svc, settled, reads } = withUsage(() => ({ usd: 0.5, seconds: 300, coverage: "partial" }));
+    const done = await status(svc, (await started(svc, ["exit", "0"])).id);
+    expect([done.cleanup.state, done.cost.actual]).toEqual(["released", { usd: 0.5, coverage: "partial", source: "provider" }]);
+    expect(settled).toEqual([[done.id, null]]);
+    await status(svc, done.id);
+    await status(svc, done.id);
+    expect([settled.length, reads()]).toEqual([1, 1]);
+  });
+
+  test("a report that stays partial settles as unknown once the reads are spent, never held forever", async () => {
+    const { svc, settled, reads } = withUsage(() => ({ usd: 0.5, seconds: 300, coverage: "partial" }), { retainOnRelease: true });
+    const id = (await started(svc, ["exit", "0"])).id;
+    for (let i = 0; i < 10; i++) await status(svc, id);
+    const done = await status(svc, id);
+    expect(done.cost.actual).toEqual({ usd: 0.5, coverage: "partial", source: "provider" });
+    expect([settled, reads()]).toEqual([[[id, null]], 5]);
+  });
+
+  test("an unknown reading after a partial one keeps the lower bound and reads again", async () => {
+    let report: Report = { usd: 0.5, seconds: 300, coverage: "partial" };
+    const { svc, settled } = withUsage(() => report, { retainOnRelease: true });
+    const id = (await started(svc, ["exit", "0"])).id;
+    expect((await status(svc, id)).cost.actual.coverage).toBe("partial");
+    report = { usd: null, seconds: null, coverage: "unknown" };
+    const done = await status(svc, id);
+    expect(done.cost.actual).toEqual({ usd: 0.5, coverage: "partial", source: "provider" });
+    expect(settled).toEqual([]);
   });
 });
 

@@ -435,7 +435,22 @@ export interface ComputeBuiltin {
  * not a literal, so the compiler resolves no package core does not declare.
  */
 export async function loadComputePackage(specifier: string): Promise<{ provider: ComputeProvider; keyEnv?: string }> {
-  const mod = (await import(specifier)) as { computeProvider?: ComputeProvider; defaultKeyEnv?: unknown };
+  let mod: { computeProvider?: ComputeProvider; defaultKeyEnv?: unknown };
+  try {
+    mod = (await import(specifier)) as typeof mod;
+  } catch (error) {
+    const message = (error as Error)?.message ?? String(error);
+    if (/cannot find (package|module)/i.test(message)) {
+      // The package resolves but something it imports does not: a broken
+      // install, not a missing one, and reinstalling core's peer would not help.
+      const missing = /cannot find (?:package|module) ['"]([^'"]+)['"]/i.exec(message)?.[1];
+      if (missing !== undefined && missing !== specifier && resolves(specifier)) {
+        throw new Error(`${specifier} is installed but cannot load its dependency ${missing}; reinstall it`);
+      }
+      throw new Error(`${specifier} is not installed; install it beside @schlessera/brain to use it`);
+    }
+    throw error;
+  }
   if (!mod.computeProvider || typeof mod.computeProvider !== "object") {
     throw new Error(`${specifier} does not export a computeProvider`);
   }
@@ -445,16 +460,30 @@ export async function loadComputePackage(specifier: string): Promise<{ provider:
   };
 }
 
+function resolves(specifier: string): boolean {
+  try {
+    import.meta.resolve(specifier);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * `boat` is reserved for the separate first-party Boat package. Until that
- * package and core's declaration of it ship, naming it leaves the instance
- * `provider_unavailable`; nothing is imported.
+ * First-party compute packages, by built-in name. Each is an optional peer of
+ * core, held in this object literal and imported through a non-literal
+ * specifier, so the compiler resolves nothing and an install without it
+ * still loads core.
+ */
+const COMPUTE_PACKAGES = { boat: "@schlessera/brain-compute-boat" } as const;
+
+/**
+ * `boat` resolves the separate first-party Boat package, imported only when
+ * an instance names it. Without the package installed the instance is
+ * `provider_unavailable`, naming the install it needs.
  */
 export const COMPUTE_PROVIDERS: Record<string, ComputeBuiltin> = {
-  boat: {
-    load: () =>
-      Promise.reject(new Error("it ships as the separate package @schlessera/brain-compute-boat, which this release does not include yet")),
-  },
+  boat: { load: () => loadComputePackage(COMPUTE_PACKAGES.boat) },
 };
 
 type ComputeInstanceConfig = NonNullable<BrainConfig["compute"]>["providers"][string];

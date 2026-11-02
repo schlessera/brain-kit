@@ -1168,10 +1168,9 @@ compute operation except health refused with `compute_disabled`. The twelve
 refusal codes are the stable `ComputeRefusalCode` values. The environment
 inputs `BRAIN_COMPUTE_STATE_DIR` and `XDG_STATE_HOME` place the compute state
 directory, which must lie outside the brain checkout and is never `brain.db`.
-The built-in name `boat` is reserved for the separate
-`@schlessera/brain-compute-boat` package; until it ships, an instance naming it
-is `provider_unavailable`, and that package's exports will be its own
-component.
+The built-in name `boat` resolves the separate
+`@schlessera/brain-compute-boat` package, core's optional peer; its exports
+are [their own component](#boat-compute-provider-additive-3106).
 
 The job lifecycle, store and reconciliation are first-party sharing through
 `@schlessera/brain/internal` with no compatibility promise; the CLI and MCP
@@ -1179,6 +1178,26 @@ operations and their JSON shapes are specified with their own component when
 they ship. [The decision](../decisions/external-compute.md) is the contract
 design and [the guide](../extending/compute-providers.md) the authoring
 reference.
+
+<a id="boat-compute-provider-additive-3106"></a>
+
+### Boat compute provider (additive, #3106)
+
+`@schlessera/brain-compute-boat` is a new lockstep package and core's optional
+peer. Its root entry exports `computeProvider` (the `ComputeProvider` the
+`boat` built-in resolves to, id `"boat"`), `defaultKeyEnv`
+(`"BRAIN_COMPUTE_BOAT_API_KEY"`), `BOAT_CAPABILITIES`, `boatOptionsSchema`
+with its `BoatOptions` type, and `BOAT_MACHINES`. The instance `options` it
+accepts are `machine`, `from`, `environment` and `org`, validated strictly.
+It imports `@schlessera/brain` for types only, depends at runtime on `zod`
+alone, ships no vendor SDK and no install script, and makes no request until a
+provider method is called. Core loads it lazily; an instance naming `boat`
+without it installed is `provider_unavailable`. Its behaviour against Boat
+(credential-free sandboxes, readiness, stop as release rather than pause,
+retention, cost and the error table) is specified in the
+[package README](../../packages/compute-boat/README.md); its conformance is
+the two suites above. Boat's environment variable for its own CLI is never
+read.
 
 <a id="dictation-speech-integration-and-conformance"></a>
 

@@ -479,3 +479,64 @@ choices "Still open" assigned to it, within the bounds above:
 - **Partial cost.** A usage report with `partial` coverage is recorded and not
   settled, so the reservation stays held until a later report is complete.
   Unknown coverage is recorded as `usd: null` whatever amount came with it.
+
+## Settled by #3106
+
+[#3106](https://github.com/schlessera/brain-kit/issues/3106) settled the
+choices "Still open" assigned to it, within the bounds above:
+
+- **Dependency declaration.** `@schlessera/brain-compute-boat` depends at
+  runtime on `zod` alone and imports `@schlessera/brain` for types only. Each
+  package declares the other as an optional peer ranged `*`; the Boat package
+  also takes core as a workspace dev dependency for the conformance suites.
+  Core holds the specifier in an object literal and imports it through a
+  non-literal `import()` only when an instance names `boat`, so the two
+  optional peers form no runtime cycle and an install without the package
+  still loads core. A missing package is `provider_unavailable` with the
+  install it needs. No vendor SDK and no install script ship.
+- **Default credential variable.** `BRAIN_COMPUTE_BOAT_API_KEY`, not the
+  variable Boat's own CLI reads, so a broad key exported for that CLI is never
+  used by a job without the operator naming it in `apiKeyEnv`. The adapter
+  needs a scoped key with run-only actions (Boat's `ci` preset); account
+  administration is never required.
+- **Options.** `machine`, `from`, `environment` and `org`, all optional and
+  validated strictly. A setup script, files at create, sandbox `env`, hosted
+  ports and the API base URL are deliberately not options; the base URL is
+  fixed and tests replace `ctx.fetch`. Without `environment` a sandbox is
+  created with `noEnv`, also from a snapshot. Capabilities are fixed per
+  provider, not per instance, because the seam's `capabilities` is a property
+  of the implementation.
+- **Lifecycle mapping.** Readiness is the sandbox state (`ready`, `idle`,
+  `running`); setup and hydration are not waited for. A retained release
+  stops without `force` and the adapter never resumes, so a stop never reads
+  as a pause. Actual cost is the dollars of Boat's usage report, and unknown
+  without one.
+
+Boat's public documentation and OpenAPI description were rechecked on
+2026-11-02 for this, without credentials. Where they differ, the OpenAPI
+description was followed: it names the command conflict and machine errors
+`boat_starting` and `boat_direct_failed` where the guides say
+`sandbox_starting` and `sandbox_direct_failed`, so both are accepted; and
+`dataExpiredAt` is the time stopped data was deleted, so a retention deadline
+is computed from the stop, not read from it.
+
+Review of #3106 refined two of #3105's rules:
+
+- **Settling partial cost.** Once cleanup is `released` the sandbox accrues
+  nothing more, so a `partial` report then is final: it is recorded as
+  `partial` with its amount, a lower bound. A sandbox not yet released is read
+  again, at most five times in all, and then settled with whatever the last
+  read gave. The budget ledger takes a single amount, so only `complete`
+  coverage settles with its dollars; `partial` and `unknown` settle as `null`
+  (unknown), never as zero and never as the lower bound. An unknown read never
+  replaces an earlier partial one. A reservation is therefore settled exactly
+  once, whichever process reaches it. Boat's usage report is gone once its
+  sandbox is deleted, so the adapter reads usage just before a discard and
+  keeps that reading in process memory only; another process reads unknown,
+  and both settle the ledger the same way.
+- **One allocate request per key.** Every allocate under a job's key, a
+  retry or the recovery for release, carries the same request. Remote expiry
+  is the lease plus the release allowance, counted from the allocate call,
+  rather than what remains of the lease, so a provider that rejects a reused
+  idempotency key with a different body (Boat answers `409
+  idempotency_key_reused`) never sees one.

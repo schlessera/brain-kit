@@ -151,7 +151,8 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
     source: "brain.config `compute.providers.<id>.apiKeyEnv`",
     description:
       "Credential for one external compute provider instance, read on the trusted host at call time " +
-      "and never forwarded into a sandbox, a job record or a result (default: the built-in's own name).",
+      "and never forwarded into a sandbox, a job record or a result (default: the built-in's own name, " +
+      "BRAIN_COMPUTE_BOAT_API_KEY for `boat`).",
   },
   {
     source: "call-time inherited environment snapshot (`inheritedEnv`)",

@@ -119,6 +119,39 @@ describe("a lost allocation response, then cancel or expiry", () => {
   });
 });
 
+describe("every allocate under one key sends the same request", () => {
+  function recording(caps: MemoryComputeOptions["capabilities"] = {}) {
+    box = sandbox();
+    const clock = fakeClock();
+    const memory = memoryCompute({ clock, capabilities: caps });
+    const requests: unknown[] = [];
+    const provider = { ...memory.provider, allocate: (req: Parameters<typeof memory.provider.allocate>[0], ctx: Parameters<typeof memory.provider.allocate>[1]) => (requests.push(req), memory.provider.allocate(req, ctx)) };
+    const svc = service(box, { providers: { ithaca: { provider, lease: { maxSeconds: 600 } } } }, { clock, releaseAllowanceSeconds: 120 });
+    return { clock, memory, svc, requests };
+  }
+
+  test("a retry after time has passed repeats the first request byte for byte", async () => {
+    const { clock, memory, svc, requests } = recording({ findByKey: false });
+    memory.lose("allocate");
+    const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["sleep", "60"], leaseSeconds: 300 });
+    clock.advance(45_500);
+    expect((await state(svc, run.ok ? run.job.id : "")).state).toBe("running");
+    expect(requests.length).toBe(2);
+    expect(JSON.stringify(requests[1])).toBe(JSON.stringify(requests[0]));
+    expect((requests[0] as { remoteExpirySeconds: number }).remoteExpirySeconds).toBe(420);
+  });
+
+  test("the recovery allocate for release, after the lease ended, repeats the first request too", async () => {
+    const { clock, memory, svc, requests } = recording({ findByKey: false });
+    memory.failTransport("allocate");
+    const run = await svc.run(PENELOPE, { instance: "ithaca", argv: ["sleep", "60"], leaseSeconds: 300 });
+    clock.advance(300_000);
+    expect((await state(svc, run.ok ? run.job.id : "")).state).toBe("expired");
+    expect(requests.length).toBe(2);
+    expect(JSON.stringify(requests[1])).toBe(JSON.stringify(requests[0]));
+  });
+});
+
 describe("a reconfigured instance", () => {
   test("a job started under other options or another credential variable gets no provider call until the configuration is restored", async () => {
     box = sandbox();

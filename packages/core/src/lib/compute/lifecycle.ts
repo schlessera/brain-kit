@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 
 import type { ResolvedComputeInstance } from "../registry.js";
 import type {
+  AllocateRequest,
   CommandStatus,
   ComputeContext,
   ComputeLogger,
@@ -51,7 +52,7 @@ const MAX_STEPS = 32;
 const MAX_ALLOCATE_ATTEMPTS = 3;
 const MAX_STAGE_ATTEMPTS = 3;
 const MAX_COLLECT_ATTEMPTS = 3;
-/** Re-reads of a partial usage report before the host stops asking; the reservation stays held. */
+/** Reads of a usage report before the host settles with what it has. */
 const MAX_USAGE_READS = 5;
 /** Grace after a call's deadline before the host stops waiting for it. */
 const ABORT_GRACE_MS = 250;
@@ -315,24 +316,29 @@ export class JobDriver {
     return false;
   }
 
+  /**
+   * The allocate request, from the job's fixed values only: every attempt
+   * under one key, retry or recovery, sends the same request, so a provider
+   * that checks an idempotency key against its request body never sees a
+   * different one. Remote expiry is the lease plus the release allowance,
+   * counted from the allocate call.
+   */
+  private allocateRequest(): AllocateRequest {
+    const job = this.job;
+    return {
+      key: job.allocation.key,
+      leaseSeconds: job.lease.seconds,
+      remoteExpirySeconds: this.caps.remoteExpiry ? Math.max(1, job.lease.seconds + job.lease.releaseAllowanceSeconds) : undefined,
+      retain: job.request.retain,
+    };
+  }
+
   private async allocate(): Promise<boolean> {
     const job = this.job;
-    const caps = this.caps;
-    const result = await this.effect("allocate", this.leaseDeadline(), (ctx) =>
-      this.provider.allocate(
-        {
-          key: job.allocation.key,
-          leaseSeconds: job.lease.seconds,
-          remoteExpirySeconds: caps.remoteExpiry
-            ? Math.max(1, Math.ceil((job.lease.deadline - this.now) / 1000) + job.lease.releaseAllowanceSeconds)
-            : undefined,
-          retain: job.request.retain,
-        },
-        ctx
-      ), () => {
-        job.state = "allocating";
-        job.allocation.attempts += 1;
-      });
+    const result = await this.effect("allocate", this.leaseDeadline(), (ctx) => this.provider.allocate(this.allocateRequest(), ctx), () => {
+      job.state = "allocating";
+      job.allocation.attempts += 1;
+    });
     switch (result.kind) {
       case "ok":
         job.allocation.sandbox = result.sandbox;
@@ -400,16 +406,7 @@ export class JobDriver {
     const result = await this.effect(
       "allocate",
       this.cleanupDeadline(),
-      (ctx) =>
-        this.provider.allocate(
-          {
-            key: job.allocation.key,
-            leaseSeconds: job.lease.seconds,
-            remoteExpirySeconds: this.caps.remoteExpiry ? Math.max(1, job.lease.releaseAllowanceSeconds) : undefined,
-            retain: job.request.retain,
-          },
-          ctx
-        ),
+      (ctx) => this.provider.allocate(this.allocateRequest(), ctx),
       () => {
         job.allocation.attempts += 1;
       }
@@ -646,18 +643,25 @@ export class JobDriver {
     const sandbox = job.allocation.sandbox;
     if (sandbox && this.caps.usage === "actual" && this.provider.usage) {
       const reads = job.receipts.filter((r) => r.step === "usage" && r.phase === "intent").length;
-      if (reads >= MAX_USAGE_READS) return false;
-      const usage = await this.effect("usage", this.cleanupDeadline(), (ctx) => this.provider.usage!(sandbox, ctx));
-      job.cost.actual = { ...normaliseUsage(usage), source: "provider" };
-      // A partial report is a lower bound: settling it would release the rest
-      // of the reservation, so it stays held until a later read is complete.
-      if (job.cost.actual.coverage === "partial") return false;
+      if (reads < MAX_USAGE_READS) {
+        const usage = await this.effect("usage", this.cleanupDeadline(), (ctx) => this.provider.usage!(sandbox, ctx));
+        const reading = normaliseUsage(usage);
+        // An unknown reading never replaces a lower bound an earlier one gave.
+        if (reading.coverage !== "unknown" || job.cost.actual.coverage !== "partial") job.cost.actual = { ...reading, source: "provider" };
+        // A partial report is a lower bound while the sandbox can still
+        // accrue, so it is read again. Once the sandbox is released nothing
+        // more accrues and no later read can complete it.
+        if (job.cost.actual.coverage === "partial" && job.cleanup.state !== "released" && reads + 1 < MAX_USAGE_READS) return false;
+      }
     } else {
       job.cost.actual = { usd: null, coverage: "unknown", source: "none" };
     }
     if (this.deps.budget) {
       try {
-        await this.deps.budget.settle(job.id, job.cost.actual.usd);
+        // The ledger takes one amount: a partial lower bound settled as the
+        // actual cost would release the rest of the reservation, so anything
+        // short of complete settles as unknown.
+        await this.deps.budget.settle(job.id, job.cost.actual.coverage === "complete" ? job.cost.actual.usd : null);
         this.note({ step: "settle", phase: "outcome", outcome: "settled" });
       } catch (error) {
         this.note({ step: "settle", phase: "outcome", outcome: "failed", detail: (error as Error).message });

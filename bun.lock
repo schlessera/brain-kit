@@ -37,6 +37,26 @@
         "@types/bun",
       ],
     },
+    "packages/compute-boat": {
+      "name": "@schlessera/brain-compute-boat",
+      "version": "0.44.0",
+      "dependencies": {
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@schlessera/brain": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "@schlessera/brain": "*",
+        "@types/bun": ">=1.3.0",
+      },
+      "optionalPeers": [
+        "@schlessera/brain",
+        "@types/bun",
+      ],
+    },
     "packages/core": {
       "name": "@schlessera/brain",
       "version": "0.44.0",
@@ -71,12 +91,14 @@
       "peerDependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.241",
         "@google/genai": "^2.24.0",
+        "@schlessera/brain-compute-boat": "*",
         "@schlessera/brain-render-puppeteer": "*",
         "@types/bun": ">=1.3.0",
       },
       "optionalPeers": [
         "@anthropic-ai/claude-agent-sdk",
         "@google/genai",
+        "@schlessera/brain-compute-boat",
         "@schlessera/brain-render-puppeteer",
         "@types/bun",
       ],
@@ -1098,6 +1120,8 @@
     "@schlessera/brain-backend-pi": ["@schlessera/brain-backend-pi@workspace:packages/ui-backend-pi"],
 
     "@schlessera/brain-common": ["@schlessera/brain-common@workspace:packages/common"],
+
+    "@schlessera/brain-compute-boat": ["@schlessera/brain-compute-boat@workspace:packages/compute-boat"],
 
     "@schlessera/brain-geo": ["@schlessera/brain-geo@workspace:packages/geo"],
 
