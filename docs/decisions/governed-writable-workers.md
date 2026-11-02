@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:227-231`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:230-234`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -1065,7 +1065,7 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the

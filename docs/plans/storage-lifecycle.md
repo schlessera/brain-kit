@@ -31,7 +31,7 @@ Use maintenance workers for repository code, the CLI and Git. Host routes may
 perform narrowly validated descriptor operations, as the journal/revert do;
 they must not evaluate brain configuration, hooks, filters or executables.
 The existing brain client supplies boundary execution
-(`async function execBrain`, `packages/ui-server/src/brain/client.ts:261-315`).
+(`async function execBrain`, `packages/ui-server/src/brain/client.ts:271-325`).
 Do not turn the new surface into a host command runner or an extension seam.
 
 Reuse existing authorization. A requested reversible, fully journaled edit
@@ -76,9 +76,9 @@ Source foundations for the matrix:
 - Staging eligibility, removal and acknowledgment are separate
   (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-82`).
 - Scratch pin loading and per-entry revalidation sit inside pruning
-  (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626-707`);
+  (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641-722`);
   explicit clean is different
-  (`export function cleanScratch`, `packages/core/src/lib/scratch.ts:710-728`).
+  (`export function cleanScratch`, `packages/core/src/lib/scratch.ts:725-743`).
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source
