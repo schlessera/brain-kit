@@ -1,10 +1,11 @@
 // Host-wide admission for heavy local commands (#2943): separate worktrees on
 // one machine share a limited number of slots instead of timing out together.
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { admissionLimit, admissionOrder, PREEMPTED_EXIT, readHistory, type AdmissionEntry } from "../scripts/host-admission.mjs";
+import { admissionLimit, admissionOrder, PREEMPTED_EXIT, readHistory, testLedgerFor, type AdmissionEntry } from "../scripts/host-admission.mjs";
+import { processIdentity } from "../scripts/workspace-lease.mjs";
 import { heavyTestReason, HEAVY_TEST_FILE_SECONDS } from "../scripts/test";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -184,6 +185,44 @@ describe("host admission ledger", () => {
     expect(readHistory(ledger).some(event => event.kind === "preempt-requested")).toBe(false);
     Bun.write(join(dir, "release"), "");
     expect(await Promise.all([holder.child.exited, fix.child.exited])).toEqual([0, 0]);
+  });
+
+  test("a descendant whose environment lost the slot marker still inherits its ancestor's slot", async () => {
+    const { dir, ledger, timings } = fixture();
+    // The nested heavy command's caller replaced its environment (as test
+    // fixtures and sandbox wrappers do), dropping BRAIN_HOST_ADMISSION.
+    const nested = `env -u BRAIN_HOST_ADMISSION ${process.execPath} -e 'const m = await import("${SCRIPT}"); ` +
+      `const code = await m.ensureHostAdmission("nested"); console.log(code === undefined ? "NESTED_INHERITED" : "NESTED_QUEUED"); process.exit(code ?? 0)'`;
+    const holder = admit(join(dir, "ithaca"), ledger, timings, nested);
+    expect(await Promise.race([holder.child.exited, Bun.sleep(8_000).then(() => "deadlocked")])).toBe(0);
+    expect(await holder.output).toContain("NESTED_INHERITED");
+  });
+
+  test("a descendant without a ledger directory finds its test process's private ledger", () => {
+    const own = testLedgerFor(process.pid, processIdentity(process.pid)!.start);
+    expect(existsSync(own), "the test preload creates this process's private ledger").toBe(true);
+    const child = Bun.spawnSync([process.execPath, "-e", `console.log((await import(${JSON.stringify(SCRIPT)})).ledgerDir({}))`],
+      { env: { PATH: process.env.PATH! }, stdout: "pipe", stderr: "pipe" });
+    expect(child.stdout.toString().trim(), child.stderr.toString()).toBe(own);
+  });
+
+  test("the admitted command receives the workspace lease descriptor, not only its marker", async () => {
+    // This test runs under the real workspace lease; a command in a nested
+    // user namespace can prove that inheritance only through the descriptor.
+    const { dir, ledger, timings } = fixture();
+    // Node, unlike Bun, gets no offline-harness child preload, which would
+    // itself forward the lease and hide a wrapper that dropped it.
+    const node = Bun.which("node");
+    if (!node) throw new Error("Lease forwarding proof requires node, as the browser wrapper does");
+    const child = Bun.spawn([node, SCRIPT, "run", "--poll-ms", "20", "--timings-out", timings, "--", "sh", "-c",
+      'echo "LEASE=$BRAIN_WORKSPACE_LEASE"; for f in /proc/$$/fd/*; do echo "FD $(basename $f) $(readlink $f)"; done'],
+      { cwd: dir, env: { ...process.env, ...env(ledger) }, stdout: "pipe", stderr: "pipe" });
+    children.push(child);
+    const [out, err] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(await child.exited, err).toBe(0);
+    const lease = JSON.parse(out.match(/^LEASE=(.*)$/m)![1]!);
+    const lock = realpathSync(join(ROOT, "tmp/workspace-operation/output.lock"));
+    expect(out, "LEASE_DESCRIPTOR_REACHES_THE_ADMITTED_COMMAND").toContain(`FD ${lease.fd} ${lock}`);
   });
 
   test("the limit defaults from the CPU count and is overridden by BRAIN_HOST_ADMISSION_LIMIT", () => {

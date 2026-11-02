@@ -169,7 +169,7 @@ Local import-graph feedback uses eight workers on the measured 32-CPU,
 47-GiB host. The default is
 `max(1, min(floor(cores / 4), floor(RAM * 0.7 / 2 GiB)))`, with
 `--import-graph-workers=N` as the override (`localUnitWorkerCount`,
-`scripts/unit-workers.ts:15-17`). Changed-mode workers use one fresh prepared
+`scripts/unit-workers.ts:16-18`). Changed-mode workers use one fresh prepared
 build and private overlay views; `unit-workers --private-tree` retains the
 ordinary private-build comparison. Hosted explicit-file partitions retain
 `balanceTests`, their private builds and N=2.

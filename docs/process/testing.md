@@ -435,17 +435,20 @@ contention.
 
 Heavy commands are the integrated default `bun run test` suite, runtime-host
 and native test selections, any selected file whose measured cost in
-`scripts/test-shard-costs.json` reaches 30 seconds, `check:pr --full`/`--all`
-and `bun run test:browser` (held on the host for the whole container run).
-Focused tests and default `check:pr` are not admitted. Nested heavy commands
-inherit their caller's slot. A wait is recorded as a `wait-started`/`wait-finished`
+`scripts/test-shard-costs.json` reaches 30 seconds, `check:pr --full`/`--all`,
+the parallel unit-worker queue (one slot for all its workers) and
+`bun run test:browser` (held on the host for the whole container run). Focused
+tests and default `check:pr` are not admitted. Nested heavy commands inherit
+their caller's slot, also when a caller replaced their environment: the
+ledger itself shows a live ancestor holding a slot. The admitted command
+receives the workspace lease's descriptor, as a nested user namespace needs. A wait is recorded as a `wait-started`/`wait-finished`
 pair with reason `other` through `scripts/ci-timings.ts record`
 ([coordination events](ci-throughput.md#record-coordination-and-incidents)).
 
 | Variable | Meaning |
 | --- | --- |
 | `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
-| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test preload gives each test process a private ledger unless a test names one. |
+| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test preload gives each test process a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
 | `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
 | `BRAIN_RED_MAIN_FIX` | The PR number of a declared red-main fix. Its commands are admitted ahead of every queued ordinary command; they do not preempt running ones. Equivalent to `run --red-main-fix <pr>`. |
 | `BRAIN_HOST_ADMISSION` | Internal: the slot an admitted command's descendants inherit. Never set it by hand. |
