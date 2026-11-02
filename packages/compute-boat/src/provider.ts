@@ -71,6 +71,8 @@ export const LABEL_INSTANCE = "brain-kit/instance";
 
 const READY = new Set(["ready", "idle", "running"]);
 const DEAD = new Set(["error", "cancelled", "archiving", "archived"]);
+/** How many killed commands and pre-deletion usage readings one process remembers. */
+const MEMORY_ENTRIES = 1024;
 /** Margin kept before the call deadline so the last answer still arrives in time. */
 const DEADLINE_MARGIN_MS = 1000;
 
@@ -103,6 +105,10 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
   const killed = new Set<string>();
   /** The usage read just before a discard, for a report after the sandbox is gone. */
   const lastUsage = new Map<string, { usd: number; seconds: number | null }>();
+  /** Both are process memory for a long-lived host: keep only the most recent entries. */
+  const bound = (store: Set<string> | Map<string, unknown>) => {
+    while (store.size > MEMORY_ENTRIES) store.delete(store.keys().next().value!);
+  };
 
   const begin = (ctx: ComputeContext) => {
     const red = createRedactor(ctx.secret);
@@ -343,7 +349,10 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
       // Not running, or its sandbox stopped: nothing is left to kill.
       if (status(r) === 404 || status(r) === 409) return { kind: "ok" };
       if (!ok(r)) return effectFailure(red, "stopping the command", r);
-      if (body(r).signaled !== false) killed.add(`${handle.sandbox.id}/${handle.id}`);
+      if (body(r).signaled !== false) {
+        killed.add(`${handle.sandbox.id}/${handle.id}`);
+        bound(killed);
+      }
       return { kind: "ok" };
     },
 
@@ -419,7 +428,10 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
     if (!lastUsage.has(id)) {
       const u = await readUsage(ctx, req, id);
       const usd = n(body(u).dollars);
-      if (ok(u) && usd !== undefined && usd >= 0) lastUsage.set(id, { usd, seconds: n(body(u).seconds) ?? null });
+      if (ok(u) && usd !== undefined && usd >= 0) {
+        lastUsage.set(id, { usd, seconds: n(body(u).seconds) ?? null });
+        bound(lastUsage);
+      }
     }
     const r = await req({
       method: "DELETE",
