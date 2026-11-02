@@ -136,6 +136,12 @@ export function createAttachmentRoutes(deps: AttachmentRoutesDeps): Hono<AppEnv>
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
+          // The reservation is the declared length: a longer body is refused
+          // before its extra bytes reach the disk uncharged.
+          if (hasLength && size > declared) {
+            await reader.cancel().catch(() => {});
+            throw invalid("The body is longer than its Content-Length.");
+          }
           // Stop at the first byte past the cap; nothing is buffered whole.
           if (size > ATTACHMENT_MAX_FILE_BYTES) {
             await reader.cancel().catch(() => {});
