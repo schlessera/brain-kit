@@ -133,14 +133,12 @@ describe("Files rail (sixth pass §3)", () => {
     view.unmount();
   });
 
-  test("Untrusted only is drawn, disabled, with its reason in mono — never omitted", async () => {
+  test("Marked untrusted (#2673) replaces the disabled Untrusted only filter", async () => {
     openFile({ path: "fresh.md", content: "x", kind: "text", mtime: Date.now() });
     const view = render(<FilePanel open onClose={() => {}} />);
     await act(flushPromises);
-    const toggle = view.getByRole("switch", { name: "Untrusted only" });
-    expect(toggle.getAttribute("aria-disabled")).toBe("true");
-    expect(toggle.getAttribute("tabindex")).toBe("-1");
-    expect(toggle.closest("[data-disabled-row]")!.textContent).toContain("needs provenance");
+    expect(view.queryByRole("switch", { name: "Untrusted only" })).toBeNull();
+    expect(view.container.querySelector("[data-untrusted-entry]")!.textContent).toContain("Marked untrusted");
     view.unmount();
   });
 });

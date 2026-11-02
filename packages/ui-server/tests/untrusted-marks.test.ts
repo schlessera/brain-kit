@@ -70,7 +70,7 @@ async function passwordApp() {
   return { t, owner, agent, asOwner: await as(owner), asReader: await as(agent) };
 }
 const q = (path: string) => `?path=${encodeURIComponent(path)}`;
-const mark = (call: (path: string, init?: RequestInit) => Promise<Response>, path: unknown) =>
+const mark = async (call: (path: string, init?: RequestInit) => Response | Promise<Response>, path: unknown) =>
   call("/api/files/untrusted", { method: "PUT", body: JSON.stringify({ path }) });
 
 test("a reader with read access marks; only the owner clears; direct requests cannot bypass either", async () => {
