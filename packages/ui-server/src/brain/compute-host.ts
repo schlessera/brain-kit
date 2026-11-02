@@ -889,7 +889,9 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       if (Object.keys(options.keys).length > 0 || openRows().length > 0) await coreModule();
       for (const provider of Object.keys(options.keys)) await builtin(provider);
       const disabled = disabledReason();
-      if (disabled) log("WARN", `hosted external compute is off: ${disabled}`);
+      // Only an operator who bound a credential expects compute to be on; an
+      // unconfigured host stays silent (its readiness still says why).
+      if (disabled && Object.keys(options.keys).length > 0) log("WARN", `hosted external compute is off: ${disabled}`);
       // A reservation whose job never got a host record (the process died
       // between reserving and recording it) settles as unknown: it keeps
       // counting at its reserved amount, never zero. No run is admitting yet.

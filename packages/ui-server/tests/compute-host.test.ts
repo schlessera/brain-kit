@@ -500,3 +500,25 @@ describe("ledger settlement", () => {
     expect(snapshot(), "SETTLED_ROW_NOT_REWRITTEN").toEqual(before);
   });
 });
+
+describe("boot", () => {
+  const recorder = () => {
+    const warnings: string[] = [];
+    return { warnings, log: { emit: (record: { severityText?: string; body?: unknown }) => { if (record.severityText === "WARN") warnings.push(String(record.body)); } } };
+  };
+
+  test("an unconfigured host boots silently: no bound credential, no warning (UNCONFIGURED_BOOT_SILENT)", async () => {
+    const { warnings, log } = recorder();
+    const f = fixture({ keys: {}, host: { stateMasked: false, log } as never });
+    await f.host.recover();
+    expect(warnings, "UNCONFIGURED_BOOT_SILENT").toEqual([]);
+    expect(f.host.status()).toMatchObject({ enabled: false, reason: "no compute credential is bound (BRAIN_UI_COMPUTE_KEYS)" });
+  });
+
+  test("a host with a bound credential that is still off says why at boot", async () => {
+    const { warnings, log } = recorder();
+    const f = fixture({ host: { stateMasked: false, log } as never });
+    await f.host.recover();
+    expect(warnings).toEqual([expect.stringContaining("hosted external compute is off: the host compute state directory is not masked from workers")]);
+  });
+});
