@@ -21,7 +21,7 @@ const laterJournalObjects = (kind: "TABLE" | "TRIGGER") => readdirSync(join(impo
   .filter(name => name.endsWith(".journal.sql"))
   .flatMap(name => [...readFileSync(join(import.meta.dir, "../migrations", name), "utf8").matchAll(new RegExp(`\\bCREATE\\s+${kind}\\s+journal\\.(\\w+)`, "gi"))].map(match => match[1]!));
 /** The journal's row counts for the tables the move carried, and every later table empty. */
-const movedCounts = (db: Database, before: Record<string, number>) => {
+const movedCounts = (db: Database) => {
   const after = counts(db, "journal");
   for (const name of laterJournalObjects("TABLE")) { expect(after[name], `LATER_JOURNAL_TABLE_STARTS_EMPTY_${name}`).toBe(0); delete after[name]; }
   return after;
@@ -64,7 +64,7 @@ test("a database from before the journal file moves every journal table, row and
   const db = createUiDb(f.path);
   try {
     expect(journalTables(db, "main"), "JOURNAL_MOVE_LEAVES_NO_TABLE_IN_UI_DATABASE").toEqual([]);
-    expect(movedCounts(db, before), "JOURNAL_MOVE_KEEPS_EVERY_ROW").toEqual(before);
+    expect(movedCounts(db), "JOURNAL_MOVE_KEEPS_EVERY_ROW").toEqual(before);
     expect(db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='index' AND name='turn_journal_session'").get(), "JOURNAL_MOVE_KEEPS_INDEXES").toEqual({ n: 1 });
     expect(db.query("PRAGMA journal.foreign_key_check").all(), "JOURNAL_MOVE_KEEPS_REFERENCES").toEqual([]);
     expect((db.query("SELECT name FROM journal.sqlite_schema WHERE type='trigger'").all() as { name: string }[]).map(row => row.name)
@@ -92,7 +92,7 @@ test("a move interrupted after copying is copied again, never duplicated, before
   const db = createUiDb(f.path);
   try {
     expect(journalTables(db, "main"), "JOURNAL_RERUN_DROPS_UI_COPIES").toEqual([]);
-    expect(movedCounts(db, before), "JOURNAL_RERUN_COPIES_EACH_ROW_ONCE").toEqual(before);
+    expect(movedCounts(db), "JOURNAL_RERUN_COPIES_EACH_ROW_ONCE").toEqual(before);
   } finally { f.close(db); }
 });
 
