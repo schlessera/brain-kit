@@ -1,0 +1,60 @@
+{
+  "schema": "brain-kit-wait-census-archive/1",
+  "issue": "https://github.com/schlessera/brain-kit/issues/3332",
+  "epic": "https://github.com/schlessera/brain-kit/issues/1849",
+  "previousAudit": "https://github.com/schlessera/brain-kit/issues/2763",
+  "archiveBase": "1c377ca76ac98409937e9c97774f8a11377bc2c8",
+  "measuredSource": {
+    "census": "3984040f199cbadbee6e4ce3f1beff816b68dc36",
+    "waitInventorySource": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+    "auditComparison": "8e9855e706ab43dc1bb5b822296f171431e2546d"
+  },
+  "collectedAt": "2026-11-02",
+  "expression": "git grep -n -E 'setTimeout|Bun.sleep|waitForTimeout|sleep\\(' <sha> -- tests experiments ':(glob)packages/*/tests/**'",
+  "classification": "rule-based; first matching rule in classify-waits.ts RULES",
+  "measuredDurations": false,
+  "files": [
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/README.md",
+      "bytes": 5029,
+      "sha256": "dba5c427cda9ae703c8338c0c830f2c5c8c71ec64907e1e6af1c10b1755a7104",
+      "gitBlob": "c33ae033281e51596734a9dc7ede82e39ac43cfd"
+    },
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/classify-waits.ts",
+      "bytes": 13962,
+      "sha256": "94dc5fcccf779cfb0c0a044db40afdf8d8905c2f14f6b5c9b29f38f5b68823f2",
+      "gitBlob": "d460a78e83bcbeb1da42ab8e0c81dfb001334291"
+    },
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/scope-files-added-after-8e9855e7.txt",
+      "bytes": 285,
+      "sha256": "04c62f491e5147c690f339d5429fd28bd8577f09a54b82a61b1b816ad2f5752c",
+      "gitBlob": "faf3ced104e774e21093cd17c3e7b6f91fae3fd3"
+    },
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/scope-files-new-since-5dc2595c.txt",
+      "bytes": 10919,
+      "sha256": "b339e978da6691c16b8f54b7c773c9578ddc2737f362092117a196fb1e7c2020",
+      "gitBlob": "a7221255d36914ee05a811f73ac8e2fde5c8c196"
+    },
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/summary.tsv",
+      "bytes": 579,
+      "sha256": "da804d70cfafbf5c075455220d6014360fc87d52029c0ffcca05c8b35c920339",
+      "gitBlob": "a6df49e3f92cca2832adf578611b946ec38f057d"
+    },
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/wait-census-files-3984040f.tsv",
+      "bytes": 42939,
+      "sha256": "3e2822eb89bfaced9f85d22a8f7557d09a5f6874a40dd5cc626d354fd5cc9e96",
+      "gitBlob": "26a9c4612e10c2379de5c8c0cc82d041ea2e8487"
+    },
+    {
+      "path": "scripts/measurements/wait-census-3332-2026-11-02/wait-census-lines-3984040f.tsv",
+      "bytes": 215364,
+      "sha256": "6acdd2f064cc45999c3430eb41a0d467ea975a80a69dc05822f9195ed2434ea1",
+      "gitBlob": "25344cdd31dff33025fdc32b00bd0ee964322471"
+    }
+  ]
+}

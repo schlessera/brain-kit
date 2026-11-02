@@ -216,3 +216,17 @@ Use the bundle's full containing commit when citing it. Verify its own
 `SHA256SUMS`; the top-level manifest/checksums still describe only the original
 snapshot. Every before/after figure in this bundle is uncontrolled: the runs
 differ in source, runner image and shard layout.
+
+## Real-time wait re-census — 2026-11-02 (#3332)
+
+This later bundle is separate from the original snapshot and from the earlier
+bundles. It re-runs the #2763 audit's wait census at `main`
+`3984040f199cbadbee6e4ce3f1beff816b68dc36` and gives every match in a file
+added since the #1849 inventory source (`5dc2595c`) a role and a verdict, for
+https://github.com/schlessera/brain-kit/issues/3332. Files, commands, rules
+and limits are in `scripts/measurements/wait-census-3332-2026-11-02/README.md`.
+
+Use the bundle's full containing commit when citing it. Verify its own
+`SHA256SUMS`; the top-level manifest and checksums still describe only the
+original snapshot. The classification is rule-based and does not measure
+execution time.
