@@ -114,7 +114,7 @@ test("focused and full local CLI refuse setup before downstream proof while plan
   // helpers. Planning must inspect this tiny Git root, never the worker checkout.
   cpSync(join(owner, "scripts/check-pr.ts"), entry);
   expect(readFileSync(entry)).toEqual(readFileSync(join(owner, "scripts/check-pr.ts")));
-  for (const helper of ["ci-plan", "ci-runner", "check-packages"]) {
+  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt"]) {
     writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
   }
   writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"] }));

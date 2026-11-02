@@ -4,7 +4,9 @@ import { scanText } from "./check-leakage";
 import { GitReservationStore, assertLease, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
 import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
-import { declareFix, type RedMainRecord } from "./red-main";
+import { declareFix, recordExpedited, type RedMainRecord } from "./red-main";
+import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
+import { receiptFromBody, receiptRefusal } from "./check-receipt";
 import type { API } from "./proof-reuse";
 
 async function gh(...args: string[]): Promise<string> {
@@ -69,6 +71,18 @@ if (import.meta.main) {
     }
     throw new Error("Concurrent coordination update; bounded retries exhausted");
   }
+  /** Durable record of an expedited fix: the red-main record (coordination ref history) and a ci-timings event. */
+  async function recordExpeditedFix(desired: Candidate, fixesRun: number, squash: string, evidence: Awaited<ReturnType<typeof expeditedEvidence>>) {
+    try {
+      await changeRedMain((record, now) => recordExpedited(record, { pr: desired.pr, head: desired.head, base: desired.base, squash,
+        baseProbe: evidence.baseProbe!.run, headProbe: evidence.headProbe!.run, feedbackRun: evidence.feedback!.run, actor, at: now }, now));
+      const dir = `${store!.root}/tmp/ci-timings`, file = `${store!.root}/tmp/expedited-fix-${desired.pr}.json`;
+      await Bun.write(file, JSON.stringify({ kind: "expedited-fix", pr: desired.pr, run: fixesRun,
+        evidence: `https://github.com/${repository}/actions/runs/${evidence.headProbe!.run}` }));
+      const child = Bun.spawnSync([process.execPath, `${import.meta.dir}/ci-timings.ts`, "record", "--repo", repository, "--event", file, "--out", dir], { stdout: "pipe", stderr: "pipe" });
+      if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr).trim());
+    } catch (error) { console.error(`Expedited fix merged but its record is incomplete; record it by hand: ${String(error)}`); }
+  }
   function heartbeat() {
     timer = setInterval(() => { pending = pending.then(async () => { if (!lost) try { await renew(); } catch (error) { lost = error; } }); return pending; }, RENEW_MS);
   }
@@ -87,11 +101,54 @@ if (import.meta.main) {
       if (issue.milestone?.title !== live.milestone.title) throw new Error(`Release milestone mismatch: ${ref}`);
     }
   }
-  async function merge(issueRefs: string[]) {
+  async function probeRuns(): Promise<any[]> {
+    return (await api.json(`actions/workflows/red-main-probe.yml/runs?event=workflow_dispatch&per_page=50`)).workflow_runs ?? [];
+  }
+  async function fixProbe(source: number, sha: string, after = 0): Promise<ProbeEvidence | null> {
+    const run = (await probeRuns()).filter(r => r.display_title === fixProbeTitle(source, sha) && r.id > after).sort((a, b) => b.id - a.id)[0];
+    if (!run) return null;
+    if (run.status !== "completed") return { run: run.id, status: run.status, conclusion: null, receipt: null };
+    const jobs = (await api.json(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`)).jobs ?? [];
+    const job = jobs.find((entry: { name: string }) => entry.name === "probe");
+    return { run: run.id, status: "completed", conclusion: run.conclusion, receipt: job ? probeReceipt(await api.log(job.id)) : null };
+  }
+  async function feedbackEvidence(desired: Candidate): Promise<FeedbackEvidence | null> {
+    const run = await latestIntegrationRun(api, "ci.yml", desired);
+    if (!run) return null;
+    const jobs = (await api.json(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`)).jobs ?? [];
+    const find = (name: string) => jobs.find((job: { name: string }) => job.name === name);
+    const done = (job: any) => job?.status === "completed" ? job.conclusion as string : null;
+    const changeset = find("changeset");
+    const cadence = done(changeset) ? /"cadence":\s*"(\w+)"/.exec(await api.log(changeset.id))?.[1] ?? null : null;
+    return { run: run.id, cadence, changeset: done(changeset), verify: done(find("verify")) };
+  }
+  /** Expedited fix evidence for the exact candidate; throws the ruling's refusals. */
+  async function expeditedEvidence(desired: Candidate, fixesRun: number, after = { probe: 0, run: 0 }) {
+    const tests = expeditedTests(store!.read().redMain, fixesRun);
+    for (const sha of [desired.head, desired.base]) if (Bun.spawnSync(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: store!.root }).exitCode !== 0) store!.git(["fetch", "origin", sha]);
+    const deleted = store!.git(["diff", "--name-only", "--no-renames", "--diff-filter=D", `${desired.base}...${desired.head}`]).split("\n").filter(Boolean);
+    const run = await feedbackEvidence(desired), feedback = run && run.run > after.run ? run : null;
+    const [baseProbe, headProbe] = [await fixProbe(fixesRun, desired.base, after.probe), await fixProbe(fixesRun, desired.head, after.probe)];
+    return { tests, baseProbe, headProbe, feedback, problems: expeditedProblems({ tests, base: desired.base, head: desired.head, deleted, baseProbe, headProbe, feedback }) };
+  }
+  async function merge(issueRefs: string[], fixesRun?: number, after?: { probe: number; run: number }) {
     if (!own) throw new Error("Explicit owned reservation required");
     heartbeat();
     const desired = own.candidate;
-    const proof = await verifyIntegrationProof(store!.root, repository, desired, api, sha => { store!.git(["fetch", "origin", sha]); });
+    let tree: string, candidateRun: number, expedited: Awaited<ReturnType<typeof expeditedEvidence>> | undefined;
+    if (fixesRun === undefined) {
+      const proof = await verifyIntegrationProof(store!.root, repository, desired, api, sha => { store!.git(["fetch", "origin", sha]); });
+      const refusal = receiptRefusal((await api.json(`pulls/${desired.pr}`)).body, proof.covered);
+      if (refusal) throw new Error(refusal);
+      tree = proof.checkout.tree; candidateRun = proof.run;
+    } else {
+      expedited = await expeditedEvidence(desired, fixesRun, after);
+      if (expedited.problems.length) throw new Error(`Expedited fix proof refused: ${expedited.problems.join("; ")}`);
+      // The squash must equal the exact base merged with the exact probed head.
+      const merged = Bun.spawnSync(["git", "merge-tree", "--write-tree", desired.base, desired.head], { cwd: store!.root, stdout: "pipe", stderr: "pipe" });
+      if (merged.exitCode !== 0) throw new Error("The fix head does not merge cleanly onto the exact base");
+      tree = new TextDecoder().decode(merged.stdout).split("\n")[0]!.trim(); candidateRun = expedited.feedback!.run;
+    }
     await milestones(desired.pr, issueRefs);
     await stopHeartbeat();
     if (lost) throw lost;
@@ -102,24 +159,30 @@ if (import.meta.main) {
     const merged = await api.json(`pulls/${desired.pr}`);
     if (!merged.merged || !merged.merge_commit_sha) throw new Error("Merge not complete; no delivery claim");
     const commit = await api.json(`git/commits/${merged.merge_commit_sha}`);
-    if (commit.parents?.length !== 1 || commit.parents[0]?.sha !== desired.base || commit.tree?.sha !== proof.checkout.tree) throw new Error("Actual squash parent/tree differ; reconcile actual main before claiming completion");
+    if (commit.parents?.length !== 1 || commit.parents[0]?.sha !== desired.base || commit.tree?.sha !== tree) throw new Error("Actual squash parent/tree differ; reconcile actual main before claiming completion");
     store!.git(["fetch", "origin", "main"]); store!.git(["merge-base", "--is-ancestor", merged.merge_commit_sha, "origin/main"]);
     await milestones(desired.pr, issueRefs);
     await change({ kind: "release", id: own.id }); own = undefined;
+    if (expedited) await recordExpeditedFix(desired, fixesRun!, merged.merge_commit_sha, expedited);
     const main = await api.json(`actions/workflows/ci.yml/runs?event=push&head_sha=${merged.merge_commit_sha}&per_page=10`);
     const mainProof = "pending; inspect actual main jobs before claiming full completion";
     const observedMainConclusion = main.workflow_runs?.[0]?.conclusion ?? null;
-    console.log(JSON.stringify({ merged: true, sha: merged.merge_commit_sha, candidateRun: proof.run, mainProof, observedMainConclusion }));
+    console.log(JSON.stringify({ merged: true, sha: merged.merge_commit_sha, candidateRun, mainProof, observedMainConclusion,
+      ...(expedited ? { expedited: { fixesMainRun: fixesRun, baseProbe: expedited.baseProbe!.run, headProbe: expedited.headProbe!.run,
+        backstop: "the next main run includes the open red set; only its green result clears the record" } } : {}) }));
     process.exitCode = 2; // A run summary alone never completes actual main proof reconciliation.
   }
   try {
     const [command, target, ...options] = process.argv.slice(2), values = new Map<string, string>();
     for (let index = 0; index < options.length; index += 2) {
       const key = options[index]!, value = options[index + 1];
-      if (!["--issues", "--lease"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
+      if (!["--issues", "--lease", "--fixes-main-run"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
       values.set(key, value);
     }
     const issues = values.has("--issues") ? values.get("--issues")!.split(",") : [];
+    const fixesRun = values.has("--fixes-main-run") ? Number(values.get("--fixes-main-run")) : undefined;
+    if (fixesRun !== undefined && (!/^[1-9]\d*$/.test(values.get("--fixes-main-run")!) || !Number.isSafeInteger(fixesRun))) throw new Error("--fixes-main-run needs a main CI run ID");
+    if (fixesRun !== undefined && !["confirm", "merge"].includes(command ?? "")) throw new Error("--fixes-main-run applies to confirm and merge only");
     if (issues.some(value => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/.test(value)) || issues.length > 100) throw new Error("Invalid delivered issue identities");
     repository = await gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner");
     const user = JSON.parse(await gh("api", "user")); actor = user.id;
@@ -154,6 +217,13 @@ if (import.meta.main) {
         if (current && current.id === values.get("--lease") && current.actor === actor && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
+      if (fixesRun !== undefined) {
+        // Refuse a run that is not the open record's, or category-only failures, before any write.
+        expeditedTests(store.read().redMain, fixesRun);
+        console.log(JSON.stringify({ declared: (await changeRedMain((record, now) => declareFix(record, desired.pr, now))).open?.fixes }));
+      } else if (command !== "acquire" && !receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) {
+        throw new Error(receiptRefusal("", new Set())!);
+      }
       refuseWhileRed(desired.pr);
       if (command === "merge") {
         const lease = values.get("--lease");
@@ -161,7 +231,30 @@ if (import.meta.main) {
         const state = store.read().state;
         if (state.active?.id === lease && state.active.actor === actor) own = state.active;
         assertLease(state, lease, actor, desired, await clock());
-        await merge(issues);
+        await merge(issues, fixesRun);
+      } else if (command === "confirm" && fixesRun !== undefined) {
+        own = await acquire(desired);
+        console.log(JSON.stringify({ acquired: own }));
+        heartbeat();
+        const tests = expeditedTests(store.read().redMain, fixesRun);
+        const after = { probe: Math.max(0, ...(await probeRuns()).map(r => r.id)), run: (await latestIntegrationRun(api, "ci.yml", desired))?.id ?? 0 };
+        for (const sha of [desired.base, desired.head]) await gh("api", "--method", "POST",
+          `repos/${repository}/actions/workflows/red-main-probe.yml/dispatches`, "-f", "ref=main", "-f", "inputs[purpose]=fix",
+          "-f", `inputs[source_run]=${fixesRun}`, "-f", `inputs[sha]=${sha}`, "-f", `inputs[tests]=${JSON.stringify(tests)}`);
+        const live = await api.json(`pulls/${desired.pr}`);
+        if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before the expedited request");
+        assertLease(store.read().state, own.id, actor, desired, await clock());
+        // A fresh ready request runs the exact-head affected fast invariants; the rest of that run is not waited for.
+        if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
+        await gh("pr", "ready", String(desired.pr), "--repo", repository);
+        while (!lost) {
+          const { baseProbe, headProbe, feedback } = await expeditedEvidence(desired, fixesRun, after);
+          const pending = [baseProbe, headProbe].some(probe => probe?.status !== "completed") || !feedback || feedback.changeset === null ||
+            (feedback.changeset === "success" && feedback.verify === null);
+          if (!pending) { await stopHeartbeat(); await merge(issues, fixesRun, after); break; }
+          await Bun.sleep(RENEW_MS);
+        }
+        if (lost) throw lost;
       } else {
         own = await acquire(desired);
         console.log(JSON.stringify({ acquired: own }));
@@ -189,7 +282,7 @@ if (import.meta.main) {
           if (lost) throw lost;
         }
       }
-    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id] [--issues owner/repo#N,...] | renew/release <id> | revoke <reason>");
+    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> | revoke <reason>");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
   } finally {

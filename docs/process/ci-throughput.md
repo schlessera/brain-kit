@@ -67,6 +67,7 @@ execution. It is not complete lifetime cost without complete lifetime coverage.
 | CI concurrency | Time-weighted executed-job overlap, peak and means while active/across the interval. Adjacent end-exclusive intervals do not invent overlap. |
 | PR verification concurrency | Distinct PRs with verification intervals, merging overlapping attempts of one PR. Includes queueing; not active agent count. |
 | Reservation occupancy | Authorized lease intervals, including inferred expiry. Time without observed candidate jobs includes queue/admission/verification and missing observations; not proven waste. |
+| Merge path | Per merged PR: `recorded` when the reservation history holds an `integrate.ts` lease for the merged head, `expedited` when an `expedited-fix` event names the PR, `unrecorded` when neither (a merge that bypassed `integrate.ts`), `unknown` when no reservation history was collected (`--reservations`). |
 
 Means, medians, p90 and sample counts accompany durations. First-main failing
 job categories and supplied failure classifications help distinguish pipeline
@@ -103,7 +104,10 @@ preserve every worker's archive, including unsuccessful/unmerged work.
 `failure-classified` requires run, attempt, classification (`product`, `test`,
 `infrastructure`, `stale-candidate`, `intentional-feedback`) and public repository
 evidence. `incident`/`revert` require affected `pr` and evidence; `relatedPR` can
-name a repair/revert. These are supplied annotations, not independently verified
+name a repair/revert. `expedited-fix` requires the fix `pr`, the failing main
+`run` and evidence (the head fix probe run); `integrate.ts --fixes-main-run`
+records it after an expedited squash
+([#2940](../decisions/ci-utility.md#expedited-red-main-fixes)). These are supplied annotations, not independently verified
 diagnoses. No incident surveillance means unknown overall incident rate.
 Arbitrary fields such as prompts, names, hosts and prose are refused. Keep event
 files with normalized snapshots under ignored `tmp/`, not in the public tree.

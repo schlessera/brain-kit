@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { GitReservationStore, emptyReservation, reservationTransition, MAX_MS } from "../scripts/integration-reservation";
 import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
+import { receiptBlock, type CheckReceipt } from "../scripts/check-receipt";
 import { invocationChild } from "../scripts/test-invocation-child";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
-type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; reads: string[]; state: ReturnType<GitReservationStore["read"]>["state"] };
+type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; reads: string[]; state: ReturnType<GitReservationStore["read"]>["state"];
+  redMain: ReturnType<GitReservationStore["read"]>["redMain"]; events: any[] };
 type Scenario = { dir?: string; child?: ReturnType<typeof invocationChild>; work?: Promise<ScenarioResult>; settled: boolean; beforeRead?: () => Promise<void> };
 const scenarios = new Set<Scenario>();
 let deadline: ReturnType<typeof setTimeout>, overdue = false, deadlineCleanup: Promise<void> | undefined;
@@ -61,10 +63,13 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
     expect(result.exitCode, new TextDecoder().decode(result.stderr)).toBe(0); return new TextDecoder().decode(result.stdout).trim();
   };
   setup(dir, "init", "--bare", remote); setup(root, "init"); setup(root, "remote", "add", "origin", remote);
-  writeFileSync(join(root, "README.md"), "Odysseus sails.\n"); setup(root, "add", ".");
+  writeFileSync(join(root, "README.md"), "Odysseus sails.\n"); mkdirSync(join(root, "tests"));
+  writeFileSync(join(root, "tests/raft.test.ts"), "// The raft breaks.\n"); setup(root, "add", ".");
   const base = setup(root, "commit-tree", setup(root, "write-tree"), "-m", "base");
   setup(root, "update-ref", "HEAD", base);
   writeFileSync(join(root, "raft.md"), "The crossing.\n"); setup(root, "add", ".");
+  // A targeted revert deletes the failing test file its reverted commit added.
+  if (mode === "expedite-revert") setup(root, "rm", "-q", "--cached", "tests/raft.test.ts");
   const tree = setup(root, "write-tree"), head = setup(root, "commit-tree", tree, "-p", base, "-m", "head");
   const synthetic = setup(root, "commit-tree", tree, "-p", base, "-p", head, "-m", "tested merge");
   const squash = setup(root, "commit-tree", tree, "-p", base, "-m", "actual squash");
@@ -73,8 +78,9 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   const id = "1".repeat(32), store = new GitReservationStore(root), snapshot = store.read();
   const state = mode === "missing" || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
   expect(store.publish(snapshot, state)).toBe(true);
-  if (mode.startsWith("red-main")) {
-    const failure = { test: "tests/raft.test.ts", category: "unit" as const, verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
+  if (mode.startsWith("red-main") || mode.startsWith("expedite-")) {
+    const failure = { test: mode === "expedite-category" ? null : "tests/raft.test.ts", category: mode === "expedite-category" ? "browser" as const : "unit" as const,
+      verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
     const red = openRed(emptyRedMain(), { firstBad: base, run: 11, failures: [failure] }, NOW);
     expect(store.publishRedMain(store.read(), mode === "red-main-fix" ? declareFix(red, 7, NOW) : red)).toBe(true);
   }
@@ -94,16 +100,26 @@ else
   exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 fi`); chmodSync(shim, 0o755);
   const gh = join(bin, "gh"), actual = { sha: synthetic, tree, parents: [base, head] };
+  const check = (name: string, categories: CheckReceipt["checks"][number]["categories"], outcome: CheckReceipt["checks"][number]["outcome"] = "passed") => ({ name, categories, outcome });
+  const receipt: CheckReceipt = { version: 1, kind: "brain-check-pr-receipt", head, base: "origin/main", mode: "focused", startedAt: "2026-07-12T00:00:00.000Z",
+    finishedAt: "2026-07-12T00:05:00.000Z", checks: [check("all lint and leakage gates", ["changeset"]), check("affected fast invariants", ["verify", "unit"]),
+      ...(mode === "receipt-uncovered" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "timed-out"), check("complete unit and integration suite", ["unit"], "preempted")] : []),
+      ...(mode === "browser-receipt-skipped" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "skipped")] : [])] };
+  const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${receiptBlock(receipt)}\n`;
+  const probeLog = (id: number) => (id === 401 ? { sha: base, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-base-green" ? 0 : 1 }
+    : mode === "expedite-revert" ? { sha: head, tests: [], absent: ["tests/raft.test.ts"], exitCode: 0 }
+    : { sha: head, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-head-red" ? 1 : 0 });
   writeFileSync(gh, `#!${process.execPath}
     import {readFileSync,writeFileSync} from "node:fs";
     import {GitReservationStore,reservationTransition} from ${JSON.stringify(library)};
     const args=process.argv.slice(2), file=${JSON.stringify(apiState)}, s=JSON.parse(readFileSync(file,"utf8"));
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
-    const refs=${JSON.stringify(refs)};s.reads??=[];
+    const refs=${JSON.stringify(refs)}, body=${JSON.stringify(body)}, probes=${JSON.stringify({ 401: probeLog(401), 402: probeLog(402) })};s.reads??=[];
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
     const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
     if(s.mode.startsWith("browser-")){selected.selections.browser="true";selected.results.browser="success";}
+    if(s.mode==="receipt-uncovered"){selected.selections.unit="false";}
     if(s.mode==="missing-selection")delete selected.selections.endurance;
     if(s.mode==="unexpected-skip"){selected.selections.endurance="true";selected.results.endurance="success";}
     const job=(id,name,conclusion="success")=>({id,name,status:"completed",conclusion,run_id:91,head_sha:head});
@@ -125,7 +141,10 @@ fi`); chmodSync(shim, 0o755);
       }
       if(args.includes("--include")){console.log("HTTP/2.0 200 OK\\nDate: "+new Date(s.now).toUTCString()+"\\n\\n{}");writeFileSync(file,JSON.stringify(s));process.exit(0);}
       if(path==="user")value={id:101,login:"odysseus"};
-      else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"}};
+      else if(path.includes("actions/workflows/red-main-probe.yml/runs"))value={workflow_runs:[[301,base,probes[401]],[302,head,probes[402]]].map(([id,sha,p])=>({id,run_attempt:1,status:"completed",conclusion:p.exitCode?"failure":"success",display_title:"red-main probe fix 11 "+sha}))};
+      else if(["/runs/301/attempts/1/jobs","/runs/302/attempts/1/jobs"].some(x=>path.includes(x)))value={jobs:[{id:path.includes("/301/")?401:402,name:"probe",status:"completed"}]};
+      else if(path.endsWith("actions/jobs/401/logs")||path.endsWith("actions/jobs/402/logs"))value="2026-07-12T00:00:00Z BRAIN_RED_MAIN_PROBE "+JSON.stringify({purpose:"fix",...probes[path.includes("/401/")?401:402]});
+      else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:[]};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
@@ -148,7 +167,8 @@ fi`); chmodSync(shim, 0o755);
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
     Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
-  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", delivered.join(",")], {
+  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", delivered.join(","),
+    ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])], {
     cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
   });
   owner.child = child;
@@ -159,7 +179,9 @@ fi`); chmodSync(shim, 0o755);
     await child.finish();
     if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
     await owner.beforeRead?.();
-    return { code, out, err, dispatched: existsSync(sentinel), reads: JSON.parse(readFileSync(apiState, "utf8")).reads ?? [], state: store.read().state };
+    const eventDir = join(root, "tmp/ci-timings");
+    const events = existsSync(eventDir) ? readdirSync(eventDir).filter(name => name.startsWith("event-")).map(name => JSON.parse(readFileSync(join(eventDir, name), "utf8"))) : [];
+    return { code, out, err, dispatched: existsSync(sentinel), reads: JSON.parse(readFileSync(apiState, "utf8")).reads ?? [], state: store.read().state, redMain: store.read().redMain, events };
   } finally {
     await child.stop("SIGTERM");
     await Promise.allSettled([output]);
@@ -274,4 +296,43 @@ test("while main is red the shared merge refuses non-fix candidates and still me
   const fix = await scenario("red-main-fix");
   expect(fix.code, `DECLARED_FIX_MERGES: ${fix.err}`).toBe(2);
   expect(fix.dispatched).toBe(true);
+});
+
+test("the merge path refuses uncovered local skips and a missing receipt, and accepts covered ones (#2940)", async () => {
+  const uncovered = await scenario("receipt-uncovered");
+  expect(uncovered.dispatched, "NO_MERGE_WITH_UNCOVERED_LOCAL_SKIPS").toBe(false);
+  expect(uncovered.code, uncovered.err).toBe(1);
+  expect(uncovered.err).toContain("complete pinned visual/accessibility/pointer suite (timed-out; needs browser)");
+  expect(uncovered.err).toContain("complete unit and integration suite (preempted; needs unit)");
+  expect(uncovered.state.active, "REFUSAL_RELEASES_THE_LEASE").toBeNull();
+  const missing = await scenario("receipt-absent");
+  expect(missing.dispatched).toBe(false);
+  expect(missing.err).toContain("No check:pr receipt in the PR body");
+  const covered = await scenario("browser-receipt-skipped");
+  expect(covered.code, `SKIP_COVERED_BY_EXACT_HEAD_HOSTED_BROWSER: ${covered.err}`).toBe(2);
+  expect(covered.dispatched).toBe(true);
+});
+
+test("expedited fix merges only with red-on-base and green-on-head evidence, and records it (#2940)", async () => {
+  for (const [mode, message] of [
+    ["expedite-base-green", "not shown red on the bad base"],
+    ["expedite-head-red", "not shown green on the fix head"],
+    ["expedite-category", "Category-level red failures (browser)"],
+  ] as const) {
+    const refused = await scenario(mode);
+    expect(refused.dispatched, `NO_EXPEDITED_MERGE:${mode}`).toBe(false);
+    expect(refused.code, refused.err).toBe(1);
+    expect(refused.err).toContain(message);
+  }
+  for (const mode of ["expedite-valid", "expedite-revert"]) {
+    const fix = await scenario(mode);
+    expect(fix.code, `EXPEDITED_FIX_MERGES:${mode}: ${fix.err}`).toBe(2);
+    expect(fix.dispatched).toBe(true);
+    expect(fix.out).toContain('"expedited":{"fixesMainRun":11,"baseProbe":301,"headProbe":302');
+    expect(fix.state.active).toBeNull(); expect(fix.state.last?.action).toBe("release");
+    // The record stays open: only the next green main run that includes the red set clears it.
+    expect(fix.redMain.open?.fixes).toEqual([7]);
+    expect(fix.redMain.open?.expedited).toMatchObject([{ pr: 7, baseProbe: 301, headProbe: 302, feedbackRun: 91, actor: 101 }]);
+    expect(fix.events).toMatchObject([{ kind: "expedited-fix", pr: 7, run: 11, repository: "odysseus/brain-kit", evidence: "https://github.com/odysseus/brain-kit/actions/runs/302" }]);
+  }
 });

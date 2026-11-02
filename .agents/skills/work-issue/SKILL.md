@@ -277,7 +277,9 @@ nonpassing final gate. Before `confirm`, run `bun scripts/collisions.ts --json -
 and record its collisions (or none) with the PR head in the PR. For ordinary candidates, acquire the exact-candidate integration reservation
 with `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` before
 requesting expensive confirmation; it handles the draft-to-ready transition,
-minute renewal and shared proof-checked merge. Hold competing confirmation and
+minute renewal and shared proof-checked merge. The PR body must carry the
+`check:pr` receipt; skipped or timed-out local checks need exact-head hosted
+coverage. A declared red-main fix may use `--fixes-main-run <run-id>`. Hold competing confirmation and
 main merges while another lease is live. See the CI reference for explicit
 acquire/renew/release/revoke, expiry, hard cap and unsupported native candidates.
 After the last push, convert to draft and mark ready under that reservation to

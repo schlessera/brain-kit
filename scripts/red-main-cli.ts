@@ -11,6 +11,7 @@ import { changedFiles, planChecks, proofSelections, redMainSnapshot, workspaces 
 import { GitReservationStore, reservationServerTime, type Snapshot as StoreSnapshot } from "./integration-reservation";
 import { coordinate, type CoordinatorIO, type WorkflowRun } from "./red-main-coordinator";
 import { gateDecision, type Category } from "./red-main";
+import { PROBE_RECEIPT } from "./red-main-expedite";
 
 // Hosted jobs run from the checkout root; fixtures run from their own repository.
 const root = process.cwd();
@@ -125,11 +126,16 @@ if (import.meta.main) {
       await coordinate(liveIO(repository), event.workflow_run as WorkflowRun);
     } else if (command === "probe") {
       const target = resolve(rest[rest.indexOf("--target") + 1] ?? "");
-      const tests = JSON.parse(process.env.PROBE_TESTS ?? "[]") as unknown;
+      const tests = JSON.parse(process.env.PROBE_TESTS ?? "[]") as unknown, purpose = process.env.PROBE_PURPOSE ?? "flake";
+      if (!["flake", "bisect", "fix"].includes(purpose)) throw new Error("Unknown probe purpose");
       if (!Array.isArray(tests) || !tests.length || tests.length > 50 || tests.some(test => typeof test !== "string" ||
-          !/^[A-Za-z0-9_./@-]+\.test\.[cm]?[jt]sx?$/.test(test) || test.split("/").includes("..") || !existsSync(join(target, test)))) throw new Error("Probe tests must be existing test files at the probed SHA");
-      const child = Bun.spawn([process.execPath, "run", "test", ...tests], { cwd: target, stdout: "inherit", stderr: "inherit" });
-      process.exit(await child.exited);
+          !/^[A-Za-z0-9_./@-]+\.test\.[cm]?[jt]sx?$/.test(test) || test.split("/").includes(".."))) throw new Error("Probe tests must be test file paths");
+      const present = (tests as string[]).filter(test => existsSync(join(target, test))), absent = (tests as string[]).filter(test => !present.includes(test));
+      // Only an expedited fix probe may find a file absent: a targeted revert can delete the failing test it reverts.
+      if (absent.length && purpose !== "fix") throw new Error("Probe tests must be existing test files at the probed SHA");
+      const exitCode = present.length ? await Bun.spawn([process.execPath, "run", "test", ...present], { cwd: target, stdout: "inherit", stderr: "inherit" }).exited : 0;
+      console.log(`${PROBE_RECEIPT} ${JSON.stringify({ purpose, sha: must(["git", "rev-parse", "HEAD"], target), tests: present, absent, exitCode })}`);
+      process.exit(exitCode);
     } else throw new Error("usage: bun scripts/red-main-cli.ts gate | coordinate [--dry-run --run <id>] | probe --target <checkout>");
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
 }

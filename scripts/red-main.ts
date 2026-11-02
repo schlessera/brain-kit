@@ -16,15 +16,19 @@ export type Signature = "timeout" | "assertion" | "setup" | "unknown";
 export type Verdict = "real" | "suspected-flake";
 
 export interface RedFailure { test: string | null; category: Category; verdict: "real"; reasons: string[]; run: number; sha: string; }
+/** An expedited fix squash (#2940): its red/green probe evidence, fast-invariant run and numeric actor. */
+export interface ExpeditedFix { pr: number; head: string; base: string; squash: string; baseProbe: number; headProbe: number; feedbackRun: number; actor: number; at: number; }
 export interface RedIncident {
   /** First red after the last run where the failing set actually ran green. */
   firstBad: string; run: number; opened: number;
   failures: RedFailure[]; incident: number | null; fixes: number[]; reported: string[];
+  /** Optional and additive: absent until an expedited fix lands. */
+  expedited?: ExpeditedFix[];
 }
 export interface Suspect { test: string; category: Category; run: number; sha: string; at: number; probe: "pending" | "passed" | "failed" | "unavailable"; issue: number | null; }
 export interface RedMainRecord {
   version: 1; updated: number; open: RedIncident | null; suspects: Suspect[];
-  last: { action: "open" | "update" | "refine" | "incident" | "declare-fix" | "report" | "clear" | "suspect" | "probe"; at: number; run: number | null } | null;
+  last: { action: "open" | "update" | "refine" | "incident" | "declare-fix" | "report" | "clear" | "suspect" | "probe" | "expedite"; at: number; run: number | null } | null;
 }
 
 export const emptyRedMain = (): RedMainRecord => ({ version: 1, updated: 0, open: null, suspects: [], last: null });
@@ -45,9 +49,11 @@ export function parseRedMain(text: string): RedMainRecord {
       !Array.isArray(o.fixes) || o.fixes.length > MAX_FIXES || !o.fixes.every(positive) ||
       !Array.isArray(o.reported) || o.reported.length > MAX_REPORTED || !o.reported.every(sha => SHA.test(sha)) ||
       o.failures.some(f => !f || !(f.test === null || testPath(f.test)) || !category(f.category) || f.verdict !== "real" ||
-        !Array.isArray(f.reasons) || !f.reasons.length || f.reasons.some(x => typeof x !== "string" || !/^[a-z0-9-]{1,60}$/.test(x)) || !positive(f.run) || !SHA.test(f.sha)))) throw new Error("Invalid red-main incident");
+        !Array.isArray(f.reasons) || !f.reasons.length || f.reasons.some(x => typeof x !== "string" || !/^[a-z0-9-]{1,60}$/.test(x)) || !positive(f.run) || !SHA.test(f.sha)) ||
+      (o.expedited !== undefined && (!Array.isArray(o.expedited) || o.expedited.length > MAX_FIXES || o.expedited.some(e => !e ||
+        ![e.pr, e.baseProbe, e.headProbe, e.feedbackRun, e.actor].every(positive) || ![e.head, e.base, e.squash].every(sha => SHA.test(sha)) || !Number.isSafeInteger(e.at)))))) throw new Error("Invalid red-main incident");
   if (r.last !== null && (!r.last || r.last.at !== r.updated || !(r.last.run === null || positive(r.last.run)) ||
-      !["open", "update", "refine", "incident", "declare-fix", "report", "clear", "suspect", "probe"].includes(r.last.action))) throw new Error("Invalid red-main audit");
+      !["open", "update", "refine", "incident", "declare-fix", "report", "clear", "suspect", "probe", "expedite"].includes(r.last.action))) throw new Error("Invalid red-main audit");
   return r;
 }
 
@@ -87,6 +93,14 @@ export function declareFix(record: RedMainRecord, pr: number, now: number): RedM
   if (!positive(pr)) throw new Error("Invalid fix PR");
   if (record.open.fixes.includes(pr)) return record;
   return next(record, now, "declare-fix", null, { open: { ...record.open, fixes: [...record.open.fixes, pr] } });
+}
+
+/** Records an expedited fix squash on the open record; the next green main run that includes the red set still clears it. */
+export function recordExpedited(record: RedMainRecord, fix: ExpeditedFix, now: number): RedMainRecord {
+  if (!record.open) throw new Error("No open red-main record to record an expedited fix on");
+  if (!record.open.fixes.includes(fix.pr)) throw new Error("Only a declared fix can be recorded as expedited");
+  if (record.open.expedited?.some(e => e.squash === fix.squash)) return record;
+  return next(record, now, "expedite", record.open.run, { open: { ...record.open, expedited: [...record.open.expedited ?? [], fix].slice(-MAX_FIXES) } });
 }
 
 export function reportLanded(record: RedMainRecord, sha: string, now: number): RedMainRecord {
