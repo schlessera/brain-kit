@@ -447,9 +447,9 @@ into them.
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:91-95` and admitted
-  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:64`).
+  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:75`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
-  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:65`). The container privilege record's
+  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:76`). The container privilege record's
   environment table (brain-hosting-template) keeps both.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
@@ -509,7 +509,7 @@ bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
 `claude` with the inherited environment
 (`Bun.spawn(args`, `packages/core/src/providers/agents/cli-runners.ts:37-43`; `Bun.spawn([...CLAUDE_BASE_ARGS`, `cli-runners.ts:66-72`), and that
-environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:65`).
+environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:76`).
 
 > **2026-09-30 — Implementation context (the core runner paragraph above).**
 > The [old Claude runners](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37-L72)
