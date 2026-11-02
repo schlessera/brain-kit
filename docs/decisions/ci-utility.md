@@ -68,7 +68,9 @@ their own runtime prerequisites: container-backed browser/editorial proof does
 not require bubblewrap on the host, while native proof retains its namespace
 prerequisite. This leaves product and test deadlines unchanged. Agents still supply
 focused failing-first and restored mutation receipts, debug failures and review
-visual results. A test failure is not excused by moving its execution.
+visual results. Under the 2026-10-25 #2939 ruling, local long suites are for
+debugging a specific failure only
+([hosted heavy feedback](#hosted-heavy-feedback-on-draft-heads)). A test failure is not excused by moving its execution.
 
 Under the [2026-10-22 Option A ruling for #2401](https://github.com/schlessera/brain-kit/issues/2401#issuecomment-6329614279),
 deliberate manual offline commands use `scripts/test-offline.sh`: verified fresh
@@ -471,7 +473,9 @@ measurements do not update hosted weights.
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap
-rejection/metadata gates only. Opening or reopening a ready PR, or marking a
+rejection/metadata gates only. The 2026-10-25 #2939 ruling amends this: a draft may
+request [hosted heavy feedback](#hosted-heavy-feedback-on-draft-heads) that
+never counts as `proof`. Opening or reopening a ready PR, or marking a
 PR ready (`ready_for_review`), explicitly requests complete affected candidate
 confirmation. A ready PR's `synchronize` event runs affected strict types and
 curated fast invariants; packaging, complete unit/native/browser/layout/capture
@@ -1345,6 +1349,102 @@ local behavior only. Hosted integration qualification and measured savings
 remain outstanding on #2111: historical invalidations and cancellation costs
 are preserved there, not relabeled as a controlled speedup. A runner queue
 longer than the hard cap cannot be solved by renewal or an implicit extension.
+
+## Integration lanes, red-main fixes and hosted draft feedback
+
+The maintainer ruled on these on 2026-10-25, prompted by the
+[#2934 measurements](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6401108585).
+About a quarter of main squashes since 2026-10-14 changed the proof system.
+Observed reservation occupancy for ordinary candidates was 4–6%. Agents running
+long suites concurrently on one host hit timeouts and skipped checks. The
+exact-base confirmation rule and the single exact-candidate reservation above
+remain binding. Nothing here changes what counts as `proof`.
+
+### Proof-system lane
+
+The [#2938 ruling](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403426650),
+as [amended for the Phase B gate](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403467288):
+
+1. **Serialized lane.** Proof-system and global-tooling changes land one at a
+   time, under the existing reservation. Product changes do not wait on them.
+2. **Stability window.** After a proof-system change merges, the next one may
+   merge only when that change's own main run and the next two main runs are
+   green.
+3. **Off-main qualification is required.** A test optimization (shard layout,
+   timeout budgets, selection rules, worker counts) is qualified by replay or
+   dispatch runs before merging, with the evidence on the PR. Red-main fixes
+   are exempt and use the expedited path below.
+4. **Automatic proof-policy epochs.** Each merged proof-system change opens a
+   new epoch, derived from the path set at merge, and `scripts/ci-timings.ts`
+   reports it.
+5. **Path set.** `.github/workflows/**`, `scripts/test.ts`, `scripts/unit-*`,
+   `scripts/ci-*`, `scripts/check-pr.ts`, every `bunfig.toml`,
+   `**/proof-inputs.json`, and any diff that changes a test timeout or deadline
+   constant, flagged by a deterministic check. The list lives in one file that
+   the lane, the epochs and the qualification check all read.
+6. **Red-main fix lane.** A PR declared as the fix for a failing main run takes
+   precedence over ordinary candidates. Several declared fixes may exist for one
+   incident; the first whose fix is confirmed wins.
+7. **Expedited fix proof.** The failing tests are shown red on the bad base and
+   green on the fix head, plus affected fast invariants. The next main run,
+   which includes the red set, is the complete backstop. A new failure there
+   opens a new incident.
+8. **What a red main pauses.** Hosted proof whose merge ref contains the bad
+   commit is refused or cancelled, except declared fixes.
+9. **Orchestrator preemption.** Only within the orchestrator's own subtree, and
+   only to admit a red-main fix. It may cancel its own workers' local heavy runs
+   and draft hosted runs and release their leases. Across subtrees, contention
+   is settled only by ledger priority and the maintainer's existing `revoke`.
+10. **Repository-level red-main record.** The red-main state lives in the
+    shared reservation state, not in one orchestrator's memory.
+11. **Phase B gate of #2934.** Seven consecutive days within one proof-policy
+    epoch, first-main green at or above 80%, and every red incident attributed.
+
+Answers 6, 8 and 10 restate the
+[2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614).
+That decision also covers strict flake handling, cooperative merge blocking with
+detection, coordinator cancellation permission and incidents worked as issues.
+Its full record, including the coordinator's permissions, belongs to the
+red-main controller ([#2942](https://github.com/schlessera/brain-kit/issues/2942)).
+The incident workflow is [#2944](https://github.com/schlessera/brain-kit/issues/2944).
+The expedited merge mode is [#2940](https://github.com/schlessera/brain-kit/issues/2940),
+and preemption is [#2943](https://github.com/schlessera/brain-kit/issues/2943).
+Each implementation task is tracked separately:
+
+- path set and timeout-change check: [#3268](https://github.com/schlessera/brain-kit/issues/3268);
+- lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
+- automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
+- off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
+
+### Hosted heavy feedback on draft heads
+
+The [#2939 ruling](https://github.com/schlessera/brain-kit/issues/2939#issuecomment-6403978097)
+amends the 2026-10-14 #1849/#1854 rule under "Scheduling and selection" that
+drafts run cheap rejection/metadata gates only:
+
+1. **Feedback only.** An agent may request its PR's affected heavy categories
+   on a draft head without holding the reservation. The result never counts as
+   `proof`. Exact-head ready confirmation remains the only merge evidence.
+2. **Exact-head request.** A repository script sends a `workflow_dispatch` with
+   the PR number and head SHA. The workflow refuses when the live PR head
+   differs from the requested SHA.
+3. **Local long suites are for debugging only.** Local preflight is `check:pr`
+   plus focused failing-first and mutation receipts. Long suites run locally only
+   to debug a specific failure, through host admission
+   ([#2943](https://github.com/schlessera/brain-kit/issues/2943)).
+4. **Runner-concurrency protection.** At most one draft heavy run is in flight
+   per PR. A new push or request cancels that PR's earlier run. A request is
+   refused while main is red, unless the PR is a declared fix. Ready
+   confirmations take priority.
+5. **Measured.** Runner-slot wait, from job creation to job start, becomes a
+   first-class metric per workflow and category in `scripts/ci-timings.ts` and
+   the #2948 reports. This is how the protection in 4 is judged.
+
+The dispatch workflow and request script are
+[#3272](https://github.com/schlessera/brain-kit/issues/3272). The `check:pr` and
+guidance changes are [#3273](https://github.com/schlessera/brain-kit/issues/3273).
+Runner-slot wait is [#2952](https://github.com/schlessera/brain-kit/issues/2952).
+Until #3272 lands, drafts keep running cheap gates only.
 
 ## Historical measurement and upstream guidance
 
