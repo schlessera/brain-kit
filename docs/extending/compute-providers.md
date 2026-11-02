@@ -53,14 +53,32 @@ export default defineConfig({
 });
 ```
 
-The one built-in name is `boat`, reserved for the separate first-party package
-`@schlessera/brain-compute-boat`, so vendor transport never ships inside core.
-Until that package ships, an instance naming `boat` is `provider_unavailable`.
-A built-in package is loaded only when an instance names it; it exports
-`computeProvider` and may export `defaultKeyEnv`, the variable an instance
-without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-446`).
+The one built-in name is `boat`, which resolves the separate first-party
+package `@schlessera/brain-compute-boat`, so vendor transport never ships
+inside core. Core declares it as an optional peer; an instance naming `boat`
+without the package installed is `provider_unavailable` and names the install
+it needs. A built-in package is loaded only when an instance names it; it
+exports `computeProvider` and may export `defaultKeyEnv`, the variable an
+instance without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-455`).
 Resolution gives each instance its own options and secret
-(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:486-532`).
+(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:500-546`).
+
+## The Boat built-in
+
+`@schlessera/brain-compute-boat` is the shipped worked example of this guide.
+It uses plain `fetch` through `ctx.fetch`, imports `@schlessera/brain` for
+types only and depends on nothing but `zod`. Its capabilities are fixed:
+detached commands, idempotent allocation and lookup by key, staging up to
+256 MiB, collection up to 50 MiB per file, retention for 14 days, a 30-day
+remote auto-stop and actual usage. Its default key variable is
+`BRAIN_COMPUTE_BOAT_API_KEY`, and its `options` are `machine`, `from`,
+`environment` and `org`. It creates every sandbox without Boat's account
+environment unless an instance names one, never treats a stop as a pause and
+never resumes a sandbox. The [package README](../../packages/compute-boat/README.md)
+documents the key actions it needs, the full mapping, the error table and
+Boat's retention, command-history and cost limitations. Its tests run both
+conformance suites below against an in-process fake of Boat's API
+(`packages/compute-boat/tests/contract.test.ts`).
 
 ## What a provider promises
 

@@ -20,6 +20,20 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Boat external compute provider (additive, 0.45.0, #3106)
+
+The new lockstep package `@schlessera/brain-compute-boat` ships the `boat`
+built-in: `computeProvider`, `defaultKeyEnv`, `BOAT_CAPABILITIES`,
+`boatOptionsSchema`, `BoatOptions` and `BOAT_MACHINES`. Core declares it as an
+optional peer and imports it only when a `compute.providers` instance names
+`boat`; without it the instance stays `provider_unavailable`. Such an instance
+reads `BRAIN_COMPUTE_BOAT_API_KEY` unless it names `apiKeyEnv`, and accepts
+the options `machine`, `from`, `environment` and `org`. Nothing changes for a
+brain that does not name `boat`. No CLI word, MCP tool or JSON shape is added.
+See [the package component](integration-contract/package-api.md#boat-compute-provider-additive-3106)
+and [configuration](configuration.md#boat). This ships in a minor; no breaking
+ruling is required.
+
 ## External compute provider seam (additive, 0.45.0, #3105)
 
 `ComputeProvider` becomes the thirteenth `@experimental` extension seam,

@@ -68,6 +68,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   "module-speaking": ["packages/module-speaking/tests/module.test.ts"],
   "module-jobs": ["packages/module-jobs/tests/jobs-dedup.test.ts"],
   "module-travel": ["packages/module-travel/tests/foundation.test.ts"],
+  "compute-boat": ["packages/compute-boat/tests/credential-free.test.ts", "packages/compute-boat/tests/secrets.test.ts"],
 };
 
 /** File reads and directory inventories that imports cannot express. Additive

@@ -188,7 +188,7 @@ describe("source swapped after admission", () => {
 });
 
 describe("local operation without compute", () => {
-  test("an unconfigured brain and one naming an uninstalled built-in both search normally", async () => {
+  test("an unconfigured brain and one naming a built-in without its key both search normally", async () => {
     const root = makeTempBrain();
     try {
       expect((await runCli(root, ["index", "--json"])).code).toBe(0);

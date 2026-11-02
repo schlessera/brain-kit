@@ -93,11 +93,16 @@ describe("resolving compute instances", () => {
     expect([plain.ok && plain.instance.keyEnv, own.ok && own.instance.keyEnv]).toEqual(["OGYGIA_API_KEY", "OGYGIA_CI_KEY"]);
   });
 
-  test("boat is a reserved built-in name that is unavailable until its package ships", async () => {
+  test("boat resolves the first-party package, and needs its key", async () => {
     expect(Object.keys(COMPUTE_PROVIDERS)).toEqual(["boat"]);
-    const result = await resolveComputeInstance("boat-small", { provider: "boat", apiKeyEnv: "BOAT_CI_KEY", lease: { maxSeconds: 60 } }, { env: {} });
-    expect(result.ok ? "resolved" : result.code).toBe("provider_unavailable");
-    expect(result.ok ? "" : result.reason).toContain("@schlessera/brain-compute-boat");
+    const unset = await resolveComputeInstance("boat-small", { provider: "boat", apiKeyEnv: "BOAT_CI_KEY", lease: { maxSeconds: 60 } }, { env: {} });
+    expect(unset.ok ? "resolved" : [unset.code, unset.reason.includes("BOAT_CI_KEY")]).toEqual(["provider_unavailable", true]);
+    const plain = await resolveComputeInstance("boat-small", { provider: "boat", options: { machine: "small" }, lease: { maxSeconds: 60 } }, { env: { BRAIN_COMPUTE_BOAT_API_KEY: "boat-key" } });
+    expect(plain.ok && [plain.instance.provider.id, plain.instance.keyEnv, plain.instance.options]).toEqual(["boat", "BRAIN_COMPUTE_BOAT_API_KEY", { machine: "small" }]);
+  });
+
+  test("a first-party package that is not installed is unavailable with the install it needs", async () => {
+    await expect(loadComputePackage("@schlessera/brain-compute-ogygia")).rejects.toThrow("@schlessera/brain-compute-ogygia is not installed; install it beside @schlessera/brain");
   });
 
   test("a built-in package is loaded lazily by its exports, and a missing package is unavailable", async () => {

@@ -19,7 +19,7 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Nineteen packages version in lockstep under `@schlessera/brain-*`. Published
+Twenty packages version in lockstep under `@schlessera/brain-*`. Published
 packages remain independently consumable:
 
 | Package | What it is |
@@ -33,6 +33,7 @@ packages remain independently consumable:
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |
 | `brain-render-puppeteer` | Optional HTML→PNG/PDF renderer, network-denied and scriptless |
 | `brain-scrape` | Scraping base: polite HTTP, robots.txt, headless Chrome, site-adapter seam |
+| `brain-compute-boat` | External compute provider for Boat sandboxes, loaded only when an instance names `boat` |
 | `brain-ui-server` | Hono app factory: WS turn coordinator, auth, session catalog, routes |
 | `brain-ui-kit` | Presentational design kit: components, tokens, Storybook |
 | `brain-ui-react` | React chat/files/voice components, stores, WS transport |

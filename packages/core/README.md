@@ -49,7 +49,7 @@ Reads whose variable *name* is configuration rather than code:
 
 | Name comes from | What the value is used for |
 | --- | --- |
-| brain.config `compute.providers.<id>.apiKeyEnv` | Credential for one external compute provider instance, read on the trusted host at call time and never forwarded into a sandbox, a job record or a result (default: the built-in's own name). |
+| brain.config `compute.providers.<id>.apiKeyEnv` | Credential for one external compute provider instance, read on the trusted host at call time and never forwarded into a sandbox, a job record or a result (default: the built-in's own name, BRAIN_COMPUTE_BOAT_API_KEY for `boat`). |
 | brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `completions.fallbackApiKeyEnv` / `reranker.apiKeyEnv` | API key for a built-in provider or completion fallback, read at call time under whatever name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY, TYPESAFE_API_KEY). |
 | call-time inherited environment snapshot (`inheritedEnv`) | Internal agent-CLI transport: copies the calling process's environment at spawn time and merges explicit overrides last. Unlike the UI's filtered subprocess environment, this snapshot is inherited in full; it does not make every inherited variable supported brain configuration. |
 
