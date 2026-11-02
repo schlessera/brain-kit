@@ -4,7 +4,8 @@ import { scanText } from "./check-leakage";
 import { GitReservationStore, assertLease, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
 import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
-import { declareFix, type RedMainRecord } from "./red-main";
+import { declareFix, gateDecision, type RedMainRecord } from "./red-main";
+import { isAncestor } from "./red-main-cli";
 import type { API } from "./proof-reuse";
 
 async function gh(...args: string[]): Promise<string> {
@@ -54,10 +55,14 @@ if (import.meta.main) {
     }
     throw new Error("Bounded acquisition exhausted");
   }
-  /** Cooperative merge blocking while red (#2942): only a declared fix proceeds. */
-  function refuseWhileRed(pr: number) {
-    const open = store!.read().redMain.open;
-    if (open && !open.fixes.includes(pr)) throw new Error(`main red at ${open.firstBad}, ${open.incident ? `incident #${open.incident}` : "incident pending"}; only a declared fix may confirm or merge (bun scripts/integrate.ts declare-fix <pr>)`);
+  /**
+   * Cooperative merge blocking while red (#2942): a candidate whose merge ref contains
+   * the bad commit proceeds only as a declared fix (#3321). Unknown ancestry refuses.
+   */
+  function refuseWhileRed(desired: Candidate) {
+    const decision = gateDecision({ record: store!.read().redMain, pr: desired.pr,
+      contains: sha => isAncestor(sha, desired.base, store!.root) || isAncestor(sha, desired.head, store!.root) });
+    if (decision.refuse) throw new Error(`${decision.message}; only a declared fix may confirm or merge (bun scripts/integrate.ts declare-fix <pr>)`);
   }
   async function changeRedMain(update: (record: RedMainRecord, now: number) => RedMainRecord) {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -95,7 +100,7 @@ if (import.meta.main) {
     await milestones(desired.pr, issueRefs);
     await stopHeartbeat();
     if (lost) throw lost;
-    refuseWhileRed(desired.pr);
+    refuseWhileRed(desired);
     if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before merge");
     assertLease(store!.read().state, own.id, actor, desired, await clock());
     await gh("pr", "merge", String(desired.pr), "--repo", repository, "--squash", "--match-head-commit", desired.head);
@@ -154,7 +159,7 @@ if (import.meta.main) {
         if (current && current.id === values.get("--lease") && current.actor === actor && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
-      refuseWhileRed(desired.pr);
+      refuseWhileRed(desired);
       if (command === "merge") {
         const lease = values.get("--lease");
         if (!lease) throw new Error("Explicit --lease required");
