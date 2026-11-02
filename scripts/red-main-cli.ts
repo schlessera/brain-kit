@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { changedFiles, planChecks, proofSelections, redMainSnapshot, workspaces } from "./ci-plan";
 import { GitReservationStore, reservationServerTime, type Snapshot as StoreSnapshot } from "./integration-reservation";
-import { coordinate, type CoordinatorIO, type Snapshot, type WorkflowRun } from "./red-main-coordinator";
+import { coordinate, type CoordinatorIO, type WorkflowRun } from "./red-main-coordinator";
 import { gateDecision, type Category } from "./red-main";
 
 // Hosted jobs run from the checkout root; fixtures run from their own repository.
