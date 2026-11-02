@@ -1434,8 +1434,9 @@ are implemented by [#2942](https://github.com/schlessera/brain-kit/issues/2942):
   on one test within seven days is treated as real. "Never rerun a real failure"
   stays.
 - **A red main stops doomed work.** Hosted proof whose merge ref contains the
-  bad commit is refused or cancelled, except declared fixes. Each machine keeps
-  its own resources for a fix it is building.
+  bad commit is refused or cancelled, except declared fixes. Draft heavy
+  feedback runs the same gate on its requested head. Each machine keeps its own
+  resources for a fix it is building.
 - **Coordination runs on GitHub.** A coordinator workflow on main CI completion
   and the shared reservation ref hold the repository-level record. Orchestrators
   read and enforce it and never message each other.
