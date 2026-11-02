@@ -55,7 +55,9 @@ export function workflowProblems(text: string, file: string): string[] {
       const job = workflow.jobs?.[name];
       if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
       const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
-      if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
+      // Main pushes run selected proof even when the metadata job fails (#2942);
+      // PR proof still requires a successful metadata job.
+      if (job?.if !== `\${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && ${selection} }}`) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
     const verify = workflow.jobs?.verify;
     const verifySteps = verify?.steps ?? [];
@@ -124,10 +126,11 @@ export function checkCIWorkflows(root: string): string[] {
   const problems: string[] = [];
   const directory = join(root, ".github/workflows");
   const files = existsSync(directory) ? readdirSync(directory).sort() : [];
-  const expected = ["ci.yml", "contract.yml", "project-sync.yml"];
+  // The red-main coordinator and its triage probe are authoritative coordination (#2942).
+  const expected = ["ci.yml", "contract.yml", "project-sync.yml", "red-main.yml", "red-main-probe.yml"];
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
   if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
-  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync and optional Pages/timing workflows");
+  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing workflows");
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {

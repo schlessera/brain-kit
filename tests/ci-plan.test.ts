@@ -212,6 +212,7 @@ describe("affected CI checks", () => {
     const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
     f.write("scripts/browser-input-closure.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/browser-input-closure.ts"))};\n`);
     f.write("scripts/unit-test-consumers.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/unit-test-consumers.ts"))};\n`);
+    for (const name of ["integration-reservation", "red-main"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
     f.write("packages/core/src/note.ts", "export const note = 2;\n");
     f.git("add", "."); f.git("commit", "-qm", "planner fixture");
     for (const draft of ["true", "false"]) {
@@ -224,7 +225,7 @@ describe("affected CI checks", () => {
       const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
       const expected = proofSelections(JSON.parse(readFileSync(plan, "utf8")), draft === "true");
-      expect(readFileSync(output, "utf8")).toBe(`unit_shards=[1,2,3,4]\ncadence=${draft === "true" ? "draft" : "confirmation"}\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
+      expect(readFileSync(output, "utf8")).toBe(`unit_shards=[1,2,3,4]\ncadence=${draft === "true" ? "draft" : "confirmation"}\nred_main_oid=\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
       expect(expected.unit).toBe(draft === "false");
       expect(expected.runtime).toBe(draft === "false");
       expect(JSON.parse(readFileSync(plan, "utf8")).tests.length).toBeGreaterThan(0);

@@ -1,5 +1,6 @@
 /** Cooperative integration ownership: remote Git CAS, never a branch lock. */
 import { randomBytes } from "node:crypto";
+import { emptyRedMain, parseRedMain, RED_MAIN_FILE, type RedMainRecord } from "./red-main";
 
 export const RESERVATION_REF = "refs/heads/brain-integration-reservation";
 export const LEASE_MS = 5 * 60_000, RENEW_MS = 60_000, MAX_MS = 60 * 60_000;
@@ -9,7 +10,8 @@ export interface ReservationState {
   version: 1; updated: number; active: Lease | null;
   last: { action: "acquire" | "renew" | "release" | "revoke"; actor: number; at: number; previous: Lease | null; reason?: string } | null;
 }
-export interface Snapshot { oid: string | null; state: ReservationState; }
+/** One ref commit holds both coordination files; every write preserves the other one. */
+export interface Snapshot { oid: string | null; state: ReservationState; redMain?: RedMainRecord; }
 export type Operation = { kind: "acquire"; candidate: Candidate; id?: string } |
   { kind: "renew"; id: string } | { kind: "release"; id: string } | { kind: "revoke"; reason: string; maintainer: boolean };
 const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
@@ -94,19 +96,25 @@ export class GitReservationStore {
     if (!hash(oid) || ref !== this.ref || extra.length) throw new Error("Invalid remote reservation ref");
     return oid;
   }
-  read(): Snapshot {
+  read(): Snapshot & { redMain: RedMainRecord } {
     const oid = this.remoteOid();
-    if (!oid) return { oid, state: emptyReservation() };
+    if (!oid) return { oid, state: emptyReservation(), redMain: emptyRedMain() };
     this.git(["fetch", "--no-tags", this.remote, oid]);
-    const tree = this.git(["ls-tree", oid]);
-    if (!/^100644 blob [a-f0-9]{40}\treservation\.json$/.test(tree)) throw new Error("Unknown shared coordination tree");
-    return { oid, state: parseReservation(this.git(["show", `${oid}:reservation.json`])) };
+    return { oid, ...coordinationFiles(this.git(["ls-tree", oid]), name => this.git(["show", `${oid}:${name}`])) };
   }
   publish(snapshot: Snapshot, state: ReservationState): boolean {
-    const content = JSON.stringify(parseReservation(JSON.stringify(state))) + "\n";
-    const blob = this.git(["hash-object", "-w", "--stdin"], content);
-    const tree = this.git(["mktree"], `100644 blob ${blob}\treservation.json\n`);
-    const oid = this.git(["commit-tree", tree, ...(snapshot.oid ? ["-p", snapshot.oid] : []), "-m", `integration: ${state.last?.action ?? "state"}`]);
+    return this.write(snapshot, parseReservation(JSON.stringify(state)), snapshot.redMain ?? emptyRedMain(), `integration: ${state.last?.action ?? "state"}`);
+  }
+  publishRedMain(snapshot: Snapshot, record: RedMainRecord): boolean {
+    return this.write(snapshot, snapshot.state, parseRedMain(JSON.stringify(record)), `red-main: ${record.last?.action ?? "state"}`);
+  }
+  private write(snapshot: Snapshot, state: ReservationState, redMain: RedMainRecord, message: string): boolean {
+    const blob = (value: unknown) => this.git(["hash-object", "-w", "--stdin"], JSON.stringify(value) + "\n");
+    const entries = [`100644 blob ${blob(state)}\treservation.json`];
+    // An untouched red-main record is not materialized, so reservation-only history keeps its shape.
+    if (redMain.last !== null) entries.unshift(`100644 blob ${blob(redMain)}\t${RED_MAIN_FILE}`);
+    const tree = this.git(["mktree"], entries.join("\n") + "\n");
+    const oid = this.git(["commit-tree", tree, ...(snapshot.oid ? ["-p", snapshot.oid] : []), "-m", message]);
     try {
       this.git(["push", "--porcelain", `--force-with-lease=${this.ref}:${snapshot.oid ?? ""}`, this.remote, `${oid}:${this.ref}`]);
       return true;
@@ -115,4 +123,15 @@ export class GitReservationStore {
       throw error;
     }
   }
+}
+
+/** Accepts exactly the known coordination files; anything else fails closed. */
+export function coordinationFiles(tree: string, show: (name: string) => string): { state: ReservationState; redMain: RedMainRecord } {
+  const names = tree.split("\n").filter(Boolean).map(line => {
+    const match = /^100644 blob [a-f0-9]{40}\t(reservation\.json|red-main\.json)$/.exec(line);
+    if (!match) throw new Error("Unknown shared coordination tree");
+    return match[1]!;
+  });
+  if (!names.includes("reservation.json") || new Set(names).size !== names.length) throw new Error("Unknown shared coordination tree");
+  return { state: parseReservation(show("reservation.json")), redMain: names.includes(RED_MAIN_FILE) ? parseRedMain(show(RED_MAIN_FILE)) : emptyRedMain() };
 }
