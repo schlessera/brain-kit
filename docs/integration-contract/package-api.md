@@ -186,6 +186,31 @@ Its store state remains behind `BrainUiServices.stores`, which is explicitly
 `@internal`; no new public graph-store signature, wire endpoint or query limit
 is introduced.
 
+## UI-kit collapsible patterns (additive, #3253)
+
+The kit adds two public components; [D57](../decisions/design-kit/components-and-interactions.md#2026-11-02--d57-collapsibles-follow-the-job-not-one-disclosure-3253)
+records why each exists.
+
+- `Tray` (`TrayProps`): `label` (required; what the panel holds and how much),
+  optional `icon`, `swatch` (a CSS colour for a leading mark; never the name),
+  `open`, `onOpenChange`, `maxHeight` and `children`. Its forwarded ref is the
+  native header button. The body stays mounted and `hidden` while closed.
+- `ItemCard` (`ItemCardProps`, `ItemCardAction`): `title` (required), optional
+  `meta`, `note`, `errorCount`, `open`, `onOpenChange`, `actions` (`label`,
+  `onSelect`, optional `disabled` and `danger`), `notice` and `children`. Its
+  forwarded ref is the `role="button"` toggle. `errorCount > 0` replaces the
+  meta with the count and draws the card red. Actions render in a separate
+  `⋯` menu at every size; no actions means no menu. The body unmounts while
+  closed.
+
+`open` and `onOpenChange` keep `Disclosure`'s three modes exactly: neither is
+uncontrolled, `open` alone seeds once, both together hand control to the parent,
+and `onOpenChange` fires on every toggle with the value being moved to.
+`DisclosureProps` is unchanged; its open summary now also carries
+`aria-controls` naming the body. The shared expansion primitive is internal,
+not exported, and is no extension seam. No CLI, MCP, wire, storage or HTTP
+shape changes; a minor changeset covers the additions.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
