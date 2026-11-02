@@ -243,7 +243,7 @@ mint (owner only, router mounted AFTER the guard)
         ──► upgradeWebSocket((c) => createWsHandlers(host, c.get("principal")))
               (hono passes the context to createEvents:
                hono/helper/websocket/index.js:34)
-        ──► ConnectionState.principal (ws/dispatch.ts:14-17)
+        ──► ConnectionState.principal (ws/handlers/context.ts:14-15)
         ──► clients.add(ws, principalId)
         ──► QueuedFollowUp.principalId / RunningTurn.principalId
               (reset per queued follow-up, like lastResult)
