@@ -519,3 +519,18 @@ description was followed: it names the command conflict and machine errors
 `sandbox_starting` and `sandbox_direct_failed`, so both are accepted; and
 `dataExpiredAt` is the time stopped data was deleted, so a retention deadline
 is computed from the stop, not read from it.
+
+Review of #3106 refined two of #3105's rules:
+
+- **Settling partial cost.** Once cleanup is `released` the sandbox accrues
+  nothing more, so a `partial` report then is final: it is recorded as
+  `partial` with its amount, a lower bound. A sandbox not yet released is read
+  again, at most five times in all, and then settled with whatever the last
+  read gave. The budget ledger takes a single amount, so only `complete`
+  coverage settles with its dollars; `partial` and `unknown` settle as `null`
+  (unknown), never as zero and never as the lower bound. An unknown read never
+  replaces an earlier partial one. A reservation is therefore settled exactly
+  once, whichever process reaches it. Boat's usage report is gone once its
+  sandbox is deleted, so the adapter reads usage just before a discard and
+  keeps that reading in process memory only; another process reads unknown,
+  and both settle the ledger the same way.
