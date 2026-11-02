@@ -164,6 +164,20 @@ export interface ComputeOpsOptions {
   env?: NodeJS.ProcessEnv;
   /** Test and host overrides (state directory, clock, transport, timeouts). */
   serviceOptions?: Partial<Omit<ComputeServiceOptions, "root" | "config" | "env">>;
+  /**
+   * A host that admits on its callers' behalf (#3108): it owns the budget
+   * ledger, the approval and the caller's live authority, and it passes the
+   * data-to-provider rules frozen at its turn's admission. With it, plan and
+   * run neither apply the inside-a-worker refusal nor re-read the brain's
+   * policy file: the host's own process is not a worker, and its turn's
+   * policy is the one its other effects are judged by.
+   */
+  hosted?: {
+    sourcePolicy: NonNullable<ComputeServiceOptions["sourcePolicy"]>;
+    approve: NonNullable<ComputeServiceOptions["approve"]>;
+    budget: NonNullable<ComputeServiceOptions["budget"]>;
+    recheck?: ComputeServiceOptions["recheck"];
+  };
 }
 
 /** The operating-system user this process runs as: the CLI and MCP caller principal. */
@@ -232,13 +246,21 @@ export function createComputeOps(options: ComputeOpsOptions): ComputeOps {
   const { root, config, caller } = options;
   // Undefined reads the process environment through core's env chokepoint.
   const env = options.env;
+  const hosted = options.hosted;
+  // A hosted ledger settles whichever operation advances a job, so every
+  // service of a hosted operation set carries it.
+  const hostedOptions: Partial<ComputeServiceOptions> = hosted
+    ? { budget: hosted.budget, approve: hosted.approve, ...(hosted.recheck ? { recheck: hosted.recheck } : {}) }
+    : {};
   const service = (sourcePolicy?: ComputeServiceOptions["sourcePolicy"]) =>
-    createComputeService({ ...options.serviceOptions, root, config, env, ...(sourcePolicy ? { sourcePolicy } : {}) });
+    createComputeService({ ...options.serviceOptions, ...hostedOptions, root, config, env, ...(sourcePolicy ? { sourcePolicy } : {}) });
 
   /** The admission service, or the refusal an unreadable policy earns. */
   function admission(): ReturnType<typeof service> | ComputeErrorEnvelope {
     // Disabled: the service refuses with compute_disabled before any read.
     if (!config?.compute) return service();
+    // The host admits with its turn's frozen policy and its own ledger.
+    if (hosted) return service({ providers: hosted.sourcePolicy.providers });
     // A hosted turn or maintenance worker has no admission of its own: its
     // caller identity, budgets, approvals and Activity live on the host, so a
     // worker-side run would bypass them. Hosted admission (#3108) routes work

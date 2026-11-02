@@ -209,6 +209,13 @@ export interface ComputeServiceOptions {
   sourcePolicy?: { providers: EffectiveGovernancePolicy["providers"] };
   /** Host approval; absent means none is required. */
   approve?: (plan: ComputePlan, caller: ComputeCaller) => Promise<ComputeApproval> | ComputeApproval;
+  /**
+   * The host's last word on its caller, asked under the admission lock just
+   * before the slot count and budget reservation: false (or a throw) refuses
+   * with `policy_denied` and nothing is reserved or recorded. A hosted turn
+   * revoked or cancelled while its approval card was open is refused here.
+   */
+  recheck?: (caller: ComputeCaller) => Promise<boolean> | boolean;
   /** Time after the lease deadline allowed for release. Default 300. */
   releaseAllowanceSeconds?: number;
   /** Ceiling for one provider call. Default 120 000. */

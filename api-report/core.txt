@@ -107,18 +107,34 @@ export "./internal" (./src/internal.ts)
   type BrainContext
   COMPUTE_JOB_ID
   COMPUTE_PROVIDERS
+  COMPUTE_TOOL_NAMES
   type CollectStatsOptions
+  type ComputeApproval
   type ComputeBudget
   type ComputeBuiltin
   type ComputeCaller
   type ComputeClock
+  type ComputeCollectEnvelope
   type ComputeCollection
+  type ComputeDriver
+  type ComputeDriverOptions
+  type ComputeEnvelope
+  type ComputeErrorEnvelope
+  type ComputeHealthEnvelope
+  type ComputeHealthInput
   type ComputeHealthReport
+  type ComputeJobEnvelope
+  type ComputeJobInput
+  type ComputeJobOutput
   type ComputeJobResult
   type ComputeJobView
+  type ComputeOps
+  type ComputeOpsOptions
   type ComputePlan
+  type ComputePlanEnvelope
   type ComputeReconcileReport
   type ComputeRefusal
+  type ComputeRequestInput
   type ComputeRunRequest
   type ComputeService
   type ComputeServiceOptions
@@ -154,7 +170,12 @@ export "./internal" (./src/internal.ts)
   collectModuleRenderers
   collectStats
   computeBrainKey
+  computeHealthInput
+  computeJobInput
   computeJobView
+  computeRequestInput
+  createComputeDriver
+  createComputeOps
   createComputeService
   estimateTokens
   geminiCompletions
@@ -168,6 +189,8 @@ export "./internal" (./src/internal.ts)
   isInScratch
   isIsoDate
   isWriteRefusal
+  jobOutput
+  jobSettled
   loadComputePackage
   loadVecSupport
   openDatabase

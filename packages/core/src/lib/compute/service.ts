@@ -400,6 +400,15 @@ export function createComputeService(options: ComputeServiceOptions): ComputeSer
       let job: ComputeJobRecord;
       let owner: HeldLock | undefined;
       try {
+        if (options.recheck) {
+          let current = false;
+          try {
+            current = await options.recheck(caller);
+          } catch {
+            current = false;
+          }
+          if (!current) return refuse("policy_denied", "the caller no longer has authority to start this job");
+        }
         const used = slotsUsed(listJobs(jobStore).jobs, admitted.instance.id);
         if (used >= admitted.plan.slots.max) {
           return refuse("concurrency_exhausted", `"${admitted.instance.id}" has ${used} of ${admitted.plan.slots.max} jobs running or awaiting cleanup`);
