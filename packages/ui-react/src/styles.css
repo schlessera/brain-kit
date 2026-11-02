@@ -6,7 +6,10 @@
 @source "./";
 @import "./theme.css";
 
-/* The turn receipt keeps the existing disclosure treatment with a full tap target. */
-[data-turn-journal] [role="button"][aria-expanded] { min-height: 44px; }
+/* The turn receipt keeps the existing disclosure treatment with a full tap target.
+ * Evidence disclosures in app screens (#3253) take the same 44px row: the kit
+ * summary paints no box, so the row adds reach without a visible inflation. */
+[data-turn-journal] [role="button"][aria-expanded],
+[data-evidence-disclosure] > div > [role="button"][aria-expanded] { min-height: 44px; }
 
 .brain-scope-card [role="radio"] { min-height: 44px; overflow-wrap: anywhere; }

@@ -1244,3 +1244,116 @@ pixels short of the least gap stealing a neighbour's edge. Taps are not used
 as proof, because Chromium's touch adjustment snaps a tap near a control onto
 it whether or not the control reaches. Consumer sites are probed the same way
 through `ui-react/tests/browser/hit-reach.ts`.
+
+## 2026-11-02 — D57: collapsibles follow the job, not one Disclosure (#3253)
+
+App screens drew raw `<details>` and ad-hoc `aria-expanded` toggles for four
+different jobs — supplementary evidence, whole Settings sections, repeated
+editable records and progressive voice controls — with the same unstyled
+summary. Hiding each of those has a different consequence, so the maintainer
+approved a pattern per job rather than mapping every site to `Disclosure`.
+
+### The patterns
+
+| Pattern | Use it for | Not for | Kit component | Summary anatomy |
+| --- | --- | --- | --- | --- |
+| Evidence | Supplementary detail, raw values, traces and receipts that support something already visible. | A control the user needs, a validation error, uncertainty or a whole section. | `Disclosure`, unchanged | `{what} · {count}` in mono, then badge, then caret; the body hangs off a 2px rail. |
+| Panel | A bounded list or tray whose collapsed header is useful on its own. | Rows that are the screen's main content, or a header that needs actions. | `Tray` (new, public) | A 44px header row: icon or swatch, `{what} · {count} · {size}`, caret. The body scrolls under it; actions live in the body. |
+| Editable item | Repeated editable records in a form. | Read-only lists (`ListRow`), a single record, evidence. | `ItemCard` (new, public) | Caret, title (two lines, then ellipsis), meta or `■ {n} to fix`, note; a separate `⋯` actions menu. |
+| Settings section | Every Settings section. A long one becomes a drill-in. | Never collapse a Settings section behind a summary. | Section heading, `ListRow` drill-in | A visible heading; a drill-in row is title, mono meta, `›`. |
+| Optional control | A control that exists because something happened. | Static options. | `Callout` and `Button` | The notice states the situation and what the action does; the action sits under it. |
+| Show more / pane toggle | Long-text clamps and showing a whole pane. | Content inside a pane. | `TextButton`, `IconButton`, unchanged | `Show all ({n} lines)`, `Show tree`. |
+| Crash fallback | `AppErrorBoundary` only, because the kit may be what failed. | Anywhere the kit loads. | Native `<details>` with token-or-system styles | `Details for a bug report · {n} lines`. |
+
+### Ownership and the rejected alternatives
+
+- **`ItemCard` is public ui-kit API**, reusable by application screens and
+  external consumers, because module settings are rendered from
+  module-authored schemas. Rejected: an internal-only ui-react component.
+  The ruling approves the component, not a public `ItemCardList`; the list
+  and its focus rules belong to the host.
+- **Move and Remove stay in the `⋯` menu at every screen size.** Rejected:
+  desktop-only inline actions on hover or focus, which would give one record
+  two behaviours across breakpoints. Removal keeps its inline confirmation in
+  the card's `notice` slot, shown in both states.
+- **`Tray` is a separate public component.** Rejected: `Disclosure
+  variant="panel"`. A panel and evidence have distinct purposes and distinct
+  content lifecycles; a variant would have forced one lifecycle on both.
+- **One small internal expansion primitive** (`useExpansion`,
+  `packages/ui-kit/src/internal/expansion.ts`) holds what the three share:
+  the open value, D27's uncontrolled, seeded and controlled modes, and the
+  `aria-expanded` and `aria-controls` wiring for a native or `role="button"`
+  toggle. It is not exported and takes no layout switches.
+- Rejected outright: one universal `Disclosure` for every job.
+
+### Content lifecycle, per component
+
+`Disclosure` keeps its unmount-on-close body; `aria-controls` names the body
+only while it exists. `Tray` keeps its body mounted and `hidden` while closed,
+so a recording's playback, a scroll offset or a half-typed transcript survive
+closing (`RetainsContentWhenClosed` story). `ItemCard` unmounts its body: the
+record's values live in the host's form state, not in the fields.
+
+`ItemCard`'s toggle is a `role="button"` element, not a native button. It
+lives in forms, and a disabled `<fieldset>` disables every native button inside
+it, which would make a read-only record — the migration preview — impossible
+to open. The actions menu stays a native button and is disabled with the form.
+
+### Editable-item focus rules (the host's)
+
+`ListField` (`packages/ui-react/src/components/settings/module-settings-fields.tsx`)
+implements them with the session store:
+
+1. Items start collapsed. "First item open" is dropped: it hid errors in
+   items two and later.
+2. An item's error count shows on its header while collapsed, and its border
+   turns red.
+3. Add appends the item open and focuses its first field.
+4. A refused Save (local errors, or the server's 422) opens every item holding
+   an error before focus moves to the first invalid field
+   (`revealInvalidItems`). Validation and the leave guards are unchanged.
+5. A confirmed Remove focuses the next item's header, else the previous, else
+   Add, and announces "Removed {title}."
+6. When the list shrinks under the focused item (a reload, migration or
+   reseed), focus goes to the list's label and the change is announced.
+7. Expansion lives in the session by item path and is remapped with the item
+   on move and remove, as drafts, variants and errors already are. It
+   therefore survives the pane and drawer remount at a breakpoint.
+
+### Source mapping
+
+| Site | Was | Now |
+| --- | --- | --- |
+| `storage/storage-guidance.tsx` `HistoryTable` | `<details>` section | Settings section: visible, headed "Observations · Recent, Daily and Weekly". The Storage redesign (#3250) decides its content. |
+| `storage/storage-guidance.tsx` `Notices` | `<details>` section | Settings section: visible, headed "Critical notifications". |
+| `settings/modules-tab.tsx` complete source values | `<details>` | Evidence: `Complete source values · {n} keys`. |
+| `settings/module-settings-fields.tsx` collapsible lists | `Surface` and `<details>` | Editable item: `ItemCard`. |
+| `voice/conversation-unassigned.tsx` | `<details>` "Optional voice review" | Optional control: `Callout` and "Review in composer". |
+| `voice/conversation-strip.tsx` background tasks | `<details>` | Evidence: `Background tasks · {n} contextual requests`. |
+| `voice/recordings-tray.tsx` header | raw `aria-expanded` button | Panel: `Tray`, `On this device · {n} recordings · {size}`. |
+| `graph/graph-maintenance.tsx` finding groups | `TextButton` and dot | Panel: `Tray` with the lens swatch; the label keeps the kind's name. |
+| `graph/graph-scene.tsx` `ClusterLegend` | raw `aria-expanded` row | Panel: `Tray`, `Topics · {n}`. |
+| `activity/activity-run-detail.tsx` raw trace | `TextButton` | Evidence: controlled `Disclosure`, `Raw trace · {n} spans`. |
+| `activity/hygiene-private-details.tsx` | `TextButton` and region | Evidence, **documented exception**: #2734 requires a native toggle and a region that stays mounted (hidden) for `aria-controls`, which `Disclosure`'s role-button summary and unmounted body do not provide. It already draws the evidence anatomy (meta toggle, 2px rail). |
+| `layout/app-error-boundary.tsx` | `<details>` | Crash fallback, **documented exception**: native, with the line count. |
+| `chat/turn-journal.tsx` | `Disclosure` | Evidence, unchanged here; #3254 restructures it. |
+| `chat/handoff-links.tsx`, `chat/tool-views.tsx` | `TextButton` show all | Show more, unchanged. |
+| `files/file-panel.tsx` tree; `graph/graph-scene.tsx` node list and unreachable count | toggles | Pane toggle, unchanged. |
+| `settings/web-search-chain.tsx` key editor | `TextButton` | Optional control's inline editor reveal, unchanged. |
+| `chat/tool-call-timeline.tsx`, `activity/activity-run-detail.tsx` span rows | row expansion | Trace rows, not a collapsible pattern. |
+
+Menus, popovers, dialogs and the side-rail collapse are out of scope.
+`git grep '<details' packages/ui-react/src` returns only the crash fallback.
+
+### Reach and motion
+
+`Tray`'s header and `ItemCard`'s toggle and `⋯` are 44px boxes with 8px
+between the two card targets: they are rows and an `md` icon control, which
+draw at 44px, so they need no reach. `Disclosure`'s summary paints no box, so
+app screens give migrated evidence a 44px row through the existing host rule
+the turn journal uses (`[data-evidence-disclosure]` in
+`packages/ui-react/src/styles.css`). That adds no visible box to inflate,
+which is the case `.bk-hit` above exists for. An item's inline removal
+confirmation uses reaching Buttons in a row with
+`any-pointer-coarse:gap-y-4`, as that section requires. All three use the kit focus ring: inset on rows, +2 on `⋯`.
+Nothing animates, so reduced motion needs no extra rule.

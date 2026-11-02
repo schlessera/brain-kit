@@ -58,7 +58,7 @@ async function scene(width: number) {
       </BrainUiProvider>
     )
   );
-  await expect.poll(() => page.getByRole("table").elements().length).toBe(1);
+  await expect.poll(() => page.getByRole("table", { name: "Storage contents table" }).elements().length).toBe(1);
   await expect.poll(() => host!.textContent).toContain("Very low space");
   expect(host!.querySelector("[data-storage-scenario-range]"), "STORAGE_HTTP_INSUFFICIENT_HISTORY_NO_RANGE").toBeNull();
   await button("Find large files").click();

@@ -141,6 +141,9 @@ export "." (./src/index.ts)
   type InkTone
   InlineToast
   type InlineToastProps
+  ItemCard
+  type ItemCardAction
+  type ItemCardProps
   LAYERS
   Label
   type LabelProps
@@ -275,6 +278,8 @@ export "." (./src/index.ts)
   type TrackerEvent
   TrackerPillList
   type TrackerPillListProps
+  Tray
+  type TrayProps
   TrendChart
   type TrendChartProps
   type TurnErrorAction
@@ -1399,6 +1404,27 @@ signatures (every public export and the types it is made of)
         onUndo?: () => void;
         announce?: boolean;
     }
+  ItemCard (packages/ui-kit/src/rows/ItemCard.tsx)
+    const ItemCard: import("react").ForwardRefExoticComponent<ItemCardProps & import("react").RefAttributes<HTMLDivElement>>;
+  ItemCardAction (packages/ui-kit/src/rows/ItemCard.tsx)
+    export interface ItemCardAction {
+        label: string;
+        onSelect: () => void;
+        disabled?: boolean;
+        danger?: boolean;
+    }
+  ItemCardProps (packages/ui-kit/src/rows/ItemCard.tsx)
+    export interface ItemCardProps {
+        title: string;
+        meta?: string;
+        note?: string;
+        errorCount?: number;
+        open?: boolean;
+        onOpenChange?: (open: boolean) => void;
+        actions?: readonly ItemCardAction[];
+        notice?: ReactNode;
+        children?: ReactNode;
+    }
   LAYERS (packages/ui-kit/src/tokens.ts)
     const LAYERS: {
         readonly banner: 50;
@@ -2313,6 +2339,18 @@ signatures (every public export and the types it is made of)
         expanded?: boolean;
         onExpandedChange?: (expanded: boolean) => void;
         isStatic?: boolean;
+    }
+  Tray (packages/ui-kit/src/blocks/Tray.tsx)
+    const Tray: import("react").ForwardRefExoticComponent<TrayProps & import("react").RefAttributes<HTMLButtonElement>>;
+  TrayProps (packages/ui-kit/src/blocks/Tray.tsx)
+    export interface TrayProps {
+        label: string;
+        icon?: IconName;
+        swatch?: string;
+        open?: boolean;
+        onOpenChange?: (open: boolean) => void;
+        maxHeight?: CSSProperties["maxHeight"];
+        children?: ReactNode;
     }
   TrendChart (packages/ui-kit/src/blocks/TrendChart.tsx)
     export function TrendChart(p: TrendChartProps): import("react").JSX.Element;

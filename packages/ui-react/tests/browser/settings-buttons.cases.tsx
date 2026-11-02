@@ -49,7 +49,9 @@ async function mount(ctx: TestContext, width: number, theme: "dark" | "light") {
   store.setState({ snapshot, draft: structuredClone(snapshot.overrides) });
   const variantStore = createModuleSettingsSession();
   const variant = variantFixture as ModuleSettingsSnapshot;
-  variantStore.setState({ snapshot: variant, draft: structuredClone(variant.overrides) });
+  // The variant segments live inside the first scoring group, an editable item
+  // that starts collapsed (#3253); open it as a person would before editing.
+  variantStore.setState({ snapshot: variant, draft: structuredClone(variant.overrides), openItems: { "scoring.groups.0": true } });
   function Variants() { const session = useStore(variantStore); return <SettingsFields snapshot={variant} session={session} store={variantStore} />; }
   function Fields() { const session = useStore(store); return <SettingsFields snapshot={snapshot} session={session} store={store} />; }
   function Gallery({ busy = false }: { busy?: boolean }) {

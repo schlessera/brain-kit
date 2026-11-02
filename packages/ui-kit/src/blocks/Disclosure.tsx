@@ -1,6 +1,6 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
+import { useExpansion } from "../internal/expansion.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
 
@@ -61,19 +61,11 @@ export interface DisclosureProps {
 }
 
 export function Disclosure(p: DisclosureProps) {
-  // Both props, and only both, hand control to the parent. `open` alone has to
-  // keep seeding local state or mode 2 would stop being the design's.
-  const controlled = p.open !== undefined && p.onOpenChange !== undefined;
-  const [internal, setInternal] = useState(p.open === true);
-  const open = controlled ? p.open === true : internal;
-
-  function toggle() {
-    const next = !open;
-    // A controlled component must not also hold state, or the two disagree the
-    // moment the parent refuses a change.
-    if (!controlled) setInternal(next);
-    p.onOpenChange?.(next);
-  }
+  // The three modes live in the shared expansion primitive (#3253), which
+  // keeps the rule above verbatim: both props, and only both, hand control to
+  // the parent, and `open` alone still only seeds local state.
+  const expansion = useExpansion({ open: p.open, onOpenChange: p.onOpenChange });
+  const open = expansion.open;
 
   const summary: CSSProperties = {
     display: "flex",
@@ -93,12 +85,6 @@ export function Disclosure(p: DisclosureProps) {
     } as CSSProperties),
   };
 
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    toggle();
-  }
-
   return (
     <div
       style={{
@@ -115,11 +101,9 @@ export function Disclosure(p: DisclosureProps) {
       <div
         style={summary}
         className="bk-control"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={toggle}
-        onKeyDown={onKeyDown}
+        // The body unmounts when closed, so `aria-controls` names it only
+        // while it exists.
+        {...expansion.roleButtonProps({ bodyMounted: open })}
       >
         {/* Not optional: the source's `icon` falls back to `steps`, so the
             guard around it can never be false. */}
@@ -144,6 +128,7 @@ export function Disclosure(p: DisclosureProps) {
       </div>
       {open ? (
         <div
+          id={expansion.bodyId}
           style={{
             borderLeft: `2px solid ${color.line}`,
             paddingLeft: 12,

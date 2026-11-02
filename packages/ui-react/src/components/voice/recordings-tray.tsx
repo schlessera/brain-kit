@@ -1,9 +1,8 @@
-import type { CSSProperties } from "react";
 import { followDraftTarget } from "../../lib/draft-target.js";
 import { AssociateRecordings } from "./associate-recordings.js";
 import type { BrainUiRoot } from "../../root.js";
-import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObject } from "react";
-import { Button, RecordingRow } from "@schlessera/brain-ui-kit";
+import { Fragment, useEffect, useRef, useState, useCallback, type RefObject } from "react";
+import { Button, RecordingRow, Tray } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
 import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type RecordingStore, type Recording } from "../../lib/recordings.js";
@@ -35,9 +34,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   const [open, setOpen] = useState(false);
   const [associateRoot, setAssociateRoot] = useState<BrainUiRoot | null>(null);
   const [notice, setNotice] = useState("");
-  const listId = useId();
   const tray = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLButtonElement>(null);
   const focusComposer = useCallback(() => {
     const field = composerRef?.current?.querySelector<HTMLTextAreaElement>("textarea[data-composer]");
@@ -82,29 +79,28 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   useEffect(() => {
     if (focusAfter === null) return;
     if (rows.some(r => r.id === focusAfter)) return;
-    const next = list.current?.hidden ? null : tray.current?.querySelector<HTMLElement>("[data-recording-focus]");
+    const next = !open ? null : tray.current?.querySelector<HTMLElement>("[data-recording-focus]");
     (next ?? header.current)?.focus({ preventScroll: true });
     if (!rows.length) focusComposer();
     setFocusAfter(null);
-  }, [focusAfter, rows, focusComposer]);
+  }, [focusAfter, rows, focusComposer, open]);
   const remove = async (row: Recording) => {
     const nodes = [...(tray.current?.querySelectorAll<HTMLElement>("[data-recording-focus]") ?? [])];
     const at = nodes.findIndex(n => n.dataset.recordingFocus === row.id);
     const nextId = nodes[at + 1]?.dataset.recordingFocus;
     await root.recordings!.discard(row.partition, row.id);
     setInventory(current => ({ ...current, rows: current.rows.filter(r => r.id !== row.id) }));
-    if (nextId && list.current && !list.current.hidden) nodes[at + 1]?.focus({ preventScroll: true });
+    if (nextId && open) nodes[at + 1]?.focus({ preventScroll: true });
     else if (rows.length > 1) header.current?.focus({ preventScroll: true });
     else { setFocusAfter(row.id); }
   };
   return <>
     <div className="sr-only" aria-live="polite" data-recording-live="">{notice}</div>
     {inventory.account === account && inventory.removed.map(text => <p key={text} className="text-xs text-muted-foreground">{text}</p>)}
-    {rows.length > 0 && <div ref={tray} className="mb-2 rounded-xl border border-border bg-surface" data-recordings-tray="" style={{ maxWidth: 720, marginInline: "auto", maxHeight: "40vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <button /* raw-button: row — Composite disclosure header keeps its native ref. */ ref={header} type="button" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(v => !v)} className="bk-row flex w-full items-center justify-between gap-2 px-3 text-xs font-mono" style={{ "--hv-bg": "var(--bk-hover-veil-strong)", minHeight: 44, borderRadius: open ? "11px 11px 0 0" : 11 } as CSSProperties}>
-        <span>On this device · {rows.length} · {size(rows.reduce((n, r) => n + r.bytes, 0))}</span><span aria-hidden="true">{open ? "▴" : "▾"}</span>
-      </button>
-      <div ref={list} id={listId} hidden={!open} className="min-h-0 space-y-2 overflow-y-auto px-2 pb-2">
+    {rows.length > 0 && <div ref={tray} className="mb-2" data-recordings-tray="" style={{ maxWidth: 720, marginInline: "auto" }}>
+      {/* A bounded panel whose header carries the count and size (#3253). Its
+          body stays mounted while closed, so playback and edits survive. */}
+      <Tray ref={header} icon="mic" label={`On this device · ${rows.length} ${rows.length === 1 ? "recording" : "recordings"} · ${size(rows.reduce((n, r) => n + r.bytes, 0))}`} open={open} onOpenChange={setOpen} maxHeight="40vh">
         <p className="px-1 text-xs text-muted-foreground">Kept in this browser. Not protected from someone who can use this device.</p>
         {rows.map((row, i) => <Fragment key={`${row.partition}/${row.id}`}>
           {row.partition === "unassigned" && rows[i - 1]?.partition !== "unassigned" && <p className="px-1 text-xs text-muted-foreground">Not linked to an account</p>}
@@ -113,7 +109,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
           onAccepted?.();
           setTimeout(focusComposer, 0);
         }} /></Fragment>)}
-      </div>
+      </Tray>
     </div>}
     {associateRoot === root && account && <AssociateRecordings onClose={() => setAssociateRoot(null)} />}
   </>;

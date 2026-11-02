@@ -63,7 +63,9 @@ function RootFallback({ error, reload }: { error: unknown; reload?: () => void }
           if (reload) reload(); else window.location.reload();
         }}>Reload</button>
         <details style={S.details}>
-          <summary style={S.summary}>Details for a bug report</summary>
+          {/* The documented raw-details exception (#3253): the kit may be what
+              failed, so this stays native and still says how much it hides. */}
+          <summary style={S.summary}>{`Details for a bug report · ${details.split("\n").length} lines`}</summary>
           <pre style={S.pre}>{details}</pre>
         </details>
       </div>

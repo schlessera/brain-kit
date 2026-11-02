@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
-import { Button, Callout, ScreenHeader, Surface } from "@schlessera/brain-ui-kit";
+import { Button, Callout, Disclosure, ScreenHeader, Surface } from "@schlessera/brain-ui-kit";
 import type { ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
 import { useBrainUiRoot } from "../../root-context.js";
 import { ApiRequestError } from "../../lib/api-client.js";
 import { SettingsFields } from "./module-settings-fields.js";
-import { changedSettingsPaths, replaceAt, savedDraft, settingsDirty, valueAt, type ModuleSettingsSessionStore } from "./module-settings-state.js";
+import { changedSettingsPaths, replaceAt, revealInvalidItems, savedDraft, settingsDirty, valueAt, type ModuleSettingsSessionStore } from "./module-settings-state.js";
 
 const title = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 const errorText = (error: unknown) => error instanceof Error ? error.message : "The request failed. Retry when the connection is available.";
+
+/** The migration's raw source, as evidence: the summary says how much is hidden (#3253). */
+function SourceValues({ source }: { source: unknown }) {
+  const text = JSON.stringify(source, null, 2) ?? "null";
+  const keys = source && typeof source === "object" ? Object.keys(source).length : 0;
+  // Short enough that the count survives the summary's one-line truncation at 320px.
+  return <div data-evidence-disclosure="" className="min-w-0"><Disclosure icon="file" label={`Complete source values · ${keys} ${keys === 1 ? "key" : "keys"}`}>
+    <pre className="whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-3 text-xs">{text}</pre>
+  </Disclosure></div>;
+}
 
 /** Generic module workflow. The session lives above responsive pane/drawer remounts. */
 export function ModulesTab({ active, session: store }: { active: boolean; session: ModuleSettingsSessionStore }) {
@@ -74,10 +84,9 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
   function focusFirstError() {
     const editor = editorRef.current;
     const field = editor?.querySelector<HTMLElement>('[data-setting-path][aria-invalid="true"]');
+    // Collapsed items holding an error were opened by the refused Save's
+    // `revealInvalidItems`, which rendered before this frame (#3253).
     if (!editor || !field) return;
-    for (let parent = field.parentElement; parent && parent !== editor; parent = parent.parentElement) {
-      if (parent.tagName === "DETAILS") (parent as HTMLDetailsElement).open = true;
-    }
     const control = field.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role="switch"]:not([aria-disabled="true"])') ?? field;
     control.focus({ preventScroll: true });
     field.scrollIntoView({ block: "center" });
@@ -98,7 +107,7 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
   }
   async function open(name: string) {
     const generation = store.getState().generation + 1;
-    store.setState({ name, loading: true, error: null, snapshot: null, generation, preview: null, confirm: null, conflict: null, choices: {}, errors: [], localErrors: {}, pendingInputs: {}, variants: {}, leave: null, message: null, draftNotes: null });
+    store.setState({ name, loading: true, error: null, snapshot: null, generation, preview: null, confirm: null, conflict: null, choices: {}, errors: [], localErrors: {}, pendingInputs: {}, variants: {}, openItems: {}, leave: null, message: null, draftNotes: null });
     const unavailable = store.getState().modules.find((module) => module.name === name && module.state === "unavailable");
     if (unavailable) {
       store.setState({ loading: false, error: unavailable.error ?? "This module could not be loaded." });
@@ -111,7 +120,7 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
     } catch (error) { if (store.getState().generation === generation) store.setState({ error: errorText(error), loading: false }); }
   }
   function back() {
-    requestLeave(() => store.setState({ name: null, snapshot: null, draft: {}, error: null, message: null, errors: [], localErrors: {}, pendingInputs: {}, variants: {}, preview: null, conflict: null, leave: null, confirm: null, generation: store.getState().generation + 1 }));
+    requestLeave(() => store.setState({ name: null, snapshot: null, draft: {}, error: null, message: null, errors: [], localErrors: {}, pendingInputs: {}, variants: {}, openItems: {}, preview: null, conflict: null, leave: null, confirm: null, generation: store.getState().generation + 1 }));
   }
   function discard() {
     const current = store.getState();
@@ -136,7 +145,7 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
       return;
     }
     if (Object.keys(current.localErrors).length) {
-      store.setState({ message: "Review the highlighted settings before saving." });
+      store.setState((s) => ({ message: "Review the highlighted settings before saving.", openItems: revealInvalidItems(s) }));
       requestAnimationFrame(focusFirstError);
       return;
     }
@@ -144,7 +153,7 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
     try { accept(await api.moduleSettingsSave(current.name, values ?? savedDraft(current), revision ?? current.snapshot.revision)); }
     catch (error) {
       if (error instanceof ApiRequestError && error.status === 422) {
-        store.setState({ busy: null, errors: error.errors, message: error.message });
+        store.setState((s) => ({ busy: null, errors: error.errors, message: error.message, openItems: revealInvalidItems(s, error.errors) }));
         requestAnimationFrame(focusFirstError);
       } else if (error instanceof ApiRequestError && error.status === 409) {
         try {
@@ -202,7 +211,7 @@ export function ModulesTab({ active, session: store }: { active: boolean; sessio
       {snapshot && !session.loading && <>
         {snapshot.ui.migration && (!snapshot.ui.migration.target || valueAt(snapshot.values, snapshot.ui.migration.target.split(".")) === undefined) && <Surface pad={3}><div className="space-y-3"><h3 className="text-sm font-semibold">{snapshot.ui.migration.label}</h3><p className="text-xs text-muted-foreground">{snapshot.ui.migration.help ?? "Preview the source before moving these settings."}</p><Button label="Preview migration" tone="quiet" disabled={dirty || session.busy !== null} reach onClick={() => void preview()} /></div></Surface>}
         {session.preview && <section aria-label="Migration preview" className="space-y-3"><h3 className="text-sm font-semibold">Preview from {session.preview.source}</h3><SettingsFields disabled snapshot={{ ...snapshot, values: session.preview.values, inherited: {}, overrides: session.preview.values, notes: [], schema: { ...snapshot.schema, properties: Object.fromEntries(Object.entries((snapshot.schema.properties ?? {}) as Record<string, unknown>).filter(([key]) => Object.hasOwn(session.preview!.values, key))) }, ui: { ...snapshot.ui, fields: snapshot.ui.fields.filter((field) => Object.hasOwn(session.preview!.values, field.key.split(".")[0]!)) } }} session={{ ...session, draft: session.preview.values, variants: {}, draftNotes: null, pendingInputs: {} }} store={store} />
-          <details><summary className="min-h-11 cursor-pointer py-3 text-xs">Complete source values</summary><pre className="whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-3 text-xs">{JSON.stringify(session.preview.original ?? session.preview.values, null, 2)}</pre></details>{session.preview.summary && <p className="text-xs text-muted-foreground">{session.preview.summary}</p>}{session.preview.warnings?.map((w) => <p key={w} className="text-xs text-muted-foreground">{w}</p>)}<div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4"><Button label={snapshot.ui.migration?.label ?? "Apply migration"} disabled={dirty || session.busy !== null || session.preview.alreadyMoved} block={false} reach onClick={() => void applyMigration()} /><Button label="Cancel migration" tone="quiet" block={false} disabled={session.busy !== null} reach onClick={() => store.setState({ preview: null })} /></div></section>}
+          <SourceValues source={session.preview.original ?? session.preview.values} />{session.preview.summary && <p className="text-xs text-muted-foreground">{session.preview.summary}</p>}{session.preview.warnings?.map((w) => <p key={w} className="text-xs text-muted-foreground">{w}</p>)}<div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4"><Button label={snapshot.ui.migration?.label ?? "Apply migration"} disabled={dirty || session.busy !== null || session.preview.alreadyMoved} block={false} reach onClick={() => void applyMigration()} /><Button label="Cancel migration" tone="quiet" block={false} disabled={session.busy !== null} reach onClick={() => store.setState({ preview: null })} /></div></section>}
         <SettingsFields snapshot={snapshot} session={session} store={store} />
         <section aria-label="Module state" className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">Workflow state</h3><p className="text-xs text-muted-foreground">Dormancy keeps content and configuration, while removing this workflow's skills and owned instructions. Running sessions keep their loaded state.</p><Button label={snapshot.state === "active" ? "Make dormant" : "Activate module"} tone="quiet" disabled={dirty || session.busy !== null || (snapshot.state === "active" && !snapshot.canBeDormant)} reach onClick={() => store.setState({ confirm: "state" })} />{snapshot.dormancyReason && !snapshot.canBeDormant && <p className="text-xs text-muted-foreground">{snapshot.dormancyReason}</p>}</section>
         {snapshot.ui.actions.length > 0 && <section aria-label="Module actions" className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">Actions</h3>{snapshot.ui.actions.map((action) => <div key={action.id} className="space-y-2"><p className="text-xs text-muted-foreground">{action.help}</p><Button label={action.label} tone="quiet" disabled={dirty || session.busy !== null || snapshot.state === "dormant"} reach onClick={() => store.setState({ confirm: action.id })} /></div>)}{dirty && <p className="text-xs text-muted-foreground">Save first · actions use saved settings.</p>}{snapshot.state === "dormant" && <p className="text-xs text-muted-foreground">Activate the module before running its actions.</p>}</section>}

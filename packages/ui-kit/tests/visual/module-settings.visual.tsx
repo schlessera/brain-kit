@@ -9,7 +9,7 @@ import { SettingsPanel } from "../../../ui-react/src/components/settings/setting
 import snapshotFixture from "./fixtures/module-settings.json";
 import catalogFixture from "./fixtures/module-settings-catalog.json";
 import { SettingsFields } from "../../../ui-react/src/components/settings/module-settings-fields.js";
-import { createModuleSettingsSession, savedDraft } from "../../../ui-react/src/components/settings/module-settings-state.js";
+import { createModuleSettingsSession, revealInvalidItems, savedDraft } from "../../../ui-react/src/components/settings/module-settings-state.js";
 import { useStore } from "zustand";
 
 function Shell() {
@@ -21,6 +21,24 @@ function button(doc: Document, label: string): HTMLElement {
   const found = [...doc.querySelectorAll<HTMLElement>('button,[role="button"],[role="switch"]')].find((element) => element.textContent?.trim() === label || element.getAttribute("aria-label") === label);
   if (!found) throw new Error(`Missing button: ${label}`);
   return found;
+}
+/** An editable item's expansion toggle, found by its title (#3253). */
+function itemToggle(doc: Document, title: string): HTMLElement {
+  const found = [...doc.querySelectorAll<HTMLElement>("[data-item-card-toggle]")].find((toggle) => toggle.querySelector("[title]")?.textContent === title);
+  if (!found) throw new Error(`Missing item: ${title}`);
+  return found;
+}
+function openItem(doc: Document, title: string) {
+  const toggle = itemToggle(doc, title);
+  if (toggle.getAttribute("aria-expanded") !== "true") flushSync(() => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+}
+/** Choose an item's action from its separate actions menu. */
+function itemAction(doc: Document, title: string, action: string) {
+  flushSync(() => button(doc, `Actions for ${title}`).click());
+  const item = [...doc.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((element) => element.textContent === action);
+  if (!item) throw new Error(`Missing action: ${action} for ${title}`);
+  flushSync(() => item.click());
 }
 function enter(doc: Document, id: string, value: string) {
   const input = doc.getElementById(id) as HTMLInputElement;
@@ -174,7 +192,11 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
       }
       flushSync(() => button(doc, "Configure Jobs").click());
-      await expect.poll(() => doc.getElementById("module-setting-scoring.groups.0.name")).not.toBeNull();
+      // Editable items start collapsed: "first item open" hid errors in later items (#3253).
+      await expect.poll(() => doc.querySelector("[data-item-card-toggle]")).not.toBeNull();
+      expect(itemToggle(doc, "Navigation").getAttribute("aria-expanded")).toBe("false");
+      expect(doc.getElementById("module-setting-scoring.groups.0.name")).toBeNull();
+      openItem(doc, "Navigation");
       expect((doc.getElementById("module-setting-scoring.compensationBenchmark") as HTMLInputElement).value).toBe("120000.00");
       expect(doc.querySelector('input[aria-label="USD weight"]')).not.toBeNull();
       expect(doc.querySelector('input[aria-label="Add Queries"]')).not.toBeNull();
@@ -182,7 +204,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
       expect(doc.body.textContent).toContain("set in brain config");
       expect(button(doc, "Score location").getAttribute("aria-checked")).toBe("false");
       expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-      const name = doc.getElementById("module-setting-scoring.groups.0.name")!;
+      let name = doc.getElementById("module-setting-scoring.groups.0.name")!;
       expect(name.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
       const editor = doc.querySelector<HTMLElement>("[data-module-settings-editor]")!;
       if (purpose === "presentation") {
@@ -218,10 +240,21 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Connection interrupted");
         expect((name as HTMLInputElement).value).toBe("Fleet navigation");
         reject = "validation";
+        // A refused Save opens the collapsed item holding the error, then focuses the field.
+        flushSync(() => itemToggle(doc, "Fleet navigation").click());
+        expect(doc.getElementById("module-setting-scoring.groups.0.name")).toBeNull();
         flushSync(() => button(doc, "Save").click());
         await expect.poll(() => doc.body.textContent).toContain("Name is required");
+        expect(itemToggle(doc, "Fleet navigation").getAttribute("aria-expanded")).toBe("true");
+        name = doc.getElementById("module-setting-scoring.groups.0.name")!;
         expect(name.getAttribute("aria-invalid")).toBe("true");
         await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups.0.name");
+        // Collapsed again, the error stays on the header.
+        flushSync(() => itemToggle(doc, "Fleet navigation").click());
+        expect(itemToggle(doc, "Fleet navigation").textContent).toContain("1 to fix");
+        expect(itemToggle(doc, "Fleet navigation").closest("[data-item-card]")!.hasAttribute("data-invalid")).toBe(true);
+        openItem(doc, "Fleet navigation");
+        name = doc.getElementById("module-setting-scoring.groups.0.name")!;
         const lifecycleTop = doc.querySelector("[data-module-settings-lifecycle]")!.getBoundingClientRect().top;
         expect(name.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
         expect(doc.getElementById("module-setting-scoring.groups.0.name-error")!.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
@@ -299,6 +332,7 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
   try {
     flushSync(() => react.render(<Fixture />));
     const original = savedDraft(store.getState());
+    openItem(doc, "Navigation");
     enter(doc, "module-setting-scoring.groups.0.tiers.0.points", "24");
     const expected = structuredClone(original);
     (((expected.scoring as { groups: Array<Record<string, unknown>> }).groups[0]!.tiers) as Array<{ points: number }>)[0]!.points = 24;
@@ -317,21 +351,91 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
     flushSync(() => button(doc, "One keyword list").click());
     enter(doc, "module-setting-scoring.groups.0.keywords", "Pending case");
     flushSync(() => button(doc, "Add group").click());
-    flushSync(() => button(doc, "Move Navigation down").click());
+    itemAction(doc, "Navigation", "Move down");
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups[1]).toMatchObject({ keywords: ["LegacyCase"] });
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups[1].tiers).toBeUndefined();
     expect(store.getState().pendingInputs["scoring.groups.1.keywords"]).toBe("Pending case");
-    flushSync(() => button(doc, "Remove Navigation").click());
+    itemAction(doc, "Navigation", "Remove…");
     expect(host.textContent).toContain("Remove Navigation?");
     flushSync(() => button(doc, "Keep").click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(2);
-    flushSync(() => button(doc, "Remove Navigation").click());
+    itemAction(doc, "Navigation", "Remove…");
     const removal = button(doc, "Remove");
     expect(removal.getAttribute("aria-disabled")).not.toBe("true");
     flushSync(() => removal.click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(1);
     expect(Object.keys(store.getState().pendingInputs)).not.toContain("scoring.groups.1.keywords");
     expect(Object.keys(store.getState().variants)).not.toContain("scoring.groups.1");
+  } finally { await fixture.release(() => flushSync(() => react.unmount())); }
+});
+
+// #3253: repeated editable records are item cards. Their errors show while
+// collapsed, a refused Save opens them, and focus follows add, remove and a
+// reseed that takes the focused record away. Expansion follows the record.
+for (const width of [320, 1440]) test(`${width}: editable items keep errors, focus and expansion with the record`, async () => {
+  const fixture = await settingsFixture(width);
+  const doc = fixture.doc; doc.body.style.margin = "0";
+  const host = doc.createElement("div"); host.style.width = `${width}px`; doc.body.append(host);
+  const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
+  const snapshot = structuredClone(snapshotFixture) as ModuleSettingsSnapshot;
+  const store = createModuleSettingsSession(); store.setState({ snapshot, draft: snapshot.overrides });
+  function Fixture() { const session = useStore(store); return <SettingsFields snapshot={snapshot} session={session} store={store} />; }
+  const react = createRoot(host);
+  const status = () => host.querySelector('[data-setting-path="scoring.groups"] [role="status"]')?.textContent;
+  try {
+    flushSync(() => react.render(<Fixture />));
+    const navigation = itemToggle(doc, "Navigation");
+    expect(navigation.getAttribute("aria-expanded"), "collapsed by default").toBe("false");
+    expect(navigation.getAttribute("role")).toBe("button");
+    expect(navigation.getBoundingClientRect().height, "44px header").toBeGreaterThanOrEqual(44);
+    const menu = button(doc, "Actions for Navigation");
+    expect(navigation.contains(menu), "the menu is a separate target").toBe(false);
+    expect(menu.getBoundingClientRect().left - navigation.getBoundingClientRect().right, "8px between the targets").toBeGreaterThanOrEqual(8);
+
+    // An error in a collapsed record shows on its header.
+    flushSync(() => store.setState({ localErrors: { "scoring.groups.0.name": "Name is required" } }));
+    expect(navigation.getAttribute("aria-expanded")).toBe("false");
+    expect(navigation.textContent).toContain("1 to fix");
+    expect(navigation.closest("[data-item-card]")!.hasAttribute("data-invalid")).toBe(true);
+    // A refused Save's reveal opens it, exactly as ModulesTab applies it.
+    flushSync(() => store.setState((s) => ({ openItems: revealInvalidItems(s) })));
+    expect(navigation.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.getElementById("module-setting-scoring.groups.0.name")!.getAttribute("aria-invalid")).toBe("true");
+    flushSync(() => store.setState({ localErrors: {} }));
+    expect(navigation.textContent).not.toContain("to fix");
+
+    // Add opens the new record and focuses its first field.
+    flushSync(() => button(doc, "Add group").click());
+    await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups.1.name");
+    const added = itemToggle(doc, "Untitled scoring groups 2");
+    expect(added.getAttribute("aria-expanded")).toBe("true");
+
+    // Expansion follows the record when it moves; focus returns to its menu.
+    // An untitled record is numbered by position, so it is renamed by the move.
+    flushSync(() => navigation.click());
+    itemAction(doc, "Untitled scoring groups 2", "Move up");
+    expect([...doc.querySelectorAll("[data-item-card-toggle] [title]")].map((title) => title.textContent)).toEqual(["Untitled scoring groups 1", "Navigation"]);
+    expect(itemToggle(doc, "Untitled scoring groups 1").getAttribute("aria-expanded")).toBe("true");
+    expect(itemToggle(doc, "Navigation").getAttribute("aria-expanded")).toBe("false");
+    await expect.poll(() => doc.activeElement?.getAttribute("aria-label")).toBe("Actions for Untitled scoring groups 1");
+
+    // Remove keeps its inline confirmation, then hands focus to the next header.
+    itemAction(doc, "Untitled scoring groups 1", "Remove…");
+    expect(host.textContent).toContain("Remove Untitled scoring groups 1?");
+    await expect.poll(() => doc.activeElement?.textContent).toBe("Keep");
+    flushSync(() => button(doc, "Remove").click());
+    await expect.poll(() => doc.activeElement).toBe(itemToggle(doc, "Navigation"));
+    expect(status()).toBe("Removed Untitled scoring groups 1.");
+    // Expansion survived the removal with its record: Navigation stays closed.
+    expect(itemToggle(doc, "Navigation").getAttribute("aria-expanded")).toBe("false");
+
+    // A reseed that takes the focused record away returns focus to the list heading.
+    flushSync(() => store.setState((s) => ({ draft: { ...s.draft, scoring: { ...(s.draft.scoring as Record<string, unknown>), groups: [] } } })));
+    await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups-label");
+    expect(status()).toBe("Scoring groups changed: 0 items.");
+    // With nothing left, a removal's fallback is Add; here Add is still reachable.
+    expect(button(doc, "Add group")).toBeTruthy();
+    await fixture.capture(`items-${width === 320 ? "mobile" : "desktop"}-empty`);
   } finally { await fixture.release(() => flushSync(() => react.unmount())); }
 });
 
@@ -390,12 +494,16 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     await expect.poll(() => host.querySelector('[aria-label="Migration preview"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="Migration preview"]')?.textContent).toContain("Navigation");
     expect(host.textContent).toContain("1 group and 2 tiers carried over");
+    // A read-only preview item has no actions menu and still opens.
+    expect(doc.querySelector('[aria-label="Migration preview"] [aria-haspopup="menu"]')).toBeNull();
+    openItem(doc, "Navigation");
     const readonlyName = doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement;
     expect(readonlyName.disabled).toBe(true);
     await fixture.capture("mobile-dark-migration");
     flushSync(() => button(doc, "Move scoring rules").click());
     await expect.poll(() => host.textContent).toContain("commit abcdef0");
     expect(operations).toEqual([{ path: "/api/modules/jobs/migration", revision: '"migration-preview"' }]);
+    openItem(doc, "Navigation");
     enter(doc, "module-setting-scoring.groups.0.name", "Unsaved voyage");
     expect(button(doc, "Make dormant").getAttribute("aria-disabled")).toBe("true");
     expect(button(doc, "Rescore now").getAttribute("aria-disabled")).toBe("true");
@@ -408,6 +516,7 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     flushSync(() => button(doc, "Confirm").click());
     await expect.poll(() => host.textContent).toContain("Jobs is dormant");
     expect(button(doc, "Rescore now").getAttribute("aria-disabled")).toBe("true");
+    openItem(doc, "Navigation");
     expect((doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement).value).toBe("Navigation");
     flushSync(() => button(doc, "Activate module").click()); flushSync(() => button(doc, "Confirm").click());
     await expect.poll(() => host.textContent).toContain("Jobs is active");

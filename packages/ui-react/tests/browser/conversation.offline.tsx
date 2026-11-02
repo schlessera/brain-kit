@@ -924,8 +924,9 @@ for (const width of [390, 320]) test(`missing-ID conversation stays live and rev
   expect(s.client.state.getState().unassignedWork).toBe(3);
   const outputs = s.downstream.flatMap(f => f.type === "conversation_event" && f.event.kind === "audio" ? [f.event.outputId] : []);
   expect(new Set(outputs)).toEqual(new Set(["output-1"]));
-  const summary = s.host.querySelector('[aria-label="Voice review controls"] summary') as HTMLElement;
-  await userEvent.click(summary);
+  // The review is an inline notice and action now, visible without a toggle (#3253).
+  expect(s.host.querySelector('[aria-label="Voice review controls"] summary')).toBeNull();
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')!.textContent).toContain("3 voice fragments weren't sent.");
   await expect.poll(() => [...s.host.querySelectorAll("[data-recognized-text]")].map(n => n.textContent).join("")).toBe(parts.join(""));
   expect(s.client.state.getState().unassigned.map(f => f.sessionInterval?.startMs)).toEqual([600, 10200, 19000]);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/unassigned-${width}.png` });

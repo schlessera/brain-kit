@@ -87,7 +87,7 @@ describe("the run detail", () => {
     try {
       await act(flushPromises);
       expect(view.queryByRole("button", { name: "Copy raw trace" })).toBeNull();
-      fireEvent.click(view.getByText("Raw trace"));
+      fireEvent.click(view.getByText("Raw trace · 2 spans"));
       fireEvent.click(view.getByRole("button", { name: "Copy raw trace" }));
 
       expect(copied).toHaveLength(1);
