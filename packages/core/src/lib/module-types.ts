@@ -226,6 +226,12 @@ export interface LoadedModule<C = unknown> {
   config: C;
   /** The loader always supplies state; omission in constructed contexts means active. */
   state?: "active" | "dormant";
+  /**
+   * Repositories the module's config block asks the host to fetch for its cron
+   * jobs (#3380), core-owned like `enabled` and never part of the domain config.
+   * A request only: the host grants one only when its operator allow-list names it.
+   */
+  repositories?: readonly string[];
   /** Original declaration for schema-derived settings and the shared writer. */
   declaration?: ModuleManifest<C>;
   /** Domain input before saved JSON overrides or schema defaults. */

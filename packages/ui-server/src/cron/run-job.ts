@@ -15,6 +15,7 @@ import { isSyncJob, TRUSTED_JOB_NAMES } from "./emit.js";
 import { cronJobClass, type HostBoundary } from "../brain/host-boundary.js";
 import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
 import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import type { JobRepositories } from "./job-repositories.js";
 import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 
 /** Tail of stderr retained for the cron_runs error row. */
@@ -34,6 +35,9 @@ export const READ_ONLY_BOUNDARY_HINT =
 export function readOnlyWithoutBoundary(stderr: string): boolean {
   return /\bEROFS\b|read-only file system/i.test(stderr) && !stderr.includes("host execution boundary");
 }
+
+/** The host refused a job before starting it, such as for a repository the operator has not allowed (#3380). */
+class JobRefusedError extends Error {}
 
 /** Heartbeat cadence, comfortably inside the activity store's stale threshold. */
 export const HEARTBEAT_MS = 30_000;
@@ -75,6 +79,11 @@ export interface RunJobOptions {
   brainPath?: string;
   /** @internal The host execution boundary (#1648): repository jobs run in maintenance workers while it holds. */
   boundary?: HostBoundary;
+  /**
+   * @internal Decide and fetch the repositories a worker job may read (#3380),
+   * before it launches. A refusal fails the run without starting the job.
+   */
+  repositories?: (jobName: string, command: readonly string[]) => Promise<JobRepositories>;
   stdout?: TextSink;
   stderr?: TextSink;
 }
@@ -295,10 +304,14 @@ export async function runJob(
     let proc: SpawnedJob;
     const inWorker = !trusted && Boolean(options.boundary?.isolated());
     if (inWorker && options.boundary) {
+      const access = !syncJob && options.repositories ? await options.repositories(options.jobName, options.command) : undefined;
+      for (const note of access?.notes ?? []) writeLine(stderr, `[cron-run] ${options.jobName}: ${note}`);
+      if (access && !access.ok) throw new JobRefusedError(access.reason);
       // The sink is the one host file the job may append to.
       closeSync(openSync(sinkPath, "a", 0o600));
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
-        purpose: `cron ${options.jobName}`, writeFiles: [sinkPath], ...(syncJob ? { sync: true } : {}) });
+        purpose: `cron ${options.jobName}`, writeFiles: [sinkPath], ...(syncJob ? { sync: true } : {}),
+        ...(access?.ok && access.repositories.length ? { repositories: access.repositories } : {}) });
     } else {
       proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
         stdin: "inherit",
@@ -357,9 +370,14 @@ export async function runJob(
       }
     }
   } catch (error) {
-    exitCode = 127;
     errorMessage = messageOf(error);
-    writeLine(stderr, `[cron-run] failed to start job command: ${errorMessage}`);
+    if (error instanceof JobRefusedError) {
+      exitCode = 1;
+      writeLine(stderr, `[cron-run] ${options.jobName} refused: ${errorMessage}`);
+    } else {
+      exitCode = 127;
+      writeLine(stderr, `[cron-run] failed to start job command: ${errorMessage}`);
+    }
   }
 
   if (recorder) {

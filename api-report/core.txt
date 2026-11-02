@@ -558,6 +558,7 @@ signatures (every public export and the types it is made of)
         dir: string;
         config: C;
         state?: "active" | "dormant";
+        repositories?: readonly string[];
         declaration?: ModuleManifest<C>;
         configInput?: unknown;
     }

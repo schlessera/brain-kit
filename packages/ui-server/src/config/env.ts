@@ -20,6 +20,7 @@ import { join, resolve } from "path";
 import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+import { parseRepositoryAllowList } from "../brain/module-repositories.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -173,6 +174,18 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "(Settings → Skills) — typically read-only Contents on the skill " +
       "repos. Falls back to GITHUB_TOKEN.",
     default: "$GITHUB_TOKEN",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODULE_REPOSITORIES",
+    description:
+      "Operator allow-list of repository URLs (comma or whitespace separated, HTTPS) " +
+      "a module cron job may read. The host fetches a repository a module's " +
+      "`repositories` config asks for only when this list names it too, using the " +
+      "sync transport's credential (BRAIN_UI_SYNC_GITHUB_TOKEN, else GITHUB_TOKEN); " +
+      "the job's worker reads a host mirror and never holds the credential. Read by " +
+      "the cron runner only, never forwarded to a job. Empty refuses every request.",
+    default: "(empty — no module repository is fetched)",
     required: false,
   },
   {
@@ -900,6 +913,8 @@ export interface CronConfig {
   exec: ExecWrapperConfig;
   /** BRAIN_UI_CLI_PROVIDER_ORIGINS, for the provider relay of a credentialed job (#1673). */
   cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
+  /** BRAIN_UI_MODULE_REPOSITORIES: the operator's allow-list of repositories a module job may read (#3380). */
+  moduleRepositories: { allowed: string[]; invalid: string[] };
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1232,6 +1247,7 @@ export function resolveCronConfig(
     ),
     exec: execConfig(env),
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
+    moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
   };
 }
 
