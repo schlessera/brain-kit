@@ -28,7 +28,7 @@ import { checkGovernancePolicy } from "@schlessera/brain-common/internal/governa
 import { geminiEmbeddingRecipient } from "../../providers/embeddings/gemini.js";
 
 import { runGraphPrecompute, runGraphPrecomputeIfChanged } from "../graph/precompute.js";
-import { indexAssets } from "./assets.js";
+import { indexAssets, indexCoversAssets } from "./assets.js";
 import { planFtsTokenizer } from "./fts.js";
 import { pruneSidecarCaches, saveAssetCache, saveContextCache } from "./caches.js";
 import { runEmbeddingPhase } from "./embeddings.js";
@@ -251,7 +251,11 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
   // Pruning runs on EVERY run, not just embeddings ones: a deleted asset's
   // description lives in a tracked file until something removes it, and
   // `brain index` is the only thing that knows what is still reachable.
-  const pruned = pruneSidecarCaches(run.db, run.root, run.warn);
+  // Asset lines are pruned only while the index holds a current hash for
+  // every asset on disk; otherwise a live asset's description would look
+  // unreachable (#3242). A targeted run scans no asset, so it never knows.
+  const pruneAssets = !targeted && indexCoversAssets(run, assetFiles);
+  const pruned = pruneSidecarCaches(run.db, run.root, run.warn, { assets: pruneAssets });
   if (pruned.assets || pruned.contexts) {
     run.report(`  Pruned ${pruned.assets} asset and ${pruned.contexts} context cache entries`);
   }

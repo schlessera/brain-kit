@@ -1,0 +1,5 @@
+---
+"@schlessera/brain": patch
+---
+
+A plain `brain index` no longer deletes committed asset descriptions from `.brain-cache/assets.jsonl` when the index does not yet know every asset on disk (#3242). Asset lines are keyed by content hash, and only an embeddings run hashes assets, so the first plain run after the 0.44.0 index rebuild, a targeted update, or a plain run that finds a new or edited image used to treat every unknown asset's paid description as unreachable and remove it. Asset lines are now pruned only while the index holds a current hash for every asset on disk; a targeted run never prunes them. Contexts are pruned as before. After upgrading an existing brain to 0.44, run `brain index --embeddings` once (ui-server's boot run is a plain one) so assets return to search; it reuses every cached description without a provider call. A brain that already lost its lines on 0.44.0 can restore `.asset-cache.jsonl` or `.brain-cache/assets.jsonl` from a pre-upgrade commit before that run.

@@ -357,25 +357,35 @@ export function forgetAssetEntries(root: string, contentHash: string): number {
  * clone that titles an asset differently must not delete a description that
  * `assetDescriptionLookup` can still reuse.
  *
+ * Reachability is only as good as the index, so the caller passes `assets:
+ * false` whenever the index may not hold a current hash for every asset on
+ * disk — a run that follows a rebuild, a plain run that finds a new or edited
+ * image, a targeted run that scans no asset. Asset lines are then left alone
+ * until a run can tell which ones are gone (#3242). Contexts need no such
+ * guard: every run parses every markdown chunk it keeps.
+ *
  * Writes only when something was actually removed, so a no-op index run leaves
  * no git diff.
  */
 export function pruneSidecarCaches(
   db: Database,
   root: string,
-  warn: (message: string) => void
+  warn: (message: string) => void,
+  options: { assets: boolean } = { assets: true }
 ): { assets: number; contexts: number } {
   const removed = { assets: 0, contexts: 0 };
 
   try {
-    const assetRows = db
-      .prepare(
-        `SELECT content_hash FROM documents
-         WHERE asset_type != 'markdown' AND content_hash IS NOT NULL`
-      )
-      .all() as { content_hash: string }[];
-    const liveHashes = new Set(assetRows.map((r) => r.content_hash));
-    removed.assets = removeSidecarLines(root, assetCachePath(root), (k) => !liveHashes.has(assetKeyHash(k)));
+    if (options.assets) {
+      const assetRows = db
+        .prepare(
+          `SELECT content_hash FROM documents
+           WHERE asset_type != 'markdown' AND content_hash IS NOT NULL`
+        )
+        .all() as { content_hash: string }[];
+      const liveHashes = new Set(assetRows.map((r) => r.content_hash));
+      removed.assets = removeSidecarLines(root, assetCachePath(root), (k) => !liveHashes.has(assetKeyHash(k)));
+    }
 
     const chunkRows = db
       .prepare(
