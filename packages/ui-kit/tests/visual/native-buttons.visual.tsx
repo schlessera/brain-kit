@@ -4,12 +4,14 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, inject, test, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
+import { Button } from "../../src/primitives/Button.js";
 import { IconButton } from "../../src/primitives/IconButton.js";
 import { TextButton } from "../../src/primitives/TextButton.js";
 import { CONTROL_RING, ring } from "../../stories/_stage.js";
 import "../../src/styles.css";
 import { remainingButtonCases } from "../../../ui-react/tests/browser/remaining-buttons.cases.js";
 import { settingsButtonCases } from "../../../ui-react/tests/browser/settings-buttons.cases.js";
+import { OWNED, edgeOwners } from "../../../ui-react/tests/browser/hit-reach.js";
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
@@ -53,6 +55,67 @@ async function mount(kind: "icon" | "text", theme: "dark" | "light", props: Reco
   expect(button, "native button mounted").not.toBeNull();
   return { button, onClick, ref };
 }
+
+/** `Button reach` (#3252): two stacked Buttons, `gap` apart, in a 320px stage. */
+async function mountReach(size: "sm" | "md", gap: number, reach = true) {
+  premise();
+  await page.viewport(320, 400);
+  host = document.createElement("div");
+  host.style.cssText = `display:flex;flex-direction:column;align-items:flex-start;gap:${gap}px;padding:40px;background:var(--bk-color-surface)`;
+  document.body.append(host);
+  root = createRoot(host);
+  const onClick = [vi.fn(), vi.fn()];
+  flushSync(() => root!.render([0, 1].map(i => createElement(Button, { key: i, size, block: false, reach, tone: "ghost", label: i ? "Lower the sail" : "Hoist the sail", onClick: onClick[i] }))));
+  const buttons = [...host.querySelectorAll<HTMLElement>('[role="button"]')];
+  expect(buttons, "two reaching Buttons mounted").toHaveLength(2);
+  return { buttons, onClick };
+}
+
+// Paint heights from Button's own padding, line height and 1px border.
+const PAINT = { sm: 28.375, md: 35.625 } as const;
+// The least whole-pixel gap at which neither Button's reach covers the other's
+// target edge: twice the reach, 15.6px for sm and 8.4px for md, rounded up.
+const LEAST_GAP = { sm: 16, md: 9 } as const;
+
+for (const size of ["sm", "md"] as const) {
+  test(`Button ${size} reach keeps its paint and reaches 44px under a coarse pointer`, async () => {
+    const { buttons } = await mountReach(size, LEAST_GAP[size]);
+    const coarse = premise() !== "fine";
+    for (const button of buttons) {
+      expect(button.getBoundingClientRect().height, "paint keeps its design height").toBeCloseTo(PAINT[size], 2);
+      expect(button.classList.contains("bk-hit"), "reach rides the shared utility").toBe(true);
+      // Just inside each edge of a 44px target, and of the paint for a fine pointer.
+      expect(edgeOwners(button, coarse ? 44 : 0), "every target edge belongs to its own Button").toEqual(OWNED);
+    }
+    // The reach stops at 44px: 1px past it belongs to neither Button.
+    const box = buttons[0]!.getBoundingClientRect();
+    const past = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2 - (coarse ? 23 : box.height / 2 + 1));
+    expect(buttons.some(button => button.contains(past)), "nothing past the target").toBe(false);
+  });
+  // A mouse click, not a tap: Chromium's touch adjustment snaps a tap near a
+  // control onto it, so a tap passes with no reach at all. The mixed lane has
+  // reach (any-pointer: coarse) and a mouse, so it proves the reach clicks.
+  if (inject("railPointer") !== "coarse") test(`Button ${size} reach activates from its extended edge`, async () => {
+    const { buttons, onClick } = await mountReach(size, LEAST_GAP[size]);
+    const coarse = premise() !== "fine";
+    const box = buttons[1]!.getBoundingClientRect();
+    await commands.overlayMouse({ x: box.left + box.width / 2, y: box.top + box.height / 2 + (coarse ? 21 : box.height / 2 - 1) });
+    expect(onClick[1], "the lower Button takes its own edge").toHaveBeenCalledTimes(1);
+    expect(onClick[0]).not.toHaveBeenCalled();
+  });
+  test(`Button ${size} reach below the least gap steals a neighbour's edge (the probe has teeth)`, async () => {
+    const { buttons } = await mountReach(size, LEAST_GAP[size] - 2);
+    const owners = edgeOwners(buttons[0]!, premise() !== "fine" ? 44 : 0);
+    if (premise() === "fine") expect(owners, "no reach, so no theft").toEqual(OWNED);
+    else expect(owners.bottom, "the later Button's reach covers the earlier one's bottom edge").toBe('button "Lower the sail"');
+  });
+}
+test("Button without reach or without a handler grows no target", async () => {
+  const { buttons } = await mountReach("sm", 16, false);
+  for (const button of buttons) expect(button.classList.contains("bk-hit")).toBe(false);
+  flushSync(() => root!.render(createElement(Button, { size: "sm", block: false, reach: true, label: "Decorative" })));
+  expect(host!.querySelector(".bk-hit"), "no handler, no invisible target").toBeNull();
+});
 
 for (const theme of ["dark", "light"] as const) {
   test(`${theme} icon sm pointer box`, async () => {

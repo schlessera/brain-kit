@@ -66,7 +66,9 @@ nearest interactive neighbour, so a row of expanded targets needs `gap` ≥ 2× 
 inset. The README records what happens otherwise: a neighbour's invisible
 pseudo-element sits on top of your visual and steals the click, and
 `FeedbackRow` briefly recorded thumbs-down for a thumbs-up. **Verify with
-`elementFromPoint` at each target's edges, not its centre.**
+`elementFromPoint` at each target's edges, not its centre.** The shared way to
+do it is `.bk-hit` and `Button`'s `reach`, recorded in
+[one hit-area utility](#2026-11-02--one-hit-area-utility-reaches-44px-past-the-paint-3252).
 
 Still deferred to the a11y wave: components that do not yet ship states, axe
 verification, and flipping `parameters.a11y.test` from `'todo'` to `'error'`.
@@ -1173,3 +1175,62 @@ pixels at both upper query corners, filter edges, menu edges and the recording
 header in both themes at phone and desktop widths. Query traversal still
 reveals the last scrolling result; filter arrows and disclosure Space retain
 their existing behavior.
+
+## 2026-11-02 — One hit-area utility reaches 44px past the paint (#3252)
+
+The rule above had no shared implementation, so `ui-react` met the 44px floor
+by inflating boxes instead: about sixty `minHeight: 44` and `min-h-11` sites,
+which drew `sm` and `md` Buttons visibly taller than the kit draws them. The
+kit now has one utility for it.
+
+**`.bk-hit`** (`packages/ui-kit/src/tokens.css`). Under `any-pointer: coarse`
+a transparent `::after` reaches 44px on each axis, centred on the paint. An
+axis already 44px or more gains no reach, and a fine pointer gains none,
+because the floor is a touch floor. Each inset is `min(0px, calc(50% - 22px))`.
+Insets resolve against the padding box, but that box shares the border box's
+centre, so the target is exactly 44px about the paint whatever the border
+width. That makes it exact where a fixed negative inset is not (the wave-3
+finding above).
+
+**`Button`'s `reach`** puts `.bk-hit` on an interactive Button. It is opt-in,
+not a default, because the neighbour rule binds every caller. The reach is
+`(44 - paint) / 2` per side, about 7.8px for `sm` and 4.2px for `md`, so a
+stacked pair needs at least twice that: 16px between two `sm` Buttons and 9px
+between two `md` ones. The common 8px gap is too narrow for either, so a
+wrapping row of reaching Buttons needs a wider row gap under a coarse
+pointer. An `overflow: hidden` ancestor clips reach as it clips paint. A
+Button with no `onClick` never carries the class.
+
+**Probe 1px inside each edge, not 0.5px.** Chromium's `elementFromPoint`
+rounds the point to whole pixels, so a probe 0.5px inside an edge at a
+fractional coordinate can land on a neighbour that only touches it. Measured: a
+Button ending at y=414, directly above a heading that starts at 414, lost a
+probe at 413.5 to the heading. The same rounding first made two `sm` Buttons
+appear to need 17px.
+
+**Existing per-component targets stay as they are**, and this records why:
+
+- `Toggle` (`.bk-switch::before`), `FeedbackRow` (`.bk-thumb::before`),
+  `InlineToast` (`.bk-undo::before`) and `TrackerPillList`
+  (`.bk-tracker-pill::before`) apply at every pointer, as their designs
+  specify. Their reach is also sized to their designed neighbour gaps, not to
+  a floor. The thumb, for instance, stops 2px short of half its 18px gap.
+- `TabBar` uses padding cancelled by margin. It is ungated because the badge
+  shares that geometry (D27).
+- The rank footer's actions already reach 44px under a coarse pointer with
+  their own `::before` and `margin-block`, and their touch project proves all
+  four corners.
+- `IconButton` `sm` grows its paint and target to 44px under a coarse pointer
+  (D55), and `TextButton`'s inline reach is fixed by D55.
+
+A new reaching control uses the utility rather than another one-off
+pseudo-element.
+
+**Proof.** `native-buttons.visual.tsx` runs in the fine, coarse and mixed
+pointer lanes. It probes `elementFromPoint` 1px inside every edge of two
+stacked reaching Buttons at their least gap, and requires the paint to keep its
+height. It also clicks the extended edge with a real mouse, and shows a gap two
+pixels short of the least gap stealing a neighbour's edge. Taps are not used
+as proof, because Chromium's touch adjustment snaps a tap near a control onto
+it whether or not the control reaches. Consumer sites are probed the same way
+through `ui-react/tests/browser/hit-reach.ts`.

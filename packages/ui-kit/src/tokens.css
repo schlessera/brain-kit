@@ -1558,6 +1558,33 @@
   bottom: -11px;
 }
 
+/* `.bk-hit`: the shared hit-area utility (#3252). Under a coarse pointer the
+ * target reaches 44px on each axis, centred on the paint; the paint itself
+ * keeps its design size. A control already 44px or more on an axis gains no
+ * reach on it, and a fine pointer gains none.
+ *
+ * Exact on a bordered element, unlike a fixed negative inset: insets and
+ * percentages resolve against the PADDING box (the wave-3 finding), but each
+ * inset is `50% - 22px` from the padding box's centre, and that centre is the
+ * border box's centre, so the target is 44px about the paint whatever the
+ * border width. `min(0px, …)` keeps an axis already 44px or more at its paint.
+ *
+ * `::after`, so it never collides with a component's own `::before`. The
+ * neighbour rule still binds: reach per side is (44 - size) / 2, and the gap to
+ * the nearest interactive neighbour must be at least twice that: 16px between
+ * two `sm` Buttons (28.4px paint) and 9px between two `md` ones (35.6px), so
+ * the common 8px `gap-2` is too narrow for either. An `overflow: hidden` ancestor
+ * clips the reach as it clips paint. Put it only on an element that has a
+ * handler, so a decorative control grows no invisible target. */
+@media (any-pointer: coarse) {
+  .bk-hit { position: relative; }
+  .bk-hit::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc(50% - 22px));
+  }
+}
+
 /* ── Rows ─────────────────────────────────────────────────────────────────
  *
  * A full-width row is not a control, and the design separates them at exactly
