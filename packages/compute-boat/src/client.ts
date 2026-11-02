@@ -21,6 +21,8 @@ import type { Redactor } from "./redact.js";
 export const BOAT_API_BASE = "https://boat.dev/api/v1";
 export const MAX_ATTEMPTS = 3;
 export const MAX_WAIT_MS = 30_000;
+/** The most of an error answer read; Boat's error envelope is far smaller. */
+export const ERROR_BODY_MAX_BYTES = 64 * 1024;
 
 /** How a call may be repeated. */
 export type RetryPolicy = "safe" | "exec" | "none";
@@ -143,7 +145,14 @@ export const realClock: ClientDeps = {
 
 async function readBody(response: Response, limit: number | undefined): Promise<{ body: unknown; bytes?: Uint8Array; overflow?: boolean }> {
   if (limit === undefined || !response.ok) {
-    const text = await response.text();
+    let text: string;
+    if (response.ok) text = await response.text();
+    else {
+      // An error is a small envelope: read no more than the bound, and an answer past it carries no code.
+      const read = await readBytes(response, ERROR_BODY_MAX_BYTES);
+      if (read.overflow || !read.bytes) return { body: undefined };
+      text = new TextDecoder().decode(read.bytes);
+    }
     if (text === "") return { body: undefined };
     try {
       return { body: JSON.parse(text) as unknown };
@@ -151,6 +160,11 @@ async function readBody(response: Response, limit: number | undefined): Promise<
       return { body: undefined };
     }
   }
+  return readBytes(response, limit);
+}
+
+/** The body as bytes, stopping once it passes `limit`. */
+async function readBytes(response: Response, limit: number): Promise<{ body: undefined; bytes?: Uint8Array; overflow?: boolean }> {
   const reader = response.body?.getReader();
   if (!reader) return { body: undefined, bytes: new Uint8Array(0) };
   const chunks: Uint8Array[] = [];

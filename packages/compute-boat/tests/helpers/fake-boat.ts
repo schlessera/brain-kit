@@ -355,6 +355,8 @@ export function fakeBoat(opts: FakeBoatOptions) {
 
   function handle(name: Route | "unknown", params: string[], url: URL, req: { method: string; headers: Headers; text: string; bytes: Uint8Array }): Response {
     if (name === "signed-put") {
+      // A signed URL authenticates by its signature alone; a request carrying the API key to one is a leak.
+      if (req.headers.has("authorization")) return json(403, envelope(403, "unexpected_authorization"));
       const target = signed.get(params[0]!);
       const s = target && live(target.sandboxId);
       if (!target || !s || !url.searchParams.get("sig")) return json(403, envelope(403, "invalid_signature"));

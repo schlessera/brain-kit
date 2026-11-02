@@ -73,4 +73,20 @@ describe("the key and signed URLs stay out of everything but the API header", ()
     const printed = started.kind === "ok" ? JSON.stringify(seen[3]) : "";
     expect(printed.includes("VOYAGE=ithaca")).toBe(true);
   });
+
+  test("the fake refuses a signed-URL request that carries an Authorization header, as a stray key must never reach one", async () => {
+    const fake = fakeBoat({ apiKey: KEY, readyAfterGets: 0 });
+    const { provider, now } = instantProvider();
+    const allocated = await provider.allocate({ key: "job-calypso-url", leaseSeconds: 600, retain: false }, contextFor(fake, { now }));
+    if (allocated.kind !== "ok") throw new Error(allocated.kind);
+    const issued = await fake.fetch(`https://boat.dev/api/v1/sandboxes/${allocated.sandbox.id}/files/upload-url`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "/tmp/brain-kit/x.tar" }),
+    });
+    const url = ((await issued.json()) as { url: string }).url;
+    const withKey = await fake.fetch(url, { method: "PUT", headers: { Authorization: `Bearer ${KEY}` }, body: new Uint8Array([1]) });
+    const without = await fake.fetch(url, { method: "PUT", body: new Uint8Array([1]) });
+    expect([withKey.status, without.status]).toEqual([403, 200]);
+  });
 });
