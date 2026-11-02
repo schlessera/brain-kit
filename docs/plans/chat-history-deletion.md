@@ -8,7 +8,7 @@ Approval supplies no automatic expiry, routine live cutoff or implementation
 release commitment.
 
 **Built (#3228):** the internal, content-free retirement ledger and gate
-(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:153-186`;
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:156-189`;
 migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
 serialized writer, resolves the exact identity set from recorded dialogue
 owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy
@@ -30,6 +30,24 @@ readers, and reports `partial` for links, hard links, redirected roots and
 replaced files instead of touching them. The host records the native store
 under the retirement (`removeRetiredNativeHistory`, `packages/ui-server/src/ws/native-history-removal.ts:29-48`); coordinating it with the other stores and
 restart reconciliation remains with the endpoint work.
+
+**Built (#3230):** the coordinated deletion and its endpoint
+([HTTP](../http-api.md#explicit-chat-deletion-additive-3230),
+[wire](../integration-contract/wire.md#explicit-chat-deletion-additive-3230)).
+One operation (`createChatDeletion`, `packages/ui-server/src/ws/chat-deletion.ts:46-104`)
+refuses busy work, retires the chat, ends its live epochs, notifies the owner's
+capable clients, then asks the native store and each host store to remove their
+copies; restart reconciliation resumes any unconfirmed store under the original
+operation. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:80-88`)
+confirm removal only by reading back that nothing selected remains: dialogue
+records, task receipt text and result facts, session title/label and the text,
+digest and classification projections, and positively bound drafts with their
+images and receipt fingerprints. Consumed task, request, retry and draft-send
+identities stay as replay fences. Policy proposals, turn scope, provider-exposure
+and masking lineage, Activity, Inbox, governance, journals and usage accounting are
+retained as independent records and disclosed. HTTP and WebSocket list, read,
+resume, recovery and live-startup paths refuse a retired chat after every await,
+and draft routes refuse drafts bound to it. Browser invalidation (#3231) is not built.
 
 ## Selected local lifecycle
 
@@ -92,7 +110,7 @@ consent for a replacement identity. Existing [session principals](../decisions/s
 and [operational recovery](../inbox-recovery.md) remain binding.
 
 There is no general delete operation: `createSessionRoutes` only lists/reads
-(`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:8-147`).
+(`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:9-157`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
 (`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:750-804`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
@@ -159,7 +177,7 @@ must be tested through their installed runtime, not inferred from directory name
   readable projections according to the adopted extent. Retained digests can
   reveal guessed short text; discard unnecessary hashes, not just plaintext.
   Native history joins several of these owners
-  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:638-650`).
+  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:641-656`).
 - **Independent session ledgers.** `retry_receipts`, `session_work`, `turn_boundaries`,
   draft send/save/upload receipts and revisions, handoff IDs/lineage, Claude usage
   deduplication, worker profiles, provider-exposure and born-masked lineage are
@@ -202,8 +220,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:243-256`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:285-288`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:248-261`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:290-293`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,
@@ -235,7 +253,7 @@ cron scratch-pin refresh; backend native resume/archive/restore; and all browser
 restore, resend, draft autosave and answer-delivery callbacks. Activity/Inbox/
 journal APIs remain independent retained surfaces under the selected exclusion.
 Concrete entry points include `readSessionRecovery`
-(`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-220`),
+(`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-222`),
 `FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:63-89`),
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
@@ -246,10 +264,10 @@ The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`; gating its
 resume case alone would leave HTTP, background readers and provider startup open.
 
 Existing ordinary history publication checks concurrent turn changes
-(`publishHistory`, `packages/ui-server/src/ws/host.ts:564-598`). Future deletion
+(`publishHistory`, `packages/ui-server/src/ws/host.ts:567-601`). Future deletion
 must additionally invalidate it even when no turn starts or ends. Startup reads
 native history, canonical evidence and completed facts, and freezes a snapshot
-(`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:8-65`). Recheck the
+(`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:9-74`). Recheck the
 lifecycle after each await and immediately before provider open/seed. A native-only
 chat with no dialogue owner still needs a fence; checking only page generation
 leaves that path unprotected.
@@ -280,7 +298,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1205-1254`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1216-1265`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline

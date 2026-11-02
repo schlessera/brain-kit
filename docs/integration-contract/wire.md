@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1066`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1049-1067`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -104,8 +104,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1887-1889`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3876-3882`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1895-1897`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -1770,6 +1770,37 @@ that this draft's request started that session, which is the only proof
 `POST /api/drafts/:draftId/bind` accepts. Draft text and images never enter
 logs, push payloads or the transcript store.
 
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+### Explicit chat deletion (additive, #3230)
+
+A host that answers `POST /api/chat-deletions` ([HTTP API](../http-api.md#explicit-chat-deletion-additive-3230))
+sends `server_hello.capabilities.chatDeletion: true` (`CHAT_DELETION_CAPABILITY`).
+When an owner's chat is retired, the host ends that chat's live conversation
+epochs (`conversation_closed`, reason `stopped`; nothing earlier sent to a
+provider is rewritten, and a later conversation needs a new identity and an
+explicit Start) and sends one frame to that owner's connections whose
+`client_hello` declared the same flag:
+
+```ts
+ServerChatRetired = {
+  type: "chat_retired";
+  sessionId?: string;          // the backend session, when the chat had one
+  historyOwnerIds: string[];   // every host history owner and alias; may be empty
+  generation: number;          // the retired chat's terminal history generation
+};
+```
+
+A client clears every local projection of that chat, stops resending,
+autosaving and retrying for it, and treats a later history response for it as
+stale. No other principal and no undeclared connection receives it. Enforcement
+does not depend on the frame: for every client, `session_resume`, chat admission
+and any session-scoped request naming the chat answer `error` `SESSION_NOT_FOUND`;
+a history read already in flight when the chat is retired publishes no
+`session_history`; recovery reads answer not found; dialogue reads return
+nothing; and live startup never opens or seeds a provider for it. A device that
+is offline keeps what it cached until it reconnects; nothing remote can erase it.
+
 <a id="session-recovery-additive-964"></a>
 
 ### Session recovery (additive, #964)
@@ -2369,12 +2400,11 @@ generations; old cursors fail and generation changes invalidate capture consent.
 Migration `071_session_dialogue.sql` adds operational owners, source mappings,
 records and aliases, independent of `brain.db` and native provider history.
 Operational backup retains the archive under its exact-schema compatibility
-rules. Re-indexing Markdown cannot rebuild it. No current general chat-deletion
-route is invented. The [#3180 policy decision](../decisions/chat-history-deletion.md)
+rules. Re-indexing Markdown cannot rebuild it. The [#3180 policy decision](../decisions/chat-history-deletion.md)
 approves authenticated own-chat local deletion, including the explicit #3177
 native-preservation exception, permanent minimized identity/replay fences and
-accepted old-backup restoration limits. Runtime deletion remains unbuilt; this
-records policy without adding frames, endpoints or changing shipped retention.
+accepted old-backup restoration limits. [Explicit chat deletion](#explicit-chat-deletion-additive-3230)
+(#3230) implements it; nothing else changes this history's retention.
 Independent saved content/effects, provider copies and backups remain excluded
 and must be disclosed. Clearing browser state on authentication teardown does
 not delete retained chat history.

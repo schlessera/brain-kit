@@ -20,6 +20,22 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Explicit local chat deletion (additive, #3230)
+
+An authenticated owner can delete its own chat's local history with
+`POST /api/chat-deletions` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230)),
+on a host that sends `server_hello.capabilities.chatDeletion: true`. The answer
+is a content-free `ChatDeletionReceipt` with per-store outcomes and the always
+retained categories. Capable clients of the same owner receive the new
+`chat_retired` frame ([wire](integration-contract/wire.md#explicit-chat-deletion-additive-3230)).
+A deleted chat is absent from `GET /api/sessions`, `GET /api/sessions/:id`
+(404 `SESSION_NOT_FOUND`), recovery, resume and live startup; draft routes add
+410 `DRAFT_CHAT_RETIRED`. The SDK exports the request, receipt, frame, capability
+and schema ([package API](integration-contract/package-api.md#explicit-chat-deletion-additive-3230)).
+No existing field, frame or route changes meaning for an undeleted chat. This
+ships in a minor; the [approved policy](decisions/chat-history-deletion.md) is the
+explicit retention exception, and no breaking ruling is required.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities.historyRemoval?` and the optional
