@@ -1270,11 +1270,9 @@ keep.
 | Turn | Keeps |
 | --- | --- |
 | Claude through the host inference relay | Only placeholders under the Claude CLI's own variables |
-| Claude without the relay (no managed native storage) | The Claude CLI's inference credential: `CLAUDE_CODE_OAUTH_TOKEN`, or the profile's `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` and the variable it declares |
 | pi through the relay | Nothing |
-| pi without the relay | Every credential above. pi resolves its own credentials in the worker there and may read any of them, also through a `models.json` `$NAME`. Hosts without managed native storage keep today's inference credentials until [#2654](https://github.com/schlessera/brain-kit/issues/2654). |
 | Restricted (autonomous) | Unchanged: its envelope's minimum environment |
-| Maintenance workers | With managed native storage: no relayed key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and keys listed in `BRAIN_UI_CLI_PROVIDER_ORIGINS`) and no `.env*`; the CLI reaches those providers through the [metered relay](#metered-provider-relay-1673). Keys the relay does not carry (`TYPESAFE_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` for a `brain sync` agent runner) stay. Without managed native storage: unchanged, every key in the `brainCli` and `cron` audiences |
+| Maintenance workers | No relayed key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and keys listed in `BRAIN_UI_CLI_PROVIDER_ORIGINS`) and no `.env*`; the CLI reaches those providers through the [metered relay](#metered-provider-relay-1673). Keys the relay does not carry (`TYPESAFE_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` for a `brain sync` agent runner) stay |
 
 **Which commands need a key.** The audit of the first-party commands an agent
 runs in its worker:
@@ -1322,7 +1320,7 @@ sending the placeholder.
 **What it is.** A host-owned Unix socket for the `brain` CLI's own paid
 providers. A governed or strict turn that runs on the turn egress proxy gets
 one, linked beside the proxy at `/run/brain-egress/providers.sock`. A
-credentialed maintenance run on a host with managed native storage gets its
+credentialed maintenance run gets its
 own at `/run/brain-providers/relay.sock`. The launcher names it in
 `BRAIN_PROVIDER_RELAY_SOCKET`. A built-in provider whose key is withheld sends
 its native request there (the routes are in the
@@ -1379,9 +1377,11 @@ the turn's deny, allowlist and taint rules and byte ceiling, and appears as an
 `egress_connection` with the provider's host and path. An `allowlist` policy
 therefore has to allow the provider's host for the CLI to reach it.
 
-**Hosts without managed native storage** keep their current behaviour: turn
-workers report the CLI's providers unavailable, and maintenance workers keep
-the keys, unmetered. Worker-host status says which applies.
+**Every governed and strict turn has the relay.** The server boots only on
+managed native storage (#1793), and a turn whose startup view the native
+manager did not acquire there is refused at admission instead of running
+without the relay (#3314). No supported host runs turns or credentialed
+maintenance with the provider keys in the worker.
 
 ### Worker startup status
 
@@ -1454,7 +1454,7 @@ This is a measurement of the paths, not a qualified host tuple.
 
 | Path | Result |
 | --- | --- |
-| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`). Governed and strict server turns on managed native storage compose it for subscription and API-key profiles alike; the worker holds a placeholder and the relay adds the host login or the profile's key. The real native CLI qualifies both offline (`packages/ui-backend-claude/tests/native-route-qualification.test.ts`). |
+| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`). Every governed and strict server turn composes it for subscription and API-key profiles alike; the worker holds a placeholder and the relay adds the host login or the profile's key. The real native CLI qualifies both offline (`packages/ui-backend-claude/tests/native-route-qualification.test.ts`). |
 | Pi inference through the relay | Passes (2026-10-23): a real governed worker's pi session reaches inference only through the host relay over the turn proxy's socket, and each request is recorded with `inference: true`. Covered: API keys, the Codex login (with a host-side refresh) and the Anthropic login. Credentials that run a command, and provider and credential types outside the relay's matrix, are refused (`packages/ui-backend-pi/tests/host-relay.test.ts`). |
 | `git` over HTTPS | Passes: clone through CONNECT, opaque bytes recorded. |
 | `git` over SSH | Passes: clone through the first-party CONNECT helper, which the worker bootstrap sets as Git's `ProxyCommand` unless the caller already chose `GIT_SSH_COMMAND`. OpenSSH reads `~/.ssh` from the passwd home, which the worker masks, so keys and host keys must be supplied explicitly. |
@@ -1463,8 +1463,9 @@ This is a measurement of the paths, not a qualified host tuple.
 | Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
 | Socket walk | Passes in both profiles. The relay and proxy sockets are the only sockets below a mask, fixture sockets under `/run` and a home directory are unreachable, and the walk of the rest of the visible filesystem completed without finding a host socket. Before all of `/var` was masked ([#2657](https://github.com/schlessera/brain-kit/pull/2657)), a CUPS socket under `/var/snap` accepted a connection on this host. |
 
-Every path passes. Default-on applies on hosts with managed native storage
-only:
+Every path passes. Default-on applies on every host: the server boots only on
+managed native storage (#1793), and a turn whose startup view is not on it is
+refused (#3314).
 
 - **Claude.** A governed or strict Claude turn, on a subscription or an
   API-key profile, runs on its own turn proxy and the host inference relay. Every connection is a governance event, and a
@@ -1487,10 +1488,11 @@ only:
   - pi's `auth.json` linked into the brain.
 
   Before this, those turns ran with the credential inside the worker.
-- **No managed native storage.** Governed and strict turns keep their current
-  network without the turn proxy, and their note says egress is unrecorded.
-  `GET /api/status` reports this as `runtime.workerHost.governed.egress`
-  (`{ active, detail }`).
+- **Status.** `GET /api/status` reports this as
+  `runtime.workerHost.governed.egress` (`{ active, detail }`), which is
+  `active: true` on every running server. `active: false` describes a brain
+  that is not on managed native storage, where every governed and strict turn
+  is refused; no turn runs without the turn proxy.
 
 The native hosted proof checks the records on real managed Btrfs storage for
 both backends. Each governed turn's proxied connection must be one durable
@@ -1506,8 +1508,8 @@ it to another origin, list that exact origin (scheme, host and port, no path)
 in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
 `BRAIN_UI_CLAUDE_OAUTH_ORIGINS=https://gateway.ithaca.invalid`. An unlisted
 custom origin refuses the turn before its prompt is sent or the login is read.
-A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
-must add this variable when it moves to managed native storage.
+A host that sets a custom `ANTHROPIC_BASE_URL` for subscription turns must
+add this variable.
 
 **Custom pi origins.** A pi credential may reach the origins of its
 provider's built-in models. To send it elsewhere, for example where pi's
@@ -1516,8 +1518,7 @@ provider in `BRAIN_UI_PI_CREDENTIAL_ORIGINS`:
 `BRAIN_UI_PI_CREDENTIAL_ORIGINS="anthropic=https://gateway.ithaca.invalid;openai-codex=https://codex.ithaca.invalid"`.
 Each provider's list covers that provider's credential only, whether a login
 or an API key. An unlisted origin refuses the turn before the credential is
-read. A host that already routes a pi provider to a custom origin must add it
-when it moves to managed native storage.
+read. A host that routes a pi provider to a custom origin must add it.
 
 An API-key profile needs no listing: its key and its route come from the same
 declaration in `BRAIN_UI_CLAUDE_PROFILES` (the profile's `baseUrl`, else the
@@ -1535,9 +1536,8 @@ a turn on it sees no provider folder. If you run a gateway you trust with the
 data a rule allows, name it with `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`, for
 example `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS="anthropic=https://gateway.ithaca.invalid"`.
 Listing an origin in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or
-`BRAIN_UI_PI_CREDENTIAL_ORIGINS` alone does not. Without managed native
-storage no relay runs, so no recipient is proven and every provider folder
-stays masked. The table and the rules are in
+`BRAIN_UI_PI_CREDENTIAL_ORIGINS` alone does not. A turn with no proven
+recipient sees no provider folder. The table and the rules are in
 [supported inputs](../supported-inputs.md#governance-policy).
 
 **Continuing a conversation under provider rules (#2726).** A turn whose
@@ -1575,8 +1575,8 @@ on both backends. On the turn proxy, every admitted connection other than the
 inference relay taints the session too, and a tainted session's new
 connections reach only `taint.egress.allow` and hosts its proxies already
 admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
-Without the proxy (hosts without managed native storage) nothing narrows
-egress, and the capabilities note says so. Files the
+Every governed and strict turn runs on the proxy; a turn that cannot is
+refused (#3314). Files the
 user marks untrusted are not a source yet. The rules are in
 [the decision record](../decisions/governed-writable-workers.md#untrusted-input-g6).
 
