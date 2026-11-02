@@ -479,15 +479,20 @@ test("the cache identity covers the brain, policy, masks, recipient, mask paths 
   for (const [what, change] of changes) expect(privateIndexCacheKey({ ...identity, ...change }), `KEY_COVERS_${what.toUpperCase().replaceAll(" ", "_")}`).not.toBe(key);
 });
 
-/** A cache over a tiny copied brain whose builds write one file; `gate` holds every delta. */
+/** A cache over a tiny copied brain whose builds write one file; `gate` holds
+ * every delta. `entered` resolves when a delta reaches the gate and `running`
+ * when a held run starts, so a test waits for that point instead of a
+ * fixed interval. */
 function bench(options: { entries?: number; idleMs?: number; report?: (message: string) => void } = {}) {
   privateTmp();
   const root = mkdtempSync(join(tmpdir(), "odysseus-private-index-bound-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "brain/notes"), { recursive: true }); writeFileSync(join(root, "brain/notes/eagle.md"), "x");
-  const state = { gate: Promise.resolve(), holdRuns: false, acquired: 0, failAcquire: false };
+  const state = { gate: Promise.resolve(), holdRuns: false, acquired: 0, failAcquire: false,
+    entered: () => {}, running: () => {} };
   const cache = createPrivateIndexCache({ report: options.report ?? (() => {}), entries: options.entries ?? 2, idleMs: options.idleMs ?? 200,
     differ: async (from, to, signal) => {
       // A held delta still ends when the cache closes, as the native one does.
+      state.entered();
       await Promise.race([state.gate, new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
       return fixtureDiffer(from, to, signal);
     } });
@@ -497,7 +502,7 @@ function bench(options: { entries?: number; idleMs?: number; report?: (message: 
     build: async () => { writeFileSync(join(index, "brain.db"), "rebuilt"); return { ok: true as const }; },
     update: async () => {
       // A held run ends only when its signal does, as a killed worker would.
-      if (state.holdRuns) { await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true })); return { ok: false as const, detail: "killed" }; }
+      if (state.holdRuns) { state.running(); await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true })); return { ok: false as const, detail: "killed" }; }
       appendFileSync(join(index, "brain.db"), "+added"); return { ok: true as const, stdout };
     } });
   const prepare = async (policyHash: string, input: { partial?: boolean; maskPaths?: string[]; stdout?: string } = {}) => {
@@ -520,53 +525,76 @@ function bench(options: { entries?: number; idleMs?: number; report?: (message: 
   return { root, cache, views, prepare, live, bases, state, advance };
 }
 
+/** Resolves the first time the bench reaches `point`. */
+function reached(b: ReturnType<typeof bench>, point: "entered" | "running"): Promise<void> {
+  return new Promise(resolve => { b.state[point] = resolve; });
+}
+
 test("the cache keeps a bounded number of bases and releases their checkpoints on eviction, idle expiry and close", async () => {
-  const { cache, views, prepare, live, bases } = bench();
-  expect((await prepare("one")).kind).toBe("built");
-  expect((await prepare("two")).kind).toBe("built");
-  expect(views.map(live), "EACH_BASE_RETAINS_ITS_CHECKPOINT").toEqual([true, true]);
-  expect((await prepare("three")).kind).toBe("built");
-  expect(views.map(live), "THE_LEAST_RECENT_BASE_IS_EVICTED").toEqual([false, true, true]);
-  expect((await prepare("three")).kind, "A_KEPT_BASE_IS_REUSED").toBe("reused");
-  expect(views.map(live), "REUSE_MOVES_THE_BASE_TO_THE_NEWER_CHECKPOINT").toEqual([false, true, false, true]);
-  await Bun.sleep(400);
-  expect(views.map(live), "IDLE_BASES_RELEASE_THEIR_CHECKPOINTS").toEqual([false, false, false, false]);
-  expect((await prepare("two")).kind, "AN_EXPIRED_BASE_REBUILDS").toBe("built");
-  await cache.close();
-  expect(views.map(live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual([false, false, false, false, false]);
-  expect(bases(), "CLOSE_REMOVES_EVERY_BASE").toEqual([]);
+  // The cache's idle timers run on a test clock; checkpoints and files stay native.
+  const clock = privateIndexClock();
+  try {
+    const { cache, views, prepare, live, bases } = bench();
+    expect((await prepare("one")).kind).toBe("built");
+    expect((await prepare("two")).kind).toBe("built");
+    expect(views.map(live), "EACH_BASE_RETAINS_ITS_CHECKPOINT").toEqual([true, true]);
+    expect((await prepare("three")).kind).toBe("built");
+    expect(views.map(live), "THE_LEAST_RECENT_BASE_IS_EVICTED").toEqual([false, true, true]);
+    expect((await prepare("three")).kind, "A_KEPT_BASE_IS_REUSED").toBe("reused");
+    expect(views.map(live), "REUSE_MOVES_THE_BASE_TO_THE_NEWER_CHECKPOINT").toEqual([false, true, false, true]);
+    expect(clock.deadlines().length, "IDLE_TIMERS_REGISTERED").toBe(2);
+    await clock.advance(400);
+    expect(views.map(live), "IDLE_BASES_RELEASE_THEIR_CHECKPOINTS").toEqual([false, false, false, false]);
+    expect((await prepare("two")).kind, "AN_EXPIRED_BASE_REBUILDS").toBe("built");
+    await cache.close();
+    expect(views.map(live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual([false, false, false, false, false]);
+    expect(bases(), "CLOSE_REMOVES_EVERY_BASE").toEqual([]);
+  } finally { clock.restore(); }
 });
 
 test("concurrent keys keep the bound, and a base a turn is reconciling is neither evicted nor expired under it", async () => {
-  const b = bench({ entries: 1, idleMs: 150 });
-  expect((await b.prepare("one")).kind).toBe("built");
-  let release!: () => void;
-  b.state.gate = new Promise<void>(resolve => { release = resolve; });
-  const slow = b.prepare("one");
-  // Two other keys build and seal while "one" is being reconciled, and its
-  // idle time runs out.
-  expect((await Promise.all([b.prepare("two"), b.prepare("three")])).map(outcome => outcome.kind)).toEqual(["built", "built"]);
-  await Bun.sleep(300);
-  expect(b.live(b.views[0]!), "AN_ACTIVE_BASE_IS_NEITHER_EVICTED_NOR_EXPIRED").toBe(true);
-  release();
-  expect((await slow).kind, "THE_ACTIVE_BASE_STAYS_USABLE").toBe("reused");
-  expect(b.bases().length, "THE_BOUND_HOLDS_ONCE_TURNS_FINISH").toBe(1);
+  const clock = privateIndexClock();
+  try {
+    const b = bench({ entries: 1, idleMs: 150 });
+    expect((await b.prepare("one")).kind).toBe("built");
+    let release!: () => void;
+    b.state.gate = new Promise<void>(resolve => { release = resolve; });
+    const slow = b.prepare("one");
+    // Two other keys build and seal while "one" is being reconciled, and its
+    // idle time runs out.
+    expect((await Promise.all([b.prepare("two"), b.prepare("three")])).map(outcome => outcome.kind)).toEqual(["built", "built"]);
+    // Deliver the active base's own idle timer, not just some time passing.
+    const expiry = clock.now + 151;
+    expect(clock.deadlines(), "THE_ACTIVE_BASES_IDLE_TIMER_IS_ARMED").toContain(expiry);
+    await clock.advance(300);
+    expect(clock.deadlines(), "EVERY_IDLE_TIMER_FIRED").toEqual([]);
+    expect(b.live(b.views[0]!), "AN_ACTIVE_BASE_IS_NEITHER_EVICTED_NOR_EXPIRED").toBe(true);
+    release();
+    expect((await slow).kind, "THE_ACTIVE_BASE_STAYS_USABLE").toBe("reused");
+    expect(b.bases().length, "THE_BOUND_HOLDS_ONCE_TURNS_FINISH").toBe(1);
+  } finally { clock.restore(); }
 });
 
 test("an expiry skipped while a turn reconciles applies once that turn finishes", async () => {
-  const b = bench({ idleMs: 150 });
-  expect((await b.prepare("one")).kind).toBe("built");
-  writeFileSync(join(b.root, "brain/notes/chart.txt"), "x");
-  let release!: () => void;
-  b.state.gate = new Promise<void>(resolve => { release = resolve; });
-  // This turn rebuilds and gets only a partial index, so it never renews the base.
-  const slow = b.prepare("one", { partial: true });
-  await Bun.sleep(300);
-  expect(b.live(b.views[0]!), "NOT_EXPIRED_WHILE_ACTIVE").toBe(true);
-  release();
-  expect((await slow).kind).toBe("partial");
-  expect(b.live(b.views[0]!), "THE_SKIPPED_EXPIRY_APPLIES_AFTERWARDS").toBe(false);
-  expect(b.bases(), "NO_BASE_OUTLIVES_ITS_EXPIRY").toEqual([]);
+  const clock = privateIndexClock();
+  try {
+    const b = bench({ idleMs: 150 });
+    expect((await b.prepare("one")).kind).toBe("built");
+    const expiry = clock.now + 151;
+    writeFileSync(join(b.root, "brain/notes/chart.txt"), "x");
+    let release!: () => void;
+    b.state.gate = new Promise<void>(resolve => { release = resolve; });
+    // This turn rebuilds and gets only a partial index, so it never renews the base.
+    const slow = b.prepare("one", { partial: true });
+    expect(clock.deadlines(), "THE_IDLE_TIMER_IS_ARMED").toEqual([expiry]);
+    await clock.advance(300);
+    expect(clock.deadlines(), "THE_IDLE_TIMER_FIRED_DURING_THE_TURN").toEqual([]);
+    expect(b.live(b.views[0]!), "NOT_EXPIRED_WHILE_ACTIVE").toBe(true);
+    release();
+    expect((await slow).kind).toBe("partial");
+    expect(b.live(b.views[0]!), "THE_SKIPPED_EXPIRY_APPLIES_AFTERWARDS").toBe(false);
+    expect(b.bases(), "NO_BASE_OUTLIVES_ITS_EXPIRY").toEqual([]);
+  } finally { clock.restore(); }
 });
 
 test("bases are kept only where no worker can see them, and a crashed server's are swept", async () => {
@@ -605,10 +633,12 @@ test("a turn arriving during an advance waits for it and reuses what it made", a
   writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
   let release!: () => void;
   b.state.gate = new Promise<void>(resolve => { release = resolve; });
+  const entered = reached(b, "entered");
   const advancing = b.advance();
-  await Bun.sleep(50);
+  // The advance holds the base's queue once its delta is running.
+  await entered;
+  // The turn queues behind it synchronously, before anything is released.
   const arriving = b.prepare("one");
-  await Bun.sleep(100);
   release();
   expect((await advancing).map(result => result.kind), "THE_ADVANCE_UPDATES").toEqual(["updated"]);
   expect((await arriving).kind, "THE_TURN_REUSES_THE_ADVANCED_BASE").toBe("reused");
@@ -623,8 +653,9 @@ test("an advance whose update rewrote rows keeps the old base, and close stops a
   expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_OLD_BASE_STAYS").toBe("one");
   expect(b.live(b.views[0]!), "STILL_BOUND_TO_ITS_OWN_CHECKPOINT").toBe(true);
   b.state.gate = new Promise<void>(() => {});
+  const entered = reached(b, "entered");
   const stuck = b.advance();
-  await Bun.sleep(50);
+  await entered;
   await b.cache.close();
   expect(await stuck, "CLOSE_ENDS_THE_ADVANCE").toMatchObject([{ kind: "kept", reason: "closing" }]);
   expect(b.views.map(b.live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual(b.views.map(() => false));
@@ -688,8 +719,9 @@ test("close stops an advance whose build is running", async () => {
   expect((await b.prepare("one")).kind).toBe("built");
   writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
   b.state.holdRuns = true;
+  const started = reached(b, "running");
   const running = b.advance();
-  await Bun.sleep(100);
+  await started;
   await b.cache.close();
   expect(await running, "THE_RUN_IS_STOPPED").toMatchObject([{ kind: "kept", reason: "the incremental index failed: killed" }]);
   expect(b.bases(), "NOTHING_IS_KEPT").toEqual([]);
