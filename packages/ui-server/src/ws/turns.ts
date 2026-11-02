@@ -66,6 +66,8 @@ export interface QueuedFollowUp {
   text: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+  /** Composer originals this message sends, verified at dispatch (#3153). */
+  attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
   /** How the user produced the message; absent means typed. */
@@ -144,7 +146,7 @@ export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
     text,
     ...(text !== entry.text ? { textTruncated: true } : {}),
     ...(entry.attachments.length ? { attachmentCount: entry.attachments.length } : {}),
-    ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
+    ...((entry.files?.length ?? 0) + (entry.attachmentFiles?.length ?? 0) ? { fileCount: (entry.files?.length ?? 0) + (entry.attachmentFiles?.length ?? 0) } : {}),
     ...(entry.source ? { source: entry.source } : {}),
     queuedAt: entry.queuedAt ?? 0,
     ...(entry.label ? { label: entry.label } : {}),
@@ -174,7 +176,7 @@ export interface FollowUpQueueChange {
  * worth walking.
  */
 export function queuedFollowUpBytes(
-  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp">
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp"> & Partial<Pick<QueuedFollowUp, "attachmentFiles">>
 ): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
@@ -183,6 +185,7 @@ export function queuedFollowUpBytes(
   // A refused follow-up holds the exchanges its prompt took until it runs.
   const exchanges = entry.refusedFollowUp?.exchanges;
   if (exchanges?.length) bytes += Buffer.byteLength(JSON.stringify(exchanges), "utf8");
+  if (entry.attachmentFiles?.length) bytes += Buffer.byteLength(JSON.stringify(entry.attachmentFiles), "utf8");
   return bytes + (entry.files?.length ? Buffer.byteLength(JSON.stringify(entry.files), "utf8") : 0);
 }
 
@@ -204,6 +207,8 @@ export interface RunningTurn {
   requestId?: string;
   /** The draft revision the current turn's message was sent from; replaced on dequeue. */
   draftRef?: DraftRef;
+  /** Composer originals the current turn's message sent; their message references are written at acceptance (#3153). */
+  attachmentFileIds?: string[];
   /** Host-orchestrated work the CURRENT turn runs, if any; replaced on dequeue. */
   work?: HostWork;
   /**

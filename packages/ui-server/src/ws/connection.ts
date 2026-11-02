@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { ASK_RECEIPTS_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
+import { ASK_RECEIPTS_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
@@ -111,6 +111,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           followUpQueue: true,
           ...(host.conversations ? { liveConversation: true, conversationPause: true } : {}),
           ...(host.drafts ? { sessionDrafts: true } : {}),
+          // POST /api/drafts/:draftId/files stores originals and
+          // chat_message.attachmentRefs is accepted (#3153).
+          ...(host.attachmentLimits ? { [COMPOSER_FILES_CAPABILITY]: true } : {}),
           // GET /api/sessions/:id/recovery answers, and replays carry
           // host-proven turn ids (#964).
           ...(supportsSessionRecovery(host) ? { [SESSION_RECOVERY_CAPABILITY]: true } : {}),
@@ -119,6 +122,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         // as booleans (#979).
         ...(host.conversations ? { conversationProfile: host.conversations.profile() } : {}),
         ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),
+        ...(host.attachmentLimits ? { attachmentLimits: { ...host.attachmentLimits } } : {}),
       });
 
       // Snapshot-on-connect only for the single-running-session case (backward

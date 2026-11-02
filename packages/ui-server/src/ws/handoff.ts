@@ -106,7 +106,7 @@ export async function startHandoff(
   const { handoff } = msg;
   const { coordinator, catalog } = host;
   if (msg.sessionId) return refuse(host, ws, msg, "A handoff starts a new chat; it can't continue an existing one.");
-  if (msg.attachments?.length || msg.files?.length || msg.localExchanges?.length) {
+  if (msg.attachments?.length || msg.files?.length || msg.attachmentRefs?.length || msg.localExchanges?.length) {
     return refuse(host, ws, msg, "A handoff carries only its reviewed text and references.");
   }
   if (!msg.text.trim()) return refuse(host, ws, msg, "The handoff is empty. Write what the new chat should know.");

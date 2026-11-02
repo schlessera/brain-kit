@@ -1,7 +1,7 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
 import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
-import { sharedFileMetaSchema } from "./track-schemas.js";
-export { sharedFileMetaSchema } from "./track-schemas.js";
+import { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
+export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 // Runtime wire-protocol schemas
 //
@@ -243,6 +243,7 @@ const chatImageAttachmentSchema = z
         message: "attachment data length must be a multiple of 4",
       }),
     mediaType: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
+    fileId: z.string().regex(/^[a-f0-9-]{36}$/).optional(),
   })
   .refine((a) => decodedBase64Bytes(a.data) <= MAX_IMAGE_BYTES, {
     message: `image exceeds ${MAX_IMAGE_BYTES} decoded bytes`,
@@ -406,6 +407,7 @@ export const clientChatMessageSchema = z
     thinkingLevel: thinkingLevelSchema.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
     files: z.array(z.object({ kind: z.literal("file"), path: z.string().min(1).max(512) })).max(10).optional(),
+    attachmentRefs: z.array(z.object({ kind: z.literal("attachment"), fileId: z.string().regex(/^[a-f0-9-]{36}$/) })).max(10).optional(),
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
     localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
@@ -1083,6 +1085,7 @@ const historyMessageSchema = z.looseObject({
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
   files: z.array(sharedFileMetaSchema).max(10).optional(),
+  attachmentFiles: z.array(attachmentFileSchema).max(10).optional().catch(undefined),
   blocks: z.array(messageBlockSchema).optional(),
   source: optionalMessageSource,
   // A replayed answer this build cannot read is dropped, not the history.
@@ -1108,7 +1111,17 @@ export const sessionDraftLimitsSchema = z.looseObject({
   maxDraftBytes: byteCount,
   maxDrafts: byteCount,
   maxTotalBytes: byteCount,
+  maxDraftFiles: byteCount.optional(),
+  maxDraftFileBytes: byteCount.optional(),
+  maxDraftFilesBytes: byteCount.optional(),
 }) satisfies z.ZodType<SessionDraftLimits>;
+
+export const attachmentLimitsSchema = z.looseObject({
+  maxFiles: byteCount,
+  maxFileBytes: byteCount,
+  maxTotalBytes: byteCount,
+  poolBytes: byteCount,
+}) satisfies z.ZodType<import("./protocol.js").AttachmentLimits>;
 
 export const serverHelloSchema = z.looseObject({
   type: z.literal("server_hello"),
@@ -1118,6 +1131,7 @@ export const serverHelloSchema = z.looseObject({
   capabilities: z.record(z.string(), z.boolean()).optional(),
   // A malformed bound is dropped rather than costing the whole hello.
   sessionDraftLimits: sessionDraftLimitsSchema.optional().catch(undefined),
+  attachmentLimits: attachmentLimitsSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerHello>;
 
 // --- Session draft HTTP responses (#979) ---
@@ -1132,6 +1146,7 @@ export const draftSummarySchema = z.looseObject({
   updatedAt: byteCount,
   preview: z.string().max(DRAFT_PREVIEW_CHARS),
   attachmentCount: z.number().int().nonnegative().max(MAX_IMAGES_PER_MESSAGE),
+  fileCount: z.number().int().nonnegative().max(10).optional(),
 }) satisfies z.ZodType<DraftSummary>;
 
 export const draftListResponseSchema = z.looseObject({
@@ -1152,6 +1167,13 @@ export const draftSchema = z.looseObject({
   updatedAt: byteCount,
   text: z.string(),
   attachments: z.array(draftAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE),
+  files: z.array(attachmentFileSchema).max(10).optional(),
+  outgoing: z.looseObject({
+    requestId: id,
+    text: z.string(),
+    fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
+    state: z.enum(["held", "dispatched"]),
+  }).nullable().optional(),
 }) satisfies z.ZodType<Draft>;
 
 export const draftSaveResponseSchema = z.looseObject({

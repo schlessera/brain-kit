@@ -10,7 +10,15 @@ import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
   type WorkerProtection, type ProtectedWorkerPath, type WorkerProviderMasks, type WorkerDataTree } from "./worker-sandbox.js";
 
-const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);
+/**
+ * Host-owned areas a governed worker gets read-only on top of the protected
+ * paths. They are not protected paths: no policy names them, nothing is
+ * quarantined when they change, and the host keeps writing them during a turn.
+ * Chat attachment originals (#3153) are verified by digest on every host read
+ * as well; this mount stops a governed worker changing them in place.
+ */
+export const HOST_READ_ONLY_AREAS = [".brain-ui/attachments"] as const;
+const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules", ...HOST_READ_ONLY_AREAS]);
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code ?? String(error);
 
 /** Only this concrete resolver can mint folder mounts; public layout facts are not authority. */
@@ -57,7 +65,7 @@ export function resolveWorkerProtection(brain: string, options: {
   let root: number | undefined;
   try {
     root = openDirectory(brain);
-    const names = [...new Set([...(options.paths ?? protectedPaths()), ...readdirSync(at(root, ".")).filter(isEnvName), ...appeared])];
+    const names = [...new Set([...(options.paths ?? protectedPaths()), ...HOST_READ_ONLY_AREAS, ...readdirSync(at(root, ".")).filter(isEnvName), ...appeared])];
     if (mountPointsUnder(brain).some(path => path !== brain)) throw new Error("the brain contains another mount");
     // A writable brain must not provide a writable alias to a host file.
     // The qualified native brain is an entire subvolume: Btrfs forbids links
@@ -99,7 +107,8 @@ export function resolveWorkerProtection(brain: string, options: {
         }
         paths.push({ rel, mode, reason: appeared.has(rel) ? "appeared during an active turn; awaiting quarantine"
           : (PROTECTED_TIER_A as readonly string[]).includes(rel) || isEnvName(rel) ? "governance, secrets or startup code (tier A)"
-          : (PROTECTED_TIER_B as readonly string[]).includes(rel) ? "runtime permissions or configuration (tier B)" : "added by governance policy" });
+          : (PROTECTED_TIER_B as readonly string[]).includes(rel) ? "runtime permissions or configuration (tier B)"
+          : (HOST_READ_ONLY_AREAS as readonly string[]).includes(rel) ? "chat attachment originals, kept by the host" : "added by governance policy" });
       } finally { closeSync(fd); }
     }
     const folderPins = new Map<string, { rel: string; device: string; inode: string }>();

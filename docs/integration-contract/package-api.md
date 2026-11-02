@@ -158,6 +158,22 @@ omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
 
+## Composer file attachments (additive, 0.45.0, #3153)
+
+`@schlessera/brain-ui-sdk/protocol` exports the composer-file constants and
+types and `@schlessera/brain-ui-sdk/schemas` the `attachmentFileSchema` and
+`attachmentLimitsSchema` validators listed in
+[the wire component](wire.md#composer-file-attachments-additive-0450-3153).
+`SessionDraftLimits`, `DraftSummary`, `Draft`, `DraftSaveRequest`,
+`ChatImageAttachment`, `ClientChatMessage`, `ServerHello` and
+`SessionHistoryMessage` gain optional fields only; `DraftErrorResponse`'s
+`DRAFT_TOO_LARGE` `bound` gains `draftFiles` and `draftCount`. The
+environment input `BRAIN_UI_ATTACHMENT_POOL_BYTES` sets the host attachment
+pool (default 1,073,741,824 bytes). The governed worker profile mounts
+`.brain-ui/attachments/` read-only (`HOST_READ_ONLY_AREAS` in the SDK's
+internal worker protection). It is not a protected path: no policy names it
+and nothing is quarantined when the host writes it.
+
 ## UI-kit Button reach (additive #3252)
 
 `ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's

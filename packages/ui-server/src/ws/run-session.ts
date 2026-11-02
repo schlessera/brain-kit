@@ -2,7 +2,7 @@ import { prepareTurnEgress } from "../brain/turn-egress.js";
 import { sessionTaint } from "../governance/session-taint.js";
 import { createTurnLifecycle } from "../activity/turn-lifecycle.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetLimits, inferenceBudgetContext } from "../brain/turn-budgets.js";
-import { withTrackFiles } from "../tracks/read.js";
+import { withChatFiles } from "../attachments/context.js";
 import type {
   BillingMode,
   ChatImageAttachment,
@@ -104,6 +104,7 @@ type RunSessionInput = {
   historyOwnerId?: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+  attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
   providerId?: string;
   client?: ClientEnvironment;
   source?: MessageSource;
@@ -298,6 +299,7 @@ async function runRetainedSession(
     text: initial.text,
     attachments: initial.attachments,
     ...(initial.files?.length ? { files: initial.files } : {}),
+    ...(initial.attachmentFiles?.length ? { attachmentFiles: initial.attachmentFiles } : {}),
     ...(initial.client ? { client: initial.client } : {}),
     ...(initial.source ? { source: initial.source } : {}),
     ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
@@ -355,9 +357,10 @@ async function runRetainedSession(
         next = dequeue();
         continue;
       }
-      const { text, attachments, files, client, source, thinkingLevel, requestId, draftRef, work } = current;
+      const { text, attachments, files, attachmentFiles, client, source, thinkingLevel, requestId, draftRef, work } = current;
       turn.requestId = requestId;
       turn.draftRef = draftRef;
+      turn.attachmentFileIds = attachmentFiles?.map((f) => f.fileId);
       turn.work = work;
       next = null;
 
@@ -471,12 +474,13 @@ async function runRetainedSession(
       // its text, which is the order replay counts identical texts in. A
       // resumed session is known now; a new one is named by session_info.
       const recordSource = (sid: string): void =>
-        host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
+        host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files, ...(attachmentFiles?.length ? { attachmentFiles } : {}) });
       // A follow-up the backend refused had its source recorded when it was
       // first handed over (#1063).
       turn.retryRequest = {
         type: "chat_message", text, attachments,
         ...(files?.length ? { files: files.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
+        ...(attachmentFiles?.length ? { attachmentRefs: attachmentFiles.map(file => ({ kind: "attachment" as const, fileId: file.fileId })) } : {}),
         ...(profileId ? { providerId: profileId } : {}),
         ...(client ? { client } : {}), ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -612,7 +616,7 @@ async function runRetainedSession(
         // replay matches once the context is stripped again.
         const drafted = draftExchanges;
         draftExchanges = [];
-        const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
+        const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withChatFiles(text, files, attachmentFiles), [
           ...drafted,
           ...(current.refusedFollowUp?.exchanges ?? []),
           ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
@@ -1148,7 +1152,8 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   host.coordinator.queueChanged(sessionId);
   host.labels?.followUpQueued(sessionId, entry);
   // Queued is accepted: the sent revision of its draft is consumed now.
-  acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId });
+  acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId,
+    ...(entry.attachmentFiles?.length ? { fileIds: entry.attachmentFiles.map((f) => f.fileId) } : {}) });
 }
 
 /** Dispatch a chat_message: follow-up to a running session, or a new session. */
@@ -1163,6 +1168,7 @@ export async function handleChatMessage(
     historyOwnerId?: string;
     attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+    attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
     providerId?: string;
     client?: ClientEnvironment;
     source?: MessageSource;
@@ -1185,6 +1191,7 @@ export async function handleChatMessage(
     text,
     attachments,
     files,
+    attachmentFiles,
     sessionId,
     providerId: requestedProviderId,
     client,
@@ -1232,6 +1239,7 @@ export async function handleChatMessage(
         text,
         attachments,
         ...(files?.length ? { files } : {}),
+        ...(attachmentFiles?.length ? { attachmentFiles } : {}),
         ...(client ? { client } : {}),
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -1254,6 +1262,7 @@ export async function handleChatMessage(
       text,
       attachments,
       ...(files?.length ? { files } : {}),
+      ...(attachmentFiles?.length ? { attachmentFiles } : {}),
       ...(client ? { client } : {}),
       ...(source ? { source } : {}),
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -1288,7 +1297,8 @@ export async function handleChatMessage(
       // recorded before its startTurn, so identical texts keep their order.
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
       const exchanges = host.catalog.takePendingLocalExchanges?.(sessionId) ?? [];
-      const prompt = withLocalContext(withTrackFiles(text, files), exchanges);
+      // Never carries attachments: they need a draftRef, which never joins natively.
+      const prompt = withLocalContext(withChatFiles(text, files, attachmentFiles), exchanges);
       const deliveries = (runningTurn.deliveries ??= new Set());
       const delivery: Promise<void> = (async () => {
         const releaseFollowUp = authorization.retain();
@@ -1365,6 +1375,7 @@ export async function handleChatMessage(
     sessionId,
     attachments,
     ...(files?.length ? { files } : {}),
+    ...(attachmentFiles?.length ? { attachmentFiles } : {}),
     providerId: requestedProviderId,
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),

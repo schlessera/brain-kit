@@ -17,7 +17,7 @@ import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/clie
  */
 
 import { join, resolve } from "path";
-import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
@@ -317,6 +317,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "MAX_CONCURRENT_SESSIONS",
     description: "Cap on concurrently RUNNING agent sessions.",
     default: "3",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_ATTACHMENT_POOL_BYTES",
+    description: "Host attachment pool in bytes: every composer original kept for drafts, sent messages, pending uploads and the seven-day grace period, plus in-flight reservations and legacy draft images. Positive integer; a value that is not one falls back to the default. At capacity new uploads are refused and nothing is purged early.",
+    default: "1073741824 (1 GiB)",
     required: false,
   },
   {
@@ -826,6 +832,8 @@ export interface ServerConfig {
   sourceCommit: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
+  /** The host attachment pool in bytes (BRAIN_UI_ATTACHMENT_POOL_BYTES, #3153). */
+  attachmentPoolBytes: number;
   /**
    * Per-turn timeout in ms (BRAIN_UI_TURN_TIMEOUT_MS), or null to use the
    * WsHost default (10 minutes). An explicit createApp option still wins.
@@ -1101,6 +1109,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxConcurrentSessions,
+    attachmentPoolBytes: Number.isSafeInteger(Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES)) && Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES) > 0
+      ? Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES) : ATTACHMENT_POOL_DEFAULT_BYTES,
     // Positive integer or null — 0, negatives, and garbage all mean "unset",
     // so a typo degrades to the safe default instead of an instant timeout.
     turnTimeoutMs:

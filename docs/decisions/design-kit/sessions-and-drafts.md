@@ -341,7 +341,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1576-1606`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1634-1664`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -644,7 +644,7 @@ question-answer rules are independent.
 <a id="generic-attachment-originals-2026-11-02"></a>
 
 > **2026-11-02 — Generic attachment originals, maintainer amendment (#3150).**
-> Approved, not yet implemented. For the new generic composer path, staged
+> Approved; the host side is implemented by #3153. For the new generic composer path, staged
 > files stop being tab-only. Every attachment, images included, is a
 > filesystem original owned by the exact acknowledged draft revision, then by
 > the conversation that accepted the send. A saved draft and its file bindings
@@ -659,7 +659,14 @@ question-answer rules are independent.
 > this record is unchanged. The rulings are in
 > [chat-attachments.md](../chat-attachments.md), and the proposed schema and
 > lifecycle in [the design](../../plans/chat-attachments.md#6-admission-storage-and-ownership-3153).
-> The implementation records what it built here.
+> #3153 built it this way: a save's `fileIds` bind originals to that exact
+> revision and its `outgoing` snapshot owns a held or unconfirmed send's
+> files, both in the host's operational database, so they survive a reload,
+> a closed tab and a restart. `Draft.files` lists only bound files that are
+> still stored, so nothing restores as saved that the host does not hold. An
+> accepted send gives the conversation its own reference before the revision
+> is consumed; newer revisions and other drafts are untouched. Nothing is
+> resent automatically. The composer that uses this is #3155's.
 
 > **2026-10-07 — Drafts kept on this device across a reload, implemented by
 > #1014.** Every draft in the root's store, with its images, and the work

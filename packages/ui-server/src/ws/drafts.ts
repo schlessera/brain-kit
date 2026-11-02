@@ -9,7 +9,7 @@ import type { WsHost } from "./host.js";
  */
 export function acceptDraft(
   host: WsHost,
-  input: { draftRef?: DraftRef; sourceSessionId?: string; sessionId: string; resumed: boolean; requestId?: string; principalId: string }
+  input: { draftRef?: DraftRef; sourceSessionId?: string; sessionId: string; resumed: boolean; requestId?: string; principalId: string; fileIds?: string[] }
 ): void {
   const { draftRef } = input;
   if (!host.drafts || !draftRef) return;
@@ -29,6 +29,7 @@ export function acceptDraft(
       resumed: input.resumed,
       ...(input.requestId ? { requestId: input.requestId } : {}),
       principalId: input.principalId,
+      ...(input.fileIds?.length ? { fileIds: input.fileIds } : {}),
     });
 
     if (done instanceof Promise) void done.catch(failed);

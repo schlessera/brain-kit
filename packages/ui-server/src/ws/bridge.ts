@@ -93,6 +93,7 @@ export async function makeBridge(
   // message named an existing session. Captured like requestId: a late frame
   // settles only this request's draft.
   const draftRef = turn.draftRef;
+  const attachmentFileIds = turn.attachmentFileIds;
   const draftPrincipalId = turn.principalId;
   const resumedSession = turn.sessionId !== null;
   let draftSettled = false;
@@ -268,7 +269,8 @@ export async function makeBridge(
         }
         if (draftRef && !draftSettled) {
           draftSettled = true;
-          acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
+          acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId,
+            ...(attachmentFileIds?.length ? { fileIds: attachmentFileIds } : {}) });
         }
         if (pendingSessionNamed) {
           const named = pendingSessionNamed;
@@ -310,7 +312,7 @@ export async function makeBridge(
           && work === undefined
           // File Retry needs a pre-reservation read to verify the exact original.
           // Older catalogs can still retain their text/image-only requests.
-          && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
+          && ((!turn.retryRequest.files?.length && !turn.retryRequest.attachmentRefs?.length) || catalog.peekRetry)) {
           if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
             msg = { ...msg, retryOfTurnId: turnId };
           }

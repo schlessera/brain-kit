@@ -209,6 +209,13 @@ export interface WsHostOptions {
    * @internal Supplied by createApp (#1053).
    */
   drafts?: AwaitableDraftStore;
+  /**
+   * Composer file bounds (#3153). Present, with `drafts`: the host mounted
+   * `POST /api/drafts/:draftId/files` and `server_hello` advertises
+   * `composerFiles`. Absent: no composer file is offered or accepted.
+   * @internal Supplied by createApp.
+   */
+  attachmentLimits?: import("@schlessera/brain-ui-sdk/protocol").AttachmentLimits;
 }
 
 /** The remembered per-tool auto-allow store the ws layer consults. */
@@ -316,6 +323,8 @@ export class WsHost {
   readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
   /** @internal Host wiring (#1053). */
   readonly drafts: AwaitableDraftStore | null;
+  /** @internal Host wiring (#3153). */
+  readonly attachmentLimits: import("@schlessera/brain-ui-sdk/protocol").AttachmentLimits | null;
   /** @internal Host wiring (#1053). */
   readonly toolPermissions: ToolPermissions | null;
   /**
@@ -395,6 +404,7 @@ export class WsHost {
     this.inbox = options.inbox ?? null;
     this.inboxTools = options.inboxTools ?? null;
     this.drafts = options.drafts ?? null;
+    this.attachmentLimits = options.drafts && options.attachmentLimits ? options.attachmentLimits : null;
     this.toolPermissions = options.toolPermissions ?? null;
     if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);
     this.conversations = options.conversationProvider

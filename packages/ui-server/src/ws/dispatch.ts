@@ -1,5 +1,7 @@
 import { requireKnownSession } from "./session-recovery.js";
 import { resolveChatFiles, withTrackFiles } from "../tracks/read.js";
+import { withAttachments, type MessageAttachment } from "../attachments/context.js";
+import { resolveAttachmentRefs } from "../attachments/resolve.js";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { estimateDecodedBase64Bytes } from "./attachments.js";
 import { FOLLOW_UP_QUEUE_CAPABILITY, PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
@@ -143,10 +145,18 @@ export async function handleClientMessage(
         return;
       }
       let files: SharedFileMeta[];
+      let attachmentFiles: MessageAttachment[];
       try {
         files = await resolveChatFiles(host.brainPath, msg.files);
-        const bytes = files.reduce((n, f) => n + f.bytes, 0) + attachmentResult.attachments.reduce((n, f) => n + estimateDecodedBase64Bytes(f.data), 0);
-        if (files.length + attachmentResult.attachments.length > SHARE_MAX_FILES || bytes > SHARE_MAX_TOTAL_BYTES) throw Error("Attached files exceed the message limits.");
+        if (msg.attachmentRefs?.length && !msg.draftRef) throw Error("Attached files need the saved draft they were uploaded to.");
+        attachmentFiles = await resolveAttachmentRefs(host.brainPath, host.drafts ?? undefined, msg.attachmentRefs,
+          { ...(msg.draftRef ? { draftId: msg.draftRef.draftId } : {}) }, attachmentResult.attachments);
+        // One envelope, images included: an image frame of an attached original
+        // is charged once, by the original.
+        const frames = attachmentResult.attachments.filter((a) => !a.fileId);
+        const bytes = files.reduce((n, f) => n + f.bytes, 0) + attachmentFiles.reduce((n, f) => n + f.bytes, 0)
+          + frames.reduce((n, f) => n + estimateDecodedBase64Bytes(f.data), 0);
+        if (files.length + attachmentFiles.length + frames.length > SHARE_MAX_FILES || bytes > SHARE_MAX_TOTAL_BYTES) throw Error("Attached files exceed the message limits.");
       } catch (error) {
         host.sendMessage(ws, { type: "error", code: "ATTACHMENT_REJECTED", message: error instanceof Error ? error.message : "Track attachment refused.",
           ...(msg.requestId ? { requestId: msg.requestId } : {}), ...(msg.sessionId ? { sessionId: msg.sessionId } : {}) });
@@ -180,6 +190,7 @@ export async function handleClientMessage(
         sessionId: shareSessionId,
         attachments: attachmentResult.attachments,
         ...(files.length ? { files } : {}),
+        ...(attachmentFiles.length ? { attachmentFiles } : {}),
         providerId: msg.providerId,
         client: msg.client,
         source: msg.source,
@@ -246,18 +257,25 @@ export async function handleClientMessage(
         }
         const original = catalog.peekRetry?.(msg.sessionId);
         let files: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] | undefined;
-        if (original?.request.files?.length && original.turnId === msg.failedTurnId && original.principalId === connection.authorization.principalId) {
+        let attachmentFiles: MessageAttachment[] | undefined;
+        if ((original?.request.files?.length || original?.request.attachmentRefs?.length) && original.turnId === msg.failedTurnId && original.principalId === connection.authorization.principalId) {
           try {
             files = await resolveChatFiles(host.brainPath, original.request.files);
-            if (!original.prompt.includes(withTrackFiles("", files))) { await refuse("An original track changed. Start a new message with the current file instead."); return; }
-          } catch { await refuse("An original track is unavailable. Attach it again in a new message."); return; }
+            if (files.length && !original.prompt.includes(withTrackFiles("", files))) { await refuse("An original track changed. Start a new message with the current file instead."); return; }
+            // A retry has no draft: its originals must already belong to a message of this session.
+            attachmentFiles = await resolveAttachmentRefs(host.brainPath, host.drafts ?? undefined, original.request.attachmentRefs,
+              { sessionId: msg.sessionId }, original.request.attachments ?? []);
+            if (attachmentFiles.length && !original.prompt.includes(withAttachments("", attachmentFiles))) {
+              await refuse("An attached original changed. Start a new message with the current file instead."); return;
+            }
+          } catch { await refuse("An original file is unavailable. Attach it again in a new message."); return; }
           if (!connection.authorization.valid) return;
           // File reads yield; repeat admission before consuming eligibility.
           if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId) || coordinator.activeRuns() >= host.maxConcurrentSessions()) {
             await refuse("The session or server became busy. Try again when it is free."); return;
           }
         }
-        const reserved = await catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files ? original!.prompt : undefined);
+        const reserved = await catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files || attachmentFiles ? original!.prompt : undefined);
         if (!reserved) { await refuse("This server cannot retain the original request for Retry."); return; }
         host.sendMessage(ws, { ...reserved.receipt, ...(reserved.request ? {
           ...(files?.length ? { files } : {}),
@@ -270,7 +288,7 @@ export async function handleClientMessage(
             ...reserved.request, authorization: connection.authorization,
             requestId: msg.requestId,
             attachments: reserved.request.attachments ?? [],
-            files, replayPrompt: reserved.prompt, isRetry: true,
+            files, ...(attachmentFiles?.length ? { attachmentFiles } : {}), replayPrompt: reserved.prompt, isRetry: true,
           });
         }
       } catch {
