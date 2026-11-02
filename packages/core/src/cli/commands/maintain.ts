@@ -27,6 +27,9 @@ see \`brain tags\`), a git packing pass when the brain is a git work tree (git's
 non-destructive loose-objects, incremental-repack and pack-refs tasks), then a
 prune of the scratch area (files older than 7 days, then the oldest until
 under 1 GB). Exits 2 if any step failed; the tag report never fails the run.
+A failed run's last stderr line names each failed step and the start of its
+result, so a caller that keeps only the end of stderr still sees which step
+failed.
 Module cron jobs are separate (advisory manifest entries consumed by the
 container entrypoint).
 
@@ -220,6 +223,34 @@ export const maintainCommand: CoreCommand = {
       }
     });
 
-    return report.some((r) => r.result.startsWith("FAILED")) ? 2 : 0;
+    const failed = failedStepsLine(report);
+    if (failed === null) return 0;
+    // Last on stderr: the cron wrapper records only stderr's tail, which the
+    // steps' own diagnostics (embedding skips, provider logs) otherwise fill.
+    console.error(failed);
+    return 2;
   },
 };
+
+/** Characters of all failed steps' results together in the closing stderr line. */
+const FAILED_RESULTS_CHARS = 800;
+/** Upper bound on one failed step's share, when few steps failed. */
+const FAILED_RESULT_CHARS = 200;
+
+/**
+ * The closing stderr line of a failed run, or null when no step failed. Each
+ * failed step contributes its name and the start of its result's first line,
+ * cut so that every name fits even when all steps fail: at most about 1,000
+ * characters, well inside the cron record's 2,000-character tail.
+ */
+export function failedStepsLine(report: ReadonlyArray<{ step: string; result: string }>): string | null {
+  const failed = report.filter((r) => r.result.startsWith("FAILED"));
+  if (failed.length === 0) return null;
+  const budget = Math.min(FAILED_RESULT_CHARS, Math.floor(FAILED_RESULTS_CHARS / failed.length));
+  const parts = failed.map(({ step, result }) => {
+    const detail = (result.replace(/^FAILED(?: \u2014)?\s*/, "").split("\n")[0] ?? "").replace(/\s+/g, " ").trim();
+    const cut = detail.length > budget ? `${detail.slice(0, budget - 1)}\u2026` : detail;
+    return cut ? `${step} (${cut})` : step;
+  });
+  return `brain maintain: FAILED step(s): ${parts.join(", ")}`;
+}
