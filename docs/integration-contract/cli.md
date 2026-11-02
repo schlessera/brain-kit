@@ -252,7 +252,11 @@ a newline:
 
 `effective` is the complete resolved [supported policy input](../supported-inputs.md#governance-policy).
 Since #3159 (additive) it includes `apify: { enabled: boolean }`, `false` unless
-the file enables it.
+the file enables it. Since #3160 (additive) `apify` also carries
+`discovery` and `actors` (each `"deny" | "ask" | "allow"`, default `"ask"`) and
+`actor_grants` (default `[]`), each grant in the
+[supported input's](../supported-inputs.md#governance-policy) exact shape with
+`expires_at` normalized to an ISO 8601 UTC instant.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

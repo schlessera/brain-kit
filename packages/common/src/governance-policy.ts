@@ -32,6 +32,40 @@ const outwardRules = z.array(z.strictObject({ command: text, remotes: strings })
   return valid;
 });
 
+/** Each Apify consent family independently refuses, asks per operation, or admits what policy names (#3160). */
+const apifyMode = z.enum(["deny", "ask", "allow"]);
+export const APIFY_MAX_ACTOR_GRANTS = 64;
+/** The largest single-run cap a grant may name; keeps integer microdollars exact. */
+export const APIFY_MAX_RUN_USD = 1_000_000;
+const sha256 = z.string().regex(/^[0-9a-f]{64}$/u, "Use a lowercase hex SHA-256 digest");
+/** YAML reads an unquoted timestamp as a Date; either form names one instant, kept as ISO 8601. */
+const instant = z.union([z.iso.datetime({ offset: true }), z.date()]).transform((value, ctx) => {
+  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  if (!Number.isFinite(time)) { ctx.addIssue({ code: "custom", message: "Use a valid ISO 8601 instant" }); return z.NEVER; }
+  return new Date(time).toISOString();
+});
+const exactHttpsOrigin = text.refine(value => {
+  try { const url = new URL(value); return url.protocol === "https:" && url.origin === value; } catch { return false; }
+}, "Use an exact https origin such as https://example.org, without path or trailing slash");
+/**
+ * One standing concrete Actor grant (#3160, the selected contract's shape).
+ * It matches only this account, immutable Actor id, build, qualified profile,
+ * input-schema and pricing fingerprint, every target origin and a run cap no
+ * larger than `max_run_usd`, until `expires_at`. Written only through the
+ * existing policy approval; an approved operation never creates one.
+ */
+const apifyActorGrant = z.strictObject({
+  account_id: z.string().regex(/^[A-Za-z0-9]{1,64}$/u, "Use the Apify account id"),
+  actor_id: z.string().regex(/^[A-Za-z0-9]{1,64}$/u, "Use the immutable Apify Actor id, not its name"),
+  build_number: z.string().regex(/^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$/u, "Use an exact build number such as 1.2.3, not a tag"),
+  profile_id: z.string().regex(/^[a-z0-9][a-z0-9._@-]{0,127}$/u, "Use a qualified profile id"),
+  schema_sha256: sha256,
+  pricing_sha256: sha256,
+  origins: z.array(exactHttpsOrigin).max(64),
+  expires_at: instant,
+  max_run_usd: z.number().finite().positive().max(APIFY_MAX_RUN_USD),
+});
+
 export const GovernancePolicySchema = z.strictObject({
   schema_version: z.literal(1),
   profiles: z.strictObject({ interactive: z.enum(["governed", "strict"]).optional(), voice: z.enum(["governed", "strict"]).optional() }).optional(),
@@ -48,10 +82,18 @@ export const GovernancePolicySchema = z.strictObject({
     .transform(rule => ({ ...rule, paths: rule.paths ?? [] }))).optional(),
   /**
    * Explicit Apify provider enablement (#3159). Absent or `enabled: false`
-   * keeps the provider off whatever host credential exists. Discovery, Actor
-   * grants and limits are separate later fields; enablement grants none of them.
+   * keeps the provider off whatever host credential exists. Catalog discovery
+   * and concrete Actor consent are independent modes (#3160); enablement
+   * grants neither, discovery grants no Actor, and `actors: allow` admits only
+   * an exact unexpired `actor_grants` entry, never every Actor. Spending
+   * limits are a separate later field.
    */
-  apify: z.strictObject({ enabled: z.boolean().optional() }).optional(),
+  apify: z.strictObject({
+    enabled: z.boolean().optional(),
+    discovery: apifyMode.optional(),
+    actors: apifyMode.optional(),
+    actor_grants: z.array(apifyActorGrant).max(APIFY_MAX_ACTOR_GRANTS).optional(),
+  }).optional(),
 });
 export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
 
@@ -70,7 +112,8 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   egress: { mode: "record" as "record" | "allowlist", allow: [] as string[], deny: [] as string[] },
   outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[] },
   taint: { egress: { allow: [] as string[] } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
-  apify: { enabled: false as boolean },
+  apify: { enabled: false as boolean, discovery: "ask" as "deny" | "ask" | "allow", actors: "ask" as "deny" | "ask" | "allow",
+    actor_grants: [] as Array<z.output<typeof apifyActorGrant>> },
 };
 
 export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
@@ -82,7 +125,8 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
     scope: { ...defaults.scope, ...policy.scope }, commands: { ...defaults.commands, ...policy.commands },
     egress: { ...defaults.egress, ...policy.egress }, outward: { ...defaults.outward, ...policy.outward },
     taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress } },
-    apify: { ...defaults.apify, ...policy.apify },
+    // Callers pass parsed output, whose grant instants are already ISO strings.
+    apify: { ...defaults.apify, ...(policy.apify as Partial<typeof defaults.apify> | undefined) },
   };
 }
 export type EffectiveGovernancePolicy = ReturnType<typeof resolveGovernancePolicy>;
