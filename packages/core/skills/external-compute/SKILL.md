@@ -62,9 +62,13 @@ running anything that is not obviously cheap. An estimate of `null` means the co
 
 ## 4. Run, then always finish
 
-From a terminal, `brain compute run` waits and prints the final state; Ctrl-C cancels the
-job and reports whether the sandbox was released. `--detach` and `brain_compute_run` return
-once the command has started: follow with status, and do not poll in a tight loop.
+As an agent, start a job with `brain compute run --detach` from your tool shell, or with
+`brain_compute_run`. Both return the job id once the command has started. Then follow it with
+`brain compute status JOB` (or `brain_compute_status`) at a sensible interval, never in a
+tight loop, and end it with collect or cancel. Do not run an attached `brain compute run`
+from a tool shell: it blocks until the job ends, and if the tool call times out or is
+killed the job is left running. The attached form, where Ctrl-C cancels the job, is for
+a person at a terminal.
 
 Every job you start ends with either collect (it finished) or cancel (you no longer need
 it). Report to the user the final `state`, the `exit`, the `cleanup` fact and the cost:
