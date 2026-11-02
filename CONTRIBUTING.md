@@ -235,6 +235,13 @@ input/dependency/harness changes require fresh proof; unknown changes expand
 conservatively. There is no generic cache of passing tests. Respect branch rules
 and verify the actual squash parent/tree and automatic main-push result.
 
+`bun scripts/collisions.ts --pr <pr>` reports open PRs that collide with
+yours: `textual` (a pairwise `git merge-tree` conflict), `closure` (shared
+affected workspaces or unit-test owners from the CI selection graph) or
+`unknown` (graph or head unavailable, never treated as disjoint).
+`--paths <glob...>` asks the same about an area before a branch exists. It is
+read-only detection: it takes no lock and messages no one.
+
 For ordinary PRs, acquire the exact-candidate integration reservation before
 expensive confirmation and keep it through merge. Use
 `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` for automatic

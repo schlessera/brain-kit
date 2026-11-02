@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, ls
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
-import { addUnitImportConsumers } from "./unit-test-consumers";
+import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consumers";
 
 export interface Workspace {
   dir: string;
@@ -311,11 +311,11 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
  * endurance and captures categories. Skips the synchronous Vitest listing
  * that closure discovery runs (#2465).
  */
-export function planUnitChecks(changed: readonly string[], packages: readonly Workspace[], root: string): CheckPlan {
-  return planBeforeBrowserClosures(changed, packages, root, true, true);
+export function planUnitChecks(changed: readonly string[], packages: readonly Workspace[], root: string, graph?: UnitImportGraph): CheckPlan {
+  return planBeforeBrowserClosures(changed, packages, root, true, true, graph);
 }
 
-function planBeforeBrowserClosures(changed: readonly string[], packages: readonly Workspace[], root: string, enableConsumerSelection: boolean, explicitRoot: boolean): CheckPlan {
+function planBeforeBrowserClosures(changed: readonly string[], packages: readonly Workspace[], root: string, enableConsumerSelection: boolean, explicitRoot: boolean, graph?: UnitImportGraph): CheckPlan {
   const fileTests = Object.entries(FILE_INPUT_TESTS)
     .filter(([, inputs]) => changed.some(path => inputs.some(input => input.test(path))))
     .map(([test]) => test);
@@ -372,7 +372,7 @@ function planBeforeBrowserClosures(changed: readonly string[], packages: readonl
       layout: consumers.categories.has("layout") || ((global || packageCode) && ui), captures: consumers.categories.has("captures") || captureInputs || ((global || packageCode) && ui),
       endurance: consumers.categories.has("endurance") || ((global || packageCode) && ui),
       runtime: consumers.categories.has("runtime") || global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
-  if (explicitRoot && packageCode && !global) plan = addUnitImportConsumers(plan, root);
+  if (explicitRoot && packageCode && !global) plan = addUnitImportConsumers(plan, root, graph);
   return plan;
 }
 
