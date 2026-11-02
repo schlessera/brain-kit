@@ -1,12 +1,11 @@
 -- Untraced configuration inputs are a property of the brain's configuration,
--- not of a turn (#3257): each distinct set is stored once, keyed by the
--- SHA-256 of its sorted path list, and a turn references it. The empty set is
--- a set like any other, so a turn that recorded none stays distinguishable
--- from one that recorded nothing (NULL).
+-- not of a turn (#3257). Each distinct set is stored once, keyed by the
+-- SHA-256 of its sorted path list, and a turn names its set. The empty set is
+-- a set like any other; NULL means the turn recorded nothing.
 --
--- The journal moves the per-turn arrays of `steering_inventory_missing` into
+-- The journal moves the per-turn arrays of steering_inventory_missing into
 -- sets at open, in code, because SQLite cannot hash. Until it has, readers
--- still understand the array; a legacy `'[]'` stays "no set recorded".
+-- still understand the array; a legacy empty array means no set was recorded.
 -- An ordinary rowid table, as every journal table is: the operational backup
 -- copies and compares rows in rowid order.
 CREATE TABLE journal.turn_journal_configuration_sets (
@@ -20,8 +19,8 @@ ALTER TABLE journal.turn_journal_turns ADD COLUMN configuration_set TEXT REFEREN
 -- its own coverage, but says nothing about the brain's current set.
 ALTER TABLE journal.turn_journal_turns ADD COLUMN configuration_inventoried INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX journal.turn_journal_turns_configuration_set ON turn_journal_turns(configuration_set);
--- A set lives exactly as long as a turn references it, whichever path removes
--- or re-points the turn.
+-- A set lives exactly as long as some turn names it, whichever path deletes
+-- the turn or points it elsewhere.
 CREATE TRIGGER journal.turn_journal_configuration_set_release AFTER DELETE ON turn_journal_turns
 WHEN OLD.configuration_set IS NOT NULL BEGIN
   DELETE FROM turn_journal_configuration_sets WHERE hash = OLD.configuration_set
