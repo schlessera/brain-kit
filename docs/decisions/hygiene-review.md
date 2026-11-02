@@ -169,7 +169,7 @@ document content and age are never in it.
 | `broken-link` | target as written; every link token naming that target, as written (`[[target\|label]]`); severity; urgency |
 | `required-field` | field; its raw value (`absent` when missing); the rule it breaks; severity; urgency |
 | `managed-worktree` | the kind of problem (retained, unknown, cleanup-failed); the worktree's native identity and owning principal; its source domain, repository, revision and starting commit; its holder and liveness; its work; any removal failure; its state and last explicit activity; severity; urgency. Host-only: see [managed worktrees](managed-worktrees.md#hygiene-and-cleanup) |
-| `media` | the file's SHA-256 and bytes; its MEDIA/LARGE classes; the matching `media.track`/`media.ignore` entries; the reference-inventory digest (`unscanned` until #2781's reference scan); for a scratch file, the sorted session keys whose pins list that exact path; severity; urgency. See [media awaiting review](#media-awaiting-review-2780) |
+| `media` | the file's SHA-256 and bytes; its MEDIA/LARGE classes; the matching `media.track`/`media.ignore` entries; the reference-inventory digest (`none`, a digest, or `too-large`/`unscannable` when the bounded scan was refused; #2781); for a scratch file, the sorted session keys whose pins list that exact path; severity; urgency. See [media awaiting review](#media-awaiting-review-2780) |
 | any other | ID evidence; the validation rules reporting it (empty otherwise); severity; urgency |
 
 Severity is `unknown` when no source gives one, and urgency is `unknown` when
@@ -216,6 +216,18 @@ predicates to the log as it stands rather than trusting the file an entry sits
 in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1753-1768`).
 Leave pending is a per-pass deferral in review state, never a log state: it
 skips the finding while its fingerprint holds, and the finding still counts.
+
+**Declared references (#2781, rev 4 §3, rulings B and Q1 A).** One bounded
+scan of the brain's notes finds which notes point at each media file, in the
+declared forms only: Markdown inline links and images, `<…>` destinations,
+reference definitions and wiki links and embeds (rewritable), and frontmatter
+values and HTML `src`/`href`/`poster` (detected, never rewritten). Code is
+never a reference, and hidden directories and the hygiene log are not read.
+Each Q1 limit is checked before the work it bounds; past one, or on a note
+that is not UTF-8, the whole scan is refused and the `refs` field records
+`too-large` or `unscannable`, never a digest. The digest leaves line numbers
+out, so an unrelated edit does not reopen a decision
+(`referenceDigest`, `packages/core/src/lib/media-references.ts:435-441`).
 The contract is in
 [media awaiting review](../integration-contract/package-api.md#media-awaiting-review-additive-2780).
 

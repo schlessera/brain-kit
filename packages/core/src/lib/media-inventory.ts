@@ -27,6 +27,7 @@ import { join, resolve } from "path";
 import type { HygieneCandidate, HygieneFinding, HygieneSeverity } from "./hygiene.js";
 import { resolveEnv } from "../config/env.js";
 import { isMediaPath, type MediaPolicy } from "./media.js";
+import { mediaReferenceLimits, referenceDigest, scanMediaReferences, type MediaReferenceScan, type MediaReferenceScanOptions } from "./media-references.js";
 import { readScratchPinSnapshot, SCRATCH_PINS_FILE } from "./scratch.js";
 import type { AssessedFile } from "./sync/artifacts.js";
 import { assess } from "./sync/assess.js";
@@ -41,13 +42,6 @@ export const PIN_FILE = SCRATCH_PINS_FILE;
 export const DEFAULT_PINNED_PATH_LIMIT = 5000;
 /** The hygiene category every media finding has. */
 export const MEDIA_CATEGORY = "media";
-/**
- * The fingerprint's reference-inventory digest before the declared reference
- * scan exists. The governed effects (#2781) own that scan and its bounds; until
- * then every media finding records this same value, so no disposition is
- * ever bound to a reference set nobody checked.
- */
-export const REFS_UNSCANNED = "unscanned";
 
 /**
  * - `complete`: the snapshot is ready; its sessions are the whole picture.
@@ -122,6 +116,12 @@ export interface MediaItem {
   policy: string[];
   /** Sorted session keys whose pin list holds this exact path; empty outside scratch. */
   pins: string[];
+  /**
+   * The reference-inventory digest (`referenceDigest`): `none`, a digest of
+   * the declared references to this path, or `too-large`/`unscannable` when
+   * the bounded scan was refused.
+   */
+  refs: string;
 }
 
 /** What the inventory says about conversation links, for the notice review shows. */
@@ -140,6 +140,8 @@ export interface MediaLinks {
 export interface MediaInventory {
   items: MediaItem[];
   links: MediaLinks;
+  /** The one bounded reference scan over every item's path (#2781). */
+  references: MediaReferenceScan;
 }
 
 /** Whether a pinned path is a regular file reached through real directories only. */
@@ -199,7 +201,7 @@ function policyEntries(path: string, policy: MediaPolicy): string[] {
  * that does not ignore scratch commits it like any other file); a pinned
  * path assessment did not see is `scratch`. Items are in path order.
  */
-export function mediaInventory(root: string, policy: MediaPolicy, assessed: readonly AssessedFile[], pins: ScratchPins): MediaInventory {
+export function mediaInventory(root: string, policy: MediaPolicy, assessed: readonly AssessedFile[], pins: ScratchPins, references: MediaReferenceScanOptions = {}): MediaInventory {
   const items = new Map<string, MediaItem>();
   for (const file of assessed) {
     if ((file.class !== "MEDIA" && file.class !== "LARGE") || file.status === "D") continue;
@@ -214,6 +216,7 @@ export function mediaInventory(root: string, policy: MediaPolicy, assessed: read
       sha256: read?.sha256 ?? "unreadable",
       policy: policyEntries(file.path, policy),
       pins: pins.state === "unknown" ? [] : pins.sessions.get(file.path) ?? [],
+      refs: "",
     });
   }
   let symlinks = 0;
@@ -227,12 +230,15 @@ export function mediaInventory(root: string, policy: MediaPolicy, assessed: read
       if (!read) continue;
       const classes = classesOf(path, read.bytes, policy);
       if (classes.length === 0) continue;
-      items.set(path, { path, source: "scratch", classes, bytes: read.bytes, sha256: read.sha256, policy: policyEntries(path, policy), pins: keys });
+      items.set(path, { path, source: "scratch", classes, bytes: read.bytes, sha256: read.sha256, policy: policyEntries(path, policy), pins: keys, refs: "" });
     }
   }
+  const scan = scanMediaReferences(root, [...items.keys()], references);
+  for (const item of items.values()) item.refs = referenceDigest(scan, item.path);
   return {
     items: [...items.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     links: { state: pins.state, observed: pins.observed, limit: pins.limit, tooLarge: pins.observed > pins.limit, symlinks },
+    references: scan,
   };
 }
 
@@ -265,7 +271,7 @@ export function mediaCandidates(inventory: MediaInventory): HygieneCandidate[] {
       bytes: String(item.bytes),
       classes: item.classes.join(","),
       policy: item.policy.join("\n"),
-      refs: REFS_UNSCANNED,
+      refs: item.refs,
       pins: item.pins.join("\n"),
     },
   })));
@@ -281,10 +287,14 @@ export function countedMedia(finding: Pick<HygieneFinding, "category" | "sources
  * inventory: what `brain hygiene` detects and what review selects from.
  * Outside a Git work tree there is nothing uncommitted, so assessment adds
  * nothing; a Git failure inside one throws. The pin bound is the trusted
- * host's `BRAIN_MEDIA_PINNED_PATH_LIMIT`, or 5,000.
+ * host's `BRAIN_MEDIA_PINNED_PATH_LIMIT`, or 5,000; the reference scan's
+ * bounds are its `BRAIN_MEDIA_REFERENCE_LIMITS`, or the Q1 defaults. An
+ * invalid value for either stops detection rather than being guessed.
  */
 export function buildMediaInventory(root: string, policy: MediaPolicy): MediaInventory {
-  const limit = pinnedPathLimit(resolveEnv().mediaPinnedPathLimit);
+  const env = resolveEnv();
+  const limit = pinnedPathLimit(env.mediaPinnedPathLimit);
+  const limits = mediaReferenceLimits(env.mediaReferenceLimits);
   const assessed = git(root, ["rev-parse", "--is-inside-work-tree"]).stdout === "true" ? assess(root, policy) : [];
-  return mediaInventory(root, policy, assessed, readScratchPins(root, limit));
+  return mediaInventory(root, policy, assessed, readScratchPins(root, limit), { limits });
 }
