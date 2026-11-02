@@ -620,11 +620,13 @@ the key and forwards it as the turn's own egress (G5). A key goes only to its
 built-in first-party origin, or to an exact origin the operator lists for that
 key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
 the backends' origin rulings grant the CLI nothing by analogy
-(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:255-260`).
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:323-328`).
 The inference relay's placeholder is not a key: the launcher names a key that
 holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
-reaches the host's key instead of failing authentication. Video and the `jev`
-reranker are not relayed and keep the named roadblock.
+reaches the host's key instead of failing authentication. The `jev` reranker
+is not relayed and keeps the named roadblock. Video was excluded from #1673's
+first slice; #2738 relays its Files lifecycle, admitting only upload URLs the
+host validated and the handles that turn's relay created.
 
 **Why tier B is protected by default.** Allow rules in project settings would
 skip the server's approval prompts. Releasing one is a policy choice the user
@@ -1933,7 +1935,9 @@ The capabilities note and the budget UI say so, rather than implying that G3
 covers everything.
 
 **How #1673 built it.** One relay serves the CLI's Gemini embeddings and
-non-video completions, Anthropic completions, and OpenAI and Gemini images.
+completions, Anthropic completions, and OpenAI and Gemini images; #2738 added
+the Gemini Files lifecycle a local video needs, whose upload, poll and delete
+attempts are recorded at zero cost because the Files API is free.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
 (`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).

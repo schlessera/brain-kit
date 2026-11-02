@@ -46,8 +46,10 @@ token:
 - `provider` is the configured provider name (`gemini`, `gemini-flash`,
   `anthropic-haiku`, `jev`, `openai`), `[A-Za-z0-9][A-Za-z0-9._:-]*`.
 - `capability` is `embeddings`, `completions`, `reranking`, `image` or `video`
-  (`video` additive in 0.44.0, #1673: a relayed Gemini completion refuses a
-  video part, because the relay does not carry the Files upload lifecycle).
+  (`video` additive in 0.44.0, #1673: a relayed Gemini completion refused a
+  video part, because the relay did not carry the Files upload lifecycle).
+  Since 0.45.0 (#2738) the relay carries that lifecycle, so a relayed worker no
+  longer reports `capability=video`; the value stays in the grammar.
 - `key` is the withheld variable.
 - `degraded_to` is the fallback used: `keyword_search`, `keyword_index`,
   `lifecycle_order`, or `none` when the command refused or had nothing to fall
@@ -74,7 +76,8 @@ environment carries. A built-in provider whose key is withheld from the process
 | Provider | Family | Requests relayed |
 | --- | --- | --- |
 | Gemini embeddings | `gemini` | `POST /v1beta/models/<model>:embedContent`, `:batchEmbedContents` |
-| Gemini completions (no video) | `gemini` | `POST /v1beta/models/<model>:generateContent` |
+| Gemini completions | `gemini` | `POST /v1beta/models/<model>:generateContent` |
+| Gemini video files (additive, 0.45.0, #2738) | `gemini` | `POST /upload/v1beta/files` (resumable start, then the bytes to the upload URL the relay returned), `GET` and `DELETE /v1beta/files/<id>` |
 | Anthropic completions | `anthropic` | `POST /v1/messages` |
 | OpenAI images | `openai` | `POST /v1/images/generations`, `/v1/images/edits` (multipart) |
 | Gemini images | `gemini` | `POST /v1beta/interactions` |
@@ -94,10 +97,23 @@ built-in providers retry as a transient error.
 
 A seam that is only available through the relay counts as configured: hybrid
 `brain search` embeds its query, `brain process` completes, `brain image` lists
-the provider's models. Without the variable, or for a key that is set or never
-withheld, a provider behaves as before. A video part and the `jev` reranker are
-not relayed and keep the `provider_unavailable` notice. Existing JSON envelopes
-are unchanged.
+the provider's models, `brain video watch` uploads a local video (additive,
+0.45.0, #2738). Without the variable, or for a key that is set or never
+withheld, a provider behaves as before. The `jev` reranker is not relayed and
+keeps the `provider_unavailable` notice. Existing JSON envelopes are unchanged.
+
+The video files lifecycle (additive, 0.45.0, #2738). The relay answers a
+resumable upload start with an `x-goog-upload-url` of its own,
+`<origin>/upload/v1beta/files?brain_upload=<token>`, and keeps the provider's
+upload URL on the host; it accepts a provider URL only on the same origin under
+`/upload/`. The bytes go to that relay URL, and only a token this relay issued
+for the same key and origin is accepted. A `GET` or `DELETE` of
+`/v1beta/files/<id>`, and a `generateContent` whose `fileData.fileUri` names a
+Files handle, are relayed only for a handle that this relay's own uploads
+created; there is no other `GET` or `DELETE` route. Each of these refusals
+happens before contact, with `brain_provider_refused`. A blocked budget refuses
+the upload start and the bytes; a poll or delete never waits on a budget. Files
+a turn leaves behind are deleted with the host's key when its relay stops.
 
 ## Storage packing (additive, 0.44.0, #2011)
 
