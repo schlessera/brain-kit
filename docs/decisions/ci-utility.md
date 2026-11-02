@@ -1423,6 +1423,69 @@ Each implementation task is tracked separately:
 - automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
 
+### Red-main record and coordinator
+
+The [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614)
+are implemented by [#2942](https://github.com/schlessera/brain-kit/issues/2942):
+
+- **Strict flake handling.** A rerun is only a triage probe that decides whether
+  main is declared red. It never turns proof green or makes anything mergeable.
+  It always files or updates an issue on the test, and a second suspected flake
+  on one test within seven days is treated as real. "Never rerun a real failure"
+  stays.
+- **A red main stops doomed work.** Hosted proof whose merge ref contains the
+  bad commit is refused or cancelled, except declared fixes. Each machine keeps
+  its own resources for a fix it is building.
+- **Coordination runs on GitHub.** A coordinator workflow on main CI completion
+  and the shared reservation ref hold the repository-level record. Orchestrators
+  read and enforce it and never message each other.
+- **Merge blocking while red is cooperative, plus detection.** `integrate.ts`
+  refuses non-fix confirmation and merges. Any squash that lands anyway is
+  reported on its PR and on the incident. There is no repository ruleset.
+- **Several declared fixes** may exist for one incident; the first whose fix is
+  confirmed wins.
+- **One incident issue per record**, created once by the coordinator.
+
+The record is `red-main.json`, stored beside `reservation.json` in the same
+coordination ref and updated with the same exact `--force-with-lease`
+compare-and-swap. A write to either file preserves the other. It holds the
+first bad SHA, the failing tests and categories with the estimator's reasons,
+the opening run, the incident issue, the declared fix PRs, the squashes already
+reported, and a bounded ledger of suspected flakes.
+`bun scripts/integrate.ts main-status --json` reads it, and
+`declare-fix <pr>` adds a fix. It is leakage-screened like the reservation.
+
+The estimator is deterministic. It decides from the failing test's membership
+in the squash's own affected closure (an unknown closure counts as inside),
+the error signature from JUnit (timeout or assertion), environment-setup step
+failure, and earlier suspicions within the window. A suspected flake reruns
+only its failing test files at that SHA through `red-main-probe.yml`. A real
+failure opens the record. The first bad SHA is the first commit after the last
+main run where the failing category actually ran green. When that range has
+2–10 commits, probes rerun only the failing test files at each candidate and
+narrow it; a wider range keeps the conservative first candidate.
+
+Main runs run their selected proof even when the metadata job fails. Each main
+run selects its own affected set plus every test and category in the open
+record. All of its jobs read one pinned coordination snapshot, and the
+metadata job prints the included set. The record is cleared only by a green
+main run that printed the same open record as included. The first step of a
+non-draft PR run refuses with `main red at <sha>, incident #<n>` when its merge
+ref contains the bad commit and the PR is not a declared fix. Draft runs keep
+their cheap gates. The coordinator also cancels queued and running PR proof
+created after the bad commit landed, except declared fixes. A non-fix squash
+that lands while red is reported once on its PR and on the incident, and
+recorded as an `incident` event through `scripts/ci-timings.ts record` in the
+coordinator's `red-main-events` artifact.
+
+`red-main.yml` declares no workflow-level permissions. Its one job has
+`contents: write` (the coordination ref), `actions: write` (cancel doomed PR
+runs, dispatch probes, read logs and artifacts), `issues: write` (incident and
+flake issues) and `pull-requests: write` (landed-while-red reports). It runs
+trusted default-branch tooling and parses candidate logs and artifacts as data.
+`red-main-probe.yml` has `contents: read` only. The incident workflow in the
+skills is #2944, and the expedited fix merge is #2940.
+
 ### Hosted heavy feedback on draft heads
 
 The [#2939 ruling](https://github.com/schlessera/brain-kit/issues/2939#issuecomment-6403978097)
