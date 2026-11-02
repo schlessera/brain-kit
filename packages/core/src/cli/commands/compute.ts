@@ -163,47 +163,60 @@ export function describeCost(job: Pick<ComputeJobOutput, "cost">): string {
   return `${usd(actual.usd)} (${actual.coverage}); ${est}`;
 }
 
+/**
+ * Human output carries text from the provider and the remote command
+ * (stdout, stderr, reasons, errors). Every control character except newline
+ * and tab is shown as a `\\xHH` escape so it cannot drive the terminal; JSON
+ * output keeps the bytes.
+ */
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
+const say = (line: string) => console.log(printable(line));
+const warn = (line: string) => console.error(printable(line));
+
 function printJob(job: ComputeJobOutput): void {
-  console.log(`job ${job.id}: ${job.state} on ${job.instance} (${job.provider})`);
+  say(`job ${job.id}: ${job.state} on ${job.instance} (${job.provider})`);
   const exit = job.exit === null ? "none yet" : `${job.exit.code ?? "-"}${job.exit.signal ? ` ${job.exit.signal}` : ""} (${job.exit.reason})`;
-  console.log(`  exit: ${exit}`);
-  console.log(`  cleanup: ${job.cleanup.state}${job.cleanup.retainedUntil ? ` until ${job.cleanup.retainedUntil}` : ""}${job.cleanup.lastError ? ` — ${job.cleanup.lastError}` : ""}`);
-  console.log(`  cost: ${describeCost(job)}`);
-  console.log(`  source: ${job.source.hash.slice(0, 12)} (${job.source.files} file(s)); lease ${job.lease.seconds}s until ${job.lease.deadline}`);
-  if (job.terminal) console.log(`  ended: ${job.terminal.reason}`);
-  if (job.uncertain) console.log(`  uncertain: ${job.uncertain.reason}`);
-  if (job.blocked) console.log(`  blocked: ${job.blocked}`);
+  say(`  exit: ${exit}`);
+  say(`  cleanup: ${job.cleanup.state}${job.cleanup.retainedUntil ? ` until ${job.cleanup.retainedUntil}` : ""}${job.cleanup.lastError ? ` — ${job.cleanup.lastError}` : ""}`);
+  say(`  cost: ${describeCost(job)}`);
+  say(`  source: ${job.source.hash.slice(0, 12)} (${job.source.files} file(s)); lease ${job.lease.seconds}s until ${job.lease.deadline}`);
+  if (job.terminal) say(`  ended: ${job.terminal.reason}`);
+  if (job.uncertain) say(`  uncertain: ${job.uncertain.reason}`);
+  if (job.blocked) say(`  blocked: ${job.blocked}`);
 }
 
 function human(envelope: ComputeEnvelope): void {
   if (!envelope.ok) {
-    console.error(`compute refused (${envelope.error.code}): ${envelope.error.message}`);
+    warn(`compute refused (${envelope.error.code}): ${envelope.error.message}`);
     return;
   }
   if ("instances" in envelope) {
-    if (!envelope.enabled) console.log("External compute is not configured (no `compute` key in brain.config).");
-    for (const i of envelope.instances) console.log(`${i.id}: ${i.status}${i.provider ? ` (${i.provider})` : ""}${i.reason ? ` — ${i.reason}` : ""}`);
+    if (!envelope.enabled) say("External compute is not configured (no `compute` key in brain.config).");
+    for (const i of envelope.instances) say(`${i.id}: ${i.status}${i.provider ? ` (${i.provider})` : ""}${i.reason ? ` — ${i.reason}` : ""}`);
     return;
   }
   if ("plan" in envelope) {
     const p = envelope.plan;
-    console.log(`plan on ${p.instance} (${p.provider}): lease ${p.lease.seconds}s, ${p.source.files.length} source file(s) ${p.source.hash.slice(0, 12)}`);
-    console.log(`  estimate: ${p.estimate.usd === null ? "unknown" : usd(p.estimate.usd)}; slots ${p.slots.used}/${p.slots.max}; retain ${p.retain}`);
-    for (const f of p.source.files) console.log(`  upload ${f.path} (${f.bytes} bytes)`);
-    for (const a of p.artifacts) console.log(`  collect ${a.path} (at most ${a.maxBytes} bytes)`);
+    say(`plan on ${p.instance} (${p.provider}): lease ${p.lease.seconds}s, ${p.source.files.length} source file(s) ${p.source.hash.slice(0, 12)}`);
+    say(`  estimate: ${p.estimate.usd === null ? "unknown" : usd(p.estimate.usd)}; slots ${p.slots.used}/${p.slots.max}; retain ${p.retain}`);
+    for (const f of p.source.files) say(`  upload ${f.path} (${f.bytes} bytes)`);
+    for (const a of p.artifacts) say(`  collect ${a.path} (at most ${a.maxBytes} bytes)`);
     return;
   }
   if ("visited" in envelope) {
-    for (const v of envelope.visited) console.log(`${v.id}: ${v.state}, cleanup ${v.cleanup}`);
-    for (const s of envelope.skipped) console.log(`${s.id}: skipped — ${s.reason}`);
-    if (envelope.visited.length + envelope.skipped.length === 0) console.log("Nothing to reconcile.");
+    for (const v of envelope.visited) say(`${v.id}: ${v.state}, cleanup ${v.cleanup}`);
+    for (const s of envelope.skipped) say(`${s.id}: skipped — ${s.reason}`);
+    if (envelope.visited.length + envelope.skipped.length === 0) say("Nothing to reconcile.");
     return;
   }
   printJob(envelope.job);
   if ("output" in envelope) {
-    if (envelope.output.stdout) console.log(`--- stdout${envelope.output.truncated ? " (truncated)" : ""}\n${envelope.output.stdout}`);
-    if (envelope.output.stderr) console.log(`--- stderr\n${envelope.output.stderr}`);
-    for (const a of envelope.artifacts) console.log(`  artifact ${a.path}: ${a.status}${a.file ? ` → ${a.file}` : ""}`);
+    if (envelope.output.stdout) say(`--- stdout${envelope.output.truncated ? " (truncated)" : ""}\n${envelope.output.stdout}`);
+    if (envelope.output.stderr) say(`--- stderr\n${envelope.output.stderr}`);
+    for (const a of envelope.artifacts) say(`  artifact ${a.path}: ${a.status}${a.file ? ` → ${a.file}` : ""}`);
   }
 }
 
@@ -381,11 +394,11 @@ export const computeCommand: CoreCommand = {
         envelope = await ops.plan(await requestFromArgs(p));
         break;
       case "run": {
-        const log = (line: string) => console.error(line);
+        const log = warn;
         const { envelope: final, code } = await runJob(ops, await requestFromArgs(p), { detach: p.booleans.has("detach"), human: !cli.json, log });
         out(final);
         if (final.ok && code === 2 && final.job.terminal !== null) {
-          console.error(
+          warn(
             `brain compute: ${final.job.id} ended but its cleanup is ${final.job.cleanup.state}: a sandbox may still be running. Run \`brain compute reconcile\` to retry the release.`
           );
         }

@@ -355,6 +355,9 @@ a refusal (nothing was allocated), exit `2` a job whose cleanup was not
 confirmed (run `brain compute reconcile`), and exit `3` a job that ended
 other than `succeeded`. Job ids belong to the operating-system user that
 started them from the CLI; jobs started through the MCP tools are separate.
+Human output shows control characters from the provider or the remote
+command (other than newline and tab) as `\xHH` escapes, so collected output
+cannot drive the terminal; `--json` keeps the bytes.
 Operators can run `brain compute reconcile` to settle jobs a dead process left
 behind, and `brain compute abandon JOB --confirm` to accept an unresolved
 `uncertain` outcome. The `/external-compute` skill guides an agent through the

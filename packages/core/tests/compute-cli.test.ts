@@ -304,6 +304,22 @@ describe("a run interrupted or left unclean", () => {
   }, 30_000);
 });
 
+describe("human output", () => {
+  test("escapes terminal control sequences from the provider and the remote command; JSON keeps the bytes", async () => {
+    const r = await cli(faults, ["run", "--provider", "ithaca-leaky", "--human", "--", "sh", "-c", "printf '\\033]0;Circe\\007\\033[2Jhome\\tport\\n'"]);
+    expect(r.code).toBe(2);
+    const id = /job (cj_[a-z2-7]{26})/.exec(r.stdout)?.[1];
+    expect(id).toBeDefined();
+    expect(r.stdout).toContain("the harbour \\x1b]0;Scylla\\x07is closed \\x1b[2J");
+    const collected = await cli(faults, ["collect", id!, "--human"]);
+    expect(collected.stdout).toContain("\\x1b]0;Circe\\x07\\x1b[2Jhome\tport\n");
+    for (const out of [r.stdout, r.stderr, collected.stdout, collected.stderr]) expect(out).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    const raw = json((await cli(faults, ["collect", id!, "--json"])).stdout);
+    expect(raw.output.stdout).toBe("\u001b]0;Circe\u0007\u001b[2Jhome\tport\n");
+    expect(raw.job.cleanup.lastError).toContain("\u001b]0;Scylla\u0007");
+  }, 30_000);
+});
+
 describe("caller binding", () => {
   test("an unknown or foreign job id is job_unknown, exit 1", async () => {
     for (const verb of ["status", "cancel", "collect"]) {
