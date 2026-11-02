@@ -210,7 +210,7 @@ it from.
 
 What changes. With `--json`, or stdout not a TTY, bare sync prints
 `{ run, agent }` and nothing else on stdout (the bare branch, `if (!verb) {`,
-`packages/core/src/cli/commands/sync.ts:249-278`). `run` is `run`'s own
+`packages/core/src/cli/commands/sync.ts:266-297`). `run` is `run`'s own
 envelope. `agent` says whether the agent was invoked, and if not, why
 (`not-needed`, or `no-runner` when a run needed one and none was available).
 An invoked agent carries its runner, its outcome, its final text, and the
@@ -257,7 +257,7 @@ whole deterministic sync, including retries after a rejected push.
 
 A stopped rebase is aborted and the original HEAD and operation state checked
 before the existing merge path runs (`mergeOriginMain`,
-`packages/core/src/lib/sync/pull.ts:140-190`). Thus the resolver still sees
+`packages/core/src/lib/sync/pull.ts:170-220`). Thus the resolver still sees
 local OURS and remote THEIRS, rather than the reversed rebase stages. Pending
 merge/index state is handled before any attempt; #328 may conclude a
 sync-owned cache-only merge first. An existing rebase/apply operation is

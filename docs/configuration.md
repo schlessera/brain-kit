@@ -819,7 +819,11 @@ conflicted file. The first match wins:
    clone still writes) is `cache-union`. `brain sync pull` has already unioned
    it.
 2. A file that is not markdown, or whose exact basename is `CLAUDE.md`,
-   `AGENTS.md` or `GEMINI.md` at any depth, is `code-merge`. Conflicted
+   `AGENTS.md` or `GEMINI.md` at any depth, is `code-merge`. The stats
+   history (`.stats-history.jsonl`) rarely gets here: `brain sync pull` merges
+   a conflicted history by day itself, keeping both clones' days and the later
+   recording of a shared one, even without its `.gitattributes` union line. A
+   side that is not a history stays conflicted for judgment. Conflicted
    instructions and their Git index stages stay intact for agent/person
    judgment. No instruction synthesis or remote-copy resolution occurs.
 3. The document's type sets `mergeStrategy`. The type is the one its

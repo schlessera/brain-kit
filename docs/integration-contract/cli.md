@@ -3,6 +3,28 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Agent runner unavailable in a maintenance worker (additive, 0.45.0, #3243)
+
+A credential-free maintenance worker, such as the one hosted `brain sync`
+runs in, can log no agent in. Its launcher sets
+`BRAIN_AGENT_RUNNER_UNAVAILABLE=1`, and the CLI then treats the configured
+agent runner as absent, whatever the brain configures. Bare `brain sync`
+whose run needs an agent launches nothing: machine mode reports
+`agent: { invoked: false, reason: "no-runner" }`, the exit code is `run`'s
+(`3` for a conflict left in progress, nothing pushed), and in both modes
+stderr carries one line that begins `brain sync: agent judgment is
+unavailable in hosted maintenance` and names the manual resolution
+(`brain sync conflicts`, write and `git add` each file, `brain sync
+conclude`, then `brain sync`). Without an agent runner outside such a worker,
+the same line begins `brain sync: no agent runner is available`. Without the
+variable, behaviour is unchanged. It is a launcher input, not an operator
+setting.
+
+A failed `claude` runner's error (`agent.error`, and the message on stderr)
+now carries everything the CLI said about the failure, each part once: its
+result text, the errors its result listed, and the end of its stderr, joined
+with ` — `. Previously stderr was dropped whenever a result text was present.
+
 ## Withheld provider keys (additive, 0.44.0, #1666)
 
 A governed or strict agent worker may lack provider keys the server holds. Its

@@ -14,8 +14,9 @@
  * The stats history (#581) is one snapshot per line, one line per day, and
  * takes the same attribute: union keeps both clones' days, two lines for one
  * day resolve to the later recording (`parseHistory`), and the next recording
- * rewrites the file sorted. It is not a derived cache, so `brain sync pull`
- * does not union it itself; with the attribute, git never conflicts on it.
+ * rewrites the file sorted. It is not a derived cache; with the attribute,
+ * git never conflicts on it, and without it `brain sync pull` merges a
+ * conflicted history by day itself (#3243).
  *
  * Since 0.44.0 the caches are `.brain-cache/contexts.jsonl` and
  * `.brain-cache/assets.jsonl` (#2725). A brain's existing lines for the old

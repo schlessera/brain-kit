@@ -20,6 +20,16 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
+
+A credential-free maintenance worker's launcher sets
+`BRAIN_AGENT_RUNNER_UNAVAILABLE=1`. Bare `brain sync` there hands nothing to
+an agent: it reports the existing `agent.reason` `no-runner`, keeps `run`'s
+exit code, and names the manual resolution on stderr. No JSON shape changes.
+A failed `claude` runner's error now keeps its stderr beside its result text.
+See [the CLI component](integration-contract/cli.md#agent-runner-unavailable-in-a-maintenance-worker-additive-0450-3243).
+This ships in a minor; no breaking ruling is required.
+
 ## Bounded storage failure settlement (additive, #3185)
 
 The server exports `StorageSettlementIndeterminate` for bounded caller waits
