@@ -117,6 +117,7 @@ test("focused and full local CLI refuse setup before downstream proof while plan
   for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt"]) {
     writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
   }
+  writeFileSync(join(dir, "scripts/host-admission.mjs"), `export * from ${JSON.stringify(join(owner, "scripts/host-admission.mjs"))};\n`);
   writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"] }));
   writeFileSync(join(dir, "packages/ithaca/package.json"), JSON.stringify({ name: "@odysseus/ithaca" }));
   writeFileSync(join(dir, ".gitignore"), "tmp/\n");
@@ -347,7 +348,7 @@ function importFixture() {
   const dir = fixture();
   const root = join(import.meta.dir, "..");
   mkdirSync(join(dir, "scripts"));
-  for (const helper of ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
+  for (const helper of ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
     cpSync(join(root, "scripts", helper), join(dir, "scripts", helper));
   }
   mkdirSync(join(dir, "packages/core/tests"), { recursive: true });

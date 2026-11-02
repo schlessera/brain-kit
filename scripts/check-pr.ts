@@ -5,6 +5,7 @@ import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan"
 import { runCommands, type Command, type Settled } from "./ci-runner";
 import { checkPackages } from "./check-packages";
 import { checkCategories, PREEMPTED_EXIT, RECEIPT_KIND, receiptBlock, UNPROVEN, type CheckReceipt, type Outcome, type ReceiptCheck } from "./check-receipt";
+import { ensureHostAdmission } from "./host-admission.mjs";
 
 export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false, importGraphWorkers?: number): Command[] {
   const bun = process.execPath;
@@ -222,6 +223,11 @@ if (import.meta.main) {
       else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N] [--check-timeout=<seconds>] [--skip <check name>]... [--receipt <path>]");
     }
     const root = resolve(import.meta.dir, "..");
+    if (full && !print) {
+      // Full local suites are for debugging only and run through host admission (#2939, #2943).
+      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
+      if (admitted !== undefined) process.exit(admitted);
+    }
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root), root);
     let mergeBase: string | undefined;
