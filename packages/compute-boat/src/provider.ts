@@ -222,6 +222,13 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
         if (!id) return { kind: "uncertain", reason: "Boat accepted the create without a sandbox id" };
         return { kind: "ok", sandbox: { id, data: { state: s(sandbox?.state) ?? null } } };
       }
+      // The key already made a sandbox under another body: look for it again
+      // before calling the outcome uncertain, since the first look may have
+      // preceded the listing.
+      if (status(r) === 409 && code(r) === "idempotency_key_reused") {
+        const again = (await lookup(request.key, ctx, red, req)).outcome;
+        if (again.kind === "ok") return again;
+      }
       return allocateFailure(red, r);
     },
 

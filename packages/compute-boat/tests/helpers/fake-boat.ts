@@ -191,6 +191,7 @@ export function fakeBoat(opts: FakeBoatOptions) {
   const faults = new Map<Route, Fault[]>();
   let sequence = 0;
   let pids = 100;
+  let listMisses = 0;
 
   const nextId = () => {
     let v = sequence++;
@@ -369,7 +370,9 @@ export function fakeBoat(opts: FakeBoatOptions) {
         return json(200, { ok: true, type: "limits.info", canStart: true, activeSandboxes: [...sandboxes.values()].filter((s) => !s.deleted).length });
       case "list": {
         const wanted = url.searchParams.getAll("label");
-        const list = [...sandboxes.values()].filter((s) => !s.deleted && !(opts.listLag && s.gets === 0) && wanted.every((l) => s.labels[l.slice(0, l.indexOf("="))] === l.slice(l.indexOf("=") + 1)));
+        const hidden = listMisses > 0;
+        if (hidden) listMisses -= 1;
+        const list = [...sandboxes.values()].filter((s) => !hidden && !s.deleted && !(opts.listLag && s.gets === 0) && wanted.every((l) => s.labels[l.slice(0, l.indexOf("="))] === l.slice(l.indexOf("=") + 1)));
         return json(200, { ok: true, type: "sandbox.list", sandboxes: list.slice(0, Number(url.searchParams.get("limit") ?? 100)).map(view) });
       }
       case "create": {
@@ -562,6 +565,10 @@ export function fakeBoat(opts: FakeBoatOptions) {
     /** Every sandbox ever created, deleted or not. */
     created: () => sandboxes.size,
     routes: () => requests.map((r) => r.route),
+    /** The next `times` lists omit every sandbox, as an eventually consistent listing can. */
+    missNextLists(times = 1) {
+      listMisses += times;
+    },
     /** Boat keeps idempotency keys 24 hours; this is that window passing. */
     forgetIdempotencyKeys: () => idempotency.clear(),
   };
