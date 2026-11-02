@@ -320,8 +320,18 @@ export interface ComputeDriverOptions {
   initialDelayMs?: number;
   /** Longest wait between visits. Default 15 000 ms. */
   maxDelayMs?: number;
-  /** Jobs tracked at once; a run beyond it is still started, just not driven. Default 16. */
+  /**
+   * Jobs tracked at once; a run beyond it is still started, just not driven.
+   * Default 256: tracking costs one id, and the visits a pass makes are
+   * bounded by `visitsPerPass`, not by this.
+   */
   maxJobs?: number;
+  /** Visits one pass makes, to the least recently visited jobs first. Default 16. */
+  visitsPerPass?: number;
+  /** Consecutive throwing visits after which a job is dropped (and logged). Default 5. */
+  maxFailures?: number;
+  /** Where a dropped job is reported. Default: stderr. */
+  log?: (line: string) => void;
 }
 
 export interface ComputeDriver {
@@ -335,15 +345,22 @@ export interface ComputeDriver {
 /**
  * A bounded background driver for a long-lived process (the MCP server):
  * it visits the jobs that process started through the same `status`
- * operation a caller would use, one visit at a time, with backoff, until each
- * job is settled or the driver stops. Its timer never keeps the process
- * alive, and stopping it cancels nothing.
+ * operation a caller would use, one visit at a time with backoff, at most
+ * `visitsPerPass` a pass, least recently visited first, so every tracked job
+ * is driven however many there are. A job leaves once it is settled, once
+ * `status` refuses it, or after `maxFailures` visits in a row that threw
+ * (reconcile is the backstop). Its timer never keeps the process alive, and
+ * stopping it cancels nothing.
  */
 export function createComputeDriver(ops: ComputeOps, options: ComputeDriverOptions = {}): ComputeDriver {
   const initial = options.initialDelayMs ?? 2_000;
   const max = options.maxDelayMs ?? 15_000;
-  const maxJobs = options.maxJobs ?? 16;
-  const jobs = new Set<string>();
+  const maxJobs = options.maxJobs ?? 256;
+  const perPass = options.visitsPerPass ?? 16;
+  const maxFailures = options.maxFailures ?? 5;
+  const log = options.log ?? ((line: string) => console.error(line));
+  // Insertion order is visit order: a visited job moves to the end.
+  const jobs = new Map<string, { failures: number }>();
   let delay = initial;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let busy = false;
@@ -360,14 +377,22 @@ export function createComputeDriver(ops: ComputeOps, options: ComputeDriverOptio
     if (stopped) return;
     busy = true;
     try {
-      for (const id of [...jobs]) {
+      for (const id of [...jobs.keys()].slice(0, perPass)) {
         if (stopped) break;
+        const entry = jobs.get(id);
+        if (!entry) continue;
+        jobs.delete(id);
         try {
           const result = await ops.status({ job: id });
-          if (!result.ok || jobSettled(result.job)) jobs.delete(id);
-        } catch {
-          // A visit that throws is retried on the next tick; reconcile is the backstop.
+          if (result.ok && !jobSettled(result.job)) jobs.set(id, { failures: 0 });
+        } catch (error) {
+          if (entry.failures + 1 >= maxFailures) {
+            log(`brain compute: stopped advancing ${id} after ${maxFailures} failed visits (${(error as Error)?.message ?? String(error)}); \`brain compute reconcile\` or the next status call settles it`);
+          } else {
+            jobs.set(id, { failures: entry.failures + 1 });
+          }
         }
+        if (stopped) jobs.clear();
       }
     } finally {
       busy = false;
@@ -379,7 +404,7 @@ export function createComputeDriver(ops: ComputeOps, options: ComputeDriverOptio
   return {
     track(id) {
       if (stopped || jobs.has(id) || jobs.size >= maxJobs) return;
-      jobs.add(id);
+      jobs.set(id, { failures: 0 });
       delay = initial;
       if (timer) {
         clearTimeout(timer);
@@ -387,7 +412,7 @@ export function createComputeDriver(ops: ComputeOps, options: ComputeDriverOptio
       }
       schedule();
     },
-    tracked: () => [...jobs],
+    tracked: () => [...jobs.keys()],
     stop() {
       stopped = true;
       if (timer) clearTimeout(timer);

@@ -101,8 +101,10 @@ appear only in results the agent asked for.
 
 `brain_compute_run` does not wait for the job. While the server process
 lives it advances the jobs it started through the same `status` operation,
-one visit at a time with backoff (2 s rising to 15 s, at most 16 jobs), until
-each has ended and its cleanup is settled. Closing the server stops those
+one visit at a time with backoff (2 s rising to 15 s), at most 16 visits a
+pass to the least recently visited jobs first and up to 256 jobs tracked,
+until each has ended and its cleanup is settled. A job whose visits throw
+five times in a row is no longer advanced, and the server logs it on stderr. Closing the server stops those
 visits and cancels nothing: a job is then bounded by its lease, and the next
 `status`, `cancel`, `collect` or `brain compute reconcile` settles it.
 

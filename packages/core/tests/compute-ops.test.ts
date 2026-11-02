@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { attach, describeCost, runExitCode } from "../src/cli/commands/compute";
-import { createComputeDriver, createComputeOps, jobOutput, localPrincipal, type ComputeJobOutput } from "../src/lib/ops/compute";
+import { createComputeDriver, createComputeOps, jobOutput, localPrincipal, type ComputeJobOutput, type ComputeOps } from "../src/lib/ops/compute";
 import { fakeClock, jobDirs, PENELOPE, sandbox, START, TELEMACHUS, type Sandbox } from "./helpers/compute/fixture";
 import { memoryCompute } from "./helpers/compute/memory-provider";
 
@@ -249,6 +249,72 @@ describe("the background driver", () => {
     expect(memory.calls.some((c) => c.method === "kill" || c.method === "release")).toBe(false);
     driver.track(run.job.id);
     expect(driver.tracked()).toEqual([]);
+  });
+
+  test("drops a job whose status keeps throwing, after a bounded run of throws, and logs it", async () => {
+    let visits = 0;
+    const ops = { status: async () => { visits++; throw new Error("the state directory is unreadable"); } } as unknown as ComputeOps;
+    const logged: string[] = [];
+    const driver = createComputeDriver(ops, { initialDelayMs: 1, maxDelayMs: 1, maxFailures: 3, log: (line) => void logged.push(line) });
+    driver.track("cj_aaaaaaaaaaaaaaaaaaaaaaaaaa");
+    for (let i = 0; i < 200 && driver.tracked().length > 0; i++) await Bun.sleep(5);
+    expect(driver.tracked()).toEqual([]);
+    expect(visits).toBe(3);
+    expect(logged.length).toBe(1);
+    expect(logged[0]).toContain("cj_aaaaaaaaaaaaaaaaaaaaaaaaaa");
+    driver.stop();
+  });
+
+  test("a job that throws and then answers starts its count again", async () => {
+    let visits = 0;
+    const ops = {
+      status: async () => {
+        visits++;
+        if (visits % 2 === 1) throw new Error("transient");
+        return { ok: true, job: { terminal: null, cleanup: { state: "none" } } };
+      },
+    } as unknown as ComputeOps;
+    const driver = createComputeDriver(ops, { initialDelayMs: 1, maxDelayMs: 1, maxFailures: 2, log: () => {} });
+    driver.track("cj_aaaaaaaaaaaaaaaaaaaaaaaaaa");
+    for (let i = 0; i < 200 && visits < 8; i++) await Bun.sleep(5);
+    expect(visits).toBeGreaterThanOrEqual(8);
+    expect(driver.tracked()).toEqual(["cj_aaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+    driver.stop();
+  });
+
+  test("more jobs than one pass visits are all tracked and driven, least recently visited first", async () => {
+    const order: string[] = [];
+    // A pass's visits run back to back without yielding to the event loop;
+    // passes are timer-separated. A setImmediate counter tells them apart.
+    let generation = 0;
+    let spinning = true;
+    const spin = () => {
+      generation++;
+      if (spinning) setImmediate(spin);
+    };
+    spin();
+    const passOf: number[] = [];
+    const ops = {
+      status: async ({ job }: { job: string }) => {
+        order.push(job);
+        passOf.push(generation);
+        return { ok: true, job: { terminal: null, cleanup: { state: "none" } } };
+      },
+    } as unknown as ComputeOps;
+    const driver = createComputeDriver(ops, { initialDelayMs: 1, maxDelayMs: 1 });
+    const ids = Array.from({ length: 20 }, (_, i) => `job-${String(i).padStart(2, "0")}`);
+    for (const id of ids) driver.track(id);
+    expect(driver.tracked().length).toBe(20);
+    for (let i = 0; i < 200 && order.length < 32; i++) await Bun.sleep(5);
+    driver.stop();
+    spinning = false;
+    // Sixteen visits a pass: the first pass takes the oldest sixteen, the
+    // second the four it left out before any job is visited again.
+    expect(new Set(passOf.slice(0, 16)).size).toBe(1);
+    expect(passOf[16]).not.toBe(passOf[15]);
+    expect(order.slice(0, 16)).toEqual(ids.slice(0, 16));
+    expect(order.slice(16, 20)).toEqual(ids.slice(16));
+    expect(order.slice(20, 32)).toEqual(ids.slice(0, 12));
   });
 
   test("tracks at most maxJobs", () => {
