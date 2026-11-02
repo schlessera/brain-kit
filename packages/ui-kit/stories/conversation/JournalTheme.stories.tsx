@@ -9,7 +9,7 @@ import { ConsumerDocument, consumerViewport, painted, bounds, accessible } from 
 
 const turnId = "odysseus-journal";
 const skill = ".claude/skills/voyage-log/SKILL.md";
-const summary: TurnJournalSummary = { state: "complete", changedFiles: 3, steeringFiles: 1, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: true, observedAt: Date.UTC(2026, 6, 12) };
+const summary: TurnJournalSummary = { state: "complete", changedFiles: 3, steeringFiles: 1, keptFiles: 3, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: true, observedAt: Date.UTC(2026, 6, 12) };
 const version = { kind: "file" as const, mode: 420, bytes: 32, hash: "odysseus-retained", ignored: false };
 const observations = [3, 4].map(sequence => ({ turnId, sequence, side: "after" as const }));
 const changes: TurnJournalChange[] = [
