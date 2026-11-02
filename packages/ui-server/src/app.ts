@@ -35,7 +35,7 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { ambientExecConfig, apifyTokenSource, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
-import { APIFY_AUTHORITY_SETTING, createApifyAuthority, governanceApifyPolicy } from "./apify/authority.js";
+import { APIFY_AUTHORITY_SETTING, createApifyAuthority, governanceApifyPolicy } from "@schlessera/brain/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";

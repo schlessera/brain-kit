@@ -1,6 +1,6 @@
 /**
  * The Apify run ledger (#3161,
- * [the contract](../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)).
+ * [the contract](../../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)).
  *
  * Private operational evidence, never `brain.db`, never Markdown and never a
  * worker file: one SQLite file outside every brain, owned by the host user
@@ -171,6 +171,21 @@ export interface ApifyLedger {
   cursor(handle: string, offset: number): string;
   /** The offset a cursor names for this run, or null when it is foreign or forged. */
   offset(handle: string, cursor: string): number | null;
+  /**
+   * A standalone process's consent reference (#3162), or null. Bodies are
+   * plain JSON written by this host; the reference itself is the secret.
+   */
+  reference<T>(kind: "candidate" | "proposal", ref: string): { session_id: string; state: string; expires_at: number | null; body: T } | null;
+  /** Store references, then forget the session's oldest of that kind beyond `keep`. */
+  addReferences(kind: "candidate", entries: ReadonlyArray<{ ref: string; session_id: string; state: string; expires_at: number | null; body: unknown }>, keep: number): void;
+  updateReference<T>(kind: "candidate" | "proposal", ref: string, change: (body: T) => T): void;
+  /** Forget spent, refused and expired proposals, then store this one. */
+  addProposalReference(ref: string, session_id: string, state: string, expires_at: number, body: unknown, now: number): void;
+  /** Move a proposal from `from` to `to` under the write lock; false when it was not in `from`. */
+  transitionReference(ref: string, from: string, to: string): boolean;
+  /** Private host state stored beside the runs, such as a standalone authority record. */
+  setting(key: string): unknown;
+  setSetting(key: string, value: unknown): void;
   close(): void;
 }
 
@@ -232,7 +247,11 @@ export function openApifyLedger(path: string): ApifyLedger {
         CREATE TABLE IF NOT EXISTS charges (receipt TEXT PRIMARY KEY, handle TEXT NOT NULL REFERENCES runs(handle),
           observed_at INTEGER NOT NULL, status TEXT NOT NULL, counts TEXT NOT NULL, micro INTEGER);
         CREATE TABLE IF NOT EXISTS requests (brain_id TEXT NOT NULL, session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
-          count INTEGER NOT NULL, PRIMARY KEY (brain_id, session_id, turn_id));`);
+          count INTEGER NOT NULL, PRIMARY KEY (brain_id, session_id, turn_id));
+        CREATE TABLE IF NOT EXISTS refs (ref TEXT PRIMARY KEY, kind TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL,
+          expires_at INTEGER, created_at INTEGER NOT NULL, body TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS refs_session ON refs(kind, session_id, created_at);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
       const version = db.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null;
       if (version && Number(version.value) !== SCHEMA_VERSION) throw new ApifyLedgerUnavailable("The Apify ledger was written by a different version.");
       db.query("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?), ('ledger_id', ?), ('cursor_key', ?)")
@@ -395,6 +414,50 @@ export function openApifyLedger(path: string): ApifyLedger {
       const offset = Number.parseInt(match[1]!, 36);
       const expected = createHmac("sha256", cursorKey).update(`${handle}\u0000${offset}`).digest("base64url").slice(0, 32);
       return Number.isSafeInteger(offset) && expected === match[2] ? offset : null;
+    },
+    reference<T>(kind: "candidate" | "proposal", ref: string) {
+      return guarded(() => {
+        const found = db.query("SELECT session_id, state, expires_at, body FROM refs WHERE ref = ? AND kind = ?").get(ref, kind) as
+          { session_id: string; state: string; expires_at: number | null; body: string } | null;
+        return found ? { session_id: found.session_id, state: found.state, expires_at: found.expires_at, body: JSON.parse(found.body) as T } : null;
+      });
+    },
+    addReferences(kind, entries, keep) {
+      guarded(() => db.transaction(() => {
+        // Distinct, increasing creation order within one batch, so "oldest" is exact.
+        const base = Date.now() * 1000;
+        entries.forEach((entry, index) => db.query("INSERT INTO refs(ref, kind, session_id, state, expires_at, created_at, body) VALUES (?,?,?,?,?,?,?)")
+          .run(entry.ref, kind, entry.session_id, entry.state, entry.expires_at, base + index, JSON.stringify(entry.body)));
+        for (const session of new Set(entries.map(entry => entry.session_id)))
+          db.query(`DELETE FROM refs WHERE kind = ? AND session_id = ? AND ref NOT IN
+            (SELECT ref FROM refs WHERE kind = ? AND session_id = ? ORDER BY created_at DESC LIMIT ?)`).run(kind, session, kind, session, keep);
+      }).immediate());
+    },
+    updateReference<T>(kind: "candidate" | "proposal", ref: string, change: (body: T) => T) {
+      guarded(() => db.transaction(() => {
+        const found = db.query("SELECT body FROM refs WHERE ref = ? AND kind = ?").get(ref, kind) as { body: string } | null;
+        if (found) db.query("UPDATE refs SET body = ? WHERE ref = ?").run(JSON.stringify(change(JSON.parse(found.body) as T)), ref);
+      }).immediate());
+    },
+    addProposalReference(ref, session_id, state, expires_at, body, now) {
+      guarded(() => db.transaction(() => {
+        db.query("DELETE FROM refs WHERE kind = 'proposal' AND (expires_at <= ? OR state IN ('consumed','refused'))").run(now);
+        db.query("INSERT INTO refs(ref, kind, session_id, state, expires_at, created_at, body) VALUES (?, 'proposal', ?, ?, ?, ?, ?)")
+          .run(ref, session_id, state, expires_at, now, JSON.stringify(body));
+      }).immediate());
+    },
+    transitionReference(ref, from, to) {
+      return guarded(() => db.transaction(() =>
+        db.query("UPDATE refs SET state = ? WHERE ref = ? AND kind = 'proposal' AND state = ?").run(to, ref, from).changes === 1).immediate());
+    },
+    setting(key) {
+      return guarded(() => {
+        const found = db.query("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | null;
+        return found ? JSON.parse(found.value) as unknown : null;
+      });
+    },
+    setSetting(key, value) {
+      guarded(() => { db.query("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, JSON.stringify(value)); });
     },
     close() { db.close(); },
   };

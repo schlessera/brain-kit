@@ -1,6 +1,6 @@
 /**
  * The trusted Apify run service (#3161,
- * [the contract](../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)):
+ * [the contract](../../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)):
  * reservation, dispatch, bounded waiting, results, abort, settlement and
  * reconciliation of qualified batch runs.
  *

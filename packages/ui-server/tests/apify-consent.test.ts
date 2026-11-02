@@ -9,12 +9,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
-import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "../src/apify/authority.js";
+import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "@schlessera/brain/internal/apify";
 import {
   APIFY_DISCOVERY_LIMITS, ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy,
   type ApifyCallContext, type ApifyConsent, type ApifyQualifiedProfile, type ApifyRunTicket,
-} from "../src/apify/consent.js";
+} from "@schlessera/brain/internal/apify";
 import { seaChartsProfile } from "./fixtures/apify-odysseus.js";
+import { APIFY_PROVIDER_ROUTING } from "../src/apify/routing.js";
 
 const SENTINEL = "apify_api_ODYSSEUS_SENTINEL_0f1e2d3c";
 const SUITORS = "apify_api_ODYSSEUS_SENTINEL_suitors_7c6d";
@@ -132,12 +133,12 @@ function policy(text: string | null) {
   else writeFileSync(path, `---\nschema_version: 1\n${text}\n---\nOdysseus decides what leaves Ithaca.\n`);
 }
 function consent(profiles: readonly ApifyQualifiedProfile[] = [PROFILE]): ApifyConsent {
-  return createApifyConsent({ authority, policy: governanceApifyConsentPolicy(brain), profiles });
+  return createApifyConsent({ authority, policy: governanceApifyConsentPolicy(brain), profiles, routing: APIFY_PROVIDER_ROUTING });
 }
 function context(overrides: Partial<ApifyCallContext> = {}): ApifyCallContext {
   return {
     principal_id: "p-penelope", session_id: "s-voyage", turn_id: "t-1", posture: "interactive",
-    approvals: { requestPermission: async request => { asked.push(request); return answer(request); }, activity: () => undefined },
+    approvals: { requestPermission: async request => { asked.push(request); return answer(request); } },
     exposures: () => [], untrusted: event => { untrusted.push(event.operation); },
     ...overrides,
   };

@@ -5,7 +5,7 @@
  * ledger file the parent names.
  */
 import { existsSync } from "node:fs";
-import { ApifyLedgerRefusal, openApifyLedger } from "../../src/apify/ledger.js";
+import { ApifyLedgerRefusal, openApifyLedger } from "@schlessera/brain/internal/apify";
 
 const [path, go, index] = process.argv.slice(2) as [string, string, string];
 const ledger = openApifyLedger(path);

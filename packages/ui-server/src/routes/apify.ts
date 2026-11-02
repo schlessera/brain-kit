@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
-import { ApifyAuthorityError, type ApifyAuthority } from "../apify/authority.js";
+import { ApifyAuthorityError, type ApifyAuthority } from "@schlessera/brain/internal/apify";
 
 export interface ApifyRoutesDeps {
   authority: ApifyAuthority;

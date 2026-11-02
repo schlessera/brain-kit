@@ -1,6 +1,6 @@
 /**
  * Host-owned Apify enablement, token authentication and account binding
- * (#3159, [the contract](../../../../docs/decisions/apify-capability.md)).
+ * (#3159, [the contract](../../../../../docs/decisions/apify-capability.md)).
  *
  * Four facts decide whether the host may make a new Apify request, and none
  * implies another: the governance policy enables the provider
