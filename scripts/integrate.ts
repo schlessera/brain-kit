@@ -4,6 +4,7 @@ import { scanText } from "./check-leakage";
 import { GitReservationStore, assertLease, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
 import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
+import { declareFix, type RedMainRecord } from "./red-main";
 import type { API } from "./proof-reuse";
 
 async function gh(...args: string[]): Promise<string> {
@@ -53,6 +54,21 @@ if (import.meta.main) {
     }
     throw new Error("Bounded acquisition exhausted");
   }
+  /** Cooperative merge blocking while red (#2942): only a declared fix proceeds. */
+  function refuseWhileRed(pr: number) {
+    const open = store!.read().redMain.open;
+    if (open && !open.fixes.includes(pr)) throw new Error(`main red at ${open.firstBad}, ${open.incident ? `incident #${open.incident}` : "incident pending"}; only a declared fix may confirm or merge (bun scripts/integrate.ts declare-fix <pr>)`);
+  }
+  async function changeRedMain(update: (record: RedMainRecord, now: number) => RedMainRecord) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const snapshot = store!.read(), record = update(snapshot.redMain, await clock());
+      if (record === snapshot.redMain) return record;
+      if (scanText("coordination", JSON.stringify(record)).length) throw new Error("Public coordination state failed the leakage gate");
+      if (store!.publishRedMain(snapshot, record)) return record;
+      await Bun.sleep(100 * 2 ** attempt);
+    }
+    throw new Error("Concurrent coordination update; bounded retries exhausted");
+  }
   function heartbeat() {
     timer = setInterval(() => { pending = pending.then(async () => { if (!lost) try { await renew(); } catch (error) { lost = error; } }); return pending; }, RENEW_MS);
   }
@@ -79,6 +95,7 @@ if (import.meta.main) {
     await milestones(desired.pr, issueRefs);
     await stopHeartbeat();
     if (lost) throw lost;
+    refuseWhileRed(desired.pr);
     if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before merge");
     assertLease(store!.read().state, own.id, actor, desired, await clock());
     await gh("pr", "merge", String(desired.pr), "--repo", repository, "--squash", "--match-head-commit", desired.head);
@@ -109,7 +126,16 @@ if (import.meta.main) {
     store = new GitReservationStore(process.cwd());
     const remote = store.git(["remote", "get-url", "origin"]).replace(/^git@github.com:/, "https://github.com/").replace(/\.git$/, "");
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || remote !== `https://github.com/${repository}`) throw new Error("Authenticated repository and origin differ");
-    if (command === "inspect") {
+    if (command === "main-status") {
+      if (target !== undefined && target !== "--json") throw new Error("usage: bun scripts/integrate.ts main-status [--json]");
+      const snapshot = store.read();
+      console.log(JSON.stringify({ red: snapshot.redMain.open !== null, source: snapshot.oid, record: snapshot.redMain }));
+    } else if (command === "declare-fix") {
+      if (!/^[1-9]\d*$/.test(target ?? "") || !Number.isSafeInteger(Number(target))) throw new Error("A PR number is required");
+      const live = await api.json(`pulls/${target}`);
+      if (live.state !== "open" || live.base?.ref !== "main" || live.base?.repo?.full_name !== repository) throw new Error("Only an open PR against main can be declared a red-main fix");
+      console.log(JSON.stringify(await changeRedMain((record, now) => declareFix(record, Number(target), now))));
+    } else if (command === "inspect") {
       const snapshot = store.read(), now = await clock();
       console.log(JSON.stringify({ ...snapshot, live: liveLease(snapshot.state.active, now), serverTime: now }));
     } else if (command === "revoke") {
@@ -128,6 +154,7 @@ if (import.meta.main) {
         if (current && current.id === values.get("--lease") && current.actor === actor && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
+      refuseWhileRed(desired.pr);
       if (command === "merge") {
         const lease = values.get("--lease");
         if (!lease) throw new Error("Explicit --lease required");
@@ -162,7 +189,7 @@ if (import.meta.main) {
           if (lost) throw lost;
         }
       }
-    } else throw new Error("usage: bun scripts/integrate.ts inspect | acquire/confirm/merge <pr> [--lease id] [--issues owner/repo#N,...] | renew/release <id> | revoke <reason>");
+    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id] [--issues owner/repo#N,...] | renew/release <id> | revoke <reason>");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
   } finally {
