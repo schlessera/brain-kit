@@ -59,6 +59,8 @@ interface Proc {
   stdout: string;
   stderr: string;
   sleepUntil?: number;
+  /** For a `lost` process: what Boat's best-effort probe reports as `running`. */
+  probeRunning?: boolean;
 }
 
 export interface FakeSandbox {
@@ -304,8 +306,8 @@ export function fakeBoat(opts: FakeBoatOptions) {
       processId: p.pid,
       pid: p.pid,
       status: p.status,
-      known: true,
-      running: p.status === "running",
+      running: p.status === "running" || (p.status === "lost" && p.probeRunning === true),
+      known: p.status !== "lost",
       exitCode: p.exitCode,
       signal: p.signal,
       oomKilled: p.oomKilled,

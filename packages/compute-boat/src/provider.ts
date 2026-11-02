@@ -338,7 +338,10 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
       if (!ok(r)) return readFailure(red, "reading the command", r);
       const b = body(r);
       const state = s(b.status);
-      if (state === "running" || (state === undefined && b.running === true)) return { kind: "running" };
+      // `lost`: Boat's agent forgot the process and `running` is its best-effort
+      // probe. A process it still finds running is not reported ended, so the
+      // host never collects and releases under a command that still runs.
+      if (state === "running" || ((state === undefined || state === "lost") && b.running === true)) return { kind: "running" };
       const out = {
         stdout: s(b.stdout) ?? "",
         stderr: s(b.stderr) ?? "",

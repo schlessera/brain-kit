@@ -98,7 +98,7 @@ A job therefore never receives account administration authority.
 | `find` | `GET /sandboxes?label=…`; two matches are `uncertain`, never a guess. |
 | `stage` | A tar of the declared files with a checksum manifest, uploaded to a signed URL and extracted by a command that verifies every checksum in a fresh directory before copying the files into `~/work`. The command is never resent on an unknown outcome, which is `uncertain`; it keeps the archive, so the host may stage again safely. |
 | `exec` | A detached command (`detached: true`) in `~/work`, with only the allowlisted variables added. Boat gives it no time limit; the host lease bounds it. |
-| `poll` | `GET /sandboxes/{id}/commands/{processId}` with the last 1 MiB of each log. |
+| `poll` | `GET /sandboxes/{id}/commands/{processId}` with the last 1 MiB of each log. A process Boat's agent lost (`lost`) reads as running while Boat's probe still finds it running, and as ended with `provider_error` once it does not. |
 | `kill` | `DELETE /sandboxes/{id}/commands/{processId}`. |
 | `collect` | `GET /sandboxes/{id}/files/info` for the size, then `GET /sandboxes/{id}/artifacts` (at most 50 MiB per file). |
 | `release("discard")` | `DELETE /sandboxes/{id}`, then the deletion operation until `completed`. |

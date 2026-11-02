@@ -185,6 +185,19 @@ describe("command and file errors", () => {
     expect(fake.sandboxes.get(sandbox.id)!.files.has(tar!)).toBe(true);
   });
 
+  test("a lost process Boat's probe still finds running is running, never exited; one it finds ended is a provider error", async () => {
+    const { fake, provider, now, sandbox } = await ready();
+    const started = await provider.exec(sandbox, { argv: ["sleep", "3600"], env: {} }, contextFor(fake, { now }));
+    if (started.kind !== "ok") throw new Error(started.kind);
+    const proc = fake.sandboxes.get(sandbox.id)!.procs.get(Number(started.handle.id))!;
+    proc.status = "lost";
+    proc.probeRunning = true;
+    expect((await provider.poll(started.handle, contextFor(fake, { now }))).kind).toBe("running");
+    proc.probeRunning = false;
+    const ended = await provider.poll(started.handle, contextFor(fake, { now }));
+    expect(ended.kind === "exited" && ended.reason).toBe("provider_error");
+  });
+
   test("an expired key on poll, kill and release is a failure the host can retry, never success", async () => {
     const { fake, provider, now, sandbox } = await ready();
     const started = await provider.exec(sandbox, { argv: ["sleep", "60"], env: {} }, contextFor(fake, { now }));
