@@ -21,8 +21,8 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-27`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1064`).
+`packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1066`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -42,6 +42,20 @@ its coverage evidence. The existing summary frame/history/HTTP responses carry
 this field without eager detail requests or changed-path accounting changes.
 Older summaries may omit it; clients may use detailed configuration inventory
 entries after expansion, and must never treat omission as complete coverage.
+
+**Kept files (additive, #3255).** The optional `keptFiles` counts the distinct
+paths whose change the journal retained for review: content, steering, policy
+and workspace changes. A path counts when any of its observed changes has
+neither version metadata-only (the index family, by flag or by path) nor
+ignored, and is not an `other` entry; the client's grouping of the expanded
+details uses the same rule. `changedFiles` keeps its meaning: every distinct
+observed path, index, ignored and `other` entries included. A partial journal
+reports the paths observed so far, a lower bound, and an empty partial reports
+`null`. Expiration retains a known count with the other summary counts. A
+summary retained before this field, or sent by an older server, omits it or
+reports `null`: the count is unknown, never zero, and a client names the
+`changedFiles` figure as recorded entries rather than files. The count is
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -91,7 +105,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1886-1888`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1887-1889`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,

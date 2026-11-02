@@ -1,6 +1,6 @@
-import { useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { ArrowDown, ArrowUp, Minus, X } from "lucide-react";
-import { Button, IconButton, Surface, Toggle } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, ItemCard, Toggle } from "@schlessera/brain-ui-kit";
 import type { ModuleSettingsField, ModuleSettingsSnapshot } from "@schlessera/brain-ui-sdk";
 import { mergeSettings, record, replaceAt, sameSettings, valueAt, type ModuleSettingsSession, type ModuleSettingsSessionStore, type SettingsPath } from "./module-settings-state.js";
 
@@ -73,10 +73,10 @@ export function SettingsFields({ snapshot, session, store, disabled = false }: {
     const group = field.group ?? "Settings";
     groups.set(group, [...groups.get(group) ?? [], field]);
   }
-  return <div className="flex min-w-0 flex-col gap-6">{[...groups].map(([group, fields]) => <section key={group} aria-label={group} className="min-w-0">
+  return <ItemScope.Provider value={disabled ? "preview:" : ""}><div className="flex min-w-0 flex-col gap-6">{[...groups].map(([group, fields]) => <section key={group} aria-label={group} className="min-w-0">
     <h3 className="mb-3 text-sm font-semibold text-foreground">{group}</h3>
     <div className="flex min-w-0 flex-col gap-4">{fields.map((field) => <SettingsField key={field.key} field={field} base={[]} snapshot={snapshot} session={session} store={store} disabled={disabled} />)}</div>
-  </section>)}</div>;
+  </section>)}</div></ItemScope.Provider>;
 }
 
 interface FieldProps { field: ModuleSettingsField; base: SettingsPath; snapshot: ModuleSettingsSnapshot; session: ModuleSettingsSession; store: ModuleSettingsSessionStore; disabled?: boolean }
@@ -112,7 +112,7 @@ function SettingsField({ field, base, snapshot, session, store, disabled = false
   if (field.key === snapshot.ui.migration?.target && value === undefined) return null;
   return <div className="min-w-0" data-setting-path={key} role="group" aria-label={field.label} aria-invalid={errors.length > 0 || undefined} aria-describedby={errors.length ? `${id}-error` : undefined} tabIndex={errors.length ? -1 : undefined}>
     <div className={`${field.label === field.group && kind === "record" ? "sr-only" : "mb-1 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1"}`}>
-      <label htmlFor={id} className="text-[13px] font-semibold text-foreground">{field.label}</label>
+      <label htmlFor={id} id={kind === "list" ? `${id}-label` : undefined} tabIndex={kind === "list" ? -1 : undefined} className="text-[13px] font-semibold text-foreground">{field.label}</label>
       {field.optional && <Toggle label={field.optional.label} on={present} disabled={locked} onClick={() => change(present ? undefined : seed(schema, field), present)} />}
     </div>
     <p id={`${id}-help`} className="mb-2 text-xs text-muted-foreground">{field.help}{field.appliesAt === "restart" ? " Applies after a restart." : ""}</p>
@@ -187,23 +187,93 @@ function MultiChoiceField({ id, field, value, disabled, onChange }: { id: string
   return <div className="space-y-1">{options.length > 8 && <input aria-label={`Filter ${field.label}`} placeholder={`Filter ${field.label}`} className={INPUT} value={filter} onChange={(e) => setFilter(e.target.value)} />}{options.filter((o) => o.label.toLowerCase().includes(filter.toLowerCase())).map((option, i) => <label key={option.value} className="flex min-h-11 items-start gap-3 rounded-lg px-2 py-2 hover:bg-surface-raised"><input id={i === 0 ? id : undefined} type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-primary" checked={value.includes(option.value)} disabled={disabled || Boolean(option.disabled && !value.includes(option.value))} onChange={(e) => onChange(e.target.checked ? [...value, option.value] : value.filter((v) => v !== option.value))} /><span className="min-w-0 text-sm"><span className="block break-words">{option.label}</span><span className="block text-xs text-muted-foreground">{option.disabled && value.includes(option.value) ? "saved but not run: " : ""}{option.help}</span></span></label>)}{value.filter((v) => !options.some((o) => o.value === v)).map((v) => <div key={v} className="flex min-w-0 flex-wrap items-center gap-2"><p className="min-w-0 break-words text-xs text-muted-foreground">{v} · saved source is unavailable</p><Button label={`Remove ${v}`} tone="quiet" block={false} disabled={disabled} reach onClick={() => onChange(value.filter((saved) => saved !== v))} /></div>)}</div>;
 }
 
+/** A short mono summary of an item's first one or two set values, for its collapsed header. */
+function itemSummary(itemSchema: Record<string, unknown>, fields: ModuleSettingsField[], item: unknown, titleKey: string | undefined): string | undefined {
+  if (!record(item)) return undefined;
+  const parts: string[] = [];
+  for (const child of settingsFields(itemSchema, fields, item)) {
+    if (child.key === titleKey || child.kind === "variant") continue;
+    const value = valueAt(item, child.key.split("."));
+    const option = child.options?.find((o) => o.value === value)?.label;
+    const text = option ?? (typeof value === "string" ? value.trim()
+      : typeof value === "number" ? [value, child.unit].filter(Boolean).join(" ")
+      : Array.isArray(value) && value.length ? value.every((v) => typeof v === "string") ? value.join(" + ") : `${value.length} ${child.label.toLowerCase()}`
+      : "");
+    if (text) parts.push(text.length > 40 ? `${text.slice(0, 39)}\u2026` : text);
+    if (parts.length === 2) break;
+  }
+  return parts.join(" · ") || undefined;
+}
+
+const FIRST_FIELD = 'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role="switch"]:not([aria-disabled="true"]), [role="radio"], button:not(:disabled), [role="button"]:not([aria-disabled="true"])';
+/** Keeps a read-only preview's expansion apart from the editor's, which shares its paths. */
+const ItemScope = createContext("");
+
 function ListField({ field, path, schema, value, snapshot, session, store, disabled, onChange }: Omit<FieldProps, "base"> & { path: SettingsPath; schema: Record<string, unknown>; value: unknown; onChange: (v: unknown[]) => void }) {
-  const [removing, setRemoving] = useState<number | null>(null);
   const items = Array.isArray(value) ? value : [];
   const itemSchema = record(schema.items) ? schema.items : { type: "object" };
   const fields = field.fields ?? [];
   const titleKey = field.itemTitle ?? Object.entries(record(itemSchema.properties) ? itemSchema.properties : {}).find(([, s]) => record(s) && s.type === "string")?.[0];
+  const listKey = path.join(".");
+  const headingId = `module-setting-${listKey}-label`;
+  const scope = useContext(ItemScope);
+  const itemKey = (index: number) => `${scope}${listKey}.${index}`;
+  const errorsAt = (index: number) => {
+    const prefix = `${listKey}.${index}`;
+    const within = (key: string) => key === prefix || key.startsWith(prefix + ".");
+    return session.errors.filter((e) => within(e.path)).length + Object.keys(session.localErrors).filter(within).length;
+  };
+  // Removal stays keyed by position; expansion lives in the session by item
+  // path, remapped with the item on move and remove (#3253).
+  const [removing, setRemoving] = useState<number | null>(null);
+  const [status, setStatus] = useState("");
+  const [seenLength, setSeenLength] = useState(items.length);
+  const list = useRef<HTMLDivElement>(null);
+  const addRow = useRef<HTMLDivElement>(null);
+  const toggles = useRef(new Map<number, HTMLDivElement | null>());
+  const focusedIndex = useRef<number | null>(null);
+  const focusNext = useRef<{ field?: number; header?: number; actions?: number; add?: true; heading?: true; confirm?: number } | null>(null);
+  if (seenLength !== items.length) {
+    // Our own add and remove set `seenLength` with the change. Anything else
+    // is the list changing under us: a reload, a migration or a reseed.
+    setSeenLength(items.length);
+    if (focusedIndex.current !== null && focusedIndex.current >= items.length) {
+      focusedIndex.current = null;
+      focusNext.current = { heading: true };
+      setStatus(`${field.label} changed: ${items.length} ${items.length === 1 ? "item" : "items"}.`);
+    }
+  }
+
+  useEffect(() => {
+    const target = focusNext.current;
+    if (!target) return;
+    focusNext.current = null;
+    const card = (index: number) => list.current?.querySelector<HTMLElement>(`[data-item-index="${index}"]`);
+    if (target.field !== undefined) card(target.field)?.querySelector<HTMLElement>("[data-item-card-body]")?.querySelector<HTMLElement>(FIRST_FIELD)?.focus();
+    else if (target.header !== undefined) toggles.current.get(target.header)?.focus();
+    // Reordering moves the record to another card; hand focus to the menu that moved it.
+    else if (target.actions !== undefined) card(target.actions)?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus();
+    else if (target.confirm !== undefined) card(target.confirm)?.querySelector<HTMLElement>('[data-remove-confirm] [role="button"]:last-of-type')?.focus();
+    else if (target.add) addRow.current?.querySelector<HTMLElement>('[role="button"]')?.focus();
+    else if (target.heading) {
+      const doc = list.current?.ownerDocument ?? document;
+      if (!doc.activeElement || doc.activeElement === doc.body) doc.getElementById(headingId)?.focus();
+    }
+  });
+
   function remapVariants(mapIndex: (index: number) => number | null) {
     const prefix = path.join(".") + ".";
-    const remap = <T,>(entries: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(entries).flatMap(([key, value]) => {
+    const remapWith = <T,>(prefix: string, entries: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(entries).flatMap(([key, value]) => {
       if (!key.startsWith(prefix)) return [[key, value]];
       const rest = key.slice(prefix.length).split(".");
       const index = mapIndex(Number(rest[0]));
       return index === null ? [] : [[prefix + [index, ...rest.slice(1)].join("."), value]];
     }));
+    const remap = <T,>(entries: Record<string, T>) => remapWith(prefix, entries);
     store.setState((state) => ({
       variants: remap(state.variants), pendingInputs: remap(state.pendingInputs), localErrors: remap(state.localErrors),
       errors: state.errors.flatMap((error) => Object.keys(remap({ [error.path]: true })).map((path) => ({ ...error, path }))),
+      openItems: remapWith(scope + prefix, state.openItems),
     }));
   }
   function move(index: number, delta: number) {
@@ -211,20 +281,56 @@ function ListField({ field, path, schema, value, snapshot, session, store, disab
     [next[index], next[index + delta]] = [next[index + delta], next[index]];
     onChange(next);
     remapVariants((at) => at === index ? index + delta : at === index + delta ? index : at);
+    focusNext.current = { actions: index + delta };
   }
-  return <div className="min-w-0 space-y-3">{items.map((item, index) => {
-    const title = String(titleKey && record(item) ? item[titleKey] ?? `Item ${index + 1}` : `Item ${index + 1}`) || "Untitled item";
-    const content = <><div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">{!field.collapsible && <h4 className="min-w-0 break-words text-sm font-semibold">{title || "Untitled item"}</h4>}<div className="flex flex-wrap items-center gap-1">{field.orderMatters && <><IconButton size="md" glyph={<ArrowUp />} name={`Move ${title} up`} disabled={disabled || index === 0} onClick={() => move(index, -1)} /><IconButton size="md" glyph={<ArrowDown />} name={`Move ${title} down`} disabled={disabled || index === items.length - 1} onClick={() => move(index, 1)} /></>}<Button label={`Remove ${title}`} icon="dismiss" tone="quiet" block={false} disabled={disabled} reach style={{ maxWidth: "100%", overflowWrap: "anywhere" }} onClick={() => setRemoving(index)} /></div></div>
-      {removing === index && <div className="mb-3 flex flex-wrap items-center gap-2 any-pointer-coarse:gap-y-4" role="alert"><span className="text-xs">Remove {title}?</span><Button label="Remove" tone="quiet" block={false} disabled={disabled} reach onClick={() => { onChange(items.filter((_, i) => i !== index)); remapVariants((at) => at === index ? null : at > index ? at - 1 : at); setRemoving(null); }} /><Button label="Keep" tone="quiet" block={false} reach onClick={() => setRemoving(null)} /></div>}
-      <div className="min-w-0 space-y-3">{settingsFields(itemSchema, fields, item).map((child) => <SettingsField key={child.key} field={child} base={[...path, index]} snapshot={snapshot} session={session} store={store} disabled={disabled} />)}</div>
-    </>;
+  function remove(index: number, title: string) {
+    onChange(items.filter((_, i) => i !== index));
+    remapVariants((at) => at === index ? null : at > index ? at - 1 : at);
+    setSeenLength(items.length - 1);
+    setRemoving(null);
+    setStatus(`Removed ${title}.`);
+    // The next record slides into this position; else the previous; else Add.
+    focusNext.current = index + 1 < items.length ? { header: index } : index > 0 ? { header: index - 1 } : { add: true };
+  }
+  const setItemOpen = (index: number, open: boolean) => store.setState((state) => ({ openItems: { ...state.openItems, [itemKey(index)]: open } }));
+  // Read-only lists (a migration preview) have no actions; a busy list keeps
+  // them visible and disabled so focus is not lost mid-save.
+  const readOnly = disabled && session.busy === null;
+
+  return <div ref={list} className="min-w-0 space-y-3"
+    onFocusCapture={(e) => { const at = (e.target as HTMLElement).closest<HTMLElement>("[data-item-index]")?.dataset.itemIndex; focusedIndex.current = at === undefined ? null : Number(at); }}
+    onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusedIndex.current = null; }}>
+    <p className="sr-only" role="status">{status}</p>
+    {items.map((item, index) => {
+    const title = String(titleKey && record(item) ? item[titleKey] ?? `Item ${index + 1}` : `Item ${index + 1}`) || `Untitled ${field.label.toLowerCase()} ${index + 1}`;
+    const fieldsOf = <div className="min-w-0 space-y-3">{settingsFields(itemSchema, fields, item).map((child) => <SettingsField key={child.key} field={child} base={[...path, index]} snapshot={snapshot} session={session} store={store} disabled={disabled} />)}</div>;
     const note = (session.draftNotes ?? snapshot.notes).find((n) => n.key === [...path, index].join("."));
-    return field.collapsible ? <Surface key={index} pad={3}><details open={!disabled && index === 0}><summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-primary"><span className="break-words">{title || "Untitled item"}</span>{note && <span className="mt-1 block text-xs font-normal text-muted-foreground">{note.text}</span>}</summary>{content}</details></Surface> : <div key={index} className="min-w-0 border-t border-border pt-3">{content}</div>;
-  })}<Button label={field.addLabel ?? `Add ${field.label} item`} icon="add" tone="quiet" disabled={disabled} reach onClick={() => {
+    if (field.collapsible) {
+      const confirm = removing === index && <div data-remove-confirm="" className="flex flex-wrap items-center gap-2 any-pointer-coarse:gap-y-4" role="alert"><span className="text-xs">Remove {title}?</span><Button label="Remove" tone="quiet" block={false} disabled={disabled} reach onClick={() => remove(index, title)} /><Button label="Keep" tone="quiet" block={false} reach onClick={() => { setRemoving(null); focusNext.current = { header: index }; }} /></div>;
+      return <div key={index} data-item-index={index} className="min-w-0"><ItemCard ref={(node) => { toggles.current.set(index, node); }}
+        title={title} meta={itemSummary(itemSchema, fields, item, titleKey)} note={note?.text} errorCount={errorsAt(index)}
+        open={session.openItems[itemKey(index)] === true} onOpenChange={(open) => setItemOpen(index, open)}
+        actions={readOnly ? [] : [
+          ...(field.orderMatters ? [
+            { label: "Move up", disabled: disabled || index === 0, onSelect: () => move(index, -1) },
+            { label: "Move down", disabled: disabled || index === items.length - 1, onSelect: () => move(index, 1) },
+          ] : []),
+          { label: "Remove…", danger: true, disabled, onSelect: () => { setRemoving(index); focusNext.current = { confirm: index }; } },
+        ]}
+        notice={confirm || undefined}>{fieldsOf}</ItemCard></div>;
+    }
+    return <div key={index} className="min-w-0 border-t border-border pt-3"><div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2"><h4 className="min-w-0 break-words text-sm font-semibold">{title}</h4><div className="flex flex-wrap items-center gap-1">{field.orderMatters && <><IconButton size="md" glyph={<ArrowUp />} name={`Move ${title} up`} disabled={disabled || index === 0} onClick={() => move(index, -1)} /><IconButton size="md" glyph={<ArrowDown />} name={`Move ${title} down`} disabled={disabled || index === items.length - 1} onClick={() => move(index, 1)} /></>}<Button label={`Remove ${title}`} icon="dismiss" tone="quiet" block={false} disabled={disabled} reach style={{ maxWidth: "100%", overflowWrap: "anywhere" }} onClick={() => setRemoving(index)} /></div></div>
+      {removing === index && <div className="mb-3 flex flex-wrap items-center gap-2 any-pointer-coarse:gap-y-4" role="alert"><span className="text-xs">Remove {title}?</span><Button label="Remove" tone="quiet" block={false} disabled={disabled} reach onClick={() => remove(index, title)} /><Button label="Keep" tone="quiet" block={false} reach onClick={() => setRemoving(null)} /></div>}
+      {fieldsOf}
+    </div>;
+  })}<div ref={addRow}><Button label={field.addLabel ?? `Add ${field.label} item`} icon="add" tone="quiet" disabled={disabled} reach onClick={() => {
     const described = { ...field, kind: "record" as const };
     const item = seed(itemSchema, described);
     onChange([...items, item]);
-  }} /></div>;
+    setSeenLength(items.length + 1);
+    setItemOpen(items.length, true);
+    focusNext.current = { field: items.length };
+  }} /></div></div>;
 }
 
 function VariantField({ field, base, snapshot, session, store, disabled }: FieldProps) {

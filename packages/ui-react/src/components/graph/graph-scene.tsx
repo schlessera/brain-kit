@@ -1,9 +1,7 @@
 import type { CSSProperties } from "react";
-import { Button, IconButton, ListRow } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, ListRow, Tray } from "@schlessera/brain-ui-kit";
 import { Fragment, Suspense, useEffect, useMemo, useState, useRef } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   List,
   Loader2,
   TriangleAlert,
@@ -280,21 +278,10 @@ function ClusterLegend({ palette }: { palette: CanvasPalette }) {
     groups.major.length - shown.length + groups.singletonCount;
 
   return (
-    <div className="absolute left-3 top-3 z-10 w-56 max-w-[calc(100vw-5rem)] rounded-xl border border-border bg-surface-overlay/95 shadow-xl backdrop-blur">
-      <button style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties} /* raw-button: row — Full-width Topics disclosure with trailing chevron. */
-        onClick={() => setCollapsed((v) => !v)}
-        className="bk-row flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-foreground"
-        aria-expanded={!collapsed}
-      >
-        Topics
-        {collapsed ? (
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        ) : (
-          <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-        )}
-      </button>
-      {!collapsed && (
-        <div className="max-h-64 overflow-y-auto px-1 pb-2">
+    // A bounded panel over the canvas: its header carries the topic count, and
+    // its body stays mounted while closed (#3253, pattern "Panel").
+    <div className="absolute left-3 top-3 z-10 w-56 max-w-[calc(100vw-5rem)] rounded-xl shadow-xl">
+      <Tray label={`Topics · ${groups.major.length + groups.singletonCount}`} open={!collapsed} onOpenChange={(open) => setCollapsed(!open)} maxHeight={300}>
           {shown.map((c) => {
             const active = clusters.community === c.community;
             return (
@@ -340,8 +327,7 @@ function ClusterLegend({ palette }: { palette: CanvasPalette }) {
           {clusters.community !== null && (
             <Button tone="quiet" size="sm" icon="dismiss" label="Clear topic filter" block={false} style={{ minHeight: 44, margin: "4px 8px 0" }} onClick={() => setClustersParams({ community: null })} />
           )}
-        </div>
-      )}
+      </Tray>
     </div>
   );
 }

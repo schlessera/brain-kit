@@ -253,7 +253,7 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
       meta: { available: true, schemaVersion: 8, computedAt: "2026-07-12", stale: false, nodeCount: 4, edgeCount: 1, communities: [{ community: 0, size: 4, label: "Fleet", topTerms: ["Fleet"] }], defaultRoot: null } });
     s.draw(<div style={{ position: "relative", height: 500 }}><SceneBody /></div>);
     const topic = page.getByRole("button", { name: "Fleet 4", exact: true });
-    const rows = [await ring(s.find("Topics").element() as HTMLElement), await ring(topic.element() as HTMLElement)];
+    const rows = [await ring(s.find("Topics · 1").element() as HTMLElement), await ring(topic.element() as HTMLElement)];
     const filter = s.find("Clear topic filter").element() as HTMLElement;
     const actions = [target(filter, mode), await ring(filter)];
     await s.find("Node list").click();

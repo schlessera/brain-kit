@@ -84,6 +84,7 @@ export { Toggle, type ToggleProps } from "./primitives/Toggle.js";
 export { ChoiceOption, type ChoiceOptionProps } from "./rows/ChoiceOption.js";
 export { FileRow, type FileRowProps } from "./rows/FileRow.js";
 export { FilterRow, type FilterItem, type FilterRowProps } from "./rows/FilterRow.js";
+export { ItemCard, type ItemCardAction, type ItemCardProps } from "./rows/ItemCard.js";
 export { ListRow, type ListRowProps } from "./rows/ListRow.js";
 export { QueueItemRow, type QueueItemRowProps } from "./rows/QueueItemRow.js";
 
@@ -130,6 +131,7 @@ export type { GhostRole, GhostSpec } from "./internal/GhostText.js";
 export { CodeBlock, type CodeBlockProps } from "./blocks/CodeBlock.js";
 export { ContactCard, type ContactAction, type ContactCardProps, type ContactFact } from "./blocks/ContactCard.js";
 export { Disclosure, type DisclosureProps } from "./blocks/Disclosure.js";
+export { Tray, type TrayProps } from "./blocks/Tray.js";
 export { FeedbackRow, type FeedbackRowProps } from "./blocks/FeedbackRow.js";
 export { LinkPreviewCard, type LinkPreviewCardProps } from "./blocks/LinkPreviewCard.js";
 export {

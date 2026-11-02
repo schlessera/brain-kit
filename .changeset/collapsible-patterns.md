@@ -1,0 +1,6 @@
+---
+"@schlessera/brain-ui-kit": minor
+"@schlessera/brain-ui-react": patch
+---
+
+Collapsed sections now follow their job instead of one unstyled summary. The kit adds two public components. `Tray` is a bounded panel whose 44px header carries its counts, and whose body stays mounted while closed. `ItemCard` is a repeated editable record whose title, error count and separate `⋯` actions menu (Move, Remove) stay visible while it is collapsed. Both share `Disclosure`'s uncontrolled, seeded and controlled modes; `Disclosure` itself is unchanged apart from naming its open body with `aria-controls`. In the app, module list items are item cards that start collapsed. A refused Save opens every item holding an error and focuses the first invalid field, and Add, Remove and a reload move focus predictably. Storage's observation history and critical notifications are always-visible sections. The recordings tray, graph maintenance groups and graph topics are trays. Raw evidence (migration source values, a run's raw trace, background voice tasks) says what it hides and how much, and the optional voice review is an inline notice with its action. The crash screen keeps its native details and now says how many lines they hold.

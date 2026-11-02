@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
-import { TextButton } from "@schlessera/brain-ui-kit";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Tray } from "@schlessera/brain-ui-kit";
 import type {
   GraphNodePayload,
   GraphSubgraphResponse,
@@ -206,6 +206,8 @@ export function MaintenanceBody() {
   );
 }
 
+/** A bounded panel per finding kind: its header carries the kind and count,
+ *  and its body stays mounted while closed (#3253, pattern "Panel"). */
 function FindingDisclosure({
   title, hint, color, open, onOpenChange, children,
 }: {
@@ -216,25 +218,12 @@ function FindingDisclosure({
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
 }) {
-  const contentId = useId();
   return (
-    <section>
-      <h2 className="text-sm font-medium text-foreground">
-        <TextButton
-          label={title}
-          tone="inherit"
-          glyph={<span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />}
-          iconEnd={open ? "expand" : "collapse"}
-          expanded={open}
-          controls={contentId}
-          onClick={() => onOpenChange(!open)}
-          style={{ display: "flex", width: "100%", justifyContent: "flex-start", textAlign: "left", gap: 8 }}
-        />
-      </h2>
-      <div id={contentId} hidden={!open}>
-        <p className="mb-2 text-[11px] text-muted-foreground">{hint}</p>
+    <section aria-label={title}>
+      <Tray label={title} swatch={color} open={open} onOpenChange={onOpenChange}>
+        <p className="mx-1 text-[11px] text-muted-foreground">{hint}</p>
         {children}
-      </div>
+      </Tray>
     </section>
   );
 }

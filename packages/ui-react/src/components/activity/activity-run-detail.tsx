@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
-import { IconButton, TextButton, StatusDot, TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
+import { Disclosure, IconButton, StatusDot, TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
 
 import { ApiRequestError, type ActivityRunRollup } from "../../lib/api-client.js";
 import {
@@ -229,18 +229,16 @@ export function RunDetail({
         {/* The escape hatch: whatever the rendered tree has no opinion about
             is still readable here, so the view is never LESS than the trace. */}
         {streamed.length > 0 && (
-          <div className="pt-3">
-            <TextButton tone="meta" label="Raw trace" expanded={rawOpen}
-              glyph={<ChevronRight className={cn("transition-transform", rawOpen && "rotate-90")} />}
-              onClick={() => setRawOpen((v) => !v)} />
-            {rawOpen && (
-              <div className="group/copy relative mt-1">
+          // Evidence: the summary says what is hidden and how much (#3253).
+          <div className="pt-3" data-evidence-disclosure="">
+            <Disclosure icon="steps" label={`Raw trace · ${streamed.length} ${streamed.length === 1 ? "span" : "spans"}`} open={rawOpen} onOpenChange={setRawOpen}>
+              <div className="group/copy relative">
                 <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border-subtle bg-surface p-2 pr-9 font-[family-name:var(--font-mono)] text-[10px] leading-relaxed text-muted-foreground">
                   {rawTrace}
                 </pre>
                 <CopyButton label="Copy raw trace" getText={() => rawTrace} />
               </div>
-            )}
+            </Disclosure>
           </div>
         )}
       </div>

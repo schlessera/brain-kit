@@ -3,6 +3,7 @@ import { Button, DiffBlock, Disclosure, IconButton, Overlay } from "@schlessera/
 import type { TurnJournalChange, TurnJournalDetails, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useEffect, useId, useRef, useState } from "react";
 import { JournalCoverage } from "./journal-coverage.js";
+import { turnJournalChangeCount } from "./turn-journal-count.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useTurnRevert } from "./use-turn-revert.js";
@@ -37,7 +38,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
       if (!controller.signal.aborted) setDetails(value);
     }).catch(() => { if (!controller.signal.aborted) setError("Couldn't load retained changes. Close and reopen to try again."); });
     return () => controller.abort();
-  }, [root, sessionId, turnId, open, readable, summary?.observedAt, summary?.changedFiles, state]);
+  }, [root, sessionId, turnId, open, readable, summary?.observedAt, summary?.changedFiles, summary?.keptFiles, state]);
   useEffect(() => {
     setDetails(null); setSelected(null); setPreview(null); setPreviewError(null); setOpen(false); setFactsOpen(false);
   }, [sessionId, turnId]);
@@ -51,8 +52,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     return () => controller.abort();
   }, [root, sessionId, turnId, selected, readable]);
   useEffect(() => { if (!readable) setSelected(null); }, [readable]);
-  const count = summary?.changedFiles;
-  const changes = count == null ? "Changes unknown" : `${count} changed ${count === 1 ? "file" : "files"}`;
+  const changes = turnJournalChangeCount(summary);
   const steering = summary?.steeringFiles == null ? "Steering unknown" : `${summary.steeringFiles} steering`;
   const cost = summary?.costUsd == null ? "Cost unknown" : `${summary.costIsEstimate ? "Estimated " : ""}$${summary.costUsd.toFixed(4)}`;
   const budget = summary?.budget;

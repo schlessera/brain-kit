@@ -44,7 +44,7 @@ Those read helpers do not execute mutations.
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:174-176`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:182-184`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is

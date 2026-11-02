@@ -10950,6 +10950,7 @@ signatures (every public export and the types it is made of)
         state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
         changedFiles: number | null;
         steeringFiles: number | null;
+        keptFiles?: number | null;
         costUsd: number | null;
         costIsEstimate: boolean | null;
         profile: "strict" | "governed" | null;
@@ -16178,6 +16179,7 @@ signatures (every public export and the types it is made of)
             configurationCoverageSet: z.ZodOptional<z.ZodString>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
+            keptFiles: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             kind: z.ZodOptional<z.ZodEnum<{
                 revert: "revert";
                 turn: "turn";
@@ -17006,6 +17008,7 @@ signatures (every public export and the types it is made of)
                 configurationCoverageSet: z.ZodOptional<z.ZodString>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
+                keptFiles: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
                 kind: z.ZodOptional<z.ZodEnum<{
                     revert: "revert";
                     turn: "turn";
@@ -19424,6 +19427,7 @@ signatures (every public export and the types it is made of)
                 configurationCoverageSet: z.ZodOptional<z.ZodString>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
+                keptFiles: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
                 kind: z.ZodOptional<z.ZodEnum<{
                     revert: "revert";
                     turn: "turn";
@@ -19825,6 +19829,7 @@ signatures (every public export and the types it is made of)
             configurationCoverageSet: z.ZodOptional<z.ZodString>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
+            keptFiles: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             kind: z.ZodOptional<z.ZodEnum<{
                 revert: "revert";
                 turn: "turn";
@@ -20117,6 +20122,7 @@ signatures (every public export and the types it is made of)
         configurationCoverageSet: z.ZodOptional<z.ZodString>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
+        keptFiles: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         kind: z.ZodOptional<z.ZodEnum<{
             revert: "revert";
             turn: "turn";

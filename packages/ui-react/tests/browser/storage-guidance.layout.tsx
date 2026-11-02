@@ -88,10 +88,13 @@ const warning = () => host.querySelector("[data-storage-indicator]");
 async function settled() {
   await expect.poll(() => warning()?.textContent).toContain("Very low space");
 }
+// A Settings section never collapses (#3253): the history is a visible,
+// headed section, so there is nothing to open, only something to find.
 async function historyOpen() {
-  await page
-    .getByText("View observations · Recent, Daily and Weekly", { exact: true })
-    .click();
+  await expect
+    .element(page.getByRole("heading", { name: "Observations · Recent, Daily and Weekly", exact: true }))
+    .toBeVisible();
+  expect(host.querySelector("[data-storage-history] summary, [data-storage-notices] summary")).toBeNull();
 }
 for (const width of [320, 1280])
   for (const theme of ["dark", "light"])
@@ -242,7 +245,7 @@ test("Permission is never requested on opening; receipts distinguish acceptance 
   const permission = vi.spyOn(Notification, "requestPermission");
   await scene();
   await settled();
-  await page.getByText("Critical notifications", { exact: true }).click();
+  await expect.element(page.getByRole("heading", { name: "Critical notifications", exact: true })).toBeVisible();
   expect(
     permission,
     "STORAGE_NO_AUTO_PERMISSION_PROMPT"
@@ -385,7 +388,7 @@ test("Browser-blocked push is labelled and the existing opt-in switch keeps its 
     .mockReturnValue("default");
   await scene();
   await settled();
-  await page.getByText("Critical notifications", { exact: true }).click();
+  await expect.element(page.getByRole("heading", { name: "Critical notifications", exact: true })).toBeVisible();
   const toggle = page.getByRole("switch", { name: "Push notifications" });
   await expect.poll(() => toggle.elements().length).toBe(1);
   const r = toggle.element().getBoundingClientRect(),
@@ -419,7 +422,7 @@ test("Browser-blocked push is labelled and the existing opt-in switch keeps its 
     )
   );
   old.dispose();
-  await page.getByText("Critical notifications", { exact: true }).click();
+  await expect.element(page.getByRole("heading", { name: "Critical notifications", exact: true })).toBeVisible();
   await expect
     .poll(() => host.textContent)
     .toContain("Blocked in browser settings");

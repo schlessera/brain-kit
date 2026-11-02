@@ -10,8 +10,16 @@ export interface TurnJournalSummary {
   configurationCoverageSet?: string;
   scope?: TurnScopeSummary;
   state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
+  /** Distinct observed paths of every kind, index and ignored entries included. */
   changedFiles: number | null;
   steeringFiles: number | null;
+  /**
+   * Distinct paths with a retained, reviewable change: content, steering,
+   * policy or workspace. Metadata-only index, ignored and `other` entries are
+   * excluded. A partial journal reports the paths observed so far. `null` or
+   * absent (summaries recorded before this field) is unknown, never zero.
+   */
+  keptFiles?: number | null;
   costUsd: number | null;
   costIsEstimate: boolean | null;
   profile: "strict" | "governed" | null;

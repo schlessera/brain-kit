@@ -164,14 +164,24 @@ export const Accordion = meta.story({
 /** Enter and Space both toggle, because a `role="button"` that cannot be
  * operated from the keyboard is worse than no role at all. */
 export const Keyboard = meta.story({
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     const summary = await canvas.findByRole("button");
     summary.focus();
 
     await userEvent.keyboard("{Enter}");
     await expect(summary).toHaveAttribute("aria-expanded", "true");
+    // The body unmounts on close (unchanged since the design), so
+    // `aria-controls` names it only while it exists (#3253).
+    const body = summary.parentElement!.lastElementChild!;
+    await expect(body.id).not.toBe("");
+    await expect(summary).toHaveAttribute("aria-controls", body.id);
 
     await userEvent.keyboard(" ");
     await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await expect(summary).not.toHaveAttribute("aria-controls");
+    await expect(canvasElement.querySelector(`[id="${body.id}"]`)).toBeNull();
+    // The kit ring on a keyboard focus.
+    await expect(summary.matches(":focus-visible")).toBe(true);
+    await expect(getComputedStyle(summary).outlineStyle).toBe("solid");
   },
 });

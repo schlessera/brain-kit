@@ -25,7 +25,7 @@ class Socket {
   decisions() { return this.sent.map(raw => JSON.parse(raw)).filter(frame => frame.type === "scope_decision"); }
 }
 const cap = (patch: Partial<ScopeCapReceipt> = {}): ScopeCapReceipt => ({ eventId: "athena-cap", dimension: "tool_calls", count: 503, cap: 500, overshoot: 3, newCap: 1000, observedAt: 1, frozen: true, state: "paused", ...patch });
-const summary = (receipts: ScopeCapReceipt[] = [], actor: "interactive" | "voice" = "interactive"): TurnJournalSummary => ({ state: "recording", changedFiles: 7, steeringFiles: 0, costUsd: null, costIsEstimate: null, profile: "governed", actor, model: null, policyHash: null, sharedAttribution: false, observedAt: 1,
+const summary = (receipts: ScopeCapReceipt[] = [], actor: "interactive" | "voice" = "interactive"): TurnJournalSummary => ({ state: "recording", changedFiles: 7, steeringFiles: 0, keptFiles: 7, costUsd: null, costIsEstimate: null, profile: "governed", actor, model: null, policyHash: null, sharedAttribution: false, observedAt: 1,
   scope: { policySource: "default", limits: { files_changed: 1000, tool_calls: 500, minutes: 120, turn_bytes: 4 * 1024 ** 3 }, hardTimeoutMs: 600000, calls: 503, minutes: 5, changedPaths: 7, observedBytes: 10000, coverage: "observed_versions", observedAt: 1, receipts } });
 async function mount(width = 1280, theme: "dark" | "light" = "dark") {
   await page.viewport(width, 900); document.documentElement.dataset.theme = theme; vi.stubGlobal("WebSocket", Socket);
