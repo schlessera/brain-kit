@@ -75,7 +75,8 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   expect(store.publish(snapshot, state)).toBe(true);
   if (mode.startsWith("red-main")) {
     const failure = { test: "tests/raft.test.ts", category: "unit" as const, verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
-    const red = openRed(emptyRedMain(), { firstBad: base, run: 11, failures: [failure] }, NOW);
+    // A sibling squash of the base is red on another line: the candidate's merge ref does not contain it.
+    const red = openRed(emptyRedMain(), { firstBad: mode === "red-main-unrelated" ? squash : base, run: 11, failures: [failure] }, NOW);
     expect(store.publishRedMain(store.read(), mode === "red-main-fix" ? declareFix(red, 7, NOW) : red)).toBe(true);
   }
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
@@ -274,4 +275,10 @@ test("while main is red the shared merge refuses non-fix candidates and still me
   const fix = await scenario("red-main-fix");
   expect(fix.code, `DECLARED_FIX_MERGES: ${fix.err}`).toBe(2);
   expect(fix.dispatched).toBe(true);
+});
+
+test("while main is red a candidate whose merge ref does not contain the bad commit still merges (#3321)", async () => {
+  const unrelated = await scenario("red-main-unrelated");
+  expect(unrelated.code, `MERGE_REF_WITHOUT_BAD_COMMIT_MERGES: ${unrelated.err}`).toBe(2);
+  expect(unrelated.dispatched).toBe(true);
 });
