@@ -567,3 +567,44 @@ test("a job through the host boundary ends only once its launch has settled", as
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// #3380: a module job's own subprocess that writes a read-only host path in a
+// maintenance worker prints a bare EROFS; the run's failure names the boundary
+// and the module state area, in the job's stderr and its recorded error.
+describe("a read-only write in a worker job (#3380)", () => {
+  const failing = (stderr: string) => ({ isolated: () => true, launch: async () => ({ stdout: stream(), stderr: stream(stderr),
+    exited: Promise.resolve(1), settled: Promise.resolve(), signalCode: null, kill() {} }) }) as unknown as HostBoundary;
+
+  test("a bare EROFS names the host execution boundary and the state area", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-erofs-"));
+    const err = textSink();
+    try {
+      const dbPath = join(dir, "brain-ui.db");
+      const code = await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath, childEnv: {}, exec: {},
+        stdout: textSink().sink, stderr: err.sink, boundary: failing("Error: EROFS: read-only file system, mkdir '/var/lib/ithaca-beacon'\n") },
+        { sinkPath: join(dir, "sink.jsonl") });
+      expect(code).toBe(1);
+      expect(err.read(), "EROFS_HINT_NAMES_BOUNDARY").toContain("host execution boundary");
+      expect(err.read()).toContain(".brain-ui/modules/<module-name>/");
+      const db = createUiDb(dbPath);
+      try {
+        const row = db.query("SELECT status, error_message AS error FROM cron_runs WHERE job_name = 'beacon-run'").get() as { status: string; error: string };
+        expect(row.status).toBe("error");
+        expect(row.error, "EROFS_RECORDED_WITH_BOUNDARY").toContain("host execution boundary");
+        expect(row.error).toContain("/var/lib/ithaca-beacon");
+      } finally { db.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("an error the CLI already explained is not explained twice", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-erofs-"));
+    const err = textSink();
+    try {
+      await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath: join(dir, "brain-ui.db"), childEnv: {}, exec: {},
+        stdout: textSink().sink, stderr: err.sink,
+        boundary: failing("brain beacon run: /var/lib/ithaca-beacon is read-only. Module \"beacon\" runs in a worker (the host execution boundary)\n") },
+        { sinkPath: join(dir, "sink.jsonl") });
+      expect(err.read()).not.toContain("[cron-run]");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});

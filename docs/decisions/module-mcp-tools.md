@@ -49,7 +49,7 @@ places.
 Before this ruling a module could contribute taxonomy, skills, one CLI word,
 hygiene checks, index rules, excludes and cron, but no tools
 (`export interface ModuleContribution`,
-`packages/core/src/lib/module-types.ts:136-164`).
+`packages/core/src/lib/module-types.ts:147-175`).
 
 ## Alternatives rejected
 
