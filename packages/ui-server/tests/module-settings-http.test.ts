@@ -172,7 +172,8 @@ test("mounted jobs migration preserves scores and prose, rolls back failed write
     // existing JSON bytes, rather than normalize the displayed source values.
     const formSnapshot = await (await t.fetch("/api/modules/jobs/settings")).json() as ModuleSettingsSnapshot;
     const formStore = createModuleSettingsSession();
-    formStore.setState({ snapshot: formSnapshot, draft: formSnapshot.overrides });
+    // Editable items start collapsed (#3253); open the first group as a person would to edit it.
+    formStore.setState({ snapshot: formSnapshot, draft: formSnapshot.overrides, openItems: { "scoring.groups.0": true } });
     const formHtml = renderToStaticMarkup(createElement(SettingsFields, { snapshot: formSnapshot, session: formStore.getState(), store: formStore }));
     expect(formHtml).toContain('id="module-setting-scoring.groups.0.name"');
     expect(formHtml).toContain('id="module-setting-scoring.groups.0.tiers.0.points"');
