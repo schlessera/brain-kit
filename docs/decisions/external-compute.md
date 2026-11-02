@@ -638,7 +638,7 @@ maintainer ruled on four more questions on 2026-11-02.
 - **Configuration as data.** The host reads `brain config check --json`'s new
   `compute` summary in a credential-free strict worker that sees only the
   policy's protected paths, once per turn, as it reads the taxonomy
-  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:970-982`). A
+  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:975-987`). A
   provider value is reported by id only. A job keeps the instance
   configuration it was admitted under, so its driver never reaches another
   account however the brain changes later.
@@ -722,3 +722,9 @@ These refine the notes above; where they differ, these hold.
 - **Activity over HTTP.** `GET /api/activity/runs` and
   `GET /api/activity/runs/:runId` return `compute` runs only to a request that
   declares the capability, as the live stream does.
+- **An unconfigured host is unchanged.** The host creates and masks the
+  compute state directory only when a credential is bound in
+  `BRAIN_UI_COMPUTE_KEYS` or the directory already holds earlier state, and
+  imports core at boot only then or when a hosted job is unsettled. A host
+  without compute boots exactly as it did before hosted compute existed;
+  readiness says no credential is bound.

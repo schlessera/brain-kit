@@ -27,7 +27,7 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
@@ -342,8 +342,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Hosted external compute state (#3108, ruling R5): host operational state
   // beside the database, refused inside the brain and masked from workers.
   // An ephemeral database has no durable place for it, so compute is off.
+  // An unconfigured host (no bound credential, no earlier state) creates and
+  // masks nothing, so it boots exactly as before hosted compute existed.
   const computeSettings = config.compute ?? resolveComputeConfig({}, config.dbPath);
-  if (computeSettings.stateDir) {
+  const computeConfigured = Object.keys(computeSettings.keys).length > 0
+    || (computeSettings.stateDir !== null && existsSync(computeSettings.stateDir));
+  if (computeSettings.stateDir && computeConfigured) {
     privateStatePaths.push({ setting: "BRAIN_UI_COMPUTE_STATE_DIR", path: computeSettings.stateDir });
     mkdirSync(computeSettings.stateDir, { recursive: true, mode: 0o700 });
   }
@@ -674,7 +678,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const computeHost = createComputeHost({ db, brainPath: config.brainPath, stateDir: computeSettings.stateDir,
-    stateMasked: computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
+    stateMasked: computeConfigured && computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
     keys: computeSettings.keys, workerEnvExtra: computeSettings.workerEnvExtra,
     readConfig: ctx => readHostedComputeConfig({ brainPath: config.brainPath, nativeManager, maskPaths: turnMaskPaths, policy: ctx.policy, signal: AbortSignal.timeout(60_000) }),
     budgets, activity, log: brainLog, ...options.computeOverrides });

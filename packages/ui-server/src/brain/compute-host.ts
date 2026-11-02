@@ -286,7 +286,12 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
   /** Why hosted compute refuses everything, or null. */
   function disabledReason(): string | null {
     if (!options.stateDir) return "hosted compute needs durable host state: the server database is ephemeral";
-    if (!options.stateMasked) return "the host compute state directory is not masked from workers";
+    if (!options.stateMasked) {
+      // An unconfigured host creates no state directory at all (app.ts).
+      return Object.keys(options.keys).length === 0
+        ? "no compute credential is bound (BRAIN_UI_COMPUTE_KEYS)"
+        : "the host compute state directory is not masked from workers";
+    }
     if (core === null) return "@schlessera/brain is not installed on this host";
     for (const provider of providersOfInterest()) {
       for (const name of boundNames(provider)) {
