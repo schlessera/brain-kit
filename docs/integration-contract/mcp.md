@@ -69,7 +69,12 @@ and before module tools. They call the same core operation set as
 same envelopes: a success as `structuredContent` with its compact JSON text
 copy, a refusal as a tool result with `isError: true` carrying
 `{ ok: false, error: { code, message } }` in both. A schema violation is the
-usual tool error without `structuredContent`.
+usual tool error without `structuredContent`. An operation that fails inside
+the server instead of refusing (an unreadable state directory, for example)
+is also a tool error without `structuredContent`, with the fixed text
+`Error: <tool name> failed inside the brain MCP server; its log has the
+details`: the thrown message, which can name local paths, goes only to the
+server's stderr.
 
 | Tool | Annotations | Inputs | Result |
 |------|-------------|--------|--------|

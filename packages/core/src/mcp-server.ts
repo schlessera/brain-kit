@@ -516,11 +516,16 @@ const computeResult = (envelope: ComputeEnvelope) => ({
  */
 export function registerComputeTools(server: McpServer, ops: ComputeOps, driver: ComputeDriver): void {
   const [health, plan, run, status, cancel, collect] = COMPUTE_TOOL_NAMES;
-  const guard = async (call: () => Promise<ComputeEnvelope>) => {
+  // A refusal is an envelope; anything thrown is a host failure (an
+  // unreadable state directory, a misconfigured host) whose message can name
+  // local paths. The agent gets the usual tool error with a fixed text and
+  // the details stay in the server's stderr log.
+  const guarded = (name: string) => async (call: () => Promise<ComputeEnvelope>) => {
     try {
       return computeResult(await call());
     } catch (e) {
-      return errorResult(e);
+      console.error(`brain MCP: ${name} failed:`, e);
+      return errorResult(new Error(`${name} failed inside the brain MCP server; its log has the details`));
     }
   };
 
@@ -532,7 +537,7 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
       inputSchema: computeHealthInput,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async (input) => guard(() => ops.health(input))
+    async (input) => guarded(health)(() => ops.health(input))
   );
 
   server.registerTool(
@@ -543,7 +548,7 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
       inputSchema: computeRequestInput,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (input) => guard(() => ops.plan(input))
+    async (input) => guarded(plan)(() => ops.plan(input))
   );
 
   server.registerTool(
@@ -555,7 +560,7 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (input) =>
-      guard(async () => {
+      guarded(run)(async () => {
         const envelope = await ops.run(input);
         if (envelope.ok && envelope.job.terminal === null) driver.track(envelope.job.id);
         return envelope;
@@ -570,7 +575,7 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
       inputSchema: computeJobInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async (input) => guard(() => ops.status(input))
+    async (input) => guarded(status)(() => ops.status(input))
   );
 
   server.registerTool(
@@ -581,7 +586,7 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
       inputSchema: computeJobInput,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    async (input) => guard(() => ops.cancel(input))
+    async (input) => guarded(cancel)(() => ops.cancel(input))
   );
 
   server.registerTool(
@@ -592,7 +597,7 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
       inputSchema: computeJobInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async (input) => guard(() => ops.collect(input))
+    async (input) => guarded(collect)(() => ops.collect(input))
   );
 }
 

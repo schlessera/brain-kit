@@ -29,7 +29,9 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 registered after the eight document tools whether or not `compute` is
 configured. Both surfaces call one core operation set and print the same
 envelopes: `{ ok: true, ... }`, or `{ ok: false, error: { code, message } }`
-with the external-compute refusal codes and nothing allocated. A refusal exits
+with the external-compute refusal codes and nothing allocated. A compute tool
+whose operation throws returns a fixed tool error text and logs the details
+on the server's stderr. A refusal exits
 `1`, a `run` whose job ended with its cleanup not confirmed exits `2`, one
 whose job ended other than `succeeded` exits `3`, and a second SIGINT or
 SIGTERM leaves an attached run with `130` or `143`. The

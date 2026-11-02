@@ -13,6 +13,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { registerComputeTools } from "../src/mcp-server";
+import { createComputeDriver, type ComputeOps } from "../src/lib/ops/compute";
 import { BRAIN_BIN, keylessEnv, runCli } from "./cli-harness";
 import { computeBrain, type ComputeBrain } from "./helpers/compute/cli-brain";
 
@@ -164,5 +166,35 @@ describe("jobs", () => {
     const viaMcp = await call(client, "brain_compute_status", { job: cliJob });
     expect(viaMcp.isError).toBe(true);
     expect(viaMcp.structuredContent!.error.code).toBe("job_unknown");
+  });
+});
+
+describe("an operation that throws", () => {
+  test("returns a fixed tool error without the thrown message; the details go to the server log", async () => {
+    const handlers = new Map<string, (input: unknown) => Promise<Result>>();
+    const server = { registerTool: (name: string, _def: unknown, handler: (input: unknown) => Promise<Result>) => void handlers.set(name, handler) };
+    const secretPath = "/home/penelope/.local/state/brain/compute/0123456789abcdef/jobs";
+    const boom = async () => {
+      throw new Error(`EACCES: permission denied, mkdir '${secretPath}'`);
+    };
+    const ops = { caller: { kind: "mcp", principal: "penelope" }, health: boom, plan: boom, run: boom, status: boom, cancel: boom, collect: boom } as unknown as ComputeOps;
+    const driver = createComputeDriver(ops);
+    registerComputeTools(server as never, ops, driver);
+    const logged: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args);
+    try {
+      for (const name of COMPUTE_TOOLS) {
+        const result = await handlers.get(name)!({ provider: "ithaca-host", argv: ["true"], job: "cj_aaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+        expect(result.content).toEqual([{ type: "text", text: `Error: ${name} failed inside the brain MCP server; its log has the details` }]);
+      }
+    } finally {
+      console.error = original;
+      driver.stop();
+    }
+    expect(logged.length).toBe(COMPUTE_TOOLS.length);
+    expect(logged.every((args) => args.map(String).join(" ").includes(secretPath))).toBe(true);
   });
 });
