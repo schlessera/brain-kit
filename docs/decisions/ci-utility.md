@@ -1491,6 +1491,55 @@ trusted default-branch tooling and parses candidate logs and artifacts as data.
 `red-main-probe.yml` has `contents: read` only. The incident workflow in the
 skills is #2944, and the expedited fix merge is #2940.
 
+#### Incident workflow and recovery
+
+[#2944](https://github.com/schlessera/brain-kit/issues/2944) is how
+orchestrators work the incident, following the 2026-10-25 direction that they
+work it like any other issue. All coordination goes through the record and
+the incident issue; agents never message each other.
+
+- **One fix claim, written atomically.** `bun scripts/red-main-incident.ts
+  claim` writes `open.claim` into `red-main.json` through the same
+  compare-and-swap: the claimant's worker and orchestrator IDs (opaque
+  tokens), when it claimed and last renewed, and an expiry one hour after the
+  last renewal. Exactly one concurrent claimant wins. The claim is then
+  mirrored to the issue's assignment and a claim comment; a rerun mirrors it
+  once. `renew` extends the term and `release` drops it. An expired claim may
+  be taken over: the new claim keeps the expired claimant in `takeover`, and a
+  takeover comment names it on the issue. Clearing the record removes the
+  claim. Records written before claims existed have no `claim` field and stay
+  valid; a present claim is validated strictly.
+- **Evidence in one fixed format.** `evidence` appends one comment to the
+  incident named in the record: a marker, the kind, the incident, who posted
+  it and whether they hold the claim, an optional SHA or issue, a one-line
+  summary and fenced details. The kinds are reproduction, bisect, log,
+  ruled-out, related, duplicate, fix-attempt and decision. A duplicate issue is
+  linked on the incident and pointed back to it. The command never files an
+  issue and never writes the record, and every comment passes the leakage
+  gate.
+- **Waiting.** Workers whose proof was refused or cancelled keep coding, run
+  fast checks or add evidence, and resume proof when `main-status` reports
+  green.
+
+The [2026-11-02 recovery ruling](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6574880345)
+settles what the claimant does:
+
+1. **Fix or targeted revert, from evidence.** After a quick assessment the
+   incident owner chooses a fix PR or a targeted revert PR. The choice rests on
+   causal and current-tree evidence; a red check or the latest squash alone is
+   not proof of cause.
+2. **The rationale is on the incident.** The owner records the choice and why
+   as `decision` evidence (`--choice fix|revert|uncertain`, with details),
+   including the dependency and conflict assessment. A revert preserves
+   unrelated and later good work. When neither change is supportable, the
+   decision says so explicitly instead of guessing.
+3. **The normal route, no shortcut.** Either PR is a declared fix and follows
+   normal required review, proof and recorded merge handling, including the
+   declared-red-main-fix route where it applies, with exact proof of the
+   resulting main: the green main run that includes the failing set. The
+   controller never merges anything itself, and there is no unbounded
+   recovery loop; a failed attempt gets a new assessment and decision.
+
 ### Hosted heavy feedback on draft heads
 
 The [#2939 ruling](https://github.com/schlessera/brain-kit/issues/2939#issuecomment-6403978097)
@@ -1559,6 +1608,31 @@ branch, so the request always runs main's admission code.
 - **Red main.** The refusal while main is red is the red-main gate from
   [#2942](https://github.com/schlessera/brain-kit/issues/2942). Whichever of
   #2942 and #3272 lands second adds that gate to the admission job.
+
+### Conditional concurrency direction
+
+The [2026-11-02 maintainer decision on #2934](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6574700840)
+replaces the October deferral with a conditional direction. Concurrent integration
+is permitted: base-tolerant confirmation for candidates whose affected closures are
+disjoint, with reservations keyed by closure. That permission only takes effect
+once all three of these hold:
+
+1. **Stability gate.** Seven consecutive days within one proof-policy epoch,
+   first-main green at or above 80%, and every red incident attributed.
+2. **Measured benefit.** A complete measured baseline shows a material benefit
+   from reducing lease waits and reconfirmation.
+3. **Qualification.**
+   - Complete affected closures and global inputs are qualified.
+   - Unknown or changed graphs, and conflicts, are serialized conservatively.
+   - Coordination is deterministic.
+   - Each merge has an exact head/base/squash audit.
+   - Main runs full combined-tree proof, and each incident has an owner.
+
+Selected proof, the red-main controls and the current permissions are preserved.
+This is a policy direction, not a finding that any gate is met. Until a
+qualified rollout, the exact-base confirmation and the single exact-candidate
+reservation above still apply. Before any implementation, this record and the
+concrete child task briefs on #2934 are updated.
 
 ## Historical measurement and upstream guidance
 

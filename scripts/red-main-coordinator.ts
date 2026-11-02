@@ -48,7 +48,7 @@ export const incidentMarker = (run: number) => `<!-- brain-red-main: run ${run} 
 export const flakeMarker = (key: string) => `<!-- brain-flake: ${key} -->`;
 
 /** Retries a compare-and-swap update of the shared record; an unchanged result writes nothing. */
-export async function updateRecord(io: CoordinatorIO, update: (record: RedMainRecord, now: number) => RedMainRecord): Promise<{ before: RedMainRecord; after: RedMainRecord }> {
+export async function updateRecord(io: Pick<CoordinatorIO, "read" | "publish" | "now">, update: (record: RedMainRecord, now: number) => RedMainRecord): Promise<{ before: RedMainRecord; after: RedMainRecord }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const snapshot = io.read(), after = update(snapshot.redMain, await io.now());
     if (after === snapshot.redMain) return { before: snapshot.redMain, after };
@@ -114,7 +114,9 @@ export async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): 
       "Failing tests and categories:",
       ...open.failures.map(f => `- \`${f.test ?? f.category}\` (${f.category}; ${f.reasons.join(", ")}; run ${runUrl(io, f.run)})`),
       "",
-      "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green. Declare a fix PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
+      "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green. Declare a fix or targeted revert PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
+      "",
+      "One orchestrator owns the fix: it claims it with `bun scripts/red-main-incident.ts claim --worker <id> --orchestrator <id>`, which writes the claim into the red-main record. After a quick assessment the claimant chooses a fix PR or a targeted revert PR from causal and current-tree evidence, and records that choice and its rationale here as `decision` evidence; a red check or the latest squash alone is not proof of cause. Every other orchestrator adds evidence here with `bun scripts/red-main-incident.ts evidence ...` instead of opening another issue.",
       ...(related.size ? ["", `Possibly related open issues: ${[...related].sort((a, b) => a - b).map(n => `#${n}`).join(", ")}.`] : []),
     ];
     const issue = await io.write("POST", `repos/${io.repository}/issues`, {

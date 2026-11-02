@@ -20,12 +20,27 @@ export interface RedIncident {
   /** First red after the last run where the failing set actually ran green. */
   firstBad: string; run: number; opened: number;
   failures: RedFailure[]; incident: number | null; fixes: number[]; reported: string[];
+  /** The one fix claim (#2944). Absent in records written before claims existed. */
+  claim?: FixClaim | null;
 }
+/** Who owns the fix: a worker under an orchestrator, for a renewable term. */
+export interface FixClaim {
+  worker: string; orchestrator: string; claimed: number; renewed: number; expires: number;
+  /** The expired claim this one replaced, when it was a takeover. */
+  takeover: { worker: string; orchestrator: string; expired: number } | null;
+}
+export interface Claimant { worker: string; orchestrator: string; }
 export interface Suspect { test: string; category: Category; run: number; sha: string; at: number; probe: "pending" | "passed" | "failed" | "unavailable"; issue: number | null; }
 export interface RedMainRecord {
   version: 1; updated: number; open: RedIncident | null; suspects: Suspect[];
-  last: { action: "open" | "update" | "refine" | "incident" | "declare-fix" | "report" | "clear" | "suspect" | "probe"; at: number; run: number | null } | null;
+  last: { action: Action; at: number; run: number | null } | null;
 }
+const ACTIONS = ["open", "update", "refine", "incident", "declare-fix", "report", "clear", "suspect", "probe", "claim", "takeover", "renew-claim", "release-claim"] as const;
+type Action = typeof ACTIONS[number];
+/** A claim lasts this long from its last renewal; after that any orchestrator may take it over. */
+export const CLAIM_TERM_MS = 60 * 60_000;
+/** Opaque worker and orchestrator tokens: never a hostname, path or person's name. */
+export const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 
 export const emptyRedMain = (): RedMainRecord => ({ version: 1, updated: 0, open: null, suspects: [], last: null });
 const positive = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0;
@@ -46,13 +61,25 @@ export function parseRedMain(text: string): RedMainRecord {
       !Array.isArray(o.reported) || o.reported.length > MAX_REPORTED || !o.reported.every(sha => SHA.test(sha)) ||
       o.failures.some(f => !f || !(f.test === null || testPath(f.test)) || !category(f.category) || f.verdict !== "real" ||
         !Array.isArray(f.reasons) || !f.reasons.length || f.reasons.some(x => typeof x !== "string" || !/^[a-z0-9-]{1,60}$/.test(x)) || !positive(f.run) || !SHA.test(f.sha)))) throw new Error("Invalid red-main incident");
+  if (o && Object.hasOwn(o, "claim") && !validClaim(o.claim, o, r.updated)) throw new Error("Invalid red-main fix claim");
   if (r.last !== null && (!r.last || r.last.at !== r.updated || !(r.last.run === null || positive(r.last.run)) ||
-      !["open", "update", "refine", "incident", "declare-fix", "report", "clear", "suspect", "probe"].includes(r.last.action))) throw new Error("Invalid red-main audit");
+      !ACTIONS.includes(r.last.action))) throw new Error("Invalid red-main audit");
   return r;
 }
 
+const agent = (value: unknown) => typeof value === "string" && AGENT_ID.test(value);
+function validClaim(c: FixClaim | null | undefined, o: RedIncident, updated: number): boolean {
+  if (c === null) return true;
+  const t = c?.takeover;
+  return !!c && typeof c === "object" && Object.keys(c).sort().join() === "claimed,expires,orchestrator,renewed,takeover,worker" &&
+    agent(c.worker) && agent(c.orchestrator) && o.incident !== null && [c.claimed, c.renewed, c.expires].every(Number.isSafeInteger) &&
+    o.opened <= c.claimed && c.claimed <= c.renewed && c.renewed <= updated && c.expires === c.renewed + CLAIM_TERM_MS &&
+    (t === null || !!t && typeof t === "object" && Object.keys(t).sort().join() === "expired,orchestrator,worker" &&
+      agent(t.worker) && agent(t.orchestrator) && Number.isSafeInteger(t.expired) && t.expired <= c.claimed);
+}
+
 const key = (f: { test: string | null; category: Category }) => f.test ?? `category:${f.category}`;
-function next(record: RedMainRecord, now: number, action: NonNullable<RedMainRecord["last"]>["action"], run: number | null, change: Partial<RedMainRecord>): RedMainRecord {
+function next(record: RedMainRecord, now: number, action: Action, run: number | null, change: Partial<RedMainRecord>): RedMainRecord {
   if (!Number.isSafeInteger(now) || now < record.updated) throw new Error("Backwards or unavailable clock");
   return parseRedMain(JSON.stringify({ ...record, ...change, version: 1, updated: now, last: { action, at: now, run } }));
 }
@@ -87,6 +114,44 @@ export function declareFix(record: RedMainRecord, pr: number, now: number): RedM
   if (!positive(pr)) throw new Error("Invalid fix PR");
   if (record.open.fixes.includes(pr)) return record;
   return next(record, now, "declare-fix", null, { open: { ...record.open, fixes: [...record.open.fixes, pr] } });
+}
+
+const sameClaimant = (claim: FixClaim, who: Claimant) => claim.worker === who.worker && claim.orchestrator === who.orchestrator;
+export const liveClaim = (claim: FixClaim | null | undefined, now: number): boolean => !!claim && now < claim.expires;
+function claimable(record: RedMainRecord, who: Claimant): RedIncident {
+  if (!agent(who.worker) || !agent(who.orchestrator)) throw new Error("Worker and orchestrator IDs must be opaque tokens matching " + AGENT_ID);
+  if (!record.open) throw new Error("Main is not red; there is no incident to claim");
+  if (record.open.incident === null) throw new Error("Incident pending: the coordinator has not filed the incident issue yet; retry when main-status names it");
+  return record.open;
+}
+
+/**
+ * Claims the fix, written through the same compare-and-swap as the rest of the
+ * record. A live claim by someone else refuses; an expired one is taken over and
+ * the takeover kept in the claim. The live claimant claiming again renews.
+ */
+export function claimFix(record: RedMainRecord, who: Claimant, now: number): RedMainRecord {
+  const open = claimable(record, who), held = open.claim ?? null;
+  if (held && liveClaim(held, now)) {
+    if (sameClaimant(held, who)) return renewFixClaim(record, who, now);
+    throw new Error(`Fix claimed by worker ${held.worker} (orchestrator ${held.orchestrator}) until ${new Date(held.expires).toISOString()}; add evidence to incident #${open.incident} instead`);
+  }
+  const takeover = held && !sameClaimant(held, who) ? { worker: held.worker, orchestrator: held.orchestrator, expired: held.expires } : null;
+  return next(record, now, takeover ? "takeover" : "claim", open.run, { open: { ...open,
+    claim: { worker: who.worker, orchestrator: who.orchestrator, claimed: now, renewed: now, expires: now + CLAIM_TERM_MS, takeover } } });
+}
+
+export function renewFixClaim(record: RedMainRecord, who: Claimant, now: number): RedMainRecord {
+  const open = claimable(record, who), held = open.claim ?? null;
+  if (!held || !liveClaim(held, now) || !sameClaimant(held, who)) throw new Error("This worker holds no live fix claim; claim again (an expired claim may already be taken over)");
+  return next(record, now, "renew-claim", open.run, { open: { ...open, claim: { ...held, renewed: now, expires: now + CLAIM_TERM_MS } } });
+}
+
+/** The claimant may release its own claim, even after expiry; never a successor's. */
+export function releaseFixClaim(record: RedMainRecord, who: Claimant, now: number): RedMainRecord {
+  const open = claimable(record, who), held = open.claim ?? null;
+  if (!held || !sameClaimant(held, who)) throw new Error("This worker does not hold the fix claim");
+  return next(record, now, "release-claim", open.run, { open: { ...open, claim: null } });
 }
 
 export function reportLanded(record: RedMainRecord, sha: string, now: number): RedMainRecord {
