@@ -96,6 +96,18 @@ async function opened(canvasElement: HTMLElement, width: number, theme: string |
   return { fixture, screen, link };
 }
 
+/** `FilePanel` loads its viewer and tree as lazy chunks the first time it
+ * opens, and the first story to open it in a page pays a cold Vite transform.
+ * Once the panel's own imports have started, wait for the same modules, so
+ * that cost is not charged to the 1000 ms Testing Library waits after it
+ * (#3267). The lazy loads still run; this only orders the clock. */
+async function viewerLoaded() {
+  await Promise.all([
+    import("../../../ui-react/src/components/files/file-viewer.js"),
+    import("../../../ui-react/src/components/files/file-tree.js"),
+  ]);
+}
+
 /** One shape is mounted per width; it renders inline, inside this consumer document. */
 async function owned(canvasElement: HTMLElement, width: number, theme: string | undefined) {
   await expect(document.querySelectorAll("[data-panel=Files]"), "phone drawer").toHaveLength(width < 900 ? 1 : 0);
@@ -126,6 +138,7 @@ export const LayoutPhone = meta.story({
   play: async ({ args, userEvent, globals, canvasElement }) => {
     const { fixture, screen, link } = await opened(canvasElement, args.width, globals.theme);
     link.focus(); await userEvent.keyboard("{Enter}");
+    await viewerLoaded();
     await screen.findByRole("heading", { name: "Couldn't open this file." });
     await waitFor(() => expect(document.activeElement, "artifact title focus").toBe(document.querySelector("[data-file-title]")));
     const panel = await owned(canvasElement, args.width, globals.theme);
@@ -170,6 +183,7 @@ export const StatesPhone = meta.story({
     const { fixture, screen, link } = await opened(canvasElement, args.width, globals.theme);
     fixture.next = "held";
     link.focus(); await userEvent.keyboard("{Enter}");
+    await viewerLoaded();
     const loading = await screen.findByLabelText("Loading file");
     await expect(screen.getByRole("status"), "named loading status").toHaveTextContent("Loading file");
     const panel = await owned(canvasElement, args.width, globals.theme);
