@@ -26,6 +26,7 @@ export "." (./src/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -453,6 +454,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -1289,6 +1291,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
   type ApprovalChannel
@@ -1874,6 +1877,7 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
@@ -3451,6 +3455,15 @@ signatures (every public export and the types it is made of)
         budgetAdmissionMs: number | null;
         journalBeginMs: number | null;
         backendStartupMs: number | null;
+        subPhases?: ActivityTurnSubPhase[];
+    }
+  ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnSubPhase {
+        phase: "governed" | "journal";
+        name: string;
+        startedAt: number;
+        endedAt: number | null;
+        elapsedMs: number | null;
     }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
@@ -14868,6 +14881,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -14981,6 +15004,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -17454,6 +17487,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -17568,6 +17611,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;

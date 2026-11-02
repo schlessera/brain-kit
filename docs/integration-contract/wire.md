@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -104,8 +104,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1887-1889`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3823-3829`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1889-1891`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
