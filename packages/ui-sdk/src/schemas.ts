@@ -1047,6 +1047,7 @@ export const turnScopeSummarySchema = z.looseObject({
 }) satisfies z.ZodType<import("./protocol.js").TurnScopeSummary>;
 export const turnJournalSummarySchema = z.looseObject({
   configurationCoverage: z.enum(["incomplete", "complete", "unknown"]).optional(),
+  configurationCoverageSet: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   scope: turnScopeSummarySchema.optional(),
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
   changedFiles: z.number().int().nonnegative().nullable(),

@@ -7,6 +7,11 @@ const INLINE_LINES = 5_000;
 /** Mounted behind the same authenticated owner boundary as session history. */
 export function createJournalRoutes({ journal }: { journal: TurnJournal }): Hono {
   return new Hono()
+    // Brain-wide, not per turn: what the latest complete turn could not trace (#3257).
+    .get("/journal/configuration-coverage", c => {
+      c.header("Cache-Control", "private, no-store");
+      return c.json(journal.configurationCoverage());
+    })
     .get("/sessions/:sessionId/turns/:turnId/journal", c => {
       const details = journal.details(c.req.param("sessionId"), c.req.param("turnId"));
       return details ? c.json(details) : c.json({ error: "No retained journal is available for this turn." }, 404);

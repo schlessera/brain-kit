@@ -2,6 +2,12 @@
 export interface TurnJournalSummary {
   /** Retained configuration-identification coverage; absent legacy data is not complete. */
   configurationCoverage?: "incomplete" | "complete" | "unknown";
+  /**
+   * The hash of the turn's untraced configuration-input set (#3257), present
+   * only when that set is nonempty. Equal hashes are equal sets, so it compares
+   * with `ConfigurationCoverageRead.hash` without fetching details.
+   */
+  configurationCoverageSet?: string;
   scope?: TurnScopeSummary;
   state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
   changedFiles: number | null;
@@ -159,3 +165,12 @@ export interface TurnScopeSummary {
   observedAt: number;
   receipts: ScopeCapReceipt[];
 }
+
+/**
+ * The brain's current set of configuration inputs steering could not trace
+ * (#3257): the set recorded by the most recent complete turn. `unknown` when
+ * no complete turn has recorded one, which is not the same as an empty set.
+ */
+export type ConfigurationCoverageRead =
+  | { state: "known"; hash: string; paths: string[]; count: number; turnId: string; observedAt: number }
+  | { state: "unknown" };

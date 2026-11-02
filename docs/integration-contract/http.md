@@ -39,6 +39,24 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+<a id="brain-wide-configuration-coverage-additive-3257"></a>
+
+### Brain-wide configuration coverage (additive, #3257)
+
+`GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:174-176`):
+the brain's current set of configuration inputs steering could not trace. It
+is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
+most recent complete turn recorded from a configuration inventory: `paths` is
+sorted, `count` is its length (possibly 0), `hash` is the same identity as the
+summary's [`configurationCoverageSet`](wire.md), and `observedAt` is that turn's
+end. When no complete turn has recorded one it is `{ state: "unknown" }`, never
+an empty list. A partial, expired or still recording turn never replaces the
+current set, and neither does a turn that changed nothing: capture takes the
+inventory only for an observation that saw a change. The route is authenticated
+like the other journal reads and is `Cache-Control: private, no-store`. The
+per-turn `missing` entries are unchanged.
+
 ### Persisted Claude auto-memory history (additive, #1658)
 
 The existing journal routes also return successful external native-memory saves

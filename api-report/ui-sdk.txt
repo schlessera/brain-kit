@@ -101,6 +101,7 @@ export "." (./src/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
   type ContentRendererDeclaration
@@ -549,6 +550,7 @@ export "./client" (./src/client/index.ts)
   type ClientToolDenial
   type CompleteShareInput
   type CompleteShareResult
+  type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConnectionStatus
   type ContentRenderer
@@ -1362,6 +1364,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConversationAudioFormat
   type ConversationCapabilities
@@ -2013,6 +2016,7 @@ export "./server" (./src/server/index.ts)
   type CompleteShareInput
   type CompleteShareResult
   type CompletedAutonomousToolCall
+  type ConfigurationCoverageRead
   type ConfirmPattern
   type ConfirmPatternSource
   type ConflictVersionSelection
@@ -5924,6 +5928,17 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
     }
+  ConfigurationCoverageRead (packages/ui-sdk/src/turn-journal.ts)
+    export type ConfigurationCoverageRead = {
+        state: "known";
+        hash: string;
+        paths: string[];
+        count: number;
+        turnId: string;
+        observedAt: number;
+    } | {
+        state: "unknown";
+    };
   ConfiguredModule (packages/ui-sdk/src/module-settings.ts)
     export interface ConfiguredModule {
         version?: string | null;
@@ -10930,6 +10945,7 @@ signatures (every public export and the types it is made of)
   TurnJournalSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalSummary {
         configurationCoverage?: "incomplete" | "complete" | "unknown";
+        configurationCoverageSet?: string;
         scope?: TurnScopeSummary;
         state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
         changedFiles: number | null;
@@ -16159,6 +16175,7 @@ signatures (every public export and the types it is made of)
                 incomplete: "incomplete";
                 unknown: "unknown";
             }>>;
+            configurationCoverageSet: z.ZodOptional<z.ZodString>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -16986,6 +17003,7 @@ signatures (every public export and the types it is made of)
                     incomplete: "incomplete";
                     unknown: "unknown";
                 }>>;
+                configurationCoverageSet: z.ZodOptional<z.ZodString>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -19403,6 +19421,7 @@ signatures (every public export and the types it is made of)
                     incomplete: "incomplete";
                     unknown: "unknown";
                 }>>;
+                configurationCoverageSet: z.ZodOptional<z.ZodString>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -19803,6 +19822,7 @@ signatures (every public export and the types it is made of)
                 incomplete: "incomplete";
                 unknown: "unknown";
             }>>;
+            configurationCoverageSet: z.ZodOptional<z.ZodString>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -20094,6 +20114,7 @@ signatures (every public export and the types it is made of)
             incomplete: "incomplete";
             unknown: "unknown";
         }>>;
+        configurationCoverageSet: z.ZodOptional<z.ZodString>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
         kind: z.ZodOptional<z.ZodEnum<{

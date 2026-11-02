@@ -21,8 +21,8 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1063`).
+`packages/ui-sdk/src/turn-journal.ts:2-27`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1048-1064`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -42,6 +42,19 @@ its coverage evidence. The existing summary frame/history/HTTP responses carry
 this field without eager detail requests or changed-path accounting changes.
 Older summaries may omit it; clients may use detailed configuration inventory
 entries after expansion, and must never treat omission as complete coverage.
+
+**Configuration coverage set (additive, #3257).** Untraced configuration inputs
+are a property of the brain's configuration, so the host stores each distinct
+set once and a turn references it. The optional `configurationCoverageSet` is
+that set's identity: the lowercase hex SHA-256 of the sorted, de-duplicated
+path list as JSON. It is present only when the turn's set is nonempty, so equal
+values are equal sets, and a client compares a turn with the brain's current
+set ([`GET /api/journal/configuration-coverage`](http.md#brain-wide-configuration-coverage-additive-3257))
+without fetching details. `complete` now also requires that the turn recorded a
+set: a turn journaled before #3257 with an empty inventory cannot show that it
+took one, and reads `unknown`. A nonempty legacy inventory still reads
+`incomplete`, and details still name every path with
+`configuration_inputs_not_fully_identified`.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -78,7 +91,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3808-3814`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1885-1887`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1886-1888`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,

@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 158 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 159 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -145,6 +145,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | S | Download a retained raw version | Before/after only; durable read lease, no direct hash access. |
+| GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
@@ -191,7 +192,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 158 declared endpoints are mounted regardless of backend, renderer or
+All 159 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -593,7 +594,14 @@ The response bounds this list to 1,000 records and explicitly reports more;
 the retained governance query remains available. Ownership remains the same
 session/turn boundary.
 
-GET the same path plus `/:sequence/preview` accepts a positive safe integer
+GET `/api/journal/configuration-coverage` is brain-wide, not per session: it
+returns the brain's current untraced configuration-input set (#3257), the one
+the latest complete turn recorded from a configuration inventory, or
+`{ state: "unknown" }` when none has. The
+[integration contract](integration-contract/http.md#brain-wide-configuration-coverage-additive-3257)
+specifies the shape.
+
+GET the same session path plus `/:sequence/preview` accepts a positive safe integer
 observation sequence. Missing/expired observations are 404; invalid sequences
 are 400. Successful preview is `{ inline:true, before, after }`, decoding raw
 UTF-8 only. Combined before/after bytes above 256 KiB, combined lines above

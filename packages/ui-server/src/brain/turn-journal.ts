@@ -1,6 +1,7 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
+import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
+import { recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalStorageUnavailable } from "./journal-accounting.js";
@@ -36,7 +37,7 @@ const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY_PATHS);
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
-type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
+type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; configuration_set: string | null; failure: string };
 type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; conflict_observations: string; overlaps: string };
 const statement = (sql: string, ...params: SQLQueryBindings[]): JournalStatement => ({ sql, params });
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
@@ -98,6 +99,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     // left for the next open; until then history already presents them as
     // metadata-only.
     try { while (await ledger.call<IndexPurgeResult | null>("purgeIndexVersions")); }
+    catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
+    // Per-turn configuration arrays recorded before #3257 move into stored
+    // sets, a batch per commit. A refused step is left for the next open;
+    // readers understand the arrays until then.
+    try { while (await ledger.call<number>("migrateConfigurationSets")); }
     catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
   })();
   ready.catch(() => {});
@@ -248,6 +254,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   const releaseRead = (lease: string) => call<void>("releaseRead", lease).catch(() => { pendingReadReleases.add(lease); });
 
+  const configurationPaths = (hash: string) => {
+    const row = db.query("SELECT paths FROM turn_journal_configuration_sets WHERE hash=?").get(hash) as { paths: string } | null;
+    return row ? JSON.parse(row.paths) as string[] : undefined;
+  };
+  const configurationOf = (row: TurnRow) => recordedConfigurationSet(row, configurationPaths);
+
   function summary(turnId: string): TurnJournalSummary {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
     if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
@@ -256,7 +268,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
     const partial = row.state !== "expired" && (failures.has(turnId) || row.failure.trim() || row.state === "partial");
     const scope = db.query("SELECT summary FROM turn_scope WHERE turn_id=?").get(turnId) as { summary: string } | null;
-    return { configurationCoverage: (JSON.parse(row.steering_inventory_missing) as string[]).length ? "incomplete" : !partial && row.state === "complete" ? "complete" : "unknown", ...(scope ? { scope: JSON.parse(scope.summary) } : {}), state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
+    // Coverage is complete only for a set this turn actually recorded: a
+    // legacy row without one never reads as complete (#3257).
+    const configuration = configurationOf(row);
+    return { configurationCoverage: configuration.paths.length ? "incomplete" : configuration.recorded && !partial && row.state === "complete" ? "complete" : "unknown",
+      ...(configuration.recorded && configuration.paths.length ? { configurationCoverageSet: configuration.hash } : {}), ...(scope ? { scope: JSON.parse(scope.summary) } : {}), state: partial ? "partial" : row.state, changedFiles: retained?.changedFiles ?? (partial && !counts.changedFiles ? null : counts.changedFiles), steeringFiles: retained?.steeringFiles ?? (partial && !counts.changedFiles ? null : counts.steeringFiles),
       sharedAttribution: retained?.sharedAttribution ?? Boolean(counts.sharedAttribution), costUsd: cost?.effective_cost_usd ?? null,
       costIsEstimate: cost?.pricing_estimate == null ? null : Boolean(cost.pricing_estimate),
       profile: row.profile, actor: row.actor, kind: row.kind, ...(row.source_turn_id ? { sourceTurnId: row.source_turn_id } : {}), model: row.model, policyHash: row.policy_hash, observedAt: row.ended_at ?? row.started_at };
@@ -346,7 +362,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
         turn.sequence = await retain(() => call<number>("recordObservation", {
           turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()], steeringPaths: [...steering.paths],
-          overlaps, worktree, steeringUnavailable: [...steering.unavailable], unreadable,
+          overlaps, worktree, steeringUnavailable: [...steering.unavailable], steeringInventoried: steering.inventoried === true, unreadable,
         }));
         publish(turnId);
         // Ignored and metadata-only versions have no content hash: count their
@@ -631,6 +647,19 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally { await releaseRead(lease); }
     },
     summary,
+    /**
+     * The brain's current untraced configuration-input set (#3257): the one the
+     * most recent complete turn recorded from a configuration inventory. A
+     * partial, expired or still recording turn never replaces it, and neither
+     * does a turn that changed nothing, whose capture took no inventory.
+     */
+    configurationCoverage(): ConfigurationCoverageRead {
+      const row = db.query(`SELECT * FROM turn_journal_turns WHERE state='complete' AND ended_at IS NOT NULL AND trim(failure)=''
+        AND ((configuration_set IS NOT NULL AND configuration_inventoried=1) OR steering_inventory_missing!='[]') ORDER BY ended_at DESC, rowid DESC LIMIT 1`).get() as TurnRow | null;
+      const configuration = row ? configurationOf(row) : undefined;
+      if (!row || !configuration?.recorded) return { state: "unknown" };
+      return { state: "known", hash: configuration.hash, paths: configuration.paths, count: configuration.paths.length, turnId: row.turn_id, observedAt: row.ended_at! };
+    },
     details(sessionId: string, turnId: string): TurnJournalDetails | null {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
@@ -643,7 +672,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,
         tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
         decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
-      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...(JSON.parse(row.steering_inventory_missing) as string[]).map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...configurationOf(row).paths.map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
     },
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
