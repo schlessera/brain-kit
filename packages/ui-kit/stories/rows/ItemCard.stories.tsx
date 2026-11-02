@@ -32,6 +32,16 @@ function Field({ label, value, error }: { label: string; value: string; error?: 
   );
 }
 
+/** What a token resolves to here, for comparing computed colours. */
+function resolved(host: HTMLElement, value: string) {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  host.append(probe);
+  const out = getComputedStyle(probe).color;
+  probe.remove();
+  return out;
+}
+
 const actions: ItemCardAction[] = [
   { label: "Move up", onSelect: fn(), disabled: true },
   { label: "Move down", onSelect: fn() },
@@ -58,7 +68,7 @@ const meta = preview.meta({
 
 /** One record, closed. Its title, summary and actions menu stay visible. */
 export const Collapsed = meta.story({
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
     const toggle = await canvas.findByRole("button", { name: "Ithaca, Vathy harbor every 6 h · notices + weather" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(toggle.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -69,6 +79,18 @@ export const Collapsed = meta.story({
     await expect(b.width).toBeGreaterThanOrEqual(44);
     await expect(b.height).toBeGreaterThanOrEqual(44);
     await expect(b.left - a.right).toBeGreaterThanOrEqual(8);
+    // The kit's tokens: body title, mono meta, the card's hairline.
+    const title = getComputedStyle(toggle.querySelector("[title]")!);
+    await expect(title.fontFamily).toContain("Plus Jakarta Sans");
+    await expect([title.fontSize, title.fontWeight]).toEqual(["13.5px", "600"]);
+    await expect(title.color).toBe(resolved(canvasElement, "var(--bk-color-ink)"));
+    const status = getComputedStyle(toggle.querySelector("[data-item-card-status]")!);
+    await expect(status.fontFamily).toContain("JetBrains Mono");
+    await expect([status.fontSize, status.fontWeight]).toEqual(["11px", "500"]);
+    await expect(status.color).toBe(resolved(canvasElement, "var(--bk-color-ink-mute)"));
+    const card = getComputedStyle(canvasElement.querySelector("[data-item-card]")!);
+    await expect(card.borderTopColor).toBe(resolved(canvasElement, "var(--bk-color-line)"));
+    await expect(getComputedStyle(toggle).paddingLeft).toBe("8px");
   },
 });
 
@@ -83,6 +105,9 @@ export const ErrorCollapsed = meta.story({
     const toggle = await canvas.findByRole("button", { name: "Ithaca, Vathy harbor 2 to fix" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(canvasElement.querySelector("[data-item-card]")).toHaveAttribute("data-invalid");
+    const red = resolved(canvasElement, "var(--bk-red-ink)");
+    await expect(getComputedStyle(toggle.querySelector("[data-item-card-status]")!).color).toBe(red);
+    await expect(getComputedStyle(canvasElement.querySelector("[data-item-card]")!).borderTopColor).toBe(red);
   },
 });
 

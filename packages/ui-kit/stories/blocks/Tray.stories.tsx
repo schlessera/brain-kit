@@ -27,6 +27,16 @@ function Recordings({ count = recordings.length }: { count?: number }) {
   );
 }
 
+/** What a token resolves to here, for comparing computed colours. */
+function resolved(host: HTMLElement, value: string) {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  host.append(probe);
+  const out = getComputedStyle(probe).color;
+  probe.remove();
+  return out;
+}
+
 const meta = preview.meta({
   title: "Blocks/Tray",
   component: Tray,
@@ -44,11 +54,18 @@ const meta = preview.meta({
  * the tray holds and how much. Closed by default.
  */
 export const Collapsed = meta.story({
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
     const header = await canvas.findByRole("button", { name: /On this device/ });
     await expect(header).toHaveAttribute("aria-expanded", "false");
     // The header reaches 44px by itself; it is a row, not a text link.
     await expect(header.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    // The kit's tokens, not the browser's button defaults.
+    const css = getComputedStyle(header);
+    await expect(css.fontFamily).toContain("JetBrains Mono");
+    await expect([css.fontSize, css.fontWeight, css.paddingLeft]).toEqual(["11px", "500", "12px"]);
+    await expect(css.color).toBe(resolved(canvasElement, "var(--bk-color-ink)"));
+    const tray = canvasElement.querySelector<HTMLElement>("[data-tray]")!;
+    await expect(getComputedStyle(tray).borderTopColor).toBe(resolved(canvasElement, "var(--bk-color-line)"));
   },
 });
 
