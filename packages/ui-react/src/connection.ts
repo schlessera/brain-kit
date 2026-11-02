@@ -85,7 +85,9 @@ export function createWebSocketClient(root: BrainUiServices) {
     retries,
     followUps,
     services,
-    send,
+    // Read at call time: inbox subscriptions and resume revalidation take the
+    // client's public `send`, the one a card's decision frame takes.
+    send: (message) => client.send(message),
     socketSend: (message) => { lease.client()?.send(message); },
     requestBrowserLocation: (msg) => {
       const opened = root.stores.connection.getState().socketOpens;

@@ -336,3 +336,21 @@ describe("the handler map is the single routing table", () => {
     expect(root.stores.followUp.getState().pending.s1?.map((entry) => entry.requestId)).toEqual(["r2"]);
   });
 });
+
+describe("inbound frames reply through the public send", () => {
+  // An embedder or a fixture may replace `connection.send`. Decision cards
+  // already take it, so the subscriptions that fill those cards must too.
+  test("a hello's inbox subscriptions and resume revalidation take a replaced connection.send", () => {
+    const root = makeRoot();
+    const out = recorder();
+    root.connection.send = out.send;
+    root.stores.chat.getState().setActiveSession("s1");
+    root.stores.followUp.setState({ pending: { s2: [] } } as never);
+    root.connection.handleServerMessage({ type: "server_hello", protocolRev: 2, capabilities: { inbox: true, followUpQueue: true } } as unknown as ServerMessage);
+    expect(out.sent).toEqual([
+      { type: "inbox_subscribe", view: "actions" },
+      { type: "inbox_subscribe", view: "queue" },
+      { type: "session_resume", sessionId: "s2" },
+    ]);
+  });
+});
