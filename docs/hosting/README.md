@@ -48,7 +48,14 @@ The floor is enforced at
 all commands and flags the server invokes, including 0.42.0’s scratch pin input.
 From 0.44.0 the search index lives in `.brain-index/` instead of a root-level
 `brain.db`: the server reads it there, deletes the old root-level copy at boot
-and starts one index run to rebuild it. Pair a 0.44.0 server with a 0.44.0
+and starts one index run to rebuild it. That boot run is a plain one: it
+restores text search, but images and PDFs stay out of search until an
+embeddings run indexes them, so run `brain index --embeddings` in the content
+repo once after the first 0.44 boot. It reuses every committed description in
+`.brain-cache/assets.jsonl` without a provider call. Use a 0.44.1 or later
+content CLI: on 0.44.0 the plain boot run deletes those descriptions (#3242);
+restore them from a pre-upgrade commit before the embeddings run if they are
+gone. Pair a 0.44.0 server with a 0.44.0
 content CLI; this is the minimum supported version. Hygiene review requires 0.41.0's
 selection, repair, recheck and fingerprint-bound dispositions; module settings
 and `stats --history` require 0.40.0. The command/flag inventory test guards the
