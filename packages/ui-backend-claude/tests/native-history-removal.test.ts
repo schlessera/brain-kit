@@ -107,7 +107,7 @@ test("removes every owned artifact through the installed SDK and keeps the unrel
   expect(await getSessionMessages(TARGET, { dir: brain })).toEqual([]);
   expect((await backend.listSessions()).map(session => session.id).sort()).toEqual([OTHER, ARCHIVED].sort());
   expect(await backend.getHistory(TARGET)).toEqual([]);
-  expect(resume(backend, TARGET)).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(resume(backend, TARGET)).rejects.toBeInstanceOf(BackendRequestError);
   // The tombstone is content-free: only the operation identity.
   expect(readFileSync(join(archive, "retired", TARGET), "utf8")).toBe("retire-voyage");
   // The control chat is untouched and readable.
@@ -117,7 +117,7 @@ test("removes every owned artifact through the installed SDK and keeps the unrel
   expect(stored()).toContain(CONTROL);
   // Repeating the same operation is idempotent; another operation never re-owns the session.
   expect(await backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: TARGET })).toEqual({ outcome: "removed" });
-  expect(backend.removeSessionHistory!({ operationId: "retire-again", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.removeSessionHistory!({ operationId: "retire-again", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
 });
 
 test("a reader started before retirement drains first and publishes nothing after it", async () => {
@@ -134,11 +134,11 @@ test("a reader started before retirement drains first and publishes nothing afte
   // Fenced at once: a new reader, lister and resume see an unknown chat while removal waits.
   expect(await backend.getHistory(TARGET)).toEqual([]);
   expect((await backend.listSessions()).map(session => session.id).sort()).toEqual([OTHER, ARCHIVED].sort());
-  expect(resume(backend, TARGET)).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(resume(backend, TARGET)).rejects.toBeInstanceOf(BackendRequestError);
   // A bounded caller wait is partial, and the removal keeps its single owner.
   const deadline = new AbortController(); deadline.abort();
   expect(await backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: TARGET, signal: deadline.signal })).toEqual({ outcome: "partial" });
-  expect(backend.removeSessionHistory!({ operationId: "replacement", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.removeSessionHistory!({ operationId: "replacement", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
   expect(stored(), "REMOVAL_WAITS_FOR_THE_READER").toContain(MARKER);
   reading.open();
   expect(text(await read), "RETIRED_READ_PUBLISHES_NOTHING").not.toContain(MARKER);
@@ -168,7 +168,7 @@ test("a restarted backend keeps the fence, refuses restored archives and finishe
   restoreArchivedSession(TARGET, { brainPath: brain });
   expect(readFileSync(join(live, `${TARGET}.jsonl`), "utf8")).toContain(MARKER);
   expect(existsSync(join(archive, TARGET)), "RETIRED_ARCHIVE_NOT_RESTORED").toBe(true);
-  expect(restarted.removeSessionHistory!({ operationId: "replacement", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(restarted.removeSessionHistory!({ operationId: "replacement", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
   expect(await restarted.removeSessionHistory!({ operationId: "retire-voyage", sessionId: TARGET })).toEqual({ outcome: "removed" });
   expect(stored()).not.toContain(MARKER);
   // The stopped process's reader, if it ever resumed, still publishes nothing.
@@ -191,13 +191,14 @@ test("links, hard links and redirected roots stay untouched and keep the removal
   expect(readFileSync(join(penelope, "letter.txt"), "utf8")).toBe(CONTROL);
   expect(lstatSync(join(live, `${TARGET}.jsonl`)).isSymbolicLink()).toBe(true);
   expect(existsSync(join(live, TARGET, "letters"))).toBe(true);
-  expect(lstatSync(join(replay.dir, replay.name)).nlink, "HARD_LINK_NOT_UNLINKED").toBe(2);
+  expect(existsSync(join(replay.dir, replay.name)), "HARD_LINK_NOT_UNLINKED").toBe(true);
+  expect(lstatSync(join(replay.dir, replay.name)).nlink).toBe(2);
   expect(readFileSync(join(penelope, "copy.json"), "utf8")).toContain(MARKER);
   // Everything the chat solely owns was still removed, and it stays fenced.
   expect(existsSync(join(archive, TARGET))).toBe(false);
   expect((await backend.listSessions()).map(session => session.id).sort()).toEqual([OTHER, ARCHIVED].sort());
   // A client path is never a session identity.
-  expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: "../penelope-letters" })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: "../penelope-letters" })).rejects.toBeInstanceOf(BackendRequestError);
   expect(existsSync(penelope)).toBe(true);
 });
 
@@ -206,7 +207,7 @@ test("a redirected archive root refuses before any removal", async () => {
   const elsewhere = join(root, "elsewhere"); mkdirSync(elsewhere); writeFileSync(join(elsewhere, "kept.txt"), CONTROL);
   rmSync(archive, { recursive: true }); symlinkSync(elsewhere, archive);
   const backend = createClaudeBackend({ brainPath: brain });
-  expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: TARGET })).rejects.toBeInstanceOf(BackendRequestError);
   expect(readdirSync(elsewhere)).toEqual(["kept.txt"]);
   expect(readFileSync(join(live, `${TARGET}.jsonl`), "utf8")).toContain(MARKER);
 });

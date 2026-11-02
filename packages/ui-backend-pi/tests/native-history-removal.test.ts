@@ -83,7 +83,7 @@ test("removes the whole session tree and its metadata through the installed Sess
   expect((await SessionManager.list(brain, sessionDir)).map(info => info.id)).toEqual([control]);
   expect((await backend.listSessions()).map(session => session.id)).toEqual([control]);
   expect(await backend.getHistory(target)).toEqual([]);
-  expect(resume(backend, target)).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(resume(backend, target)).rejects.toBeInstanceOf(BackendRequestError);
   expect(readFileSync(join(sessionDir, "retired", target), "utf8")).toBe("retire-voyage");
   expect(text(await backend.getHistory(control))).toContain(CONTROL);
   expect(after).toContain(CONTROL);
@@ -94,7 +94,7 @@ test("removes the whole session tree and its metadata through the installed Sess
     { type: "message", id: "a1b2c3d4", parentId: null, timestamp: "2026-07-12T10:00:01.000Z", message: { role: "user", content: MARKER, timestamp: 1 } }]);
   expect((await restarted.listSessions()).map(session => session.id)).toEqual([control]);
   expect(await restarted.getHistory(target)).toEqual([]);
-  expect(restarted.removeSessionHistory!({ operationId: "replacement", sessionId: target })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(restarted.removeSessionHistory!({ operationId: "replacement", sessionId: target })).rejects.toBeInstanceOf(BackendRequestError);
   expect(await restarted.removeSessionHistory!({ operationId: "retire-voyage", sessionId: target })).toEqual({ outcome: "removed" });
   expect(stored()).not.toContain(MARKER);
 });
@@ -112,13 +112,15 @@ test("a transcript is attributed by its header, and links stay untouched", async
   const backend = createPiBackend({ brainPath: brain, sessionDir });
 
   expect(await backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: target })).toEqual({ outcome: "partial" });
-  expect(readFileSync(join(sessionDir, `${target}.jsonl`), "utf8"), "REPLACED_FILE_NOT_DELETED").toContain(CONTROL);
-  expect(lstatSync(join(replay.dir, replay.name)).nlink, "HARD_LINK_NOT_UNLINKED").toBe(2);
+  expect(existsSync(join(sessionDir, `${target}.jsonl`)), "REPLACED_FILE_NOT_DELETED").toBe(true);
+  expect(readFileSync(join(sessionDir, `${target}.jsonl`), "utf8")).toContain(CONTROL);
+  expect(existsSync(join(replay.dir, replay.name)), "HARD_LINK_NOT_UNLINKED").toBe(true);
+  expect(lstatSync(join(replay.dir, replay.name)).nlink).toBe(2);
   // The tree its header attributes to the target is gone; the control chat is intact.
   expect(readdirSync(sessionDir).some(name => name.endsWith(`_${target}.jsonl`))).toBe(false);
   expect(readFileSync(join(sessionDir, controlFile), "utf8")).toContain(CONTROL);
   expect(text(await backend.getHistory(control))).toContain(CONTROL);
-  expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: "../penelope-letters" })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: "../penelope-letters" })).rejects.toBeInstanceOf(BackendRequestError);
   expect(existsSync(penelope)).toBe(true);
 });
 
@@ -141,13 +143,13 @@ test("a running turn drains before removal and its resident session is disposed"
   const removal = backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: target });
   const deadline = new AbortController(); deadline.abort();
   expect(await backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: target, signal: deadline.signal })).toEqual({ outcome: "partial" });
-  expect(backend.removeSessionHistory!({ operationId: "replacement", sessionId: target })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.removeSessionHistory!({ operationId: "replacement", sessionId: target })).rejects.toBeInstanceOf(BackendRequestError);
   // Fenced at once: follow-up and resume refuse while the turn still holds the session.
-  expect(backend.followUp!({ sessionId: target, prompt: "And the bow?" })).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(backend.followUp!({ sessionId: target, prompt: "And the bow?" })).rejects.toBeInstanceOf(BackendRequestError);
   expect(stored(), "REMOVAL_WAITS_FOR_THE_TURN").toContain(MARKER);
   finish(); await turn;
   expect(await removal).toEqual({ outcome: "removed" });
   expect(disposed, "RESIDENT_SESSION_DISPOSED").toBe(true);
   expect(stored()).not.toContain(MARKER);
-  expect(resume(backend, target)).rejects.toBeInstanceOf(BackendRequestError);
+  await expect(resume(backend, target)).rejects.toBeInstanceOf(BackendRequestError);
 });
