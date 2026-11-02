@@ -103,7 +103,13 @@ export function createBoatProvider(deps: BoatProviderDeps = {}): ComputeProvider
   const clock: ClientDeps = { now: deps.now ?? realClock.now, sleep: deps.sleep ?? realClock.sleep };
   /** Commands this process stopped with a signal, so their exit reads `killed`. */
   const killed = new Set<string>();
-  /** The usage read just before a discard, for a report after the sandbox is gone. */
+  /**
+   * The usage read just before a discard, for a report after the sandbox is
+   * gone, when Boat's own report 404s. Process memory only, and only a lower
+   * bound: another process reads unknown instead. Core settles both the same
+   * way (a released sandbox's partial or unknown cost settles as unknown), so
+   * no ledger outcome depends on which process asks.
+   */
   const lastUsage = new Map<string, { usd: number; seconds: number | null }>();
   /** Both are process memory for a long-lived host: keep only the most recent entries. */
   const bound = (store: Set<string> | Map<string, unknown>) => {
