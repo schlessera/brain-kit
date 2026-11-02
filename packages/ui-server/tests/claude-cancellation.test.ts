@@ -8,6 +8,7 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { createFixtureApp } from "./helpers/native-app-fixture.js";
+import { standInFixtureRouteInputs } from "../../ui-backend-claude/tests/helpers/fixture-route-inputs.js";
 import { requireTurnFreeSpace } from "./helpers/turn-free-space.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
@@ -24,17 +25,22 @@ function deferred() {
 }
 
 // Real initialization, settings and user exchange, consumed by the installed SDK.
+// Every turn runs on the host inference relay (#3314), whose startup gate reads
+// the CLI's settings; this runtime reports the flag settings the host passed.
 // The bounded watchdog is a failure backstop, not a scheduling primitive.
 const runtime = `
 import { createInterface } from "node:readline";
 const [session, mode] = process.argv.slice(1);
+// As the CLI reports them: the host's flag settings, which pin the relay route (#3314).
+const flagSettings = JSON.parse(process.env.ODYSSEUS_FLAG_SETTINGS ?? "{}");
 const watchdog = setTimeout(() => process.exit(2), 20000);
 const send = frame => process.stdout.write(JSON.stringify(frame) + "\\n");
 for await (const line of createInterface({ input: process.stdin })) {
  const frame = JSON.parse(line);
  if (frame.type === "control_request") {
   send({ type: "control_response", response: { subtype: "success", request_id: frame.request_id,
-   response: frame.request.subtype === "initialize" ? { commands: [], models: [], account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } } : { settings: {}, sources: [] } } });
+   response: frame.request.subtype === "initialize" ? { commands: [], models: [], account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }
+    : frame.request.subtype === "get_settings" ? { effective: flagSettings, sources: [{ source: "flagSettings", settings: flagSettings }] } : {} } });
  } else if (frame.type === "user") {
   send({ type: "system", subtype: "init", session_id: session, model: "claude-sonnet-5-5", claude_code_version: "fixture-native", apiKeySource: "none" });
   if (mode === "no-result") {
@@ -65,13 +71,16 @@ for (const mode of ["success-before-cancel", "error-before-cancel", "no-result",
       sdkSignal = params.options.abortController!.signal;
       return query({ ...params, options: { ...params.options, spawnClaudeCodeProcess: spawn => {
         const child = params.options.spawnClaudeCodeProcess!({ ...spawn, command: process.execPath, args: ["-e", runtime, SESSION, mode],
-          env: { PATH: "/usr/bin:/bin", CLAUDE_CONFIG_DIR: config, HOME: root, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
+          env: { PATH: "/usr/bin:/bin", CLAUDE_CONFIG_DIR: config, HOME: root, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+            ODYSSEUS_FLAG_SETTINGS: JSON.stringify(params.options.settings ?? {}) } });
         child.once("exit", () => { workerExited = true; order.push("worker-exited-and-state-persisted"); });
         return child;
       } } });
     }) as typeof query;
     const backend = createClaudeBackend({ brainPath: brain, queryFn, log() {}, workerState: { allowanceBytes: 4 * 1024 ** 2, budgetBytes: 4 * 1024 ** 2 } });
     let app: Awaited<ReturnType<typeof createFixtureApp>> | undefined;
+    // A strict turn's copied view stands in for its relay's attested route inputs (#3314).
+    const restoreRouteInputs = standInFixtureRouteInputs();
     try {
       requireTurnFreeSpace(brain);
       app = await createFixtureApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: join(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test",
@@ -122,6 +131,6 @@ for (const mode of ["success-before-cancel", "error-before-cancel", "no-result",
       expect(journal?.summary.state, "FINAL_JOURNAL_RETAINED").toBe("complete");
       expect(frames.some(frame => frame.type === "turn_journal" && frame.turnId === result.turnId && frame.journal.state === "complete"), "FINAL_JOURNAL_RECEIPT_SCOPED_TO_CANCELLED_TURN").toBe(true);
       expect(order.indexOf("worker-exited-and-state-persisted")).toBeLessThan(order.indexOf(`result:${expected}`));
-    } finally { await app?.close(); rmSync(root, { recursive: true, force: true }); }
+    } finally { await app?.close(); restoreRouteInputs(); rmSync(root, { recursive: true, force: true }); }
   }, 30_000);
 }

@@ -164,7 +164,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:145-311`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:146-318`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -296,7 +296,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:75-303`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:76-310`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -2798,7 +2798,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:207-216`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:214-223`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
@@ -3190,9 +3190,10 @@ The backend supplies the origin before admission through the optional
 `AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
 Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
-recipient only on managed native storage, where the relay runs, and only when
-it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:175-176`). The turn's relay is
+recipient only when it can record what the turn is shown (`const recipient = options.exposures`,
+`packages/ui-server/src/brain/governed-turn.ts:182-183`). A turn whose startup
+view is not on managed native storage, where the relay runs, is refused before
+this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that

@@ -50,7 +50,7 @@ export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME, WORKER_PROVIDER_RELAY_D
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
 export { brainGitSync, CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, launchMaintenanceWorkerAsync, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
-export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, hasManagedNativeStorage } from "./server/worker-startup-view.js";
+export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, assertManagedTurnStartupView, UNMANAGED_TURN_STORAGE, hasManagedNativeStorage } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";
