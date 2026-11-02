@@ -14,7 +14,7 @@
  * Apify accounting as unavailable instead of counting zero.
  */
 import type { ApifyBudgetSource } from "../brain/turn-budgets.js";
-import type { ApifyLedger } from "@schlessera/brain/internal/apify";
+import type { ApifyLedger } from "@schlessera/brain-common/internal/apify";
 
 export function apifyBudgetSource(ledger: () => ApifyLedger, brain_id: string): ApifyBudgetSource {
   return (scope, now) => {

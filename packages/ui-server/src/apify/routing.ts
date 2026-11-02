@@ -1,4 +1,4 @@
-import type { ApifyProviderRouting } from "@schlessera/brain/internal/apify";
+import type { ApifyProviderRouting } from "@schlessera/brain-common/internal/apify";
 import { exposureConflicts, providerDeniedFolders, unsupportedProviderSelectors } from "../brain/governance-policy.js";
 
 /**

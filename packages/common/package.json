@@ -71,6 +71,11 @@
       "types": "./dist/provider-relay.d.ts",
       "default": "./dist/provider-relay.js"
     },
+    "./internal/apify": {
+      "bun": "./src/internal-apify.ts",
+      "types": "./dist/internal-apify.d.ts",
+      "default": "./dist/internal-apify.js"
+    },
     "./internal/apify-operations": {
       "bun": "./src/apify-operations.ts",
       "types": "./dist/apify-operations.d.ts",

@@ -10,13 +10,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
-import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "@schlessera/brain/internal/apify";
-import { ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy, type ApifyCallContext, type ApifyConsent } from "@schlessera/brain/internal/apify";
-import { openApifyLedger, utcDay, type ApifyLedger } from "@schlessera/brain/internal/apify";
-import { qualifyProfile, type ApifyQualifiedProfile } from "@schlessera/brain/internal/apify";
+import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "@schlessera/brain-common/internal/apify";
+import { ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy, type ApifyCallContext, type ApifyConsent } from "@schlessera/brain-common/internal/apify";
+import { openApifyLedger, utcDay, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
+import { qualifyProfile, type ApifyQualifiedProfile } from "@schlessera/brain-common/internal/apify";
 import {
   APIFY_COVERAGE, ApifyRunError, createApifyRequestMeter, createApifyRuns, governanceApifyRunPolicy, type ApifyRuns, type ApifyRunsOptions,
-} from "@schlessera/brain/internal/apify";
+} from "@schlessera/brain-common/internal/apify";
 import { SEA_CHARTS_PRICING, SEA_CHARTS_SCHEMA, seaChartsProfile } from "./fixtures/apify-odysseus.js";
 
 const SENTINEL = "apify_api_ODYSSEUS_SENTINEL_0f1e2d3c";

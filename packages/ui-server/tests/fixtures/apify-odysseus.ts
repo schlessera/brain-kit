@@ -3,8 +3,8 @@
  * imaginary `odysseus/sea-charts` build. Every id, price and origin is
  * invented for tests; nothing here describes a real Actor or tariff.
  */
-import { canonicalJson, sha256 } from "@schlessera/brain/internal/apify";
-import type { ApifyQualifiedProfile } from "@schlessera/brain/internal/apify";
+import { canonicalJson, sha256 } from "@schlessera/brain-common/internal/apify";
+import type { ApifyQualifiedProfile } from "@schlessera/brain-common/internal/apify";
 
 export const SEA_CHARTS_SCHEMA = {
   title: "Sea charts input", type: "object", schemaVersion: 1,

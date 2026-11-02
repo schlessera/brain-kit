@@ -1,6 +1,6 @@
 /**
  * Host-owned Apify enablement, token authentication and account binding
- * (#3159, [the contract](../../../../../docs/decisions/apify-capability.md)).
+ * (#3159, [the contract](../../../../docs/decisions/apify-capability.md)).
  *
  * Four facts decide whether the host may make a new Apify request, and none
  * implies another: the governance policy enables the provider
@@ -31,7 +31,7 @@
  * still belongs to the binding's account. Without that, the run stays unresolved.
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
-import { checkGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { checkGovernancePolicy } from "../governance-policy.js";
 
 /** The host settings key holding {@link ApifyAuthorityRecord}. */
 export const APIFY_AUTHORITY_SETTING = "apify.authority";

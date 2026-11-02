@@ -357,9 +357,13 @@ These choices apply the selected contract to the CLI, the core MCP server and
 both chat backends; none widens it.
 
 - **One implementation.** The authority, consent, ledger, profile and run
-  modules live in core (`@schlessera/brain/internal/apify`), so `brain apify`,
-  the `brain_apify_*` MCP tools and the hosted bridge validate the same strict
-  schemas and call the same functions. The host supplies only what it alone
+  modules and the one dispatcher live in
+  `@schlessera/brain-common/internal/apify`, so `brain apify`, the
+  `brain_apify_*` MCP tools and the hosted bridge validate the same strict
+  schemas and call the same functions. The contract names core as their
+  owner; they sit in the shared common package because the UI server reaches
+  core only as an optional peer and must load without it. Core keeps the
+  standalone glue (`@schlessera/brain/internal/apify`). The host supplies only what it alone
   knows: the authenticated turn, its approval surface, provider-folder
   routing, inference spend and session taint.
 - **Voice and autonomous memberships do not expand.** Consent never prompts

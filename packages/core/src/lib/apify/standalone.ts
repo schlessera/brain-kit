@@ -22,16 +22,14 @@
  * UTC day, so turn-scoped limits renew daily. Candidates and proposals live in
  * the ledger, so one invocation can inspect what an earlier one discovered.
  */
-import { realpathSync } from "node:fs";
 import { resolveEnv } from "../../config/env.js";
 import { isAbsolute } from "node:path";
 import type { ApifyEnvelope, ApifyOperation } from "@schlessera/brain-common/internal/apify-operations";
-import { createApifyAuthority, governanceApifyPolicy, type ApifyAuthority, type ApifyStatus } from "./authority.js";
-import { sha256 } from "./canonical.js";
-import { createApifyConsent, governanceApifyConsentPolicy, ledgerConsentState, type ApifyCallContext } from "./consent.js";
-import { ApifyLedgerUnavailable, openApifyLedger, utcDay, type ApifyLedger } from "./ledger.js";
-import { apifyRefusal, callApifyOperation, ApifyOperationRefusal } from "./operations.js";
-import { createApifyRequestMeter, createApifyRuns, governanceApifyRunPolicy, type ApifyRuns } from "./runs.js";
+import {
+  apifyBrainId, apifyRefusal, ApifyLedgerUnavailable, ApifyOperationRefusal, callApifyOperation, createApifyAuthority, createApifyConsent,
+  createApifyRequestMeter, createApifyRuns, governanceApifyConsentPolicy, governanceApifyPolicy, governanceApifyRunPolicy, ledgerConsentState,
+  openApifyLedger, utcDay, type ApifyAuthority, type ApifyCallContext, type ApifyLedger, type ApifyRuns, type ApifyStatus,
+} from "@schlessera/brain-common/internal/apify";
 
 /** The environment variable naming the shared ledger file. */
 export const APIFY_LEDGER_ENV = "BRAIN_APIFY_LEDGER";
@@ -40,13 +38,6 @@ export const APIFY_LOCAL_PRINCIPAL = "local";
 /** The ledger setting holding a standalone process's account binding. */
 export const APIFY_STANDALONE_AUTHORITY_SETTING = "authority:standalone";
 const SESSION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
-
-/** One brain's stable identity in the ledger, the same for the server and the CLI on that brain. */
-export function apifyBrainId(root: string): string {
-  let canonical = root;
-  try { canonical = realpathSync(root); } catch { /* a missing brain keeps its spelling */ }
-  return sha256(`brain:${canonical}`).slice(0, 32);
-}
 
 export interface StandaloneApifyOptions {
   root: string;
@@ -69,6 +60,8 @@ export interface StandaloneApify {
   confirmAccount(accountId: string): Promise<ApifyStatus>;
   close(): void;
 }
+
+export { apifyBrainId };
 
 export function createStandaloneApify(options: StandaloneApifyOptions): StandaloneApify {
   // The process environment is read in core's one chokepoint; tests pass their own.

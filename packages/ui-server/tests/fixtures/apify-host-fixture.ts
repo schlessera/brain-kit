@@ -7,7 +7,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createApifyAuthority, governanceApifyPolicy, qualifyProfile, type ApifyAuthority, type ApifyAuthorityRecord } from "@schlessera/brain/internal/apify";
+import { createApifyAuthority, governanceApifyPolicy, qualifyProfile, type ApifyAuthority, type ApifyAuthorityRecord } from "@schlessera/brain-common/internal/apify";
 import { createApifyHost, type ApifyHost } from "../../src/apify/host.js";
 import { SEA_CHARTS_PRICING, SEA_CHARTS_SCHEMA, seaChartsProfile } from "./apify-odysseus.js";
 

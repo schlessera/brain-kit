@@ -1,6 +1,6 @@
 /**
  * Apify catalog discovery and concrete Actor consent (#3160,
- * [the contract](../../../../../docs/decisions/apify-capability.md)).
+ * [the contract](../../../../docs/decisions/apify-capability.md)).
  *
  * Four independent facts stand between a model and a remote Actor run, and
  * none implies another: the provider is enabled and authenticated (#3159,
@@ -43,7 +43,7 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { APIFY_LIMIT_BOUNDS, APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { APIFY_LIMIT_BOUNDS, APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "../governance-policy.js";
 import { APIFY_API_ORIGIN, APIFY_MCP_ORIGIN, type ApifyAuthority, type ApifyBinding } from "./authority.js";
 import type { ApifyLedger } from "./ledger.js";
 import { canonicalJson, sha256 } from "./canonical.js";

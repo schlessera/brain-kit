@@ -30,7 +30,7 @@ import {
   governanceApifyRunPolicy, openApifyLedger,
   type ApifyAbortView, type ApifyApprovalSurface, type ApifyAuthority, type ApifyCallContext, type ApifyConsent, type ApifyInferenceSpend,
   type ApifyLedger, type ApifyQualifiedProfile, type ApifyRuns,
-} from "@schlessera/brain/internal/apify";
+} from "@schlessera/brain-common/internal/apify";
 import type { ProviderExposure } from "../brain/governance-policy.js";
 import { APIFY_PROVIDER_ROUTING } from "./routing.js";
 

@@ -9,11 +9,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
-import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "@schlessera/brain/internal/apify";
+import { ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy, type ApifyAuthority } from "@schlessera/brain-common/internal/apify";
 import {
   APIFY_DISCOVERY_LIMITS, ApifyConsentError, ApifyInputError, createApifyConsent, governanceApifyConsentPolicy,
   type ApifyCallContext, type ApifyConsent, type ApifyQualifiedProfile, type ApifyRunTicket,
-} from "@schlessera/brain/internal/apify";
+} from "@schlessera/brain-common/internal/apify";
 import { seaChartsProfile } from "./fixtures/apify-odysseus.js";
 import { APIFY_PROVIDER_ROUTING } from "../src/apify/routing.js";
 

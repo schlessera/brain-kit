@@ -1,6 +1,6 @@
 /**
  * The Apify run ledger (#3161,
- * [the contract](../../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)).
+ * [the contract](../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)).
  *
  * Private operational evidence, never `brain.db`, never Markdown and never a
  * worker file: one SQLite file outside every brain, owned by the host user

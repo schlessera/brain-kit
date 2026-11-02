@@ -15,7 +15,7 @@
  */
 import {
   APIFY_INPUT_SCHEMAS, type ApifyEnvelope, type ApifyErrorCode, type ApifyOperation,
-} from "@schlessera/brain-common/internal/apify-operations";
+} from "../apify-operations.js";
 import { ApifyAuthorityError } from "./authority.js";
 import { ApifyConsentError, ApifyInputError, type ApifyCallContext, type ApifyConsent } from "./consent.js";
 import { ApifyLedgerRefusal, ApifyLedgerUnavailable } from "./ledger.js";

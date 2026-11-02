@@ -274,7 +274,7 @@ private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
 `@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
-`@schlessera/brain-common/internal/apify-operations` (additive, #3162),
+`@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,

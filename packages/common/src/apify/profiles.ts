@@ -1,6 +1,6 @@
 /**
  * Qualified Apify batch profiles (#3161,
- * [the contract](../../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)).
+ * [the contract](../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)).
  *
  * A profile is concrete, reviewed integration data for one exact Actor build.
  * It is not an extension seam: profiles are code in this package. A build

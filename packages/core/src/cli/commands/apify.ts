@@ -1,7 +1,7 @@
 import { APIFY_OPERATIONS, type ApifyEnvelope, type ApifyOperation } from "@schlessera/brain-common/internal/apify-operations";
-import { ApifyAuthorityError } from "../../lib/apify/authority.js";
-import { ApifyLedgerUnavailable } from "../../lib/apify/ledger.js";
-import { ApifyOperationRefusal } from "../../lib/apify/operations.js";
+import { ApifyAuthorityError } from "@schlessera/brain-common/internal/apify";
+import { ApifyLedgerUnavailable } from "@schlessera/brain-common/internal/apify";
+import { ApifyOperationRefusal } from "@schlessera/brain-common/internal/apify";
 import { createStandaloneApify, type StandaloneApify } from "../../lib/apify/standalone.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 import type { CoreCommand } from "../types.js";

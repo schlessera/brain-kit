@@ -13,7 +13,7 @@ import type { Principal } from "../src/db/principals.js";
 import {
   ApifyAuthorityError, createApifyAuthority, governanceApifyPolicy,
   type ApifyAuthority, type ApifyAuthorityRecord,
-} from "@schlessera/brain/internal/apify";
+} from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "../src/routes/apify.js";
 
 const SENTINEL = "apify_api_ODYSSEUS_SENTINEL_0f1e2d3c";

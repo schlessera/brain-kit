@@ -1,6 +1,6 @@
 /**
  * The trusted Apify run service (#3161,
- * [the contract](../../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)):
+ * [the contract](../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)):
  * reservation, dispatch, bounded waiting, results, abort, settlement and
  * reconciliation of qualified batch runs.
  *
@@ -31,7 +31,7 @@
  * #3163. Detailed accounting is internal side-channel data: callers pass
  * models only the facts in {@link ApifyRunView}.
  */
-import { checkGovernancePolicy, type ApifyLimits } from "@schlessera/brain-common/internal/governance-policy";
+import { checkGovernancePolicy, type ApifyLimits } from "../governance-policy.js";
 import { ApifyAuthorityError, type ApifyAuthority, type ApifyBinding } from "./authority.js";
 import { sha256 } from "./canonical.js";
 import { APIFY_DISCOVERY_LIMITS, ApifyInputError, type ApifyCallContext, type ApifyConsent, type ApifyRequestMeter, type ApifyRunTicket } from "./consent.js";
