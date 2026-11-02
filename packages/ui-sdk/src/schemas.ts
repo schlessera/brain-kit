@@ -82,6 +82,7 @@ import type {
   ServerLocationRequest,
   ServerMaskRequest,
   ServerMessage,
+  ServerChatRetired,
   DialogueEvidence, DialogueRecord, DialoguePage, ClientDialogueRead, ServerDialogueHistory,
   ServerResultMessage,
   MessageBlock,
@@ -1884,6 +1885,13 @@ export const serverSessionQueueSchema = z.looseObject({
     .optional(),
 }) satisfies z.ZodType<ServerSessionQueue>;
 
+export const serverChatRetiredSchema = z.looseObject({
+  type: z.literal("chat_retired"),
+  sessionId: id.optional(),
+  historyOwnerIds: z.array(id).max(256),
+  generation: z.number().int().min(1),
+}) satisfies z.ZodType<ServerChatRetired>;
+
 export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),sessionId:id.optional(),turnId:id,
   usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
@@ -1898,6 +1906,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverScopeDecisionReceiptSchema,
   serverTurnJournalSchema,
   serverUsageSchema,
+  serverChatRetiredSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,
