@@ -120,7 +120,7 @@ function approval(t: RunningTurn, kind = "edit"): { entry: PendingApproval; deci
       turn: t,
       turnId: t.turnId,
       request: { toolUseId: "tu1", toolName: "Edit", kind, input: {} },
-      resolve: (decision, response) => { decisions.push({ decision, response }); },
+      resolve: (decision: unknown, response: unknown) => { decisions.push({ decision, response }); },
     } as unknown as PendingApproval,
   };
 }
@@ -247,8 +247,8 @@ describe("local_exchange", () => {
 describe("scope_decision", () => {
   test("refuses on a host without a scope service", async () => {
     const h = harness();
-    await handleScopeDecision(h.ctx, frame({ type: "scope_decision", sessionId: "s1", turnId: "t1", decisionId: "d1" }));
-    expect(h.sent).toEqual([{ type: "scope_decision_receipt", sessionId: "s1", turnId: "t1", decisionId: "d1",
+    await handleScopeDecision(h.ctx, frame({ type: "scope_decision", sessionId: "s1", turnId: "t1", eventId: "e1", submissionId: "sub1", action: "continue" }));
+    expect(h.sent).toMatchObject([{ type: "scope_decision_receipt", sessionId: "s1", turnId: "t1", eventId: "e1", submissionId: "sub1",
       state: "refused", reason: "This host cannot answer scope decisions." }]);
   });
 });
