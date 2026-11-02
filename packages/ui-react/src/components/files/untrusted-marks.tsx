@@ -133,7 +133,8 @@ export function UntrustedMarksProvider({ children }: { children: ReactNode }) {
   return (
     <Marks.Provider value={value}>
       {children}
-      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-untrusted-announcer="">{message}</span>
+      {/* A polite live region without the status role: the viewer's own `File status` stays the surface's one status. */}
+      <span className="sr-only" aria-live="polite" aria-atomic="true" data-untrusted-announcer="">{message}</span>
     </Marks.Provider>
   );
 }
@@ -376,7 +377,9 @@ export function useUntrustedToolbar(filePath: string | null, loaded: boolean, fi
 /** The entry row that replaces the disabled `Untrusted only` filter. Hidden on a server without marks. */
 export function MarkedUntrustedEntry({ onOpen, entryRef }: { onOpen(): void; entryRef?: RefObject<HTMLButtonElement | null> }) {
   const marks = useUntrustedMarks();
-  if (!marks || marks.list.status === "unsupported") return null;
+  // Drawn once the host answered: a row that appeared and then vanished on an
+  // unsupported server would take focus with it.
+  if (!marks || marks.list.status === "unsupported" || marks.list.status === "loading") return null;
   const count = marks.list.status === "ready" ? marks.list.marks.length : null;
   const name = count === null ? "Marked untrusted" : `Marked untrusted, ${count === 0 ? "no files" : count === 1 ? "1 file" : `${count} files`}`;
   return (
