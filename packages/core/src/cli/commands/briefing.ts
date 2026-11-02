@@ -21,6 +21,7 @@ import { filterSearch } from "../../lib/search-engine.js";
 import { resolveStatsThresholds } from "../../lib/stats.js";
 import { readStatsTrends } from "../../lib/stats-trends.js";
 import type { CoreCommand } from "../types.js";
+import { positiveIntegerFlag } from "../flags.js";
 import { parseArgs, UsageError } from "../io.js";
 
 function addDays(dateStr: string, days: number): string {
@@ -326,7 +327,7 @@ export const briefingCommand: CoreCommand = {
   --limit-reviews <n>     Overdue reviews to list before "… and N more" (default: 5)`,
   async run(args, cli) {
     const { flags } = parseArgs(args);
-    const limit = parseInt(flags.limit as string, 10) || 15;
+    const limit = positiveIntegerFlag(flags, "limit") ?? 15;
     let reviewLimit: number | undefined;
     if (flags["limit-reviews"] !== undefined) {
       reviewLimit = typeof flags["limit-reviews"] === "string" ? Number(flags["limit-reviews"]) : NaN;
