@@ -1097,14 +1097,17 @@ installation is absent or skewed.
 
 ## Extension interfaces
 
-These eleven seams are `@experimental` until 1.0: breaking changes are
+These thirteen seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
 own `@experimental` tag. Related experimental declarations include:
 `BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
 `SpeechSession`, `AsrClientOptions`, `AsrClientFactory`, `AsrClientRegistry`, `LiveConversationSession`,
 `LiveConversationEvent`, `ConversationScope`, `ConversationWorkRef`, `ConversationWorkResult`, `AdapterResult`, `ScrapeContext`,
 `RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
-`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
+`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome`, jobs `JobAdapter`,
+and the types the `ComputeProvider` seam is made of (`ComputeCapabilities`,
+`ComputeContext`, the outcome unions, `JobCost` and the rest listed under
+[external compute](#external-compute-seam-additive-3105)).
 [#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
 public signatures, including their reachable types, for 1.0 stability; the
 [package entry points](#package-entry-points) section states the boundary.
@@ -1131,6 +1134,7 @@ optional parameter does not change the server-owned `applyImageMask` route.
 | `AgentRunner` | `@schlessera/brain` |
 | `SkillEmitter` | `@schlessera/brain` |
 | `Reranker` | `@schlessera/brain` |
+| `ComputeProvider` | `@schlessera/brain` |
 | `AgentBackend` | `@schlessera/brain-ui-sdk/server` |
 | `SpeechProvider` | `@schlessera/brain-ui-sdk/server` |
 | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
@@ -1141,6 +1145,40 @@ optional parameter does not change the server-owned `applyImageMask` route.
 
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
+
+<a id="external-compute-seam-additive-3105"></a>
+
+### External compute seam (additive, #3105)
+
+`@schlessera/brain` exports `ComputeProvider` and `defineComputeProvider`,
+with the experimental types the seam is made of: `ComputeCapabilities`,
+`ComputeContext`, `ComputeLogger`, `ComputeOptionsSchema`, `ComputeJsonValue`,
+`ComputeRefusalCode`, `ComputeHealth`, `ComputeRefused`, `ComputeFailed`,
+`ComputeUncertain`, `ComputeExitReason`, `AllocationKey`, `SandboxRef`,
+`CommandHandle`, `AllocateRequest`, `SourceBundle`, `CommandSpec`,
+`ArtifactRequest`, `CostObservation`, `AllocateOutcome`, `FindOutcome`,
+`StageOutcome`, `ExecOutcome`, `CommandStatus`, `KillOutcome`,
+`CollectedArtifact`, `CollectOutcome`, `ReleaseOutcome` and `JobCost`.
+`@schlessera/brain/testing` adds `runComputeProviderContract` and
+`runComputeLifecycleContract` with their harness types.
+
+The `brain.config` key `compute.providers` selects instances by explicit id
+([configuration](../configuration.md#compute)); its absence keeps every
+compute operation except health refused with `compute_disabled`. The twelve
+refusal codes are the stable `ComputeRefusalCode` values. The environment
+inputs `BRAIN_COMPUTE_STATE_DIR` and `XDG_STATE_HOME` place the compute state
+directory, which must lie outside the brain checkout and is never `brain.db`.
+The built-in name `boat` is reserved for the separate
+`@schlessera/brain-compute-boat` package; until it ships, an instance naming it
+is `provider_unavailable`, and that package's exports will be its own
+component.
+
+The job lifecycle, store and reconciliation are first-party sharing through
+`@schlessera/brain/internal` with no compatibility promise; the CLI and MCP
+operations and their JSON shapes are specified with their own component when
+they ship. [The decision](../decisions/external-compute.md) is the contract
+design and [the guide](../extending/compute-providers.md) the authoring
+reference.
 
 <a id="dictation-speech-integration-and-conformance"></a>
 

@@ -594,6 +594,54 @@ modes remain available. The approved behavior change is recorded in
 [decisions/reranker-activation.md](decisions/reranker-activation.md). See [extending/rerankers.md](extending/rerankers.md) for the
 interface, the measurements and how to add your own.
 
+## `compute`
+
+External compute: named provider instances that can allocate a disposable
+sandbox, run a command in it, return its results and release it. Absent by
+default. With no `compute` key there is no provider and no network access, and
+every compute operation except health refuses with `compute_disabled`. Nothing
+runs remotely unless a caller names an instance; no instance is a default.
+[decisions/external-compute.md](decisions/external-compute.md) is the contract.
+
+```ts
+compute: {
+  providers: {
+    "boat-small": {
+      provider: "boat",              // a built-in name, or a ComputeProvider value
+      apiKeyEnv: "BOAT_CI_KEY",      // the variable holding this instance's key
+      options: { machine: "small" }, // validated by the provider's own schema
+      lease: { maxSeconds: 3600 },   // required, finite
+      maxConcurrent: 2,
+      hourlyCeilingUsd: 0.1,
+    },
+    "ithaca-host": {
+      provider: sshCompute({ host: "ithaca.example", workRoot: "/srv/jobs" }), // hypothetical package
+      lease: { maxSeconds: 1800 },
+    },
+  },
+},
+```
+
+| Key | Meaning |
+| --- | --- |
+| `providers.<id>` | One instance. The id is lowercase letters, digits and hyphens, at most 63 characters, and is what a caller names. Two instances of one implementation keep separate options and keys. |
+| `provider` | `"boat"` (reserved for the separate `@schlessera/brain-compute-boat` package, loaded only when an instance names it; until that package ships the instance is `provider_unavailable`) or a `ComputeProvider` value. An unknown name is `provider_unknown`; a missing package, an unset key or options the provider rejects make the instance `provider_unavailable`. |
+| `apiKeyEnv` | The environment variable name holding the instance's key. The key never appears in config, job records, receipts, tool arguments, results or the sandbox environment. Without it a built-in reads its own default variable. |
+| `options` | Opaque to core; validated by the implementation's `configSchema`. |
+| `lease.maxSeconds` | Required. The longest lease a job on this instance may hold, at most seven days and never more than the provider's own ceiling. A job asks for this lease unless it names a shorter one. |
+| `maxConcurrent` | Jobs at once on this instance, counting finished jobs whose cleanup has not been confirmed. Default 1. |
+| `hourlyCeilingUsd` | Optional. When set, admission reserves `ceiling × lease` against the host's budgets. When absent the job runs with its cost recorded as unknown, bounded by the lease and the concurrency cap. |
+| `retainOnRelease` | Release keeps the sandbox's data for the provider's retention limit instead of discarding it. Refused when the provider cannot retain. |
+
+Job records, leases, reservations and collected artifacts live in a compute
+state directory outside the brain checkout and outside `brain.db`: by default
+`$XDG_STATE_HOME/brain/compute/<brain key>/` (`~/.local/state` when unset), or
+`BRAIN_COMPUTE_STATE_DIR`. It is deliberately not a config key: the brain is
+agent-editable. A state directory inside the brain is refused. `brain index
+--force` neither reads nor rebuilds it. See
+[extending/compute-providers.md](extending/compute-providers.md) for the job
+lifecycle and how to write a provider.
+
 ## `graph`
 
 `graph.root` is a repository-relative document path from which the knowledge
@@ -903,6 +951,8 @@ the capability you need and read its command's requirements.
 | `BRAIN_RERANK_MODE` | search | Selects `jev`, `heuristic` or `none`. An explicit `--rerank` still wins; neither can enable model judgment while `reranker.enabled` is false. |
 | `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Model search also requires `reranker.enabled: true`; absent key → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
+| `BRAIN_COMPUTE_STATE_DIR` | external compute | Absolute directory for compute job records and artifacts, outside the brain checkout. Default `$XDG_STATE_HOME/brain/compute/<brain key>`. |
+| `XDG_STATE_HOME` | external compute | Base of the default compute state directory. Default `~/.local/state`. |
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
 | `CHROME_CDP_URL` | jobs scraping | Retained alias for `SCRAPE_CHROME_URL`; the latter wins when both are set. Without an endpoint the shared scraper can launch its own browser. |

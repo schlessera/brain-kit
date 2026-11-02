@@ -29,6 +29,7 @@ to touch `process.env`.
 | `ANTHROPIC_API_KEY` | Default API key for the built-in Anthropic completion provider (default name only — a config `apiKeyEnv` can point elsewhere). | — |
 | `BRAIN_AGENT_RUNNER_UNAVAILABLE` | Internal: set to `1` by the worker launcher in a credential-free maintenance worker, such as the one hosted `brain sync` runs in, where no agent can log in. The configured agent runner is then treated as absent: bare `brain sync` hands nothing to an agent and reports that judgment is unavailable, so a conflict it leaves is resolved by hand; set by the worker launcher, not an operator input. | the configured agent runner is used |
 | `BRAIN_CHROME_NO_SANDBOX` | "1" launches the render Chrome without its sandbox (required when running as root). | sandbox on |
+| `BRAIN_COMPUTE_STATE_DIR` | Absolute directory for external compute job records, leases, reservations and artifacts. Must lie outside the brain checkout; it is never in brain.config because the brain is agent-editable. | $XDG_STATE_HOME/brain/compute/<brain key> |
 | `BRAIN_PROVIDER_RELAY_SOCKET` | Internal: absolute path of the server's provider relay socket in a governed or strict agent worker or a relayed maintenance worker. A built-in Gemini, Anthropic or OpenAI image provider whose key the server withheld sends its native request there, and the server adds the key, meters the request and refuses it once a budget is blocked; set by the worker launcher, not an operator input. | no relay; a provider uses its key from the environment |
 | `BRAIN_RERANK_MODE` | Search reranker mode: "jev", "heuristic" or "none". Overrides the configured `reranker.provider`; an explicit --rerank still wins. Cannot enable model reranking: reranker.enabled must be true. | the configured provider when enabled and available, else heuristic |
 | `BRAIN_ROOT` | Brain repository root, overriding cwd-based discovery. | nearest ancestor with brain.config.* or .git, else cwd |
@@ -42,11 +43,13 @@ to touch `process.env`.
 | `NO_COLOR` | Any non-empty value suppresses ANSI color in CLI output. | — |
 | `TYPESAFE_API_KEY` | Default TypeSafe AI key for Jev: the built-in jev search reranker (default name only — a config `apiKeyEnv` can point elsewhere) and the judgments `brain sync` asks. Search also requires reranker.enabled: true. Absent key keeps the lifecycle (heuristic) search ordering, and every sync judgment takes its conservative default. | — |
 | `XDG_BIN_HOME` | Directory the `brain` CLI symlink is installed into. | ~/.local/bin |
+| `XDG_STATE_HOME` | Base directory for the default external compute state directory. | ~/.local/state |
 
 Reads whose variable *name* is configuration rather than code:
 
 | Name comes from | What the value is used for |
 | --- | --- |
+| brain.config `compute.providers.<id>.apiKeyEnv` | Credential for one external compute provider instance, read on the trusted host at call time and never forwarded into a sandbox, a job record or a result (default: the built-in's own name). |
 | brain.config `embeddings.apiKeyEnv` / `completions.apiKeyEnv` / `completions.fallbackApiKeyEnv` / `reranker.apiKeyEnv` | API key for a built-in provider or completion fallback, read at call time under whatever name the config declares (defaults: GEMINI_API_KEY, ANTHROPIC_API_KEY, TYPESAFE_API_KEY). |
 | call-time inherited environment snapshot (`inheritedEnv`) | Internal agent-CLI transport: copies the calling process's environment at spawn time and merges explicit overrides last. Unlike the UI's filtered subprocess environment, this snapshot is inherited in full; it does not make every inherited variable supported brain configuration. |
 

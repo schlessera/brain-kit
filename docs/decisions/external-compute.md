@@ -428,3 +428,54 @@ exercise.
 Each implementation updates its integration-contract component and adds a
 changeset in a `CONTRACT:` commit. All of them are additive. This record changes
 neither the contract nor any package.
+
+## Settled by #3105
+
+[#3105](https://github.com/schlessera/brain-kit/issues/3105) settled the
+choices "Still open" assigned to it, within the bounds above:
+
+- **Names.** The seam's types are those in the
+  [package component](../integration-contract/package-api.md#external-compute-seam-additive-3105).
+  `ComputeContext` also carries the instance's parsed `options`, so one
+  provider value serves several instances without sharing their settings. A
+  built-in package exports `computeProvider` and may export `defaultKeyEnv`.
+  The `boat` registry entry is reserved and reports `provider_unavailable`
+  without importing anything: core may not name a package it does not
+  declare, and that declaration is #3106's.
+- **State directory.** Standalone, `$XDG_STATE_HOME/brain/compute/<brain key>/`
+  (`~/.local/state` when unset), where the key is a hash of the brain's
+  canonical root. `BRAIN_COMPUTE_STATE_DIR` or a host option overrides it.
+  It is not a `brain.config` key, because the brain is agent-editable, and a
+  directory inside the checkout is refused.
+- **Serialisation.** Admission and each job are serialised by advisory locks
+  the kernel releases when their process dies, so a dead holder never needs
+  reclaiming and a live one is never mistaken for dead. A lock held past a
+  bounded wait refuses with `concurrency_exhausted`.
+- **Refusal mapping.** A lease above the provider's ceiling is
+  `capability_unsupported`; above the instance's `lease.maxSeconds`, or a
+  credential-shaped sandbox variable, is `policy_denied`; invalid instance
+  options are `provider_unavailable`. No code was added.
+- **Results.** Exit 0 with a declared artifact missing ends `failed` with the
+  reason `artifacts_missing`. A record's cleanup fact may also be `none`
+  (nothing was ever allocated) or `unknown` (an allocation may exist that
+  could not be located).
+- **Bounds without remote expiry.** A provider without `remoteExpiry` is
+  bounded only by the host. Standalone, a job whose process stopped is bounded
+  when it is next visited (status, cancel, collect or reconcile). Whether
+  `brain compute run` stays attached until the job ends is #3107's choice.
+- **A command that ended unseen.** Expiry and cancellation poll the command
+  once before killing it. One that had already exited keeps its real exit:
+  on expiry its artifacts are collected within the release allowance and
+  recorded `not_collected` after it, and its state follows its exit. Neither
+  can tell when it exited, because `CommandStatus` carries no time.
+- **Recovery for release.** A lost allocation on an idempotent provider whose
+  job is cancelled or expires gets one more allocate under the same key, only
+  to learn the reference and release it.
+- **Reconfigured instances.** A job records a hash of its instance's
+  implementation, `options` and credential variable. While the configured
+  instance hashes differently, the job gets no provider call and its status
+  and reconcile entry say why. Limits such as the lease, slots and ceiling are
+  outside the hash.
+- **Partial cost.** A usage report with `partial` coverage is recorded and not
+  settled, so the reservation stays held until a later report is complete.
+  Unknown coverage is recorded as `usd: null` whatever amount came with it.

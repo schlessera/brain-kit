@@ -67,6 +67,20 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "BRAIN_COMPUTE_STATE_DIR",
+    description:
+      "Absolute directory for external compute job records, leases, reservations and artifacts. " +
+      "Must lie outside the brain checkout; it is never in brain.config because the brain is agent-editable.",
+    default: "$XDG_STATE_HOME/brain/compute/<brain key>",
+    required: false,
+  },
+  {
+    name: "XDG_STATE_HOME",
+    description: "Base directory for the default external compute state directory.",
+    default: "~/.local/state",
+    required: false,
+  },
+  {
     name: "XDG_BIN_HOME",
     description: "Directory the `brain` CLI symlink is installed into.",
     default: "~/.local/bin",
@@ -134,6 +148,12 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "TYPESAFE_API_KEY).",
   },
   {
+    source: "brain.config `compute.providers.<id>.apiKeyEnv`",
+    description:
+      "Credential for one external compute provider instance, read on the trusted host at call time " +
+      "and never forwarded into a sandbox, a job record or a result (default: the built-in's own name).",
+  },
+  {
     source: "call-time inherited environment snapshot (`inheritedEnv`)",
     description:
       "Internal agent-CLI transport: copies the calling process's environment " +
@@ -163,6 +183,10 @@ export interface CoreEnv {
   typesafeApiKey: string | undefined;
   /** BRAIN_AGENT_RUNNER_UNAVAILABLE is truthy: this worker can run no agent, whatever the brain configures. */
   agentRunnerUnavailable: boolean;
+  /** BRAIN_COMPUTE_STATE_DIR, or undefined for the default under the state home. */
+  computeStateDir: string | undefined;
+  /** XDG_STATE_HOME with the ~/.local/state fallback applied. */
+  stateHome: string;
 }
 
 /**
@@ -190,6 +214,8 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
     typesafeApiKey: env.TYPESAFE_API_KEY?.trim() || undefined,
     agentRunnerUnavailable: envFlag(env.BRAIN_AGENT_RUNNER_UNAVAILABLE, false),
+    computeStateDir: env.BRAIN_COMPUTE_STATE_DIR || undefined,
+    stateHome: env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
   };
 }
 

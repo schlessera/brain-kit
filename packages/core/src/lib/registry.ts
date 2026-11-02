@@ -8,7 +8,7 @@
  */
 
 import type { BrainConfig } from "./config.js";
-import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
+import type { AgentRunner, CompletionProvider, ComputeProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { readEnvVar, resolveEnv } from "../config/env.js";
 import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
@@ -412,4 +412,121 @@ export function rerankSetup(
         }
       : {},
   };
+}
+
+// ---------------------------------------------------------------------------
+// External compute (docs/decisions/external-compute.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * A built-in compute provider: a first-party package loaded only when an
+ * instance names it, so vendor transport never ships inside core. `load`
+ * rejects when the package is not installed; the instance is then
+ * unavailable, never silently replaced.
+ */
+export interface ComputeBuiltin {
+  load(): Promise<{ provider: ComputeProvider; keyEnv?: string }>;
+}
+
+/**
+ * Load a built-in's package by specifier. The package exports
+ * `computeProvider` (a ComputeProvider) and may export `defaultKeyEnv`, the
+ * variable an instance without `apiKeyEnv` reads. The specifier is a value,
+ * not a literal, so the compiler resolves no package core does not declare.
+ */
+export async function loadComputePackage(specifier: string): Promise<{ provider: ComputeProvider; keyEnv?: string }> {
+  const mod = (await import(specifier)) as { computeProvider?: ComputeProvider; defaultKeyEnv?: unknown };
+  if (!mod.computeProvider || typeof mod.computeProvider !== "object") {
+    throw new Error(`${specifier} does not export a computeProvider`);
+  }
+  return {
+    provider: mod.computeProvider,
+    keyEnv: typeof mod.defaultKeyEnv === "string" ? mod.defaultKeyEnv : undefined,
+  };
+}
+
+/**
+ * `boat` is reserved for the separate first-party Boat package. Until that
+ * package and core's declaration of it ship, naming it leaves the instance
+ * `provider_unavailable`; nothing is imported.
+ */
+export const COMPUTE_PROVIDERS: Record<string, ComputeBuiltin> = {
+  boat: {
+    load: () =>
+      Promise.reject(new Error("it ships as the separate package @schlessera/brain-compute-boat, which this release does not include yet")),
+  },
+};
+
+type ComputeInstanceConfig = NonNullable<BrainConfig["compute"]>["providers"][string];
+
+/** One configured provider instance, resolved for this host: its own options and its own secret. */
+export interface ResolvedComputeInstance {
+  id: string;
+  provider: ComputeProvider;
+  /** `options` as the provider's configSchema parsed them. */
+  options: unknown;
+  /** The credential, when one is configured. Never written anywhere. */
+  secret?: string;
+  /** The variable the secret came from, so the host can refuse to forward it. */
+  keyEnv?: string;
+  config: ComputeInstanceConfig;
+}
+
+export type ComputeInstanceResolution =
+  | { ok: true; instance: ResolvedComputeInstance }
+  | { ok: false; code: "provider_unknown" | "provider_unavailable"; reason: string };
+
+/**
+ * Resolve one `compute.providers` entry. A string names a built-in, loaded
+ * lazily; a value is used as-is. A built-in whose package is absent, a
+ * credential that is configured but unset, or options the provider's schema
+ * rejects make the instance unavailable. Two instances of one implementation
+ * get separate options and secrets.
+ */
+export async function resolveComputeInstance(
+  id: string,
+  entry: ComputeInstanceConfig,
+  deps: { env?: NodeJS.ProcessEnv; registry?: Record<string, ComputeBuiltin> } = {}
+): Promise<ComputeInstanceResolution> {
+  const registry = deps.registry ?? COMPUTE_PROVIDERS;
+  let provider: ComputeProvider;
+  let builtinKeyEnv: string | undefined;
+  if (typeof entry.provider === "string") {
+    const builtin = Object.hasOwn(registry, entry.provider) ? registry[entry.provider] : undefined;
+    if (!builtin) {
+      return { ok: false, code: "provider_unknown", reason: unknownMessage("compute provider", entry.provider, registry, "ComputeProvider") };
+    }
+    try {
+      ({ provider, keyEnv: builtinKeyEnv } = await builtin.load());
+    } catch (error) {
+      return {
+        ok: false,
+        code: "provider_unavailable",
+        reason: `compute provider "${entry.provider}" is unavailable: ${(error as Error).message}`,
+      };
+    }
+  } else {
+    provider = entry.provider;
+  }
+  const keyEnv = entry.apiKeyEnv ?? builtinKeyEnv;
+  let secret: string | undefined;
+  if (keyEnv !== undefined) {
+    secret = readEnvVar(keyEnv, deps.env)?.trim() || undefined;
+    if (secret === undefined) {
+      return { ok: false, code: "provider_unavailable", reason: `compute instance "${id}" needs its credential in ${keyEnv}, which is not set` };
+    }
+  }
+  let options: unknown = entry.options ?? {};
+  if (provider.configSchema) {
+    const parsed = provider.configSchema.safeParse(options);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        code: "provider_unavailable",
+        reason: `compute instance "${id}" has invalid options for "${provider.id}": ${parsed.error?.message ?? "rejected by its schema"}`,
+      };
+    }
+    options = parsed.data;
+  }
+  return { ok: true, instance: { id, provider, options, secret, keyEnv, config: entry } };
 }

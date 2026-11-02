@@ -50,6 +50,7 @@ describe("config/env descriptor", () => {
         "ANTHROPIC_API_KEY",
         "BRAIN_AGENT_RUNNER_UNAVAILABLE",
         "BRAIN_CHROME_NO_SANDBOX",
+        "BRAIN_COMPUTE_STATE_DIR",
         "BRAIN_PROVIDER_RELAY_SOCKET",
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",
@@ -63,6 +64,7 @@ describe("config/env descriptor", () => {
         "NO_COLOR",
         "TYPESAFE_API_KEY",
         "XDG_BIN_HOME",
+        "XDG_STATE_HOME",
       ].sort()
     );
   });
