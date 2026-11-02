@@ -160,7 +160,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityStream (packages/ui-server/src/activity/stream.ts)
     export interface ActivityStream {
-        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string): void;
+        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string, compute?: boolean): void;
         handleUnsubscribe(ws: WSContext, msg: ClientActivityUnsubscribe): void;
         dropConnection(ws: WSContext): void;
         dropFor(principalId: string): void;
@@ -668,6 +668,7 @@ signatures (every public export and the types it is made of)
         readonly outward_action: {
             payload: z.ZodObject<{
                 action: z.ZodEnum<{
+                    compute_run: "compute_run";
                     gh_write: "gh_write";
                     git_push: "git_push";
                     http_write: "http_write";
@@ -1011,6 +1012,7 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
+                    compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     mcp_document: "mcp_document";
@@ -1726,6 +1728,11 @@ signatures (every public export and the types it is made of)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
+        compute?: {
+            keys: Readonly<Record<string, readonly string[]>>;
+            stateDir: string | null;
+            workerEnvExtra: readonly string[];
+        };
         storage?: {
             backupRoots: readonly string[];
             gitRoots: readonly string[];
@@ -1871,7 +1878,7 @@ signatures (every public export and the types it is made of)
   SpanKind (packages/ui-server/src/activity/store.ts)
     export type SpanKind = "turn" | "tool" | "subagent" | "cron";
   SpanOrigin (packages/ui-server/src/activity/store.ts)
-    export type SpanOrigin = "session" | "cron" | "autonomous";
+    export type SpanOrigin = "session" | "cron" | "autonomous" | "compute";
   SpanOutcome (packages/ui-server/src/activity/store.ts)
     export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
   SpanRow (packages/ui-server/src/activity/store.ts)

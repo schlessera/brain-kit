@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:666-671`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:668-673`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1335,9 +1335,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:359`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:554`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1405,7 +1405,7 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:228`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:232-253`),
@@ -1520,7 +1520,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:947`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1936,7 +1936,7 @@ covers everything.
 non-video completions, Anthropic completions, and OpenAI and Gemini images.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
-(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:216-230`).
 The receipt's coverage names the relayed providers. Pricing follows the
 [cost-tracking rules](cost-tracking.md#relayed-cli-provider-requests-1673):
 unpriced tokens count toward the token stops, and missing usage is unknown and
@@ -1944,7 +1944,7 @@ never blocks by itself. An attempt is recorded as unknown spend just before it
 leaves and completed when it settles, so a crash leaves it disclosed. Before
 each request, and again just before dispatch, the relay asks whether any scope
 is blocked and refuses with `budget_exceeded` if one is
-(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:326-330`).
+(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:377-381`).
 A request that crosses a block does not stop the turn by itself, under the
 ruling: each further relayed request is refused, and the agent's next
 completed response, which sees the same scopes, stops the turn as any usage
@@ -1952,6 +1952,19 @@ over a block does. Nothing is reserved, so requests already in flight complete a
 are counted; a scope can end above its stop by those requests. A credentialed
 maintenance run is charged to the turn whose tool started it, otherwise to its
 UTC day alone, under the brain's current policy.
+
+**Hosted external compute (#3108).** Unlike a relayed request, an external
+compute job reserves before it allocates: its instance's hourly ceiling times
+its lease, against the turn, conversation and UTC-day scopes of the turn that
+starts it, in one immediate transaction under core's admission lock, so two
+callers cannot both take the last budget or slot. A job without a ceiling is
+admitted with its cost unknown and bounded by its lease, its instance's
+concurrency and the existing blocks
+([ruling 4](external-compute.md#rulings)). An unavailable ledger refuses the
+job. The reservation is settled once, with the provider's complete cost or as
+unknown, and counts until then. Approval, data routing and credential
+isolation are recorded in
+[the compute decision](external-compute.md#settled-by-3108).
 
 **Warnings.** Crossing a warn limit is recorded as a governance event. It
 appears once, beside the existing cost display. It is also added to the
@@ -1984,7 +1997,7 @@ rows remain historical inputs with explicit legacy attribution. Completed
 responses contribute once to their server-observed UTC day; legacy history
 uses its recorded start day. A terminal rollup never adds the live ledger a
 second time. The concrete ledger is (`createTurnBudgets`,
-`packages/ui-server/src/brain/turn-budgets.ts:228-350`).
+`packages/ui-server/src/brain/turn-budgets.ts:279-401`).
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
@@ -3792,7 +3805,7 @@ document reader whose normalized path is under `.brain-ui/inbox/` or
 outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call; and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:51-61`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:53-63`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
@@ -3877,7 +3890,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:326-343`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -3913,7 +3926,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:90-134`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely

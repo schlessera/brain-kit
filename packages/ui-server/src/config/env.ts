@@ -376,6 +376,27 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_COMPUTE_KEYS",
+    description:
+      "External compute credentials the host may use for hosted jobs (#3108), by built-in provider: " +
+      "semicolon-separated `provider=NAME[,NAME...]` entries, such as `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. " +
+      "A brain.config instance whose apiKeyEnv is not bound here is refused as provider_unavailable; a bound " +
+      "built-in's own default variable is bound implicitly. Values are read on the host only and never reach " +
+      "a worker; a bound name that BRAIN_UI_SUBPROCESS_ENV_EXTRA or a profile would forward disables hosted " +
+      "compute. Unset: hosted compute has no credential.",
+    default: "(empty)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_COMPUTE_STATE_DIR",
+    description:
+      "Where hosted external compute keeps job records, leases, reservations and artifacts (#3108). Host " +
+      "operational state, masked from workers. Slots and budgets are shared per directory: point " +
+      "BRAIN_COMPUTE_STATE_DIR of a shell `brain compute` at the same directory to share one pool with it.",
+    default: "<DB_PATH>.compute",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_WORKER_STATE_BYTES",
     description:
       "Each Claude worker's private runtime-state tmpfs, in bytes (a positive multiple of 4096): its session " +
@@ -796,6 +817,14 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  /**
+   * Hosted external compute (#3108): credential variable names bound per
+   * built-in provider, and the host compute state directory (null with an
+   * ephemeral database, which disables hosted compute).
+   */
+  compute?: { keys: Readonly<Record<string, readonly string[]>>; stateDir: string | null;
+    /** BRAIN_UI_SUBPROCESS_ENV_EXTRA's names: a bound credential among them would reach workers. */
+    workerEnvExtra: readonly string[] };
   /** Trusted host roots only; never accepted from Storage HTTP requests. */
   storage?: { backupRoots: readonly string[]; gitRoots: readonly string[] };
   /** Host-only Unix service for managed native brain storage. */
@@ -1078,6 +1107,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
   return {
+    compute: resolveComputeConfig(env, env.DB_PATH || join(process.cwd(), "brain-ui.db")),
     nativeBrain: resolveNativeBrainConfig(env),
     referenceSource: resolveReferenceSourceConfig(env),
     providerRecipientOrigins: parseProviderRecipientOrigins(env.BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS),
@@ -1196,6 +1226,29 @@ function resolveReferenceSourceConfig(env: EnvRecord): NonNullable<ServerConfig[
   };
   return { validationMs: positive("BRAIN_UI_REFERENCE_VALIDATION_SECONDS", 300, 86_400) * 1000,
     refreshMs: positive("BRAIN_UI_REFERENCE_REFRESH_SECONDS", 300, 86_400) * 1000, operations: positive("BRAIN_UI_REFERENCE_ACQUISITIONS", 2, 16) };
+}
+
+const COMPUTE_PROVIDER = /^[a-z][a-z0-9-]{0,62}$/;
+const COMPUTE_KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * BRAIN_UI_COMPUTE_KEYS and BRAIN_UI_COMPUTE_STATE_DIR (#3108). A malformed
+ * binding refuses the boot by name rather than binding something unintended.
+ */
+export function resolveComputeConfig(env: EnvRecord, dbPath: string): NonNullable<ServerConfig["compute"]> {
+  const keys: Record<string, string[]> = {};
+  for (const entry of (env.BRAIN_UI_COMPUTE_KEYS ?? "").split(";").map(part => part.trim()).filter(Boolean)) {
+    const eq = entry.indexOf("=");
+    const provider = eq > 0 ? entry.slice(0, eq).trim() : "";
+    const names = eq > 0 ? entry.slice(eq + 1).split(",").map(name => name.trim()).filter(Boolean) : [];
+    if (!COMPUTE_PROVIDER.test(provider) || !names.length || names.some(name => !COMPUTE_KEY_NAME.test(name))) {
+      throw new Error(`BRAIN_UI_COMPUTE_KEYS: "${entry}" is not provider=NAME[,NAME...]`);
+    }
+    keys[provider] = [...new Set([...(keys[provider] ?? []), ...names])];
+  }
+  const ephemeral = dbPath === "" || dbPath === ":memory:";
+  const stateDir = env.BRAIN_UI_COMPUTE_STATE_DIR ? resolve(env.BRAIN_UI_COMPUTE_STATE_DIR) : ephemeral ? null : `${resolve(dbPath)}.compute`;
+  return { keys, stateDir, workerEnvExtra: parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA) };
 }
 
 /**

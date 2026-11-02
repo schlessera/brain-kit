@@ -41,6 +41,9 @@ Linux/bubblewrap probe, visible startup refusal and measured launcher profiles.
 Browser clients can use other operating systems. The [restricted autonomous
 prompt guide](autonomous-prompt-cache.md) records the trusted prefix boundary and
 the separately authorized cache measurement procedure.
+[Hosted external compute](external-compute.md) covers the credential binding,
+state directory and approval a chat turn needs to start a job on a compute
+provider such as Boat.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.44.0.**
 The floor is enforced at

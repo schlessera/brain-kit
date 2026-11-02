@@ -20,6 +20,30 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Hosted external compute (additive, 0.45.0, #3108)
+
+A hosted chat turn reaches external compute through six host-executed bridge
+tools, `brain_compute_health` through `brain_compute_collect`
+(`mcp__brain-ui__brain_compute_*` on Claude, plain names on pi), in every
+interactive session's fixed roster. Their inputs and envelopes are those of
+#3107's MCP tools; the host binds the caller, the turn's frozen policy, the
+per-use approval card, the budget reservation and the credentials, and a
+collect names no host path. Claude sessions disallow the in-worker
+`mcp__brain__brain_compute_*` tools. `brain config check --json` gains a
+`compute` summary. Activity gains the `compute` span origin, sent only to
+clients declaring `capabilities.activityCompute`; governance events gain the
+outward action `compute_run` and the taint source `compute_output`;
+`/api/status` gains `runtime.compute`. The SDK gains the compute tool
+contracts, `handleComputeTool` and `BackendBridge.compute`, and the server the
+settings `BRAIN_UI_COMPUTE_KEYS` and `BRAIN_UI_COMPUTE_STATE_DIR`. Nothing
+changes for a host or brain that does not configure compute. See
+[the MCP component](integration-contract/mcp.md#external-compute-bridge-tools-additive-0450-3108),
+[the package component](integration-contract/package-api.md#hosted-external-compute-additive-0450-3108),
+[the wire component](integration-contract/wire.md#hosted-external-compute-additive-0450-3108),
+[the HTTP component](integration-contract/http.md#governance-events-additive-1651)
+and [the CLI component](integration-contract/cli.md). This ships in a minor;
+no breaking ruling is required.
+
 ## External compute CLI and MCP tools (additive, 0.45.0, #3107)
 
 `brain compute` gains the verbs `health`, `plan`, `run`, `status`, `cancel`,

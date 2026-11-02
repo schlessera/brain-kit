@@ -198,7 +198,8 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   /** An action outside the brain in the user's name, allowed or not (#1664). */
   outward_action: kind(1, z.strictObject({
     ...toolInput,
-    action: z.enum(["git_push", "gh_write", "mcp_tool", "http_write", "outward_host_connect"]),
+    // `compute_run` (additive, #3108): a hosted external compute job start, its target the instance.
+    action: z.enum(["git_push", "gh_write", "mcp_tool", "http_write", "outward_host_connect", "compute_run"]),
     target: text.nullable(),
     historyRewrite: z.boolean(),
     tainted: z.boolean(),
@@ -208,7 +209,9 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   /** The first untrusted input that tainted the session. */
   taint: kind(1, z.strictObject({
     source: z.enum(["web_fetch", "web_search", "staged_share", "workspace_read", "mcp_document", "user_marked",
-      "egress_connection", "fetching_command", "unclassified_command"]),
+      "egress_connection", "fetching_command", "unclassified_command",
+      // Additive (#3108): a collected external compute job's output, text from a remote machine.
+      "compute_output"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
   })),

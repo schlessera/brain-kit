@@ -1,0 +1,9 @@
+---
+"@schlessera/brain-ui-sdk": minor
+"@schlessera/brain-ui-server": minor
+"@schlessera/brain-backend-claude": minor
+"@schlessera/brain-backend-pi": minor
+"@schlessera/brain-ui-react": patch
+---
+
+Let hosted chat turns run external compute jobs through the host (#3108). Both backends gain six host-executed tools, `brain_compute_health` through `brain_compute_collect` (`mcp__brain-ui__brain_compute_*` on Claude), in every interactive session's fixed roster, with exactly the inputs and envelopes of `brain compute`'s MCP tools; Claude sessions disallow the in-worker `mcp__brain__brain_compute_*` tools. The host binds the caller from the authenticated turn, applies the turn's frozen data-to-provider rules and provider masks before anything is uploaded, asks for every run on a `command` card that is never remembered (voice, no-grant and client-less turns are refused without one), records each decision as an `outward_action` `compute_run`, and reserves the job's estimate against the turn, conversation and day budgets together with its concurrency slot; unknown accounting refuses, and an instance without a ceiling runs with its cost unknown. Only built-in providers run on the host, with credentials the operator binds in `BRAIN_UI_COMPUTE_KEYS`; values never reach a worker, a record or a result. Job state lives in `BRAIN_UI_COMPUTE_STATE_DIR` (default `<DB_PATH>.compute`), masked from workers. A job outlives a turn that ends normally and is cancelled with one that is cancelled, times out, hits its budget or loses its authority. Each job is its own Activity run with the new `compute` origin, sent to clients that declare `capabilities.activityCompute`; an uncertain job stays open, flagged stuck. A collected job's output taints the conversation (`compute_output`). `/api/status` gains `runtime.compute`.

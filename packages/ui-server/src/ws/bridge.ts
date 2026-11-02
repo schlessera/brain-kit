@@ -78,7 +78,9 @@ export async function makeBridge(
    * The admitted turn's data tree (#2848, #2846) and, for a worker on the
    * startup view, that view's root: where its `Read` of a brain path resolves.
    */
-  turnData?: { tree: TurnDataTree; view?: string }
+  turnData?: { tree: TurnDataTree; view?: string },
+  /** The governed turn's frozen policy: hosted external compute is admitted only under it (#3108). */
+  governance?: { policy: TurnGovernancePolicy }
 ): Promise<BackendBridge> {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -757,6 +759,20 @@ export async function makeBridge(
   // Reference source and managed worktrees (#2432): the host's record of this
   // turn supplies principal, views and generation; the call carries its input only.
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(turnId, principalId, call, signal);
+  // External compute (#3108): the host binds the caller, the frozen policy,
+  // the approval surface, the mask guard and the credentials; the call
+  // carries the instance, the command and the job only. Governed turns only:
+  // the budget ledger and the frozen policy are theirs.
+  if (host.computeTools && governance && (backendId === "claude" || backendId === "pi")) {
+    const posture = work?.posture === "voice" ? "voice" : "interactive";
+    bridge.compute = host.computeTools.forTurn({ turnId, principalId, sessionId: () => turn.sessionId ?? undefined,
+      policy: governance.policy.policy, policyHash: governance.policy.hash, posture, noGrantSurface: posture === "voice", autonomous: false,
+      hasClient: () => host.clients.hasClients(), ...(maskGuard ? { maskGuard } : {}), toolName,
+      requestPermission: request => bridge.requestPermission(request),
+      isCurrent: () => !signal.aborted && isAuthorized(),
+      govern: event => catalog.recordGovernanceEvent?.({ ...event, turnId, sessionId: turn.sessionId, actor: posture,
+        model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never) });
+  }
   // Intake stages the submitted item under the share staging directory and
   // reconciles what is already staged there, so a mask at, above or inside
   // that directory, or one it resolves into, refuses the whole addition.
@@ -781,7 +797,7 @@ export async function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

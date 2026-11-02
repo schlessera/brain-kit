@@ -4,7 +4,7 @@ import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
 export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "workspace_read" | "mcp_document"
-  | "fetching_command" | "unclassified_command";
+  | "fetching_command" | "unclassified_command" | "compute_output";
 
 /** Claude's and pi-web-access's web tools. */
 const WEB_TOOLS: Record<string, IngestionSource> = { WebFetch: "web_fetch", WebSearch: "web_search", fetch_content: "web_fetch", web_search: "web_search" };
@@ -13,6 +13,8 @@ const BRAIN_MCP_SERVERS = new Set(["brain", "brain-ui"]);
 /** File tools and the input key naming the path they read. Edit results quote the file. */
 const FILE_TOOLS: Record<string, string> = { Read: "file_path", Edit: "file_path", NotebookEdit: "notebook_path", Grep: "path", Glob: "path",
   read_file: "path", edit_file: "path", grep: "path", brain_read: "path", brain_read_base: "path" };
+/** The host's compute collect tool on either backend; the worker brain server's copy is disallowed. */
+const COMPUTE_OUTPUT_TOOLS = new Set(["brain_compute_collect", "mcp__brain-ui__brain_compute_collect"]);
 /** Tools whose output lists the paths they matched, so a search from an ancestor directory is visible. */
 const SEARCH_TOOLS = new Set(["Grep", "Glob", "grep"]);
 
@@ -52,6 +54,8 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
   const command = commandTaintSource(tool, input);
   if (command) return command;
   if (WEB_TOOLS[tool]) return WEB_TOOLS[tool];
+  // A collected external compute job returns a remote machine's output (#3108).
+  if (COMPUTE_OUTPUT_TOOLS.has(tool)) return "compute_output";
   const server = /^mcp__(.+?)__/.exec(tool)?.[1];
   if (server !== undefined && !BRAIN_MCP_SERVERS.has(server)) return "mcp_document";
   // brain-kit's own document readers can still name a file in an untrusted area.

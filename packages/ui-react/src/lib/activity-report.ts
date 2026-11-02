@@ -51,7 +51,7 @@ function known(value: unknown): string | null {
 }
 
 function originLine(origin: string): string {
-  return origin === "cron" || origin === "session" || origin === "autonomous" ? origin : "other";
+  return origin === "cron" || origin === "session" || origin === "autonomous" || origin === "compute" ? origin : "other";
 }
 
 function failedSteps(spans: ActivitySpan[]): string | null {

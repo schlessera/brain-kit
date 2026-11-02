@@ -150,6 +150,7 @@ export {
   handleQueryActivity,
   handleInboxTool,
   handleReferenceTool,
+  handleComputeTool,
   handleRequestImageMask,
   handleShowBlock,
   handleTurnTemp,

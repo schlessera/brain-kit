@@ -998,6 +998,45 @@ source and `list`, and refuses the other worktree actions. Each call runs
 through the reference services, which check authority again
 ([managed worktrees](../decisions/managed-worktrees.md#agent-tools)).
 
+## External compute bridge tools (additive, 0.45.0, #3108)
+
+Both first-party backends attach six host-executed tools to their existing UI
+bridge: `brain_compute_health`, `brain_compute_plan`, `brain_compute_run`,
+`brain_compute_status`, `brain_compute_cancel` and `brain_compute_collect`.
+Claude names them `mcp__brain-ui__<name>` and loads them eagerly; pi attaches
+plain names. They stay in every interactive session's fixed roster, after
+`reference_worktree`; a turn without a host handler refuses the call instead.
+They are auto-allowed: the host decides authority and shows its own card for a
+run. Restricted autonomous rosters do not include them. In every Claude
+session the in-worker brain server's `mcp__brain__brain_compute_*` tools are
+disallowed, so a hosted turn reaches external compute only through the host.
+
+Inputs are exactly the strict inputs of the
+[MCP tools of #3107](#external-compute-tools-additive-0450-3107), and results
+their envelopes, with two host differences: a collect's artifacts carry no
+`file` (no host path reaches the agent), and every bound credential value is
+redacted. Principal, session, turn, policy, posture, profile, brain, state
+directory and credentials are never inputs; the host takes them from the
+authenticated turn. A job belongs to its conversation: a later turn of it may
+check, cancel or collect the job, and any other conversation or principal
+gets `job_unknown`. Input that does not parse, an extra key included, refuses
+`policy_denied` before the host sees it; a turn without a handler refuses
+`compute_disabled`.
+
+A run on an interactive typed turn asks for approval on a `command` card,
+every time, naming the instance, provider, lease, cost estimate or that it is
+unknown, retention, source files with their hash, argv, environment variable
+names, artifacts and whether the conversation is tainted; an edited card is a
+refusal. A voice turn, a turn without a grant surface and a turn with no
+client connected refuse `approval_required` without a card; a plan answers
+the same, without a card. Hosted runs accept only built-in providers and
+credentials the operator bound on the host; a provider value or an unbound
+`apiKeyEnv` is `provider_unavailable`. A `.env*` file, a Tier A protected
+path, and a source or `cwd` hidden by the turn's provider masks are
+`source_refused`. A job outlives a turn that ends normally; a cancelled,
+timed-out, budget-stopped or revoked turn cancels its jobs. The rules and
+their reasons are in [the compute decision](../decisions/external-compute.md#settled-by-3108).
+
 ## Hosted policy proposal (additive, #1662)
 
 `propose_policy_change` (Claude: `mcp__brain-ui__propose_policy_change`)
