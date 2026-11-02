@@ -135,8 +135,9 @@ const relay = startInferenceRelay({ egress, upstream: "https://api.anthropic.com
 linkSync(relay.socketPath, join(egress.dir, "inference.sock"));
 const env = { HOME: worker, CLAUDE_CONFIG_DIR: host, PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
   CLAUDE_CODE_OAUTH_TOKEN: "odysseus-inherited-host-oauth", ANTHROPIC_API_KEY: "odysseus-inherited-api-key", ANTHROPIC_AUTH_TOKEN: "odysseus-inherited-auth-token",
-  ANTHROPIC_UNIX_SOCKET: "/run/brain-egress/inference.sock", ANTHROPIC_BASE_URL: "http://localhost",
-  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
+  ANTHROPIC_UNIX_SOCKET: "/run/brain-egress/inference.sock", ANTHROPIC_BASE_URL: "http://localhost" };
+// No traffic opt-out here: a host does not set one, so the assembled turn must
+// keep the runtime's own connections off the turn proxy itself (#3244).
 const workers: LaunchedWorker[] = [];
 const exitedWorkers = new WeakSet<LaunchedWorker>();
 const spawners: Array<{ finish(): Promise<void> }> = [];
