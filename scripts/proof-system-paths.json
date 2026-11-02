@@ -1,0 +1,20 @@
+{
+  "$comment": "The proof-system path set ruled in docs/decisions/ci-utility.md (Proof-system lane, answer 5). This is the only place these globs are listed; scripts/proof-system.ts reads it. Changing `paths` needs a new maintainer ruling. `timeoutCheckScope` names the test files whose added and removed lines the deterministic timeout/deadline check compares; it adds no path to the set.",
+  "paths": [
+    ".github/workflows/**",
+    "scripts/test.ts",
+    "scripts/unit-*",
+    "scripts/ci-*",
+    "scripts/check-pr.ts",
+    "**/bunfig.toml",
+    "**/proof-inputs.json"
+  ],
+  "timeoutCheckScope": [
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/tests/**",
+    "**/test/**",
+    "**/__tests__/**",
+    "**/testing/**"
+  ]
+}
