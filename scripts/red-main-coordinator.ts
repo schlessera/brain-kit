@@ -114,7 +114,7 @@ export async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): 
       "Failing tests and categories:",
       ...open.failures.map(f => `- \`${f.test ?? f.category}\` (${f.category}; ${f.reasons.join(", ")}; run ${runUrl(io, f.run)})`),
       "",
-      "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green. Declare a fix PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins.",
+      "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green. Declare a fix PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
       ...(related.size ? ["", `Possibly related open issues: ${[...related].sort((a, b) => a - b).map(n => `#${n}`).join(", ")}.`] : []),
     ];
     const issue = await io.write("POST", `repos/${io.repository}/issues`, {

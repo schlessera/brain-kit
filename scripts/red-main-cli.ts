@@ -105,6 +105,19 @@ if (import.meta.main) {
       const decision = record ? gateDecision({ record, pr, contains: sha => isAncestor(sha, "HEAD") }) : { refuse: false, message: "main green: no coordination record" };
       if (decision.refuse) { console.error(`::error::${decision.message}`); console.error(decision.message); process.exit(1); }
       console.log(decision.message);
+    } else if (command === "coordinate" && rest[0] === "--dry-run") {
+      // Read-only replay against a recorded run: every write is printed, none is sent.
+      const id = rest[rest.indexOf("--run") + 1] ?? "", repository = must(["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+      if (!/^[1-9]\d*$/.test(id)) throw new Error("usage: coordinate --dry-run --run <id>");
+      const io = liveIO(repository), seen = io.read();
+      let record = seen.redMain;
+      const run = await io.json(`repos/${repository}/actions/runs/${id}`) as WorkflowRun;
+      await coordinate({ ...io,
+        read: () => ({ ...seen, redMain: record }),
+        publish(_snapshot, next) { record = next; console.log(`DRY_RUN record ${JSON.stringify(next)}`); return true; },
+        async write(method, path, body) { console.log(`DRY_RUN ${method} ${path} ${JSON.stringify(body ?? null)}`); return { number: 999_999 }; },
+        async recordEvent(event) { console.log(`DRY_RUN event ${JSON.stringify(event)}`); },
+      }, run);
     } else if (command === "coordinate") {
       const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH!, "utf8"));
       const repository = process.env.GITHUB_REPOSITORY!;
@@ -117,6 +130,6 @@ if (import.meta.main) {
           !/^[A-Za-z0-9_./@-]+\.test\.[cm]?[jt]sx?$/.test(test) || test.split("/").includes("..") || !existsSync(join(target, test)))) throw new Error("Probe tests must be existing test files at the probed SHA");
       const child = Bun.spawn([process.execPath, "run", "test", ...tests], { cwd: target, stdout: "inherit", stderr: "inherit" });
       process.exit(await child.exited);
-    } else throw new Error("usage: bun scripts/red-main-cli.ts gate | coordinate | probe --target <checkout>");
+    } else throw new Error("usage: bun scripts/red-main-cli.ts gate | coordinate [--dry-run --run <id>] | probe --target <checkout>");
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
 }
