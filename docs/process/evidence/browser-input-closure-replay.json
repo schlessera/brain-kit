@@ -1,0 +1,2179 @@
+{
+  "version": 1,
+  "sourceBase": "626a03af4a9db064751230a84732755b8afa961e",
+  "snapshotSha256": "ac31b09adf903d3c9483d5c9be55188010577a113d087d90fd2cea90c404dbbd",
+  "window": {
+    "cutoff": "2026-10-16T10:49:55Z",
+    "order": "number descending, first 100 merged PRs at cutoff",
+    "oldest": 1741,
+    "newest": 2071
+  },
+  "sourceSha256": {
+    "scripts/browser-input-closure.ts": "01b950bfa3b3174da2f81b9776c5786e4a2009102eef41c4bf19913583d1a1ba",
+    "scripts/replay-browser-selection.ts": "cb7559c20c678f4a4364e756904f000c6a63b63e49d2b972c80e6c4afc4c108f",
+    "scripts/ci-plan.ts": "0c1d4b717cc833d5425a12a048f2fb6fdc8f0818dd8ed0e45df157cd46f59e1b",
+    "scripts/check-pr.ts": "91ed2ac967d2e8241eca2513f07129b7af2e89f10c13d708ef30111bba360001",
+    "packages/ui-kit/tests/proof-inputs.json": "70253abfa88198b9262e3b8310ebf3c7360e65cc1375a77690fc50b2e7a5190e",
+    "scripts/captures/proof-inputs.json": "858ae956418048a354e7e18fcc3c15fe29779c5871340de6659f8acfecb073e1"
+  },
+  "fullDiagnosticSha256": "12367004e3eeb7bec15326d17e5ce458bd7d07812f2f5ae0612943b51891c41a",
+  "browserBefore": 85,
+  "browserAfter": 85,
+  "noLongerBrowser": [],
+  "limits": [
+    "Current planner over immutable historical changed paths, not historical-source execution or elapsed speedup.",
+    "Closure hashes describe graph structure and diagnostics, not source byte identity or passing-proof fingerprints.",
+    "Actual configured dispatch fixture reaches every current server route.",
+    "Unresolved runtime config/module/backend dependencies preserve the broad category.",
+    "Exhaustive actual-merged-SHA browser-domain proof remains required before issue closure."
+  ],
+  "domains": {
+    "browser": {
+      "files": 1239,
+      "directories": 16,
+      "unresolved": 721,
+      "closureSha256": "faac35cb6a39499adedb1fa0ac40ae801e534c40eb0ebeca3086eb0171af342d",
+      "runtimeVariableExamples": [
+        "Computed import packages/core/src/lib/config.ts: import(tsPath)",
+        "Computed import packages/core/src/lib/module-loader.ts: import(specifier.startsWith(\"/\") ? specifier : Bun.resolveSync(specifier, root))",
+        "Computed import packages/ui-server/src/agent/backend.ts: import(specifier)"
+      ]
+    },
+    "layout": {
+      "files": 1108,
+      "directories": 16,
+      "unresolved": 715,
+      "closureSha256": "daa333bd7c3e4820ac05c572f2053e88180adee19fc7735b9493406f5acc030d",
+      "runtimeVariableExamples": [
+        "Computed import packages/core/src/lib/config.ts: import(tsPath)",
+        "Computed import packages/core/src/lib/module-loader.ts: import(specifier.startsWith(\"/\") ? specifier : Bun.resolveSync(specifier, root))",
+        "Computed import packages/ui-react/tests/browser/error-boundaries.layout.tsx: import(/* @vite-ignore */ `${location.origin}/__missing-chunk-${Math.random().toString(36).slice(2)}__.js`)",
+        "Computed import packages/ui-server/src/agent/backend.ts: import(specifier)"
+      ]
+    },
+    "endurance": {
+      "files": 883,
+      "directories": 16,
+      "unresolved": 713,
+      "closureSha256": "b910ea8787757faa190f2a5b6a565357c295708c677f1c492fd10fbc77d6b4e8",
+      "runtimeVariableExamples": [
+        "Computed import packages/core/src/lib/config.ts: import(tsPath)",
+        "Computed import packages/core/src/lib/module-loader.ts: import(specifier.startsWith(\"/\") ? specifier : Bun.resolveSync(specifier, root))",
+        "Computed import packages/ui-server/src/agent/backend.ts: import(specifier)"
+      ]
+    },
+    "captures": {
+      "files": 1020,
+      "directories": 40,
+      "unresolved": 720,
+      "closureSha256": "2977e46ba3b13060331fe248dd648eb53452eade51bea0bde72ed10f69972bac",
+      "runtimeVariableExamples": [
+        "Computed import packages/core/src/lib/config.ts: import(tsPath)",
+        "Computed import packages/core/src/lib/module-loader.ts: import(specifier.startsWith(\"/\") ? specifier : Bun.resolveSync(specifier, root))",
+        "Computed import packages/ui-server/src/agent/backend.ts: import(specifier)"
+      ]
+    }
+  },
+  "plans": [
+    {
+      "number": 2071,
+      "mergeCommit": "53258a203d37ab32ae211c5f645cb32e2b3898d1",
+      "changedSha256": "e989d0e8ac7f40a330b537843fe6ac95f808ce08cf95565b78868786af0a50ed",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2060,
+      "mergeCommit": "fec9a379da878c59d2e7577c6c940dc6ee5d4a03",
+      "changedSha256": "00a2f4b118adeddaf751426478d9ad4f7779cc146ff21ea1c65421640d6be68b",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 2057,
+      "mergeCommit": "44a8ab0be7e48a73f61bc794e65ea3f8e84e4289",
+      "changedSha256": "f18072450df46facc9b08ea91f5dca2653bf8702829767d43ae351249b3a8a0d",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2044,
+      "mergeCommit": "b8be3819e93fa3bd60f7dd990030775716c5bdce",
+      "changedSha256": "8436533a26c91ffa556f2d44a4e7ace43e905fd0b844844f21a366b73c16a5d6",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 2043,
+      "mergeCommit": "d194625395eb200f68d1ec05bc27f262ba75579c",
+      "changedSha256": "51f22f4207cc5f45fc339a1ea1ebb4a83b6581763b5cecebe118bf549a124d5a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2020,
+      "mergeCommit": "65ed23dc942ecaccbe86ae1beb4af6eeb3ad3eb5",
+      "changedSha256": "fba20c723e25304f0068feee8e1c457e7787a6ab974280e80b9c21d3074cd0e9",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 2019,
+      "mergeCommit": "abe5086df48883bc270a36edb127b05519398332",
+      "changedSha256": "6d76bb31f46f8645eb6ebfe413387779629050ea74332b6e843ac28c12985606",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2018,
+      "mergeCommit": "ed6b0c5f09ada1b6f899bf245f3f1b176352bf77",
+      "changedSha256": "a493ded98aeb9b6667d143438872ea3724c05afb5f201b42437851e4171a7cbd",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2017,
+      "mergeCommit": "493127587508f305db86e1a1db2d042fa666845b",
+      "changedSha256": "635d6d5e55eb2cd896f6de1acea89980203f9fa810f2fd1206a32a4f29bdc622",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2015,
+      "mergeCommit": "9fc02d5fc5a7f62f13063c04ce68b3cbe12948c9",
+      "changedSha256": "636d60de9212826acddf905eedab11bfd36ae6001d2d5a8edd37f1e6ab9eb270",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 2008,
+      "mergeCommit": "11655e165474578801b7a2425f0f4a070419157c",
+      "changedSha256": "f3214057139552383870e77f77a20a2f13f047d47f6ab7998bdfa80c3702404c",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2007,
+      "mergeCommit": "04ef3552190d8f56eab09dd6c3580101b6385ba4",
+      "changedSha256": "44a184a6c6ca2101669da04b92fca4d3522c65e4b1d121ab0c0c44d8a6a2f24d",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 2006,
+      "mergeCommit": "5e9854b2e53ab7cfb4364008cf9cd2065b369404",
+      "changedSha256": "0f94e198ae00f929befbe13d43042483a88486f81fcd9038457691e3724a9a31",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2005,
+      "mergeCommit": "ab0e9fb77a236cefbe5a0b19424836acf9205bde",
+      "changedSha256": "af6b3222ad189f0a4a7eee22f0cf4a519844aca3a3f89c9daa7e9979e523fff3",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2002,
+      "mergeCommit": "4e4a663f98054d86f2dc90154b42ffbe8f8b7692",
+      "changedSha256": "56cf24fb32062e4ff19270ccafa67bbbfbcba8dd077e982a283acffb23ff6e61",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2001,
+      "mergeCommit": "9cf4aa5f37a33d40f53f783ecd0e8344f920f9ec",
+      "changedSha256": "cf5001238a3596c6b824ffecc8100bdf656921a96bb8480014b434f8f7a216c4",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 2000,
+      "mergeCommit": "45908608df63b07ee3d10d84ac608d132aa21caa",
+      "changedSha256": "e6fa3a4a3730fee65387aa66b37842f2739479237258c36636d4d31cab424f6e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1998,
+      "mergeCommit": "6863804ef9095cc0b984fed8d8e0ba4c3c9e93c1",
+      "changedSha256": "f40e25b26ea597cd88dadab03644a30942f272900a74b5405be6f60dff6d09dc",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1995,
+      "mergeCommit": "61399d103bd59445c6d4dfa183173ba12bbf0f4e",
+      "changedSha256": "d23a1f3a0d6b2e19e361840d04a370e443416e6adda639bcbfbf51433a952ee4",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1994,
+      "mergeCommit": "d9ac37b82700d7b45406ba47c0850ae46251fa9b",
+      "changedSha256": "cf4a0ad080e8b83f67390aa6656deb9697fda4bdc8bcb67ed97864d3ec8aaf9d",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1992,
+      "mergeCommit": "090c8a5463effe6811742259bc27af2b5ff6e66c",
+      "changedSha256": "91c73d73da9281b69997f40c6a16f2db666629610c51ee51dacfdc43e6229321",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1991,
+      "mergeCommit": "74d48eaafc1921032f8027efc082a0e3319408b4",
+      "changedSha256": "14e88cbf81dbe04b32bc6dea886632a7374b83cafefb2b56634812513ab6135d",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1986,
+      "mergeCommit": "b4609b961084268309287fff807b1dbd2687d607",
+      "changedSha256": "06e9e20b1fd6798e6d7b4974e970b8276493080e7a06ceafe9d457a338ce62ab",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1985,
+      "mergeCommit": "9274b8a06db43932e17b5d401fcfb900306e97cd",
+      "changedSha256": "8374e1e353cd81a3982e66aee8fee8318b777b20dc04313f901de40c25fe3cab",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1984,
+      "mergeCommit": "131f3a7d70c829bd27a3fa8ddac9fda0261918b9",
+      "changedSha256": "a7765712ca24e832b6c8f5177667e6357a084794593f059d1147869474c8d598",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1983,
+      "mergeCommit": "c857a5db365b7725df24f0c00be8dd082fb68794",
+      "changedSha256": "af6b3222ad189f0a4a7eee22f0cf4a519844aca3a3f89c9daa7e9979e523fff3",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1981,
+      "mergeCommit": "e75f9af2ee058b3e43059d92daf78064db467fe2",
+      "changedSha256": "1a96294a6c41161b5c46b8327a3afc2b68b30dbc43bfc1ccc98dad2b8af37f5a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1979,
+      "mergeCommit": "cbf2bb87f8eee79f971099aa4858262888f087ae",
+      "changedSha256": "013163e724ddc1a1bdd493ddea5d39de01fcced0fa4644d5f5161a703e33f61e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1977,
+      "mergeCommit": "82c1f211ee2ebabf44ed819e4a6bae47c93fca51",
+      "changedSha256": "78d43f852ccf8946c7e4b76ab223043d4d24f18f8a49f2d746a5af3413cadcaf",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1972,
+      "mergeCommit": "9355d1bd6ec91915e07aff184080bd48bb85fc2c",
+      "changedSha256": "40a32fb17a8bd96c2dbf96927e2a84f49f275809a27652d753faa26c598514a1",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1968,
+      "mergeCommit": "66c370b54e65151c6b56a0466347b609b31571b1",
+      "changedSha256": "a441049cf9a005ca65c07d3ee1095cc6b392efff0828a56c136832ae9ba3521a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1966,
+      "mergeCommit": "f2e0fcee7de537c26e218bbc0b7c508c54da76b6",
+      "changedSha256": "c720f7e2ffb3a7c3a1115ec8b4849a10b89b2bffaeb647b207ad5954d841f708",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1965,
+      "mergeCommit": "7139f116d1994cac9d47a4c59356c9f220c61f47",
+      "changedSha256": "cba6a12cdd6b9b33ed79578f1b10075e9b2bd98e1277d785a40a50f302aee2a3",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1964,
+      "mergeCommit": "3100afa2b8efa25ea31114cdee1f2a89a48dd013",
+      "changedSha256": "097395eb907d8fe7294cec46e5d0092924cf6c3ec52d4f2284b9ce0d27877a04",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1963,
+      "mergeCommit": "838f05d2ff611c72bdea8405c46f2504dccb6f24",
+      "changedSha256": "7394bd61d837089a868af71a79188376613e74f551c3393a331a2063bc03c9c8",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1962,
+      "mergeCommit": "9bebef7bfed47139792ccaf1d22d4ac7f5f093e9",
+      "changedSha256": "1bca5bab89e6b4817ced0ee882b6a5e9acf2f2d6ab3fd206192ced648490883c",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1961,
+      "mergeCommit": "1cc1b34a802f0894391b9bb445fed39fed610230",
+      "changedSha256": "955a65aa243d01b4c670e90c02a1135660075a1f774b5dad41c3ff1003791f97",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1960,
+      "mergeCommit": "c95223333a83fd3049749a2e68fb0c07963b7ba5",
+      "changedSha256": "cf3e5b0cb6adcd95fe5b12fbf586ee40642f95dcde23e02ac07834f14dbdc800",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1959,
+      "mergeCommit": "1b2a2e816effe05f4e4c69bb0df94afc2f648061",
+      "changedSha256": "5d31fc44944b55ddeb4695164b4218a6aa20193d58283695e0fbfffefd79e410",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1958,
+      "mergeCommit": "6090132d964c8ccde4ee43fc5e85382f7ac40640",
+      "changedSha256": "eef391e71aaaf9f49d6decd26ef6ac3d3a4ddddd91d47e41428f87584b455320",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1957,
+      "mergeCommit": "95b951aa122424f7d171d16ca16b3cc94f8c8545",
+      "changedSha256": "f40dd8c8b500805a9eec2aa2b4ee64e8c31e190c30fc3bbcbb7ca675bc8415dc",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1955,
+      "mergeCommit": "bb4578a71953ed8130c9d6a8a929e75f1530d4fd",
+      "changedSha256": "f53837c7796d2627dad4c3a09d2fa795ef4b89d93e784d54e09254e8327d2f0d",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1954,
+      "mergeCommit": "5c453d865d55993c86861da3f428d324405bf506",
+      "changedSha256": "bcc15e9a6bcc21a6080590302fc5ed779914d26feb9d6bb414ce903bd423e8b3",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1953,
+      "mergeCommit": "085d8ccf4a76f58b48640800ee9e86cb573aa2be",
+      "changedSha256": "70a49820709611210f26de5c9081563b563b03a416c0142bfff453fc26cb0635",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1952,
+      "mergeCommit": "0c68c2b2c9c06e3f0bdc6a52577d3ce66710f49c",
+      "changedSha256": "9e9e8392b948811dd9788e4e16057afc39db9d8d1671d0de4e87698fb3cbd66e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1951,
+      "mergeCommit": "4db852bb7482877d2e72eb3d23078bdd591023cf",
+      "changedSha256": "e2754efa5ba393a898627340d4324b86f915a507d0005fc3317ab4b13a2b3b63",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1949,
+      "mergeCommit": "c40200d920353a3a158c9a577bdfbce26751bf68",
+      "changedSha256": "e037618c2b70b6275cb8ec8e16ad7167e3e6a430fbfca7c786b76a982c8ccee6",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1941,
+      "mergeCommit": "400c50ed231f33eeca875ec9223b24ad535b2b22",
+      "changedSha256": "eb5642fb7aa190d0f46d1019d4cec8cb474d1224e55e1ad42b3293a21434d84e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1934,
+      "mergeCommit": "cc3fa3a209e0f7f6d9a0ac33778e514fcff69f07",
+      "changedSha256": "6c8e12ca63f24e2f23bb829b99fad3f0bd9a62902fa9f014d731ed75465cc423",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1932,
+      "mergeCommit": "f691c5b62a0ffcca67bedfee0be6557631d0930d",
+      "changedSha256": "448cff054b0b23ede4d56deac65a5607766aa8504fce3ca7f8e7b6933f78cee9",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1930,
+      "mergeCommit": "615b97f50e7a22a011b31839f04e17c6ccd20f10",
+      "changedSha256": "0f8a8e2c98645a18af60b8da4c0b391e3af1eb3d1de8fb003c05170ea14c3476",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1928,
+      "mergeCommit": "155dffdd8237a1543da3109f3de0b659cfac5c93",
+      "changedSha256": "7804baf77791a1cf2965d7ad926f165255fdaa93c6c93dd97cbcb3a4707c384f",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1927,
+      "mergeCommit": "21b1527b9eb235d3f5c82ec8d1a945fb36d57cdf",
+      "changedSha256": "fc3be35721726cf451d2967e1237576221fd4a3ef7c267049e841fb89dd4bb94",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1926,
+      "mergeCommit": "43c6b9a96fe230504ae4adb6c33eb72283778ec7",
+      "changedSha256": "9c7c1e53fe0a53bc354e2cec724acd13451152cba27da49b30910d26c9196a31",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1924,
+      "mergeCommit": "26d972ad066d5ecde72222942e8ffe5d28e647d7",
+      "changedSha256": "a27efbcf7a695f860d78ca6744a7433f67c5be6ef7b08d44a00ce60db1c39a51",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1923,
+      "mergeCommit": "d83e4381a2f9a84245b7bf176e3f09d065301937",
+      "changedSha256": "b75393d0be603898d97af29834d14a3133d47b36ce12d5fa6f9df5a2a35ba9a3",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1920,
+      "mergeCommit": "009e45714701844a632101a181be2d5e8d66afbb",
+      "changedSha256": "80a1a47b0dc2f19ba630f9278ded33249b313c0de0e8cd09b67d20e65ebcf262",
+      "before": {
+        "fullTests": true,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1916,
+      "mergeCommit": "5fd5c24810dd5fdecea1bc378bfed7155b9cd911",
+      "changedSha256": "7470e8ec939281988e9c47722e73ede27ac2df869765ff702837c4c635e7b811",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1914,
+      "mergeCommit": "cf18e810c5c60a1b10f67ba0ee28f7e0cbf0502b",
+      "changedSha256": "e119957872105155d208d50cecc0fe1cbe3f15d0938f200931aebfb520d4040a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1911,
+      "mergeCommit": "58f572c4d2f86fe55d76ff053fb315b83e549158",
+      "changedSha256": "052d270db26065c391854342ecde4bad4ae23935f1ae60bdd73025107f6d66c2",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1909,
+      "mergeCommit": "200efc8d4e5e2ef6bd7c5385440a9289bd14c774",
+      "changedSha256": "9e1d8162380b17ebdf344b671f790f247d3502daab94a598a3a430bbe2b49f5e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1908,
+      "mergeCommit": "932d2b3066a34f725531b70ef108cc6c05a0b5ae",
+      "changedSha256": "77608a2bbed39dd0fd246f350d152c781120a676df593d32393a6637ac5927e2",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1907,
+      "mergeCommit": "603a754b9e229f9b96c1aaf2b18917374b6483b0",
+      "changedSha256": "1d1a85f8b619a2168d7522330e37e6c601e7ccaee1585de57623d82ce18e4039",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1906,
+      "mergeCommit": "5d1580e74c991941397c46bacb60d2cfe8cfb2f3",
+      "changedSha256": "fc738f4292af0cf7b4b7bc14d6146c2c5634eca7bec062628adcfcf92dd80577",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1905,
+      "mergeCommit": "52f85a1721910ca560fce38cf47eb3096ae97562",
+      "changedSha256": "32a2f7f370622e4c2f5a13dbacc226952f8a5fc4bd7818006811b60c72d7e2f4",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1900,
+      "mergeCommit": "4bcfb45135e4191dfd8a009a48805f319ffb6822",
+      "changedSha256": "4e5bc589fe8b0e0bdbf1f38fd807a8e381827507d3283dc77ddec0c63e0e30da",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1899,
+      "mergeCommit": "fb219e069a8afd7fbc5eac6524b7a77ec08a7560",
+      "changedSha256": "f02f194cb5524840cd8653f8a5bb8090f1d7013380a4f08fa682e98d15b5359a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1896,
+      "mergeCommit": "d2b4cf941498d1276deee8acf42f411b7d1c8090",
+      "changedSha256": "ad758479cb0dec8343492da236e2019f2958a16acc2c04311be717806b2ea544",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1893,
+      "mergeCommit": "fd8f030f5e90f5cd3d3ab4aaa40f25fb64f328f8",
+      "changedSha256": "871634cc945a458bf8501d59b11adec4a0df428a2f2f6a99dbd282625ee7dcf2",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1892,
+      "mergeCommit": "f48c83d613ca63400f5e384373fdd81992b33de8",
+      "changedSha256": "45a1ddb5cdb14d4e302f33a29c2909940ebb685ea6e635a63e4e9f6eafe99cc1",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1891,
+      "mergeCommit": "d08bbf8be72f4143aaa28e9a22d53524968d50f2",
+      "changedSha256": "ac6928c934fd068493737ec2233c4454c0f98846d3f11938ad780290059d7e09",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1888,
+      "mergeCommit": "f6f5c713b2c52b400a5d34fc1d04120d3ea54107",
+      "changedSha256": "455f6e410e87fa19660a8fa3839fd1fe0b9762ea96e9344e97b9ad2aaa22c1d2",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1886,
+      "mergeCommit": "d6ad60a26119978e70a5ad1f1dbcb8fbbf3a9fae",
+      "changedSha256": "7c121326430307bcec00f177b2a27ad513bdccac8bfc15a17c579c263bdca887",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1882,
+      "mergeCommit": "25899b1e5829b9d7593ed56e2ae3f6fe271b72f0",
+      "changedSha256": "5032c1b3cb2afbc6b45932a5e1065094d61e63c59928fa5ca38e1030225faa99",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1881,
+      "mergeCommit": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "changedSha256": "3c733e80d84f90906b3a6cd52e533a39c3efed2979a4ee19886122ade149d64e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1880,
+      "mergeCommit": "a754ad02273beb2625d5bce528149028243528cf",
+      "changedSha256": "5ef56b1555f466f462b2b9186da71a27060b86da0e28b09565e8d3846910a935",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1879,
+      "mergeCommit": "210b35c52259454952a060644980aabd83c64e7a",
+      "changedSha256": "ea2aef27aa99ac99c43f983e7b2fd047854c6b3ca9119b94811fd6f47548b24d",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1878,
+      "mergeCommit": "c68bd6965e381c2a35478e555882b84894a84985",
+      "changedSha256": "c26bb5a59788325a2338bcfc0d6bbea61fb71a0351d80cc0a27089e7bc0948fd",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1876,
+      "mergeCommit": "08b4f15fc494749349c94c8352b9c6ae824faa89",
+      "changedSha256": "772e845be50549f741177714ad2e446789b87fd75c4247f54baa5a37209f8383",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1875,
+      "mergeCommit": "1a217d72295c66edd7c2b759f2c6a761f8c0a8da",
+      "changedSha256": "3a74add63094d95606bddf2c4da002f4e6d3d0b9a60881cea59fd884c8b189ce",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1874,
+      "mergeCommit": "27a368b6ed7c8e80b33613da0c33af6776d74f75",
+      "changedSha256": "049963ce4d25a3c98db179ea62a2c46f1c1bcf5e2ab7912d07e7354ccb72a956",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1864,
+      "mergeCommit": "ca1facc1e7086bd2119c260150e9f091e16817f1",
+      "changedSha256": "16c931daf9b32e247d107f921cabb49ea76c538ce0e767c87a69b70c9286699a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1862,
+      "mergeCommit": "5af94530672aec0999c571b3f8774a71f4f97729",
+      "changedSha256": "76023b6364be16775a70e78c5331f7b64bc7d8a651ed27f230dd73f28de3665b",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1861,
+      "mergeCommit": "2f244e2c2e31b4ce9cc489601430a3dd94f9088b",
+      "changedSha256": "af0d9bf2843fa785541922ed3cf289f9231aaa7c3c86863baa5d19032d465efa",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1860,
+      "mergeCommit": "4317fab88eeb550d4c12248ac4ebcc3d087f53e1",
+      "changedSha256": "149bfa207911c91ed7b6a5755f8da5d3c9ebadb5a4728882f33023581b6c0fba",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1848,
+      "mergeCommit": "5869996f186dd730b4dc56e8bea60664a04aa232",
+      "changedSha256": "dd24bbc0a5a3108a7145d39de74b084b46164fca09a68f3eeb2f0f15eb3bcc06",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1839,
+      "mergeCommit": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+      "changedSha256": "3df892bb2e10d70913afb8f417a52b70c6d0ca034f736003e8c0fbadf6e2ed7d",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1832,
+      "mergeCommit": "5cf1d548f7bd3a314eb36394dc5db0268db97da6",
+      "changedSha256": "d0c05b100253fcbe49962a159c54fdb3b2e6b4630eb1375921172955e6f1fde3",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1793,
+      "mergeCommit": "4af7b2f20a43d23260c2ee5e3bac3896aee971bd",
+      "changedSha256": "b0d30f9eb2724539f556d35defcc08f79c01589b880034bb9658e6e4251a4460",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1789,
+      "mergeCommit": "79d54278f1b2f35e929f4c6f182089360ab7759f",
+      "changedSha256": "19fccb02e86d9a7f3cf42b5085ac101eee73ab5b712e0d89950b532fd70838f9",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1786,
+      "mergeCommit": "2ea27697850dfffe956f2aa8471a720ea738f2bb",
+      "changedSha256": "e8c7157618d5c970b8fa547fe8c03a200ad90d38da45f7058a7f586a4d534215",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1785,
+      "mergeCommit": "1ed6e3d431fac8fa28c217d695a8ab412dd22fe4",
+      "changedSha256": "8403797dca35ff0a177a0bb3401bc17910bbdc584c31574d5a9e7ca60e2c9e12",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1784,
+      "mergeCommit": "42cfc0eaa24464d3c165ca62a800a45a3e16b6ce",
+      "changedSha256": "79cb6b1ad4a580f177f4a5aca462636068dd3a868528de7d43c1b1ed03b812b4",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1776,
+      "mergeCommit": "665bf5e4e7dca4fcaba5e9cf6b341fbef95c9f4c",
+      "changedSha256": "e474496fdf7ca5f9076f45886d4125fa1635ff3a00eba7bebf5654a7b352af75",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1769,
+      "mergeCommit": "f2c98da6093c9e1731f061625ba7302f51bf7340",
+      "changedSha256": "452f2e4e597621bdc3b69b3a4bfcdad45e19895a6e41183bdea23f6dc0049c56",
+      "before": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      },
+      "after": {
+        "fullTests": false,
+        "browser": false,
+        "layout": false,
+        "captures": false,
+        "endurance": false,
+        "runtime": false
+      }
+    },
+    {
+      "number": 1761,
+      "mergeCommit": "7bb7e0ccb0fd660bbdd6019773951ad54d205b38",
+      "changedSha256": "026f93c01f16c8e89b5f1e5bd349f6f53e715e260b9acd8eef739a63a681389a",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1753,
+      "mergeCommit": "857ab01d1f9cb591f928755f5be516ab7f73338e",
+      "changedSha256": "ba6245dcc114827820f35eab507c93a5e3baea87696f42f8a44c3451014e35ed",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1748,
+      "mergeCommit": "f5433b33e5ed5f8b280049909e3577783cc72953",
+      "changedSha256": "837403a6cefd787d1d3eaf06110e3f94b0f01bcb3fae682d34efcd68e4da0f8b",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1747,
+      "mergeCommit": "52cbd1db182b618706cd7edca72159ba62768a63",
+      "changedSha256": "96809deb0cdc0bc5242523f792fa87461ea6eeed79f566abf6078510fd82b004",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    },
+    {
+      "number": 1741,
+      "mergeCommit": "185803c4a67e1074a06007c88402cd3fdcfee0c2",
+      "changedSha256": "ab69a14408b95fec6c78791d7d7cfe2fd8769b7364a891c78ba5be6de7e0e45e",
+      "before": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      },
+      "after": {
+        "fullTests": true,
+        "browser": true,
+        "layout": true,
+        "captures": true,
+        "endurance": true,
+        "runtime": true
+      }
+    }
+  ]
+}

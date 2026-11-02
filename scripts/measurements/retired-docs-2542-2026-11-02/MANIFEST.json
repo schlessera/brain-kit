@@ -1,0 +1,56 @@
+{
+  "bundle": "scripts/measurements/retired-docs-2542-2026-11-02",
+  "created": "2026-11-02",
+  "copiedFrom": {
+    "commit": "5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0",
+    "removedOn": {
+      "branch": "epic/2542-dead-code",
+      "base": "ac3cab77a7f599161990968d642c6e22bf41af3d"
+    }
+  },
+  "durableRecord": "docs/decisions/measurement-archive.md",
+  "files": [
+    {
+      "path": "docs/plans/storage-accounting-experiment.py",
+      "size": 11146,
+      "sha256": "e614e2887bbc470df39830d8432414ffced2d8559ad9b21b781be799b8b48bdf",
+      "gitBlob": "42bfce38a4f0cfd37eac99d4bd528647c83df144",
+      "introducedBy": "1ed6e3d431fac8fa28c217d695a8ab412dd22fe4",
+      "lastChangedBy": "1ed6e3d431fac8fa28c217d695a8ab412dd22fe4",
+      "measuredSource": [],
+      "removedFor": "https://github.com/schlessera/brain-kit/issues/2511"
+    },
+    {
+      "path": "docs/plans/storage-growth-experiment.ts",
+      "size": 14960,
+      "sha256": "409624b52f10098f110f8d8e047679099dc9cfe2c9e4effa3cb1abe0007e0050",
+      "gitBlob": "99ffc913c9979396c0b2ed373589033db115f988",
+      "introducedBy": "65ed23dc942ecaccbe86ae1beb4af6eeb3ad3eb5",
+      "lastChangedBy": "caae12da2e678dd4720bf112e93ef21812cfdc18",
+      "measuredSource": [],
+      "removedFor": "https://github.com/schlessera/brain-kit/issues/2511"
+    },
+    {
+      "path": "docs/process/evidence/independent-test-replay.json",
+      "size": 32164,
+      "sha256": "4b5cd6bd74882b34893b958cca88ff90c5d1c3e60a28115712e5966062b1a496",
+      "gitBlob": "c22d0fc330b30a89ef4dab022c259b745042f9aa",
+      "introducedBy": "d6b527290fe203fca7f653464895e92775ec422f",
+      "lastChangedBy": "d6b527290fe203fca7f653464895e92775ec422f",
+      "measuredSource": [],
+      "removedFor": "https://github.com/schlessera/brain-kit/issues/2512"
+    },
+    {
+      "path": "docs/process/evidence/browser-input-closure-replay.json",
+      "size": 59133,
+      "sha256": "6cf33fd312f82c3a0b4ec43274a2d714b45995720a40363beae62e662b35adaf",
+      "gitBlob": "1dc1646ff4a0523a713f234cf3d07ce32a3d00ce",
+      "introducedBy": "b6d7391de6bab96143451b0a13bc381ae7b4ebd2",
+      "lastChangedBy": "b6d7391de6bab96143451b0a13bc381ae7b4ebd2",
+      "measuredSource": [
+        "626a03af4a9db064751230a84732755b8afa961e"
+      ],
+      "removedFor": "https://github.com/schlessera/brain-kit/issues/2512"
+    }
+  ]
+}

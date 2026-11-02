@@ -230,3 +230,19 @@ Use the bundle's full containing commit when citing it. Verify its own
 `SHA256SUMS`; the top-level manifest and checksums still describe only the
 original snapshot. The classification is rule-based and does not measure
 execution time.
+
+## Retired documentation experiments and replay evidence — 2026-11-02 (#2511, #2512)
+
+This later bundle is separate from the original snapshot and from the earlier
+bundles. It holds four files removed from `main` because nothing reads them:
+the two storage design experiments that sat under `docs/plans/`
+(https://github.com/schlessera/brain-kit/issues/2511) and two unreferenced CI
+selection replays from `docs/process/evidence/`
+(https://github.com/schlessera/brain-kit/issues/2512). They keep their original
+paths and were copied byte for byte from `main`
+`5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0`. Files, provenance and limits are in
+`scripts/measurements/retired-docs-2542-2026-11-02/README.md`.
+
+Use the bundle's full containing commit when citing it. Verify its own
+`SHA256SUMS`; the top-level manifest and checksums still describe only the
+original snapshot.
