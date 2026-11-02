@@ -11,7 +11,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { cleanup, makeTempBrain, keylessEnv, runCli } from "./cli-harness";
-import { maintainCommand } from "../src/cli/commands/maintain";
+import { failedStepsLine, maintainCommand } from "../src/cli/commands/maintain";
 import { initContext } from "../src/lib/context";
 import { expectBlobsIntact, git, initRepo, looseCount, reflogs, refs, writeLooseBlobs } from "./git-fixture";
 
@@ -121,6 +121,51 @@ test("a repository git cannot read is a FAILED step with git's message, not a sk
   expect(step?.result).toBe("FAILED — fatal: bad boolean config value 'maybe' for 'core.bare'");
   expect(code).toBe(2);
   expect(steps.map((s) => s.step)).toEqual(["registry", "index", "vectors", "audit", "stats", "tags", "git", "scratch"]);
+});
+
+// The cron wrapper keeps only the end of stderr, which the steps' own
+// diagnostics fill. A failed run therefore ends stderr with one line naming
+// the failed steps; stdout, in either mode, is the report and nothing else.
+const lastLine = (text: string) => text.trimEnd().split("\n").at(-1);
+const GIT_REFUSAL = "fatal: bad boolean config value 'maybe' for 'core.bare'";
+
+test("a failed run's last stderr line names the failed step, and stdout is only the report", async () => {
+  const root = tempBrain();
+  initRepo(root);
+  git(root, "config", "core.bare", "maybe");
+  const json = await runCli(root, ["maintain", "--json"]);
+  expect(json.code).toBe(2);
+  expect(lastLine(json.stderr), "MAINTAIN_NAMES_FAILED_STEP_LAST").toBe(`brain maintain: FAILED step(s): git (${GIT_REFUSAL})`);
+  const steps = JSON.parse(json.stdout) as { step: string; result: string }[];
+  expect(json.stdout, "MAINTAIN_JSON_STDOUT_IS_THE_REPORT").toBe(`${JSON.stringify(steps, null, 2)}\n`);
+
+  const text = await runCli(root, ["maintain", "--human"]);
+  expect(text.code).toBe(2);
+  expect(lastLine(text.stderr), "MAINTAIN_TEXT_NAMES_FAILED_STEP_LAST").toBe(`brain maintain: FAILED step(s): git (${GIT_REFUSAL})`);
+  expect(text.stdout.startsWith("Maintenance run:\n\n")).toBe(true);
+  expect(text.stdout).toContain(`  git        FAILED — ${GIT_REFUSAL}\n`);
+  expect(text.stdout).not.toContain("brain maintain:");
+});
+
+test("a successful run writes no failed-steps line", async () => {
+  const root = tempBrain();
+  for (const flags of [["--json"], ["--human"]]) {
+    const { code, stderr } = await runCli(root, ["maintain", ...flags]);
+    expect(code).toBe(0);
+    expect(stderr, "MAINTAIN_SUCCESS_IS_SILENT").not.toContain("FAILED step(s)");
+  }
+});
+
+test("the failed-steps line keeps every name and stays well inside the cron tail", () => {
+  const steps = ["registry", "index", "vectors", "audit", "stats", "tags", "git", "scratch"];
+  const report = steps.map((step) => ({ step, result: `FAILED — ${step}-cause ${"x".repeat(3_000)}\nsecond line` }));
+  const line = failedStepsLine(report)!;
+  expect(line.length).toBeLessThanOrEqual(1_000);
+  expect(line).not.toContain("\n");
+  expect(line).not.toContain("second line");
+  for (const step of steps) expect(line).toContain(`${step} (${step}-cause x`);
+  expect(failedStepsLine([{ step: "git", result: "ok — packed 2 loose object(s)" }, { step: "tags", result: "skipped — none" }])).toBeNull();
+  expect(failedStepsLine([{ step: "git", result: `FAILED — ${"y".repeat(500)}` }])).toBe(`brain maintain: FAILED step(s): git (${"y".repeat(199)}\u2026)`);
 });
 
 // No git on PATH: nothing to pack, so the step skips and says why, and the
@@ -242,12 +287,14 @@ test("a failed index step closes its database handle", async () => {
   // A taxonomy that throws on first use makes indexAll reject after the
   // database is open.
   const taxonomy = new Proxy({}, { get: () => { throw new Error("taxonomy unavailable"); } });
-  const log = console.log;
+  const { log, error } = console;
   console.log = () => {};
+  console.error = () => {};
   try {
     await maintainCommand.run(["--no-git"], { brain: { ...brain, taxonomy }, json: true } as never);
   } finally {
     console.log = log;
+    console.error = error;
     Database.prototype.run = run;
     Database.prototype.close = close;
   }
