@@ -639,7 +639,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const catalog = createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites, writer,
     pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs } });
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer,
+  // Idle passes keep the observer initialized and current, and expire old
+  // turns, off the next admission's path (#3355).
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };

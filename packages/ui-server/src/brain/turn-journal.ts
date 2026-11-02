@@ -85,6 +85,13 @@ export interface TurnJournalOptions {
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
   /** @internal The app's write worker; absent, the journal opens its own for `db`'s file. */
   writer?: SqliteWriter;
+  /**
+   * While no turn is active, observe the brain this often (#3355), and once
+   * startup recovery commits. Each pass initializes the observer, advances
+   * it past what changed while idle and expires turns past retention, so the
+   * next admission does not. Absent, all of that waits for an admission.
+   */
+  idleObservationMs?: number;
 }
 
 export function createTurnJournal(db: Database, options: TurnJournalOptions) {
@@ -314,6 +321,37 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     ]);
     failures.delete(turnId); await collectObjects(); publish(turnId);
   }
+  /** Turns that ended more than the retention period ago. */
+  async function expireBacklog() {
+    const expired = db.query("SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL AND ended_at<?").all(now() - RETENTION_MS) as { turn_id: string }[];
+    for (const row of expired) await expire(row.turn_id, true);
+  }
+  /**
+   * The admission's own preparation, run while no turn is active (#3355). With
+   * no active turn an observation attributes nothing and retains no content:
+   * it only advances the observed root, as the next admission's would. It
+   * protects no turn, so it takes no worker hold, and a failure is left for
+   * that admission to meet again.
+   */
+  let maintaining: Promise<void> | undefined, idleTimer: ReturnType<typeof setInterval> | undefined, closing = false;
+  function maintain(): Promise<void> {
+    if (closing || active.size || holds) return Promise.resolve();
+    return maintaining ??= serialize(async () => {
+      if (closing || active.size) return;
+      await capture.initialize();
+      await observe();
+      await expireBacklog();
+    }).catch(() => {}).finally(() => { maintaining = undefined; });
+  }
+  if (options.idleObservationMs !== undefined) {
+    const interval = options.idleObservationMs;
+    void ready.then(() => {
+      if (closing) return;
+      void maintain();
+      idleTimer = setInterval(() => { void maintain(); }, interval);
+      idleTimer.unref?.();
+    }, () => {});
+  }
   async function collectOne(): Promise<boolean> {
     const row = db.query("SELECT turn_id,state FROM turn_journal_turns WHERE ended_at IS NOT NULL ORDER BY (state='expired'),ended_at LIMIT 1").get() as { turn_id: string; state: string } | null;
     if (!row) return false;
@@ -438,8 +476,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       end?.();
       signal?.throwIfAborted();
       end = timing?.("expiry");
-      const expired = db.query("SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL AND ended_at<?").all(now() - RETENTION_MS) as { turn_id: string }[];
-      for (const row of expired) await expire(row.turn_id, true);
+      await expireBacklog();
       end?.(); end = timing?.("turn_insert");
       await retain(() => write([statement("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL",
         turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now())]));
@@ -717,7 +754,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         try { return objects.stream(selected.hash!, release); } catch (error) { release(); throw error; }
       } };
     },
+    /** @internal Runs one idle maintenance pass now; settles once it has (#3355). */
+    maintain,
     async close() {
+      closing = true; clearInterval(idleTimer);
       clearInterval(scopeTimer);
       try { await tail; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
       finally { objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
