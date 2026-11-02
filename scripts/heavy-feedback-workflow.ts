@@ -102,6 +102,13 @@ export function renderHeavyFeedbackWorkflow(ciText: string): string {
     "# `bun scripts/request-heavy-feedback.ts <pr>`.\n" + Bun.YAML.stringify(workflow, null, 2);
 }
 
+/** Freshness compares parsed structure: Bun's YAML stringifier whitespace differs
+ * between versions (1.4.2 leaves a space after each mapping key), and hosted CI
+ * pins an older Bun than a developer may run. Any job, pin or timeout change still differs. */
+export function sameWorkflow(text: string, rendered: string): boolean {
+  try { return Bun.deepEquals(Bun.YAML.parse(text), Bun.YAML.parse(rendered), true); } catch { return false; }
+}
+
 if (import.meta.main) {
   const root = resolve(import.meta.dir, "..");
   const target = join(root, ".github/workflows/heavy-feedback.yml");
@@ -109,6 +116,6 @@ if (import.meta.main) {
   if (process.argv.includes("--check")) {
     let current = "";
     try { current = readFileSync(target, "utf8"); } catch {}
-    if (current !== rendered) { console.error("heavy-feedback.yml is stale: run bun scripts/heavy-feedback-workflow.ts"); process.exit(1); }
+    if (!sameWorkflow(current, rendered)) { console.error("heavy-feedback.yml is stale: run bun scripts/heavy-feedback-workflow.ts"); process.exit(1); }
   } else writeFileSync(target, rendered);
 }

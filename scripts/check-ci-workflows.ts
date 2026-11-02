@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
-import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow } from "./heavy-feedback-workflow";
+import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "./heavy-feedback-workflow";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
@@ -156,7 +156,7 @@ export function heavyFeedbackWorkflowProblems(text: string, ciText: string): str
   if (!workflow || typeof workflow !== "object") return ["heavy-feedback.yml: workflow must be a mapping"];
   let rendered = "";
   try { rendered = renderHeavyFeedbackWorkflow(ciText); } catch (error) { fail(`cannot derive from ci.yml: ${String(error)}`); }
-  if (rendered && text !== rendered) fail("stale copy of ci.yml's category jobs and pins; run bun scripts/heavy-feedback-workflow.ts");
+  if (rendered && !sameWorkflow(text, rendered)) fail("stale copy of ci.yml's category jobs and pins; run bun scripts/heavy-feedback-workflow.ts");
   if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("feedback must not expose secrets or privileged triggers");
   if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read", actions: "read", checks: "read" })) fail("token must stay read-only");
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["pull_request", "workflow_dispatch"])) fail("only a dispatch requests feedback; pull_request only cancels it");

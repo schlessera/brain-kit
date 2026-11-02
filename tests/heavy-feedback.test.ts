@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { admit, FEEDBACK_AGGREGATE, feedbackProblems, feedbackRequest, requireLiveDraftHead, yieldReason } from "../scripts/heavy-feedback";
-import { FEEDBACK_GROUP, renderHeavyFeedbackWorkflow } from "../scripts/heavy-feedback-workflow";
+import { FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "../scripts/heavy-feedback-workflow";
 import { heavyFeedbackWorkflowProblems } from "../scripts/check-ci-workflows";
 import { requestHeavyFeedback, type GH } from "../scripts/request-heavy-feedback";
 import { verifyIntegrationProof } from "../scripts/integration-proof";
@@ -108,8 +108,10 @@ test("the feedback aggregate requires its own cadence and every selected categor
 test("the workflow is ci.yml's category jobs with per-PR cancellation and an aggregate never named proof", () => {
   const ci = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
   const text = readFileSync(join(ROOT, ".github/workflows/heavy-feedback.yml"), "utf8");
-  expect(text, "GENERATED_FROM_CI").toBe(renderHeavyFeedbackWorkflow(ci));
+  expect(sameWorkflow(text, renderHeavyFeedbackWorkflow(ci)), "GENERATED_FROM_CI").toBe(true);
   expect(heavyFeedbackWorkflowProblems(text, ci)).toEqual([]);
+  // Hosted CI pins Bun 1.4.2, whose stringifier leaves a space after each mapping key.
+  expect(heavyFeedbackWorkflowProblems(text.replace(/^(\s*[A-Za-z_"-]+:)$/gm, "$1 "), ci), "STRINGIFIER_WHITESPACE_IS_NOT_DRIFT").toEqual([]);
   const workflow = Bun.YAML.parse(text) as any, source = Bun.YAML.parse(ci) as any;
   expect(workflow.concurrency).toEqual({ group: "heavy-feedback-${{ github.event.pull_request.number || inputs.pr }}", "cancel-in-progress": true });
   expect(FEEDBACK_GROUP).toBe(workflow.concurrency.group);
