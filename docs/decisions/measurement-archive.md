@@ -192,6 +192,24 @@ a date.
 - **Measured source:** not recorded. **Introduced by:** `e8f94c6c1f1f`.
 - **Files:** [probe.py](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike/probe.py), [worker.ts](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike/worker.ts)
 
+### Archived later
+
+> **2026-11-02 — Files removed from `main` after the original archive commit.**
+> Each was added to `archive/measurements` as a new commit on top of the
+> branch, at its original path, byte for byte. The 94-file count above and the
+> branch's top-level `manifest.json` and `SHA256SUMS` describe only the original
+> commit; each later bundle carries its own manifest and checksums.
+
+#### Unreferenced CI selection replays (#2512)
+
+- **Path:** `docs/process/evidence/independent-test-replay.json`, `docs/process/evidence/browser-input-closure-replay.json`
+- **Role:** historical output (100-PR replays of independent Bun test-leaf selection and of browser proof input discovery, both at the 2026-10-16 cutoff).
+- **Consumers before removal:** none. No document, test, script or CI step named either file; one note inside `docs/process/evidence/test-wait-review-partition.json` mentions `independent-test-replay.json` in passing, which is a pointer, not a consumer.
+- **Disposition:** archived in commit [`c24a848238724b797386fdd9e9dbdbf2bb254d59`](https://github.com/schlessera/brain-kit/tree/c24a848238724b797386fdd9e9dbdbf2bb254d59/scripts/measurements/retired-docs-2542-2026-11-02), copied from main commit `5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0`.
+- **Measured source:** `626a03af4a9db064751230a84732755b8afa961e` (browser-input-closure-replay.json sourceBase); not recorded for independent-test-replay.json. **Introduced by:** `d6b527290fe2` (#2147), `b6d7391de6ba` (#2152).
+- **SHA-256:** `4b5cd6bd74882b34893b958cca88ff90c5d1c3e60a28115712e5966062b1a496` (independent-test-replay.json), `6cf33fd312f82c3a0b4ec43274a2d714b45995720a40363beae62e662b35adaf` (browser-input-closure-replay.json).
+- **Files:** [independent-test-replay.json](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/process/evidence/independent-test-replay.json), [browser-input-closure-replay.json](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/process/evidence/browser-input-closure-replay.json)
+
 ### Retained in place (241 files)
 
 > **2026-10-10 — #838 spike harnesses removed.** The maintainer ruled the
