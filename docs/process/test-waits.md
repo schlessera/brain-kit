@@ -95,6 +95,23 @@ Existing issues #1242 (PDF effect readiness), #1685 (hygiene layout readiness),
 #1837 (repeated build attribution), and the recording/matrix children retain their
 ownership rather than being duplicated here.
 
+### Re-census of later files
+
+The inventory above is a snapshot. Waits added after it are held to the same
+rule ([#3332](https://github.com/schlessera/brain-kit/issues/3332)). The
+[re-census](https://github.com/schlessera/brain-kit/tree/a13f2247adcc3946d44c023553ff662e926143ea/scripts/measurements/wait-census-3332-2026-11-02)
+runs the same expression at `3984040f199cbadbee6e4ce3f1beff816b68dc36`. It
+classifies every match in files that do not match at the inventory source
+(604 lines in 204 files) as justified, replaceable or not a wait. The
+classification is rule-based and does not count executions. A slice that
+replaces waits re-reads each enclosing test first, and its pull request records
+any reclassification and its mutation receipts.
+
+| Source / assertion | Attributed role and retained proof | Completion control / native boundary |
+| --- | --- | --- |
+| `private-index-cache.test.ts`, idle expiry and active-base skip | Registered idle timers, armed and delivered while a turn holds the base; expiry still applies once the turn finishes | `privateIndexClock` owns only the cache's timers and `Date.now`. Checkpoints, files and the held delta stay native. |
+| Same file, advance/close ordering | The advance holds the base's queue before a turn arrives; close stops a delta or run that has actually started | The bench's `entered`/`running` signals replace 50–100 ms sleeps. Dropping either await reorders the outcome. |
+
 ## Continuity settling boundaries
 
 Networked continuity contexts start with native offline state, create their
