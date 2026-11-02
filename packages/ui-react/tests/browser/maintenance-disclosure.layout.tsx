@@ -59,7 +59,7 @@ function category(name: string) {
   return page.getByRole("button", { name, exact: true });
 }
 function categoryButton(name: string) {
-  return [...host!.querySelectorAll<HTMLButtonElement>("h2 button")].find(button => button.textContent === name)!;
+  return [...host!.querySelectorAll<HTMLButtonElement>("[data-tray-header]")].find(button => button.textContent === name)!;
 }
 function content(name: string) {
   return document.getElementById(categoryButton(name).getAttribute("aria-controls")!)!;

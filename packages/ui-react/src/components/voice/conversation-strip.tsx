@@ -2,7 +2,7 @@ import { DraftSaveLine } from "../chat/draft-save-line.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { Button, Overlay, TextButton } from "@schlessera/brain-ui-kit";
+import { Button, Disclosure, Overlay, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 
 /** The voice controls live below the ordinary transcript and its interactive cards. */
@@ -45,6 +45,7 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
   const control = { ...button, padding: "0 2px" };
   const leave = () => { client.leave(); onLeave(); };
+  const contextual = Object.values(s.work).filter(w => w.provenance === "contextual");
   return <div ref={frame} data-conversation-strip="" className="mx-auto max-w-3xl border-t border-border bg-background text-foreground" style={{ overflowWrap: "anywhere", maxHeight: "60dvh", overflowY: "auto" }}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{s.announcement}</div>
     <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 4, fontSize: 12, lineHeight: 1.3 }}>
@@ -70,14 +71,15 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         <Button label="Discard" tone="ghost" style={button} onClick={client.discard} />
       </div>
     </div>}
-    {Object.values(s.work).some(w => w.provenance === "contextual") && <details aria-label="Conversation tasks" className="py-2 text-xs">
-      <summary className="min-h-11 cursor-pointer">Background tasks</summary>
-      <ul>{Object.values(s.work).filter(w => w.provenance === "contextual").slice(-8).map(w => <li key={w.requestId} className="py-1">
+    {contextual.length > 0 && <section aria-label="Conversation tasks" data-evidence-disclosure="" className="py-2 text-xs">
+      <Disclosure icon="steps" label={`Background tasks · ${contextual.length} contextual ${contextual.length === 1 ? "request" : "requests"}`}>
+      <ul>{contextual.slice(-8).map(w => <li key={w.requestId} className="py-1">
         <p>Context: {w.recognized.slice(-160)}</p>
         Conversation task · {w.state} · {w.delivery === "returned" ? "result accepted by voice service; playback unknown" : w.delivery === "unknown" ? "result acceptance unknown; no automatic replay" : w.delivery === "pending" ? "result pending" : "result withheld"}
         {w.reason && <p>{w.reason}</p>}
       </li>)}</ul>
-    </details>}
+      </Disclosure>
+    </section>}
     {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ minHeight: 40, fontSize: 12 }}>{permission.line}</div>}
     <div className="sticky bottom-0 bg-background" style={{ minHeight: permission.line && s.text && shortScreen ? 44 : 52, display: "flex", alignItems: "center", gap: 4 }}>
       <Button label={s.micOn ? "Mute mic" : s.connection === "Connected" ? "Unmute mic" : "Resume"} ariaLabel={s.micOn ? "Mute mic" : "Resume microphone"} tone="ghost" style={control} onClick={s.micOn ? client.mute : client.resume} />

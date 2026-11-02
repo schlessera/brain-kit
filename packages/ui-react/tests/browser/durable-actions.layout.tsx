@@ -758,7 +758,7 @@ async function migrationScene(row: ButtonRow, theme: "dark" | "light", width = 3
   const d = await device("button-scene", { theme, width, stale: true, notices: [notice], runs });
   const name = row === 1 ? PRICING_NAME : row === 2 ? "Open the queue, 2 items" : row === 3 ? "Refresh"
     : row === 4 ? "1 new · show" : row === 5 ? "Dismiss all" : row === 6 ? "Queue: 1 ready · 0 blocked · 1 failed"
-    : row === 8 ? "Back" : row === 9 ? "Raw trace" : row === 12 ? "Queue ▸"
+    : row === 8 ? "Back" : row === 9 ? "Raw trace · 1 span" : row === 12 ? "Queue ▸"
     : row === 13 ? `Details: ${decision("a-one", "t-harbour").payload.title}`
     : row === 14 ? "Don't ask again" : row === 17 ? "Back to Queue" : "Back to Actions";
   if (row === 4) {

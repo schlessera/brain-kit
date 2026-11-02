@@ -268,13 +268,15 @@ function HistoryTable({
     .sort((a, b) => a.at - b.at);
   const now = Date.now();
   return (
-    <details
+    // A Settings section stays visible; it never collapses behind a summary (#3253).
+    <section
+      aria-labelledby={`${id}-history`}
       className="min-w-0 rounded-lg border border-border p-3"
       data-storage-history=""
     >
-      <summary className="min-h-11 cursor-pointer py-3 font-semibold">
-        View observations · Recent, Daily and Weekly
-      </summary>
+      <h3 id={`${id}-history`} className="font-semibold">
+        Observations · Recent, Daily and Weekly
+      </h3>
       <div className="grid min-w-0 gap-3 pt-3">
         <p>
           Actual endpoints, never averages. Current buckets are provisional;
@@ -436,7 +438,7 @@ function HistoryTable({
           storage.
         </p>
       </div>
-    </details>
+    </section>
   );
 }
 function Notices({
@@ -444,11 +446,13 @@ function Notices({
 }: {
   value: StorageGuidanceResponse["notifications"];
 }) {
+  const id = useId();
+  // A Settings section stays visible; it never collapses behind a summary (#3253).
   return (
-    <details className="rounded-lg border border-border p-3">
-      <summary className="min-h-11 cursor-pointer py-3 font-semibold">
+    <section aria-labelledby={id} className="rounded-lg border border-border p-3" data-storage-notices="">
+      <h3 id={id} className="font-semibold">
         Critical notifications
-      </summary>
+      </h3>
       <div className="grid gap-3 pt-3">
         <p>
           Optional, through this app's existing push subscription. Only Critical
@@ -514,7 +518,7 @@ function Notices({
           <p>Additional delivery receipts are not shown.</p>
         )}
       </div>
-    </details>
+    </section>
   );
 }
 export function StorageGuidance({

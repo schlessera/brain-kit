@@ -762,7 +762,7 @@ for (const failure of ["quota", "pending"] as const) {
     await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!, correction);
     if (hold) await hold.started;
     if (fault) await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent).toBe("Couldn\u0027t save the transcript on this device. The recording is kept.");
-    await tap(c.host.querySelector("[data-recordings-tray] > button")!); await expand(c);
+    await tap(c.host.querySelector("[data-recordings-tray] [data-tray-header]")!); await expand(c);
     expect(c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!.value, "collapse never abandons the unsaved transcript correction").toBe(correction);
     if (fault) expect(c.host.querySelector("[role=alert]")?.textContent, "the unsaved correction keeps its failure warning").toBe("Couldn\u0027t save the transcript on this device. The recording is kept.");
     fault?.restore(); hold?.release();
@@ -1110,7 +1110,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) test(`ba
   });
   const c = fixture(ctx); await c.ready(); await c.seed("interrupted");
   c.renderTray(); await expand(c);
-  const named = page.elementLocator(c.host).getByRole("button", { name: /^On this device · 1 ·/ });
+  const named = page.elementLocator(c.host).getByRole("button", { name: /^On this device · 1 recording ·/ });
   const header = named.element() as HTMLElement;
   header.focus(); await userEvent.keyboard("{ArrowRight}");
   const css = getComputedStyle(header); const rect = header.getBoundingClientRect();

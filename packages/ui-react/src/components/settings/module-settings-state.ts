@@ -23,12 +23,31 @@ export interface ModuleSettingsSession {
   generation: number;
   draftNotes: Array<{ key: string; text: string }> | null;
   pendingInputs: Record<string, string>;
+  /** Expanded editable items by item path (`scoring.groups.0`). Kept here, not
+   *  in the list, so expansion survives the pane/drawer remount, and remapped
+   *  with the item on move and remove like the drafts beside it (#3253). */
+  openItems: Record<string, boolean>;
 }
 
 export function createModuleSettingsSession() {
-  return createStore<ModuleSettingsSession>(() => ({ modules: [], loading: false, error: null, name: null, snapshot: null, draft: {}, variants: {}, localErrors: {}, errors: [], busy: null, message: null, leave: null, conflict: null, choices: {}, preview: null, confirm: null, generation: 0, draftNotes: null, pendingInputs: {} }));
+  return createStore<ModuleSettingsSession>(() => ({ modules: [], loading: false, error: null, name: null, snapshot: null, draft: {}, variants: {}, localErrors: {}, errors: [], busy: null, message: null, leave: null, conflict: null, choices: {}, preview: null, confirm: null, generation: 0, draftNotes: null, pendingInputs: {}, openItems: {} }));
 }
 export type ModuleSettingsSessionStore = ReturnType<typeof createModuleSettingsSession>;
+
+/**
+ * A refused Save opens every collapsed item holding an error, before focus
+ * moves to the first invalid field (#3253). A numeric path segment is a list
+ * index, so each prefix ending in one names an item: `a.0.b.1.c` opens `a.0`
+ * and `a.0.b.1`.
+ */
+export function revealInvalidItems(state: Pick<ModuleSettingsSession, "errors" | "localErrors" | "openItems">, errors = state.errors): Record<string, boolean> {
+  const open = { ...state.openItems };
+  for (const path of [...errors.map((e) => e.path), ...Object.keys(state.localErrors)]) {
+    const parts = path.split(".");
+    parts.forEach((part, i) => { if (/^\d+$/.test(part)) open[parts.slice(0, i + 1).join(".")] = true; });
+  }
+  return open;
+}
 
 export function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
