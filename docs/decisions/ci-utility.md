@@ -1484,7 +1484,7 @@ main run that printed the same open record as included. The first step of a
 non-draft PR run refuses with `main red at <sha>, incident #<n>` when its merge
 ref contains the bad commit and the PR is not a declared fix. Draft runs keep
 their cheap gates. One ancestry rule decides every refusal and cancellation
-(`gateDecision`, `scripts/red-main.ts:209-216`): proof is doomed only when the
+(`gateDecision`, `scripts/red-main.ts:223-230`): proof is doomed only when the
 tree it tests contains the bad commit and its PR is not a declared fix
 ([#3321](https://github.com/schlessera/brain-kit/issues/3321)). The coordinator
 cancels a queued or running PR proof run only when its PR's base or head, as
@@ -1494,7 +1494,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:62-66`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:64-68`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
