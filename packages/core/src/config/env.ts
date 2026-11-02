@@ -49,6 +49,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal data root for maintenance and hosted turn workers, supplied by the trusted worker launch together with BRAIN_WORKER_CONFIG_ROOT; not an operator input.", required: false },
   { name: "BRAIN_WITHHELD_KEYS", description: "Internal: comma-separated names (never values) of the provider keys the server withheld from this governed or strict agent worker. A command that needs one names the provider with a `provider_unavailable` notice and degrades where it can; set by the worker launcher, not an operator input.", default: "no key is withheld; a missing key keeps the ordinary keyless behaviour", required: false },
   { name: "BRAIN_PROVIDER_RELAY_SOCKET", description: "Internal: absolute path of the server's provider relay socket in a governed or strict agent worker or a relayed maintenance worker. A built-in Gemini, Anthropic or OpenAI image provider whose key the server withheld sends its native request there, and the server adds the key, meters the request and refuses it once a budget is blocked; set by the worker launcher, not an operator input.", default: "no relay; a provider uses its key from the environment", required: false },
+  { name: "BRAIN_AGENT_RUNNER_UNAVAILABLE", description: "Internal: set to `1` by the worker launcher in a credential-free maintenance worker, such as the one hosted `brain sync` runs in, where no agent can log in. The configured agent runner is then treated as absent: bare `brain sync` hands nothing to an agent and reports that judgment is unavailable, so a conflict it leaves is resolved by hand; set by the worker launcher, not an operator input.", default: "the configured agent runner is used", required: false },
   { name: "BRAIN_WORKER_CONFIG_ROOT", description: "Internal immutable configuration execution root for maintenance and hosted turn workers, supplied by the trusted worker launch. Root discovery maps it to BRAIN_WORKER_DATA_ROOT; configuration loading maps the data root back here.", required: false },
   {
     name: "BRAIN_ROOT",
@@ -160,6 +161,8 @@ export interface CoreEnv {
   claudeCodePath: string | undefined;
   /** TYPESAFE_API_KEY, trimmed, or undefined when unset or blank (the sync judge is then off). */
   typesafeApiKey: string | undefined;
+  /** BRAIN_AGENT_RUNNER_UNAVAILABLE is truthy: this worker can run no agent, whatever the brain configures. */
+  agentRunnerUnavailable: boolean;
 }
 
 /**
@@ -186,6 +189,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
       envFlag(env.BRAIN_UI_CHROME_NO_SANDBOX, false),
     claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
     typesafeApiKey: env.TYPESAFE_API_KEY?.trim() || undefined,
+    agentRunnerUnavailable: envFlag(env.BRAIN_AGENT_RUNNER_UNAVAILABLE, false),
   };
 }
 

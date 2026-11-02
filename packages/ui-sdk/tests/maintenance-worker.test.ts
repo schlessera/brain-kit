@@ -253,3 +253,12 @@ function brainGitSync(brain: string, args: readonly string[], options: Parameter
   try { return realBrainGitSync(brain, args, { ...options, ...maintenance }); }
   finally { maintenance.cleanup(); }
 }
+
+describe("agent runner availability (#3243)", () => {
+  test("a credential-free launch tells the brain CLI no agent can run there; a credentialed one does not", () => {
+    const f = fixture();
+    const base = { brainPath: f.brain, command: ["/bin/true"], env: {} };
+    expect(maintenanceLaunch({ ...base, credentials: false }).env.BRAIN_AGENT_RUNNER_UNAVAILABLE).toBe("1");
+    expect(maintenanceLaunch({ ...base, credentials: true }).env.BRAIN_AGENT_RUNNER_UNAVAILABLE).toBeUndefined();
+  });
+});
