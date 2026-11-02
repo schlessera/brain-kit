@@ -134,12 +134,20 @@ describe("Files rail (sixth pass §3)", () => {
   });
 
   test("Marked untrusted (#2673) replaces the disabled Untrusted only filter", async () => {
-    openFile({ path: "fresh.md", content: "x", kind: "text", mtime: Date.now() });
-    const view = render(<FilePanel open onClose={() => {}} />);
-    await act(flushPromises);
-    expect(view.queryByRole("switch", { name: "Untrusted only" })).toBeNull();
-    expect(view.container.querySelector("[data-untrusted-entry]")!.textContent).toContain("Marked untrusted");
-    view.unmount();
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => String(input).includes("/files/untrusted/list")
+      ? Response.json({ marks: [], canClear: true }) : Response.json({ entries: [] })) as unknown as typeof fetch;
+    try {
+      openFile({ path: "fresh.md", content: "x", kind: "text", mtime: Date.now() });
+      const view = render(<FilePanel open onClose={() => {}} />);
+      await act(flushPromises);
+      await act(flushPromises);
+      expect(view.queryByRole("switch", { name: "Untrusted only" })).toBeNull();
+      const entry = view.container.querySelector("[data-untrusted-entry]")!;
+      expect(entry.textContent).toContain("Marked untrusted · none");
+      expect(entry.getAttribute("aria-label")).toBe("Marked untrusted, no files");
+      view.unmount();
+    } finally { globalThis.fetch = original; }
   });
 });
 

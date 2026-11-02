@@ -377,9 +377,10 @@ export function useUntrustedToolbar(filePath: string | null, loaded: boolean, fi
 /** The entry row that replaces the disabled `Untrusted only` filter. Hidden on a server without marks. */
 export function MarkedUntrustedEntry({ onOpen, entryRef }: { onOpen(): void; entryRef?: RefObject<HTMLButtonElement | null> }) {
   const marks = useUntrustedMarks();
-  // Drawn once the host answered: a row that appeared and then vanished on an
-  // unsupported server would take focus with it.
-  if (!marks || marks.list.status === "unsupported" || marks.list.status === "loading") return null;
+  // Drawn once the host answered with marks or a refusal: a row that appeared
+  // and then vanished on an unsupported server would take focus with it. An
+  // unreachable host draws no row until a refetch (on focus) reaches it.
+  if (!marks || (marks.list.status !== "ready" && marks.list.status !== "refused")) return null;
   const count = marks.list.status === "ready" ? marks.list.marks.length : null;
   const name = count === null ? "Marked untrusted" : `Marked untrusted, ${count === 0 ? "no files" : count === 1 ? "1 file" : `${count} files`}`;
   return (

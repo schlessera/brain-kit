@@ -49,7 +49,7 @@ async function child(args: string[], cwd = repo): Promise<void> {
 
 beforeAll(async () => {
   if (!executablePath) return;
-  await runtimePackageBuild(repo, ["ui-react", "ui-server"], hook);
+  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-untrusted-marks-"));
   brain = resolve(fixture, "brain");
   for (const dir of ["inbox", "notes", "people/suitors"]) await mkdir(resolve(brain, dir), { recursive: true });
