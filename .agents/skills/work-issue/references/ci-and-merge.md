@@ -278,7 +278,8 @@ receipt, or get the category selected; never edit a receipt by hand
 A proof-system candidate (`bun scripts/proof-system.ts classify --base <merge-base>
 --head <head>`) waits its turn in the proof-system lane. `confirm` (before
 acquiring) and `merge` refuse it until the last proof-system squash on main
-has a green main-push run at its own squash and at each of the next two, and
+has a green main-push run at its own squash followed by two consecutive green
+main runs (a failure restarts that count), and
 until its PR body has an `## Off-main qualification` section linking a replay
 or dispatch run on the exact head, or on an ancestor with no proof-system
 change after it. Read the window with `bun scripts/integrate.ts lane --json`

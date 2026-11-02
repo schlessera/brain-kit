@@ -124,9 +124,12 @@ fi`); chmodSync(shim, 0o755);
   const qualification = lane && !mode.includes("unqualified") && !mode.startsWith("expedite-") ? `## Off-main qualification\n\nReplay https://github.com/odysseus/brain-kit/actions/runs/555 compares three shards with two.\n\n` : "";
   const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${qualification}${receiptBlock(receipt)}\n`;
   const qualificationRuns = { 555: mode.includes("stale-run") ? base : mode.includes("ancestor-run") ? history.shards : head };
-  // Main-push CI runs at the window squashes: sails and oars green; base green only once the lane is open.
+  // Main-push CI runs at sails (own), oars and base: all green once the lane
+  // is open; "-short" has no run at base yet, "-cancelled" a cancelled one,
+  // "-own-red" a failed own run and "-recovering" a failure at oars.
   const window = (id: number, conclusion: string | null) => ({ id, status: conclusion ? "completed" : "in_progress", conclusion });
-  const mainRuns: Record<string, ReturnType<typeof window>> = !lane ? {} : { [history.sails!]: window(81, "success"), [history.oars!]: window(82, "success"),
+  const mainRuns: Record<string, ReturnType<typeof window>> = !lane ? {} : { [history.sails!]: window(81, mode.includes("own-red") ? "failure" : "success"),
+    [history.oars!]: window(82, mode.includes("recovering") ? "failure" : "success"),
     ...(mode.includes("lane-short") ? {} : { [base]: window(83, mode.includes("cancelled") ? "cancelled" : "success") }) };
   const probeLog = (id: number) => (id === 401 ? { sha: base, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-base-green" ? 0 : 1 }
     : mode === "expedite-revert" ? { sha: head, tests: [], absent: ["tests/raft.test.ts"], exitCode: 0 }
@@ -363,12 +366,18 @@ test("expedited fix merges only with red-on-base and green-on-head evidence, and
 });
 
 test("a proof-system candidate waits for the two-green-main stability window; a product candidate does not (#3269)", async () => {
-  for (const mode of ["lane-short", "lane-cancelled", "confirm-lane-short"]) {
+  for (const [mode, message] of [
+    ["lane-short", "1 more green main run required"],
+    ["confirm-lane-short", "1 more green main run required"],
+    ["lane-cancelled", "2 more green main runs required"],
+    ["lane-recovering", "1 more green main run required"],
+    ["lane-own-red", "needs its own main run green first"],
+  ] as const) {
     const refused = await scenario(mode);
     expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
     expect(refused.code, refused.err).toBe(1);
     expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
-    expect(refused.err).toContain("1 more green main run required");
+    expect(refused.err).toContain(message);
     expect(refused.err).not.toContain("Off-main qualification missing");
     expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
   }
@@ -383,11 +392,12 @@ test("lane --json reports the refusal's decision from the same function (#3269)"
   const read = await scenario("lane-short-read");
   expect(read.code, read.err).toBe(0);
   const decision = JSON.parse(read.out);
-  expect(decision).toMatchObject({ schemaVersion: 1, open: false, missing: 1, window: [{ position: 0, green: true, run: { id: 81 } }, { position: 1, green: true, run: { id: 82 } }, { position: 2, green: false, run: null }] });
+  expect(decision).toMatchObject({ schemaVersion: 1, state: "closed", open: false, ownGreen: true, streak: 1, required: 1, next: null,
+    window: [{ position: 0, green: true, run: { id: 81 } }, { position: 1, green: true, run: { id: 82 } }, { position: 2, green: false, run: null }] });
   expect(decision.refusal).toContain("1 more green main run required");
   expect(decision.refusal).toContain(`the last proof-system squash ${decision.proofSystemSquash}`);
   const open = await scenario("lane-open-read");
-  expect(JSON.parse(open.out), open.err).toMatchObject({ open: true, missing: 0, refusal: null });
+  expect(JSON.parse(open.out), open.err).toMatchObject({ state: "open", open: true, required: 0, refusal: null });
 });
 
 test("a proof-system candidate needs off-main qualification on its head or a proof-system-free ancestor (#3271)", async () => {

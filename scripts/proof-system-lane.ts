@@ -1,5 +1,5 @@
 /** The proof-system lane's merge gates (docs/decisions/ci-utility.md,
- * "Proof-system lane", answers 1–3): the two-green-main stability window
+ * "Proof-system lane", answers 1–3): the two-consecutive-green-main stability window
  * (#3269) and off-main qualification evidence on the PR (#3271).
  *
  * `integrate.ts confirm` and `merge` refuse a proof-system candidate with the
@@ -8,12 +8,16 @@
  * `classify` from `scripts/proof-system.ts`; this file lists no globs.
  *
  * Every GitHub read goes through a caller-supplied lookup so the gate stays
- * bounded: at most `WINDOW` main-run reads and `MAX_QUALIFICATION_RUNS` run
+ * bounded: at most `MAX_MAIN_RUNS` main-run reads and `MAX_QUALIFICATION_RUNS` run
  * reads per decision. */
 import { classify, type ClassifyOptions } from "./proof-system";
 
-/** The proof-system squash's own main run plus the next two (answer 2). */
-export const WINDOW = 3;
+/** Consecutive completed-green main runs required after the proof-system
+ * squash's own green run, and again after any later failure (answer 2, as
+ * clarified on #3269, issuecomment-6575963951). */
+export const STREAK = 2;
+/** Main-push runs one lane decision reads at most: the own run and up to nine later ones. */
+export const MAX_MAIN_RUNS = 10;
 /** First-parent main squashes examined for the last proof-system change. */
 export const SCAN_LIMIT = 200;
 /** Run URLs read from one PR body's qualification section. */
@@ -21,7 +25,8 @@ export const MAX_QUALIFICATION_RUNS = 5;
 export const QUALIFICATION_HEADING = "Off-main qualification";
 
 export interface MainRun { id: number; status: string; conclusion: string | null }
-export interface WindowEntry { position: number; sha: string | null; run: MainRun | null; green: boolean }
+/** One main squash the decision read, in merge order; position 0 is the proof-system squash itself. */
+export interface WindowEntry { position: number; sha: string; run: MainRun | null; green: boolean }
 export interface LaneDecision {
   schemaVersion: 1;
   /** The main squash the history was read from. */
@@ -29,10 +34,17 @@ export interface LaneDecision {
   /** The most recent proof-system squash within the scan, or null. */
   proofSystemSquash: string | null;
   scanned: number;
-  window: WindowEntry[];
-  /** Window positions without a completed, successful main-push run. */
-  missing: number;
+  /** `unknown`: no two consecutive green runs within `MAX_MAIN_RUNS` while later squashes exist. */
+  state: "open" | "closed" | "unknown";
   open: boolean;
+  ownGreen: boolean | null;
+  /** Consecutive green later runs counted when the decision stopped. */
+  streak: number;
+  /** Green main runs still required, or null when unknown. */
+  required: number | null;
+  window: WindowEntry[];
+  /** The squash whose run the decision needs next; null once decided. */
+  next: string | null;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -47,11 +59,12 @@ export function isGreen(run: MainRun | null): boolean {
   return run?.status === "completed" && run.conclusion === "success";
 }
 
-export interface ProofSystemHistory { squash: string | null; later: string[]; scanned: number }
+/** `later` holds at most `MAX_MAIN_RUNS - 1` squashes after the proof-system
+ * squash, in merge order; `more` says whether main has squashes beyond them. */
+export interface ProofSystemHistory { squash: string | null; later: string[]; more: boolean; scanned: number }
 
 /** The most recent first-parent squash at or before `main` whose diff to its
- * parent is a proof-system change, and up to `WINDOW - 1` squashes after it in
- * merge order. */
+ * parent is a proof-system change, and the squashes after it within the bound. */
 export function lastProofSystemSquash(main: string, options: ClassifyOptions & { limit?: number } = {}): ProofSystemHistory {
   const cwd = options.cwd ?? process.cwd();
   const lines = git(cwd, ["rev-list", "--first-parent", "--parents", `--max-count=${options.limit ?? SCAN_LIMIT}`, main]).split("\n").filter(Boolean);
@@ -60,40 +73,60 @@ export function lastProofSystemSquash(main: string, options: ClassifyOptions & {
     const [sha, parent] = line.split(" ") as [string, string | undefined];
     newestFirst.push(sha);
     if (parent && classify(parent, sha, options).proofSystem) {
-      const index = newestFirst.length - 1;
-      return { squash: sha, later: newestFirst.slice(Math.max(0, index - (WINDOW - 1)), index).reverse(), scanned: newestFirst.length };
+      const index = newestFirst.length - 1, from = Math.max(0, index - (MAX_MAIN_RUNS - 1));
+      return { squash: sha, later: newestFirst.slice(from, index).reverse(), more: from > 0, scanned: newestFirst.length };
     }
   }
-  return { squash: null, later: [], scanned: newestFirst.length };
+  return { squash: null, later: [], more: false, scanned: newestFirst.length };
 }
 
-/** The stability-window decision for a history and the main-push runs found
- * at its squashes. Pure: `lane --json` and the refusal both read it. */
+/** The stability-window decision from the runs read so far. Pure: `lane
+ * --json` and the refusal both read it, and `readLane` reads the run it names
+ * in `next` until it is null.
+ *
+ * The own run must be green. Later runs then count toward `STREAK`
+ * consecutive greens; a completed run that is not green (failed, cancelled,
+ * timed out) restarts the count, and so does a squash with no run when a later
+ * squash exists. A queued or in-progress run, or a missing run at the newest
+ * squash, is pending: the count stops there, not yet green. */
 export function decideLane(main: string, history: ProofSystemHistory, runs: ReadonlyMap<string, MainRun | null>): LaneDecision {
-  if (!history.squash) return { schemaVersion: 1, main, proofSystemSquash: null, scanned: history.scanned, window: [], missing: 0, open: true };
+  const base = { schemaVersion: 1 as const, main, proofSystemSquash: history.squash, scanned: history.scanned };
+  if (!history.squash) return { ...base, state: "open", open: true, ownGreen: null, streak: 0, required: 0, window: [], next: null };
+  const window: WindowEntry[] = [];
+  const closed = (ownGreen: boolean, streak: number, next: string | null = null): LaneDecision =>
+    ({ ...base, state: "closed", open: false, ownGreen, streak, required: (ownGreen ? 0 : 1) + STREAK - streak, window, next });
   const shas = [history.squash, ...history.later];
-  const window = Array.from({ length: WINDOW }, (_, position): WindowEntry => {
-    const sha = shas[position] ?? null, run = sha ? runs.get(sha) ?? null : null;
-    return { position, sha, run, green: isGreen(run) };
-  });
-  const missing = window.filter(entry => !entry.green).length;
-  return { schemaVersion: 1, main, proofSystemSquash: history.squash, scanned: history.scanned, window, missing, open: missing === 0 };
+  let streak = 0;
+  for (const [position, sha] of shas.entries()) {
+    if (!runs.has(sha)) return closed(position > 0, streak, sha);
+    const run = runs.get(sha) ?? null, green = isGreen(run);
+    window.push({ position, sha, run, green });
+    const pending = run ? run.status !== "completed" : position === shas.length - 1 && !history.more;
+    if (position === 0) { if (!green) return closed(false, 0); continue; }
+    if (green) { if (++streak === STREAK) return { ...base, state: "open", open: true, ownGreen: true, streak, required: 0, window, next: null }; }
+    else if (pending) return closed(true, streak);
+    else streak = 0;
+  }
+  if (history.more) return { ...base, state: "unknown", open: false, ownGreen: true, streak, required: null, window, next: null };
+  return closed(true, streak);
 }
 
-/** Reads the decision: local first-parent history plus at most `WINDOW` run lookups. */
+/** Reads the decision: local first-parent history plus at most `MAX_MAIN_RUNS` run lookups, in merge order. */
 export async function readLane(main: string, runAt: (sha: string) => Promise<MainRun | null>, options: ClassifyOptions = {}): Promise<LaneDecision> {
   const cwd = options.cwd ?? process.cwd();
   const resolved = git(cwd, ["rev-parse", "--verify", "--end-of-options", `${main}^{commit}`]);
   const history = lastProofSystemSquash(resolved, options);
   const runs = new Map<string, MainRun | null>();
-  for (const sha of history.squash ? [history.squash, ...history.later] : []) runs.set(sha, await runAt(sha));
-  return decideLane(resolved, history, runs);
+  for (;;) {
+    const decision = decideLane(resolved, history, runs);
+    if (!decision.next || runs.size >= MAX_MAIN_RUNS) return decision;
+    runs.set(decision.next, await runAt(decision.next));
+  }
 }
 
 const short = (sha: string) => sha.slice(0, 12);
 function describe(entry: WindowEntry): string {
   const label = entry.position === 0 ? "own run" : `next run ${entry.position}`;
-  if (!entry.sha) return `${label}: no main squash yet`;
   if (!entry.run) return `${label} at ${short(entry.sha)}: no main-push CI run`;
   return `${label} at ${short(entry.sha)}: run ${entry.run.id} ${entry.run.status === "completed" ? entry.run.conclusion ?? "no conclusion" : entry.run.status}`;
 }
@@ -101,8 +134,13 @@ function describe(entry: WindowEntry): string {
 /** The stability-window refusal, or null when the lane is open. */
 export function laneRefusal(decision: LaneDecision): string | null {
   if (decision.open) return null;
-  return `Proof-system lane closed: the last proof-system squash ${decision.proofSystemSquash} needs its own main run and the next ${WINDOW - 1} main runs green (${decision.window.map(describe).join("; ")}); ` +
-    `${decision.missing} more green main run${decision.missing === 1 ? "" : "s"} required. A failed or cancelled window run counts only once a rerun at the same squash succeeds`;
+  const runs = decision.window.length ? decision.window.map(describe).join("; ") : "no main run read";
+  const squash = `the last proof-system squash ${decision.proofSystemSquash}`;
+  if (decision.state === "unknown") return `Proof-system lane unknown: ${squash} has no ${STREAK} consecutive green main runs within the ${MAX_MAIN_RUNS} main runs this check reads (${runs}). Ask a maintainer to inspect main`;
+  const required = `${decision.required} more green main run${decision.required === 1 ? "" : "s"} required`;
+  if (!decision.ownGreen) return `Proof-system lane closed: ${squash} needs its own main run green first, then ${STREAK} consecutive green main runs (${runs}); ${required}. Rerun its main run if it failed or was cancelled`;
+  return `Proof-system lane closed: ${squash} needs ${STREAK} consecutive green main runs after its own green run (${runs}); ${required}. ` +
+    `A failed or cancelled run restarts the count; a queued or in-progress run is not green yet`;
 }
 
 /** The PR body's "Off-main qualification" section without HTML comments, or
