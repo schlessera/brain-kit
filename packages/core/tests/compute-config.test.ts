@@ -105,6 +105,18 @@ describe("resolving compute instances", () => {
     await expect(loadComputePackage("@schlessera/brain-compute-ogygia")).rejects.toThrow("@schlessera/brain-compute-ogygia is not installed; install it beside @schlessera/brain");
   });
 
+  test("an installed package missing one of its own dependencies is not called uninstalled", async () => {
+    box = sandbox();
+    const module = join(box.base, "brain-compute-calypso.ts");
+    writeFileSync(module, "import \"@schlessera/brain-compute-calypso-transport\";\nexport const computeProvider = {};\n");
+    const failure = await loadComputePackage(module).then(() => "loaded", (error: Error) => error.message);
+    expect(failure).not.toContain("is not installed");
+    expect(failure).toContain(`${module} is installed but cannot load its dependency @schlessera/brain-compute-calypso-transport`);
+    const registry: Record<string, ComputeBuiltin> = { calypso: { load: () => loadComputePackage(module) } };
+    const r = await resolveComputeInstance("c", { provider: "calypso", lease: { maxSeconds: 60 } }, { env: {}, registry });
+    expect(r.ok ? "resolved" : r.code).toBe("provider_unavailable");
+  });
+
   test("a built-in package is loaded lazily by its exports, and a missing package is unavailable", async () => {
     box = sandbox();
     const memory = memoryCompute();

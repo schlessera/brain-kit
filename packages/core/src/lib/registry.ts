@@ -441,6 +441,12 @@ export async function loadComputePackage(specifier: string): Promise<{ provider:
   } catch (error) {
     const message = (error as Error)?.message ?? String(error);
     if (/cannot find (package|module)/i.test(message)) {
+      // The package resolves but something it imports does not: a broken
+      // install, not a missing one, and reinstalling core's peer would not help.
+      const missing = /cannot find (?:package|module) ['"]([^'"]+)['"]/i.exec(message)?.[1];
+      if (missing !== undefined && missing !== specifier && resolves(specifier)) {
+        throw new Error(`${specifier} is installed but cannot load its dependency ${missing}; reinstall it`);
+      }
       throw new Error(`${specifier} is not installed; install it beside @schlessera/brain to use it`);
     }
     throw error;
@@ -452,6 +458,15 @@ export async function loadComputePackage(specifier: string): Promise<{ provider:
     provider: mod.computeProvider,
     keyEnv: typeof mod.defaultKeyEnv === "string" ? mod.defaultKeyEnv : undefined,
   };
+}
+
+function resolves(specifier: string): boolean {
+  try {
+    import.meta.resolve(specifier);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
