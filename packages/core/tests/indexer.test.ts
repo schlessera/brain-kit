@@ -125,6 +125,7 @@ interface IndexRun {
   quiet?: boolean;
   provider?: EmbeddingProvider;
   enrichment?: Enrichment;
+  paths?: readonly string[];
 }
 
 /** Open a writable db (loading sqlite-vec when available), index, close. */
@@ -139,6 +140,7 @@ async function runIndex(root: string, run: IndexRun = {}): Promise<IndexStats> {
     embeddings: run.embeddings,
     provider: run.provider,
     enrichment: run.enrichment,
+    paths: run.paths,
   });
   db.close();
   return stats;
@@ -1045,6 +1047,60 @@ describe("sidecar cache pruning", () => {
     // The whole point: a deletion is a deletion, without needing an
     // --embeddings pass to notice.
     expect(readFileSync(join(root, ".brain-cache/assets.jsonl"), "utf-8").trim()).toBe("");
+  });
+
+  test("a rebuilt index keeps every legacy asset line through plain runs (#3242)", async () => {
+    const root = makeCorpus({
+      "note.md": md("Note", "Body text."),
+      "assets/logo.png": FAKE_PNG,
+      "assets/chart.png": Buffer.concat([FAKE_PNG, Buffer.from([0x01])]),
+    });
+    await runIndex(root, withEnrichment());
+    const described = sidecarLines(root, ".brain-cache/assets.jsonl");
+    expect(described.length).toBe(2);
+
+    // A brain from before 0.44: the descriptions sit in the root-level legacy
+    // cache, and the index is rebuilt from nothing in `.brain-index/`.
+    writeFileSync(join(root, ".asset-cache.jsonl"), described.join("\n") + "\n");
+    rmSync(join(root, ".brain-cache/assets.jsonl"));
+    rmSync(join(root, ".brain-index"), { recursive: true, force: true });
+
+    await runIndex(root);
+    expect(existsSync(join(root, ".asset-cache.jsonl"))).toBe(false);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual(described);
+
+    // A later plain run, and a targeted one after an application, still
+    // cannot see the asset hashes and must keep the lines too.
+    await runIndex(root);
+    writeFileSync(join(root, "note.md"), md("Note", "Edited body text."));
+    await runIndex(root, { paths: ["note.md"] });
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual(described);
+
+    // The recovery path: an embeddings run reuses every line without a call.
+    const counting = countingEnrichment();
+    await runIndex(root, { embeddings: true, provider: makeProvider(), enrichment: counting.enrichment });
+    expect(counting.described).toEqual([]);
+    expect(sidecarLines(root, ".brain-cache/assets.jsonl")).toEqual(described);
+  });
+
+  test("an unindexed asset holds back pruning until the asset phase knows its hash", async () => {
+    const root = makeCorpus({
+      "note.md": md("Note", "Body text."),
+      "assets/logo.png": FAKE_PNG,
+    });
+    await runIndex(root, withEnrichment());
+    const cachePath = join(root, ".brain-cache/assets.jsonl");
+    const stray = JSON.stringify({ k: "deadbeef:Gone", v: "a description of nothing" });
+    writeFileSync(cachePath, [...sidecarLines(root, ".brain-cache/assets.jsonl"), stray].join("\n") + "\n");
+
+    // A new image arrives without an embeddings run: its hash is unknown, so
+    // no line can be called unreachable yet.
+    writeFileSync(join(root, "assets/new.png"), Buffer.concat([FAKE_PNG, Buffer.from([0x02])]));
+    await runIndex(root);
+    expect(readFileSync(cachePath, "utf-8")).toContain("deadbeef:Gone");
+
+    await runIndex(root, withEnrichment());
+    expect(readFileSync(cachePath, "utf-8")).not.toContain("deadbeef:Gone");
   });
 
   test("a run with nothing to prune leaves the file byte-identical", async () => {
