@@ -878,7 +878,10 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     },
 
     async recover() {
-      await coreModule();
+      // Core loads at boot only when hosted compute can matter: a bound
+      // credential or an unsettled hosted job. An unconfigured host imports
+      // nothing and stays off until one exists.
+      if (Object.keys(options.keys).length > 0 || openRows().length > 0) await coreModule();
       for (const provider of Object.keys(options.keys)) await builtin(provider);
       const disabled = disabledReason();
       if (disabled) log("WARN", `hosted external compute is off: ${disabled}`);

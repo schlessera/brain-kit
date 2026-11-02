@@ -638,7 +638,7 @@ maintainer ruled on four more questions on 2026-11-02.
 - **Configuration as data.** The host reads `brain config check --json`'s new
   `compute` summary in a credential-free strict worker that sees only the
   policy's protected paths, once per turn, as it reads the taxonomy
-  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:967-979`). A
+  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:970-982`). A
   provider value is reported by id only. A job keeps the instance
   configuration it was admitted under, so its driver never reaches another
   account however the brain changes later.
