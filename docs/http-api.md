@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 159 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state and retained-journal/user-revert routes mounted by `createApp`: 161 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -183,6 +183,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract/http.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
+| GET | `/api/apify` | I | Read Apify provider state and bound account | Settings UI (#3159); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. |
+| POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/ws` | S | Authenticate and admit WebSocket upgrade | SDK BrainUiClient; supported HTTP upgrade boundary, followed by the existing wire contract. |
 | GET | `/*` (conditional) | I | Serve configured SPA deep links | Custom shell with `staticRoot`; deployment asset transport, not an independent JSON API. |
@@ -192,7 +194,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 159 declared endpoints are mounted regardless of backend, renderer or
+All 161 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 

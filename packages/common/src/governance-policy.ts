@@ -46,6 +46,12 @@ export const GovernancePolicySchema = z.strictObject({
   providers: z.array(z.strictObject({ paths: z.array(relativePath).optional(), types: strings.optional(), allow: strings })
     .refine(rule => rule.paths !== undefined || rule.types !== undefined, "A provider rule needs paths or types")
     .transform(rule => ({ ...rule, paths: rule.paths ?? [] }))).optional(),
+  /**
+   * Explicit Apify provider enablement (#3159). Absent or `enabled: false`
+   * keeps the provider off whatever host credential exists. Discovery, Actor
+   * grants and limits are separate later fields; enablement grants none of them.
+   */
+  apify: z.strictObject({ enabled: z.boolean().optional() }).optional(),
 });
 export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
 
@@ -64,6 +70,7 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   egress: { mode: "record" as "record" | "allowlist", allow: [] as string[], deny: [] as string[] },
   outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[] },
   taint: { egress: { allow: [] as string[] } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
+  apify: { enabled: false as boolean },
 };
 
 export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
@@ -75,6 +82,7 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
     scope: { ...defaults.scope, ...policy.scope }, commands: { ...defaults.commands, ...policy.commands },
     egress: { ...defaults.egress, ...policy.egress }, outward: { ...defaults.outward, ...policy.outward },
     taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress } },
+    apify: { ...defaults.apify, ...policy.apify },
   };
 }
 export type EffectiveGovernancePolicy = ReturnType<typeof resolveGovernancePolicy>;

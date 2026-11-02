@@ -330,6 +330,7 @@ under the [service terms](../geo/README.md#configuration).
 | `AGENT_BACKEND` | Primary agent backend: "claude" (default) or "pi". | claude |
 | `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
 | `ANTHROPIC_API_KEY` | Never used by a Claude profile without its own credential: those run on the subscription, with this cleared before Claude Code starts. The Claude backend uses it for model discovery only when no CLAUDE_CODE_OAUTH_TOKEN is set. | — |
+| `APIFY_TOKEN` | Apify API token, read only by the host. It authenticates nothing until the governance policy sets apify.enabled: true; the host then binds the account the fixed Apify API reports. Never passed to any subprocess, worker, prompt, log or response. | — |
 | `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
 | `BRAIN_GEO_CONFIG_JSON` | Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup. | — |
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |

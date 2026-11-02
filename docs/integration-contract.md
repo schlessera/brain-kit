@@ -20,6 +20,24 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Apify enablement and host-owned authentication (additive, 0.45.0, #3159)
+
+The governance policy accepts an optional strict `apify` block whose only field
+is `enabled` (default `false`); `brain policy check --json` reports the resolved
+`effective.apify` ([supported inputs](supported-inputs.md#governance-policy),
+[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)).
+The server reads `APIFY_TOKEN` as a host-only secret: no subprocess audience,
+operator extra or per-spawn name admits it. While the policy leaves Apify
+disabled the server contacts no Apify endpoint. When enabled it binds the
+account `GET /v2/users/me` reports on the fixed API origin, sends the token
+only as a bearer header, refuses redirects, and requires an owner to confirm a
+token's different account. Internal `GET /api/apify` and `POST /api/apify/account`
+([inventory](http-api.md)) report `disabled`, `authentication_required`,
+`configured` or `unavailable` to live human owners and never return a token.
+This adds no CLI command, MCP tool, wire frame or Actor execution; those follow
+the [Apify contract](decisions/apify-capability.md). It ships in a minor; no
+breaking ruling is required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets
