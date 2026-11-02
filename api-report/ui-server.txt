@@ -435,6 +435,8 @@ signatures (every public export and the types it is made of)
         cancelActiveTurns(): boolean;
         close(): Promise<void>;
     }
+  CHAT_STORES (packages/ui-server/src/ws/chat-lifecycle.ts)
+    const CHAT_STORES: readonly ["native", "dialogue", "tasks", "projections", "drafts"];
   CapturedLog (packages/ui-server/src/observability/types.ts)
     export interface CapturedLog {
         scope: string;
@@ -443,6 +445,18 @@ signatures (every public export and the types it is made of)
         attributes: FlatAttributes;
         timestamp: number;
     }
+  ChatRetirementStatus (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatRetirementStatus = "pending" | "partial" | "unknown" | "removed";
+  ChatStore (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatStore = (typeof CHAT_STORES)[number];
+  ChatStoreOutcome (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatStoreOutcome = "pending" | "partial" | "unknown" | "removed";
+  ChatTarget (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatTarget = {
+        sessionId: string;
+    } | {
+        ownerId: string;
+    };
   ClaudeUsageEvidence (packages/ui-server/src/ws/claude-usage-accounting.ts)
     export interface ClaudeUsageEvidence {
         title?: TitleEvidence;
@@ -1636,6 +1650,42 @@ signatures (every public export and the types it is made of)
         failureMessage: string;
         prompt: string;
     }
+  RetireChatInput (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export interface RetireChatInput {
+        operationId: string;
+        principalId: string;
+        target: ChatTarget;
+        expected: {
+            backendId: string | null;
+            generation: number;
+        };
+        removableBackends: readonly string[];
+        at: number;
+    }
+  RetireChatResult (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type RetireChatResult = {
+        status: "refused";
+        reason: RetireRefusal;
+    } | {
+        status: "retired";
+        lifecycleId: string;
+        operationId: string;
+        generation: number;
+        identities: RetiredChatIdentities;
+        cleanup: ChatRetirementStatus;
+        stores: Partial<Record<ChatStore, ChatStoreOutcome>>;
+    };
+  RetireRefusal (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type RetireRefusal = "unauthorized" | "unavailable" | "stale" | "unsupported" | "busy";
+  RetiredChatIdentities (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export interface RetiredChatIdentities {
+        sessions: string[];
+        dialogueOwners: string[];
+        conversations: string[];
+        tasks: string[];
+        requests: string[];
+        nativeTasks: string[];
+    }
   RunRollupRow (packages/ui-server/src/activity/store.ts)
     export interface RunRollupRow {
         runId: string;
@@ -1745,6 +1795,12 @@ signatures (every public export and the types it is made of)
         dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
         dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
         dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
+        retireChat?(input: RetireChatInput, busy: (identities: RetiredChatIdentities) => boolean): Promise<RetireChatResult>;
+        chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
+        recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+        chatRetired?(target: ChatTarget | {
+            conversationId: string;
+        }): boolean;
         saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
         saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
         loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;

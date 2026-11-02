@@ -9,6 +9,7 @@ import {
   dialogueEvidenceSchema,
   dialogueRecordSchema,
 } from "@schlessera/brain-ui-sdk/schemas";
+import { assertLive, isRetired } from "./chat-lifecycle.js";
 
 export interface DialogueOwner {
   id: string;
@@ -98,6 +99,8 @@ function activeEpochFor(db:Database, owner:DialogueOwner, principalId:string, ro
 export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>, pending:readonly PendingDialogueEpoch[]=[]): DialogueOwner {
   return db
     .transaction(() => {
+      // A retired chat's identities never open again (#3228).
+      assertLive(db, [["conversation", input.conversationId], ["session", input.sessionId], ["dialogue_owner", input.historyOwnerId]]);
       const known = db
         .query("SELECT * FROM dialogue_conversations WHERE id=?")
         .get(input.conversationId) as {
@@ -132,6 +135,7 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
           )?.id !== owner.id)
       )
         throw new Error("Dialogue provisional owner unavailable");
+      if (owner) assertLive(db, [["dialogue_owner", owner.id]]);
       if (!owner) {
         const id = input.conversationId;
         db.prepare(
@@ -178,6 +182,9 @@ export function bindDialogue(
         .query("SELECT owner_id FROM dialogue_conversations WHERE id=?")
         .get(conversationId) as { owner_id: string } | null;
       if (!c) return null;
+      // A later adoption into or out of a retired chat refuses; an earlier one
+      // already joined the retirement's exact identity set (#3228).
+      assertLive(db, [["conversation", conversationId], ["session", sessionId], ["dialogue_owner", c.owner_id]]);
       const owner = dialogueOwner(db, { ownerId: c.owner_id }, principalId)!;
       if (owner.session_id && owner.session_id !== sessionId)
         throw new Error("Dialogue session cannot change");
@@ -237,8 +244,10 @@ export function appendDialogue(
     throw new Error("Dialogue record exceeds bounds");
   return db
     .transaction(() => {
+      assertLive(db, [["dialogue_owner", input.ownerId]]);
       const owner = dialogueOwner(db, input, input.principalId);
       if (!owner) throw new Error("Dialogue owner unavailable");
+      assertLive(db, [["dialogue_owner", owner.id], ["session", owner.session_id], ["conversation", evidence.kind === "voice" ? evidence.conversationId : undefined]]);
       if (evidence.kind === "voice") {
         const c = db
           .query(
@@ -287,8 +296,12 @@ export function readDialogue(
   target: DialogueTarget,
   activeEpochs?: ReadonlyMap<string, ActiveDialogueEpoch>
 ): DialoguePage | null {
-  const owner = dialogueOwner(db, target, principalId);
+  // A retired chat reads as absent, without revealing that it existed.
+  if (target.sessionId ? isRetired(db, "session", target.sessionId) : target.ownerId && isRetired(db, "dialogue_owner", target.ownerId)) return null;
+  const owner = dialogueOwner(db, { ...target, generation: undefined }, principalId);
   if (!owner) return null;
+  if (target.generation !== undefined && owner.generation !== target.generation)
+    throw new Error("Dialogue generation changed");
   if (target.cursor) {
     if (target.cursor.length > 2048) throw new Error("Invalid dialogue cursor");
     const cursor = JSON.parse(
@@ -397,6 +410,8 @@ export function closeDialogue(
   partial = false
 ): void {
   db.transaction(() => {
+    // Retirement already closed every epoch of the chat.
+    if (isRetired(db, "conversation", conversationId)) return;
     const c = db
       .query("SELECT owner_id FROM dialogue_conversations WHERE id=?")
       .get(conversationId) as { owner_id: string } | null;

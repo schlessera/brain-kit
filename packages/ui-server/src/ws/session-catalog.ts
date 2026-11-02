@@ -27,6 +27,7 @@ import {
 } from "./local-exchanges.js";
 
 import { loadConversation } from "./conversation-storage.js";
+import { authorizedOwner, chatRetirement, isRetired, resolveChat, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
@@ -50,6 +51,21 @@ export interface SessionCatalog {
   dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
   dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
   dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
+  /**
+   * Retire one chat's identities permanently (#3228). `busy` is the host's
+   * judgement of live effect holders over the chat's current identity set,
+   * asked at submission after ownership is known; a busy chat refuses before
+   * retirement. Authority, ownership, generation and adoption are decided
+   * again in the serialized writer. Removes no content and never reports a
+   * completed deletion by itself.
+   */
+  retireChat?(input: RetireChatInput, busy: (identities: RetiredChatIdentities) => boolean): Promise<RetireChatResult>;
+  /** A retirement's non-content outcome for its owner, or null. */
+  chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
+  /** A selected store owner's cleanup report under the retirement's intent. */
+  recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+  /** Whether a chat identity is retired. Readers treat a retired chat as absent. */
+  chatRetired?(target: ChatTarget | { conversationId: string }): boolean;
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
   saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
   loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
@@ -270,16 +286,38 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingDialogueEpochs = new Set<PendingDialogueEpoch & { closed: boolean }>();
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
+  const live = (owner: DialogueOwner | null) => owner && !isRetired(db(), "dialogue_owner", owner.id) ? owner : null;
   return {
     dialogueOwnerForConversation: (conversationId,principalId) => {
+      if(isRetired(db(),"conversation",conversationId)) return null;
       const row=db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null;
-      return row ? dialogueOwner(db(),{ownerId:row.owner_id},principalId) : null;
+      return row ? live(dialogueOwner(db(),{ownerId:row.owner_id},principalId)) : null;
     },
-    dialogueOwnerForId: (ownerId,principalId) => dialogueOwner(db(),{ownerId},principalId),
+    dialogueOwnerForId: (ownerId,principalId) => isRetired(db(),"dialogue_owner",ownerId) ? null : live(dialogueOwner(db(),{ownerId},principalId)),
     dialogueOwnerForSession: sessionId => {
+      if(isRetired(db(),"session",sessionId)) return null;
       const row = db().query("SELECT principal_id FROM dialogue_owners WHERE session_id=?").get(sessionId) as {principal_id:string}|null;
-      return row ? dialogueOwner(db(),{sessionId},row.principal_id) : null;
+      return row ? live(dialogueOwner(db(),{sessionId},row.principal_id)) : null;
     },
+    async retireChat(input, busy) {
+      // Settle every earlier submission first, so this preflight judges the
+      // set the writer will see; the writer still decides atomically.
+      await tail;
+      if (!authorizedOwner(db(), input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
+      const preview = resolveChat(db(), input.target);
+      if ("refused" in preview || preview.principalId !== input.principalId) return submit<RetireChatResult>("retireChat", input);
+      if (busy(preview.identities)) return { status: "refused", reason: "busy" };
+      const result = await submit<RetireChatResult>("retireChat", input);
+      if (result.status === "retired") {
+        const owners = new Set(result.identities.dialogueOwners), conversations = new Set(result.identities.conversations);
+        for (const [id, scope] of activeDialogueEpochs) if (conversations.has(id) || owners.has(scope.owner.id)) activeDialogueEpochs.delete(id);
+      }
+      return result;
+    },
+    async chatRetirement(operationId, principalId) { await tail; return chatRetirement(db(), operationId, principalId); },
+    recordChatCleanup: (lifecycleId, store, outcome) => submit("chatCleanup", lifecycleId, store, outcome, Date.now()),
+    chatRetired: target => "conversationId" in target ? isRetired(db(), "conversation", target.conversationId)
+      : "sessionId" in target ? isRetired(db(), "session", target.sessionId) : isRetired(db(), "dialogue_owner", target.ownerId),
     dialogueClose: (conversationId,principalId,epoch,partial) => {
       for(const scope of pendingDialogueEpochs) if(scope.input.conversationId===conversationId && scope.input.principalId===principalId && scope.input.epoch===epoch) scope.closed=true;
       const active=activeDialogueEpochs.get(conversationId);
@@ -321,7 +359,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     async dialogueRead(principalId, target) {
       await tail;
       const page=readDialogue(db(), principalId, target, activeDialogueEpochs);
-      if(page || !target.sessionId || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
+      if(page || !target.sessionId || isRetired(db(),"session",target.sessionId) || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
       return {ownerId:target.sessionId,sessionId:target.sessionId,generation:1,through:0,records:[],coverage:"legacy"};
     },
     saveConversationEpoch: state => submit("conversationEpoch", state),

@@ -4,8 +4,19 @@ This is the implementation design for [#3180](https://github.com/schlessera/brai
 source-audited against main `6fa3ec1305e8b52991252d6a28959a68c56be1c1` on
 2026-11-01. The [binding decision](../decisions/chat-history-deletion.md)
 records the approved authority, extent and permanent-fence/backup policy.
-Deletion runtime, endpoint and UI are not built. Approval supplies no automatic
-expiry, routine live cutoff or implementation release commitment.
+Approval supplies no automatic expiry, routine live cutoff or implementation
+release commitment.
+
+**Built (#3228):** the internal, content-free retirement ledger and gate
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:153-186`;
+migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
+serialized writer, resolves the exact identity set from recorded dialogue
+owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy
+targets before retiring, and makes later dialogue/task writers and readers
+refuse the retired identities. It removes no content and reports every store
+pending until that store's owner confirms removal. A typed native-only chat
+with no recorded owner refuses as unknown ownership; no ownership is backfilled.
+Native removal, host-copy cleanup, the endpoint and UI are not built.
 
 ## Selected local lifecycle
 
@@ -113,16 +124,16 @@ must be tested through their installed runtime, not inferred from directory name
   Payloads include independent recognition/output evidence and backend range text;
   hashes/order/identity are not substitutes for erasing the payload. An owner can
   start unbound, bind to a backend session or merge into an existing owner through
-  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:169-212`).
+  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:173-219`).
   Resolve the complete alias/conversation set transactionally; do not delete only
   the current session key or confuse a provisional owner ID with a backend ID.
 - **Task recovery and facts.** `069_conversation_tasks.sql` and
   `070_conversation_result_facts.sql` retain epochs, detailed JSON receipts
   (including submitted context), bounded result facts and independently consumed
   native/task/request identities. Content retention and identity retention differ
-  (`saveConversationTask`, `packages/ui-server/src/ws/conversation-storage.ts:35-71`).
+  (`saveConversationTask`, `packages/ui-server/src/ws/conversation-storage.ts:37-77`).
   Loading may return receipts/results even without a current provider session
-  (`loadConversation`, `packages/ui-server/src/ws/conversation-storage.ts:72-98`).
+  (`loadConversation`, `packages/ui-server/src/ws/conversation-storage.ts:78-105`).
   Clear receipt/result content while preserving replay refusal under a new lifecycle
   fence; do not cascade away consumed identities and then allow their reuse.
 - **Session projections.** `sessions` title and `034_session_labels.sql` label/source;
@@ -178,8 +189,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:227-240`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:269-272`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:243-256`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:285-288`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,
