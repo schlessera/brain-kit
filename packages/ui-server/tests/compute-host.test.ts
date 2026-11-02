@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ComputeToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
 
+import { resolveComputeConfig } from "../src/config/env.js";
 import { computeFixture, SENTINEL, summary } from "./helpers/compute-host-fixture.js";
 
 type Fixture = ReturnType<typeof computeFixture>;
@@ -41,7 +42,19 @@ describe("identity comes from the host", () => {
     expect(code(await f.host.forTurn(f.turn("t-2"))(job("brain_compute_status", started.job.id))), "LATER_TURN_SAME_SESSION").toBe("ok");
     // Another conversation, or another principal, sees no such job.
     expect(code(await f.host.forTurn(f.turn("t-3", { sessionId: () => "sess-aeaea" }))(job("brain_compute_status", started.job.id))), "OTHER_SESSION_JOB_UNKNOWN").toBe("job_unknown");
-    expect(code(await f.host.forTurn(f.turn("t-4", { principalId: "eurylochus" }))(job("brain_compute_cancel", started.job.id))), "OTHER_PRINCIPAL_JOB_UNKNOWN").toBe("job_unknown");
+    expect(code(await f.host.forTurn(f.turn("t-4", { principalId: "eurylochus", sessionId: () => "sess-aeaea" }))(job("brain_compute_cancel", started.job.id))), "OTHER_PRINCIPAL_JOB_UNKNOWN").toBe("job_unknown");
+  });
+
+  test("a re-login in the same conversation reaches its jobs, and the change of principal is recorded on the run", async () => {
+    const f = fixture();
+    await f.begin("t-1");
+    const started = ok(await f.host.forTurn(f.turn("t-1"))(run({ argv: ["sleep", "600"] })));
+    await f.begin("t-2");
+    // The host authorized this principal for the conversation; the job is the conversation's (ruling R7).
+    expect(code(await f.host.forTurn(f.turn("t-2", { principalId: "odysseus-relogin" }))(job("brain_compute_status", started.job.id))), "RELOGIN_SAME_SESSION_REACHES_JOB").toBe("ok");
+    const events = f.store.snapshotRun(`compute:${started.job.id}`)!.events.filter(event => event.eventType === "compute_principal");
+    expect(events.map(event => event.payload), "PRINCIPAL_CHANGE_RECORDED").toEqual([{ owner: "odysseus", principal: "odysseus-relogin", turn: "t-2", tool: "brain_compute_status" }]);
+    expect(code(await f.host.forTurn(f.turn("t-3", { principalId: "odysseus-relogin", sessionId: () => "sess-aeaea" }))(job("brain_compute_collect", started.job.id))), "RELOGIN_OTHER_SESSION_UNKNOWN").toBe("job_unknown");
   });
 
   test("a turn revoked while its card was open is refused under the admission lock, with nothing reserved", async () => {
@@ -324,5 +337,166 @@ describe("readiness", () => {
     const f = fixture({ host: { stateDir: null } });
     expect(f.host.status()).toMatchObject({ enabled: false });
     expect(code(await f.host.forTurn(f.turn("t-1"))(run()))).toBe("compute_disabled");
+  });
+});
+
+describe("cancellation racing admission (R7)", () => {
+  test("a turn cancelled while its run reserves never allocates: the job is cancelled before any provider call", async () => {
+    let f!: Fixture;
+    let cancelling: Promise<void> | undefined;
+    f = fixture({ host: { budgets: { compute: {
+      async reserve(jobId: string, turnId: string, sessionId: string | null, usd: number | null) {
+        const reserved = await f.budgets.compute.reserve(jobId, turnId, sessionId, usd);
+        // The turn is cancelled while core awaits the reservation, before the job's row exists.
+        cancelling = f.host.cancelTurn("t-1", "the turn was cancelled");
+        return reserved;
+      },
+      settle: (jobId: string, usd: number | null) => f.budgets.compute.settle(jobId, usd),
+    } } as never } });
+    await f.begin("t-1");
+    const result = await f.host.forTurn(f.turn("t-1"))(run({ argv: ["sleep", "600"] }));
+    await cancelling;
+    expect(f.fake.created(), "CANCELLED_TURN_NEVER_ALLOCATES").toBe(0);
+    const started = ok(result);
+    expect(started.job.state, "CANCELLED_TURN_JOB_CANCELLED").toBe("cancelled");
+    expect(f.store.getSpan(`compute:${started.job.id}`)!.outcome, "CANCELLED_TURN_RUN_ENDS").toBe("cancelled");
+    expect(f.db.query("SELECT status FROM compute_budget_reservations WHERE job_id = ?").get(started.job.id), "CANCELLED_TURN_RESERVATION_SETTLED").toEqual({ status: "settled" });
+  });
+
+  test("a turn revoked while its run reserves never allocates either", async () => {
+    let f!: Fixture;
+    let current = true;
+    f = fixture({ host: { budgets: { compute: {
+      async reserve(jobId: string, turnId: string, sessionId: string | null, usd: number | null) {
+        const reserved = await f.budgets.compute.reserve(jobId, turnId, sessionId, usd);
+        current = false;
+        return reserved;
+      },
+      settle: (jobId: string, usd: number | null) => f.budgets.compute.settle(jobId, usd),
+    } } as never } });
+    await f.begin("t-1");
+    const result = await f.host.forTurn(f.turn("t-1", { isCurrent: () => current }))(run({ argv: ["sleep", "600"] }));
+    expect(f.fake.created(), "REVOKED_DURING_RESERVE_NEVER_ALLOCATES").toBe(0);
+    expect(ok(result).job.state).toBe("cancelled");
+  });
+
+  test("cancelling a turn waits for its in-flight compute calls and cancels what they started", async () => {
+    let f!: Fixture;
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    f = fixture({ host: { budgets: { compute: {
+      async reserve(jobId: string, turnId: string, sessionId: string | null, usd: number | null) { await held; return f.budgets.compute.reserve(jobId, turnId, sessionId, usd); },
+      settle: (jobId: string, usd: number | null) => f.budgets.compute.settle(jobId, usd),
+    } } as never } });
+    await f.begin("t-1");
+    const running = f.host.forTurn(f.turn("t-1"))(run({ argv: ["sleep", "600"] }));
+    await until(() => f.cards.length === 1, "the card");
+    let cancelled = false;
+    const cancelling = f.host.cancelTurn("t-1", "the turn was cancelled").then(() => { cancelled = true; });
+    await Bun.sleep(10);
+    expect(cancelled, "CANCEL_WAITS_FOR_INFLIGHT_CALL").toBe(false);
+    release();
+    await Promise.all([running, cancelling]);
+    expect({ created: f.fake.created(), open: f.host.status().openJobs }, "INFLIGHT_RUN_CANCELLED").toEqual({ created: 0, open: 0 });
+  });
+});
+
+describe("credential binding (R6)", () => {
+  test("with BRAIN_UI_COMPUTE_KEYS unset nothing is bound, not even a built-in's default, and readiness does not change after a turn", async () => {
+    const f = fixture({ keys: {}, config: summary({ "boat-small": { apiKeyEnv: null } }), credentials: { BRAIN_COMPUTE_BOAT_API_KEY: SENTINEL } });
+    await f.host.recover();
+    const before = f.host.status().bindings;
+    await f.begin("t-1");
+    expect(code(await f.host.forTurn(f.turn("t-1"))(run())), "UNSET_KEYS_DEFAULT_NOT_BOUND").toBe("provider_unavailable");
+    expect({ before, after: f.host.status().bindings }, "READINESS_STABLE_FROM_BOOT").toEqual({ before: [], after: [] });
+    expect(f.fake.requests, "UNSET_KEYS_NO_VENDOR_CALL").toEqual([]);
+  });
+
+  test("BRAIN_UI_COMPUTE_KEYS lists a provider alone to bind only its default; unset binds nothing", () => {
+    const keys = (value?: string) => resolveComputeConfig(value === undefined ? {} : { BRAIN_UI_COMPUTE_KEYS: value }, "/srv/ithaca/ui.db").keys;
+    expect(keys(), "UNSET_KEYS_EMPTY").toEqual({});
+    expect(keys("boat; ithaca=ITHACA_KEY,ITHACA_SPARE"), "PROVIDER_ALONE_LISTED").toEqual({ boat: [], ithaca: ["ITHACA_KEY", "ITHACA_SPARE"] });
+    expect(keys("boat="), "PROVIDER_EMPTY_NAMES_LISTED").toEqual({ boat: [] });
+    for (const bad of ["=BOAT_CI_KEY", "Boat", "boat=1KEY"]) expect(() => keys(bad), `MALFORMED_${bad}`).toThrow("BRAIN_UI_COMPUTE_KEYS");
+  });
+
+  test("listing a provider without names binds just its default variable, from boot", async () => {
+    const f = fixture({ keys: { boat: [] }, config: summary({ "boat-small": { apiKeyEnv: null } }), credentials: { BRAIN_COMPUTE_BOAT_API_KEY: SENTINEL } });
+    await f.host.recover();
+    expect(f.host.status().bindings, "LISTED_PROVIDER_BINDS_DEFAULT").toEqual([{ provider: "boat", package: "present", remoteExpiry: true, defaultKeyEnv: "BRAIN_COMPUTE_BOAT_API_KEY",
+      credentials: [{ name: "BRAIN_COMPUTE_BOAT_API_KEY", implicit: true, present: true, leakedToWorkers: false }] }]);
+    await f.begin("t-1");
+    expect(code(await f.host.forTurn(f.turn("t-1"))(run())), "LISTED_DEFAULT_RUNS").toBe("ok");
+  });
+
+  test("health sends each instance only its own bound credential and never calls a refused instance", async () => {
+    const OTHER = "ithaca_other_provider_secret_77";
+    const f = fixture({ keys: { boat: ["BOAT_CI_KEY"], ithaca: ["ITHACA_KEY"] }, credentials: { BOAT_CI_KEY: SENTINEL, ITHACA_KEY: OTHER },
+      config: summary({ "boat-small": {}, "boat-borrowed": { apiKeyEnv: "ITHACA_KEY" } }) });
+    await f.host.recover();
+    const report = ok(await f.host.forTurn(f.turn("t-1"))({ tool: "brain_compute_health", input: {} })) as unknown as { instances: Array<{ id: string; status: string }> };
+    expect(JSON.stringify(f.fake.requests), "HEALTH_NO_FOREIGN_KEY").not.toContain(OTHER);
+    expect(report.instances.map(({ id, status }) => ({ id, status })), "HEALTH_REFUSED_INSTANCE_UNAVAILABLE").toEqual([
+      { id: "boat-borrowed", status: "provider_unavailable" }, { id: "boat-small", status: "ready" }]);
+    expect(f.fake.requests.every(request => request.headers.authorization === `Bearer ${SENTINEL}`), "HEALTH_OWN_KEY_ONLY").toBe(true);
+  });
+});
+
+describe("ledger settlement", () => {
+  const reservation = (f: Fixture, id: string) => f.db.query("SELECT status, actual_usd FROM compute_budget_reservations WHERE job_id = ?").get(id);
+  const hostRow = (f: Fixture, id: string) => (f.db.query("SELECT settled_at FROM compute_hosted_jobs WHERE job_id = ?").get(id) as { settled_at: number | null }).settled_at;
+
+  test("a ledger settle that fails keeps the job open and is retried until it commits", async () => {
+    let f!: Fixture;
+    let failing = true;
+    f = fixture({ host: { budgets: { compute: {
+      reserve: (jobId: string, turnId: string, sessionId: string | null, usd: number | null) => f.budgets.compute.reserve(jobId, turnId, sessionId, usd),
+      async settle(jobId: string, usd: number | null) { if (failing) throw new Error("ledger write failed"); return f.budgets.compute.settle(jobId, usd); },
+    } } as never } });
+    await f.begin("t-1");
+    const started = ok(await f.host.forTurn(f.turn("t-1"))(run()));
+    for (let i = 0; i < 3; i++) await f.host.drive();
+    expect({ released: f.fake.liveSandboxes(), reservation: reservation(f, started.job.id), row: hostRow(f, started.job.id), outcome: f.store.getSpan(`compute:${started.job.id}`)!.outcome },
+      "FAILED_SETTLE_KEEPS_JOB_OPEN").toEqual({ released: 0, reservation: { status: "active", actual_usd: null }, row: null, outcome: null });
+    failing = false;
+    for (let i = 0; i < 3; i++) await f.host.drive();
+    expect(reservation(f, started.job.id), "HOST_SETTLE_RETRIED").toEqual({ status: "settled", actual_usd: null });
+    expect({ row: hostRow(f, started.job.id) !== null, outcome: f.store.getSpan(`compute:${started.job.id}`)!.outcome }, "SETTLED_AFTER_LEDGER_COMMITS").toEqual({ row: true, outcome: "success" });
+  });
+
+  test("a job the host can no longer read settles its reservation as unknown when its run is abandoned", async () => {
+    const f = fixture({ config: summary({ "boat-small": { hourlyCeilingUsd: 0.6 } }) });
+    await f.begin("t-1");
+    const started = ok(await f.host.forTurn(f.turn("t-1"))(run({ argv: ["sleep", "600"] })));
+    f.db.query("UPDATE compute_hosted_jobs SET instance_config = '{' WHERE job_id = ?").run(started.job.id);
+    await f.host.drive();
+    expect(f.store.getSpan(`compute:${started.job.id}`)!.outcome).toBe("error");
+    expect(reservation(f, started.job.id), "ABANDONED_RUN_SETTLES_RESERVATION").toEqual({ status: "settled", actual_usd: null });
+    // Unknown is never zero: the reservation still counts at its reserved amount.
+    expect(f.budgets.receipt("t-1").scopes[0]!.costUsd, "ABANDONED_STILL_COUNTS").toBeCloseTo(0.6);
+  });
+
+  test("boot settles a reservation whose job was never recorded, as unknown and never zero", async () => {
+    const f = fixture();
+    await f.begin("t-1");
+    await f.budgets.compute.reserve("cj_lostattheseaaaaaaaaaaaaa", "t-1", "sess-ogygia", 0.6);
+    await f.host.recover();
+    expect(reservation(f, "cj_lostattheseaaaaaaaaaaaaa"), "ORPHAN_RESERVATION_SWEPT").toEqual({ status: "settled", actual_usd: null });
+    expect(f.budgets.receipt("t-1").scopes[0]!.costUsd, "SWEPT_RESERVATION_STILL_COUNTS").toBeCloseTo(0.6);
+  });
+
+  test("a later visit to a settled job rewrites neither its row nor its run", async () => {
+    const f = fixture();
+    await f.begin("t-1");
+    const compute = f.host.forTurn(f.turn("t-1"));
+    const started = ok(await compute(run()));
+    await until(async () => { await compute(job("brain_compute_status", started.job.id)); return hostRow(f, started.job.id) !== null; }, "the job to settle");
+    const snapshot = () => ({ row: hostRow(f, started.job.id), endedAt: f.store.getSpan(`compute:${started.job.id}`)!.endedAt,
+      events: f.store.snapshotRun(`compute:${started.job.id}`)!.events.length });
+    const before = snapshot();
+    await Bun.sleep(5);
+    ok(await compute(job("brain_compute_status", started.job.id)));
+    ok(await compute(job("brain_compute_collect", started.job.id)));
+    expect(snapshot(), "SETTLED_ROW_NOT_REWRITTEN").toEqual(before);
   });
 });

@@ -1018,8 +1018,9 @@ their envelopes, with two host differences: a collect's artifacts carry no
 redacted. Principal, session, turn, policy, posture, profile, brain, state
 directory and credentials are never inputs; the host takes them from the
 authenticated turn. A job belongs to its conversation: a later turn of it may
-check, cancel or collect the job, and any other conversation or principal
-gets `job_unknown`. Input that does not parse, an extra key included, refuses
+check, cancel or collect the job, whichever principal the host authorized for
+that conversation (a re-login is recorded on the job's Activity run), and any
+other conversation gets `job_unknown`. Input that does not parse, an extra key included, refuses
 `policy_denied` before the host sees it; a turn without a handler refuses
 `compute_disabled`.
 
@@ -1034,7 +1035,8 @@ credentials the operator bound on the host; a provider value or an unbound
 `apiKeyEnv` is `provider_unavailable`. A `.env*` file, a Tier A protected
 path, and a source or `cwd` hidden by the turn's provider masks are
 `source_refused`. A job outlives a turn that ends normally; a cancelled,
-timed-out, budget-stopped or revoked turn cancels its jobs. The rules and
+timed-out, budget-stopped or revoked turn cancels its jobs, including one it
+was still starting, before anything is allocated. The rules and
 their reasons are in [the compute decision](../decisions/external-compute.md#settled-by-3108).
 
 ## Hosted policy proposal (additive, #1662)

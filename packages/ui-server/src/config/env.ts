@@ -380,10 +380,11 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "External compute credentials the host may use for hosted jobs (#3108), by built-in provider: " +
       "semicolon-separated `provider=NAME[,NAME...]` entries, such as `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. " +
-      "A brain.config instance whose apiKeyEnv is not bound here is refused as provider_unavailable; a bound " +
-      "built-in's own default variable is bound implicitly. Values are read on the host only and never reach " +
-      "a worker; a bound name that BRAIN_UI_SUBPROCESS_ENV_EXTRA or a profile would forward disables hosted " +
-      "compute. Unset: hosted compute has no credential.",
+      "A listed provider's own default variable is bound too; list it alone (`boat`) to bind only that. " +
+      "A brain.config instance whose apiKeyEnv is not bound here is refused as provider_unavailable. Values " +
+      "are read on the host only and never reach a worker; a bound name that BRAIN_UI_SUBPROCESS_ENV_EXTRA " +
+      "or a profile would forward disables hosted compute. Unset: hosted compute has no credential, not even " +
+      "a provider's default variable.",
     default: "(empty)",
     required: false,
   },
@@ -1232,17 +1233,19 @@ const COMPUTE_PROVIDER = /^[a-z][a-z0-9-]{0,62}$/;
 const COMPUTE_KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * BRAIN_UI_COMPUTE_KEYS and BRAIN_UI_COMPUTE_STATE_DIR (#3108). A malformed
- * binding refuses the boot by name rather than binding something unintended.
+ * BRAIN_UI_COMPUTE_KEYS and BRAIN_UI_COMPUTE_STATE_DIR (#3108). A listed
+ * provider binds its explicit names and its own default variable; `boat` or
+ * `boat=` binds only the default. A malformed binding refuses the boot by
+ * name rather than binding something unintended.
  */
 export function resolveComputeConfig(env: EnvRecord, dbPath: string): NonNullable<ServerConfig["compute"]> {
   const keys: Record<string, string[]> = {};
   for (const entry of (env.BRAIN_UI_COMPUTE_KEYS ?? "").split(";").map(part => part.trim()).filter(Boolean)) {
     const eq = entry.indexOf("=");
-    const provider = eq > 0 ? entry.slice(0, eq).trim() : "";
-    const names = eq > 0 ? entry.slice(eq + 1).split(",").map(name => name.trim()).filter(Boolean) : [];
-    if (!COMPUTE_PROVIDER.test(provider) || !names.length || names.some(name => !COMPUTE_KEY_NAME.test(name))) {
-      throw new Error(`BRAIN_UI_COMPUTE_KEYS: "${entry}" is not provider=NAME[,NAME...]`);
+    const provider = (eq >= 0 ? entry.slice(0, eq) : entry).trim();
+    const names = eq >= 0 ? entry.slice(eq + 1).split(",").map(name => name.trim()).filter(Boolean) : [];
+    if (!COMPUTE_PROVIDER.test(provider) || names.some(name => !COMPUTE_KEY_NAME.test(name))) {
+      throw new Error(`BRAIN_UI_COMPUTE_KEYS: "${entry}" is not provider[=NAME[,NAME...]]`);
     }
     keys[provider] = [...new Set([...(keys[provider] ?? []), ...names])];
   }

@@ -37,6 +37,8 @@ export interface Card { request: PermissionRequest }
 export function computeFixture(options: {
   config?: HostedComputeConfig;
   keys?: Record<string, string[]>;
+  /** Host credential values by variable name; default: the two Boat names hold the sentinel. */
+  credentials?: Record<string, string>;
   workerEnvExtra?: string[];
   budgets?: boolean;
   blockUsd?: number;
@@ -80,7 +82,7 @@ export function computeFixture(options: {
     readConfig: async ctx => { reads.push(ctx.turnId); return { ok: true, config }; },
     ...(options.budgets === false ? {} : { budgets }),
     activity: { store, stream: { pump() {} } as never, governance: async () => {} },
-    credential: name => (name === "BOAT_CI_KEY" || name === "BOAT_HEAVY_KEY" ? SENTINEL : undefined),
+    credential: name => (options.credentials ?? { BOAT_CI_KEY: SENTINEL, BOAT_HEAVY_KEY: SENTINEL })[name],
     serviceOptions: { registry: { boat: { load: async () => ({ provider, keyEnv: "BRAIN_COMPUTE_BOAT_API_KEY" }) } }, fetch: fake.fetch, callTimeoutMs: 5_000, lockWaitMs: 2_000,
       clock: { now: () => vendorClock.now } },
     driver: { initialDelayMs: 5, maxDelayMs: 10 },

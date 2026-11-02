@@ -638,7 +638,7 @@ maintainer ruled on four more questions on 2026-11-02.
 - **Configuration as data.** The host reads `brain config check --json`'s new
   `compute` summary in a credential-free strict worker that sees only the
   policy's protected paths, once per turn, as it reads the taxonomy
-  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:834-846`). A
+  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:957-969`). A
   provider value is reported by id only. A job keeps the instance
   configuration it was admitted under, so its driver never reaches another
   account however the brain changes later.
@@ -684,3 +684,38 @@ maintainer ruled on four more questions on 2026-11-02.
 
 Running hosted compute is not a claim that a sandbox is a governed worker.
 The operator page is [hosting/external-compute.md](../hosting/external-compute.md).
+
+### Corrections from the #3108 review
+
+These refine the notes above; where they differ, these hold.
+
+- **Ruling 6: an implicit default needs a listed provider.** A built-in's own
+  default variable is bound only for a provider the operator lists in
+  `BRAIN_UI_COMPUTE_KEYS`; listing it alone (`boat` or `boat=`) binds just
+  the default. Unset, the host binds no credential at all, so readiness is the
+  same from boot and does not change after the first turn loads a built-in.
+- **One credential per call.** Core no longer gets every bound name. Each
+  provider call, health included, gets only its own instance's bound
+  variable, and the host refuses an instance before calling its provider, so a
+  key bound for one provider never reaches another.
+- **Ruling 7: a job belongs to its conversation.** A later turn of the same
+  session may check, cancel or collect a job whichever principal the host
+  authorized for that session, so a re-login keeps its jobs; the change of
+  principal is recorded on the job's Activity run as a `compute_principal`
+  event. Another session still gets `job_unknown`. Core's caller match for
+  hosted callers is the session; CLI and MCP still match kind and principal.
+- **Ruling 7: cancellation covers a run still being admitted.** The host
+  records a turn as cancelled before it looks for the turn's jobs, and a run
+  whose record appears after that, or whose turn lost its authority while
+  core reserved, is cancelled before anything is allocated (core's run hook
+  may answer `cancel`). `cancelTurn` also waits for the turn's compute calls
+  in flight and sweeps again.
+- **Settled means the reservation too.** Every compute job envelope gains
+  `settled`: terminal, cleanup final and its cost settled against the
+  caller's budget. The host treats a job as settled only then, and only once
+  its own ledger write has committed; a failed write leaves the job open and
+  tracked, and is retried. A job the host abandons settles its reservation as
+  unknown, and at boot a reservation left without a job record settles as
+  unknown; both keep counting at the reserved amount, never zero. A job the
+  driver stops advancing after repeated failures keeps its reservation active
+  and its run flagged stuck until the next restart reattaches it.

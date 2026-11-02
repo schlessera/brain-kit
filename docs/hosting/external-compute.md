@@ -15,7 +15,7 @@ binds its credential on the host, and the user approves each run.
 | Setting | Meaning |
 | --- | --- |
 | `@schlessera/brain` and `@schlessera/brain-compute-boat` | Installed beside the server. Without core, hosted compute is off; without the Boat package, a `boat` instance is `provider_unavailable`. |
-| `BRAIN_UI_COMPUTE_KEYS` | The credentials the host may use, by built-in provider: semicolon-separated `provider=NAME[,NAME...]`, for example `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. A built-in's own default variable (`BRAIN_COMPUTE_BOAT_API_KEY`) is bound implicitly. Set the named variables in the server's own environment. |
+| `BRAIN_UI_COMPUTE_KEYS` | The credentials the host may use, by built-in provider: semicolon-separated `provider=NAME[,NAME...]`, for example `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. A listed provider's own default variable (`BRAIN_COMPUTE_BOAT_API_KEY`) is bound too; list the provider alone (`boat`) to bind only that. Unset, the host binds no credential at all, defaults included. Set the named variables in the server's own environment. |
 | `BRAIN_UI_COMPUTE_STATE_DIR` | Job records, leases, reservations and collected artifacts. Default `<DB_PATH>.compute`. It must be outside the brain; the server refuses to boot otherwise and masks it from every worker. |
 
 An ephemeral database (`DB_PATH` empty or `:memory:`) has no durable place for
@@ -36,6 +36,10 @@ built-in providers run on the host; an instance whose provider is a value in
 code. The host reads the configuration as data, from a masked worker that sees
 only the governance policy's protected paths, so keep `brain.config.ts`
 protected (it is by default).
+
+Each provider call carries only its own instance's bound credential, so a key
+bound for one instance or provider never reaches another provider, health
+checks included.
 
 Keep bound credential variables out of `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. A bound
 name that would be forwarded to a child process turns hosted compute off until
@@ -81,12 +85,18 @@ then serialise admission through the same locks.
 ## Lifecycle
 
 A job outlives the turn that started it: the host drives it until it settles,
-and a later turn of the same conversation can check or collect it. A turn that
-is cancelled, times out, hits its budget or loses its authority cancels the
-jobs it started; deleting the conversation cancels its jobs. On shutdown the
+and a later turn of the same conversation can check or collect it, also after
+the user signs in again; the change of principal is recorded on the job's
+Activity run. A turn that is cancelled, times out, hits its budget or loses its
+authority cancels the jobs it started, including one it was still starting;
+deleting the conversation cancels its jobs. A job counts as settled only once
+its reservation has settled too; if the budget ledger cannot record that, the
+host keeps the job open and retries. On shutdown the
 host cancels the jobs whose provider has no remote expiry; Boat stops its own
 sandboxes at the lease plus the release allowance. On start, before any turn,
-the host reattaches every unsettled job.
+the host reattaches every unsettled job, and settles any reservation left
+without a job (the server stopped between reserving and recording it) as
+unknown, so it keeps counting at its reserved amount.
 
 Each job is its own Activity run, `compute:<job id>` with origin `compute`,
 linked to its turn and tool call. It ends `success`, `error`, `cancelled` or

@@ -15,8 +15,9 @@
  *   an instance whose provider is a value is `provider_unavailable`.
  * - Credentials come only from names the operator binds on the host
  *   (BRAIN_UI_COMPUTE_KEYS; a built-in's own default variable is bound
- *   implicitly, ruling R6). A bound name that would also reach a worker
- *   disables hosted compute. Values reach the provider call only.
+ *   implicitly once the operator lists its provider there, ruling R6). A
+ *   bound name that would also reach a worker disables hosted compute. Each
+ *   provider call gets only its own instance's bound credential.
  * - A run is approved per use on an interactive typed turn and never
  *   remembered; a turn that cannot show a card is refused without one. Each
  *   decision is recorded as an `outward_action` (`compute_run`).
@@ -25,8 +26,12 @@
  *   immediate transaction. Unknown accounting refuses; no ceiling admits
  *   with the cost unknown (ruling 4).
  * - A job outlives a normal turn end and is driven by the host until it is
- *   settled; a cancelled, timed-out, budget-stopped or revoked turn cancels
- *   its jobs (ruling R7). Restart reattaches every unsettled job.
+ *   settled, its reservation included; a cancelled, timed-out,
+ *   budget-stopped or revoked turn cancels its jobs, including one its
+ *   in-flight run is still admitting (ruling R7). A job belongs to its
+ *   conversation, whichever principal the host authorized for it. Restart
+ *   reattaches every unsettled job and settles any reservation left without
+ *   one, as unknown.
  * - Each job is its own Activity root run `compute:<job id>` with origin
  *   `compute`; an uncertain job stays open, flagged stuck (ruling R8).
  *
@@ -206,11 +211,6 @@ function spanOutcome(job: ComputeJobOutput): SpanOutcome {
   }
 }
 
-/** True once a job needs no further visit: terminal, with its cleanup settled one way or another. */
-function settledJob(job: ComputeJobOutput): boolean {
-  return job.terminal !== null && job.cleanup.state !== "pending" && job.cleanup.state !== "release_failed";
-}
-
 export function createComputeHost(options: ComputeHostOptions): ComputeHost {
   const { db, brainPath } = options;
   const now = options.clock ?? Date.now;
@@ -250,9 +250,15 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     return found;
   }
 
-  /** Every bound name per provider, explicit and implicit. */
+  /**
+   * Every bound name of a provider the operator listed in
+   * BRAIN_UI_COMPUTE_KEYS: its explicit names and its built-in default
+   * variable. An unlisted provider has none, so with the setting unset
+   * hosted compute holds no credential at all.
+   */
   function boundNames(provider: string): Set<string> {
-    const names = new Set(options.keys[provider] ?? []);
+    if (!Object.hasOwn(options.keys, provider)) return new Set();
+    const names = new Set(options.keys[provider]);
     const implicit = builtins.get(provider)?.defaultKeyEnv;
     if (implicit) names.add(implicit);
     return names;
@@ -264,8 +270,8 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     return (["agent", "brainCli", "cron"] as const).some(audience => name in filterSubprocessEnv({ [name]: "probe" }, audience, options.workerEnvExtra));
   }
 
-  /** The providers whose credentials are known to the host: explicitly bound, or loaded built-ins. */
-  const providersOfInterest = () => [...new Set([...Object.keys(options.keys), ...builtins.keys()])].sort();
+  /** The providers the operator listed; `recover` loads each at boot, so readiness does not change after a turn. */
+  const providersOfInterest = () => Object.keys(options.keys).sort();
 
   /** Why hosted compute refuses everything, or null. */
   function disabledReason(): string | null {
@@ -280,19 +286,32 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     return null;
   }
 
-  /** The env core reads credentials from: bound names only. */
-  function credentialEnv(): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {};
-    for (const provider of providersOfInterest()) for (const name of boundNames(provider)) {
-      const value = credential(name);
-      if (value) env[name] = value;
-    }
-    return env;
+  /** The variable an instance reads its credential from, or null. */
+  function keyEnvOf(instance: InstanceConfig): string | null {
+    if (instance.byValue || instance.provider === null) return null;
+    return instance.apiKeyEnv ?? builtins.get(instance.provider)?.defaultKeyEnv ?? null;
   }
 
-  /** Bound credential values, for redaction of anything a provider echoed. */
+  /**
+   * The env core reads one instance's credential from: that instance's own
+   * variable, when it is bound for its provider, and nothing else, so a
+   * call can never carry a key bound for another provider or instance.
+   */
+  function credentialEnvFor(instance: InstanceConfig | undefined): NodeJS.ProcessEnv {
+    const name = instance ? keyEnvOf(instance) : null;
+    if (!instance || !name || !boundNames(instance.provider!).has(name)) return {};
+    const value = credential(name);
+    return value ? { [name]: value } : {};
+  }
+
+  /** Every bound credential value, for redaction of anything a provider echoed. */
   function secrets(): string[] {
-    return Object.values(credentialEnv()).filter((value): value is string => typeof value === "string" && value.length >= 4);
+    const values: string[] = [];
+    for (const provider of providersOfInterest()) for (const name of boundNames(provider)) {
+      const value = credential(name);
+      if (typeof value === "string" && value.length >= 4) values.push(value);
+    }
+    return values;
   }
 
   function redact<T>(value: T): T {
@@ -327,7 +346,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     }
     const known = await builtin(instance.provider);
     if (known.package === "missing") return null; // core reports the missing package as provider_unavailable
-    const keyEnv = instance.apiKeyEnv ?? known.defaultKeyEnv;
+    const keyEnv = keyEnvOf(instance);
     if (keyEnv && !boundNames(instance.provider).has(keyEnv)) {
       return refusal("provider_unavailable", `"${id}" reads its credential from ${keyEnv}, which the host operator has not bound for hosted compute (BRAIN_UI_COMPUTE_KEYS)`);
     }
@@ -336,7 +355,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
 
   function recordInstances(config: HostedComputeConfig): void {
     lastInstances = Object.entries(config.providers).map(([id, instance]) => {
-      const keyEnv = instance.provider ? instance.apiKeyEnv ?? builtins.get(instance.provider)?.defaultKeyEnv ?? null : null;
+      const keyEnv = keyEnvOf(instance);
       const bound = instance.provider !== null && keyEnv !== null && boundNames(instance.provider).has(keyEnv);
       return { id, provider: instance.provider, builtin: !instance.byValue && instance.provider !== null, credential: keyEnv, bound,
         present: bound && Boolean(credential(keyEnv!)),
@@ -361,8 +380,8 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     return read;
   }
 
-  /** A core operation set for one caller over the given instances. */
-  async function opsFor(caller: ComputeCaller, providers: Record<string, InstanceConfig>, hosted?: {
+  /** A core operation set for one caller over the given instances, with `env` as its only credentials. */
+  async function opsFor(caller: ComputeCaller, providers: Record<string, InstanceConfig>, env: NodeJS.ProcessEnv, hosted?: {
     sourcePolicy: Pick<EffectiveGovernancePolicy, "providers">; approve: (plan: ComputePlan) => Promise<"approved" | "required" | "denied">; recheck: () => boolean;
     budget: ComputeBudget;
   }): Promise<ComputeOps | null> {
@@ -373,7 +392,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       root: brainPath,
       config: config as never,
       caller,
-      env: credentialEnv(),
+      env,
       serviceOptions: { ...options.serviceOptions, stateDir: options.stateDir! },
       hosted: {
         sourcePolicy: { providers: hosted?.sourcePolicy.providers ?? [] },
@@ -412,11 +431,12 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
   const jobRow = (jobId: string): JobRow | null => db.query("SELECT * FROM compute_hosted_jobs WHERE job_id = ?").get(jobId) as JobRow | null;
   const callerOf = (row: JobRow): ComputeCaller => ({ kind: "hosted", principal: row.principal_id, session: row.session_id, turn: row.turn_id });
 
-  async function opsForJob(row: JobRow): Promise<ComputeOps | null> {
+  /** The job's admitted instance, its credential only, and the caller: the turn's, or the job's own for the driver. */
+  async function opsForJob(row: JobRow, caller: ComputeCaller = callerOf(row)): Promise<ComputeOps | null> {
     let instance: InstanceConfig;
     try { instance = InstanceSummary.parse(JSON.parse(row.instance_config)); } catch { return null; }
     if (instance.provider) await builtin(instance.provider);
-    return opsFor(callerOf(row), { [row.instance]: instance });
+    return opsFor(caller, { [row.instance]: instance }, credentialEnvFor(instance));
   }
 
   // ---------------------------------------------------------------- Activity
@@ -438,11 +458,26 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       attrs: { "brain.compute.job": row.job_id, "brain.compute.turn": row.turn_id, ...(row.tool_use_id ? { "brain.compute.tool_use": row.tool_use_id } : {}), ...attrs } }));
   }
 
-  /** Record what a visit saw: a new state as one event, uncertainty as a stuck flag, settlement as the run's end. */
-  function observe(row: JobRow, job: ComputeJobOutput): void {
+  /** Mark the host's row settled once; false when another path already did. */
+  function settleRow(row: JobRow): boolean {
+    const at = now();
+    const changed = db.query("UPDATE compute_hosted_jobs SET settled_at = ? WHERE job_id = ? AND settled_at IS NULL").run(at, row.job_id).changes > 0;
+    row.settled_at = at;
+    return changed;
+  }
+
+  /**
+   * Record what a visit saw: a new state as one event, uncertainty as a
+   * stuck flag, settlement as the run's end. A job is settled only once core
+   * reports it settled, its reservation included, and the host ledger has
+   * committed the settlement; a ledger write that fails leaves the job open
+   * and tracked, so the next visit retries it. A settled row is never
+   * rewritten.
+   */
+  async function observe(row: JobRow, job: ComputeJobOutput): Promise<void> {
+    if (row.settled_at !== null) return;
     const store = options.activity?.store;
     const key = `${job.state}/${job.cleanup.state}`;
-    const settled = settledJob(job);
     if (store) {
       activityWrite("heartbeat", () => store.heartbeat(row.run_id, now()));
       if (row.observed !== key) {
@@ -453,34 +488,47 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
           activityWrite("stuck", () => store.patchSpan(row.run_id, { attrs: { "brain.compute.stuck": true, "brain.compute.uncertain": job.uncertain?.reason ?? "unknown" } }));
         }
       }
-      if (settled) {
-        const complete = job.cost.actual.coverage === "complete" && job.cost.actual.usd !== null;
-        activityWrite("end", () => store.endSpan(row.run_id, { outcome: spanOutcome(job), endedAt: now(),
-          reason: `${job.terminal!.state}: ${job.terminal!.reason}; cleanup ${job.cleanup.state}`,
-          attrs: { "brain.compute.cleanup": job.cleanup.state, "brain.compute.stuck": false, "brain.compute.cost_coverage": job.cost.actual.coverage,
-            ...(job.cleanup.retainedUntil ? { "brain.compute.retained_until": job.cleanup.retainedUntil } : {}) },
-          ...(complete ? { usage: { costUsd: job.cost.actual.usd! } } : {}) }));
-        activityWrite("rollup", () => store.rollupRun(row.run_id));
-      }
     }
-    db.query("UPDATE compute_hosted_jobs SET observed = ?, settled_at = CASE WHEN ? THEN ? ELSE settled_at END WHERE job_id = ?")
-      .run(key, settled ? 1 : 0, now(), row.job_id);
-    row.observed = key;
-    if (settled) {
-      row.settled_at = now();
-      // The ledger settles exactly once whichever process reaches it first; a
-      // job settled by core before a crash is settled here on the next visit.
-      if (job.terminal) void Promise.resolve(ledger.settle(row.job_id, job.cost.actual.coverage === "complete" ? job.cost.actual.usd : null))
-        .catch((error: unknown) => log("WARN", `compute ledger settle failed for ${row.job_id}: ${String(error)}`));
+    if (row.observed !== key) {
+      db.query("UPDATE compute_hosted_jobs SET observed = ? WHERE job_id = ?").run(key, row.job_id);
+      row.observed = key;
     }
+    if (!job.settled || !job.terminal) return;
+    // Core settled the reservation through the ledger it was given. A process
+    // without this host's ledger (a shell reconcile over a shared pool) settles
+    // the job without it, so the host settles here too; the ledger keeps the
+    // first settlement, whichever process reaches it.
+    try {
+      await ledger.settle(row.job_id, job.cost.actual.coverage === "complete" ? job.cost.actual.usd : null);
+    } catch (error) {
+      log("WARN", `compute ledger settle failed for ${row.job_id}; retried on the next visit: ${String(error)}`);
+      return;
+    }
+    if (!settleRow(row) || !store) return;
+    const complete = job.cost.actual.coverage === "complete" && job.cost.actual.usd !== null;
+    activityWrite("end", () => store.endSpan(row.run_id, { outcome: spanOutcome(job), endedAt: now(),
+      reason: `${job.terminal!.state}: ${job.terminal!.reason}; cleanup ${job.cleanup.state}`,
+      attrs: { "brain.compute.cleanup": job.cleanup.state, "brain.compute.stuck": false, "brain.compute.cost_coverage": job.cost.actual.coverage,
+        ...(job.cleanup.retainedUntil ? { "brain.compute.retained_until": job.cleanup.retainedUntil } : {}) },
+      ...(complete ? { usage: { costUsd: job.cost.actual.usd! } } : {}) }));
+    activityWrite("rollup", () => store.rollupRun(row.run_id));
   }
 
-  function abandonRun(row: JobRow, reason: string): void {
+  /**
+   * Stop following a job the host can no longer read: its reservation settles
+   * as unknown (it keeps counting at its reserved amount, never zero) before
+   * the run ends. False when the ledger write failed; the next visit retries.
+   */
+  async function abandonRun(row: JobRow, reason: string): Promise<boolean> {
+    try { await ledger.settle(row.job_id, null); } catch (error) {
+      log("WARN", `compute ledger settle failed for abandoned ${row.job_id}; retried on the next visit: ${String(error)}`);
+      return false;
+    }
     const store = options.activity?.store;
-    db.query("UPDATE compute_hosted_jobs SET settled_at = ? WHERE job_id = ?").run(now(), row.job_id);
-    if (!store) return;
+    if (!settleRow(row) || !store) return true;
     activityWrite("end", () => store.endSpan(row.run_id, { outcome: "error", endedAt: now(), reason }));
     activityWrite("rollup", () => store.rollupRun(row.run_id));
+    return true;
   }
 
   // ------------------------------------------------------------------ driver
@@ -504,14 +552,14 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     const row = jobRow(jobId);
     if (!row || row.settled_at !== null) return "drop";
     const ops = await opsForJob(row);
-    if (!ops) { abandonRun(row, "the job's admission record cannot be read; reconcile it with brain compute reconcile"); return "drop"; }
+    if (!ops) return await abandonRun(row, "the job's admission record cannot be read; reconcile it with brain compute reconcile") ? "drop" : "keep";
     const result = await ops.status({ job: jobId });
     if (!result.ok) {
-      if (result.error.code === "job_unknown") { abandonRun(row, "the job record is gone from the compute state directory"); return "drop"; }
+      if (result.error.code === "job_unknown") return await abandonRun(row, "the job record is gone from the compute state directory") ? "drop" : "keep";
       return "keep";
     }
-    observe(row, result.job);
-    return settledJob(result.job) ? "drop" : "keep";
+    await observe(row, result.job);
+    return row.settled_at !== null ? "drop" : "keep";
   }
 
   async function pass(): Promise<void> {
@@ -528,7 +576,14 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
           if (await visit(id) === "keep") tracked.set(id, { failures: 0 });
         } catch (error) {
           if (entry.failures + 1 < maxFailures) tracked.set(id, { failures: entry.failures + 1 });
-          else log("WARN", `hosted compute stopped advancing ${id} after ${maxFailures} failed visits; it is reattached at the next restart`, { error: String(error) });
+          else {
+            // Its reservation stays active, counting at its reserved amount, and
+            // the run stays open, flagged, until a restart reattaches it.
+            log("WARN", `hosted compute stopped advancing ${id} after ${maxFailures} failed visits; it is reattached at the next restart`, { error: String(error) });
+            const row = jobRow(id), store = options.activity?.store;
+            if (row && row.settled_at === null && store) activityWrite("stuck", () => store.patchSpan(row.run_id, { attrs: { "brain.compute.stuck": true,
+              "brain.compute.uncertain": `the host stopped advancing it after ${maxFailures} failed visits; it is reattached at the next restart` } }));
+          }
         }
       }
     } finally {
@@ -562,13 +617,39 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
         const store = options.activity?.store;
         if (store) activityWrite("event", () => store.appendEvent(row.run_id, "compute_cancel", { reason }, now()));
         const result = await ops.cancel({ job: row.job_id });
-        if (result.ok) observe(row, result.job);
-        if (!result.ok || !settledJob(result.job)) track(row.job_id);
+        if (result.ok) await observe(row, result.job);
+        if (!result.ok || row.settled_at === null) track(row.job_id);
       } catch (error) {
         log("WARN", `hosted compute could not cancel ${row.job_id}: ${String(error)}`);
         track(row.job_id);
       }
     }));
+  }
+
+  /**
+   * Turns the host was told to cancel, and each turn's compute calls still in
+   * flight (R7). A run whose turn is cancelled while core is still admitting
+   * it is cancelled the moment its record exists, before any allocation, and
+   * `cancelTurn` waits for those calls before its last sweep. Bounded: a
+   * cancelled turn's later calls are refused by its authority anyway.
+   */
+  const cancelledTurns = new Set<string>();
+  const turnCalls = new Map<string, Set<Promise<unknown>>>();
+  const MAX_CANCELLED_TURNS = 1024;
+  function rememberCancelled(turnId: string): void {
+    cancelledTurns.delete(turnId);
+    cancelledTurns.add(turnId);
+    if (cancelledTurns.size > MAX_CANCELLED_TURNS) cancelledTurns.delete(cancelledTurns.values().next().value!);
+  }
+  function inFlight<T>(turnId: string, work: Promise<T>): Promise<T> {
+    let calls = turnCalls.get(turnId);
+    if (!calls) turnCalls.set(turnId, calls = new Set());
+    calls.add(work);
+    void work.finally(() => {
+      calls!.delete(work);
+      if (!calls!.size && turnCalls.get(turnId) === calls) turnCalls.delete(turnId);
+    }).catch(() => {});
+    return work;
   }
 
   const openRows = (where = "", ...params: string[]): JobRow[] =>
@@ -608,8 +689,10 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     };
     const canAsk = () => !ctx.autonomous && ctx.posture !== "voice" && !ctx.noGrantSurface && ctx.hasClient();
 
-    return async function compute(call: ComputeToolCall): Promise<ComputeToolResult> {
-      if (!ctx.isCurrent()) return refusal("policy_denied", "This turn no longer has current authority.");
+    const stopped = () => cancelledTurns.has(ctx.turnId) || !ctx.isCurrent();
+    return (call: ComputeToolCall): Promise<ComputeToolResult> => inFlight(ctx.turnId, compute(call));
+    async function compute(call: ComputeToolCall): Promise<ComputeToolResult> {
+      if (stopped()) return refusal("policy_denied", "This turn no longer has current authority.");
       if (ctx.autonomous) return refusal("policy_denied", "External compute is not available to autonomous turns.");
       await coreModule();
       const disabled = disabledReason();
@@ -619,20 +702,28 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       const toolName = ctx.toolName(call.tool);
 
       if (call.tool === "brain_compute_status" || call.tool === "brain_compute_cancel" || call.tool === "brain_compute_collect") {
-        // Only this conversation's own jobs, by the host's record; core checks the caller again.
+        // Only this conversation's own jobs, by the host's record; core checks
+        // the session again. A later turn of the conversation may follow them
+        // whichever principal the host authorized for it (R7): a re-login is
+        // recorded on the job's run, another conversation sees no such job.
         const jobInput = (call as JobCall).input;
         const row = jobRow(jobInput.job);
-        if (!row || row.principal_id !== who.principal || row.session_id !== who.session) {
+        if (!row || row.session_id !== who.session) {
           return refusal("job_unknown", `no compute job ${jobInput.job} for this conversation`);
         }
-        const ops = await opsForJob(row);
+        if (row.principal_id !== who.principal) {
+          const store = options.activity?.store;
+          if (store) activityWrite("event", () => store.appendEvent(row.run_id, "compute_principal", { owner: row.principal_id, principal: who.principal, turn: who.turn, tool: call.tool }, now()));
+          log("INFO", `compute job ${row.job_id} reached by another principal of its conversation`, { owner: row.principal_id, principal: who.principal, turn: who.turn });
+        }
+        const ops = await opsForJob(row, who);
         if (!ops) return refusal("provider_unavailable", "The job's admission record cannot be read.");
         try {
           const result = call.tool === "brain_compute_status" ? await ops.status(jobInput)
             : call.tool === "brain_compute_cancel" ? await ops.cancel(jobInput) : await ops.collect(jobInput);
           if (!result.ok) return redact(result);
-          observe(row, result.job);
-          if (!settledJob(result.job)) track(row.job_id);
+          await observe(row, result.job);
+          if (row.settled_at === null) track(row.job_id);
           if (call.tool === "brain_compute_collect" && "output" in result) {
             // A host path is never handed to the model: artifacts are named by path and hash.
             const collected = result as Extract<Awaited<ReturnType<ComputeOps["collect"]>>, { ok: true }>;
@@ -652,18 +743,25 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       for (const [id, instance] of Object.entries(read.config.providers)) if (!instance.byValue && instance.provider !== null) builtinsOnly[id] = instance;
 
       if (call.tool === "brain_compute_health") {
-        const ops = await opsFor(who, builtinsOnly);
-        if (!ops) return refusal("compute_disabled", "@schlessera/brain is not installed on this host.");
-        const report = await ops.health((call as HealthCall).input);
-        if (!report.ok) return redact(report);
+        // One instance at a time, each with only its own bound credential; an
+        // instance the host refuses is reported without calling its provider.
         const wanted = (call as HealthCall).input.provider;
-        const byValue = Object.entries(read.config.providers).filter(([id, instance]) => instance.byValue && (!wanted || wanted === id))
-          .map(([id]) => ({ id, provider: null, status: "provider_unavailable" as const, reason: "hosted runs accept only built-in providers", capabilities: null }));
-        const unbound = await Promise.all(report.instances.map(async instance => {
-          const refused = await instanceRefusal(instance.id, read.config.providers[instance.id]!);
-          return refused && !refused.ok ? { ...instance, status: "provider_unavailable" as const, reason: refused.error.message } : instance;
-        }));
-        return redact({ ...report, instances: [...unbound, ...byValue].sort((a, b) => a.id.localeCompare(b.id)) });
+        if (wanted !== undefined && !Object.hasOwn(read.config.providers, wanted)) return refusal("provider_unknown", `no compute instance named "${wanted}"`);
+        const instances: Array<Record<string, unknown> & { id: string }> = [];
+        for (const id of (wanted !== undefined ? [wanted] : Object.keys(read.config.providers)).sort()) {
+          const instance = read.config.providers[id]!;
+          const refused = await instanceRefusal(id, instance);
+          if (refused && !refused.ok) {
+            instances.push({ id, provider: instance.byValue ? null : instance.provider, status: "provider_unavailable", reason: refused.error.message, capabilities: null });
+            continue;
+          }
+          const ops = await opsFor(who, { [id]: instance }, credentialEnvFor(instance));
+          if (!ops) return refusal("compute_disabled", "@schlessera/brain is not installed on this host.");
+          const report = await ops.health({ provider: id });
+          if (!report.ok) return redact(report);
+          instances.push(...report.instances);
+        }
+        return redact({ ok: true, enabled: true, instances });
       }
 
       // plan and run
@@ -705,7 +803,9 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
         record(approved ? "approved" : "declined");
         return approved ? "approved" : "denied";
       };
-      const ops = await opsFor(who, builtinsOnly, { sourcePolicy: ctx.policy, approve, recheck: () => ctx.isCurrent(), budget: ledgerFor(ctx) });
+      // Only the requested instance and its own credential; an unknown id gets none and core's provider_unknown.
+      const ops = await opsFor(who, instance ? { [input.provider]: instance } : builtinsOnly, credentialEnvFor(instance),
+        { sourcePolicy: ctx.policy, approve, recheck: () => !stopped(), budget: ledgerFor(ctx) });
       if (!ops) return refusal("compute_disabled", "@schlessera/brain is not installed on this host.");
       try {
         if (!run) return redact(await ops.plan(input));
@@ -719,13 +819,21 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
             startRun(row, { "brain.compute.provider": instance?.provider ?? null, "brain.compute.lease_seconds": input.lease_seconds ?? instance?.lease.maxSeconds ?? null,
               "brain.compute.estimate_usd": instance?.hourlyCeilingUsd != null ? (instance.hourlyCeilingUsd * (input.lease_seconds ?? instance.lease.maxSeconds)) / 3600 : null });
             track(jobId);
+            // The turn was cancelled or lost its authority while core admitted
+            // the job, after cancelTurn had looked for its rows: cancel it now,
+            // before anything is allocated (R7).
+            if (stopped()) {
+              const store = options.activity?.store;
+              if (store) activityWrite("event", () => store.appendEvent(runId, "compute_cancel", { reason: "the turn stopped while the job was being admitted" }, now()));
+              return "cancel";
+            }
           },
         });
         if (result.ok) {
           const row = jobRow(result.job.id);
           if (row) {
             if (options.activity?.store) activityWrite("event", () => options.activity!.store.patchSpan(row.run_id, { attrs: { "brain.compute.source_hash": result.job.source.hash } }));
-            observe(row, result.job);
+            await observe(row, result.job);
           }
         }
         return redact(result);
@@ -733,7 +841,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
         log("WARN", `hosted compute ${call.tool} failed: ${String(error)}`);
         return refusal("provider_unavailable", "The compute service failed before the job started; nothing new is running.");
       }
-    };
+    }
   }
 
   return {
@@ -741,6 +849,13 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
 
     async cancelTurn(turnId, reason) {
       turnConfigs.delete(turnId);
+      // Recorded before anything else: a run still being admitted for this
+      // turn cancels its own job as soon as the record exists.
+      rememberCancelled(turnId);
+      const pending = [...(turnCalls.get(turnId) ?? [])];
+      await cancelRows(openRows(" AND turn_id = ?", turnId), reason);
+      if (!pending.length) return;
+      await Promise.allSettled(pending);
       await cancelRows(openRows(" AND turn_id = ?", turnId), reason);
     },
 
@@ -757,6 +872,14 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       for (const provider of Object.keys(options.keys)) await builtin(provider);
       const disabled = disabledReason();
       if (disabled) log("WARN", `hosted external compute is off: ${disabled}`);
+      // A reservation whose job never got a host record (the process died
+      // between reserving and recording it) settles as unknown: it keeps
+      // counting at its reserved amount, never zero. No run is admitting yet.
+      const orphans = db.query(`SELECT job_id FROM compute_budget_reservations WHERE status = 'active'
+        AND job_id NOT IN (SELECT job_id FROM compute_hosted_jobs)`).all() as Array<{ job_id: string }>;
+      for (const { job_id } of orphans) {
+        try { await ledger.settle(job_id, null); } catch (error) { log("WARN", `compute reservation ${job_id} without a job was not settled: ${String(error)}`); }
+      }
       for (const row of openRows()) {
         // Reattach: keep the run alive in Activity and visit it once now, so a
         // job that finished while the host was down settles its ledger once.

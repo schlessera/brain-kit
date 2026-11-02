@@ -47,7 +47,7 @@ export function hostComputeCredential(name: string): string | undefined {
   return readEnvVar(name);
 }
 export const DYNAMIC_ENV_READS = [{ source: "external compute credential",
-  description: "The value of a compute credential variable the operator bound in BRAIN_UI_COMPUTE_KEYS (or a bound built-in's default variable), read on the host when a hosted compute job is admitted or advanced. Passed to the provider call only, never to a worker, record or result." },
+  description: "The value of a compute credential variable the operator bound in BRAIN_UI_COMPUTE_KEYS (or the default variable of a provider listed there), read on the host when a hosted compute job is admitted or advanced. Passed to the provider call only, never to a worker, record or result." },
 { source: "provider credential presence",
   description: "Whether each provider credential in the subprocess descriptor is set on the server, so a governed or strict turn worker's BRAIN_WITHHELD_KEYS names the keys the host withheld. Names only; no value leaves the server." },
 { source: "provider relay credential",

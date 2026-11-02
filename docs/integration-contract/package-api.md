@@ -1213,7 +1213,9 @@ their envelope types, and `ComputeApproval`. `ComputeOpsOptions.hosted?:
 frozen data-to-provider rules and its own ledger, without the
 inside-a-worker refusal or a policy re-read, and `ComputeServiceOptions.recheck?(caller)`
 is asked under the admission lock before the slot count and reservation; false
-refuses `policy_denied` with nothing reserved. `@schlessera/brain-ui-server`
+refuses `policy_denied` with nothing reserved. `ComputeRunHooks.onCreated`
+may answer `"cancel"`, which records a cancel request before the job's first
+drive, so nothing is allocated. `@schlessera/brain-ui-server`
 gains the server settings `BRAIN_UI_COMPUTE_KEYS` and
 `BRAIN_UI_COMPUTE_STATE_DIR`, and `ServerConfig.compute`. The tools are
 specified in the [MCP contract](mcp.md#external-compute-bridge-tools-additive-0450-3108).
