@@ -27,6 +27,7 @@ import * as work from "./session-work.js";
 import { saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
 import { saveConversationEpoch, saveConversationTask } from "./conversation-storage.js";
+import { recordChatCleanup, retireChat, type ChatStore, type ChatStoreOutcome, type RetireChatInput } from "./chat-lifecycle.js";
 export const url = import.meta.url;
 
 export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -183,6 +184,8 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     dialogueAppend: (input: import("./dialogue-storage.js").DialogueAppend) => appendDialogue(db, input),
     dialogueBind: (conversationId: string, principalId: string, sessionId: string) => bindDialogue(db, conversationId, principalId, sessionId),
     conversationEpoch: (state: import("./conversation-storage.js").StoredConversationEpoch) => saveConversationEpoch(db, state),
+    retireChat: (input: RetireChatInput) => retireChat(db, input),
+    chatCleanup: (lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">, at: number) => recordChatCleanup(db, lifecycleId, store, outcome, at),
     conversationTask: (principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string) => saveConversationTask(db, principalId, receipt, facts),
     localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => saveLocalExchange(db, sessionId, exchange, delivered, at),
     exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => markLocalExchangesDelivered(db, sessionId, exchangeIds, at),
