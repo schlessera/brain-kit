@@ -1336,7 +1336,13 @@ claimed as completion. Failures exit 1, with best-effort owned cleanup.
 
 This is mandatory cooperative procedure, not an atomic GitHub branch lock.
 Direct API/UI merges under existing permissions can bypass it or race the
-final read; actual squash checks still own reconciliation. No protection,
+final read; actual squash checks still own reconciliation. The
+[#2940 investigation](https://github.com/schlessera/brain-kit/issues/2940#issuecomment-6574325914)
+found 157 merges from 2026-10-22 to 2026-10-26 that bypassed it, and every
+merge since 2026-10-26T23:44Z under an exact-head lease. So that a bypass is
+visible rather than inferred, `scripts/ci-timings.ts` reports each merged PR's
+merge path (`recorded`, `expedited`, `unrecorded` or `unknown`) from the
+reservation history and the expedited-fix events. No protection,
 permission, provider or native merge-queue change is introduced. Native stack
 candidates remain unsupported by this command pending separately qualified
 prefix integration; do not flatten them into an ordinary receipt or bypass
@@ -1499,7 +1505,84 @@ runs, dispatch probes, read logs and artifacts), `issues: write` (incident and
 flake issues) and `pull-requests: write` (landed-while-red reports). It runs
 trusted default-branch tooling and parses candidate logs and artifacts as data.
 `red-main-probe.yml` has `contents: read` only. The incident workflow in the
-skills is #2944, and the expedited fix merge is #2940.
+skills is #2944, and the expedited fix merge is #2940
+([below](#expedited-red-main-fixes)). The probe's `fix` purpose serves only
+that merge; the coordinator ignores fix probes.
+
+### Expedited red-main fixes
+
+[#2940](https://github.com/schlessera/brain-kit/issues/2940) implements answer 7
+of the proof-system lane ruling. `bun scripts/integrate.ts confirm <pr>
+--fixes-main-run <run-id> --issues owner/repo#N,...` requires an open red-main
+record whose opening run is `<run-id>`, declares the PR a fix and acquires the
+ordinary exact-candidate reservation. It then dispatches `red-main-probe.yml`
+with purpose `fix` and the record's failing test files twice: at the exact
+base, where they must fail, and at the exact head, where they must pass. Each
+probe prints one `BRAIN_RED_MAIN_PROBE` line with its SHA, the files it ran and
+its exit code; the merge reads that line, not only the run conclusion, so a
+probe that failed during setup is not red evidence. The command also requests a
+fresh ready run of `ci.yml` at the exact head and waits only for its metadata
+gate and `verify` job: the affected fast invariants. It does not wait for the
+rest of that run. When all three are in, it squashes under the reservation with
+the same live-candidate, lease, milestone, parent and ancestry checks as an
+ordinary merge; the expected tree is the exact base merged with the exact head.
+`merge <pr> --lease <id> --fixes-main-run <run-id>` does the same with evidence
+that already exists.
+
+It refuses a run that is not the open record's, any category-level failure
+(no test file to show red and green: use ordinary confirmation as a declared
+fix), evidence for other SHAs or other files, a base that did not fail, a head
+that did not pass, a draft-cadence run and failed fast invariants. A failing
+test file may be absent at the head only when the fix deletes it relative to
+the base, which is how a targeted revert removes the failing test its reverted
+commit added; a revert is otherwise held to the same evidence as a forward fix.
+The local check receipt is not required in this mode: the ruling defines the
+expedited proof, and the next main run is the backstop.
+
+After the squash it appends an `expedited` entry to the open record (fix PR,
+head, base, squash, both probe runs, the fast-invariant run, the numeric actor
+ID and server time) and records an `expedited-fix` event through
+`scripts/ci-timings.ts record` under `tmp/ci-timings`. The record stays open:
+the next main run includes the red set, and only its green result clears the
+record. A new failure there opens a new incident. No controller merges a fix
+by itself.
+
+### Local check receipts
+
+`check:pr` writes `tmp/check-pr-receipt.json` (`--receipt <path>` overrides
+it) and prints it at the end as a block for the PR body; the PR template holds
+its markers. The receipt names the head, the base ref and mode, and every
+selected check with the hosted categories that prove it and one outcome:
+`passed`, `failed`, `skipped`, `timed-out` or `preempted`. It is rewritten
+after every change, and a started check reads `timed-out` until it settles, so
+a run killed from outside still leaves an honest receipt.
+
+- `--check-timeout=<seconds>` gives each check a budget. A check that exceeds
+  it is killed with its process group and recorded `timed-out`; the run goes
+  on. A signal to `check:pr` records the running check `timed-out` and the
+  rest `skipped`.
+- `--skip <check name>` records a deliberate skip instead of an unrecorded one.
+- `preempted` is a check that exited with status 75, host admission's
+  cancellation ([#2943](https://github.com/schlessera/brain-kit/issues/2943)).
+  It is neither checked nor failed: `check:pr` exits 75 so it is rerun.
+- A failure still stops the run and exits 1; later checks read `skipped`.
+  Timed-out and skipped checks alone exit 0 with a warning, because the merge
+  path enforces them.
+
+`integrate.ts merge` maps each skipped, timed-out or preempted check to its
+hosted categories and refuses the candidate when none of them ran successfully
+in the exact-head selected proof, naming every such check and the categories it
+needs. A category retained by validated proof reuse counts as run. The metadata
+gate always runs, so lint, leakage and changeset checks are always covered; an
+unknown check maps to no category and can never be covered.
+
+A PR body with no receipt, or only the template's empty markers, is refused.
+`confirm` checks this before it acquires the reservation or requests proof, so
+an in-flight PR learns it at once, with the command that fixes it, and never
+after a full hosted run. Running `check:pr` and pasting its block is the whole
+remedy. The receipt's head is recorded but need not equal the candidate's:
+skips are a property of the local run, and coverage is judged against the
+exact-head proof.
 
 #### Incident workflow and recovery
 

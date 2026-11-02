@@ -433,7 +433,12 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   metadata gates and complete affected hosted unit/integration/runtime,
   keyless funnel, pinned browser proof, strict types and packaging on explicit
   ready-candidate confirmation events. Agents keep focused local behavioral proof.
-- Run `bun run check:pr --base origin/main` before opening or marking ready.
+- Run `bun run check:pr --base origin/main` before opening or marking ready,
+  and paste the receipt block it prints into the PR body. Record a check you
+  cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`
+  rather than dropping it: the merge path refuses a missing receipt, and a
+  skipped, timed-out or preempted check whose hosted category the exact-head
+  proof did not run ([local check receipts](../decisions/ci-utility.md#local-check-receipts)).
   For an upper stack layer, substitute its verified immediate parent ref;
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
