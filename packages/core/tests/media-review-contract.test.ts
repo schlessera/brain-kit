@@ -123,17 +123,25 @@ describe("offline sync and review agree", () => {
     write(root, "photos/achilles-shield.jpg", "shield bytes");
     write(root, "photos/trojan-horse.jpg", "horse bytes");
     write(root, "photos/argus-waiting.jpg", "argus bytes");
+    write(root, "photos/scylla-strait.jpg", "scylla bytes");
+    write(root, "photos/cyclops-cave.jpg", "cyclops bytes");
     write(root, ".brain/scratch/2026-07-12/ithaca-harbour.png", "harbour bytes");
     write(root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { [JSON.stringify(["pi", "voyage-home"])]: [".brain/scratch/2026-07-12/ithaca-harbour.png"] } }));
 
     const first = await json(root, "hygiene", "next");
-    expect(first.body.media).toMatchObject({ awaitingReview: 4, setAside: 0, kept: 0, links: { state: "complete", observed: 1 } });
+    expect(first.body.media).toMatchObject({ awaitingReview: 6, setAside: 0, kept: 0, links: { state: "complete", observed: 1 } });
     const media = ((await json(root, "hygiene", "list", "--state", "open")).body.entries as Array<{ id: string; path: string; fingerprint: string; sources: Array<{ name: string }> }>)
       .filter((e) => e.id.startsWith("media-"));
     const at = (path: string) => media.find((e) => e.path === path)!;
     // Pinned scratch is a review-only finding: listed, never counted.
     expect(at(".brain/scratch/2026-07-12/ithaca-harbour.png").sources.map((s) => s.name)).toEqual(["scratch-media"]);
     expect((await json(root, "hygiene", "dismiss", at("photos/achilles-shield.jpg").id, "--expect-fingerprint", at("photos/achilles-shield.jpg").fingerprint)).code).toBe(0);
+    // One snooze in force, and one that has come due (its until edited into the past by hand).
+    for (const path of ["photos/scylla-strait.jpg", "photos/cyclops-cave.jpg"])
+      expect((await json(root, "hygiene", "snooze", at(path).id, "--until", "2099-01-01", "--expect-fingerprint", at(path).fingerprint)).code).toBe(0);
+    const snoozed = join(root, LOG, "snoozed.md");
+    const cyclops = at("photos/cyclops-cave.jpg").id;
+    writeFileSync(snoozed, readFileSync(snoozed, "utf8").replace(new RegExp(`(### ${cyclops}[\\s\\S]*?- until: )2099-01-01`), "$12026-01-01"));
 
     // A kept original, recorded the way Keep a permanent copy will (#2781): only for a valid copy with the verified bytes.
     const loom = at("photos/penelope-loom.png"), argus = at("photos/argus-waiting.jpg");
@@ -165,9 +173,10 @@ describe("offline sync and review agree", () => {
     const synced = await syncJson(root);
     const reviewed = await json(root, "hygiene", "next");
     expect(synced.body.run.leftovers.mediaPending).toBe(reviewed.body.media.awaitingReview);
-    expect(synced.body.run.leftovers.mediaSetAside).toEqual({ dismissed: 1, snoozed: 0, kept: 1 });
-    expect(reviewed.body.media).toMatchObject({ awaitingReview: 2, setAside: 1, kept: 1 });
-    expect(synced.body.run.report).toContain("Media awaiting review: 2 · 1 set aside · 1 kept as a copy · review in Actions");
+    // Counted: the horse (open), argus (invalid kept) and the cyclops (due snooze).
+    expect(synced.body.run.leftovers.mediaSetAside).toEqual({ dismissed: 1, snoozed: 1, kept: 1 });
+    expect(reviewed.body.media).toMatchObject({ awaitingReview: 3, setAside: 2, kept: 1 });
+    expect(synced.body.run.report).toContain("Media awaiting review: 3 · 2 set aside · 1 kept as a copy · review in Actions");
     // No media path: the tracked copy is only ever named as a committed note.
     for (const path of ["photos/", ".brain/scratch", "media: "]) expect(synced.body.run.report).not.toContain(path);
     expect(synced.body.agent).toEqual({ invoked: false, reason: "not-needed" });
@@ -181,4 +190,34 @@ describe("offline sync and review agree", () => {
     // The invalid kept record reopened with its receipt.
     expect(readFileSync(join(root, LOG, "open.md"), "utf8")).toContain("kept on 2026-07-12 · changed: kept-incomplete");
   }, 60_000);
+});
+
+describe("offline sync and review agree whatever the pin snapshot says", () => {
+  test("complete, incomplete, unknown and overflowing snapshots never change the count, on either side", async () => {
+    const brain = brainWithRemote();
+    const { root } = brain;
+    write(root, ".gitignore", `${readFileSync(join(root, ".gitignore"), "utf8")}.brain/\n`);
+    git(root, "add", "-A");
+    git(root, "commit", "-qm", "ignore the brain's operational state");
+    git(root, "push", "-q", "origin", "main");
+    write(root, "photos/penelope-loom.png", "loom bytes");
+    const scratch = [".brain/scratch/2026-07-12/ithaca-harbour.png", ".brain/scratch/2026-07-12/sirens-rocks.png"];
+    for (const path of scratch) write(root, path, path);
+    const pins = (ready: boolean) => write(root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready, sessions: { [JSON.stringify(["pi", "voyage-home"])]: scratch } }));
+    const cases: Array<[string, () => void, Record<string, string>, string, boolean]> = [
+      ["complete", () => pins(true), {}, "complete", false],
+      ["incomplete", () => pins(false), {}, "incomplete", false],
+      ["unknown", () => write(root, ".brain/scratch-pins/pins.json", "{ not json"), {}, "unknown", false],
+      ["overflowing", () => pins(true), { BRAIN_MEDIA_PINNED_PATH_LIMIT: "1" }, "complete", true],
+    ];
+    for (const [name, arrange, env, state, tooLarge] of cases) {
+      arrange();
+      const next = await runCli(root, ["hygiene", "next", "--json"], env);
+      const sync = await runCli(root, ["sync", "--json"], env);
+      const media = JSON.parse(next.stdout).media, leftovers = JSON.parse(sync.stdout).run.leftovers;
+      expect([name, media.links.state, media.links.tooLarge]).toEqual([name, state, tooLarge]);
+      expect([name, leftovers.mediaPending, leftovers.mediaSetAside]).toEqual([name, media.awaitingReview, { dismissed: 0, snoozed: 0, kept: 0 }]);
+      expect([name, media.awaitingReview]).toEqual([name, 1]);
+    }
+  }, 120_000);
 });
