@@ -270,6 +270,44 @@ test("the first admitted connection taints the session before its bytes; later t
   } finally { harbour.stop(true); island.stop(true); db.close(); }
 });
 
+test("a governed turn whose runtime sends only relayed inference stays untainted until its WebFetch target, then narrows the next new host (#3244)", async () => {
+  const db = createUiDb(":memory:");
+  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+  const harbour = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+  const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("Aeaea") });
+  const proxy = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-harbour", sessionId: () => "ithaca",
+    record: event => recordGovernanceEvent(db, event), governanceDb: db });
+  const events = (kind: "taint" | "egress_denial") => queryGovernanceEvents(db, { sessionId: "ithaca", kinds: [kind], limit: 20 });
+  try {
+    // The recorded pattern of a relayed runtime: its inference, then nothing else of its own.
+    for (let index = 0; index < 3; index++) {
+      const inference = proxy.inference("POST", new URL("https://api.anthropic.com/v1/messages"), new AbortController().signal);
+      expect(await inference.admit(), "RELAYED_INFERENCE_ADMITTED").toBe(true);
+      inference.finish("completed");
+    }
+    expect(events("taint"), "RELAYED_INFERENCE_NEVER_TAINTS").toEqual([]);
+    // The brain CLI's reranking goes through the metered provider relay, which
+    // shares this proxy's admission (#1673): an untainted session admits it.
+    const rerank = proxy.relayed("POST", new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"), new AbortController().signal);
+    expect(await rerank.admit(), "UNTAINTED_SESSION_ADMITS_RERANKING").toBe(true);
+    rerank.finish("completed");
+    // A relayed provider request is the turn's own egress (G5) and taints under G6 as it always did.
+    expect(events("taint").map(event => event.payload), "PROVIDER_RELAY_TAINT_UNCHANGED").toEqual([
+      { source: "egress_connection", tool: null, detail: "POST generativelanguage.googleapis.com:443" }]);
+    // WebFetch's own target, reached first in a fresh turn of a clean session.
+    db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('calypso','Calypso',0,0)").run();
+    const fresh = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-fetch", sessionId: () => "calypso",
+      record: event => recordGovernanceEvent(db, event), governanceDb: db });
+    try {
+      expect(await connectStatus(fresh.socketPath, `127.0.0.1:${harbour.port}`), "UNTAINTED_WEBFETCH_ADMITTED").toBe(200);
+      expect(queryGovernanceEvents(db, { sessionId: "calypso", kinds: ["taint"], limit: 5 }).map(event => event.payload), "WEBFETCH_TARGET_IS_FIRST_TAINT").toEqual([
+        { source: "egress_connection", tool: null, detail: `CONNECT 127.0.0.1:${harbour.port}` }]);
+      expect(await connectStatus(fresh.socketPath, `127.0.0.2:${island.port}`), "TAINTED_NEW_HOST_STILL_NARROWED").toBe(403);
+    } finally { fresh.stop(); }
+    proxy.stop();
+  } finally { proxy.stop(); harbour.stop(true); island.stop(true); db.close(); }
+});
+
 test("on the write worker, a connection's bytes wait for its taint commit and a pending taint narrows the next host", async () => {
   const root = mkdtempSync(join(tmpdir(), "turn-egress-worker-odysseus-")), db = createUiDb(join(root, "ui.db")), writer = openSqliteWriter(db);
   db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();

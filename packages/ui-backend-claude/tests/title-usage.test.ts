@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { ClaudeTitleUsageEvidence, createClaudeTitleUsageCollector } from "../src/title-usage.js";
+import { RELAYED_TURN_TRAFFIC_ENV, telemetryConfigured } from "../src/relayed-turn-traffic.js";
 
 function event(source: string | undefined, requestId = "req_odysseus", input = 3, output = 5, cost: number | null = 0.000084) {
   const attrs: Record<string, string | number | null | undefined> = { query_source: source, request_id: requestId,
@@ -57,4 +58,13 @@ test("the local collector requires its per-process capability and accepts conten
     expect(collector.env.OTEL_LOG_RAW_API_BODIES).toBe("0");
     expect(collector.env.OTEL_LOG_USER_PROMPTS).toBe("0");
   } finally { collector.stop(); }
+});
+
+test("the traffic opt-out a relayed turn pins is not the operator's: the title collector still runs unless the operator opted out", () => {
+  const pinned = { PATH: "/usr/bin:/bin", ...RELAYED_TURN_TRAFFIC_ENV };
+  expect(telemetryConfigured(pinned, { PATH: "/usr/bin:/bin" }), "HOST_PIN_KEEPS_TITLE_COLLECTOR").toBe(false);
+  expect(telemetryConfigured(pinned, { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }), "OPERATOR_OPT_OUT_RESPECTED").toBe(true);
+  // An ordinary turn pins nothing, so the opt-out in its launch is the operator's.
+  expect(telemetryConfigured(pinned), "ORDINARY_OPT_OUT_RESPECTED").toBe(true);
+  expect(telemetryConfigured({ ...pinned, OTEL_LOGS_EXPORTER: "otlp" }, {}), "OPERATOR_TELEMETRY_RESPECTED").toBe(true);
 });
