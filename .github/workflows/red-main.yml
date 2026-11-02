@@ -1,0 +1,52 @@
+# Red-main coordinator (#2942). Runs trusted default-branch tooling after every
+# main CI run and every triage probe; candidate logs and artifacts are parsed as
+# data, never executed. Writes only the shared coordination ref, incident and
+# flake issues, PR reports, probe dispatches and cancellations of doomed PR proof.
+name: red-main
+
+on:
+  workflow_run:
+    workflows: [CI, red-main-probe]
+    types: [completed]
+
+permissions: {}
+
+# One coordinator at a time: records and incident issues are never raced.
+concurrency:
+  group: red-main-coordinator
+  cancel-in-progress: false
+
+jobs:
+  coordinate:
+    if: >-
+      (github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      (github.event.workflow_run.name == 'red-main-probe' && github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write       # compare-and-swap push of the shared coordination ref
+      actions: write        # cancel doomed PR runs, dispatch triage probes, read logs and artifacts
+      issues: write         # one incident issue per record; flake issues
+      pull-requests: write  # report squashes that landed while red
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Coordinate the red-main record
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/red-main-cli.ts coordinate
+      - name: Retain recorded incident events
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: red-main-events
+          path: tmp/red-main-events/
+          if-no-files-found: ignore
+          retention-days: 90

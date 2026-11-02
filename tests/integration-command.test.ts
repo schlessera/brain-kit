@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { GitReservationStore, emptyReservation, reservationTransition, MAX_MS } from "../scripts/integration-reservation";
+import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { invocationChild } from "../scripts/test-invocation-child";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
@@ -72,6 +73,11 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   const id = "1".repeat(32), store = new GitReservationStore(root), snapshot = store.read();
   const state = mode === "missing" || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
   expect(store.publish(snapshot, state)).toBe(true);
+  if (mode.startsWith("red-main")) {
+    const failure = { test: "tests/raft.test.ts", category: "unit" as const, verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
+    const red = openRed(emptyRedMain(), { firstBad: base, run: 11, failures: [failure] }, NOW);
+    expect(store.publishRedMain(store.read(), mode === "red-main-fix" ? declareFix(red, 7, NOW) : red)).toBe(true);
+  }
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
   const count = mode.startsWith("issues-") ? Number(mode.split("-")[1]) : 1;
@@ -257,4 +263,15 @@ test("delivered issues refuses malformed oversized missing closing and final mil
     if (mode === "issues-22-mismatch") expect(result.reads).toHaveLength(22);
     if (mode === "issues-22-missing") expect(result.reads).toEqual([]);
   }
+});
+
+test("while main is red the shared merge refuses non-fix candidates and still merges a declared fix (#2942)", async () => {
+  const refused = await scenario("red-main");
+  expect(refused.dispatched, "NO_NON_FIX_MERGE_WHILE_RED").toBe(false);
+  expect(refused.code, refused.err).toBe(1);
+  expect(refused.err).toContain("main red at");
+  expect(refused.err).toContain("only a declared fix may confirm or merge");
+  const fix = await scenario("red-main-fix");
+  expect(fix.code, `DECLARED_FIX_MERGES: ${fix.err}`).toBe(2);
+  expect(fix.dispatched).toBe(true);
 });
