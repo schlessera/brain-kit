@@ -1570,7 +1570,9 @@ unchanged and the copy is a contained regular file outside `.brain/` and
 `workspaces/` that `media.track` keeps. Otherwise reconcile reopens the original
 with an `invalidated: … kept on <day> · changed: <fields>` receipt, naming
 `copy-missing`, `copy-untracked`, `kept-incomplete` or the fingerprint fields.
-Editing the copy keeps it kept. A pruned original moves the entry to
+Editing the copy keeps it kept. `brain hygiene keep-copy` writes the entry
+through reconcile's expected-fingerprint request, refusing a copy that would
+not hold at once. A pruned original moves the entry to
 `resolved.md` with `resolved-by: original-pruned`. `kept.md` is written only
 once it holds an entry, and `_index.md` adds `- Kept: N` only while it exists.
 An existing brain's hygiene files therefore stay byte-identical.

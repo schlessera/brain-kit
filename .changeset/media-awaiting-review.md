@@ -8,7 +8,7 @@ Media awaiting a decision is now one inventory that `brain sync` counts and hygi
 
 `brain hygiene` detects each uncommitted MEDIA or LARGE file as a finding of category `media`: MEDIA is informational, LARGE a warning, and both on one file are one finding. Media findings are always shown in review. Files a conversation linked under `.brain/scratch/` (read from the scratch pin snapshot, at most 5,000 paths unless `BRAIN_MEDIA_PINNED_PATH_LIMIT` says otherwise) are review-only findings, even when `media.ignore` matches them. They never change the count, and the scratch area is never walked. Files `media.ignore` matches outside scratch stay out.
 
-A fifth log state, `kept`, lives in `context/hygiene/kept.md`. The file is written only once it holds an entry, so existing hygiene files stay byte-identical. A kept original holds while its copy exists outside `.brain/` and `workspaces/` and `media.track` keeps it. Otherwise it opens again with a `changed: copy-missing`, `copy-untracked`, `kept-incomplete` or fingerprint receipt.
+A fifth log state, `kept`, lives in `context/hygiene/kept.md`. The new `brain hygiene keep-copy <id> --expect-fingerprint <fp> --copy <path> --copy-sha256 <sha256> --journal <id>` records it, and only for a copy that already holds. The file is written only once it holds an entry, so existing hygiene files stay byte-identical. A kept original holds while its copy exists outside `.brain/` and `workspaces/` and `media.track` keeps it. Otherwise it opens again with a `changed: copy-missing`, `copy-untracked`, `kept-incomplete` or fingerprint receipt.
 
 The JSON envelopes gain keys and remove, rename or retype none. Each new key comes after every existing one:
 

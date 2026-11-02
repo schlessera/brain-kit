@@ -16,7 +16,7 @@
 
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync } from "fs";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
@@ -1167,10 +1167,19 @@ export interface ReconcileOptions {
   write?: (path: string, text: string, expected: string | null) => void;
 }
 
-/** Dismiss or snooze one detected finding, if its fingerprint is still `expectFingerprint`. */
+/**
+ * Dismiss, snooze or keep one detected finding, if its fingerprint is still
+ * `expectFingerprint`. `kept` (#2780) records a media original whose
+ * permanent copy Keep a permanent copy has made and verified: the copy must
+ * already be valid (`keptInvalidity`) and hold `copySha256`.
+ */
 export type HygieneDispositionRequest =
   | { kind: "dismissed"; id: string; expectFingerprint: string; reason?: string }
-  | { kind: "snoozed"; id: string; expectFingerprint: string; until: string; reason?: string };
+  | { kind: "snoozed"; id: string; expectFingerprint: string; until: string; reason?: string }
+  | { kind: "kept"; id: string; expectFingerprint: string; copy: string; copySha256: string; journal: string; reason?: string };
+
+/** Why a disposition was refused. The `copy-…` and `not-media` reasons are a `kept` request's. */
+export type HygieneRefusalReason = "not-detected" | "stale-fingerprint" | "not-media" | "copy-missing" | "copy-untracked" | "copy-changed";
 
 /**
  * A disposition reconcile would not record: the finding is not detected now,
@@ -1179,7 +1188,7 @@ export type HygieneDispositionRequest =
  */
 export class HygieneRefusal extends Error {
   constructor(
-    readonly reason: "not-detected" | "stale-fingerprint",
+    readonly reason: HygieneRefusalReason,
     readonly id: string,
     readonly expectedFingerprint: string,
     readonly currentFingerprint: string | null
@@ -1187,8 +1196,30 @@ export class HygieneRefusal extends Error {
     super(
       reason === "not-detected"
         ? `${id} is not detected now; nothing was written`
-        : `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
+        : reason === "stale-fingerprint"
+          ? `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
+          : reason === "not-media"
+            ? `${id} is not a media finding; only media can be kept as a copy; nothing was written`
+            : `${id}: the permanent copy is ${reason === "copy-missing" ? "missing or not a contained regular file outside .brain/ and workspaces/" : reason === "copy-untracked" ? "not kept by media.track" : "not the bytes it was copied as"}; nothing was written`
     );
+  }
+}
+
+/** Hex SHA-256 of a regular file, read without following a final link; null when unreadable. */
+function fileSha256(path: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return null;
+    const hash = createHash("sha256");
+    const buffer = Buffer.alloc(1024 * 1024);
+    let read: number;
+    while ((read = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, read));
+    return hash.digest("hex");
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
   }
 }
 
@@ -1276,6 +1307,7 @@ export function reconcile(
   // One canonical finding per ID, whatever order the sources came in.
   const detected = canonicalFindings([...candidates, ...(opts.extra ?? [])]);
 
+  const policy = opts.media ?? DEFAULT_MEDIA_POLICY;
   // A disposition applies to the evidence its caller saw, or not at all.
   const requested = new Map<string, HygieneDispositionRequest>();
   for (const request of opts.dispositions ?? []) {
@@ -1283,6 +1315,14 @@ export function reconcile(
     if (!finding) throw new HygieneRefusal("not-detected", request.id, request.expectFingerprint, null);
     if (finding.fingerprint !== request.expectFingerprint) {
       throw new HygieneRefusal("stale-fingerprint", request.id, request.expectFingerprint, finding.fingerprint);
+    }
+    if (request.kind === "kept") {
+      // Only a copy that would hold at once is recorded: a kept entry is never written invalid.
+      const refuse = (reason: HygieneRefusalReason) => new HygieneRefusal(reason, request.id, request.expectFingerprint, finding.fingerprint);
+      if (finding.category !== "media") throw refuse("not-media");
+      const why = keptInvalidity(root, policy, { copy: request.copy, copySha256: request.copySha256, dispositionFingerprint: finding.fingerprint }, finding);
+      if (why) throw refuse(why[0] === "copy-untracked" ? "copy-untracked" : "copy-missing");
+      if (fileSha256(resolve(root, request.copy)) !== request.copySha256) throw refuse("copy-changed");
     }
     requested.set(request.id, request);
   }
@@ -1307,7 +1347,6 @@ export function reconcile(
   // kept.md is written only when it would hold an entry or already exists,
   // so a brain that never kept a copy keeps every hygiene file byte for byte.
   const keptOnDisk = loaded.kept.disk !== null;
-  const policy = opts.media ?? DEFAULT_MEDIA_POLICY;
   const index = parseLogFile(loaded.index.text, rel("_index.md"), null, (h) => h === "Latest counts");
   const lastRun = parseLogFile(loaded.lastRun.text, rel("last-run.md"), null, (h) => h.startsWith("Last run:") || h === "Auto-fixes applied this run");
 
@@ -1347,7 +1386,9 @@ export function reconcile(
   const disposedFrom = (finding: HygieneFinding, id: string, lines: string[], firstSeen: string, request: HygieneDispositionRequest): HygieneEntry => {
     categoryOf.set(id, finding.category);
     const kept = withoutFields(lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]);
-    const record = request.kind === "dismissed" ? [`- dismissed-on: ${timestamp}`] : [`- until: ${request.until}`, `- snoozed-on: ${timestamp}`];
+    const record = request.kind === "dismissed" ? [`- dismissed-on: ${timestamp}`]
+      : request.kind === "snoozed" ? [`- until: ${request.until}`, `- snoozed-on: ${timestamp}`]
+      : [`- kept-on: ${timestamp}`, `- copy: \`${request.copy}\``, `- copy-sha256: ${request.copySha256}`, `- journal: ${request.journal}`];
     const reason = request.reason?.replace(/\s+/g, " ").trim();
     if (reason) record.push(`- reason: ${reason}`);
     record.push(`- disposition-fingerprint: ${renderFingerprint(finding.fingerprint, finding.fingerprintFields)}`);

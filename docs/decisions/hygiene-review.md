@@ -47,7 +47,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:181-184`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:201-203`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:221-223`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -190,7 +190,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1472`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1513`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -213,7 +213,7 @@ receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:998-1008`).
 
 Sync's count and review use one read-only function that applies these
 predicates to the log as it stands rather than trusting the file an entry sits
-in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1712-1727`).
+in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1753-1768`).
 Leave pending is a per-pass deferral in review state, never a log state: it
 skips the finding while its fingerprint holds, and the finding still counts.
 The contract is in
@@ -229,7 +229,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1446-1449`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1487-1490`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

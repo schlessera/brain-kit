@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { canonicalFindings, mediaReviewCounts, readHygieneLog, reconcile, type HygieneFinding } from "../src/lib/hygiene";
+import { canonicalFindings, HygieneRefusal, mediaReviewCounts, readHygieneLog, reconcile, type HygieneFinding } from "../src/lib/hygiene";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "../src/lib/media";
 import { mediaCandidates, mediaInventory, readScratchPins } from "../src/lib/media-inventory";
 import { assess } from "../src/lib/sync/assess";
@@ -136,6 +136,35 @@ describe("kept", () => {
     run(root);
     expect(existsSync(join(root, "context/hygiene/kept.md"))).toBe(false);
     expect(readFileSync(join(root, "context/hygiene/_index.md"), "utf8")).not.toContain("Kept");
+  });
+});
+
+describe("recording kept", () => {
+  const sha = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+  const keep = (root: string, over: Partial<{ id: string; fingerprint: string; copy: string; copySha256: string }> = {}, policy = policyWithCopy) => {
+    const loom = findingAt(root, LOOM, policy);
+    return reconcile(root, candidatesOf(root, policy), new Map(), { now: NOW, media: policy, dispositions: [{ kind: "kept", id: over.id ?? loom.id,
+      expectFingerprint: over.fingerprint ?? loom.fingerprint, copy: over.copy ?? COPY, copySha256: over.copySha256 ?? sha("loom bytes"), journal: "7c1e" }] });
+  };
+  const refusal = (fn: () => unknown) => { try { fn(); } catch (e) { return (e as HygieneRefusal).reason; } return null; };
+
+  test("a verified, tracked copy is recorded once and holds", () => {
+    const root = brain();
+    const result = keep(root);
+    expect(result).toMatchObject({ kept: 1, changedFiles: expect.arrayContaining(["context/hygiene/kept.md"]) });
+    expect(counts(root)).toMatchObject({ awaitingReview: 0, kept: 1 });
+    expect(run(root).changedFiles).toEqual([]);
+  });
+
+  test("an invalid copy is refused before anything is written", () => {
+    const root = brain();
+    put(root, "notes/voyage.md", "# Voyage\n");
+    expect(refusal(() => keep(root, { copySha256: sha("other bytes") }))).toBe("copy-changed");
+    expect(refusal(() => keep(root, { copy: "places/ithaca/missing.png" }))).toBe("copy-missing");
+    expect(refusal(() => keep(root, { copy: ".brain/scratch/loom.png" }))).toBe("copy-missing");
+    expect(refusal(() => keep(root, {}, { ...DEFAULT_MEDIA_POLICY }))).toBe("copy-untracked");
+    expect(refusal(() => keep(root, { fingerprint: "000000000000" }))).toBe("stale-fingerprint");
+    expect(existsSync(join(root, "context/hygiene"))).toBe(false);
   });
 });
 

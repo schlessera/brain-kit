@@ -135,12 +135,31 @@ describe("offline sync and review agree", () => {
     expect(at(".brain/scratch/2026-07-12/ithaca-harbour.png").sources.map((s) => s.name)).toEqual(["scratch-media"]);
     expect((await json(root, "hygiene", "dismiss", at("photos/achilles-shield.jpg").id, "--expect-fingerprint", at("photos/achilles-shield.jpg").fingerprint)).code).toBe(0);
 
-    // A kept original, and one whose record cannot be checked.
+    // A kept original, recorded the way Keep a permanent copy will (#2781): only for a valid copy with the verified bytes.
     const loom = at("photos/penelope-loom.png"), argus = at("photos/argus-waiting.jpg");
+    const copySha = new Bun.CryptoHasher("sha256").update("loom bytes").digest("hex");
+    const keep = (sha: string) => json(root, "hygiene", "keep-copy", loom.id, "--expect-fingerprint", loom.fingerprint,
+      "--copy", "places/ithaca/penelope-loom.png", "--copy-sha256", sha, "--journal", "7c1e");
+    const changed = await keep("0".repeat(64));
+    expect(changed.code).toBe(1);
+    expect(changed.body).toMatchObject({ status: "refused", reason: "copy-changed", id: loom.id });
+    expect(existsSync(join(root, LOG, "kept.md"))).toBe(false);
+    const recorded = await keep(copySha);
+    expect(recorded.code).toBe(0);
+    expect(recorded.body).toMatchObject({ status: "kept", id: loom.id, fingerprint: loom.fingerprint, until: null, reason: null,
+      changedFiles: expect.arrayContaining([`${LOG}/kept.md`]), copy: "places/ithaca/penelope-loom.png", copySha256: copySha, journal: "7c1e" });
+    expect(Object.keys(recorded.body)).toEqual(["status", "id", "fingerprint", "until", "reason", "changedFiles", "copy", "copySha256", "journal"]);
+    const keptText = readFileSync(join(root, LOG, "kept.md"), "utf8");
+    expect(keptText).toContain(`### ${loom.id}\n`);
+    expect(keptText).toContain(`- copy: \`places/ithaca/penelope-loom.png\`\n- copy-sha256: ${copySha}\n- journal: 7c1e\n- disposition-fingerprint: ${loom.fingerprint} (`);
+    const keptEntry = ((await json(root, "hygiene", "list", "--state", "kept")).body.entries as Array<Record<string, unknown>>)[0]!;
+    expect(keptEntry).toMatchObject({ id: loom.id, state: "kept", copy: "places/ithaca/penelope-loom.png", copySha256: copySha,
+      disposition: { kind: "kept", fingerprint: loom.fingerprint } });
     const fingerprintLine = (id: string) => readFileSync(join(root, LOG, "open.md"), "utf8").split(`### ${id}`)[1]!.split("\n").find((l) => l.startsWith("- **Fingerprint**:"))!.replace("- **Fingerprint**: ", "");
     const kept = (id: string, path: string, copy: boolean) => [`### ${id}`, `- **Files**: \`${path}\``, `- **Fingerprint**: ${fingerprintLine(id)}`, "- kept-on: 2026-07-12",
       ...(copy ? ["- copy: `places/ithaca/penelope-loom.png`"] : []), `- copy-sha256: ${"3e91a0c4".repeat(8)}`, `- disposition-fingerprint: ${fingerprintLine(id)}`].join("\n");
-    write(root, `${LOG}/kept.md`, `---\ntype: context\ntitle: "Hygiene — Kept Media"\ncreated: 2026-07-12\nupdated: 2026-07-12\n---\n\n## Kept as a permanent copy\n\n${kept(loom.id, loom.path, true)}\n\n${kept(argus.id, argus.path, false)}\n`);
+    // And one whose record cannot be checked, moved in by hand.
+    write(root, `${LOG}/kept.md`, `${readFileSync(join(root, LOG, "kept.md"), "utf8").trimEnd()}\n\n${kept(argus.id, argus.path, false)}\n`);
 
     // Sync reads first, without reconciling; review reconciles and reads.
     const synced = await syncJson(root);
