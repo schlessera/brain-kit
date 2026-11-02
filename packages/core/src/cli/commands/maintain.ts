@@ -7,7 +7,8 @@ import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
 import { collectAndRecordStats, describeRecord } from "./stats.js";
 import type { StatsTrends } from "../../lib/stats-trends.js";
-import { GitUnavailableError, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
+import { GitNoSpaceError, GitUnavailableError, gitPackingHeadroom, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
+import { workerOutputAllowance } from "../../config/env.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
 
@@ -34,6 +35,20 @@ container entrypoint).
 The hosting container runs this daily. A brain with no chat server has no
 other periodic pass over the scratch area, so schedule this command (cron) or
 scratch is pruned only when something writes into it.`;
+
+/**
+ * The git step's out-of-space refusal. A hosted maintenance worker packs into
+ * a private output stage whose size its launcher declares (#3357); without
+ * that declaration the limit is the filesystem holding `.git`.
+ */
+function describeNoSpace(gitMessage: string, available: number | null): string {
+  const headroom = available === null ? "available space unknown when the step started" : `${available} bytes available when the step started`;
+  const allowance = workerOutputAllowance();
+  const where = allowance
+    ? `in the maintenance worker's output stage (allowance ${allowance.bytes} bytes, set by ${allowance.setting}; ${headroom})`
+    : `on the filesystem holding .git (${headroom})`;
+  return `FAILED — no space: git packing ran out of space ${where}. git: ${gitMessage}`;
+}
 
 export const maintainCommand: CoreCommand = {
   summary: "Run routine maintenance: registry tables, incremental index, vector compaction, audit snapshot, stats history, tag report, git packing, scratch prune",
@@ -160,8 +175,17 @@ export const maintainCommand: CoreCommand = {
         if (!isGitWorkTree(cli.brain.root)) {
           report.push({ step: "git", result: "skipped — not a git repository" });
         } else {
-          const { packed } = packRepository(cli.brain.root);
-          report.push({ step: "git", result: `ok — packed ${packed} loose object(s)` });
+          // Measured before packing, the same way `brain storage pack` does,
+          // so an out-of-space failure can say what it started with.
+          let available: number | null = null;
+          try { available = gitPackingHeadroom(cli.brain.root).availableBytes; } catch { /* Unknown is not zero. */ }
+          try {
+            const { packed } = packRepository(cli.brain.root);
+            report.push({ step: "git", result: `ok — packed ${packed} loose object(s)` });
+          } catch (e) {
+            if (!(e instanceof GitNoSpaceError)) throw e;
+            report.push({ step: "git", result: describeNoSpace(e.message, available) });
+          }
         }
       } catch (e) {
         const message = (e as Error).message;

@@ -111,6 +111,57 @@ test.skipIf(process.getuid?.() === 0)("a git failure is a FAILED step with git's
   }
 });
 
+// A git whose maintenance write runs out of space (#3357). The wrapper runs
+// every other git command for real; only `maintenance run` fails, with git's own
+// out-of-space wording, after a warning line so the first line is not the one.
+function gitOutOfSpace(root: string): string {
+  const bin = mkdtempSync(join(tmpdir(), "brain-git-enospc-"));
+  temps.push(bin);
+  const real = Bun.which("git")!;
+  writeFileSync(join(bin, "git"), `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = maintenance ]; then
+    echo "warning: packing 2 loose objects" >&2
+    echo "fatal: sha1 file '.git/objects/pack/tmp_pack_Ithaca' write error. Out of diskspace" >&2
+    exit 128
+  fi
+done
+exec '${real}' "$@"
+`, { mode: 0o755 });
+  symlinkSync(process.execPath, join(bin, "bun"));
+  return `${bin}:${keylessEnv(root).PATH}`;
+}
+
+test("an unhosted git step that runs out of space reports the shortfall without a hosted setting", async () => {
+  const root = tempBrain();
+  initRepo(root);
+  writeLooseBlobs(root, 2);
+  const { code, git: step } = await maintain(root, [], { PATH: gitOutOfSpace(root) });
+  expect(step?.result, "MAINTAIN_GIT_NO_SPACE_UNHOSTED").toMatch(
+    /^FAILED — no space: git packing ran out of space on the filesystem holding \.git \(\d+ bytes available when the step started\)\. git: fatal: sha1 file '\.git\/objects\/pack\/tmp_pack_Ithaca' write error\. Out of diskspace$/);
+  expect(step?.result, "MAINTAIN_GIT_NO_SPACE_NO_HOSTED_SETTING").not.toMatch(/BRAIN_UI_|output stage|allowance/);
+  expect(code).toBe(2);
+  expect(looseCount(root)).toBe(2);
+});
+
+test("a launcher-declared output allowance names its size and setting in the out-of-space step", async () => {
+  const root = tempBrain();
+  initRepo(root);
+  const allowance = JSON.stringify({ bytes: 4194304, setting: "ODYSSEUS_STAGE_BYTES" });
+  const { git: step } = await maintain(root, [], { PATH: gitOutOfSpace(root), BRAIN_WORKER_OUTPUT_ALLOWANCE: allowance });
+  expect(step?.result, "MAINTAIN_GIT_NO_SPACE_DECLARED_ALLOWANCE").toMatch(
+    /^FAILED — no space: git packing ran out of space in the maintenance worker's output stage \(allowance 4194304 bytes, set by ODYSSEUS_STAGE_BYTES; \d+ bytes available when the step started\)\. /);
+});
+
+test("a malformed output allowance is ignored, never echoed", async () => {
+  const root = tempBrain();
+  initRepo(root);
+  for (const malformed of ["not json", JSON.stringify({ bytes: -1, setting: "ODYSSEUS_STAGE_BYTES" }), JSON.stringify({ bytes: 4096, setting: "rm -rf /" })]) {
+    const { git: step } = await maintain(root, [], { PATH: gitOutOfSpace(root), BRAIN_WORKER_OUTPUT_ALLOWANCE: malformed });
+    expect(step?.result).toStartWith("FAILED — no space: git packing ran out of space on the filesystem holding .git (");
+  }
+});
+
 // Git that runs but refuses the repository (here a broken core.bare; dubious
 // ownership fails the same way) must not read as "not a git repository".
 test("a repository git cannot read is a FAILED step with git's message, not a skip", async () => {
