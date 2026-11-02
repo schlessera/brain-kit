@@ -1045,12 +1045,15 @@ export "./internal" (./src/internal.ts)
   type QuestionObservation
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
+  type RemovalRun
   type ReplayReceipt
   type Reservation
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
   SUBPROCESS_ENV
   type SessionPromptFacts
+  type SessionRetirement
+  type SessionRetirementOptions
   type StateLedger
   TURN_TEMP_BUDGET_ENV
   TURN_TEMP_BYTES_ENV
@@ -1128,9 +1131,11 @@ export "./internal" (./src/internal.ts)
   classifyOutwardCall
   claudeMaskFilename
   claudeReportedMaskPath
+  combineRemovalOutcomes
   compileWorkerCommandPolicy
   createLimitTracker
   createNativeBrainManagerClient
+  createSessionRetirement
   createStateLedger
   createTurnTempPressure
   createTurnTempPromoter
@@ -1164,11 +1169,13 @@ export "./internal" (./src/internal.ts)
   mib
   mountPointsUnder
   nativeFileVersion
+  nativeObservationIdentity
   nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan
   outputStagingLimit
   outwardTarget
+  ownedNames
   parseCliProviderOrigins
   parseNativeBrainDelta
   parseWorkerStateBytes
@@ -1198,6 +1205,8 @@ export "./internal" (./src/internal.ts)
   recoveredWorkerFile
   recoveredWorkerFiles
   relayedProviderKeys
+  removeMetadataFile
+  removeOwnedArtifact
   requestPolicyPermission
   requireWorkerHost
   requireWorkerHostAsync
@@ -1213,7 +1222,9 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorker
   runMaintenanceWorkerSync
   sessionPromptContext
+  sessionPromptContextLocation
   sessionReplay
+  sessionReplayLocation
   startEgressProxy
   startInferenceRelay
   startProviderRelay
@@ -2313,6 +2324,9 @@ export "./server" (./src/server/index.ts)
   type ServerUsage
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionHistoryRemovalOutcome
+  type SessionHistoryRemovalRequest
+  type SessionHistoryRemovalResult
   type SessionRecovery
   type SessionRecoveryLatest
   type SessionRecoveryPending
@@ -3474,6 +3488,7 @@ signatures (every public export and the types it is made of)
         }[];
         listSessions(): Promise<ChatSession[]>;
         getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
+        removeSessionHistory?(req: SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>;
     }
   AgentPolicyRead (packages/ui-sdk/src/protocol.ts)
     export interface AgentPolicyRead {
@@ -5230,6 +5245,7 @@ signatures (every public export and the types it is made of)
         costReporting: boolean;
         concurrentSessions: boolean;
         followUp: boolean;
+        historyRemoval?: boolean;
     }
   BackendContractHarness (packages/ui-sdk/src/testing/index.ts)
     export interface BackendContractHarness {
@@ -9925,6 +9941,18 @@ signatures (every public export and the types it is made of)
         retryOfTurnId?: string;
         turnId?: string;
         journal?: import("./turn-journal.js").TurnJournalSummary;
+    }
+  SessionHistoryRemovalOutcome (packages/ui-sdk/src/server/backend.ts)
+    export type SessionHistoryRemovalOutcome = "removed" | "partial" | "unknown";
+  SessionHistoryRemovalRequest (packages/ui-sdk/src/server/backend.ts)
+    export interface SessionHistoryRemovalRequest {
+        operationId: string;
+        sessionId: string;
+        signal?: AbortSignal;
+    }
+  SessionHistoryRemovalResult (packages/ui-sdk/src/server/backend.ts)
+    export interface SessionHistoryRemovalResult {
+        outcome: SessionHistoryRemovalOutcome;
     }
   SessionRecovery (packages/ui-sdk/src/protocol.ts)
     export interface SessionRecovery {
