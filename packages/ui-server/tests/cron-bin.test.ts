@@ -342,3 +342,46 @@ test("crontab without native qualification emits core jobs and explicitly report
   expect(existsSync(sentinel), "NATIVE_CRON_FALLBACK_NEVER_HOST_EVALUATES_BRAIN").toBe(false);
   expect(existsSync(state)).toBe(false);
 });
+
+test("crontab records a skipped module cron on an existing UI database, naming the cause", async () => {
+  const brain = join(directory, "skipped-record-brain"), state = join(directory, "skipped-record-ui.sqlite"); mkdirSync(brain);
+  createUiDb(state).close();
+  const proc = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", BIN, "crontab", "--wrapper-command", "/absolute/brain-ui-cron run"], { env: { PATH: process.env.PATH, BRAIN_PATH: brain, DB_PATH: state }, stdout: "pipe", stderr: "pipe" });
+  const [code, output, errors] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  expect(code, errors).toBe(0);
+  expect(output).toContain("# (brain module list unavailable — module cron skipped)");
+  expect(errors).toContain("module cron skipped after 1 attempt). BRAIN_UI_NATIVE_BRAIN_SOCKET is not configured");
+  const db = createUiDb(state);
+  try {
+    const row = db.query("SELECT status, error_message FROM cron_runs WHERE job_name = 'modules'").get() as { status: string; error_message: string } | null;
+    expect(row?.status, "CRON_BIN_RECORDS_SKIPPED_MODULE_CRON").toBe("error");
+    expect(row?.error_message).toStartWith("module cron skipped: BRAIN_UI_NATIVE_BRAIN_SOCKET is not configured");
+  } finally { db.close(); }
+});
+
+test("qualified native module discovery that fails once is retried and emits its job", async () => {
+  const brain = join(directory, "retry-module-brain"), bin = join(brain, "node_modules/.bin/brain"), settling = join(brain, "settling");
+  mkdirSync(dirname(bin), { recursive: true });
+  const modules = { enabled: [{ name: "odysseus", key: "odysseus", description: null, types: [], commands: [], cron: [{ name: "beacon-run", schedule: "15 5 * * *", command: "odysseus beacon run" }] }], available: [] };
+  // Discovery fails while the brain holds `settling`, which this test removes
+  // once the first failed attempt is reported; each attempt takes a fresh view.
+  writeFileSync(settling, "");
+  writeFileSync(bin, "#!/bin/sh\n" +
+    "if [ -e settling ] || [ -e \"${BRAIN_WORKER_CONFIG_ROOT:-.}/settling\" ]; then echo 'native readiness still settling' >&2; exit 1; fi\n" +
+    `printf '%s\\n' '${JSON.stringify(modules)}'\n`, { mode: 0o755 });
+  const proc = nativeProcess(brain, ["crontab", "--wrapper-command", "/absolute/brain-ui-cron run"], { PATH: process.env.PATH, DB_PATH: dbPath });
+  const decoder = new TextDecoder();
+  const stderrText = (async () => {
+    let errors = "";
+    for await (const chunk of proc.stderr) {
+      errors += decoder.decode(chunk, { stream: true });
+      if (existsSync(settling) && errors.includes("module discovery attempt 1 of 3 failed")) rmSync(settling);
+    }
+    return errors + decoder.decode();
+  })();
+  const [code, output, errors] = await Promise.all([proc.exited, new Response(proc.stdout).text(), stderrText]);
+  expect(code, errors).toBe(0);
+  expect(errors).toContain("module discovery attempt 1 of 3 failed; retrying in 5s. brain module list exited 1; stderr: native readiness still settling");
+  expect(output, "NATIVE_CRON_DISCOVERY_RETRY_EMITS_JOB").toContain("run odysseus-beacon-run -- brain odysseus beacon run");
+  expect(output).not.toContain("module cron skipped");
+});

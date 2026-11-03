@@ -21,6 +21,7 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend";
+import * as routeInputs from "../../ui-backend-claude/src/native-route-inputs";
 import { createPiBackend } from "../../ui-backend-pi/src/backend";
 import { savePiSession } from "../../ui-backend-pi/src/session-storage";
 import { sendPipe } from "../../ui-backend-pi/src/worker-protocol";
@@ -48,7 +49,8 @@ function base(prefix: string) {
   const root = mkdtempSync(join(tmpdir(), prefix)), brain = join(root, "brain");
   for (const dir of ["context/policies", "me", ".git", ".brain-index"]) mkdirSync(join(brain, dir), { recursive: true });
   writeFileSync(join(brain, "me/identity.md"), `# Odysseus\n${TRANSCRIPT_SENTINEL}\n`);
-  writePolicy(brain, ["me"]);
+  // Each turn's relay proves anthropic as its recipient (#3314); the rule denies it `me/`.
+  writePolicy(brain, ["me"], ["openai"]);
   const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
@@ -114,6 +116,10 @@ test("claude: real admission and worker state copy refuse pre-policy history, co
     return Object.assign(stream, { initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }) });
   }) as unknown as typeof query;
   const backend = createClaudeBackend({ brainPath: b.brain, queryFn, workerState: { allowanceBytes: 4 * MiB, budgetBytes: 4 * MiB } });
+  // Every strict turn runs on the relay (#3314), whose route inputs attest a
+  // manager-acquired view. The copied fixture view has none; its root stands in.
+  const retainRoute = routeInputs.retainNativeRouteInputs;
+  const route = spyOn(routeInputs, "retainNativeRouteInputs").mockImplementation(source => retainRoute(typeof source === "string" ? source : source.root));
   const h = hosted(b, backend);
   const report = (id: string) => JSON.parse(readFileSync(transcript(id), "utf8").trim().split("\n").at(-1)!);
   try {
@@ -140,18 +146,20 @@ test("claude: real admission and worker state copy refuse pre-policy history, co
     await Promise.all(exits);
     expect(report(PRE_POLICY), "CLAUDE_UNMASKED_RESUMES_WITH_HISTORY_AND_MEMORY").toEqual({ prior: sha(savedPrePolicy), memory: "present", sentinel: "found" });
     expect(readFileSync(join(config, project, "memory/MEMORY.md")).equals(savedMemory), "CLAUDE_SAVED_MEMORY_BYTE_IDENTICAL").toBe(true);
-  } finally { h.host.close(); b.db.close(); rmSync(b.root, { recursive: true, force: true }); }
+  } finally { route.mockRestore(); h.host.close(); b.db.close(); rmSync(b.root, { recursive: true, force: true }); }
 });
 
 test("pi: real admission and session open refuse pre-policy entries and continue born-masked entries exactly", async () => {
   const b = base("odysseus-pi-continuation-");
   const sessionDir = join(b.root, "pi-sessions"), agentDir = join(b.root, "pi-agent");
   mkdirSync(sessionDir); mkdirSync(agentDir);
+  // The host keeps pi's credential for the relay every strict turn runs on (#3314).
+  writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-ithaca-fixture" } }), { mode: 0o600 });
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
   const entry = (id: string, role: "user" | "assistant", text: string, parentId: string | null) => ({ type: "message", id, parentId, timestamp: "2026-07-12T00:00:00.000Z",
     message: role === "user" ? { role, content: text, timestamp: 0 }
-      : { role, content: [{ type: "text", text }], model: "odysseus-1", provider: "anthropic", stopReason: "stop", timestamp: 1,
+      : { role, content: [{ type: "text", text }], model: "claude-sonnet-4-5", provider: "anthropic", stopReason: "stop", timestamp: 1,
         usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } });
   const header = (id: string) => ({ type: "session", version: 3, id, cwd: b.brain, timestamp: "2026-07-12T00:00:00.000Z" });
   savePiSession(sessionDir, PRE_POLICY, [header(PRE_POLICY) as never, entry("u0", "user", "Read me/identity.md", null) as never,

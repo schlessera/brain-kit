@@ -1,4 +1,4 @@
-/** Runtime regression for the handoff clock, with the real populated card. */
+/** Runtime regression for the handoff clock, with the real populated card (#1179, #3417). */
 import { expect, test, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -25,12 +25,21 @@ async function withCard(theme: string, run: (host: HTMLElement) => Promise<void>
   }
 }
 
-const drive = (host: HTMLElement, beforeLand = 0) => playHandoff({
+/** Block the main thread, as a loaded runner does, without touching the component. */
+function stallAfter(delay: number, ms: number) {
+  setTimeout(() => {
+    const start = performance.now();
+    while (performance.now() - start < ms) { /* a long task */ }
+  }, delay);
+}
+
+const drive = (host: HTMLElement, beforeLand = 0, stall?: { at: number; ms: number }) => playHandoff({
   canvasElement: host,
   canvas: {findByRole: async (_role, {name}) => [...host.querySelectorAll("button")].find(b => b.textContent === name)!},
   userEvent: {click: async element => {
     if (element.textContent === "Land" && beforeLand) await new Promise(resolve => setTimeout(resolve, beforeLand));
     (element as HTMLElement).click();
+    if (element.textContent === "Land" && stall) stallAfter(stall.at, stall.ms);
     await new Promise(resolve => setTimeout(resolve, 0));
   }},
 });
@@ -44,7 +53,16 @@ for (const theme of ["dark", "light"]) {
     });
   });
 
-  test(`${theme}: an 800ms handoff at only 720px still fails the 700ms cap`, async () => {
+  // #3417: a long task spanning the fade's end delays the removal timers, the
+  // fades' own ends and every frame alike; it is not component handoff time.
+  test(`${theme}: a main-thread stall across the fade's end is outside the handoff budget`, async () => {
+    await withCard(theme, async host => {
+      await drive(host, 0, { at: 590, ms: 150 });
+      expect(host.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
+    });
+  });
+
+  test(`${theme}: a handoff held 200ms past its fade at only 720px still fails`, async () => {
     await withCard(theme, async host => {
       const nativeTimeout = globalThis.setTimeout;
       let handoffTimers = 0;
@@ -55,7 +73,7 @@ for (const theme of ["dark", "light"]) {
         return Reflect.apply(nativeTimeout, globalThis, args);
       }) as typeof nativeTimeout);
       try {
-        await expect(drive(host)).rejects.toThrow(/less than 700/);
+        await expect(drive(host)).rejects.toThrow(/720px: frames rendered with the ghost after its fade ended/);
         expect(handoffTimers).toBe(2);
       } finally {
         timer.mockRestore();

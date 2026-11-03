@@ -1,7 +1,7 @@
 import { groupCallouts, undrawnCalloutExplanation } from "./callouts.js";
 import { AXIS_TYPES } from "./spec.js";
 import { createElement, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Button } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, color } from "@schlessera/brain-ui-kit";
 import type { ContentRendererPack, ContentRendererProps } from "@schlessera/brain-ui-sdk/client";
 import { StaticDiagramShareMenu, ZoomViewer, useWikiLinkNavigation } from "@schlessera/brain-ui-react/content-figures";
 import { diagramSvgModel, parseDiagram, type DiagramSvgModel, type SvgPrimitive } from "./svg-model.js";
@@ -28,30 +28,46 @@ function Drawing({model,theme,id,interactive=true}: {model:DiagramSvgModel;theme
   {model.elements.map(render)}
  </svg>;
 }
-/** Render at native units; never shrink text below the approved 9px floor. */
+/** Frame chrome that only CSS can express: print strips the frame back to the
+ * unframed paper figure, and the frame replaces the drawing's own screen edge.
+ * The drawing stays a direct child, at native width, so a 320px column still
+ * fits the authored 320px layout: the edge is an inset outline, not a border. */
+const FRAME_CSS=`[data-diagram-framed]>svg.bk-diagram{margin:0 auto;border-radius:0 0 11px 11px}[data-diagram-framed]>svg.bk-diagram .bk-diagram-screen-frame{display:none}@media print{[data-diagram-framed]{outline:none!important;border-radius:0!important}[data-diagram-framed]>.bk-diagram-head{padding:0!important;border-bottom:none!important}[data-diagram-framed]>[data-diagram-summary],[data-diagram-framed]>[data-diagram-notes]{padding:0!important}}`;
+/** Render at native units; never shrink text below the approved 9px floor.
+ * Chat and file views frame the figure like other content blocks, with the
+ * title and the open/share actions in one header. Share output keeps the
+ * unframed figure it has always embedded. */
 export function DiagramContent({source,theme,mode}:ContentRendererProps) {
  const spec=useMemo(()=>parseDiagram(source),[source]), desktop=useMemo(()=>diagramSvgModel(spec),[spec]);
  const narrow=useMemo(()=>{try{return spec.layouts?.narrow || (AXIS_TYPES as readonly string[]).includes(spec.type)?diagramSvgModel(spec,"narrow"):null;}catch{return null;}},[spec]);
  const host=useRef<HTMLElement>(null), [width,setWidth]=useState(0),[viewer,setViewer]=useState(false),id=useId().replace(/[^a-z0-9-]/gi,"");
  useEffect(()=>{const element=host.current;if(!element)return;const observer=new ResizeObserver(entries=>setWidth(entries[0]!.contentRect.width));observer.observe(element);setWidth(element.getBoundingClientRect().width);return()=>observer.disconnect();},[]);
  const model=width>=desktop.tree.viewBox.width ? desktop : narrow&&width>=narrow.tree.viewBox.width?narrow:null;
- const renderModel=mode==="share"?desktop:model;
- return <figure ref={host} className="bk-diagram" data-theme={theme} data-content-renderer="diagram" data-renderer-mode={mode} style={{margin:"12px 0",maxWidth:"100%",minWidth:0,color:"var(--bk-diagram-text)",fontFamily:'"Plus Jakarta Sans",system-ui,sans-serif'}}>
+ const renderModel=mode==="share"?desktop:model, framed=mode!=="share", inset=framed?"0 12px":undefined;
+ const share=<StaticDiagramShareMenu svg={()=>toStatic(source,{theme:"print"})}/>;
+ return <figure ref={host} className="bk-diagram" data-theme={theme} data-content-renderer="diagram" data-renderer-mode={mode} data-diagram-framed={framed?"":undefined} aria-labelledby={framed?`${id}-caption`:undefined} style={{margin:"12px 0",maxWidth:"100%",minWidth:0,color:"var(--bk-diagram-text)",fontFamily:'"Plus Jakarta Sans",system-ui,sans-serif',...framed?{boxSizing:"border-box",borderRadius:12,outline:`1px solid ${color.edge}`,outlineOffset:-1,paddingBottom:renderModel?0:12}:{}}}>
   <style data-content-renderer-tokens="">{DIAGRAM_TOKEN_CSS}</style>
-  <figcaption style={{fontFamily:'"DM Serif Text",Georgia,serif',fontSize:18}}>{spec.title}</figcaption>
-  {renderModel ? <Drawing model={renderModel} theme={theme} id={id}/> : <><p data-diagram-summary="">{spec.desc}</p>{spec.callouts?.length?<div data-diagram-notes="">{groupCallouts(spec).map(group=>{
+  {framed ? <figcaption className="bk-diagram-head" style={{display:"flex",alignItems:"center",gap:8,minWidth:0,padding:"4px 6px 4px 12px",borderBottom:`1px solid ${color.line}`}}>
+   <span id={`${id}-caption`} data-diagram-title="" style={{flex:"1 1 auto",minWidth:0,fontFamily:'"DM Serif Text",Georgia,serif',fontSize:18,overflowWrap:"anywhere"}}>{spec.title}</span>
+   <span className="bk-diagram-controls" style={{flex:"none",marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>
+    <IconButton size="sm" icon="enlarge" name="Open diagram" onClick={()=>setViewer(true)}/>
+    {share}
+   </span>
+  </figcaption> : <figcaption style={{fontFamily:'"DM Serif Text",Georgia,serif',fontSize:18}}>{spec.title}</figcaption>}
+  {renderModel ? <Drawing model={renderModel} theme={theme} id={id}/> : <><p data-diagram-summary="" style={{padding:inset}}>{spec.desc}</p>{spec.callouts?.length?<div data-diagram-notes="" style={{padding:inset}}>{groupCallouts(spec).map(group=>{
    const planned=desktop.elements.flatMap(item=>item.attrs["data-diagram-notes-band"]!==undefined?item.children??[]:[]).find(item=>item.attrs["data-diagram-callout-group"]===group.target);
    return <section key={group.target} data-target={group.target}><h3 style={{fontFamily:'"JetBrains Mono",monospace',fontSize:9.5,fontWeight:600,color:"var(--bk-diagram-text)"}}>{group.name} · {group.indices.length} {group.indices.length===1?"NOTE":"NOTES"}</h3>
     {planned?.attrs["data-target-drawn"]==="false"?<p style={{fontSize:14}}>{undrawnCalloutExplanation(spec,group.target)}</p>:null}
     <ol style={{margin:0,padding:0,listStyle:"none"}}>{group.indices.map(index=><li key={index} value={index+1} data-diagram-callout={index} style={{display:"grid",gridTemplateColumns:`${Math.max(24,typeWidthBudget(String(spec.callouts!.length),"label"))}px minmax(0,1fr)`,columnGap:8,fontSize:14,fontWeight:500}}><span data-callout-index="" style={{fontFamily:'"JetBrains Mono",monospace',fontSize:9.5,fontWeight:600,textAlign:"right",color:"var(--bk-color-ink-mute)"}}>{index+1}</span><span data-callout-text="" style={{minWidth:0,overflowWrap:"anywhere"}}>{spec.callouts![index]!.text}</span></li>)}</ol>
    </section>;
   })}</div>:null}</>}
-  <div className="bk-diagram-controls" style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+  {framed ? null : <div className="bk-diagram-controls" style={{display:"flex",gap:8,flexWrap:"wrap"}}>
    <Button label="Open diagram" block={false} onClick={()=>setViewer(true)} style={{minHeight:44,minWidth:44}}/>
-   <StaticDiagramShareMenu svg={()=>toStatic(source,{theme:"print"})}/>
-  </div>
+   {share}
+  </div>}
   <div className="bk-diagram-print" style={{display:"none"}}><Drawing model={desktop} theme="print" id={`${id}-print`} interactive={false}/></div>
   <style>{`@media print{[data-content-renderer="diagram"]>.bk-diagram,[data-content-renderer="diagram"]>[data-diagram-summary],[data-content-renderer="diagram"]>[data-diagram-notes],.bk-diagram-controls{display:none!important}.bk-diagram-print{display:block!important}}`}</style>
+  {framed ? <style>{FRAME_CSS}</style> : null}
   {viewer&&<ZoomViewer label="Diagram viewer" onClose={()=>setViewer(false)} minScale={1} maxFitScale={1} actions={<StaticDiagramShareMenu svg={()=>toStatic(source,{theme:"print"})}/>}><Drawing model={narrow??desktop} theme={theme} id={`${id}-viewer`}/></ZoomViewer>}
  </figure>;
 }

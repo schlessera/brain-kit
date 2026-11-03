@@ -247,6 +247,13 @@ export interface RunningTurn {
   handingOver?: QueuedFollowUp;
   cancelled: boolean;
   /**
+   * The turn the host's hard elapsed-time limit ended (#3356). Set by the
+   * timeout itself, never inferred from an aborted signal, so a cancel or a
+   * journal/egress abort is never reported as a timeout. Keyed by turn id
+   * because a queued follow-up reuses this slot.
+   */
+  timedOutTurnId?: string;
+  /**
    * Terminal disposition of the CURRENT turn's `result` frame, when one has
    * streamed. Backends RESOLVE startTurn for runtime failures (the failure
    * rides the result frame as outcome "error"), so completion accounting must

@@ -16,7 +16,7 @@
 
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync } from "fs";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
@@ -29,6 +29,9 @@ import { editFrontmatter } from "./frontmatter-edit.js";
 import { generatedRegionSpan } from "./generated-regions.js";
 import { planRegistry, REGISTRY_REGION } from "./index-registry.js";
 import { createWikiLinkResolver, extractWikiLinks, wikiLinkTokens } from "./indexer/links.js";
+import { DEFAULT_MEDIA_POLICY, mediaPolicy, mediaPolicyClass, type MediaPolicy } from "./media.js";
+import { buildMediaInventory, countedMedia, mediaCandidates, type MediaInventory } from "./media-inventory.js";
+import type { BrainConfig } from "./config.js";
 import type { LoadedModule } from "./module-types.js";
 import { writeFileSafely } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -38,7 +41,11 @@ import { validateDetailed, type DetailedValidationIssue, type ValidationDetail, 
 export const HYGIENE_DIR = "context/hygiene";
 const TEMPLATES_DIR = resolve(import.meta.dir, "../../skills/content-hygiene/templates");
 
-export type HygieneState = "open" | "snoozed" | "dismissed" | "resolved";
+/**
+ * `kept` (#2780, K1 A) is a media original whose permanent copy was made:
+ * held in `kept.md`, valid only while its copy is still there and tracked.
+ */
+export type HygieneState = "open" | "snoozed" | "dismissed" | "resolved" | "kept";
 
 export type HygieneSeverity = "error" | "warning" | "info";
 
@@ -105,10 +112,10 @@ export interface HygieneEntry {
   section: string | null;
 }
 
-/** A dismissed or snoozed finding that returned because its evidence changed. */
+/** A dismissed, snoozed or kept finding that returned because its evidence changed. */
 export interface HygieneInvalidation {
   id: string;
-  disposition: "dismissed" | "snoozed";
+  disposition: "dismissed" | "snoozed" | "kept";
   /** The day the disposition was made. */
   dispositionOn: string | null;
   /** The fingerprint fields that changed. */
@@ -145,6 +152,8 @@ export interface ReconcileResult {
   autoFixed: number;
   /** Checks that could not run: a module whose hygiene check threw, or a core check that could not read its input. */
   failedChecks: string[];
+  /** Entries left kept (`kept.md`). Always present, appended after every older key. */
+  kept: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +251,10 @@ export const FINGERPRINT_FIELDS: Record<string, readonly string[]> = {
   // and the last explicit renewal. The host keeps these findings and their
   // dispositions; they never enter the Markdown log.
   "managed-worktree": ["kind", "identity", "base", "owner", "work", "failure", "renewed", "severity", "urgency"],
+  // A file awaiting a media decision (#2780): its bytes, the MEDIA/LARGE
+  // classes, the media.track/ignore entries that match it, the reference
+  // inventory and, for a scratch file, the conversations that pin it.
+  media: ["sha256", "bytes", "classes", "policy", "refs", "pins", "severity", "urgency"],
 };
 const DEFAULT_FINGERPRINT_FIELDS = ["evidence", "rule", "severity", "urgency"] as const;
 
@@ -608,8 +621,10 @@ export function indexTableLag(
 /** What the CLI detected, and which module checks did not run. */
 export interface Detection {
   candidates: HygieneCandidate[];
-  /** Checks that could not run: module names, and core categories (`fact-drift`, `tag-noise`). */
+  /** Checks that could not run: module names, and core categories (`fact-drift`, `tag-noise`, `media`). */
   failedChecks: string[];
+  /** The media inventory the `media` findings came from; null when it could not be built. */
+  media: MediaInventory | null;
 }
 
 /**
@@ -637,7 +652,7 @@ function outsideRegistry(index: AuditDoc, registryIndexes: ReadonlySet<string>):
  */
 export async function detectCandidates(
   db: Database,
-  brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[] },
+  brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[]; config?: BrainConfig | null },
   now: Date
 ): Promise<Detection> {
   const inLog = (path: string) => path.startsWith(`${HYGIENE_DIR}/`);
@@ -674,9 +689,17 @@ export async function detectCandidates(
     failed.add("validation");
   }
   const silent = silentEditCandidates(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
+  // Media awaiting a decision (#2780): the same inventory `brain sync` counts.
+  let media: MediaInventory | null = null;
+  try {
+    media = buildMediaInventory(brain.root, mediaPolicy(brain.config));
+  } catch {
+    failed.add("media");
+  }
   return {
-    candidates: withLinkTokens(brain.root, [...audited, ...silent, ...table, ...validated]),
+    candidates: [...withLinkTokens(brain.root, [...audited, ...silent, ...table, ...validated]), ...(media ? mediaCandidates(media) : [])],
     failedChecks: [...failed].sort(),
+    media,
   };
 }
 
@@ -866,7 +889,7 @@ function withoutFields(lines: string[], keys: string[]): string[] {
 }
 
 /** The lines a disposition writes, and the receipt of one that was invalidated. */
-const DISPOSITION_FIELDS = ["until", "dismissed-on", "snoozed-on", "reason", "disposition-fingerprint", "invalidated"];
+const DISPOSITION_FIELDS = ["until", "dismissed-on", "snoozed-on", "kept-on", "copy", "copy-sha256", "journal", "reason", "disposition-fingerprint", "invalidated"];
 
 /**
  * When a snooze is due, in epoch milliseconds: an ISO date-time is due at that
@@ -945,19 +968,79 @@ function rawField(entry: HygieneEntry, key: string): string | null {
 
 /** The disposition an entry records, read back from its lines. */
 interface RecordedDisposition {
-  kind: "dismissed" | "snoozed";
+  kind: "dismissed" | "snoozed" | "kept";
   /** When it was made, as written. */
   on: string | null;
   fingerprint: { fingerprint: string; fields: Record<string, string> } | null;
 }
 
+const ON_FIELD = { dismissed: "dismissed-on", snoozed: "snoozed-on", kept: "kept-on" } as const;
+
 function recordedDisposition(entry: HygieneEntry): RecordedDisposition | null {
-  if (entry.state !== "dismissed" && entry.state !== "snoozed") return null;
+  if (entry.state !== "dismissed" && entry.state !== "snoozed" && entry.state !== "kept") return null;
   return {
     kind: entry.state,
-    on: field(entry, entry.state === "dismissed" ? "dismissed-on" : "snoozed-on"),
+    on: field(entry, ON_FIELD[entry.state]),
     fingerprint: parseFingerprint(field(entry, "disposition-fingerprint")),
   };
+}
+
+/** A `kept` entry's record of its permanent copy, as written. */
+export interface KeptRecord {
+  copy: string | null;
+  copySha256: string | null;
+  /** The fingerprint the original had when it was kept. */
+  dispositionFingerprint: string | null;
+}
+
+function keptRecord(entry: HygieneEntry): KeptRecord {
+  const sha = field(entry, "copy-sha256");
+  return {
+    copy: field(entry, "copy"),
+    copySha256: sha && /^[0-9a-f]{64}$/.test(sha) ? sha : null,
+    dispositionFingerprint: parseFingerprint(field(entry, "disposition-fingerprint"))?.fingerprint ?? null,
+  };
+}
+
+/** A path that is a contained regular file, reached through real directories only. */
+function containedRegularFile(root: string, path: string): boolean {
+  const parts = path.split("/");
+  if (parts.some((part) => part === "" || part === "." || part === "..") || path.includes("\\")) return false;
+  let at = resolve(root);
+  for (let i = 0; i < parts.length; i++) {
+    at = join(at, parts[i]!);
+    const stat = lstatSync(at, { throwIfNoEntry: false });
+    if (!stat || stat.isSymbolicLink()) return false;
+    if (i < parts.length - 1 ? !stat.isDirectory() : !stat.isFile()) return false;
+  }
+  return true;
+}
+
+/**
+ * Why a `kept` entry no longer holds, or null while it does (rev 5 §5.7,
+ * rev 6 §1). It holds while all of these do, checked at every reconcile and
+ * by every count, CLI and server alike:
+ * - it records its copy, the copy's SHA-256 and the original's fingerprint
+ *   (otherwise `kept-incomplete`: a copy that cannot be checked is never trusted);
+ * - the original's fingerprint is still the recorded one (otherwise the
+ *   fingerprint fields that changed);
+ * - the copy is a contained regular file outside `.brain/` and `workspaces/`
+ *   (otherwise `copy-missing`);
+ * - `media.track` keeps the copy (otherwise `copy-untracked`).
+ *
+ * Editing the copy does not reopen the original: its SHA-256 is not compared.
+ * The original's existence is the finding being detected at all.
+ */
+export function keptInvalidity(root: string, policy: MediaPolicy, kept: KeptRecord, finding: HygieneFinding,
+  recordedFields: Record<string, string> = {}): string[] | null {
+  if (!kept.copy || !kept.copySha256 || !kept.dispositionFingerprint) return ["kept-incomplete"];
+  if (kept.dispositionFingerprint !== finding.fingerprint) {
+    const changed = changedFields(recordedFields, finding.fingerprintFields);
+    return Object.keys(recordedFields).length > 0 && changed.length > 0 ? changed : ["fingerprint"];
+  }
+  if (kept.copy.startsWith(".brain/") || kept.copy.startsWith("workspaces/") || !containedRegularFile(root, kept.copy)) return ["copy-missing"];
+  if (mediaPolicyClass(kept.copy, policy) !== "TRACK") return ["copy-untracked"];
+  return null;
 }
 
 /** `- invalidated: 2026-10-06 · dismissed on 2026-10-02 · changed: target, tokens[ · was <id>]` */
@@ -966,13 +1049,13 @@ function invalidationLine(today: string, inv: HygieneInvalidation): string {
     (inv.previousId ? ` · was ${inv.previousId}` : "");
 }
 
-function parseInvalidation(entry: HygieneEntry): { on: string; disposition: "dismissed" | "snoozed"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null {
+function parseInvalidation(entry: HygieneEntry): { on: string; disposition: "dismissed" | "snoozed" | "kept"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null {
   const value = rawField(entry, "invalidated");
-  const m = value ? /^(\d{4}-\d{2}-\d{2}) · (dismissed|snoozed) on (\S+) · changed: ([a-z, -]+?)(?: · was (\S+))?$/.exec(value) : null;
+  const m = value ? /^(\d{4}-\d{2}-\d{2}) · (dismissed|snoozed|kept) on (\S+) · changed: ([a-z0-9, -]+?)(?: · was (\S+))?$/.exec(value) : null;
   if (!m) return null;
   return {
     on: m[1],
-    disposition: m[2] as "dismissed" | "snoozed",
+    disposition: m[2] as "dismissed" | "snoozed" | "kept",
     dispositionOn: day(m[3]),
     changed: m[4].split(",").map((s) => s.trim()).filter(Boolean),
     previousId: m[5] ?? null,
@@ -996,6 +1079,7 @@ const SECTIONS: Array<[string, string]> = [
   ["required-field", "Required frontmatter fields"],
   ["orphan", "Orphans"],
   ["type-mismatch", "Type/directory mismatches"],
+  ["media", "Media awaiting review"],
 ];
 const SECTION_HEADINGS = new Set(SECTIONS.map(([, heading]) => heading));
 const isOpenSection = (heading: string) => SECTION_HEADINGS.has(heading) || heading.startsWith("Other: ");
@@ -1085,6 +1169,8 @@ function load(root: string, name: string, today: string, timestamp: string): { d
 
 /** resolved.md keeps this many entries, dropping the oldest by `resolved-on`. */
 const RESOLVED_CAP = 200;
+/** kept.md's one section. */
+const KEPT_HEADING = "Kept as a permanent copy";
 
 /** An auto-fix the skill applied, for last-run.md. */
 export interface HygieneFix {
@@ -1106,16 +1192,38 @@ export interface ReconcileOptions {
   /** Dismissals and snoozes to record this run (`brain hygiene dismiss` / `snooze`). */
   dispositions?: HygieneDispositionRequest[];
   /**
+   * Remove the `kept` entry for `id` that Keep a permanent copy recorded
+   * under journal `journal` (#2781, rev 5 §5.7): Undo of the copy, after the
+   * copy and config are restored. The original returns to open without an
+   * invalidation receipt, since nothing about it changed. No such entry
+   * refuses `not-kept` before anything is written.
+   */
+  unkeep?: { id: string; journal: string };
+  /**
+   * The brain's media policy, which decides whether a kept copy is still
+   * tracked (`keptInvalidity`). Callers pass the loaded configuration's.
+   */
+  media?: MediaPolicy;
+  /**
    * Writes one file whose bytes on disk should still be `expected` (null:
    * absent); the default is `replaceIfUnchanged`. Tests inject failures here.
    */
   write?: (path: string, text: string, expected: string | null) => void;
 }
 
-/** Dismiss or snooze one detected finding, if its fingerprint is still `expectFingerprint`. */
+/**
+ * Dismiss, snooze or keep one detected finding, if its fingerprint is still
+ * `expectFingerprint`. `kept` (#2780) records a media original whose
+ * permanent copy Keep a permanent copy has made and verified: the copy must
+ * already be valid (`keptInvalidity`) and hold `copySha256`.
+ */
 export type HygieneDispositionRequest =
   | { kind: "dismissed"; id: string; expectFingerprint: string; reason?: string }
-  | { kind: "snoozed"; id: string; expectFingerprint: string; until: string; reason?: string };
+  | { kind: "snoozed"; id: string; expectFingerprint: string; until: string; reason?: string }
+  | { kind: "kept"; id: string; expectFingerprint: string; copy: string; copySha256: string; journal: string; reason?: string };
+
+/** Why a disposition was refused. The `copy-…` and `not-media` reasons are a `kept` request's. */
+export type HygieneRefusalReason = "not-detected" | "stale-fingerprint" | "not-media" | "copy-missing" | "copy-untracked" | "copy-changed" | "not-kept";
 
 /**
  * A disposition reconcile would not record: the finding is not detected now,
@@ -1124,7 +1232,7 @@ export type HygieneDispositionRequest =
  */
 export class HygieneRefusal extends Error {
   constructor(
-    readonly reason: "not-detected" | "stale-fingerprint",
+    readonly reason: HygieneRefusalReason,
     readonly id: string,
     readonly expectedFingerprint: string,
     readonly currentFingerprint: string | null
@@ -1132,8 +1240,32 @@ export class HygieneRefusal extends Error {
     super(
       reason === "not-detected"
         ? `${id} is not detected now; nothing was written`
-        : `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
+        : reason === "not-kept"
+          ? `${id} has no kept entry recorded by journal ${expectedFingerprint}; nothing was written`
+        : reason === "stale-fingerprint"
+          ? `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
+          : reason === "not-media"
+            ? `${id} is not a media finding; only media can be kept as a copy; nothing was written`
+            : `${id}: the permanent copy is ${reason === "copy-missing" ? "missing or not a contained regular file outside .brain/ and workspaces/" : reason === "copy-untracked" ? "not kept by media.track" : "not the bytes it was copied as"}; nothing was written`
     );
+  }
+}
+
+/** Hex SHA-256 of a regular file, read without following a final link; null when unreadable. */
+function fileSha256(path: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return null;
+    const hash = createHash("sha256");
+    const buffer = Buffer.alloc(1024 * 1024);
+    let read: number;
+    while ((read = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, read));
+    return hash.digest("hex");
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
   }
 }
 
@@ -1221,6 +1353,7 @@ export function reconcile(
   // One canonical finding per ID, whatever order the sources came in.
   const detected = canonicalFindings([...candidates, ...(opts.extra ?? [])]);
 
+  const policy = opts.media ?? DEFAULT_MEDIA_POLICY;
   // A disposition applies to the evidence its caller saw, or not at all.
   const requested = new Map<string, HygieneDispositionRequest>();
   for (const request of opts.dispositions ?? []) {
@@ -1228,6 +1361,14 @@ export function reconcile(
     if (!finding) throw new HygieneRefusal("not-detected", request.id, request.expectFingerprint, null);
     if (finding.fingerprint !== request.expectFingerprint) {
       throw new HygieneRefusal("stale-fingerprint", request.id, request.expectFingerprint, finding.fingerprint);
+    }
+    if (request.kind === "kept") {
+      // Only a copy that would hold at once is recorded: a kept entry is never written invalid.
+      const refuse = (reason: HygieneRefusalReason) => new HygieneRefusal(reason, request.id, request.expectFingerprint, finding.fingerprint);
+      if (finding.category !== "media") throw refuse("not-media");
+      const why = keptInvalidity(root, policy, { copy: request.copy, copySha256: request.copySha256, dispositionFingerprint: finding.fingerprint }, finding);
+      if (why) throw refuse(why[0] === "copy-untracked" ? "copy-untracked" : "copy-missing");
+      if (fileSha256(resolve(root, request.copy)) !== request.copySha256) throw refuse("copy-changed");
     }
     requested.set(request.id, request);
   }
@@ -1238,6 +1379,7 @@ export function reconcile(
     snoozed: load(root, "snoozed.md", today, timestamp),
     dismissed: load(root, "dismissed.md", today, timestamp),
     resolved: load(root, "resolved.md", today, timestamp),
+    kept: load(root, "kept.md", today, timestamp),
     index: load(root, "_index.md", today, timestamp),
     lastRun: load(root, "last-run.md", today, timestamp),
   };
@@ -1246,21 +1388,31 @@ export function reconcile(
     snoozed: parseLogFile(loaded.snoozed.text, rel("snoozed.md"), "snoozed", (h) => h === "Snoozed"),
     dismissed: parseLogFile(loaded.dismissed.text, rel("dismissed.md"), "dismissed", (h) => h === "Dismissed"),
     resolved: parseLogFile(loaded.resolved.text, rel("resolved.md"), "resolved", (h) => h === "Resolved"),
+    kept: parseLogFile(loaded.kept.text, rel("kept.md"), "kept", (h) => h === KEPT_HEADING),
   };
+  // kept.md is written only when it would hold an entry or already exists,
+  // so a brain that never kept a copy keeps every hygiene file byte for byte.
+  const keptOnDisk = loaded.kept.disk !== null;
   const index = parseLogFile(loaded.index.text, rel("_index.md"), null, (h) => h === "Latest counts");
   const lastRun = parseLogFile(loaded.lastRun.text, rel("last-run.md"), null, (h) => h.startsWith("Last run:") || h === "Auto-fixes applied this run");
 
   // One state per ID. A person's move wins over a copy left behind in open.
   const known = new Map<string, HygieneEntry>();
-  for (const state of ["snoozed", "dismissed", "resolved", "open"] as const) {
+  for (const state of ["snoozed", "dismissed", "kept", "resolved", "open"] as const) {
     for (const entry of parsed[state].entries) if (!known.has(entry.id)) known.set(entry.id, entry);
+  }
+  // Unkeep removes exactly the kept entry its journal recorded, or nothing at all.
+  const unkeep = opts.unkeep;
+  if (unkeep) {
+    const entry = known.get(unkeep.id);
+    if (!entry || entry.state !== "kept" || field(entry, "journal") !== unkeep.journal) throw new HygieneRefusal("not-kept", unkeep.id, unkeep.journal, null);
   }
 
   // While any check failed, "not detected" may only mean "not looked for":
   // an entry that was not detected again is left as it is.
   const complete = failedChecks.length === 0;
 
-  const next = { open: [] as HygieneEntry[], snoozed: [] as HygieneEntry[], dismissed: [] as HygieneEntry[], resolved: [] as HygieneEntry[] };
+  const next = { open: [] as HygieneEntry[], snoozed: [] as HygieneEntry[], dismissed: [] as HygieneEntry[], resolved: [] as HygieneEntry[], kept: [] as HygieneEntry[] };
   const categoryOf = new Map<string, string>();
   const counts = { opened: 0, reopened: 0, resolved: 0, stillOpen: 0 };
   const invalidations: HygieneInvalidation[] = [];
@@ -1276,17 +1428,19 @@ export function reconcile(
       section: null,
     };
   };
-  const resolve_ = (entry: HygieneEntry): HygieneEntry => ({
+  const resolve_ = (entry: HygieneEntry, by = "auto-disappeared"): HygieneEntry => ({
     id: entry.id,
     state: "resolved",
-    lines: [...withoutFields(entry.lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]), `- resolved-by: ${opts.resolution?.id === entry.id ? opts.resolution.by : "auto-disappeared"}`, `- resolved-on: ${today}`],
+    lines: [...withoutFields(entry.lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]), `- resolved-by: ${opts.resolution?.id === entry.id ? opts.resolution.by : by}`, `- resolved-on: ${today}`],
     section: null,
   });
   // A requested disposition, with the fingerprint it applies to.
   const disposedFrom = (finding: HygieneFinding, id: string, lines: string[], firstSeen: string, request: HygieneDispositionRequest): HygieneEntry => {
     categoryOf.set(id, finding.category);
     const kept = withoutFields(lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]);
-    const record = request.kind === "dismissed" ? [`- dismissed-on: ${timestamp}`] : [`- until: ${request.until}`, `- snoozed-on: ${timestamp}`];
+    const record = request.kind === "dismissed" ? [`- dismissed-on: ${timestamp}`]
+      : request.kind === "snoozed" ? [`- until: ${request.until}`, `- snoozed-on: ${timestamp}`]
+      : [`- kept-on: ${timestamp}`, `- copy: \`${request.copy}\``, `- copy-sha256: ${request.copySha256}`, `- journal: ${request.journal}`];
     const reason = request.reason?.replace(/\s+/g, " ").trim();
     if (reason) record.push(`- reason: ${reason}`);
     record.push(`- disposition-fingerprint: ${renderFingerprint(finding.fingerprint, finding.fingerprintFields)}`);
@@ -1298,12 +1452,12 @@ export function reconcile(
     };
   };
   // A disposition whose evidence changed: the finding is open again, with a receipt.
-  const invalidate = (finding: HygieneFinding, recorded: RecordedDisposition, lines: string[], firstSeen: string, previousId: string | null) => {
+  const invalidate = (finding: HygieneFinding, recorded: RecordedDisposition, lines: string[], firstSeen: string, previousId: string | null, why?: string[]) => {
     const invalidation: HygieneInvalidation = {
       id: finding.id,
       disposition: recorded.kind,
       dispositionOn: day(recorded.on),
-      changed: recorded.fingerprint ? changedFields(recorded.fingerprint.fields, finding.fingerprintFields) : [],
+      changed: why ?? (recorded.fingerprint ? changedFields(recorded.fingerprint.fields, finding.fingerprintFields) : []),
       previousId,
     };
     invalidations.push(invalidation);
@@ -1316,7 +1470,7 @@ export function reconcile(
   const filesOf = (entry: HygieneEntry) => /\*\*Files\*\*:\s*`([^`]+)`/.exec(entry.lines.join("\n"))?.[1] ?? null;
 
   // Existing entries, in the order their files list them.
-  for (const state of ["open", "snoozed", "dismissed", "resolved"] as const) {
+  for (const state of ["open", "snoozed", "dismissed", "kept", "resolved"] as const) {
     for (const entry of parsed[state].entries) {
       if (known.get(entry.id) !== entry) continue;
       if (opts.resolution && opts.resolution.id !== entry.id) {
@@ -1368,6 +1522,27 @@ export function reconcile(
             next.resolved.push(resolve_(entry));
             counts.resolved++;
           }
+        }
+      } else if (state === "kept") {
+        if (unkeep && unkeep.id === entry.id && field(entry, "journal") === unkeep.journal) {
+          // Undo of the copy: the original is pending again, as it was before Keep a permanent copy.
+          if (finding) {
+            next.open.push(openFrom(finding, entry.id, withoutFields(entry.lines, DISPOSITION_FIELDS), firstSeenOf(entry) ?? today));
+            counts.reopened++;
+          } else {
+            next.resolved.push(resolve_(entry, "original-pruned"));
+            counts.resolved++;
+          }
+        } else if (finding) {
+          const why = keptInvalidity(root, policy, keptRecord(entry), finding, recorded?.fingerprint?.fields ?? {});
+          if (why) invalidate(finding, recorded!, entry.lines, firstSeenOf(entry) ?? today, null, why);
+          else next.kept.push(entry);
+        } else if (!complete) {
+          next.kept.push(entry);
+        } else {
+          // The original was pruned: nothing is pending, and the record stays.
+          next.resolved.push(resolve_(entry, "original-pruned"));
+          counts.resolved++;
         }
       } else if (finding) {
         const prev = field(entry, "resolved-by") ?? "unknown";
@@ -1421,7 +1596,7 @@ export function reconcile(
     const prefix = SECTIONS.map(([c]) => c).filter((c) => entry.id.startsWith(`${c}-`)).sort((a, b) => b.length - a.length)[0];
     return sectionFor(prefix ?? "uncategorised");
   };
-  const listHeading = { snoozed: "Snoozed", dismissed: "Dismissed", resolved: "Resolved" } as const;
+  const listHeading = { snoozed: "Snoozed", dismissed: "Dismissed", resolved: "Resolved", kept: KEPT_HEADING } as const;
   const stateBody = (state: HygieneState, entries: HygieneEntry[]) =>
     state === "open"
       ? renderLogFile(parsed.open, openBlock(parsed.open, entries, headingOf))
@@ -1433,8 +1608,10 @@ export function reconcile(
   };
 
   const stateChanged = counts.opened + counts.reopened + counts.resolved + invalidations.length + requested.size > 0;
+  const writesKept = keptOnDisk || next.kept.length > 0;
   const countsText =
-    `- Open: ${next.open.length}\n- Snoozed: ${next.snoozed.length}\n- Dismissed: ${next.dismissed.length}\n- Resolved: ${next.resolved.length}\n`;
+    `- Open: ${next.open.length}\n- Snoozed: ${next.snoozed.length}\n- Dismissed: ${next.dismissed.length}\n- Resolved: ${next.resolved.length}\n` +
+    (writesKept ? `- Kept: ${next.kept.length}\n` : "");
   const fixLines = fixed.length > 0 ? fixed.map((f) => `- \`${f.path}\`: ${f.fix.replace(/\s+/g, " ").trim()}`).join("\n") : "(none)";
   const lastRunBlock =
     `## Last run: ${timestamp}\n\n` +
@@ -1447,6 +1624,7 @@ export function reconcile(
     "snoozed.md": { from: loaded.snoozed, file: parsed.snoozed },
     "dismissed.md": { from: loaded.dismissed, file: parsed.dismissed },
     "resolved.md": { from: loaded.resolved, file: parsed.resolved },
+    "kept.md": { from: loaded.kept, file: parsed.kept },
     "_index.md": { from: loaded.index, file: index },
     "last-run.md": { from: loaded.lastRun, file: lastRun },
   };
@@ -1461,6 +1639,7 @@ export function reconcile(
     ["snoozed.md", textFor("snoozed.md", stateBody("snoozed", next.snoozed))],
     ["dismissed.md", textFor("dismissed.md", stateBody("dismissed", next.dismissed))],
     ["resolved.md", textFor("resolved.md", stateBody("resolved", next.resolved))],
+    ...(writesKept ? [["kept.md", textFor("kept.md", stateBody("kept", next.kept))] as [Name, string]] : []),
     ["_index.md", textFor("_index.md", renderLogFile(index, `## Latest counts\n\n${countsText}`))],
   ]);
   if (stateChanged || fixed.length > 0 || loaded.lastRun.disk === null) {
@@ -1468,7 +1647,7 @@ export function reconcile(
   }
   const changedFiles = [...final].filter(([name, text]) => sources[name].from.disk !== text).map(([name]) => rel(name));
   // The first pass: each state file with its arrivals added and nothing taken away.
-  const firstPass = (["open", "snoozed", "dismissed", "resolved"] as const).map(
+  const firstPass = (["open", "snoozed", "dismissed", "resolved", ...(writesKept ? ["kept"] as const : [])] as const).map(
     (state) => [`${state}.md`, textFor(`${state}.md`, stateBody(state, withDepartures(state)))] as const
   );
   // Nothing is written that the next run would refuse to read.
@@ -1515,6 +1694,7 @@ export function reconcile(
     })),
     autoFixed: fixed.length,
     failedChecks,
+    kept: next.kept.length,
   };
 }
 
@@ -1538,13 +1718,22 @@ export interface HygieneLogEntry {
   severity: HygieneSeverity | null;
   /** The evidence fingerprint the finding was last detected with. */
   fingerprint: string | null;
-  /** A dismissal or snooze recorded by `brain hygiene dismiss`/`snooze` (or moved by hand: then without a fingerprint). */
-  disposition: { kind: "dismissed" | "snoozed"; on: string | null; reason: string | null; fingerprint: string | null } | null;
-  /** Why a dismissed or snoozed finding is open again before its time. */
-  invalidation: { on: string; disposition: "dismissed" | "snoozed"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null;
+  /** A dismissal, snooze or kept copy recorded by `brain hygiene` (or moved by hand: then without a fingerprint). */
+  disposition: { kind: "dismissed" | "snoozed" | "kept"; on: string | null; reason: string | null; fingerprint: string | null } | null;
+  /** Why a dismissed, snoozed or kept finding is open again before its time. */
+  invalidation: { on: string; disposition: "dismissed" | "snoozed" | "kept"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null;
+  /** A kept entry's permanent copy (repo-relative path); null on every other state. */
+  copy: string | null;
+  /** The copy's SHA-256 when it was made; null on every other state. */
+  copySha256: string | null;
+  /** The day the copy was kept; null on every other state. */
+  keptOn: string | null;
 }
 
-/** The log as it stands: every entry of open.md, snoozed.md, dismissed.md and resolved.md. */
+/**
+ * The log as it stands: every entry of open.md, snoozed.md, dismissed.md,
+ * resolved.md and, when it exists, kept.md.
+ */
 export function readHygieneLog(root: string): HygieneLogEntry[] {
   const out: HygieneLogEntry[] = [];
   const owns = {
@@ -1552,8 +1741,9 @@ export function readHygieneLog(root: string): HygieneLogEntry[] {
     snoozed: (h: string) => h === "Snoozed",
     dismissed: (h: string) => h === "Dismissed",
     resolved: (h: string) => h === "Resolved",
+    kept: (h: string) => h === KEPT_HEADING,
   };
-  for (const state of ["open", "snoozed", "dismissed", "resolved"] as const) {
+  for (const state of ["open", "snoozed", "dismissed", "resolved", "kept"] as const) {
     const path = resolve(root, HYGIENE_DIR, `${state}.md`);
     if (!existsSync(path)) continue;
     for (const entry of parseLogFile(readFileSync(path, "utf-8"), `${HYGIENE_DIR}/${state}.md`, state, owns[state]).entries) {
@@ -1583,8 +1773,57 @@ export function readHygieneLog(root: string): HygieneLogEntry[] {
           fingerprint: recorded.fingerprint?.fingerprint ?? null,
         },
         invalidation: state === "open" ? parseInvalidation(entry) : null,
+        copy: state === "kept" ? field(entry, "copy") : null,
+        copySha256: state === "kept" ? keptRecord(entry).copySha256 : null,
+        keptOn: state === "kept" ? day(field(entry, "kept-on")) : null,
       });
     }
   }
   return out;
+}
+
+/** The media counts sync reports and review shows, from one inventory and one log. */
+export interface MediaReviewCounts {
+  /** Counted media with no disposition in force: `Media awaiting review: N`. */
+  awaitingReview: number;
+  /** Valid dismissed plus valid snoozed media. */
+  setAside: number;
+  kept: number;
+  dismissed: number;
+  snoozed: number;
+}
+
+/** When one ID sits in two files (a run stopped part-way), the copy reconcile keeps. */
+const STATE_PRECEDENCE: HygieneState[] = ["snoozed", "dismissed", "kept", "resolved", "open"];
+
+/**
+ * K2 B, rev 6 §2: the one read-only count both `brain sync` and review use.
+ * It does not trust the file an entry sits in. It applies the predicates
+ * reconcile applies, so a dismissal whose evidence changed since the last
+ * reconcile cannot hide a file:
+ * - dismissed, its fingerprint unchanged (or none recorded: matched by ID as
+ *   for every category) → set aside;
+ * - snoozed the same way and not yet due (`now < dueAt`) → set aside;
+ * - kept and still valid (`keptInvalidity`) → kept;
+ * - anything else, including a due snooze, a changed fingerprint and an
+ *   invalid kept entry → awaiting review.
+ *
+ * Only `countedMedia` findings count: pinned scratch is review-only. A
+ * per-pass deferral (Leave pending) is review state and never lowers N.
+ */
+export function mediaReviewCounts(root: string, policy: MediaPolicy, findings: Map<string, HygieneFinding>, entries: HygieneLogEntry[], now: Date): MediaReviewCounts {
+  const counts: MediaReviewCounts = { awaitingReview: 0, setAside: 0, kept: 0, dismissed: 0, snoozed: 0 };
+  const byId = new Map<string, HygieneLogEntry>();
+  for (const state of STATE_PRECEDENCE) for (const e of entries) if (e.state === state && !byId.has(e.id)) byId.set(e.id, e);
+  for (const finding of findings.values()) {
+    if (!countedMedia(finding)) continue;
+    const entry = byId.get(finding.id);
+    const unchanged = !entry?.disposition?.fingerprint || entry.disposition.fingerprint === finding.fingerprint;
+    if (entry?.state === "dismissed" && unchanged) counts.dismissed++;
+    else if (entry?.state === "snoozed" && unchanged && (entry.dueAt === null || now.getTime() < Date.parse(entry.dueAt))) counts.snoozed++;
+    else if (entry?.state === "kept" && keptInvalidity(root, policy, { copy: entry.copy, copySha256: entry.copySha256, dispositionFingerprint: entry.disposition?.fingerprint ?? null }, finding) === null) counts.kept++;
+    else counts.awaitingReview++;
+  }
+  counts.setAside = counts.dismissed + counts.snoozed;
+  return counts;
 }

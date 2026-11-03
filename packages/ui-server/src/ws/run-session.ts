@@ -393,6 +393,7 @@ async function runRetainedSession(
           // after this timer was armed.
           attributes: { ...turnLogAttributes(turn), "timeout.ms": host.turnTimeoutMs },
         });
+        turn.timedOutTurnId = turn.turnId;
         abortController.abort();
         // Reject any pending interactive request for this turn too. A bridge
         // that awaits askUser/approval without racing the abort signal would
@@ -531,12 +532,16 @@ async function runRetainedSession(
         // the origin that relay forwards to; admission proves the recipient
         // from it, and the relay below refuses any other (#2695).
         const relayed = backend.id === "claude" || backend.id === "pi";
+        // Each step of governed admission and journal begin is timed (#3355).
+        const governedTimer = lifecycle?.timer("governed"), journalTimer = lifecycle?.timer("journal");
+        const originLookup = host.governedTurns && relayed && backend.inferenceOrigin ? governedTimer?.("inference_origin") : undefined;
         const inferenceOrigin = host.governedTurns && relayed && backend.inferenceOrigin
           ? await backend.inferenceOrigin({ ...(profileId ? { profileId } : {}), ...(resumeId ? { sessionId: resumeId } : {}) }).catch(() => undefined) : undefined;
+        originLookup?.();
         abortController.signal.throwIfAborted();
         const handoffSource = !resumeId && turn.turnId === firstTurnId ? initial.handoffHooks?.sourceSessionId : undefined;
         governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference, {
-          ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) });
+          ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) }, governedTimer);
         if (governedHold) lifecycle?.mark("governedAcquiredAt");
         if (!governedHold || !host.budgets) lifecycle?.skip("budget");
         if (!governedHold || !host.journal) lifecycle?.skip("journal");
@@ -563,7 +568,7 @@ async function runRetainedSession(
             journalFailure = error;
             abortController.abort(error);
             coordinator.drainPendingForTurn(turn, error.message);
-          }, abortController.signal);
+          }, abortController.signal, journalTimer);
           lifecycle?.mark("journalBeganAt");
         }
         abortController.signal.throwIfAborted();
@@ -726,12 +731,12 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel, profile: "strict",
           });
         }
-        // A governed or strict Claude or pi turn on managed native storage gets
-        // its own proxy and the host inference relay (#1665). Without that
-        // storage the turn keeps its current network; worker-host status says which.
-        if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
+        // A governed or strict Claude or pi turn gets its own proxy and the
+        // host inference relay (#1665). Admission already refused a turn whose
+        // startup view is not on managed native storage (#3314).
+        if (governedHold?.sandbox.inferenceRecipient && !relayed)
           throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
-        if (governedHold?.managedStorage && relayed) {
+        if (governedHold && relayed) {
           const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
           turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,
@@ -905,6 +910,11 @@ async function runRetainedSession(
         await turnEgress?.settled();
         host.dialogue.retireTurn(turn.turnId);
         if (referenceTurn) host.referenceTools?.end(turn.turnId);
+        // Apify (#3162): a cancelled, timed-out or budget-stopped turn aborts the
+        // runs it started, off the turn's path; a finished turn leaves them for
+        // later status reads in its conversation.
+        if (host.apify && (turn.cancelled || abortController.signal.aborted || budgetFailure))
+          void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
         try {

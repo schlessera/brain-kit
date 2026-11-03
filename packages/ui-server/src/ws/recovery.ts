@@ -209,6 +209,8 @@ function boundedHistory<T>(read: Promise<T>): Promise<T> {
 export async function readSessionRecovery(host: WsHost, sessionId: string, principal: Principal): Promise<RecoveryRead> {
   if (!host.isPrincipalValid(principal)) return { kind: "unauthorized" };
   const { catalog, coordinator } = host;
+  // A retired chat has no recovery state to report (#3230).
+  if (catalog.chatRetired?.({ sessionId })) return { kind: "not_found" };
   const known = () =>
     coordinator.bySession.has(sessionId) ||
     coordinator.startingBySession.has(sessionId) ||
@@ -233,6 +235,7 @@ export async function readSessionRecovery(host: WsHost, sessionId: string, princ
     }
     // Authorization is re-read after every asynchronous step.
     if (!host.isPrincipalValid(principal)) return { kind: "unauthorized" };
+    if (catalog.chatRetired?.({ sessionId })) return { kind: "not_found" };
     if (!found && !known()) {
       // A backend that failed or timed out might hold it: that is a failed
       // read, not an absent session.

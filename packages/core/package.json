@@ -66,6 +66,11 @@
       "bun": "./src/storage.ts",
       "types": "./dist/storage.d.ts",
       "default": "./dist/storage.js"
+    },
+    "./internal/apify": {
+      "bun": "./src/internal-apify.ts",
+      "types": "./dist/internal-apify.d.ts",
+      "default": "./dist/internal-apify.js"
     }
   },
   "files": [
@@ -84,6 +89,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@schlessera/brain-geo": "workspace:*",
     "@schlessera/brain-render-template": "workspace:*",
+    "@schlessera/brain-scrape": "workspace:*",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-components": "^1.5.4",

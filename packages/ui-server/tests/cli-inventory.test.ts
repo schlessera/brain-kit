@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { INDEX_DIRECTORY_CLI_VERSION, MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
+import { HYGIENE_MEDIA_CLI_VERSION, INDEX_DIRECTORY_CLI_VERSION, MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
 
 // Release evidence: baseline argv is present in the 0.33.0 core tag (including
 // the -- separator). Newer capabilities are recorded in core/CHANGELOG.md:
@@ -20,6 +20,13 @@ const available: Record<string, string> = {
   "module enable": "0.40.0", "module disable": "0.40.0", "module settings": "0.40.0",
   "hygiene list": "0.39.0", "hygiene next": "0.41.0", "hygiene resolve": "0.41.0",
   "hygiene check": "0.41.0", "hygiene undo": "0.41.0", "hygiene dismiss": "0.41.0", "hygiene snooze": "0.41.0",
+  // #2781: the media review effects, planned and applied by `brain hygiene
+  // media`, and step 6b of a kept copy (`keep-copy`, #2780). Unreleased until
+  // 0.45.0 (.changeset/media-review-effects.md, media-awaiting-review.md).
+  "hygiene media delete": "0.45.0", "hygiene media move": "0.45.0", "hygiene media persist": "0.45.0",
+  "hygiene media keep-copy": "0.45.0", "hygiene keep-copy": "0.45.0",
+  // #2781: Undo of a kept copy removes its kept entry (rev 5 §5.7). Unreleased until 0.45.0 (.changeset/media-undo-review.md).
+  "hygiene unkeep": "0.45.0",
 };
 // Dynamic branches may overapproximate a command's flags. Record availability
 // within its namespace; this inventory enforces versions, not valid usage.
@@ -32,8 +39,21 @@ const commandFlags: Record<string, Record<string, string>> = {
   add: { "--type": "0.33.0", "--title": "0.33.0", "--tags": "0.33.0" },
   index: { "--force": "0.33.0" },
   module: { "--stdin": "0.40.0", "--preview": "0.40.0", "--migrate": "0.40.0", "--revision": "0.40.0", "--action": "0.40.0" },
-  hygiene: { "--finding": "0.41.0", "--dry-run": "0.41.0", "--handler": "0.41.0", "--input": "0.41.0", "--expect-fingerprint": "0.41.0", "--expect-preview": "0.41.0", "--reason": "0.41.0", "--until": "0.41.0" },
+  hygiene: { "--finding": "0.41.0", "--dry-run": "0.41.0", "--handler": "0.41.0", "--input": "0.41.0", "--expect-fingerprint": "0.41.0", "--expect-preview": "0.41.0", "--reason": "0.41.0", "--until": "0.41.0",
+    // #2780: sent only to leave a media finding pending, which only this release reports.
+    "--defer": "0.45.0",
+    // #2781: media effect destinations, apply premise and journal identity; a kept copy's identity (#2780).
+    "--to": "0.45.0", "--expect-premise": "0.45.0", "--journal": "0.45.0", "--copy": "0.45.0", "--copy-sha256": "0.45.0" },
 };
+/**
+ * Commands and flags gated by a feature floor above the baseline: never sent
+ * to a CLI that cannot report what needs them. A command's floor also bounds
+ * its flags. Every media effect acts on a media finding, which only a CLI at
+ * HYGIENE_MEDIA_CLI_VERSION reports, so an older CLI is never asked for one.
+ */
+const mediaCommands = ["hygiene media delete", "hygiene media move", "hygiene media persist", "hygiene media keep-copy", "hygiene keep-copy", "hygiene unkeep"];
+const featureFloors: Record<string, string> = { "hygiene next --defer": HYGIENE_MEDIA_CLI_VERSION,
+  ...Object.fromEntries(mediaCommands.map(command => [command, HYGIENE_MEDIA_CLI_VERSION])) };
 const globalFlags: Record<string, string> = { "--": "0.33.0", "--json": "0.33.0", "--version": "0.33.0" };
 const root = resolve(import.meta.dir, "../../..");
 
@@ -62,6 +82,10 @@ function inventory() {
   const checker = program.getTypeChecker();
   const found = new Map<string, Set<string>>();
   const sites = new Set<string>();
+  let mediaSites = 0, boundHygiene = 0;
+  /** `brain.hygiene` itself: BrainClient's hygiene CLI method, not a hygiene state field. */
+  const hygieneMethod = (node: ts.PropertyAccessExpression) => node.name.text === "hygiene"
+    && !!checker.getSymbolAtLocation(node.name)?.declarations?.some(d => d.getSourceFile().fileName === resolve(root, "packages/ui-server/src/brain/client.ts"));
   let selections = 0;
   let probes = 0;
   function strings(node: ts.Expression): string[] {
@@ -91,10 +115,10 @@ function inventory() {
       const first = elements[0];
       if (!first || !ts.isExpression(first)) throw new Error("Missing CLI command");
       const commands = strings(first).flatMap(command => {
-        if (["module", "skills", "scratch", "storage", "config"].includes(command)) {
+        if ((prefix === "hygiene " ? ["media"] : ["module", "skills", "scratch", "storage", "config"]).includes(command)) {
           const sub = elements[1];
           if (!sub || !ts.isExpression(sub)) throw new Error(`Missing ${command} subcommand`);
-          return strings(sub).map(value => `${command} ${value}`);
+          return strings(sub).map(value => `${prefix}${command} ${value}`);
         }
         return [prefix + command];
       });
@@ -135,7 +159,10 @@ function inventory() {
           }
         });
       }
-      if (call === "execBrain" || call === "cli") {
+      // The media effects reach the same hygiene CLI through their injected option (#2781).
+      const mediaCli = call === "options.cli" && path.endsWith("/inbox/media-effects.ts");
+      if (mediaCli) mediaSites++;
+      if (call === "execBrain" || call === "cli" || mediaCli) {
         sites.add(path.slice(root.length + 1));
         const arg = node.arguments[0];
         if (!arg) throw new Error("Missing CLI argv");
@@ -150,7 +177,21 @@ function inventory() {
           const floor = options.properties.find(property => ts.isPropertyAssignment(property) && property.name.getText() === "minimumVersion");
           expect(floor && ts.isPropertyAssignment(floor) && floor.initializer.getText()).toBe("STORAGE_PACK_CLI_VERSION");
         }
-        inspect(arg, call === "cli" ? "hygiene " : "");
+        inspect(arg, call === "execBrain" ? "" : "hygiene ");
+      }
+      if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "bind" && ts.isPropertyAccessExpression(node.expression.expression) && hygieneMethod(node.expression.expression)) {
+        // The one bound hygiene CLI is the media effects' injected `cli`, scanned above.
+        expect(path).toBe(resolve(root, "packages/ui-server/src/app.ts"));
+        const bound = node.parent;
+        if (!ts.isVariableDeclaration(bound) || !ts.isIdentifier(bound.name)) throw new Error("Unscanned bound hygiene CLI");
+        const uses: string[] = [];
+        walk(scope(node), value => {
+          if (!ts.isIdentifier(value) || value === bound.name || checker.getSymbolAtLocation(value) !== checker.getSymbolAtLocation(bound.name)) return;
+          const property = value.parent.parent.parent, call = property.parent.parent;
+          uses.push(`${ts.isCallExpression(call) ? call.expression.getText() : "?"}(${property.getText()})`);
+        });
+        expect(uses).toEqual([`createMediaEffects(cli: args => ${bound.name.text}(args))`]);
+        boundHygiene++;
       }
       if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "hygiene") {
         // All dynamic hygiene argv must pass through the scanned cli wrapper.
@@ -192,7 +233,10 @@ function inventory() {
   // pass (#1668) and its taxonomy read, `config check --json` (#2694).
   expect(selections).toBe(6);
   expect(probes).toBe(1);
-  expect([...sites].sort()).toEqual(["packages/ui-server/src/brain/client.ts", "packages/ui-server/src/inbox/hygiene-review.ts"]);
+  expect([...sites].sort()).toEqual(["packages/ui-server/src/brain/client.ts", "packages/ui-server/src/inbox/hygiene-review.ts", "packages/ui-server/src/inbox/media-effects.ts"]);
+  // Apply (`hygiene media`), step 6b (`hygiene keep-copy`) and its Undo (`hygiene unkeep`), and one bound CLI feeding them.
+  expect(mediaSites).toBe(3);
+  expect(boundHygiene).toBe(1);
   // hygiene's forwarding wrapper adds --json to every subcommand.
   for (const [command, flags] of found) if (command.startsWith("hygiene ")) flags.add("--json");
   return found;
@@ -203,18 +247,24 @@ test("every server CLI command and flag is available at its enforced baseline or
   expect([...found.keys()].filter(command => command !== "--version").sort()).toEqual(Object.keys(available).sort());
   const tooNew: string[] = [];
   for (const [command, flags] of found) {
-    const floor = command === "storage pack" ? STORAGE_PACK_CLI_VERSION : MIN_BRAIN_CLI_VERSION;
+    const floor = command === "storage pack" ? STORAGE_PACK_CLI_VERSION : featureFloors[command] ?? MIN_BRAIN_CLI_VERSION;
     const commandVersion = command === "--version" ? globalFlags[command]! : available[command];
     expect(commandVersion, `Record release evidence for brain ${command}`).toBeDefined();
     if (Bun.semver.order(commandVersion!, floor) > 0) tooNew.push(`${command} requires ${commandVersion}`);
     for (const flag of flags) {
       const version = globalFlags[flag] ?? commandFlags[command.split(" ")[0]!]?.[flag];
       expect(version, `Record release evidence for brain ${command} ${flag}`).toBeDefined();
-      if (Bun.semver.order(version!, floor) > 0) tooNew.push(`${command} ${flag} requires ${version}`);
+      if (Bun.semver.order(version!, featureFloors[`${command} ${flag}`] ?? floor) > 0) tooNew.push(`${command} ${flag} requires ${version}`);
     }
   }
   expect(tooNew, `MIN_BRAIN_CLI_VERSION ${MIN_BRAIN_CLI_VERSION} is below invoked capabilities`).toEqual([]);
 }, 30_000);
+
+test("the release that ships media hygiene raises the CLI floor to it", async () => {
+  const { version } = await Bun.file(resolve(root, "packages/ui-server/package.json")).json() as { version: string };
+  if (Bun.semver.order(version, HYGIENE_MEDIA_CLI_VERSION) < 0) return;
+  expect(Bun.semver.order(MIN_BRAIN_CLI_VERSION, HYGIENE_MEDIA_CLI_VERSION), "HYGIENE_MEDIA_CLI_FLOOR_SHIPS_WITH_ITS_RELEASE").toBeGreaterThanOrEqual(0);
+});
 
 test("the release that ships the index directory raises the CLI floor to it", async () => {
   const { version } = await Bun.file(resolve(root, "packages/ui-server/package.json")).json() as { version: string };
