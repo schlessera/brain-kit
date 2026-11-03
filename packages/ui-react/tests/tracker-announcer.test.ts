@@ -50,6 +50,27 @@ describe("the announcer", () => {
     expect(a.observe([view({ sessionId: B, state: "needs_you" })])).toEqual([]);
   });
 
+  test("a read that could not answer is not a change: the same failure after it is not spoken again (#3414)", () => {
+    const a = createTrackerAnnouncer();
+    a.observe([view({ state: "running" })]);
+    expect(a.observe([view({ state: "failed", outcome: "error" })])).toEqual([{ sessionId: A, state: "failed", outcome: "error" }]);
+    // A recovery read times out, then the next one says the same again.
+    expect(a.observe([view({ state: "cant_check", cantCheck: "host_unreachable" })])).toEqual([]);
+    expect(a.observe([view({ state: "failed", outcome: "error" })]), "the same failure, read again").toEqual([]);
+    // A contradicted read, then the same answer again.
+    expect(a.observe([view({ state: "unknown" })])).toEqual([]);
+    expect(a.observe([view({ state: "failed", outcome: "error" })]), "the same failure, after a rollback").toEqual([]);
+    // Work that moved on while it could not be read is still a change.
+    expect(a.observe([view({ state: "cant_check", cantCheck: "host_unreachable" })])).toEqual([]);
+    expect(a.observe([view({ state: "done", outcome: "success", turnId: "turn-2" })])).toEqual([{ sessionId: A, state: "done", outcome: "success" }]);
+    expect(a.observe([view({ state: "unknown", turnId: "turn-2" })])).toEqual([]);
+    expect(a.observe([view({ state: "failed", outcome: "error", turnId: "turn-3" })])).toEqual([{ sessionId: A, state: "failed", outcome: "error" }]);
+    // A tracker whose first answer was can't check announces what it then learns.
+    const b = createTrackerAnnouncer();
+    b.observe([view({ state: "cant_check", cantCheck: "host_unreachable" })]);
+    expect(b.observe([view({ state: "done", outcome: "success" })])).toEqual([{ sessionId: A, state: "done", outcome: "success" }]);
+  });
+
   test("a cleared tracker says nothing, and a tracker that went starts over as a baseline", () => {
     const a = createTrackerAnnouncer();
     a.observe([view({ state: "running" })]);
