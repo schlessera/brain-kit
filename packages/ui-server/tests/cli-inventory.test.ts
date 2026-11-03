@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { INDEX_DIRECTORY_CLI_VERSION, MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
+import { HYGIENE_MEDIA_CLI_VERSION, INDEX_DIRECTORY_CLI_VERSION, MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
 
 // Release evidence: baseline argv is present in the 0.33.0 core tag (including
 // the -- separator). Newer capabilities are recorded in core/CHANGELOG.md:
@@ -32,8 +32,12 @@ const commandFlags: Record<string, Record<string, string>> = {
   add: { "--type": "0.33.0", "--title": "0.33.0", "--tags": "0.33.0" },
   index: { "--force": "0.33.0" },
   module: { "--stdin": "0.40.0", "--preview": "0.40.0", "--migrate": "0.40.0", "--revision": "0.40.0", "--action": "0.40.0" },
-  hygiene: { "--finding": "0.41.0", "--dry-run": "0.41.0", "--handler": "0.41.0", "--input": "0.41.0", "--expect-fingerprint": "0.41.0", "--expect-preview": "0.41.0", "--reason": "0.41.0", "--until": "0.41.0" },
+  hygiene: { "--finding": "0.41.0", "--dry-run": "0.41.0", "--handler": "0.41.0", "--input": "0.41.0", "--expect-fingerprint": "0.41.0", "--expect-preview": "0.41.0", "--reason": "0.41.0", "--until": "0.41.0",
+    // #2780: sent only to leave a media finding pending, which only this release reports.
+    "--defer": "0.45.0" },
 };
+/** Flags gated by a feature floor above the baseline: never sent to a CLI that cannot report what needs them. */
+const featureFloors: Record<string, string> = { "hygiene next --defer": HYGIENE_MEDIA_CLI_VERSION };
 const globalFlags: Record<string, string> = { "--": "0.33.0", "--json": "0.33.0", "--version": "0.33.0" };
 const root = resolve(import.meta.dir, "../../..");
 
@@ -210,11 +214,17 @@ test("every server CLI command and flag is available at its enforced baseline or
     for (const flag of flags) {
       const version = globalFlags[flag] ?? commandFlags[command.split(" ")[0]!]?.[flag];
       expect(version, `Record release evidence for brain ${command} ${flag}`).toBeDefined();
-      if (Bun.semver.order(version!, floor) > 0) tooNew.push(`${command} ${flag} requires ${version}`);
+      if (Bun.semver.order(version!, featureFloors[`${command} ${flag}`] ?? floor) > 0) tooNew.push(`${command} ${flag} requires ${version}`);
     }
   }
   expect(tooNew, `MIN_BRAIN_CLI_VERSION ${MIN_BRAIN_CLI_VERSION} is below invoked capabilities`).toEqual([]);
 }, 30_000);
+
+test("the release that ships media hygiene raises the CLI floor to it", async () => {
+  const { version } = await Bun.file(resolve(root, "packages/ui-server/package.json")).json() as { version: string };
+  if (Bun.semver.order(version, HYGIENE_MEDIA_CLI_VERSION) < 0) return;
+  expect(Bun.semver.order(MIN_BRAIN_CLI_VERSION, HYGIENE_MEDIA_CLI_VERSION), "HYGIENE_MEDIA_CLI_FLOOR_SHIPS_WITH_ITS_RELEASE").toBeGreaterThanOrEqual(0);
+});
 
 test("the release that ships the index directory raises the CLI floor to it", async () => {
   const { version } = await Bun.file(resolve(root, "packages/ui-server/package.json")).json() as { version: string };
