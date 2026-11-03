@@ -21,7 +21,7 @@ import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHel
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenance-temp-budget.js";
-import { resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
+import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
@@ -168,6 +168,9 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
     env.BRAIN_ROOT = input.output.target;
     env.BRAIN_WORKER_DATA_ROOT = input.output.target;
     env.BRAIN_WORKER_CONFIG_ROOT = input.brainPath;
+    // The stage's size and the host setting behind it, as data: a write that
+    // runs out of space can then name the limit an operator raises (#3357).
+    if (input.output.storage) env.BRAIN_WORKER_OUTPUT_ALLOWANCE = JSON.stringify({ bytes: input.output.storage.allowanceBytes, setting: OUTPUT_STAGING_BYTES_ENV });
   }
   if (input.git) {
     env.BRAIN_MAINTENANCE_GIT = `${input.git.target}/config.json`;

@@ -52,6 +52,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   { name: "BRAIN_AGENT_RUNNER_UNAVAILABLE", description: "Internal: set to `1` by the worker launcher in a credential-free maintenance worker, such as the one hosted `brain sync` runs in, where no agent can log in. The configured agent runner is then treated as absent: bare `brain sync` hands nothing to an agent and reports that judgment is unavailable, so a conflict it leaves is resolved by hand; set by the worker launcher, not an operator input.", default: "the configured agent runner is used", required: false },
   { name: "BRAIN_MEDIA_PINNED_PATH_LIMIT", description: "Trusted host bound on the distinct conversation-pinned scratch paths one media inventory reads (`brain hygiene`, review and `brain sync`'s media count). A positive integer; past it the inventory reports that conversation links were not fully checked, and never claims an exhaustive scan. Anything else stops media detection rather than being guessed.", default: "5000", required: false },
   { name: "BRAIN_MEDIA_REFERENCE_LIMITS", description: "Trusted host bounds on the declared reference scan behind every media finding (`brain hygiene`, review and `brain sync`'s media count): comma-separated `<limit>=<positive integer>` pairs over `notes` (50000), `noteBytes` (268435456), `perNote` (4194304), `scanTime` in milliseconds (20000) and `refsPerFinding` (500), with `perNote` at most `noteBytes`. Past a limit the scan is refused and nothing claims the references were checked. Anything else stops media detection rather than being guessed.", default: "the Q1 defaults", required: false },
+  { name: "BRAIN_WORKER_OUTPUT_ALLOWANCE", description: "Internal: JSON `{\"bytes\":N,\"setting\":\"NAME\"}` naming the size of a maintenance worker's private writable output stage and the host setting that controls it. When `brain maintain`'s git packing runs out of space, its `git` step names that allowance and setting; set by the worker launcher, not an operator input.", default: "the step reports the space shortfall without a setting", required: false },
   { name: "BRAIN_WORKER_CONFIG_ROOT", description: "Internal immutable configuration execution root for maintenance and hosted turn workers, supplied by the trusted worker launch. Root discovery maps it to BRAIN_WORKER_DATA_ROOT; configuration loading maps the data root back here.", required: false },
   {
     name: "BRAIN_ROOT",
@@ -199,6 +200,18 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     mediaPinnedPathLimit: env.BRAIN_MEDIA_PINNED_PATH_LIMIT,
     mediaReferenceLimits: env.BRAIN_MEDIA_REFERENCE_LIMITS,
   };
+}
+
+/** The writable output allowance a trusted maintenance launch declares, or undefined when absent or malformed. */
+export function workerOutputAllowance(raw: string | undefined = process.env.BRAIN_WORKER_OUTPUT_ALLOWANCE): { bytes: number; setting: string } | undefined {
+  if (!raw) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { return undefined; }
+  if (typeof value !== "object" || value === null) return undefined;
+  const { bytes, setting } = value as { bytes?: unknown; setting?: unknown };
+  if (typeof bytes !== "number" || !Number.isSafeInteger(bytes) || bytes <= 0) return undefined;
+  if (typeof setting !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(setting)) return undefined;
+  return { bytes, setting };
 }
 
 /** @internal The trusted maintenance or hosted turn launch's separate data and execution roots. */

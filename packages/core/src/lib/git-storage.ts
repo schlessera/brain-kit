@@ -16,6 +16,17 @@ export class GitStorageError extends Error {}
 /** The git binary could not be started at all (not installed, not on PATH). */
 export class GitUnavailableError extends GitStorageError {}
 
+/** A git write ran out of space; the message is git's own line saying so. */
+export class GitNoSpaceError extends GitStorageError {}
+
+/**
+ * Whether a failure's text reports a full filesystem. Git words its own write
+ * refusal "Out of diskspace" rather than the system's ENOSPC text.
+ */
+export function isNoSpaceFailure(text: string): boolean {
+  return /ENOSPC|EDQUOT|No space left on device|Out of diskspace|Disk quota exceeded/i.test(text);
+}
+
 function git(root: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
   let proc;
   try {
@@ -80,7 +91,12 @@ export function packRepository(root: string): { packed: number } {
   const tasks = ["--task=loose-objects", "--task=incremental-repack", "--task=pack-refs"];
   for (const args of [tasks, ["--task=loose-objects"]]) {
     const out = git(root, ["maintenance", "run", ...args]);
-    if (!out.ok) throw new GitStorageError(firstLine(out.stderr, "git maintenance run failed"));
+    if (!out.ok) {
+      // The out-of-space line need not be git's first; report that line itself.
+      const noSpace = out.stderr.split("\n").find(isNoSpaceFailure)?.trim();
+      if (noSpace) throw new GitNoSpaceError(noSpace);
+      throw new GitStorageError(firstLine(out.stderr, "git maintenance run failed"));
+    }
   }
   return { packed: Math.max(0, before - looseObjects(root).count) };
 }
