@@ -548,6 +548,35 @@ What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
 
+### Module jobs: durable state and other repositories — 2026-11-02 (#3380)
+
+A module's scheduled job runs in a maintenance worker like every repository
+job. That left a module two things it may need and cannot have: a durable
+place for state outside the brain (the host, homes and `XDG_STATE_HOME` are
+read-only or per-run), and a credential for a private repository other than
+the brain (`HOST_GIT_CREDENTIAL_ENV` is stripped, and only `sync` reaches a
+remote, through the mirror transport). The
+[maintainer ruled on #3380](https://github.com/schlessera/brain-kit/issues/3380):
+
+1. **Durable state lives in a named per-module area inside the brain**,
+   `.brain-ui/modules/<module-name>/`, gitignored, part of the module
+   contract and published through output staging on every run. Host
+   directories stay read-only. A module command reaches it as
+   `ctx.stateDir()`, resolved against the worker's data root, never the
+   read-only view its working directory shows
+   ([the contract](../integration-contract/package-api.md#module-state-area)).
+   A write to a read-only host path fails with a message that names this
+   boundary and the state area, not a bare `EROFS`.
+2. **Another repository is fetched by the host**, for repositories on an
+   allow-list declared in module configuration, the way the sync mirror
+   fetches: a host-private mirror, a separate transport worker holding the
+   host's credential, and the module job reading the mirror over the local
+   file transport. The worker never holds `GITHUB_TOKEN` or any generic
+   credential.
+
+Forwarding a generic `GITHUB_TOKEN` into maintenance workers and restoring
+host-directory writes remain out of scope.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 

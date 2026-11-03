@@ -48,6 +48,17 @@ export interface CommandContext<C = unknown> {
    * @experimental Until 1.0; follows the shared integration contract.
    */
   completions?: BrainConfig["completions"];
+  /**
+   * The module's durable state directory, `.brain-ui/modules/<module-name>/`
+   * under `root`, created on first call (#3380). It is gitignored by its own
+   * `.gitignore` and survives between runs, including scheduled jobs in a
+   * maintenance worker, where the brain is the only durable writable place
+   * and this directory is published back after each run. Keep state small:
+   * every change is copied back through output staging. Optional only so a
+   * context built outside core's CLI (a test harness) stays valid; the CLI
+   * always provides it.
+   */
+  stateDir?(): string;
 }
 
 /** Context for a module tool, with its owning module's validated config.

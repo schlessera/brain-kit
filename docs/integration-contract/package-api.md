@@ -500,6 +500,34 @@ Module configuration reads use this view while content reads use the data
 root. Jobs scoring reads both `settings/jobs.json` and relative criteria
 Markdown from this frozen view. This addition ships in a minor.
 
+<a id="module-state-area"></a>
+
+**Additive module state area (0.45.0, #3380).** `CommandContext` gains an
+optional `stateDir(): string`. Core's CLI always provides it to a module
+command: it returns `<root>/.brain-ui/modules/<module-name>/`, the module's
+durable state directory, creating it (mode `0700`) on first call, together
+with `.brain-ui/modules/.gitignore` (`*`) when that is absent. `root` is the
+brain root the CLI resolved, which inside a trusted worker is
+`BRAIN_WORKER_DATA_ROOT`. A symlink at `.brain-ui`, `.brain-ui/modules`, the
+module's directory or that `.gitignore` refuses with `ModuleStateError`; a
+module name outside `^[a-z0-9][a-z0-9-]{0,63}$` refuses the same way.
+`@schlessera/brain/module` exports the same rule as `MODULE_STATE_DIR`
+(`".brain-ui/modules"`), `moduleStatePath(name)` (brain-relative, no disk
+access), `moduleStateDir(root, name)` and `ModuleStateError`. The path is part
+of the module contract: a scheduled module job keeps durable state there, and
+in a maintenance worker it is published back through output staging after
+each run like any other brain write, so the next run reads it.
+
+**Read-only host writes from a module command (0.45.0, #3380).** When a module
+command throws an `EROFS` error whose `path` lies outside the brain root (or
+has no path), the CLI exits 2 with a `ModuleReadOnlyPathError` message on
+stderr instead: it names the path, the module and its state area, and, when
+`BRAIN_WORKER_DATA_ROOT` is set, the host execution boundary. An `EROFS`
+inside the brain root keeps the existing `read_only_brain` refusal. No JSON
+shape changes. The cron runner adds a `[cron-run]` line and prefixes the
+recorded error with the same explanation when a worker job exits nonzero with
+an unexplained `EROFS` or "read-only file system" in its stderr.
+
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
 `options.protectedPaths: readonly string[]`. These brain-relative or absolute
