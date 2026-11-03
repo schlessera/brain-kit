@@ -107,6 +107,15 @@ export interface ChatMessage {
   retryOfTurnId?: string;
   /** Received live in this client; absent on history replay. */
   failureLive?: boolean;
+  /**
+   * How the turn stopped, when the runtime or the host says so and no
+   * failure does (#3356): a status for the turn, drawn after its content,
+   * never the agent's words. `timeout` only from the host's own timeout
+   * report; `aborted`/`unspecified` from the runtime's replayed notice.
+   */
+  runtimeNotice?: TurnNotice;
+  /** The notice arrived live in this client; absent on history replay. */
+  runtimeNoticeLive?: boolean;
   /** While streaming: the failed model call the runtime is retrying (#575). */
   retry?: TurnRetry;
 }
@@ -197,10 +206,20 @@ export interface ToolCall {
   endedAt?: number;
 }
 
+/** Why a turn stopped, as `ChatMessage.runtimeNotice` records it (#3356). */
+export interface TurnNotice {
+  cause: "timeout" | "aborted" | "unspecified";
+}
+
 export interface AskUserExchange {
   requestId: string;
   /** Host terminal state ended the unanswered exchange. */
   terminal?: true;
+  /**
+   * The host's turn limit is what ended it (#3356), from the terminal frame;
+   * absent when the host did not say why the turn ended.
+   */
+  endedBy?: "timeout";
   /**
    * The host turn that raised the request, from the request frame. A card
    * rebuilt from history has none until the host re-delivers the request.
@@ -548,7 +567,18 @@ export interface ChatState {
    */
   reopenAskExchange: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
-  endTurnQuestions: (key: ChatKey, turnId?: string) => void;
+  /**
+   * The turn ended: its unanswered questions can no longer be answered.
+   * `endedBy` records the host's stated reason on them, including on
+   * questions an earlier terminal frame of the same turn already ended.
+   */
+  endTurnQuestions: (key: ChatKey, turnId?: string, endedBy?: "timeout") => void;
+  /**
+   * Record how a turn stopped (#3356) on its assistant message, as
+   * `failAssistantMessage` finds it. A turn that already shows a failure
+   * keeps that, the fuller account; the same notice twice is one notice.
+   */
+  setTurnNotice: (key: ChatKey, notice: TurnNotice, turnId?: string) => void;
   /**
    * Delivery state of submitted ask answers, by request id (#910). Held
    * outside the transcript buffers: an answer queued in one session must
@@ -1821,10 +1851,14 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       clearAskUser: (key) => mutateBuffer(key, () => ({ askUser: null })),
 
-      endTurnQuestions: (key, turnId) => mutateBuffer(key, (chat) => {
+      endTurnQuestions: (key, turnId, endedBy) => mutateBuffer(key, (chat) => {
         const end = (exchange: AskUserExchange): AskUserExchange => {
-          if ((turnId && exchange.turnId !== turnId) || exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled) return exchange;
-          return { ...exchange, cancelled: true, terminal: true };
+          if (turnId && exchange.turnId !== turnId) return exchange;
+          // A question this turn's earlier terminal frame already ended
+          // learns why, when the host says so (#3356).
+          if (exchange.terminal) return endedBy && exchange.endedBy !== endedBy ? { ...exchange, endedBy } : exchange;
+          if (exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled) return exchange;
+          return { ...exchange, cancelled: true, terminal: true, ...(endedBy ? { endedBy } : {}) };
         };
         return {
           messages: chat.messages.map((message) => message.askUserExchanges ? { ...message, askUserExchanges: message.askUserExchanges.map(end) } : message),
@@ -1884,6 +1918,35 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           },
           true
         ),
+
+      setTurnNotice: (key, notice, turnId) =>
+        mutateBuffer(key, (chat) => {
+          const msgs = [...chat.messages];
+          let index = turnId ? msgs.findLastIndex((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === turnId) : -1;
+          if (index === -1) {
+            // As failAssistantMessage: the last assistant message, unless
+            // another turn owns it.
+            const last = msgs.findLastIndex((m) => m.role === "assistant");
+            const owner = last === -1 ? undefined : msgs[last].turnId ?? msgs[last].streamTurnId;
+            if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
+          }
+          if (index !== -1 && (msgs[index].failure || msgs[index].runtimeNotice?.cause === notice.cause)) return {};
+          if (index === -1) {
+            msgs.push({
+              id: nextId(),
+              role: "assistant",
+              content: "",
+              toolCalls: [],
+              parts: [],
+              isStreaming: false,
+              timestamp: Date.now(),
+              ...(turnId ? { turnId } : {}),
+            });
+            index = msgs.length - 1;
+          }
+          msgs[index] = { ...msgs[index], runtimeNotice: notice, runtimeNoticeLive: true };
+          return { messages: msgs };
+        }),
 
       setRetry: (key, retry) =>
         mutateLastAssistant(key, (last) => {

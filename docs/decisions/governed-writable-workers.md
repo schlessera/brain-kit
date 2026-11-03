@@ -164,7 +164,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:145-311`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:148-325`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:670-675`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:676-681`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -283,8 +283,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:174-207`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -296,7 +296,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:75-303`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:78-317`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:232-236`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:243-247`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -543,10 +543,39 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:420-427`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:422-429`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
+
+### Module jobs: durable state and other repositories — 2026-11-02 (#3380)
+
+A module's scheduled job runs in a maintenance worker like every repository
+job. That left a module two things it may need and cannot have: a durable
+place for state outside the brain (the host, homes and `XDG_STATE_HOME` are
+read-only or per-run), and a credential for a private repository other than
+the brain (`HOST_GIT_CREDENTIAL_ENV` is stripped, and only `sync` reaches a
+remote, through the mirror transport). The
+[maintainer ruled on #3380](https://github.com/schlessera/brain-kit/issues/3380):
+
+1. **Durable state lives in a named per-module area inside the brain**,
+   `.brain-ui/modules/<module-name>/`, gitignored, part of the module
+   contract and published through output staging on every run. Host
+   directories stay read-only. A module command reaches it as
+   `ctx.stateDir()`, resolved against the worker's data root, never the
+   read-only view its working directory shows
+   ([the contract](../integration-contract/package-api.md#module-state-area)).
+   A write to a read-only host path fails with a message that names this
+   boundary and the state area, not a bare `EROFS`.
+2. **Another repository is fetched by the host**, for repositories on an
+   allow-list declared in module configuration, the way the sync mirror
+   fetches: a host-private mirror, a separate transport worker holding the
+   host's credential, and the module job reading the mirror over the local
+   file transport. The worker never holds `GITHUB_TOKEN` or any generic
+   credential.
+
+Forwarding a generic `GITHUB_TOKEN` into maintenance workers and restoring
+host-directory writes remain out of scope.
 
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
@@ -596,7 +625,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:680-690`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:689-699`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -627,6 +656,14 @@ reaches the host's key instead of failing authentication. The `jev` reranker
 is not relayed and keeps the named roadblock. Video was excluded from #1673's
 first slice; #2738 relays its Files lifecycle, admitting only upload URLs the
 host validated and the handles that turn's relay created.
+
+**Provider requests and taint — 2026-11-02
+([#3246](https://github.com/schlessera/brain-kit/issues/3246)).** As built,
+the relayed request was the turn's ordinary egress with "the turn's deny/allow
+and taint rules". That rule is superseded for taint only: a validated
+provider-relay request neither taints the session nor is narrowed by its taint.
+Every other rule of this section still applies. The full ruling is under
+"Untrusted input (G6)".
 
 **Why tier B is protected by default.** Allow rules in project settings would
 skip the server's approval prompts. Releasing one is a policy choice the user
@@ -1029,7 +1066,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1136-1164`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1150-1178`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1137,6 +1174,24 @@ since a long hold is not revocation. A principal that really lost authority
 refuses `authority_revoked` at once, waiting or not (`export async function retryHeld`,
 `packages/ui-server/src/brain/authority-hold.ts:92-102`).
 
+**A pause the policy observation raises is a no-publication outcome (#2870,
+maintainer, 2026-10-25).** Policy publication runs inside its own journal
+observation, and that observation can itself reach a scope cap. Waiting there
+would hold the observation, and Continue is refused while one holds; throwing
+out of it would end the observation as failed and stop the turn's workers.
+The callback instead stages nothing and returns, so the observation completes
+successfully and releases its hold. The publisher then reports the hold
+outside it, the brain lock unwinds, and the same bounded wait runs, sharing
+its one deadline with every earlier wait of the request. Continue starts a
+fresh attempt that checks live authority, validation, ancestry and the base
+hash again and runs a new observation; the one approval carries over only to
+unchanged bytes on an unchanged base. Stop, cancellation, revocation, turn
+replacement and the deadline publish nothing and record no policy-updated
+event; a no-publication attempt records none either. Real observation and
+storage failures keep their existing handling, and a publication that
+committed before its report failed stays `unknown` and is never retried
+(`const held`, `packages/ui-server/src/brain/policy-proposal.ts:167-256`).
+
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
 The live receipt's polite accessibility status follows authoritative cost and
@@ -1151,7 +1206,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:217-244`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:219-253`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1337,9 +1392,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:346`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:557`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1407,10 +1462,10 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:236`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:232-253`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:240-261`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
@@ -1422,7 +1477,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:494-501`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:550-557`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1522,7 +1577,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:944`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1543,11 +1598,11 @@ with retained bytes.
 **What the journal records.** Observation and before-version capture classify
 these versions as metadata-only and never open them for retention
 (`const retained = (entry`,
-`packages/ui-server/src/brain/native-journal-capture.ts:39`). A version keeps
+`packages/ui-server/src/brain/native-journal-capture.ts:40`). A version keeps
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
-(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:75`),
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:76`),
 so every observed refresh remains a recorded change. A metadata-only version is an intentional
 observation state: it adds no `missing` entry and does not make the turn
 partial. Removal coverage never treats the family as eligible, and history
@@ -1559,7 +1614,7 @@ stays now counts its largest size once too, rather than each version.
 **History.** History presents every index-family version as metadata-only
 however it was recorded, so a version an earlier release retained is no
 longer read
-(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:68-73`).
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:69-74`).
 The reader groups these entries as the search index, recorded by size and
 timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
@@ -1616,7 +1671,7 @@ keeps its bytes.
 
 **The purge.** It runs once, on the journal's write worker, when the journal
 opens, after interrupted turns have been ended
-(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:113`),
+(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:121`),
 in at most two accounted commits whose progress is recorded in
 `turn_journal_allocation.index_purge`
 (`purgeIndexVersions(): IndexPurgeResult`,
@@ -1794,7 +1849,7 @@ brain and every managed worktree, has its own owner, and each owner keeps at
 most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
 queued or failed. An observation makes room before it takes its own
 checkpoint (`async function reserveRelease`,
-`packages/ui-server/src/brain/native-journal-observer.ts:329-335`): it waits
+`packages/ui-server/src/brain/native-journal-observer.ts:330-336`): it waits
 inside the hold for the oldest queued release, or, when failed releases fill
 the bound, retries the oldest one inside the hold, as every release ran
 before. If that retry fails, the observation is refused before it takes a
@@ -1802,7 +1857,7 @@ checkpoint, so the bound is never exceeded. Each retained checkpoint is charged 
 it holds that the live root no longer has: the bytes of every file version
 replaced or removed since it was taken
 (`releases(): NativeJournalReleaseAccounting`,
-`packages/ui-server/src/brain/native-journal-observer.ts:478-482`).
+`packages/ui-server/src/brain/native-journal-observer.ts:483-487`).
 Directory and other metadata extents are not counted. The store's free space,
 which the `free_space_floor` scope limit reads, counts the actual extents until
 each release completes. Shutdown waits for every queued release, retries
@@ -1813,7 +1868,7 @@ the owner.
 
 **A failed release.** The checkpoint stays retained and charged until a
 retry, and the journal treats the failure as the hold did
-(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:174-182`):
+(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:182-190`):
 every active turn stops and its record is partial, a hold the failure
 overlaps kills its held workers instead of resuming them, and an admission
 requested before the failure, even one still queued behind other journal work,
@@ -1940,7 +1995,7 @@ the Gemini Files lifecycle a local video needs, whose upload, poll and delete
 attempts are recorded at zero cost because the Files API is free.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
-(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 The receipt's coverage names the relayed providers. Pricing follows the
 [cost-tracking rules](cost-tracking.md#relayed-cli-provider-requests-1673):
 unpriced tokens count toward the token stops, and missing usage is unknown and
@@ -1948,7 +2003,7 @@ never blocks by itself. An attempt is recorded as unknown spend just before it
 leaves and completed when it settles, so a crash leaves it disclosed. Before
 each request, and again just before dispatch, the relay asks whether any scope
 is blocked and refuses with `budget_exceeded` if one is
-(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:326-330`).
+(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:379-384`).
 A request that crosses a block does not stop the turn by itself, under the
 ruling: each further relayed request is refused, and the agent's next
 completed response, which sees the same scopes, stops the turn as any usage
@@ -1988,7 +2043,7 @@ rows remain historical inputs with explicit legacy attribution. Completed
 responses contribute once to their server-observed UTC day; legacy history
 uses its recorded start day. A terminal rollup never adds the live ledger a
 second time. The concrete ledger is (`createTurnBudgets`,
-`packages/ui-server/src/brain/turn-budgets.ts:228-350`).
+`packages/ui-server/src/brain/turn-budgets.ts:262-419`).
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
@@ -2177,7 +2232,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-166`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:60-168`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -2190,7 +2245,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:226`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:235`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2208,7 +2263,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1911`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1925`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2232,7 +2287,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:385-444`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:394-453`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2267,7 +2322,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:248-330`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:250-332`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -2275,7 +2330,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:97-115`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:99-117`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -2308,9 +2363,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:609-615`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:636-675`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:791-809`).
+`packages/ui-sdk/src/server/worker-launcher.ts:618-624`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:645-684`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:800-818`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -2802,7 +2857,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:207-216`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:219-228`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
@@ -3194,9 +3249,10 @@ The backend supplies the origin before admission through the optional
 `AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
 Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
-recipient only on managed native storage, where the relay runs, and only when
-it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:175-176`). The turn's relay is
+recipient only when it can record what the turn is shown (`const recipient = options.exposures`,
+`packages/ui-server/src/brain/governed-turn.ts:187-188`). A turn whose startup
+view is not on managed native storage, where the relay runs, is refused before
+this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -3281,7 +3337,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:94`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:95`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3341,7 +3397,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:250-284`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:259-293`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -3479,11 +3535,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1099-1127`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1113-1141`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1136-1162`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1150-1176`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1325-1413`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1339-1427`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -3626,6 +3682,31 @@ that run after an asynchronous launch has returned.
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
 
+### A refused end-of-turn cleanup has a retry owner — 2026-10-25
+
+The maintainer selected [option 1 on #2871](https://github.com/schlessera/brain-kit/issues/2871):
+a bounded, server-owned reconciliation owner takes over a Claude turn's
+end-of-turn cleanup that the awaited close above could not confirm.
+
+- **The turn still fails.** The refusal is the turn's, as before; the
+  reconciler only takes ownership of the retryable close and the reservation.
+- **Finite retries, then observable failure.** It retries the close with
+  capped exponential backoff and a finite number of attempts. A close still
+  refused after the last attempt is logged with the runtime-state and
+  turn-temp allowance it keeps charged until the server restarts.
+- **Release once, only on confirmation.** The reservation is released exactly
+  once, after a retry resolves. An unconfirmed close never releases it.
+- **Shutdown releases nothing and waits for nothing.** It cancels pending
+  retries, does not wait for a close in flight, and reports what is still
+  held. The process's one reconciler stops when the process exits; its timers
+  never hold the process open.
+
+The owner is the reconciler
+(`export function createCleanupReconciler`, `packages/ui-backend-claude/src/cleanup-reconciler.ts:66-125`), and the turn
+hands its refusal over where it awaits the close
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi and a launch
+whose own cleanup is unconfirmed are outside this ruling.
+
 ### Turn completion includes worker teardown — 2026-10-25
 
 The maintainer's [#2863 lifecycle ruling](https://github.com/schlessera/brain-kit/issues/2863#issuecomment-6391630082)
@@ -3641,7 +3722,7 @@ the path's existing cancellation or failure outcome.
 to pi cancellation before `prompt()`. The pool owns a late new or resumed
 acquisition until its awaited abort finishes, then disposes it and preserves
 the accepted cancellation (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:159-166`). After acquisition the
+`packages/ui-backend-pi/src/session-pool.ts:176-183`). After acquisition the
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
@@ -3650,6 +3731,15 @@ awaits exit and protocol consumption, the awaited turn-temp close above, then
 stdio release even if exit or cleanup refuses. Failed cleanup keeps the
 reservation charged and remains retryable. Disposal and Stop signalling keep
 their synchronous signatures; terminal reporting owns the asynchronous wait.
+
+[#3488](https://github.com/schlessera/brain-kit/issues/3488) applies the same
+rule to the loser of two concurrent resumes of one session. The pool decides
+busy or reuse, and claims a reused entry, before it waits. It then awaits the
+losing worker's shared inactive abort, disposes it and re-raises the original
+outcome (`releaseLosingSession`,
+`packages/ui-backend-pi/src/session-pool.ts:150-157`). A refused cleanup is
+logged as a warning and cannot replace the busy refusal; the reservation stays
+charged and the abort stays retryable.
 
 ### Outward actions (G5)
 
@@ -3769,7 +3859,9 @@ author:
 - files the user marks untrusted;
 - **any connection from inside the worker other than the inference relay**,
   recorded by the egress proxy. This covers `curl`, CLI scrapers, headless
-  Chromium and opaque scripts, whose provenance cannot be told apart.
+  Chromium and opaque scripts, whose provenance cannot be told apart. Since
+  2026-11-02 a validated provider-relay request is exempt as well (#3246,
+  below).
 
 Before the egress proxy lands, Bash commands classified as fetching (`curl`,
 `wget`, `git clone` and `fetch`, the `brain` scrape and import commands, and
@@ -3828,7 +3920,7 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-166`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:60-168`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -3894,10 +3986,66 @@ only check on a fetch (`RELAYED_TURN_SETTINGS`,
 sends only relayed inference, and WebSearch runs inside that inference. The
 taint rule is unchanged: any other worker connection still taints, including
 one a tool opens to the vendor's host. A relayed provider request (#1673) is
-the turn's own egress and taints as before. The host's own opt-out does not
+the turn's own egress and taints as before. #3246 superseded this the same day
+(below). The host's own opt-out does not
 count as the operator's, so title usage is still observed
 (`telemetryConfigured`,
 `packages/ui-backend-claude/src/relayed-turn-traffic.ts:26-30`).
+
+**Provider-relay requests neither taint nor narrow — 2026-11-02
+([#3246](https://github.com/schlessera/brain-kit/issues/3246)).** The brain
+CLI's paid providers reach their upstream through the metered provider relay
+(#1673), which shares the turn proxy's admission. As first built, an admitted
+relayed request tainted the session like any worker connection. Once a session
+was tainted, the relay was refused any provider host the session had not
+contacted. So tool order decided what worked: reranking first made a later
+WebFetch of a new host fail, and WebFetch first made later reranking degrade
+to `lifecycle_order`.
+
+The maintainer selected option C. An approved host-relayed provider request
+neither taints the session nor is narrowed by its taint. It still passes the
+ordinary deny and allowlist rules, the exact origin, recipient and route
+authorization, the byte ceilings, budget admission, cancellation and
+accounting. It keeps its own `egress_connection` record, which carries
+`provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
+hostname. Only the relay's validated routes reach the proxy's provider
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:252`), and
+worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:128`). Turn egress
+records neither a taint nor a contacted host for the operation
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:133-136`). So in a
+tainted session, the worker's own traffic stays narrowed away from the
+provider's host.
+
+A later turn rebuilds its contacted hosts from the session's earlier
+`egress_connection` records, and a provider record there would look like a
+worker's. So the maintainer added the optional `provider: true` tag, mirroring
+`inference: true`, on the record of every validated provider-relay operation
+(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:107-114`). The rebuild
+excludes those records (`contactedHosts`,
+`packages/ui-server/src/governance/session-taint.ts:45-51`), so a provider
+request never gives the worker's own `CONNECT` a contacted-host pass, in the
+same turn or a later one. Records written before the tag existed stay
+unmarked, so they can still count for a session that already has them. That is
+an additive event field, so it ships in a minor.
+
+The accepted tradeoff is explicit. After untrusted input enters a session,
+content the turn sends through the relay can still reach that session's
+already-approved providers. The ruling does not declare provider output
+trusted, add a recipient, clear or replace an existing taint, or relax any
+other untrusted-input or outward-action rule. Browsing and the other input
+sources still taint.
+
+Rejected: (A) keep both restrictions and document them, which leaves both
+tool-order failures; (B) stop the taint but keep the narrowing, which repairs
+only the provider-first order.
+
+This changes documented taint-policy semantics, with no configuration or wire
+change and one additive event field, so it is a pre-1.0 breaking minor
+([integration contract](../integration-contract.md#provider-relay-requests-and-session-taint-breaking-before-10-3246)).
+There is no opt-out field. A host that relied on taint to fence its approved
+providers after untrusted input has two levers left: the ordinary egress deny
+and allowlist rules, and the exact origins in `BRAIN_UI_CLI_PROVIDER_ORIGINS`.
 
 The capabilities note states the taint sources, these rules, whether this
 turn's egress is narrowed or explicitly not enforced, and the session's first
@@ -3918,7 +4066,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:511-522`).
+  `packages/ui-server/src/brain/host-boundary.ts:514-525`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -3927,7 +4075,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:313-330`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -3963,7 +4111,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:90-134`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely
@@ -4019,7 +4167,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:334-398`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:375-440`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -4042,7 +4190,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:591-621`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:647-677`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits

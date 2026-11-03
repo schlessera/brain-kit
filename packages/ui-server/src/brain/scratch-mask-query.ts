@@ -34,7 +34,7 @@ export function createScratchIgnoreQuery(input: {
     try {
       // Read-only consumers still share the maintenance temporary budget.
       // Serialize with its existing owner, without creating or publishing a stage.
-      const result = await runMaintenanceWorker({ ...input.maintenance, brainPath: brain, startupView: view,
+      const result = await runMaintenanceWorker({ ...input.maintenance, tempKind: "scratch_query", brainPath: brain, startupView: view,
         command, env: { PATH: `${dirname(git)}:/usr/bin:/bin`, GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
         credentials: false, readPaths: [git, ...(parent ? [parent] : [])], signal, timeoutMs: 10_000 });
       return { exitCode: result.exitCode, killed: result.killed };

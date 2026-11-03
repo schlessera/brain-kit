@@ -592,6 +592,8 @@ test("app close bounds held lease SQLite while its main writer is idle", async (
   const restorers: { mockRestore(): void }[] = [];
   try {
     app = await createApp(f);
+    // The journal's startup observation holds its own root (#3355); let it settle first.
+    await app.wsHost.journal!.idle();
     const id = "11111111-1111-4111-8111-111111111790";
     await manager!.client.checkpoint(id);
     const channel = lease.writer.channel(dialogueControls, {});
@@ -652,13 +654,16 @@ test("app close does not apply a SQLite deadline to a native release RPC", async
   const rpcEntered = new Promise<void>(resolve => { entered = resolve; });
   const assembly = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async (raw, options) => {
     const release = raw.release;
-    raw.release = async (...args) => { entered(); await heldRpc; return release(...args); };
+    // Only this test's checkpoint; the journal releases its own observed root too.
+    raw.release = async (...args) => { if (args[0] === "11111111-1111-4111-8111-111111111790") { entered(); await heldRpc; } return release(...args); };
     return manager = await createManager(raw, options);
   });
   let app: Awaited<ReturnType<typeof createApp>> | undefined, clock: ReturnType<typeof storageDeadlineClock> | undefined;
   let closing: Promise<void> | undefined;
   try {
     app = await createApp(f);
+    // The journal's startup observation holds its own root (#3355); let it settle first.
+    await app.wsHost.journal!.idle();
     const id = "11111111-1111-4111-8111-111111111790";
     await manager!.client.checkpoint(id);
     clock = storageDeadlineClock();

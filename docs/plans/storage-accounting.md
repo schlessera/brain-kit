@@ -63,16 +63,16 @@ Source anchors, checked against the reviewed commit:
   existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:164-215`),
   available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:219-230`).
 - B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:68-77`)
-  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:89-102`).
+  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:115-121`).
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:303-339`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:310-346`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:108-114`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
 - F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:10-30`).
-- G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
+- G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:149-151`)
   and settlement-aware cleanup (`function claim`, `packages/ui-server/src/inbox/lifecycle-writes.ts:42-61`).
   [#807](https://github.com/schlessera/brain-kit/issues/807) supplies live-work
   and settlement protection for staging cleanup.
@@ -87,7 +87,7 @@ Source anchors, checked against the reviewed commit:
   measurements do not include the separate runtime-state tmpfs.
 - J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:35-50`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
-- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:292-309`)
+- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:295-312`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its
   [generated-host counterpart](https://github.com/schlessera/brain-hosting-template/issues/9).
 

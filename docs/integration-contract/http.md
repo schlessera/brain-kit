@@ -545,9 +545,11 @@ The existing availability and host-execution fields keep their meaning.
 
 `runtime.workerHost.governed.egress` (additive, 0.44.0, #1665) is
 `{ active, detail }`: whether governed and strict turns run on their own turn
-egress proxy. It is `active: true` only on a host with managed native storage;
-`detail` says which turns are routed and, when inactive, that their egress is
-unrecorded.
+egress proxy. The server boots only on managed native storage (#1793), so it is
+`active: true` on every running server, and `detail` says which turns are
+routed. The field is not removed: `active: false` remains for a brain that is
+not on managed native storage, where `detail` says that every governed and
+strict turn is refused rather than run without the proxy (#3314).
 
 ### Operational-state layout refusal (additive, #1649)
 
