@@ -161,6 +161,15 @@ describe("show_block", () => {
     expect(description).toContain("a toned value fits one phone line at 25 characters");
   });
 
+  test("suggestions are called before the closing sentence, so a turn never ends on the call (#3519)", () => {
+    // Ending on the call leaves the final response without text; the Claude CLI
+    // then nudges for visible output and the model writes the answer again.
+    const line = SHOW_BLOCK_CONTRACT.description.split("\n").find(item => item.startsWith("suggestions:"))!;
+    expect(line, "SUGGESTIONS_BEFORE_FINAL_SENTENCE").toContain("Call it at most once, before the answer's final sentence");
+    expect(line).toContain("drawn under the finished answer wherever you call it");
+    expect(line).not.toContain("Call it last");
+  });
+
   test("suggestions: one or two one-line follow-ups, never a third, never a tone", () => {
     const parse = (block: unknown) =>
       parseToolPayload(SHOW_BLOCK_CONTRACT, JSON.stringify({ block }));

@@ -14,7 +14,7 @@ let upstream: ReturnType<typeof Bun.serve>;
 const seen: Array<{ path: string; headers: Record<string, string>; body: string }> = [];
 let reply: (path: string) => Response = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } });
 beforeAll(() => {
-  upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
     const url = new URL(request.url);
     seen.push({ path: url.pathname, headers: Object.fromEntries(request.headers), body: await request.text() });
     return reply(url.pathname);
@@ -42,6 +42,7 @@ async function relayed(options: Partial<ProviderRelayOptions>, request: { path: 
         const chunks: Buffer[] = [];
         incoming.on("data", chunk => chunks.push(chunk));
         incoming.on("end", () => resolve({ status: incoming.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
+        incoming.on("aborted", () => reject(new Error("response socket closed mid-body"))).on("error", reject);
       });
       outgoing.on("error", reject);
       outgoing.end(body);
@@ -292,6 +293,21 @@ describe("second review", () => {
       expect(result.receipts).toMatchObject([{ outcome: "completed", usage: { inputTokens: 2 } }]);
     } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
   });
+
+  test("a response body that idles longer than Bun's default idle timeout still arrives whole (#3441)", async () => {
+    // Bun closes a started response that sends nothing for 10s unless the server disables idleTimeout.
+    reply = () => new Response(new ReadableStream<Uint8Array>({ async start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"usage":'));
+      await Bun.sleep(15_000);
+      controller.enqueue(new TextEncoder().encode('{"input_tokens":5,"output_tokens":1}}'));
+      controller.close();
+    } }), { headers: { "content-type": "application/json" } });
+    try {
+      const result = await relayed({}, { path: "/v1/messages" });
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body), "RELAY_KEEPS_AN_IDLE_BODY_OPEN").toEqual({ usage: { input_tokens: 5, output_tokens: 1 } });
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  }, 28_000);
 
   test("a bodyless upstream response settles its attempt", async () => {
     reply = () => new Response(null, { status: 204 });
