@@ -40,18 +40,24 @@ export "./internal/frontmatter-block" (./src/frontmatter-block.ts)
   frontmatterLength
 
 export "./internal/governance-policy" (./src/governance-policy.ts)
+  type AnchoredGovernancePolicy
   BUILTIN_GOVERNANCE_POLICY
   type EffectiveGovernancePolicy
   GOVERNANCE_POLICY_MAX_BYTES
   GOVERNANCE_POLICY_PATH
   type GovernanceCommandRuleIndices
   type GovernancePolicyCheck
+  type GovernancePolicyDirectory
   type GovernancePolicyInput
+  GovernancePolicyReadError
+  type GovernancePolicyReadRefusal
   GovernancePolicySchema
   checkGovernancePolicy
+  openGovernancePolicyAnchored
   parseGovernancePolicy
   providerAllows
   resolveGovernancePolicy
+  verifyGovernancePolicyAnchored
 
 export "./internal/index-location" (./src/index-location.ts)
   EMBEDDING_LOCK_FAMILY
