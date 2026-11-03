@@ -487,6 +487,17 @@ aggregate explicitly for parallel maintenance. Neither value derives from
 agent-session concurrency or uses agent turn temp, runtime state or the
 separately bounded startup/publication storage.
 
+Admission is immediate: a command that does not fit is refused with
+`worker_state_busy` before anything runs. The refusal names what holds the
+budget by kind only (`index`, `scratch query`, `git`, `sync`, `probe` or
+`command`), never a path or a process. At the defaults one allowance fills the
+budget, so the automatic index and a turn's scratch check cannot overlap
+(#3461). An automatic index that loses that race stays pending and runs as
+soon as the budget frees; it is not reported as a failure, and close
+discards it. A turn whose scratch check loses keeps `.brain/scratch/`
+read-only for that turn, as before. An index you request still reports busy
+at once.
+
 Each command's sized private `/tmp` contains scratch and fresh XDG config,
 cache, data and state directories. Credential-free HOME is also in that
 filesystem. Credentialed HOME is readable but read-only; writes requiring a

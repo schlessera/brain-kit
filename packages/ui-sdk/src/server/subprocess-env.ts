@@ -23,6 +23,19 @@ const SUBPROCESS_ENV_EXTRA_NAME = "BRAIN_UI_SUBPROCESS_ENV_EXTRA";
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * Host-only secrets no subprocess may receive (#3159), and the shared Apify
+ * ledger's location (#3162): a worker's own `brain apify` must find neither
+ * the credential nor the accounting it would spend against. Unlike a server-only
+ * descriptor entry, neither the operator escape hatch nor a per-spawn
+ * addition can admit one: the host makes every request that needs it.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze(["APIFY_TOKEN", "BRAIN_APIFY_LEDGER"]);
+const admissible = (name: string) =>
+  ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME && !HOST_ONLY_SECRET_ENV.includes(name);
+
+/**
  * Environment variables known to the UI server and its agent backends,
  * classified by the subprocess audiences that need them.
  *
@@ -91,6 +104,11 @@ export const SUBPROCESS_ENV = Object.freeze({
   TAVILY_API_KEY: PER_CALL,
   FIRECRAWL_API_KEY: PER_CALL,
   KAGI_API_KEY: PER_CALL,
+  // Host-only: Apify requests are made by the host (#3159). Never admitted,
+  // not even by name; see HOST_ONLY_SECRET_ENV.
+  APIFY_TOKEN: NONE,
+  // Host-only: the shared Apify ledger (#3162). The host opens it; a worker's CLI refuses without it.
+  BRAIN_APIFY_LEDGER: NONE,
 
   // Claude profile overrides built by the backend.
   ANTHROPIC_BASE_URL: AGENT,
@@ -153,7 +171,7 @@ export const SUBPROCESS_ENV = Object.freeze({
  * Parse the operator escape hatch into valid, unique environment names.
  *
  * Empty and malformed comma-separated entries are ignored. The escape-hatch
- * variable cannot admit itself.
+ * variable cannot admit itself, and no entry admits a host-only secret.
  *
  * @experimental Backend toolkit (#1399); may change before 1.0.
  */
@@ -162,10 +180,7 @@ export function parseSubprocessEnvExtra(value: string | undefined): string[] {
   const names = value
     .split(",")
     .map((name) => name.trim())
-    .filter(
-      (name) =>
-        ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME
-    );
+    .filter(admissible);
   return [...new Set(names)];
 }
 
@@ -185,11 +200,7 @@ export function filterSubprocessEnv(
   audience: SubprocessEnvAudience,
   extraNames: readonly string[] = []
 ): Record<string, string | undefined> {
-  const extras = new Set(
-    extraNames.filter(
-      (name) => ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME
-    )
-  );
+  const extras = new Set(extraNames.filter(admissible));
   return Object.fromEntries(
     Object.entries(env).filter(([name]) => {
       if (name === SUBPROCESS_ENV_EXTRA_NAME) return false;

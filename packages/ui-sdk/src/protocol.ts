@@ -953,6 +953,13 @@ export interface SessionHistoryMessage {
    * whatever the turn answered before it failed.
    */
   failure?: TurnFailure;
+  /**
+   * On an `assistant` message: a notice the agent runtime wrote into the
+   * transcript itself when a turn stopped, rather than anything the model
+   * said (additive; #3356). Its text is not repeated in `content`, which
+   * holds whatever the turn answered before it.
+   */
+  runtimeNotice?: RuntimeNotice;
   /** Host-held exact original request, present only on an eligible latest failure. */
   retryOfTurnId?: string;
   /**
@@ -964,6 +971,18 @@ export interface SessionHistoryMessage {
   turnId?: string;
   /** Host-retained facts for this proven turn, never inferred from backend text. */
   journal?: import("./turn-journal.js").TurnJournalSummary;
+}
+
+/**
+ * A runtime-authored notice on a replayed assistant message (additive;
+ * #3356). `cause` is only what the runtime's own record establishes:
+ * `aborted` when it recorded an aborted request, otherwise `unspecified`.
+ * Neither says who stopped the turn or whether earlier tool calls took
+ * effect. `message` is the runtime's text, as written.
+ */
+export interface RuntimeNotice {
+  cause: "aborted" | "unspecified";
+  message: string;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
@@ -1146,6 +1165,11 @@ export interface ServerResultMessage {
    * "timeout" for a max-turns/max-budget stop. A new VALUE here never breaks
    * an old client because the field is free-form and advisory; the precise
    * taxonomy lives in the server's activity record.
+   *
+   * Under `outcome: "cancelled"` (additive; #3356), `"host_timeout"` says the
+   * host's hard elapsed-time turn limit ended the turn, rather than a cancel
+   * someone asked for. Absent on a cancelled turn means the host does not say
+   * why it was cancelled.
    */
   outcomeDetail?: string;
   /**
@@ -1159,6 +1183,12 @@ export interface ServerResultMessage {
   /** This turn's actual admitted resumed-state observation; absent means unknown. */
   stateRoom?: StateRoomObservation;
 }
+
+/**
+ * `result.outcomeDetail` on an `outcome: "cancelled"` turn that the host's
+ * hard elapsed-time turn limit ended (additive; #3356).
+ */
+export const HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout";
 
 /**
  * A provider or API failure that ended a turn (additive; #575), normalised
@@ -3885,6 +3915,7 @@ export interface AgentPolicyRead {
 }
 
 export type { BudgetScope, BudgetObservation, TurnBudgetCoverage, TurnBudgetReceipt } from "./turn-budgets.js";
+export type { ApifyProviderState, ApifyProviderReason, ApifyAccountRead, ApifyPolicyMode, ApifyGrantRead, ApifyLimitsRead, ApifyPolicyRead, ApifySpendScopeRead, ApifyUnresolvedRunRead, ApifySpendRead, ApifySettingsRead, ApifyPolicyChange, ApifyPolicyProposalRead } from "./apify-settings.js";
 
 /** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
 export interface ServerUsage extends SessionScoped {

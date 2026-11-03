@@ -18,6 +18,11 @@ export function AskUserRankExchangeCard(p: {
   unchanged?: boolean;
   cancelled?: boolean;
   lapsedNote?: string;
+  /**
+   * The turn that asked has ended (#3356): the card stays editable under
+   * this prompt, and its Submit no longer answers the request.
+   */
+  endedPrompt?: string;
   answeredAt?: number;
   onSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   onCancel: (requestId: string) => void;
@@ -30,7 +35,7 @@ export function AskUserRankExchangeCard(p: {
   if (p.order) return <AskUserRankCard {...base} state="answered" recordHead={p.record?.head} recordIcon={p.record?.icon} order={p.order} unchanged={p.unchanged}
     answerMeta={`you ${p.unchanged ? "kept this order" : `ranked ${p.rank.cutoff ?? p.order.length}`}${p.answeredAt === undefined ? "" : ` · ${formatRelativeTime(p.answeredAt)}`}`} />;
   if (p.cancelled && !reopened) return <AskUserRankCard {...base} state="dismissed" lapsedNote={p.lapsedNote ?? DISMISSED_NOTE} onAskAgain={p.onReask ? () => setReopened(true) : undefined} />;
-  return <AskUserRankCard {...base} key={reopened ? "reopened" : "live"} singleKeys={singleKeys} prompt={`${root.config.assistantName} needs your input`}
+  return <AskUserRankCard {...base} key={reopened ? "reopened" : "live"} singleKeys={singleKeys} prompt={p.endedPrompt ?? `${root.config.assistantName} needs your input`}
     onSubmit={({ order, unchanged }) => {
       if (reopened) {
         // A reask is a new message: the reader continues in the composer.

@@ -70,7 +70,7 @@ manufacture an identity, and it was not needed.
 ## One card per request
 
 The store updates a request it already holds and never appends it again
-(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:270-301`). A
+(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:289-320`). A
 settled card stays settled, so a late or replayed frame cannot revive a
 dismissed or answered question. A pending card keeps its payload and the
 exchange object it is keyed by, so a draft in progress survives a re-send.
@@ -106,7 +106,7 @@ capability flag is what peers check, because a revision number alone was
 ruled not to establish receipt support.
 
 Outcomes are remembered in memory for 24 hours, at most 1,024 of them
-(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:374`). That is the
+(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:381`). That is the
 client's maximum replay age, so any answer a client may still replay finds
 its outcome. Persisting outcomes would not help after a restart: the
 requests themselves are gone then, and an answer for them must stop, not
@@ -202,6 +202,78 @@ delivered nothing after 10 seconds, whether still connecting or open, is now
 abandoned and retried through the normal backoff (`private abandon`,
 `ws-client.ts:492`). This adds no new timeout to a question. The host's turn
 deadline stays the only limit on an ask.
+
+## A question whose turn ended (#3356)
+
+The maintainer settled three choices on #3356 on 2026-11-02. This section
+records how they were applied and does not reopen them.
+
+**The turn limit stays a hard elapsed-time limit.** A pending question does
+not pause, restart or extend the host's turn deadline, and the time a
+question waits for the user counts against it. Configured values and every
+other authorization, resource and worker guard are unchanged. The reason is
+resource lifetime: a turn holds a worker, a concurrency slot and its relay
+for as long as it runs, so a question that kept a turn alive would keep all
+of that open for as long as the user stays away. A user who returns late
+recovers through an explicit Send as message instead. The timer still
+drains pending questions when it fires (`const timeoutHandle = setTimeout`,
+`packages/ui-server/src/ws/run-session.ts:388-403`), and a later answer
+still gets `closed`/`ended`.
+
+**The timeout is said, not inferred.** The timer itself records the turn it
+ended, and the bridge stamps that turn's own cancelled terminal frames
+(`if (turn.timedOutTurnId === turnId`,
+`packages/ui-server/src/ws/bridge.ts:219-222`): `detail: "Turn timed out"`
+on `status: cancelled`, and `outcomeDetail: "host_timeout"` on the
+cancelled `result`. A cancel, a revoked principal or a journal or egress
+abort leaves no such mark, even though each also aborts the turn's signal.
+The client draws a turn status from it, announced once when it arrives live.
+
+**An ended card keeps its draft, and it leaves only by Send as message.**
+Before this, the terminal frame replaced an unanswered card with a dismissed
+stub, and its draft went with the controls. Now the card stays the editable
+question under a prompt that says the turn ended or timed out
+(`const [endedDismissed`,
+`packages/ui-react/src/components/chat/message-bubble.tsx:608-626`). Its
+Submit sends no frame to the ended request. It records the answer locally as
+a `closed`/`ended` delivery, so the card shows the shipped Not delivered
+footer with Copy answer and Send as message (R1). Send as message is the only
+path that sends anything. It sends an ordinary new chat message, quoting the
+question and the answer the way a reask does, through the composer's normal
+admission for the session on screen. It is offered once: the action goes as
+it is used, and focus stays on the card's outcome
+(`case "sendAsMessage": {`,
+`packages/ui-react/src/components/chat/answer-delivery-status.tsx:77-88`).
+A local `closed` delivery also makes the queue ignore any later submit for
+that request, so nothing can mark the old request accepted. An unsubmitted
+draft lives only in the page, so a reload loses it, and nothing ever resends
+one automatically. A submitted answer that was queued or unconfirmed when
+the turn ended follows the existing receipts unchanged.
+
+**Runtime stop notices are statuses.** When Claude Code resumes a session
+whose turn was interrupted, it writes a reply of its own under its
+`<synthetic>` model: `No response requested.`, or `API Error: Request was
+aborted.` for an aborted request. These replayed as the agent's words. They
+now replay as `SessionHistoryMessage.runtimeNotice` on the message they
+ended, after any partial answer (`export function runtimeNotice`,
+`packages/ui-backend-claude/src/history.ts:339-350`). Recognition needs
+both the runtime's provenance and one of its two constant texts, read from
+the installed CLI, so the same words from the model or the user stay theirs.
+Only an aborted request names a cause, and neither notice says who stopped
+the turn. A failure on the same message stays the one account of the stop.
+Other synthetic texts, such as usage warnings, still replay as text.
+`API Error: 499 Inference request cancelled` was already a classified
+failure and is unchanged. Live, these messages arrive without text deltas,
+so the stream never showed them.
+
+Evidence: `packages/ui-server/tests/ws-ask-turn-timeout.test.ts` (the
+original deadline with the wait counted, the drain, the closed late answer,
+a cancel that is not a timeout, a timely answer and an answer that wins the
+race, for every kind); `packages/ui-backend-claude/tests/history-api-failure.test.ts`;
+`packages/ui-react/tests/render/ended-question.test.tsx`; and
+`packages/ui-react/tests/ended-question-runtime.test.ts`, which runs real
+Chrome against the real host for all four kinds, at 320px, at 200% text and
+in both themes, using the keyboard.
 
 ## Rejected
 
