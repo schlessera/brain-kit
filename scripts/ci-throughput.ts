@@ -11,7 +11,7 @@ export interface PullObservation {
   mergeObject?: { sha: string; tree: string; parents: string[] };
 }
 export interface WorkEvent {
-  version: 1; id: string; repository: string; kind: "work-started" | "work-finished" | "wait-started" | "wait-finished" | "failure-classified" | "incident" | "revert";
+  version: 1; id: string; repository: string; kind: "work-started" | "work-finished" | "wait-started" | "wait-finished" | "failure-classified" | "incident" | "revert" | "expedited-fix";
   at: string; worker?: string; task?: string; reason?: "reservation" | "ci" | "review" | "conflict" | "other";
   pr?: number; run?: number; attempt?: number; job?: number; relatedPR?: number;
   classification?: "product" | "test" | "infrastructure" | "stale-candidate" | "intentional-feedback";
@@ -40,7 +40,7 @@ export function validateWorkEvent(value: unknown): WorkEvent {
   const allowed = new Set(["version", "id", "repository", "kind", "at", "worker", "task", "reason", "pr", "run", "attempt", "job", "relatedPR", "classification", "evidence"]);
   if (!e || typeof e !== "object" || Object.keys(e).some(k => !allowed.has(k)) || e.version !== 1 ||
     typeof e.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(e.id) || !/^[\w.-]+\/[\w.-]+$/.test(e.repository) || !stamp(e.at) ||
-    !["work-started", "work-finished", "wait-started", "wait-finished", "failure-classified", "incident", "revert"].includes(e.kind)) throw new Error("Invalid coordination event");
+    !["work-started", "work-finished", "wait-started", "wait-finished", "failure-classified", "incident", "revert", "expedited-fix"].includes(e.kind)) throw new Error("Invalid coordination event");
   for (const field of ["pr", "run", "attempt", "job", "relatedPR"] as const) if (e[field] !== undefined && !number(e[field])) throw new Error(`Invalid event ${field}`);
   if (/^(work|wait)-/.test(e.kind)) {
     if (![e.worker, e.task].every(x => typeof x === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(x))) throw new Error("Opaque worker/task IDs required");
@@ -51,6 +51,7 @@ export function validateWorkEvent(value: unknown): WorkEvent {
     if (e.kind === "failure-classified" && (!number(e.run) || !number(e.attempt) ||
       !["product", "test", "infrastructure", "stale-candidate", "intentional-feedback"].includes(e.classification ?? ""))) throw new Error("Run/attempt and failure classification required");
     if (["incident", "revert"].includes(e.kind) && !number(e.pr)) throw new Error("Affected PR required");
+    if (e.kind === "expedited-fix" && (!number(e.pr) || !number(e.run))) throw new Error("Fix PR and failing main run required");
   }
   return Object.fromEntries([...allowed].filter(k => (e as unknown as Record<string, unknown>)[k] !== undefined)
     .map(k => [k, (e as unknown as Record<string, unknown>)[k]])) as unknown as WorkEvent;
@@ -128,6 +129,10 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
   events = [...seenEvents.values()].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   const delivered = pulls.filter(p => p.mergedAt && inWindow(Date.parse(p.mergedAt)) && p.baseBranch === "main");
   const ordered = (values: TimingSnapshot[]) => [...values].sort((a, b) => Date.parse(a.run.createdAt) - Date.parse(b.run.createdAt) || a.run.id - b.run.id || a.run.attempt - b.run.attempt);
+  // The recorded merge path (#2940): an integrate.ts lease for the merged head, an expedited fix, or neither.
+  const mergePath = (p: PullObservation, mergeAt: number): "expedited" | "recorded" | "unrecorded" | "unknown" =>
+    events.some(e => e.kind === "expedited-fix" && e.pr === p.number) ? "expedited" : !leases ? "unknown" :
+      leases.some(l => l.pr === p.number && l.head === p.head && l.acquired <= mergeAt) ? "recorded" : "unrecorded";
   const prRows = delivered.map(p => {
     const mergeAt = Date.parse(p.mergedAt!), pre = rows.filter(s => s.run.event === "pull_request" && s.run.prs.length === 1 && s.run.prs[0] === p.number && Date.parse(s.run.createdAt) <= mergeAt);
     const main = ordered(rows.filter(s => s.run.event === "push" && s.run.head === p.merge));
@@ -151,7 +156,8 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
       mergeToGreenSeconds: postGreen ? seconds(p.mergedAt, new Date(completed(postGreen)!).toISOString()) : null,
       createToGreenSeconds: postGreen ? seconds(p.createdAt, new Date(completed(postGreen)!).toISOString()) : null,
       observedRunnerSeconds: [...pre, ...main].reduce((n, s) => n + execution(s), 0),
-      equivalence, incidents: events.filter(e => ["incident", "revert"].includes(e.kind) && e.pr === p.number).map(e => e.id) };
+      equivalence, incidents: events.filter(e => ["incident", "revert"].includes(e.kind) && e.pr === p.number).map(e => e.id),
+      mergePath: mergePath(p, mergeAt) };
   });
   const firstKnown = prRows.filter(p => p.firstMainOutcome !== "unknown"), firstGreen = prRows.filter(p => p.firstMainOutcome === "success");
   const eventual = prRows.filter(p => p.mergeToGreenSeconds !== null), paired = prRows.filter(p => p.preAttempts && p.postAttempts);
@@ -219,6 +225,8 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
       classifiedFailedAttempts: percentage(failed.filter(s => classified.has(`${s.run.id}/${s.run.attempt}`)).length, failed.length),
       classificationRecords: events.filter(e => e.kind === "failure-classified").map(e => ({ id: e.id, run: e.run, attempt: e.attempt, job: e.job, classification: e.classification, evidence: e.evidence })),
       explicitIncidentOrRevertRecords: events.filter(e => ["incident", "revert"].includes(e.kind)).length,
+      mergePaths: Object.fromEntries((["recorded", "expedited", "unrecorded", "unknown"] as const).map(k => [k, prRows.filter(p => p.mergePath === k).length])),
+      expeditedFixRecords: events.filter(e => e.kind === "expedited-fix").map(e => ({ id: e.id, pr: e.pr, run: e.run, at: e.at, evidence: e.evidence })),
       incidentRate: null, note: "No incident records does not establish no incidents. Green-main discordance is not a diagnosed escaped defect; same-source recovery is not a diagnosed flaky test." },
     parallelism: { ciJobs: concurrency(jobIntervals, window), distinctPRVerification: concurrency([...byPR.values()].flatMap(mergeIntervals), window),
       recordedWorkers: workByWorker.size ? concurrency([...workByWorker.values()].flatMap(mergeIntervals), window) : null,
@@ -263,6 +271,7 @@ export function throughputMarkdown(r: ReturnType<typeof summarizeThroughput>): s
       return `| ${k} | ${d.n} | ${format(d.mean === null ? null : d.mean / 60)} | ${format(d.median === null ? null : d.median / 60)} | ${format(d.p90 === null ? null : d.p90 / 60)} |`;
     }), "", `Peak observed CI jobs: ${r.parallelism.ciJobs.peak}; peak distinct PR verification intervals: ${r.parallelism.distinctPRVerification.peak}. Worker concurrency: ${r.parallelism.recordedWorkers ? r.parallelism.recordedWorkers.peak : "unknown (no complete worker records)"}.`,
     `Reservation occupied wall-seconds: ${r.reservation ? format(r.reservation.activeWallSeconds) : "unknown"}; caller reservation wait remains unknown without wait records.`,
+    `Merge paths: ${JSON.stringify(r.reliability.mergePaths)}; expedited red-main fixes: ${r.reliability.expeditedFixRecords.length}. Unrecorded merges bypassed integrate.ts; unknown means no reservation history was collected.`,
     `Final candidate receipt / immutable squash comparisons: ${JSON.stringify(r.evidence.squashComparedToRecordedReceipt)}. Differences require contextual review; unknown is not equivalent.`,
     `Scenario: ${JSON.stringify(r.scenario.assumptions)}; equivalent full runs/PR ${format(r.scenario.equivalentFullRunsPerPR)}; estimated compute saving ${format(r.scenario.estimatedSavingPercent)}%; full reference samples: ${r.scenario.baselineSamples}.`,
     "Causal wall-time and reliability improvements remain unknown. Guarantee satisfaction requires the existing independent proof/merge validation; these rates do not replace it.", ""].join("\n");

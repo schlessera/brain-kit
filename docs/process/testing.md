@@ -424,6 +424,53 @@ permits setup failures and does not belong in proof. A PATH change on the host
 does not upgrade a fixed `/usr/bin/bwrap` inside a container; qualify that runtime
 separately before changing its supplied binary. Hosted CI images stay unchanged.
 
+## Host admission for heavy local commands
+
+Local long suites are for debugging a specific failure only (#2939); they run
+through a host-wide admission ledger, `scripts/host-admission.mjs` (#2943).
+Separate worktrees on one machine share its slots, so a heavy command that
+would exceed the limit waits, printing the holders and its queue position,
+instead of starting and timing out. Test deadlines are never raised to absorb
+contention.
+
+Heavy commands are the integrated default `bun run test` suite, runtime-host
+and native test selections, any selected file whose measured cost in
+`scripts/test-shard-costs.json` reaches 30 seconds, `check:pr --full`/`--all`,
+the parallel unit-worker queue (one slot for all its workers) and
+`bun run test:browser` (held on the host for the whole container run). Focused
+tests and default `check:pr` are not admitted. Nested heavy commands inherit
+their caller's slot, also when a caller replaced their environment: the
+ledger itself shows a live ancestor holding a slot. The admitted command
+receives the workspace lease's descriptor, as a nested user namespace needs. A wait is recorded as a `wait-started`/`wait-finished`
+pair with reason `other` through `scripts/ci-timings.ts record`
+([coordination events](ci-throughput.md#record-coordination-and-incidents)).
+
+| Variable | Meaning |
+| --- | --- |
+| `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
+| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test preload gives each test process a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
+| `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
+| `BRAIN_RED_MAIN_FIX` | The PR number of a declared red-main fix. Its commands are admitted ahead of every queued ordinary command; they do not preempt running ones. Equivalent to `run --red-main-fix <pr>`. |
+| `BRAIN_HOST_ADMISSION` | Internal: the slot an admitted command's descendants inherit. Never set it by hand. |
+
+```sh
+node scripts/host-admission.mjs status
+node scripts/host-admission.mjs run [--red-main-fix <pr>] -- <command...>
+node scripts/host-admission.mjs preempt <slot> --reason red-main-fix [--grace-ms 10000]
+```
+
+The ledger records each slot's holder process identity, worker, orchestrator
+and priority class. A holder whose process has died is reclaimed on the next
+pass, after its orphaned command group has been killed. `preempt` follows the
+[#2938 ruling](https://github.com/schlessera/brain-kit/issues/2938): it refuses
+a slot outside the caller's orchestrator subtree, any reason but
+`red-main-fix`, and a call while no red-main fix is waiting. It sends SIGTERM to
+the holder's process group, lets cleanup run for the grace period, then kills
+it; the slot is released only after the group has gone. The preempted run exits
+`75` and is recorded as `preempted` in the ledger history, which is neither a
+pass nor a failure. Another orchestrator's holder yields only through queue
+priority or the maintainer.
+
 ## Required proof for a PR
 
 The policy is [the CI decision](../decisions/ci-utility.md); the commands are
@@ -433,7 +480,12 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   metadata gates and complete affected hosted unit/integration/runtime,
   keyless funnel, pinned browser proof, strict types and packaging on explicit
   ready-candidate confirmation events. Agents keep focused local behavioral proof.
-- Run `bun run check:pr --base origin/main` before opening or marking ready.
+- Run `bun run check:pr --base origin/main` before opening or marking ready,
+  and paste the receipt block it prints into the PR body. Record a check you
+  cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`
+  rather than dropping it: the merge path refuses a missing receipt, and a
+  skipped, timed-out or preempted check whose hosted category the exact-head
+  proof did not run ([local check receipts](../decisions/ci-utility.md#local-check-receipts)).
   For an upper stack layer, substitute its verified immediate parent ref;
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
