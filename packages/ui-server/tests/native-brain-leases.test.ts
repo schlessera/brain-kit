@@ -284,10 +284,13 @@ test("settling a failed release never overrides a newer release of the same iden
     records.set(id, value); return value as never;
   };
   f.native.client.listPoolRecovery = async () => ({ records: [...records.values()] as never, next: null });
-  let attempts = 0, commit: () => void = () => {};
+  let attempts = 0, commit: () => void = () => {}, newer: () => void = () => {};
   const committed = new Promise<void>(resolve => { commit = resolve; });
+  const newerStarted = new Promise<void>(resolve => { newer = resolve; });
   f.native.client.poolRelease = async id => {
-    if (++attempts === 1) { await Bun.sleep(20); throw new Error("the first reply was lost"); }
+    // The first reply is lost only once the newer release of the same identity has reached the pool.
+    if (++attempts === 1) { await newerStarted; throw new Error("the first reply was lost"); }
+    newer();
     await committed;
     records.delete(id);
     return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;

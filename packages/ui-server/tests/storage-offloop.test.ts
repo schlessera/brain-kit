@@ -243,7 +243,10 @@ for (const mode of ["sync", "async"] as const) test(`sampling retains ${mode} fl
   const sampling = createStorageSampling(f.db, storage, history, shared, notices, { deliverStorage: async () => 0 }, start);
   try {
     sampling.tick(start + 60_000);
-    await new Promise(resolve => setTimeout(resolve, 20));
+    // The tick calls all three synchronously; their rejections and the sampler's
+    // handlers are microtasks, so they have all settled after one macrotask turn.
+    expect([flush, sweep, clean].map(spy => spy.mock.calls.length), "SAMPLER_TICK_STARTED_EVERY_FAILING_STEP").toEqual([1, 1, 1]);
+    await new Promise<void>(resolve => setImmediate(resolve));
     const closing = sampling.close();
     expect(sampling.close(), "SAMPLER_CONCURRENT_CLOSE_JOINS").toBe(closing);
     const error = await closing.then(() => undefined, error => error);

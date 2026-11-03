@@ -141,6 +141,11 @@ describe("shared reference source", () => {
 
 /** What the public view holds: names and root identities alike. */
 const publicEntries = (views: { public: string } | null) => views ? readdirSync(views.public).sort() : null;
+/**
+ * The transport, the pool double and the reference writes are in memory, so one macrotask
+ * turn runs all pending work up to its next held barrier.
+ */
+const drain = () => new Promise<void>(resolve => setImmediate(resolve));
 const nameOf = (result: ReferenceToolResult) => ok<Extract<ReferenceToolResult, { source: unknown }>>(result).source.path!.split("/").at(-1)!;
 
 describe("binding a view is a new mount (#2432, option 1)", () => {
@@ -351,7 +356,8 @@ describe("exposure changes are serialized (#2432 review)", () => {
     const binding = sources.bindable(telemachus.id);
     while (!paused) await Bun.sleep(1);
     const lease = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
-    await Bun.sleep(5);
+    // The request runs until it waits behind the held suspension.
+    await drain();
     open();
     const views = await binding;
     const held = await lease;
@@ -435,7 +441,8 @@ describe("exposure changes are serialized (#2432 review)", () => {
     while (!paused) await Bun.sleep(1);
     let bound = false;
     const binding = sources.bindable(telemachus.id).then(views => { bound = true; return views; });
-    await Bun.sleep(20);
+    // Everything not held behind the paused publication has run after this turn.
+    await drain();
     expect(bound, "REFERENCE_TOOLS_BIND_WAITS_FOR_INITIAL_PUBLICATION").toBe(false);
     open();
     const held = await acquiring;
@@ -478,7 +485,8 @@ describe("exposure changes are serialized (#2432 review)", () => {
     while (!paused) await Bun.sleep(1);
     revokeReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, id: issued.id, now: Date.now() });
     const revoking = sources.revoke({ grantIds: [issued.id], principalIds: [] });
-    await Bun.sleep(5);
+    // The revocation runs until it waits behind the held restoration.
+    await drain();
     open();
     await Promise.allSettled([restoring, revoking]);
     (await restoring.catch(() => null))?.release();

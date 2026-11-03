@@ -23,13 +23,23 @@ const grant = (principalId: string, by: string, prefix = "https://github.com/ody
   createReferenceGrant(db, { brain: BRAIN, principalId, repositoryPrefix: prefix, credential, createdBy: by, now: Date.now() });
 
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
+/**
+ * Every collaborator here is in memory: the scripted transport, the pool double and inline
+ * reference writes. One macrotask turn therefore runs all pending work up to its next held
+ * barrier, and a step that has not happened after it is waiting on that barrier.
+ */
+const drain = () => new Promise<void>(resolve => setImmediate(resolve));
+/** Turn the event loop until `condition` holds; the caller's assertion reports a miss. */
+async function until(condition: () => boolean, turns = 100) { for (let turn = 0; turn < turns && !condition(); turn++) await drain(); }
 
 /** Scripted repositories: anonymous access only to public ones; the private one needs an accepted fixture token. */
 function scripted() {
   const repos = new Map<string, { private: boolean; tip: string }>([[PUBLIC, { private: false, tip: "1".repeat(40) }], [PRIVATE, { private: true, tip: "2".repeat(40) }],
     ["https://github.com/odysseus/argo", { private: false, tip: "3".repeat(40) }], ["https://github.com/odysseus/scylla", { private: false, tip: "4".repeat(40) }]]);
   const state = { resolves: [] as { repository: string; token: string | null }[], fetches: [] as { repository: string; token: string | null }[], active: 0, maxActive: 0,
-    gate: null as null | ReturnType<typeof deferred>, unavailable: false, fetchFailure: null as null | Error, checkoutFailure: null as null | Error, settleDelayMs: 0,
+    gate: null as null | ReturnType<typeof deferred>, unavailable: false, fetchFailure: null as null | Error, checkoutFailure: null as null | Error,
+    /** Holds a fetch's teardown after it stopped, the way a real worker takes time to exit after an abort. */
+    settle: null as null | ReturnType<typeof deferred>,
     events: [] as string[], onResolve: null as null | ((token: string | null) => void), tokens: new Set<string | null>([TOKEN]),
     /** Holds one fetch until the returned promise settles, so concurrent operations can be released one at a time. */
     hold: null as null | ((call: { repository: string; token: string | null }) => Promise<void> | undefined) };
@@ -55,8 +65,7 @@ function scripted() {
         writeFileSync(join(target, "README.md"), `${repository.canonical}@${repo.tip}\n`);
         return { commit: repo.tip };
       } finally {
-        // A real worker needs time to tear down after an abort.
-        if (state.settleDelayMs) await Bun.sleep(state.settleDelayMs);
+        if (state.settle) await state.settle.promise;
         state.active--; state.events.push("fetch-settled");
       }
     },
@@ -121,14 +130,15 @@ describe("authority and sharing domains", () => {
     const mine = sources.request({ principalId: telemachus.id, repository: PRIVATE, revision: "main" });
     const theirs = sources.request({ principalId: eurycleia.id, repository: PRIVATE, revision: "main" }).finally(() => { theirsSettled = true; });
     try {
-      await Bun.sleep(10);
+      await until(() => state.fetches.filter(call => call.repository === PRIVATE).length === 2);
       // The first fetch is still in flight when the second principal asks: both run, each under its own principal's credential.
       expect(state.fetches.filter(call => call.repository === PRIVATE).map(call => call.token).sort(), "REFERENCE_SOURCE_PRIVATE_CONCURRENT_NOT_JOINED")
         .toEqual([SECOND, TOKEN].sort());
       expect(sources.activity()).toEqual({ active: 2, waiting: 0 });
       gates.get(TOKEN)!.resolve();
       const first = await mine;
-      await Bun.sleep(10);
+      // Anything settled by the first domain's operation has settled after this turn.
+      await drain();
       expect(theirsSettled, "REFERENCE_SOURCE_PRIVATE_NOT_SETTLED_BY_OTHER_DOMAIN").toBe(false);
       gates.get(SECOND)!.resolve();
       const second = await theirs;
@@ -242,7 +252,7 @@ describe("admission, cancellation and eviction", () => {
     const penelope = owner(), telemachus = agent(penelope.id);
     state.gate = deferred();
     const requests = [penelope.id, telemachus.id, penelope.id, telemachus.id].map(principalId => sources.request({ principalId, repository: PUBLIC, revision: "main" }));
-    await Bun.sleep(10);
+    await until(() => state.fetches.length > 0);
     state.gate.resolve();
     const leases = await Promise.all(requests);
     expect(state.fetches, "REFERENCE_SOURCE_SINGLE_FLIGHT").toHaveLength(1);
@@ -256,7 +266,7 @@ describe("admission, cancellation and eviction", () => {
     const requests = [PUBLIC, "https://github.com/odysseus/argo", "https://github.com/odysseus/scylla"]
       .map(repository => sources.request({ principalId: penelope.id, repository, revision: "main" }));
     try {
-      await Bun.sleep(10);
+      await until(() => state.fetches.length >= 2);
       expect(sources.activity(), "REFERENCE_SOURCE_TWO_OPERATIONS").toEqual({ active: 2, waiting: 1 });
       expect(state.maxActive).toBe(2);
     } finally { state.gate.resolve(); await Promise.allSettled(requests); }
@@ -276,10 +286,10 @@ describe("admission, cancellation and eviction", () => {
     let stalledSettled = false;
     const stalled = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" }).finally(() => { stalledSettled = true; });
     // The stalled acquisition is admitted first, so it is the oldest active operation.
-    await Bun.sleep(5);
+    await until(() => state.fetches.some(call => call.repository === PUBLIC));
     const moving = sources.request({ principalId: penelope.id, repository: ARGO, revision: "main" });
     try {
-      await Bun.sleep(10);
+      await until(() => state.fetches.some(call => call.repository === ARGO));
       expect(sources.activity()).toEqual({ active: 2, waiting: 0 });
       gates.get(ARGO)!.resolve();
       const lease = await Promise.race([moving, Bun.sleep(1_000).then(() => null)]);
@@ -303,7 +313,7 @@ describe("admission, cancellation and eviction", () => {
     state.gate = deferred();
     const running = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
     const waiting = sources.request({ principalId: penelope.id, repository: "https://github.com/odysseus/argo", revision: "main" });
-    await Bun.sleep(10);
+    await until(() => state.fetches.length === 1 && sources.activity().waiting === 1);
     const third = sources.request({ principalId: penelope.id, repository: "https://github.com/odysseus/scylla", revision: "main" });
     const early = await Promise.race([third.then(() => "admitted", (error: { code?: string }) => error.code ?? "error"), Bun.sleep(50).then(() => "waiting")]);
     state.gate.resolve();
@@ -314,13 +324,17 @@ describe("admission, cancellation and eviction", () => {
   test("cancellation releases staging only after the transport worker stopped, and never publishes", async () => {
     const { sources, state, pool } = service();
     const penelope = owner();
-    state.gate = deferred(); state.settleDelayMs = 30;
+    state.gate = deferred(); state.settle = deferred();
     const controller = new AbortController();
     const request = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main", signal: controller.signal });
-    await Bun.sleep(10);
+    await until(() => state.fetches.length === 1);
     controller.abort();
-    try { await expect(request).rejects.toMatchObject({ code: "cancelled" }); }
-    finally { state.gate.resolve(); await sources.close(); }
+    try {
+      await expect(request).rejects.toMatchObject({ code: "cancelled" });
+      // The aborted fetch is still tearing down: everything else has run, and the reservation is still held.
+      await drain();
+      expect(state.events, "REFERENCE_SOURCE_RESERVATION_HELD_WHILE_WORKER_TEARS_DOWN").toEqual([]);
+    } finally { state.settle.resolve(); state.gate.resolve(); await sources.close(); }
     const settled = state.events.indexOf("fetch-settled"), released = state.events.findIndex(event => event.startsWith("release:"));
     expect(settled, "REFERENCE_SOURCE_RESERVATION_HELD_UNTIL_WORKER_STOPS").toBeGreaterThanOrEqual(0);
     expect(released, "REFERENCE_SOURCE_RESERVATION_HELD_UNTIL_WORKER_STOPS").toBeGreaterThan(settled);
@@ -333,7 +347,7 @@ describe("admission, cancellation and eviction", () => {
     const record = grant(telemachus.id, penelope.id);
     state.gate = deferred();
     const request = sources.request({ principalId: telemachus.id, repository: PRIVATE, revision: "main" });
-    await Bun.sleep(10);
+    await until(() => state.fetches.some(call => call.repository === PRIVATE));
     revokeReferenceGrant(db, { brain: BRAIN, principalId: telemachus.id, id: record.id, now: Date.now() });
     await sources.revoke({ grantIds: [record.id], principalIds: [] });
     const outcome = await Promise.race([request.then(() => "published", () => "refused"), Bun.sleep(2_000).then(() => "running")]);
@@ -376,7 +390,7 @@ describe("admission, cancellation and eviction", () => {
     (await sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" })).release();
     expect([...pool.records.values()].filter(record => record.state === "sealed"), "REFERENCE_SOURCE_READER_DOES_NOT_BLOCK_REFRESH").toHaveLength(2);
     reader.release();
-    await Bun.sleep(5);
+    await until(() => [...pool.records.values()].filter(record => record.state === "sealed").length === 1);
     expect([...pool.records.values()].filter(record => record.state === "sealed"), "REFERENCE_SOURCE_SUPERSEDED_RELEASED_AFTER_READERS").toHaveLength(1);
   });
 
@@ -415,7 +429,7 @@ describe("review regressions", () => {
     expect(readdirSync(reader.viewPath), "REFERENCE_SOURCE_WITHDRAWN_IDENTITY_GONE").not.toContain(root);
     expect(pool.records.get(root)?.state, "REFERENCE_SOURCE_LEASED_STORAGE_KEPT").toBe("sealed");
     reader.release();
-    await Bun.sleep(5);
+    await until(() => pool.records.get(root)?.state === "reclaimed");
     expect(pool.records.get(root)?.state).toBe("reclaimed");
   });
 
@@ -428,9 +442,9 @@ describe("review regressions", () => {
     // The private refresh waits for admission behind another operation; its principal is revoked meanwhile.
     state.gate = deferred();
     const holding = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
-    await Bun.sleep(10);
+    await until(() => state.fetches.length > 0);
     const queued = sources.request({ principalId: telemachus.id, repository: PRIVATE, revision: "main" });
-    await Bun.sleep(10);
+    await until(() => sources.activity().waiting === 1);
     expect(sources.activity()).toEqual({ active: 1, waiting: 1 });
     revokePrincipal(db, telemachus.id, Date.now());
     const credentialed = state.resolves.filter(call => call.repository === PRIVATE && call.token).length;
@@ -511,9 +525,10 @@ describe("review regressions", () => {
     let pausing = true;
     pool.poolUnpublish = async (...args) => { if (pausing) { pausing = false; await paused.promise; } return unpublish(...args); };
     const third = sources.request({ principalId: penelope.id, repository: "https://github.com/odysseus/scylla", revision: "main" });
-    await Bun.sleep(10);
+    await until(() => !pausing);
     const raced = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
-    await Bun.sleep(10);
+    // The raced request runs as far as it can while the eviction is held inside its unpublish.
+    await drain();
     paused.resolve();
     const [victim] = await Promise.allSettled([raced, third]);
     expect(victim.status === "fulfilled" && existsSync(join(victim.value.viewPath, victim.value.name, "README.md")), "REFERENCE_SOURCE_EVICTION_FENCED").toBe(true);
