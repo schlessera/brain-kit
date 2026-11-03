@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 // Other HTML (including interpolated fixture payloads) remains unresolved.
 const literals:Record<string,{source:string;expression:string}> = {
   "packages/ui-kit/tests/visual/form-browser.ts": {
-    "source": "3ccf67a71fa64af195bbf8cf6d173064dc9d2d4fc6abc699fa0a638c352ca62e",
+    "source": "5def3875a8e16e41b22bf1ff2a25b045a3adc59bdc2df2e0c7754126f3c8e27b",
     "expression": "route.fulfill({ status: 200, contentType: \"image/svg+xml\", body: '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"60\"><rect width=\"100\" height=\"60\" fill=\"teal\"/></svg>' })"
   },
   "packages/ui-kit/tests/visual/ghost-browser.ts": {
