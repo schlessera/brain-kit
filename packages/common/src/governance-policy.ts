@@ -1,6 +1,6 @@
 /** Read-only, data-only governance policy input. Enforcement belongs to its owning siblings. */
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { parseFrontmatter } from "./frontmatter-parse.js";
@@ -122,43 +122,150 @@ export function parseGovernancePolicy(bytes: Uint8Array): GovernancePolicyCheck 
   }
 }
 
-/** Descriptor-anchored, no links or FIFO reads; never loads brain configuration or executes code. */
-export function checkGovernancePolicy(brainPath: string): GovernancePolicyCheck {
-  const fds: number[] = [];
-  const directories: Array<{ path: string; fd: number }> = [];
+/**
+ * Why the anchored reader refused the policy. Each has one message here;
+ * the policy writer maps them onto its own review states and wording.
+ * - `not_regular`: not an ordinary file, or a file with hardlink aliases.
+ * - `oversize`: the file reports more than {@link GOVERNANCE_POLICY_MAX_BYTES}.
+ * - `changed`: size, timestamps or the bytes read disagree within one read.
+ * - `ancestry`: a held directory no longer has its name, or is not a directory.
+ * - `mismatch`: a re-check read bytes other than the expected hash.
+ */
+export type GovernancePolicyReadRefusal = "not_regular" | "oversize" | "changed" | "ancestry" | "mismatch";
+const READ_REFUSALS: Record<GovernancePolicyReadRefusal, string> = {
+  not_regular: "Policy must be a regular file without hardlink aliases",
+  oversize: "Policy exceeds the 1 MiB input bound",
+  changed: "Policy changed while it was read; retry the check or repair the edit",
+  ancestry: "Policy ancestry changed while it was read",
+  mismatch: "Policy changed since it was read",
+};
+export class GovernancePolicyReadError extends Error {
+  constructor(readonly refusal: GovernancePolicyReadRefusal) { super(READ_REFUSALS[refusal]); this.name = "GovernancePolicyReadError"; }
+}
+
+/** One held directory of the policy's ancestry: the brain root, `context`, `context/policies`. */
+export interface GovernancePolicyDirectory { readonly fd: number; readonly path: string; readonly dev: number; readonly ino: number }
+/**
+ * The policy as read through held directory descriptors. `at` names the file
+ * relative to the innermost held directory (`/proc/self/fd/<fd>/governance.md`
+ * on Linux), so a write staged beside it lands in the directory that was checked.
+ * `bytes` is null when the file does not exist. Close it exactly once.
+ */
+export interface AnchoredGovernancePolicy {
+  readonly directories: readonly GovernancePolicyDirectory[];
+  readonly at: string;
+  readonly bytes: Buffer | null;
+  /** Permission bits of the file read; absent when there is none. */
+  readonly mode?: number;
+  close(): void;
+}
+
+const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+const anchoredName = (parent: GovernancePolicyDirectory, name: string, visible: string) =>
+  process.platform === "linux" ? `/proc/self/fd/${parent.fd}/${name}` : visible;
+
+/**
+ * Bounded read of the file at `at`, never following a link or blocking on a
+ * FIFO. Null when it does not exist. Allocates at most one byte past the bound,
+ * so a file growing after its size check is caught without loading it.
+ */
+function readAnchoredFile(at: string): { bytes: Buffer | null; mode?: number } {
+  let fd: number;
+  try { fd = openSync(at, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { bytes: null }; throw error; }
   try {
-    let path = realpathSync(brainPath);
-    let fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); fds.push(fd);
-    directories.push({ path, fd });
-    const parts = GOVERNANCE_POLICY_PATH.split("/");
-    for (const part of parts.slice(0, -1)) {
-      path = join(path, part);
-      fd = openSync(process.platform === "linux" ? `/proc/self/fd/${fd}/${part}` : path,
-        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); fds.push(fd);
-      directories.push({ path, fd });
-    }
-    fd = openSync(process.platform === "linux" ? `/proc/self/fd/${fd}/${parts.at(-1)!}` : join(path, parts.at(-1)!),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); fds.push(fd);
     const info = fstatSync(fd);
-    if (!info.isFile() || info.nlink !== 1) throw new Error("Policy must be a regular file without hardlink aliases");
-    if (info.size > GOVERNANCE_POLICY_MAX_BYTES) throw new Error("Policy exceeds the 1 MiB input bound");
+    if (!info.isFile() || info.nlink !== 1) throw new GovernancePolicyReadError("not_regular");
+    if (info.size > GOVERNANCE_POLICY_MAX_BYTES) throw new GovernancePolicyReadError("oversize");
     const bytes = Buffer.alloc(GOVERNANCE_POLICY_MAX_BYTES + 1); let length = 0;
     while (length < bytes.length) { const read = readSync(fd, bytes, length, bytes.length - length, null); if (!read) break; length += read; }
     const after = fstatSync(fd);
-    if (after.size !== info.size || after.mtimeMs !== info.mtimeMs || after.ctimeMs !== info.ctimeMs || length !== info.size) throw new Error("Policy changed while it was read; retry the check or repair the edit");
-    // Non-Linux CLI readers cannot use /proc descriptor traversal. They open
-    // each component without following links and reject changed ancestry.
-    // Hosted workers require Linux, where every open above is descriptor-relative.
-    if (process.platform !== "linux") for (const directory of directories) {
-      const named = lstatSync(directory.path), held = fstatSync(directory.fd);
-      if (!named.isDirectory() || named.dev !== held.dev || named.ino !== held.ino) throw new Error("Policy ancestry changed while it was read");
+    // A short or long read is a change even when the timestamps did not move.
+    if (length !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs || after.ctimeMs !== info.ctimeMs)
+      throw new GovernancePolicyReadError("changed");
+    return { bytes: Buffer.from(bytes.subarray(0, length)), mode: info.mode & 0o7777 };
+  } finally { closeSync(fd); }
+}
+
+/** Every held directory still has its name, as a directory, with the identity it was opened with. */
+function checkAncestry(directories: readonly GovernancePolicyDirectory[]) {
+  for (const directory of directories) {
+    // A removed ancestor is a change, not a missing policy: bytes were already read.
+    const named = lstatSync(directory.path, { throwIfNoEntry: false });
+    if (!named?.isDirectory() || named.dev !== directory.dev || named.ino !== directory.ino) throw new GovernancePolicyReadError("ancestry");
+  }
+}
+
+/**
+ * Opens the policy's ancestry under `root` without following links, holding
+ * each directory, and reads the policy through the innermost one. `root` is
+ * used as given (callers resolve it once) and must itself not be a link.
+ * On Linux every open after the root is relative to the held parent
+ * descriptor; elsewhere each component is opened by name and the ancestry
+ * check below rejects a swap.
+ *
+ * With `create`, missing ancestor directories are made (mode 0755) and their
+ * visible paths appended to `created`, so a caller can remove them again.
+ * Without it, a missing ancestor throws `ENOENT`. A missing file is
+ * `bytes: null`. Other refusals throw {@link GovernancePolicyReadError};
+ * errors of the system calls (a link: `ELOOP`/`ENOTDIR`) propagate as they are.
+ * The ancestry is checked after the read, so a directory swapped while the
+ * bytes were read is refused.
+ */
+export function openGovernancePolicyAnchored(root: string, options: { create?: boolean; created?: string[] } = {}): AnchoredGovernancePolicy {
+  const directories: GovernancePolicyDirectory[] = [];
+  const release = () => { for (const directory of directories.splice(0).reverse()) closeSync(directory.fd); };
+  try {
+    const parts = GOVERNANCE_POLICY_PATH.split("/"), name = parts.pop()!;
+    let visible = root, at = root;
+    for (let i = 0; i <= parts.length; i++) {
+      if (i > 0) {
+        visible = join(visible, parts[i - 1]!); at = anchoredName(directories.at(-1)!, parts[i - 1]!, visible);
+        if (options.create) {
+          try { mkdirSync(at, { mode: 0o755 }); options.created?.push(visible); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+        }
+      }
+      const fd = openSync(at, DIRECTORY_FLAGS);
+      try { const info = fstatSync(fd); directories.push({ fd, path: visible, dev: info.dev, ino: info.ino }); }
+      catch (error) { closeSync(fd); throw error; }
     }
-    return parseGovernancePolicy(bytes.subarray(0, length));
+    const file = anchoredName(directories.at(-1)!, name, join(visible, name));
+    const read = readAnchoredFile(file);
+    checkAncestry(directories);
+    let closed = false;
+    return { directories, at: file, ...read, close() { if (!closed) { closed = true; release(); } } };
+  } catch (error) { release(); throw error; }
+}
+
+/**
+ * Re-checks a held policy: the ancestry still has its names, and the file
+ * now at `handle.at` reads (with the same bounds) to `expectedHash`, the
+ * SHA-256 of its bytes, or is absent when `expectedHash` is null. Returns the
+ * bytes read; throws {@link GovernancePolicyReadError} otherwise.
+ */
+export function verifyGovernancePolicyAnchored(handle: AnchoredGovernancePolicy, expectedHash: string | null): Buffer | null {
+  checkAncestry(handle.directories);
+  const current = readAnchoredFile(handle.at).bytes;
+  if ((current === null ? null : createHash("sha256").update(current).digest("hex")) !== expectedHash) throw new GovernancePolicyReadError("mismatch");
+  return current;
+}
+
+/** Descriptor-anchored, no links or FIFO reads; never loads brain configuration or executes code. */
+export function checkGovernancePolicy(brainPath: string): GovernancePolicyCheck {
+  let handle: AnchoredGovernancePolicy | undefined;
+  try {
+    handle = openGovernancePolicyAnchored(realpathSync(brainPath));
+    if (handle.bytes === null) return missingGovernancePolicy();
+    return parseGovernancePolicy(handle.bytes);
   } catch (error) {
-    const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
-    return { schema_version: 1, ok: missing, status: missing ? "missing" : "invalid", content_hash: null,
-      errors: missing ? [] : [error instanceof Error ? error.message : String(error)], warnings: [], effective: resolveGovernancePolicy({ schema_version: 1 }) };
-  } finally { for (const fd of fds.reverse()) closeSync(fd); }
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return missingGovernancePolicy();
+    return { schema_version: 1, ok: false, status: "invalid", content_hash: null,
+      errors: [error instanceof Error ? error.message : String(error)], warnings: [], effective: resolveGovernancePolicy({ schema_version: 1 }) };
+  } finally { handle?.close(); }
+}
+function missingGovernancePolicy(): GovernancePolicyCheck {
+  return { schema_version: 1, ok: true, status: "missing", content_hash: null, errors: [], warnings: [], effective: resolveGovernancePolicy({ schema_version: 1 }) };
 }
 
 /** Matching rules intersect their allowlists; unknown recipients never authorize a match. */
