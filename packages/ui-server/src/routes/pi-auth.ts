@@ -34,7 +34,7 @@ export interface PiLoginFlowView {
 }
 
 /** Structural mirror of the pi package's PiAuthProviderStatus. */
-export interface PiAuthProviderStatusView {
+interface PiAuthProviderStatusView {
   providerId: string;
   name: string;
   configured: boolean;
@@ -51,7 +51,7 @@ interface PiAuthMirror {
   logout(providerId: string): Promise<void>;
 }
 
-export interface PiAuthRoutesDeps {
+interface PiAuthRoutesDeps {
   agent: AgentConfig;
   /** Test seam — forwarded to loadBackendModule. */
   importer?: (specifier: string) => Promise<unknown>;

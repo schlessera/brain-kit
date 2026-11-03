@@ -22,14 +22,14 @@ export const STDERR_TAIL_CHARS = 2_000;
 /** Tail of combined stdout/stderr retained as the job_output activity event. */
 export const OUTPUT_TAIL_CHARS = 8_000;
 /** Heartbeat cadence, comfortably inside the activity store's stale threshold. */
-export const HEARTBEAT_MS = 30_000;
+const HEARTBEAT_MS = 30_000;
 /** Child-visible path where span-sink JSONL may be appended. */
 export const SPAN_SINK_ENV = "BRAIN_ACTIVITY_SPAN_SINK";
 /**
  * The most stdout the `sync` job's result may hold. Past it the output is
  * passed through as it arrives and no result is read from it.
  */
-export const SYNC_RESULT_MAX_CHARS = 8_000_000;
+const SYNC_RESULT_MAX_CHARS = 8_000_000;
 
 interface TextSink {
   write(text: string): unknown;
@@ -50,7 +50,7 @@ interface RunRecorder {
   close(): void;
 }
 
-export interface RunJobOptions {
+interface RunJobOptions {
   jobName: string;
   command: string[];
   dbPath: string;
@@ -65,7 +65,7 @@ export interface RunJobOptions {
   stderr?: TextSink;
 }
 
-export interface RunJobDependencies {
+interface RunJobDependencies {
   spawn?: (
     command: string[],
     options: {
@@ -96,7 +96,7 @@ function writeLine(sink: TextSink, text: string): void {
 }
 
 /** Forward a stream verbatim while exposing decoded chunks for tail capture. */
-export async function teeStream(
+async function teeStream(
   stream: ReadableStream<Uint8Array>,
   sink: TextSink,
   onText: (text: string) => void
@@ -138,7 +138,7 @@ function holdStdout(sink: TextSink): TextSink & { release(): string | null } {
 }
 
 /** Keep the last `cap` characters, never the head. */
-export function appendTail(current: string, text: string, cap: number): string {
+function appendTail(current: string, text: string, cap: number): string {
   return (current + text).slice(-cap);
 }
 

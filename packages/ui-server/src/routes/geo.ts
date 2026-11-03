@@ -69,7 +69,7 @@ const KEY_PRECISION = 3;
  * megabytes of geometry nobody can read at any render width. */
 const MAX_SPAN_DEGREES = 5;
 
-export interface GeoRouteDeps {
+interface GeoRouteDeps {
   config: CoastlineConfig;
   log?: Logger;
   /** Injected in tests so no test ever reaches Overpass. */

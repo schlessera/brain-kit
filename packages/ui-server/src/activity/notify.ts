@@ -27,9 +27,9 @@ import { getSetting, setSetting } from "../db/settings.js";
 import { LABEL_RUN_NAME } from "../labels/labeller.js";
 import type { AwaitableActivityStore, SpanRow } from "./store.js";
 
-export type IntentKind = "failure" | "completion" | "stuck";
+type IntentKind = "failure" | "completion" | "stuck";
 
-export interface NotificationIntent {
+interface NotificationIntent {
   id: number;
   runId: string;
   spanId: string | null;
@@ -42,7 +42,7 @@ export interface NotificationIntent {
   createdAt: number;
 }
 
-export interface ActivityNotifierDeps {
+interface ActivityNotifierDeps {
   db: Database;
   store: AwaitableActivityStore;
   /** Was anyone watching this run/session when the event was recorded? */

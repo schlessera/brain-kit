@@ -22,7 +22,7 @@ export const GEMINI_EMBEDDING_PRICES: Readonly<Record<string, Readonly<Record<st
   "gemini-embedding-2": Object.freeze({ TEXT: 0.2 / 1_000_000, IMAGE: 0.45 / 1_000_000 }),
 });
 
-export interface PricedProviderAttempt {
+interface PricedProviderAttempt {
   /** List price of this attempt, or null when unknown. */
   costUsd: number | null;
   /** Null when there is no price; true when the rate is a dated or fallback estimate. */

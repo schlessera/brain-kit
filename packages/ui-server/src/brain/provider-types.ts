@@ -26,7 +26,7 @@ import { providerFolderRoots, providerMaskedFolders, providerTypeSelectors, tran
 import { createPrivateIndexDirectory, removePrivateIndexDirectory, runMaskedBrainCli } from "./private-index.js";
 
 /** How long admission waits for the taxonomy. */
-export const PROVIDER_TAXONOMY_MS = 30_000;
+const PROVIDER_TAXONOMY_MS = 30_000;
 const TAXONOMY_BYTES = 1024 * 1024;
 
 /** The fields of `brain config check --json` a translation reads; the rest is ignored. */
@@ -92,7 +92,7 @@ const sameTaxonomy = (a: ProviderTaxonomy, b: ProviderTaxonomy) => {
  * Read the effective taxonomy in a worker that sees the brain through `folders`
  * masked and, with `visible`, sees only those paths of it.
  */
-export async function readProviderTaxonomy(options: {
+async function readProviderTaxonomy(options: {
   brainPath: string; startupView: WorkerStartupView; folders: readonly string[]; index: string;
   maskPaths: readonly string[]; signal: AbortSignal; timeoutMs?: number; command?: readonly string[]; visible?: readonly string[];
 }): Promise<{ ok: true; taxonomy: ProviderTaxonomy } | { ok: false; detail: string }> {
