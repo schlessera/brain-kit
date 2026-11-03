@@ -2,7 +2,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { ambientExecConfig, subprocessEnv } from "../config/env.js";
-import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 import {
   probeVersionCommand,
   assertVersionRequirements,
@@ -85,6 +85,17 @@ export interface BrainClient {
   /** Optional narrow packing capability; requires its own CLI version floor. */
   storagePack?(opts?: MaintenanceRequest): Promise<unknown>;
 }
+
+type IndexOptions = NonNullable<Parameters<BrainClient["index"]>[0]>;
+const requeued = new WeakSet<object>();
+/**
+ * First-party wiring only, not exported by the package: options marked here
+ * make an automatic index refused at maintenance admission, because the
+ * budget is busy, stay pending and run again once the budget frees instead of
+ * failing (#3461). `close()` beginning ends the wait. A requested index
+ * passes unmarked options and still reports busy at once.
+ */
+export function requeueWhenBusy<T extends IndexOptions>(opts: T): T { requeued.add(opts); return opts; }
 
 interface ExecResult {
   stdout: string;
@@ -261,6 +272,9 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
   const exec = opts.exec ?? ambientExecConfig();
   const boundary = opts.boundary ?? createHostBoundary({ brainPath, exec });
   const minimumVersion = opts.minimumVersion;
+  // A pending automatic index is discarded, not run, once close() begins (#3461).
+  const ends = [opts.closing, opts.shutdown].filter((signal): signal is AbortSignal => signal !== undefined);
+  const requeueEnds = ends.length > 1 ? AbortSignal.any(ends) : ends[0];
   if (minimumVersion !== undefined) validateVersionMinimum(minimumVersion, "host versionRequirements.brainCli", "brain CLI during client construction");
   const log = opts.log ?? { emit() {}, enabled: () => false };
   const searchTimeoutMs = opts.searchTimeoutMs ?? SEARCH_TIMEOUT_MS;
@@ -296,6 +310,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       credentials,
       gate,
       purpose: `brain ${args.slice(0, 2).join(" ")}`,
+      ...(args[0] === "index" ? { maintenanceKind: "index" as const } : args[0] === "storage" ? { maintenanceKind: "git" as const } : {}),
       admissionSignal: maintenance?.admissionSignal,
       ...(args[0] === "sync" ? { sync: true } : {}),
       ...(lock ? { lock: { keyed: lock, key: "brain-docs" } } : {}),
@@ -475,7 +490,18 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       // Full rebuild; indexing is incremental by default since brain 22e82e1.
       if (opts?.force) args.push("--force");
 
-      const result = await execBrain(args, undefined, undefined, opts?.lock);
+      let result: ExecResult;
+      for (;;) {
+        try { result = await execBrain(args, undefined, undefined, opts?.lock); break; }
+        catch (error) {
+          // Nothing ran: admission refused before the worker started. Only an
+          // automatic caller waits; a requested index still reports busy.
+          if (!opts || !requeued.has(opts) || !(error instanceof MaintenanceTempBusyError)) throw error;
+          log.emit({ severityText: "INFO", body: "automatic index pending: maintenance temporary storage is busy; it runs when the budget frees",
+            attributes: { holders: error.holders.join(", ") } });
+          await error.freed(requeueEnds);
+        }
+      }
       if (result.exitCode !== 0) {
         throw new Error(`brain index failed: ${result.stderr}`);
       }

@@ -9,7 +9,7 @@ test("two native private workers attest actual independent builds and reject sib
   const reports = join(root, "tmp/reports"), shared = join(root, "tmp/shared"); mkdirSync(shared, { recursive: true });
   const files = ["tests/odysseus.test.ts", "tests/penelope.test.ts"];
   for (const [index, file] of files.entries()) write(file, `import {test,expect} from "bun:test";
-import {readFileSync,writeFileSync,existsSync} from "node:fs";
+import {readFileSync,renameSync,writeFileSync,existsSync} from "node:fs";
 import {join} from "node:path";
 import {invocationBuild} from "../scripts/test-invocation";
 import {runtimePackageBuild} from "../packages/ui-react/tests/fixtures/runtime-package-build";
@@ -18,7 +18,7 @@ test("independent prepared worker ${index}",async()=>{
 const root=process.cwd(),shared=${JSON.stringify(shared)};
 const receipt=invocationBuild(root,["ithaca","troy"]);expect(receipt,"PRIVATE_WORKER_ACTUAL_SUCCESSFUL_AUTHORITY").toBeDefined();
 const own={authority:process.env.BRAIN_TEST_BUILD_AUTHORITY,nonce:process.env.BRAIN_TEST_INVOCATION_NONCE,lease:receipt.lease,build:receipt.build.pid};
-writeFileSync(join(shared,"${index}.json"),JSON.stringify(own));
+writeFileSync(join(shared,"${index}.json.tmp"),JSON.stringify(own));renameSync(join(shared,"${index}.json.tmp"),join(shared,"${index}.json"));
 await runtimePackageBuild(root,["ithaca"],runtimeHookPhases("private-worker-${index}"));
 const end=Date.now()+10000;while(!existsSync(join(shared,"${1-index}.json"))&&Date.now()<end)await Bun.sleep(10);
 const sibling=JSON.parse(readFileSync(join(shared,"${1-index}.json"),"utf8"));expect(sibling.nonce).not.toBe(own.nonce);expect(sibling.lease.ino).not.toBe(own.lease.ino);

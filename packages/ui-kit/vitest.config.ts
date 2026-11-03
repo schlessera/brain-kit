@@ -28,6 +28,7 @@ import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-
 import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { focusCapture } from "./tests/visual/focus-browser.ts";
+import { statusCapture } from "./tests/visual/status-indicator-browser.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
@@ -98,7 +99,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // pointer; they need the consumer stylesheet. Button's hover text
     // contrast (#974) and the palette's reason rows (#1106) are measured
     // under all three pointers as well.
-    include: ["tests/visual/native-buttons.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/keyboard-hints.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.*.pointer.tsx", "../ui-react/tests/browser/hit-reach.*.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx", "../ui-react/tests/browser/attach-tooltip.pointer.tsx", "../ui-react/tests/browser/overlay-stacking.pointer.tsx", "../ui-react/tests/browser/session-profile.pointer.tsx", "../ui-react/tests/browser/turn-budget.pointer.tsx"],
+    include: ["tests/visual/native-buttons.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "tests/visual/status-indicator-targets.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/keyboard-hints.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.*.pointer.tsx", "../ui-react/tests/browser/hit-reach.*.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx", "../ui-react/tests/browser/attach-tooltip.pointer.tsx", "../ui-react/tests/browser/overlay-stacking.pointer.tsx", "../ui-react/tests/browser/session-profile.pointer.tsx", "../ui-react/tests/browser/turn-budget.pointer.tsx"],
     provide: { railPointer: mode, keyboardHintsLive: false },
     browser: {
       enabled: true,
@@ -226,12 +227,12 @@ export default mergeConfig(
             // fail on the first story import because bun's runner has no Vite and
             // cannot resolve `#.storybook/preview`. Two runners, two extensions.
             include: ["tests/visual/**/*.visual.tsx"],
-            exclude: ["tests/visual/native-buttons.visual.tsx", "tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx"],
+            exclude: ["tests/visual/native-buttons.visual.tsx", "tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "tests/visual/status-indicator-targets.visual.tsx"],
             browser: {
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { sheetInput, startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, focusCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
+              commands: { sheetInput, startRequestLog, requestLog, rankTouch, statusCapture, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, focusCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
               // Chromium's own web-test mode retains native encoding without
               // waiting for idle periods that can exceed a functional poll (#940).
               provider: playwright({ launchOptions: { args: ["--enable-blink-features=NoIdleEncodingForWebTests"] } }),

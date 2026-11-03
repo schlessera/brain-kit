@@ -7,7 +7,7 @@ import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createProviderMaskGuard, ProviderMaskRefusedError, ProviderRecordsRefusedError } from "../brain/provider-mask-refusal.js";
 import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
-import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
+import { HOST_TIMEOUT_OUTCOME_DETAIL, SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
@@ -30,6 +30,9 @@ import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
+
+/** The words a timed-out turn's `status: cancelled` carries in `detail`. */
+const TURN_TIMED_OUT = "Turn timed out";
 import { acceptDraft } from "./drafts.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
@@ -210,6 +213,13 @@ export async function makeBridge(
         && !turn.sessionId && msg.type === "error" && !msg.sessionId && !msg.failure
         && msg.code === "agent_error" && msg.message === "The turn was cancelled before a session was acquired.")
         msg = { type: "status", status: "cancelled", detail: "Cancelled before starting", requestId };
+      // The host's hard turn limit, not someone's cancel, ended this turn:
+      // its cancelled terminal says so, so the conversation can (#3356). Only
+      // the timed-out turn's own frames, and never over a real cancel.
+      if (turn.timedOutTurnId === turnId && turn.turnId === turnId && !turn.cancelled) {
+        if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_TIMED_OUT };
+        else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL };
+      }
       if (msg.type === "error" && requestId) msg = { ...msg, requestId };
       if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
         msg = { ...msg, ...(requestId ? { requestId } : {}), ...(thinkingLevel !== undefined ? { thinkingLevel } : {}) };

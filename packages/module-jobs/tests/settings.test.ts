@@ -2,12 +2,19 @@ import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-en
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { cleanup, keylessEnv, makeTempBrain, runCli } from "../../core/tests/cli-harness";
+import { cleanup, keylessEnv as harnessEnv, makeTempBrain, runCli as harnessCli } from "../../core/tests/cli-harness";
+import { withoutSigning } from "../../core/tests/git-fixture";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { configSchema } from "../src/module";
 import { jobsSettings, planScoringMigration } from "../src/settings";
 import { loadScoringConfig, parseScoringConfig, scoreJob } from "../src/score";
 import { ADAPTERS, getAdapterOptions } from "../src/scrape";
+
+// Settings saves commit through the CLI. Every Git child, fixture and product
+// alike, gets signing disabled at command scope, so no ambient signing
+// configuration reaches these temporary repositories.
+const keylessEnv = (root: string) => withoutSigning(harnessEnv(root));
+const runCli = (root: string, args: string[]) => harnessCli(root, args, keylessEnv(root));
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });

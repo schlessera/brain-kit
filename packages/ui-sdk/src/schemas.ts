@@ -1102,6 +1102,11 @@ export const turnJournalSummarySchema = z.looseObject({
   budget: turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
 
+const runtimeNoticeSchema = z.looseObject({
+  cause: z.enum(["aborted", "unspecified"]),
+  message: z.string().max(4_000),
+}) satisfies z.ZodType<import("./protocol.js").RuntimeNotice>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -1126,6 +1131,7 @@ const historyMessageSchema = z.looseObject({
   effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
+  runtimeNotice: runtimeNoticeSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
   turnId: id.optional().catch(undefined),
   journal: turnJournalSummarySchema.optional().catch(undefined),
