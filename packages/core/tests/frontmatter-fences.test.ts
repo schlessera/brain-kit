@@ -11,7 +11,7 @@ import { editFrontmatter, frontmatterBounds, readScalar, type ScalarToken } from
 import { splitFrontmatterBlock } from "../src/lib/generated-regions";
 import { rewriteTags } from "../src/lib/tags-apply";
 
-const BOM = "﻿";
+const BOM = "\uFEFF";
 
 describe("splitFrontmatterBlock", () => {
   test.each([

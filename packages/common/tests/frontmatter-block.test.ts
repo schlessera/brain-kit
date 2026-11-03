@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { frontmatterBlock, frontmatterLength } from "../src/frontmatter-block";
 import { parseFrontmatter } from "../src/frontmatter-parse";
 
-const BOM = "﻿";
+const BOM = "\uFEFF";
 
 const rows: Array<{ name: string; text: string; block: ReturnType<typeof frontmatterBlock>; data?: Record<string, unknown> }> = [
   { name: "plain LF", text: "---\ntitle: a\n---\nbody\n", block: { start: 0, innerStart: 4, innerEnd: 13, end: 17, closed: true }, data: { title: "a" } },
