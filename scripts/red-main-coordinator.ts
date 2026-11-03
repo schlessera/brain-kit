@@ -262,7 +262,10 @@ async function handleMainRun(io: CoordinatorIO, run: WorkflowRun) {
   io.print(`BRAIN_RED_MAIN ${JSON.stringify({ firstBad: withIncident.open?.firstBad, incident: withIncident.open?.incident, cancelled })}`);
 }
 
-/** Probe run names carry their purpose, source run and SHA; tests come from the record. */
+/**
+ * Probe run names carry their purpose, source run and SHA; tests come from the record.
+ * `fix` probes are expedited fix evidence for integrate.ts (#2940) and are ignored here.
+ */
 export function probeIdentity(title: string): { purpose: "flake" | "bisect"; source: number; sha: string } | null {
   const match = /^red-main probe (flake|bisect) ([1-9]\d*) ([a-f0-9]{40})$/.exec(title);
   return match ? { purpose: match[1] as "flake" | "bisect", source: Number(match[2]), sha: match[3]! } : null;

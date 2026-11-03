@@ -18,9 +18,14 @@ function directory(path: string): void {
   mkdirSync(path, { mode: 0o700 });
 }
 
+/** Where one session's prompt context lives; removal (#3229) uses the same names. */
+export function sessionPromptContextLocation(root: string, brainPath: string, sessionId: string): { dir: string; name: string } {
+  return { dir: resolve(root, "prompt-context", digest(realpathSync(brainPath))), name: `${digest(sessionId)}.json` };
+}
+
 export function sessionPromptContext(root: string, brainPath: string, sessionId: string) {
   const brain = realpathSync(brainPath);
-  const dir = resolve(root, "prompt-context", digest(brain));
+  const { dir, name } = sessionPromptContextLocation(root, brainPath, sessionId);
   // Walk ancestors without creating them first.
   let ancestor = dir;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
@@ -28,7 +33,7 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
   if (actual === brain || actual.startsWith(brain + "/") || brain.startsWith(actual + "/")) {
     throw new Error("Session prompt storage must be outside the authoritative brain");
   }
-  const path = join(dir, `${digest(sessionId)}.json`);
+  const path = join(dir, name);
   function read(): Snapshot {
     let fd: number;
     try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }

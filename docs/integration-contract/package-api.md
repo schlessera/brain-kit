@@ -131,6 +131,61 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+## Explicit chat deletion (additive, #3230)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that re-export it) exports `CHAT_DELETION_CAPABILITY`
+(`"chatDeletion"`), `ChatDeletionRequest`, `ChatDeletionReceipt`,
+`ChatDeletionStore`, `ChatDeletionOutcome`, `ChatDeletionRetained`,
+`ChatDeletionRefusal` and `ServerChatRetired`, now a member of `ServerMessage`.
+`DraftErrorCode` and `DraftErrorResponse` gain `DRAFT_CHAT_RETIRED`.
+`@schlessera/brain-ui-sdk/schemas` exports `serverChatRetiredSchema`, and
+`parseServerMessage` accepts the frame. A client that switches exhaustively over
+`ServerMessage["type"]` needs a case for `chat_retired`; the host sends it only to
+connections that declared the capability. In `@schlessera/brain-ui-server`, `WsHost`
+gains optional `chatDeletion` and the session catalog optional `cleanChatStore` and
+`unfinishedChatRetirements`, host wiring reachable from its exports. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) and
+[wire](wire.md#explicit-chat-deletion-additive-3230) components.
+
+## Native history removal (additive, #3229)
+
+`BackendCapabilities` adds optional `historyRemoval?: boolean`, and
+`AgentBackend` adds optional `removeSessionHistory?(req:
+SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>`, exported
+from `@schlessera/brain-ui-sdk/server` with
+`SessionHistoryRemovalRequest` (`{ operationId: string; sessionId: string;
+signal?: AbortSignal }`), `SessionHistoryRemovalResult` (`{ outcome }`) and
+`SessionHistoryRemovalOutcome` (`"removed" | "partial" | "unknown"`).
+Removal is supported only when the capability is `true` and the method exists;
+the conformance suite in `@schlessera/brain-ui-sdk/testing` checks that they
+agree. A host refuses deletion of a chat on any other backend before it
+retires anything; older backends remain valid and simply do not support it.
+
+A host calls it only for a chat its owner explicitly retired, under that
+retirement's operation identity, as the
+[deletion policy](../decisions/chat-history-deletion.md) allows. Before its first
+await the backend fences the session durably and permanently: `listSessions`
+omits it, `getHistory` returns `[]`, and resume, follow-up, archive and
+restore refuse it, after a restart too. It then waits for the session's running
+turns and readers to drain and removes every native artifact it owns: live,
+archived, staged and conflict copies, subordinate and branch files, display and
+prompt metadata and file observations. Only names derived from the validated
+session identity are touched; a link, hard-linked file, redirected root or
+artifact whose own header names another session is left in place.
+
+The outcome is content-free and maps onto the host's per-store ledger:
+`removed` only when every owned artifact is confirmed absent and the installed
+runtime no longer lists the session; `partial` while owned content may remain,
+including when `signal` aborts the caller's wait first (the removal keeps its
+single owner and finishes after a genuine drain); `unknown` when an unexpected
+failure left the state unconfirmed. Every outcome but `removed` is retried under
+the same operation. A second operation for the same session, an invalid
+identity or a redirected tombstone root rejects with `BackendRequestError`.
+Previously sent provider bytes are never rewritten, and provider-held copies
+are outside it. The first-party Claude and Pi backends implement it.
+
 ## Inbox provenance (additive, #2741)
 
 The intake `createInboxIntake` returns adds `person(input, key, principal)`:
@@ -157,6 +212,13 @@ control. Both are plain inert text, wrapped anywhere and never parsed. An
 omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
+
+## UI-kit enlarge icon (additive #3397)
+
+The semantic `IconName` gains `enlarge`: open content in its dedicated
+full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
+already uses for Open diagram. The framed diagram renderer's header uses it.
+No existing key, glyph or component changes.
 
 ## UI-kit Button reach (additive #3252)
 
@@ -4393,3 +4455,15 @@ packet audio. Unsupported codec/container forms, including audio/mp4, retain
 conservative elapsed-wall timestamps for the rest of that recording. Old stored
 wall timestamps remain readable without migration. No field, stop reason or
 state is added. This semantic change ships in a minor before 1.0.
+
+<a id="composer-attach-label-additive-0450-3045"></a>
+
+## Composer attach label (additive, 0.45.0, #3045)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`attachLabel?: string`, the attach trigger's accessible name. Omitted or empty,
+it is "Attach — photo, camera, files" (previously the fixed
+"Attach — photo, camera, file"). An actionable trigger also paints that name as
+an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
+composer's, has neither. Existing props and defaults are otherwise unchanged,
+and no wire schema changes. `api-report/` records the added prop.

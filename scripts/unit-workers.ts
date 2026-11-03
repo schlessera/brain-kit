@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { availableParallelism, tmpdir, totalmem } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { runCommands } from "./ci-runner";
+import { ensureHostAdmission } from "./host-admission.mjs";
 import { balanceTests, FILE_COST_SECONDS } from "./test-shards";
 import { validateChangedUnitReports, validateUnitReports } from "./unit-proof-report";
 import { captureUnitInputs } from "./unit-worker-inputs";
@@ -430,6 +431,10 @@ async function bootstrapPreparedTree(root: string, files: readonly string[], chr
 }
 
 if (import.meta.main) {
+  // The queue is one heavy command: it holds a single host slot (#2943) that
+  // its parallel workers inherit, rather than queueing them behind each other.
+  const admitted = await ensureHostAdmission("unit worker queue");
+  if (admitted !== undefined) process.exit(admitted);
   try {
     const root = resolve(import.meta.dir, "..");
     const options: UnitWorkerOptions = {}, files: string[] = [];

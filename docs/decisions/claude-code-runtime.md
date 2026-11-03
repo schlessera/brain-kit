@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:152-220`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:443`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:445`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:503-507`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:381-386`).
+  `packages/ui-server/src/app.ts:383-388`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -1311,7 +1311,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:430-445`).
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:441-456`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a

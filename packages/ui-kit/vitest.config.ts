@@ -1,6 +1,6 @@
 import { recordingProof } from "../ui-react/tests/browser/offline/recording-proof.ts";
 import { conversationServer } from "../ui-react/tests/browser/conversation-server-command.ts";
-import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../ui-react/tests/browser/diagram-export-command.ts";
+import { diagramArtifact, diagramFontStyles, diagramRasterComparison, diagramRepaintParity, fullRasterChromiumArgs } from "../ui-react/tests/browser/diagram-export-command.ts";
 import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
 import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
@@ -98,7 +98,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // pointer; they need the consumer stylesheet. Button's hover text
     // contrast (#974) and the palette's reason rows (#1106) are measured
     // under all three pointers as well.
-    include: ["tests/visual/native-buttons.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/keyboard-hints.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.*.pointer.tsx", "../ui-react/tests/browser/hit-reach.*.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx", "../ui-react/tests/browser/overlay-stacking.pointer.tsx", "../ui-react/tests/browser/session-profile.pointer.tsx", "../ui-react/tests/browser/turn-budget.pointer.tsx"],
+    include: ["tests/visual/native-buttons.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/keyboard-hints.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.*.pointer.tsx", "../ui-react/tests/browser/hit-reach.*.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx", "../ui-react/tests/browser/attach-tooltip.pointer.tsx", "../ui-react/tests/browser/overlay-stacking.pointer.tsx", "../ui-react/tests/browser/session-profile.pointer.tsx", "../ui-react/tests/browser/turn-budget.pointer.tsx"],
     provide: { railPointer: mode, keyboardHintsLive: false },
     browser: {
       enabled: true,
@@ -138,8 +138,8 @@ export default mergeConfig(
             include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true, screenshotFailures: false,
-              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
-              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              commands: { diagramRasterComparison, diagramRepaintParity, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" }, launchOptions: { args: fullRasterChromiumArgs } }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },
@@ -152,7 +152,7 @@ export default mergeConfig(
             include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true, screenshotFailures: false,
-              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              commands: { diagramRasterComparison, diagramRepaintParity, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
               provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "webkit" }],
