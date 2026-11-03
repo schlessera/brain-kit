@@ -15,9 +15,14 @@ function directory(path: string): void {
   }
   directory(dirname(path)); mkdirSync(path, { mode: 0o700 });
 }
+/** Where one session's display metadata lives; removal (#3229) uses the same names. */
+export function sessionReplayLocation(root: string, brainPath: string, sessionId: string): { dir: string; name: string } {
+  const brain = existsSync(brainPath) ? realpathSync(brainPath) : resolve(brainPath);
+  return { dir: resolve(root, "session-replay", digest(brain)), name: `${digest(sessionId)}.json` };
+}
 /** Concrete first-party storage, keyed by native session, message and text part. */
 export function sessionReplay(root: string, brainPath: string, sessionId: string) {
-  const brain = existsSync(brainPath) ? realpathSync(brainPath) : resolve(brainPath), dir = resolve(root, "session-replay", digest(brain));
+  const brain = existsSync(brainPath) ? realpathSync(brainPath) : resolve(brainPath), { dir, name } = sessionReplayLocation(root, brainPath, sessionId);
   let ancestor = dir;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
   const actual = resolve(realpathSync(ancestor), dir.slice(ancestor.length).replace(/^\//, ""));
@@ -26,7 +31,7 @@ export function sessionReplay(root: string, brainPath: string, sessionId: string
     if (!outside) throw new Error("Session replay storage must be outside the authoritative brain");
     if (existsSync(dir)) directory(dir);
   };
-  const path = join(dir, `${digest(sessionId)}.json`);
+  const path = join(dir, name);
   function read(): Snapshot {
     let fd: number;
     try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
