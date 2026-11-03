@@ -25,7 +25,7 @@ test("registered production warning and deadline finalize short native audio and
   // real time. Invoking a registered callback proves its real stop path; the
   // separate controlled-timer test proves when it is scheduled. Neither this
   // short recording nor synthetic boundary blobs prove ten-minute endurance.
-  await expect.poll(() => c.events.filter((event) => event.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  await c.committed(2);
   expect(registered.has(540_000), "production warning registered at nine minutes").toBe(true);
   expect(registered.has(599_750), "production deadline registered at ten minutes").toBe(true);
   expect(updateHeld(c.root)).toBe(true);
@@ -181,12 +181,11 @@ test("source starvation reports only encoded audio", async (ctx) => {
   c.cleanup.push(() => mic.restore());
   const start = performance.now();
   const capture = await c.store.start({ timesliceMs: 250 });
-  await expect.poll(() => c.events.filter(e => e.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  await c.committed(2);
   await mic.contexts[0]!.suspend();
   await new Promise(resolve => setTimeout(resolve, 1200));
   await mic.contexts[0]!.resume();
-  const before = c.events.filter(e => e.kind === "committed").length;
-  await expect.poll(() => c.events.filter(e => e.kind === "committed").length).toBeGreaterThanOrEqual(before + 2);
+  await c.committed(c.committedCount() + 2);
   await capture.stop("user");
   const elapsed = performance.now() - start;
   const row = (await c.store.list("account:odysseus"))[0]!;
@@ -311,7 +310,7 @@ test("registered wall backstop finalizes native audio as interrupted", async (ct
   // real time. Invoking a registered callback proves its real stop path; the
   // separate controlled-timer test proves when it is scheduled. Neither this
   // short recording nor synthetic boundary blobs prove ten-minute endurance.
-  await expect.poll(() => c.events.filter((event) => event.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  await c.committed(2);
   expect(registered.has(540_000), "production warning registered at nine minutes").toBe(true);
   expect(registered.has(599_750), "production deadline registered at ten minutes").toBe(true);
   expect(updateHeld(c.root)).toBe(true);
@@ -374,7 +373,7 @@ test("late limit at the committed flush target stops without a zero-delay re-arm
 test("caller stop at expired wall deadline normalizes before first-stop-wins", async (ctx) => {
   const c = recordingCell(ctx);
   const capture = await c.store.start({ timesliceMs: 250 });
-  await expect.poll(() => c.events.filter(e => e.kind === "committed").length).toBeGreaterThanOrEqual(2);
+  await c.committed(2);
   const descriptor = Object.getOwnPropertyDescriptor(performance, "now");
   Object.defineProperty(performance, "now", { configurable: true, value: () => 1e12 });
   c.cleanup.push(() => { if (descriptor) Object.defineProperty(performance, "now", descriptor); else delete (performance as { now?: unknown }).now; });
