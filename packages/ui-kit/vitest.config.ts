@@ -1,6 +1,6 @@
 import { recordingProof } from "../ui-react/tests/browser/offline/recording-proof.ts";
 import { conversationServer } from "../ui-react/tests/browser/conversation-server-command.ts";
-import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../ui-react/tests/browser/diagram-export-command.ts";
+import { diagramArtifact, diagramFontStyles, diagramRasterComparison, diagramRepaintParity, fullRasterChromiumArgs } from "../ui-react/tests/browser/diagram-export-command.ts";
 import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
 import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
@@ -138,8 +138,8 @@ export default mergeConfig(
             include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true, screenshotFailures: false,
-              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
-              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              commands: { diagramRasterComparison, diagramRepaintParity, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" }, launchOptions: { args: fullRasterChromiumArgs } }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },
@@ -152,7 +152,7 @@ export default mergeConfig(
             include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true, screenshotFailures: false,
-              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              commands: { diagramRasterComparison, diagramRepaintParity, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
               provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "webkit" }],
