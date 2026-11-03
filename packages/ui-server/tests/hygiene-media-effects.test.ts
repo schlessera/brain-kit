@@ -139,6 +139,20 @@ test("Keep a permanent copy records the kept entry after the copy verifies; Undo
   expect(read(f.root, "context/hygiene/open.md")).not.toContain("copy-missing");
 });
 
+test("a later ordinary sync commits the kept copy and its rule, and never the scratch original", async () => {
+  const f = await setup();
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  expect((await f.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg")).outcome).toBe("kept");
+  run(f.root, "git", "config", "user.name", "Penelope"); run(f.root, "git", "config", "user.email", "penelope@example.test");
+  const synced = run(f.root, process.execPath, CORE_CLI, "sync", "commit");
+  expect(synced.code, `MEDIA_KEEP_SYNC_EXIT ${synced.stderr}`).toBe(0);
+  expect(run(f.root, "git", "show", "HEAD:places/ithaca/harbour-dawn.jpg").stdout, "MEDIA_KEEP_SYNC_COPY").toBe("dawn bytes");
+  expect(run(f.root, "git", "show", "HEAD:brain.config.json").stdout, "MEDIA_KEEP_SYNC_CONFIG").toBe('{ "media": { "track": ["places/ithaca/harbour-dawn.jpg"] } }\n');
+  expect(run(f.root, "git", "ls-files", "--", ".brain").stdout, "MEDIA_KEEP_SYNC_NO_SCRATCH").toBe("");
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+});
+
 test("a refused kept entry (step 6b) removes the copy and restores the config", async () => {
   const f = await setup({ wrap: (args, real) => args[0] === "keep-copy" ? { status: "refused", reason: "copy-changed" } : real(args) });
   put(f.root, SCRATCH, "dawn bytes");
