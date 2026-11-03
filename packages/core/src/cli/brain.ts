@@ -147,6 +147,14 @@ async function main(): Promise<number> {
     return (await policyCommand.run(argv.slice(1), { brain, json })) ?? 0;
   }
 
+  // Apify reads the same host-parsed policy; it never evaluates repository config either (#3162).
+  if (command === "apify") {
+    const brain = degradedContext();
+    const { apifyCommand } = await import("./commands/apify.js");
+    if (wantsHelp) { console.log(apifyCommand.helpBlock); return 0; }
+    return (await apifyCommand.run(argv.slice(1), { brain, json })) ?? 0;
+  }
+
   // Load the brain context, tolerating a missing/invalid config.
   let brain: BrainContext;
   let configError: string | undefined;

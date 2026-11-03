@@ -1075,8 +1075,10 @@ const turnRetrySchema = z.looseObject({
 
 export const turnBudgetReceiptSchema = z.looseObject({
   listPriceCostUsd: z.number().finite().nonnegative().nullable(), listPriceIsEstimate:z.boolean().nullable().optional(), tokens: z.number().int().nonnegative().nullable(),
-  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
-  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(),
+  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
+  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(), apifyUsd:z.number().finite().nonnegative().optional(),
     tokens:z.number().int().nonnegative().nullable(), unknownRuns:z.number().int().nonnegative(),
     warnUsd:z.number().finite().nonnegative(), blockUsd:z.number().finite().nonnegative(), blockTokens:z.number().int().nonnegative(),
     warnTokens:z.number().int().nonnegative().optional(), resetAt:z.number().int().nonnegative().optional(), warning:z.boolean(), blocked:z.boolean() })).max(3),

@@ -3981,6 +3981,7 @@ export interface AgentPolicyRead {
 }
 
 export type { BudgetScope, BudgetObservation, TurnBudgetCoverage, TurnBudgetReceipt } from "./turn-budgets.js";
+export type { ApifyProviderState, ApifyProviderReason, ApifyAccountRead, ApifyPolicyMode, ApifyGrantRead, ApifyLimitsRead, ApifyPolicyRead, ApifySpendScopeRead, ApifyUnresolvedRunRead, ApifySpendRead, ApifySettingsRead, ApifyPolicyChange, ApifyPolicyProposalRead } from "./apify-settings.js";
 
 /** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
 export interface ServerUsage extends SessionScoped {

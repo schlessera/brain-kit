@@ -126,6 +126,23 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
       "(default name only — a config `apiKeyEnv` can point elsewhere).",
     required: false,
   },
+  {
+    name: "APIFY_TOKEN",
+    description:
+      "Apify API token for a standalone `brain apify` or `brain mcp` process (#3162). Used only while the governance " +
+      "policy sets apify.enabled: true, and only as a bearer header to the fixed Apify origins; never printed. " +
+      "A chat worker never receives it.",
+    default: "unset: Apify refuses as authentication_required",
+    required: false,
+  },
+  {
+    name: "BRAIN_APIFY_LEDGER",
+    description:
+      "Absolute path of the shared Apify ledger a standalone `brain apify` or `brain mcp` process accounts in (#3162): " +
+      "the file the UI server opens, so the account's day limit and concurrency bound every process. A chat worker never receives it.",
+    default: "unset: every Apify operation refuses as accounting_unavailable",
+    required: false,
+  },
 ];
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
@@ -166,6 +183,10 @@ export interface CoreEnv {
   typesafeApiKey: string | undefined;
   /** BRAIN_AGENT_RUNNER_UNAVAILABLE is truthy: this worker can run no agent, whatever the brain configures. */
   agentRunnerUnavailable: boolean;
+  /** APIFY_TOKEN, trimmed, or undefined when unset or blank. */
+  apifyToken: string | undefined;
+  /** BRAIN_APIFY_LEDGER, trimmed, or undefined when unset or blank. */
+  apifyLedger: string | undefined;
   /** BRAIN_MEDIA_PINNED_PATH_LIMIT, unvalidated (`pinnedPathLimit` validates it). */
   mediaPinnedPathLimit: string | undefined;
   /** BRAIN_MEDIA_REFERENCE_LIMITS, unvalidated (`mediaReferenceLimits` validates it). */
@@ -197,6 +218,8 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
     typesafeApiKey: env.TYPESAFE_API_KEY?.trim() || undefined,
     agentRunnerUnavailable: envFlag(env.BRAIN_AGENT_RUNNER_UNAVAILABLE, false),
+    apifyToken: env.APIFY_TOKEN?.trim() || undefined,
+    apifyLedger: env.BRAIN_APIFY_LEDGER?.trim() || undefined,
     mediaPinnedPathLimit: env.BRAIN_MEDIA_PINNED_PATH_LIMIT,
     mediaReferenceLimits: env.BRAIN_MEDIA_REFERENCE_LIMITS,
   };

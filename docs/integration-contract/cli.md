@@ -3,6 +3,72 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Apify operations (additive, 0.45.0, #3162)
+
+`brain apify` runs the seven fixed Apify operations the core MCP server's
+`brain_apify_*` tools and both chat backends also call
+([index](../integration-contract.md#apify-operations-through-the-cli-mcp-and-both-chat-backends-additive-0450-3162),
+[the contract](../decisions/apify-capability.md#selected-stable-machine-operations)).
+Like `brain policy`, it reads the governance policy as data and never loads
+brain configuration or executes repository code.
+
+| Command | Operation input |
+|---|---|
+| `brain apify discover <words…> [--limit N]` | `{ query, limit? }`: the words joined by single spaces, at most 6 words and 80 characters, no addresses, links or long numbers; `limit` 1–10, default 5 |
+| `brain apify inspect <candidate>` | `{ candidate }` |
+| `brain apify prepare <candidate> --input <json> --max-charge-usd <usd>` | `{ candidate, input, max_charge_usd }`: `input` a JSON object, the cap positive and at most 1,000,000 |
+| `brain apify run <proposal>` | `{ proposal }` |
+| `brain apify status <run>` | `{ run }` |
+| `brain apify results <run> [--cursor C] [--limit N]` | `{ run, cursor?, limit? }`: `limit` 1–100, default 25 |
+| `brain apify abort <run>` | `{ run }` |
+
+References are 1–64 characters and opaque. Every operation prints one
+envelope and a newline, and exits `0` when `ok` is true and `1` when it is not:
+
+```ts
+type ApifyOperation = "discover" | "inspect" | "prepare" | "run" | "status" | "results" | "abort";
+type ApifyEnvelope =
+  | { ok: true; operation: ApifyOperation; data: unknown }
+  | { ok: false; operation: ApifyOperation; error: { code: ApifyErrorCode; reason: string | null; message: string } };
+type ApifyErrorCode =
+  | "provider_disabled" | "authentication_required" | "policy_denied" | "approval_required" | "proposal_stale"
+  | "actor_unsupported" | "budget_exceeded" | "accounting_unavailable" | "result_expired"
+  | "remote_outcome_unknown" | "upstream_incompatible"
+  | "provider_unavailable" | "invalid_input";
+```
+
+`data` per operation:
+
+- `discover`: `{ candidates: [{ candidate, actor, title, description, developer, pricing_model, deprecated }], untrusted: true }`.
+- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+- `prepare`: `{ proposal, review, admission: "grant" | "ask", expires_at }`; `review` is what an approval shows.
+- `run` and `status`: `{ run, state, results: { available, partial, expires_at }, abort, remote_outcome_unknown, warnings }`.
+- `results`: `{ run, items, next_cursor, truncated, partial, warnings, untrusted: true }`.
+- `abort`: the run view plus `outcome`: `requested`, `confirmed`, `unresolved` or `not_needed`. No outcome means nothing was charged.
+
+The last two codes are additive to the contract's list. `provider_unavailable`
+means the Apify API could not be reached or verified, so nothing was admitted.
+`invalid_input` means the operation's own checks refused the input before
+anything was sent. `reason` is a short machine string (`not_enabled`,
+`discovery_denied`, `no_grant_surface`, `day_usd` and the like) that may grow;
+`message` is fixed prose that never carries a token or upstream text.
+
+The process is a standalone operator: it uses its own `APIFY_TOKEN`, and the
+shared ledger at `BRAIN_APIFY_LEDGER` (an absolute path; the server opens the
+same file, by default `DB_PATH.apify-ledger.sqlite`). Without the ledger every
+operation refuses as `accounting_unavailable` before anything is sent. The
+principal is `local`. `--session <name>` (1–64 letters, digits, `.`, `-`, `_`;
+default `default`) names the conversation the references belong to, and its
+UTC day is the turn that turn-scoped limits count. Candidates and proposals
+live in the ledger, so a later invocation of the same session can use them;
+another session cannot. Nothing is ever asked on stdin: a run is admitted only
+by an exact standing grant in the policy, else it refuses as
+`approval_required`. `brain apify account [confirm <account-id>]` prints the
+bound account's status and lets the operator confirm a changed account; it
+never prints a token. A usage error exits `1` with a message on stderr and
+nothing on stdout. Inside a chat worker neither variable is present, so a
+shell-issued `brain apify` refuses.
+
 ## Maintenance worker output allowance (additive, 0.45.0, #3357)
 
 A maintenance worker's launcher may set `BRAIN_WORKER_OUTPUT_ALLOWANCE` to
@@ -280,6 +346,14 @@ a newline:
 ```
 
 `effective` is the complete resolved [supported policy input](../supported-inputs.md#governance-policy).
+Since #3159 (additive) it includes `apify: { enabled: boolean }`, `false` unless
+the file enables it. Since #3160 (additive) `apify` also carries
+`discovery` and `actors` (each `"deny" | "ask" | "allow"`, default `"ask"`) and
+`actor_grants` (default `[]`), each grant in the
+[supported input's](../supported-inputs.md#governance-policy) exact shape with
+`expires_at` normalized to an ISO 8601 UTC instant. Since #3161 (additive)
+`apify` also carries `limits`, `null` unless the file sets the complete
+[limits object](../supported-inputs.md#governance-policy).
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

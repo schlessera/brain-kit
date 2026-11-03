@@ -28,6 +28,19 @@ export "." (./src/index.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -427,6 +440,11 @@ export "." (./src/index.ts)
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -471,6 +489,25 @@ export "./client" (./src/client/index.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyOperation
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -969,6 +1006,7 @@ export "./client" (./src/client/index.ts)
   type WorkerLimitName
   type WorkerLimitSource
   type WorkerLimitsStatus
+  apifyOperationOf
   bridgeContractForToolName
   composeHandoffText
   createAsrClient
@@ -1018,6 +1056,7 @@ export "./internal" (./src/internal.ts)
   GIT_LOCK_KEY
   HOST_GIT_CREDENTIAL_ENV
   HOST_MASKS
+  HOST_ONLY_SECRET_ENV
   type HostCredentialDomain
   HostCredentialExclusionError
   INFERENCE_PLACEHOLDER
@@ -1334,6 +1373,19 @@ export "./protocol" (./src/protocol.ts)
   type ActivityTurnLifecycle
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -1896,6 +1948,11 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -1943,6 +2000,25 @@ export "./server" (./src/server/index.ts)
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyOperation
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -2537,6 +2613,7 @@ export "./server" (./src/server/index.ts)
   type WorkerLimitsStatus
   type WrappedKillOptions
   type WriteLock
+  apifyOperationOf
   assertLiveConversationProvider
   assertLiveConversationSession
   assertLoadedSdk
@@ -2569,6 +2646,7 @@ export "./server" (./src/server/index.ts)
   fetchCoastline
   filterSubprocessEnv
   geoConfigSchema
+  handleApifyTool
   handleAskUser
   handleAskUserForm
   handleAskUserList
@@ -2665,6 +2743,11 @@ export "./testing" (./src/testing/index.ts)
   runSpeechProviderContract
 
 export "./tool-contracts" (./src/tool-contracts/index.ts)
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_FORM_CONTRACT
@@ -2686,6 +2769,12 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
   type AskUserFormAnswer
   type AskUserFormAnswers
   type AskUserFormInput
@@ -2786,6 +2875,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ToolInput
   type ToolPayload
   type TurnTempInput
+  apifyOperationOf
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
@@ -2797,6 +2887,24 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
 signatures (every public export and the types it is made of)
   ALLOWED_IMAGE_MEDIA_TYPES (packages/ui-sdk/src/protocol.ts)
     const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  APIFY_ERROR_CODES (packages/common/src/apify-operations.ts)
+    const APIFY_ERROR_CODES: readonly ["provider_disabled", "authentication_required", "policy_denied", "approval_required", "proposal_stale", "actor_unsupported", "budget_exceeded", "accounting_unavailable", "result_expired", "remote_outcome_unknown", "upstream_incompatible", "provider_unavailable", "invalid_input"];
+  APIFY_GUIDANCE (packages/common/src/apify-operations.ts)
+    const APIFY_GUIDANCE: string;
+  APIFY_OPERATIONS (packages/common/src/apify-operations.ts)
+    const APIFY_OPERATIONS: readonly ["discover", "inspect", "prepare", "run", "status", "results", "abort"];
+  APIFY_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/apify.ts)
+    const APIFY_TOOL_CONTRACTS: readonly ToolContract<ApifyToolName>[];
+  APIFY_TOOL_NAMES (packages/common/src/apify-operations.ts)
+    const APIFY_TOOL_NAMES: Readonly<{
+        abort: "brain_apify_abort";
+        discover: "brain_apify_discover";
+        inspect: "brain_apify_inspect";
+        prepare: "brain_apify_prepare";
+        results: "brain_apify_results";
+        run: "brain_apify_run";
+        status: "brain_apify_status";
+    }>;
   API_FAILURE_DETAIL (packages/ui-sdk/src/testing/index.ts)
     const API_FAILURE_DETAIL: "model not supported by this runtime";
   ASK_ANSWER_UPDATE_REQUIRED (packages/ui-sdk/src/protocol.ts)
@@ -3574,6 +3682,157 @@ signatures (every public export and the types it is made of)
         };
         protectedPaths: string[];
         workerLimits: WorkerLimitsStatus | null;
+    }
+  ApifyAccountRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyAccountRead {
+        id: string;
+        username: string | null;
+    }
+  ApifyEnvelope (packages/common/src/apify-operations.ts)
+    export type ApifyEnvelope = {
+        ok: true;
+        operation: ApifyOperation;
+        data: unknown;
+    } | {
+        ok: false;
+        operation: ApifyOperation;
+        error: {
+            code: ApifyErrorCode;
+            reason: string | null;
+            message: string;
+        };
+    };
+  ApifyErrorCode (packages/common/src/apify-operations.ts)
+    export type ApifyErrorCode = typeof APIFY_ERROR_CODES[number];
+  ApifyGrantRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyGrantRead {
+        account_id: string;
+        actor_id: string;
+        build_number: string;
+        profile_id: string;
+        origins: string[];
+        expires_at: string;
+        max_run_usd: number;
+        status: "active" | "expired" | "other_account";
+    }
+  ApifyLimitsRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyLimitsRead {
+        run_usd: number;
+        turn_usd: number;
+        session_usd: number;
+        day_usd: number;
+        max_runs_per_turn: number;
+        max_requests_per_turn: number;
+        max_concurrent_runs: number;
+        max_runtime_seconds: number;
+        max_result_items: number;
+        max_result_bytes: number;
+        max_retention_seconds: number;
+    }
+  ApifyOperation (packages/common/src/apify-operations.ts)
+    export type ApifyOperation = typeof APIFY_OPERATIONS[number];
+  ApifyPolicyChange (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyPolicyChange = {
+        enabled: boolean;
+    } | {
+        discovery: ApifyPolicyMode;
+    } | {
+        actors: ApifyPolicyMode;
+    } | {
+        remove_grant: {
+            account_id: string;
+            actor_id: string;
+            build_number: string;
+            profile_id: string;
+            expires_at: string;
+        };
+    };
+  ApifyPolicyMode (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyPolicyMode = "deny" | "ask" | "allow";
+  ApifyPolicyProposalRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyPolicyProposalRead {
+        turn_id: string;
+        request_id: string;
+        review: import("./tool-contracts/policy.js").PolicyChangeReview;
+    }
+  ApifyPolicyRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyPolicyRead {
+        path: "context/policies/governance.md";
+        hash: string | null;
+        valid: boolean;
+        enabled: boolean;
+        discovery: ApifyPolicyMode;
+        actors: ApifyPolicyMode;
+        grants: ApifyGrantRead[];
+        limits: ApifyLimitsRead | null;
+        budgets: {
+            turn_usd: number;
+            session_usd: number;
+            day_usd: number;
+        };
+    }
+  ApifyProviderReason (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyProviderReason = "not_enabled" | "policy_invalid" | "token_missing" | "token_rejected" | "account_changed" | "upstream_unreachable" | "upstream_incompatible";
+  ApifyProviderState (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyProviderState = "disabled" | "authentication_required" | "configured" | "unavailable";
+  ApifySettingsRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySettingsRead {
+        state: ApifyProviderState;
+        reason: ApifyProviderReason | null;
+        account: ApifyAccountRead | null;
+        pending_account: ApifyAccountRead | null;
+        checked_at: string | null;
+        policy: ApifyPolicyRead;
+        spend: ApifySpendRead;
+    }
+  ApifySpendRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySpendRead {
+        ledger: "absent" | "read" | "unavailable";
+        observed_at: string;
+        coverage: string | null;
+        day: ApifySpendScopeRead | null;
+        brain_day: ApifySpendScopeRead | null;
+        turn?: ApifySpendScopeRead | null;
+        unresolved: ApifyUnresolvedRunRead[];
+    }
+  ApifySpendScopeRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySpendScopeRead {
+        scope: "turn" | "session" | "day" | "brain_day";
+        liability_usd: number;
+        charged_usd: number;
+        reserved_usd: number;
+        residual_usd: number;
+        runs: number;
+        open_runs: number;
+        unknown_runs: number;
+        operator_resolved: number;
+        limit_usd: number | null;
+    }
+  ApifyToolCall (packages/ui-sdk/src/tool-contracts/apify.ts)
+    export interface ApifyToolCall {
+        tool: ApifyToolName;
+        input: Record<string, unknown>;
+    }
+  ApifyToolName (packages/common/src/apify-operations.ts)
+    export type ApifyToolName = typeof APIFY_TOOL_NAMES[ApifyOperation];
+  ApifyToolResult (packages/ui-sdk/src/tool-contracts/apify.ts)
+    export type ApifyToolResult = ApifyEnvelope;
+  ApifyUnresolvedRunRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyUnresolvedRunRead {
+        key: string;
+        actor_id: string;
+        build_number: string;
+        state: "dispatching" | "unknown" | "running" | "aborting" | "succeeded" | "failed" | "timed_out" | "aborted" | "refused";
+        abort: "requested" | "confirmed" | "unresolved" | null;
+        cost_basis: "reserved" | "events" | "unknown" | "operator" | "none";
+        reserved_usd: number;
+        charged_usd: number | null;
+        liability_usd: number;
+        remote_outcome_unknown: boolean;
+        session_id: string;
+        turn_id: string;
+        started_at: string;
+        updated_at: string;
     }
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
@@ -5299,6 +5558,7 @@ signatures (every public export and the types it is made of)
         }>;
         completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
         referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
+        apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -5590,6 +5850,7 @@ signatures (every public export and the types it is made of)
         scope: BudgetScope;
         legacyRuns?: number;
         costUsd: number | null;
+        apifyUsd?: number;
         tokens: number | null;
         unknownRuns: number;
         warnUsd: number;
@@ -11164,7 +11425,7 @@ signatures (every public export and the types it is made of)
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
   TurnBudgetCoverage (packages/ui-sdk/src/turn-budgets.ts)
-    export type TurnBudgetCoverage = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
+    export type TurnBudgetCoverage = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
   TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
     export interface TurnBudgetReceipt {
         listPriceCostUsd: number | null;
@@ -11480,6 +11741,8 @@ signatures (every public export and the types it is made of)
         acquire(): Promise<() => void>;
         withLock<T>(fn: () => Promise<T> | T): Promise<T>;
     }
+  apifyOperationOf (packages/common/src/apify-operations.ts)
+    export function apifyOperationOf(name: string): ApifyOperation | undefined;
   assertLiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
     export function assertLiveConversationProvider(provider: LiveConversationProvider): void;
   assertLiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
@@ -12762,6 +13025,11 @@ signatures (every public export and the types it is made of)
   geoConfigSchema (packages/geo/src/config.ts) recorded in api-report/geo.txt
   getShareStore (packages/ui-sdk/src/client/share-store.ts)
     export function getShareStore(): ShareStore;
+  handleApifyTool (packages/ui-sdk/src/server/bridge-tools/apify.ts)
+    export function handleApifyTool(name: ApifyToolName, input: unknown, bridge: Pick<BackendBridge, "apify">): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handleAskUser (packages/ui-sdk/src/server/bridge-tools/ask-user.ts)
     export function handleAskUser(input: AskUserInput, bridge: BackendBridge, requestId?: string): Promise<AskUserPayload>;
   handleAskUserForm (packages/ui-sdk/src/server/bridge-tools/ask-user-form.ts)
@@ -18122,13 +18390,16 @@ signatures (every public export and the types it is made of)
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                     "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                     "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                 }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
                 scopes: z.ZodArray<z.ZodObject<{
+                    apifyUsd: z.ZodOptional<z.ZodNumber>;
                     blockTokens: z.ZodNumber;
                     blockUsd: z.ZodNumber;
                     blocked: z.ZodBoolean;
@@ -18234,13 +18505,16 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>, z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -18956,13 +19230,16 @@ signatures (every public export and the types it is made of)
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                     coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                         "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                         "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                        "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                     }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
                     scopes: z.ZodArray<z.ZodObject<{
+                        apifyUsd: z.ZodOptional<z.ZodNumber>;
                         blockTokens: z.ZodNumber;
                         blockUsd: z.ZodNumber;
                         blocked: z.ZodBoolean;
@@ -21755,13 +22032,16 @@ signatures (every public export and the types it is made of)
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                     coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                         "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                         "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                        "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                     }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
                     scopes: z.ZodArray<z.ZodObject<{
+                        apifyUsd: z.ZodOptional<z.ZodNumber>;
                         blockTokens: z.ZodNumber;
                         blockUsd: z.ZodNumber;
                         blocked: z.ZodBoolean;
@@ -22157,13 +22437,16 @@ signatures (every public export and the types it is made of)
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                     "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                     "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                 }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
                 scopes: z.ZodArray<z.ZodObject<{
+                    apifyUsd: z.ZodOptional<z.ZodNumber>;
                     blockTokens: z.ZodNumber;
                     blockUsd: z.ZodNumber;
                     blocked: z.ZodBoolean;
@@ -22271,13 +22554,16 @@ signatures (every public export and the types it is made of)
     const serverUsageSchema: z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -22415,13 +22701,16 @@ signatures (every public export and the types it is made of)
   turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const turnBudgetReceiptSchema: z.ZodObject<{
         coverage: z.ZodEnum<{
+            "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
             "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
             "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+            "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
         }>;
         listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
         listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         observedAt: z.ZodNumber;
         scopes: z.ZodArray<z.ZodObject<{
+            apifyUsd: z.ZodOptional<z.ZodNumber>;
             blockTokens: z.ZodNumber;
             blockUsd: z.ZodNumber;
             blocked: z.ZodBoolean;
@@ -22450,13 +22739,16 @@ signatures (every public export and the types it is made of)
         }>>;
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;

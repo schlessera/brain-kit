@@ -8,6 +8,8 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useTurnRevert } from "./use-turn-revert.js";
 import { computeDiffRows, diffText } from "../../lib/diff.js";
+import { ApifyTurnCost, ApifyTurnNotice, useApifyTurn } from "./apify-turn-cost.js";
+import { usd } from "../../lib/apify.js";
 
 /** One initially collapsed receipt for a host turn, including known no-change turns. */
 export function TurnJournal({ turnId, summary, live = false }: { turnId?: string; summary?: TurnJournalSummary; live?: boolean }) {
@@ -56,8 +58,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const steering = summary?.steeringFiles == null ? "Steering unknown" : `${summary.steeringFiles} steering`;
   const cost = summary?.costUsd == null ? "Cost unknown" : `${summary.costIsEstimate ? "Estimated " : ""}$${summary.costUsd.toFixed(4)}`;
   const budget = summary?.budget;
+  const apify = useApifyTurn(budget, sessionId, turnId);
+  // Apify stays its own figure beside inference, never folded into one exact sum (#3163).
+  const apifyLabel = apify.share.state === "unknown" ? " + Apify unknown" : apify.share.state === "known" && apify.share.apifyUsd > 0 ? ` + Apify up to ${usd(apify.share.apifyUsd)}` : "";
   const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
-  const label = `${changes} · ${steering} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
+  const label = `${changes} · ${steering} · ${cost}${apifyLabel} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
     // Equal text does not update the live region; authoritative cost/state
     // changes do. Never retain another session's or expired turn's status.
@@ -81,6 +86,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
     {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
+    <ApifyTurnNotice state={apify} />
     <Disclosure label={label} badge={summary?.configurationCoverage === "incomplete" ? { icon: "unproven", label: "configuration coverage incomplete" } : undefined} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>
         <div className="flex items-start justify-between gap-2 min-h-11"><p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
@@ -92,9 +98,10 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {budget ? <div className="grid gap-2" data-inference-budget>
           <p>Completed-response list-price usage: {budget.listPriceCostUsd === null ? "unknown" : `${budget.listPriceIsEstimate ? "estimated " : ""}$${budget.listPriceCostUsd.toFixed(4)}`}. This is not a subscription invoice or the effective cost above.</p>
           <p>{budget.coverage}.</p>
-          {budget.scopes.map(item=><p key={item.scope}>{item.scope === "day" ? "UTC day" : item.scope === "session" ? "Conversation lifetime" : "Turn"}: {item.costUsd === null ? "price unknown" : `$${item.costUsd.toFixed(4)} observed lower bound`}; {item.tokens === null ? "tokens unknown" : `${item.tokens.toLocaleString()} tokens`}. Warn ${item.warnUsd}; stop ${item.blockUsd}.{item.warnTokens !== undefined ? ` Unpriced token warning: ${item.warnTokens.toLocaleString()}.` : ""} Unpriced token stop: {item.blockTokens.toLocaleString()}.{item.legacyRuns ? " Includes legacy Activity totals; their recorded transcript attribution may be cumulative." : ""}{item.warning ? " Warning threshold reached." : ""}{item.blocked ? " Stop threshold reached." : ""}{item.resetAt ? ` Resets ${new Date(item.resetAt).toISOString()}.` : ""}</p>)}
+          {budget.scopes.map(item=><p key={item.scope}>{item.scope === "day" ? "UTC day" : item.scope === "session" ? "Conversation lifetime" : "Turn"}: {item.costUsd === null ? "price unknown" : `$${item.costUsd.toFixed(4)} observed lower bound`}; {item.tokens === null ? "tokens unknown" : `${item.tokens.toLocaleString()} tokens`}. Warn ${item.warnUsd}; stop ${item.blockUsd}.{item.warnTokens !== undefined ? ` Unpriced token warning: ${item.warnTokens.toLocaleString()}.` : ""} Unpriced token stop: {item.blockTokens.toLocaleString()}.{item.apifyUsd !== undefined ? ` Includes up to ${usd(item.apifyUsd)} admitted Apify liability.` : ""}{item.legacyRuns ? " Includes legacy Activity totals; their recorded transcript attribution may be cumulative." : ""}{item.warning ? " Warning threshold reached." : ""}{item.blocked ? " Stop threshold reached." : ""}{item.resetAt ? ` Resets ${new Date(item.resetAt).toISOString()}.` : ""}</p>)}
           <p>Measured {new Date(budget.observedAt).toISOString()}. Retained measurements are historical, not the current balance.</p>
         </div> : <p>Inference limits: unknown.</p>}
+        <ApifyTurnCost state={apify} />
         {summary?.scope ? <section className="grid gap-2"><h3>Scope limits</h3><p>{summary.scope.calls} tool calls · {Number(summary.scope.minutes.toFixed(3))} min · {summary.scope.changedPaths ?? "Unknown"} distinct changed paths · {summary.scope.observedBytes ?? "Unknown"} observed bytes.</p>
           <p>Ceilings: {summary.scope.limits.tool_calls} calls · {summary.scope.limits.minutes} min · {summary.scope.limits.files_changed} paths · {summary.scope.limits.turn_bytes} bytes. Independent hard timeout: {summary.scope.hardTimeoutMs / 60_000} min. Host resource and storage limits also remain binding.</p>
           <ul className="grid gap-2">{summary.scope.receipts.map(receipt => <li key={receipt.eventId} className="break-words">{scopeReceiptText(receipt)}. Cap: {scopeNumber(receipt.dimension, receipt.cap)}; observed overshoot: {scopeNumber(receipt.dimension, receipt.overshoot)}.</li>)}</ul>
