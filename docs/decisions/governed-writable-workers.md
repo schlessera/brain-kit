@@ -3666,7 +3666,7 @@ the path's existing cancellation or failure outcome.
 to pi cancellation before `prompt()`. The pool owns a late new or resumed
 acquisition until its awaited abort finishes, then disposes it and preserves
 the accepted cancellation (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:160-167`). After acquisition the
+`packages/ui-backend-pi/src/session-pool.ts:176-183`). After acquisition the
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
@@ -3675,6 +3675,15 @@ awaits exit and protocol consumption, the awaited turn-temp close above, then
 stdio release even if exit or cleanup refuses. Failed cleanup keeps the
 reservation charged and remains retryable. Disposal and Stop signalling keep
 their synchronous signatures; terminal reporting owns the asynchronous wait.
+
+[#3488](https://github.com/schlessera/brain-kit/issues/3488) applies the same
+rule to the loser of two concurrent resumes of one session. The pool decides
+busy or reuse, and claims a reused entry, before it waits. It then awaits the
+losing worker's shared inactive abort, disposes it and re-raises the original
+outcome (`releaseLosingSession`,
+`packages/ui-backend-pi/src/session-pool.ts:150-157`). A refused cleanup is
+logged as a warning and cannot replace the busy refusal; the reservation stays
+charged and the abort stays retryable.
 
 ### Outward actions (G5)
 
