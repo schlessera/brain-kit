@@ -65,6 +65,11 @@ does a replayed session show?
    alike.** Until it lands there is no error suppression. A cancelled turn is
    never suppressed: the model calls suggestions last, so a turn that reached
    the call has an answer.
+   *Amended 2026-11-03 (#3519, maintainer):* the description now asks for
+   the call before the answer's final sentence instead of last, because a
+   turn ending on the call returned no text and the Claude CLI's
+   no-visible-output nudge made the model write the answer twice. The call
+   still follows the answer's substance, so this reasoning holds.
 8. **The rule rides in the tool description, not the brief.** The brief sits
    at its pinned eleven lines and 749 characters, and with the tools always
    loaded (D44) it measured no effect on the call rate. The description, which
