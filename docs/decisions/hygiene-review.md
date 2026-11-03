@@ -180,7 +180,7 @@ an invalidation can name the fields that changed.
 entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
 records its time and the fingerprint it applied to. `until:` takes an ISO
 date-time or a date; a date is due at the start of that UTC day, as before
-(`function dueAt`, `packages/core/src/lib/hygiene.ts:863-873`). A recorded
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:899-909`). A recorded
 fingerprint that no longer matches reopens the finding at once, with an
 `invalidated:` receipt naming the changed fields and the disposition's date.
 A snooze that comes due reopens it with no receipt.
@@ -190,7 +190,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1538`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1574`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -209,11 +209,11 @@ made (K1 A). It lives in `context/hygiene/kept.md`, which is never created
 empty. It holds only while the original's fingerprint is unchanged and its
 copy is a contained regular file outside `.brain/` and `workspaces/` that
 `media.track` keeps. Otherwise the original reopens with an `invalidated:`
-receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:998-1008`).
+receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:1034-1044`).
 
 Sync's count and review use one read-only function that applies these
 predicates to the log as it stands rather than trusting the file an entry sits
-in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1778-1793`).
+in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1814-1829`).
 Leave pending is a per-pass deferral in review state, never a log state: it
 skips the finding while its fingerprint holds, and the finding still counts.
 
@@ -265,7 +265,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1512-1515`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1548-1551`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

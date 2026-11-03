@@ -24,7 +24,7 @@ afterEach(async () => {
   else document.documentElement.dataset.theme = originalTheme;
   document.documentElement.style.fontSize = originalSize;
   await commands.dictationMotion("no-preference");
-  if (outer) { await commands.formViewport(outer.width, outer.height); outer = undefined; }
+  if (outer) { await commands.formViewport(outer.width - 100, outer.height - 120); outer = undefined; }
 });
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

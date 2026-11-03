@@ -758,7 +758,7 @@ export function storedVectorWidth(db: Database, configured: number): number {
  */
 export function hasVecSupport(db: Database): boolean {
   try {
-    db.prepare("SELECT vec_version()").get();
+    vecVersion(db);
     return true;
   } catch {
     return false;
@@ -810,4 +810,35 @@ export function setMeta(db: Database, key: string, value: string): void {
     "INSERT OR REPLACE INTO index_metadata (key, value) VALUES (?, ?)",
     [key, value]
   );
+}
+
+/**
+ * The loaded sqlite-vec extension's version. Throws (with SQLite's message)
+ * when the extension is not loaded into `db`.
+ */
+export function vecVersion(db: Database): string {
+  return (db.prepare("SELECT vec_version() AS v").get() as { v: string }).v;
+}
+
+/** How many vectors `vec_chunks` holds. Throws when the table is absent or sqlite-vec is not loaded. */
+export function vectorCount(db: Database): number {
+  return (db.prepare("SELECT COUNT(*) as n FROM vec_chunks").get() as { n: number }).n;
+}
+
+/** How many documents the index holds. Throws when the index cannot be read. */
+export function documentCount(db: Database): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n;
+}
+
+/** Whether the index holds a document at `path`. */
+export function isIndexedDocument(db: Database, path: string): boolean {
+  return Boolean(db.query("SELECT 1 FROM documents WHERE path = ?").get(path));
+}
+
+/** The indexed content hash of every markdown document, by path. */
+export function markdownContentHashes(db: Database): Map<string, string | null> {
+  const rows = db
+    .prepare("SELECT path, content_hash FROM documents WHERE asset_type = 'markdown'")
+    .all() as { path: string; content_hash: string | null }[];
+  return new Map(rows.map((r) => [r.path, r.content_hash]));
 }
