@@ -33,7 +33,7 @@ the map, awaits `runtime.openSession` and then checks the map again. If
 another acquisition registered the session in the meantime, it calls
 synchronous `disposeSession(opened.session)` and then either refuses
 `BackendBusyError` or claims the idle entry (`if (req.sessionId)`,
-`packages/ui-backend-pi/src/session-pool.ts:76-99`). Without retention, an
+`packages/ui-backend-pi/src/session-pool.ts:77-100`). Without retention, an
 entry in the map is always running, so in production the loser always
 refuses busy. The runner re-throws that refusal to its caller unchanged
 (`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:63-84`).
@@ -41,23 +41,23 @@ refuses busy. The runner re-throws that refusal to its caller unchanged
 **The new-session branch.** A worker-backed session's identity is
 `resumeId ?? randomUUID()` (`const sessionId = resumeId`,
 `packages/ui-backend-pi/src/worker-session.ts:112`). Autonomous acquisitions
-return before the map is consulted (`runtime.newSession`, `packages/ui-backend-pi/src/session-pool.ts:101-103`).
+return before the map is consulted (`runtime.newSession`, `packages/ui-backend-pi/src/session-pool.ts:102-104`).
 So the duplicate check
-(`sessions.get(created.session.sessionId)`, `packages/ui-backend-pi/src/session-pool.ts:104-117`)
+(`sessions.get(created.session.sessionId)`, `packages/ui-backend-pi/src/session-pool.ts:105-118`)
 fires only for injected `sessionFactory` doubles, which reuse identities.
 
 **ui-server.** The interactive turn path admits one in-flight `startTurn` per
 session. `handleChatMessage` queues a message for a session found in
 `startingBySession` or `bySession`
-(`const runningTurn`, `packages/ui-server/src/ws/run-session.ts:1216-1247`). Otherwise it calls
+(`const runningTurn`, `packages/ui-server/src/ws/run-session.ts:1222-1253`). Otherwise it calls
 `runSession`, which calls `runRetainedSession`. That registers
 `startingBySession` before its first await
 (`runRetainedSession`, `packages/ui-server/src/ws/run-session.ts:201-216`). Nothing on that path
 awaits between the check and the registration. The turn then moves to
 `bySession` (`coordinator.running.add(turn)`, `packages/ui-server/src/ws/run-session.ts:288-289`), awaits
-`backend.startTurn` directly (`await backend.startTurn`, `packages/ui-server/src/ws/run-session.ts:787`),
+`backend.startTurn` directly (`await backend.startTurn`, `packages/ui-server/src/ws/run-session.ts:788`),
 and releases `bySession` only in the slot's final `finally`
-(`coordinator.bySession.get(turn.sessionId) === turn`, `packages/ui-server/src/ws/run-session.ts:993-995`). Retry admission refuses
+(`coordinator.bySession.get(turn.sessionId) === turn`, `packages/ui-server/src/ws/run-session.ts:999-1001`). Retry admission refuses
 on the same two maps (`coordinator.bySession.has(msg.sessionId)`, `packages/ui-server/src/ws/dispatch.ts:242`). The other
 two backend callers run autonomous turns and pass no `sessionId`: the handoff
 summary (`await backend.startTurn`, `packages/ui-server/src/ws/handoff.ts:374-388`) and inbox work
@@ -82,7 +82,7 @@ awaited owner already exists: the session's shared inactive `abort()` waits
 for exit and protocol consumption, then the turn-temp close, then the bounded
 stdio release (`abort()`, `packages/ui-backend-pi/src/worker-session.ts:758-774`).
 #2880 uses it for cancelled acquisitions (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:159-166`).
+`packages/ui-backend-pi/src/session-pool.ts:160-167`).
 
 ## Runtime receipt
 
