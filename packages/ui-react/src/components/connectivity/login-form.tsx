@@ -18,12 +18,12 @@ import type { FormEvent, ReactNode } from "react";
  * Fail-open by design: `methods.password` defaults to true in the container,
  * so a failed probe still shows the one method that always works.
  */
-export interface LoginMethods {
+interface LoginMethods {
   password: boolean;
   passkey: boolean;
 }
 
-export interface LoginFormProps {
+interface LoginFormProps {
   appName: string;
   title?: string;
   notice?: ReactNode;

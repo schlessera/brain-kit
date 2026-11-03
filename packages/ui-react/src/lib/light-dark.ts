@@ -57,7 +57,7 @@ export function documentColorScheme(): ColorScheme {
   return prefersDark() ? "dark" : "light";
 }
 
-export function prefersDark(): boolean {
+function prefersDark(): boolean {
   try {
     return (
       typeof window !== "undefined" &&

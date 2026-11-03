@@ -20,7 +20,7 @@ const PAGE_REVIEW_COPY: ReviewCopy = {
   footnote: "Left out by default: the error message, component names, file paths, hostnames, and anything from your notes or conversations. Redaction is best effort; read the text before you paste it anywhere.",
 };
 
-export interface PageBoundaryProps {
+interface PageBoundaryProps {
   children: ReactNode;
   /** Test hook: observe a reload without navigating. */
   reload?: () => void;

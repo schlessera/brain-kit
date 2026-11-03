@@ -8,7 +8,7 @@ import { useId, useRef } from "react";
  * as chips, its path as a `PathRef`, its degrees as machine meta, and the
  * actions as kit `Button`s — "Open note" primary, the rest ghost.
  */
-export interface NodeCardProps {
+interface NodeCardProps {
   kind: string;
   title: string;
   path: string;

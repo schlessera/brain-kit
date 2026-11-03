@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { Overlay, Button } from "@schlessera/brain-ui-kit";
 
 /** The public tracker every report goes to (D51). */
-export const REPORT_ISSUE_URL = "https://github.com/schlessera/brain-kit/issues/new";
+const REPORT_ISSUE_URL = "https://github.com/schlessera/brain-kit/issues/new";
 /** A prefilled issue link longer than this is refused, never truncated. */
-export const REPORT_URL_LIMIT = 8000;
+const REPORT_URL_LIMIT = 8000;
 
 /** The exact link `Open issue on GitHub` opens: nothing is added at send time. */
-export function reportIssueUrl(title: string, body: string): string {
+function reportIssueUrl(title: string, body: string): string {
   const url = new URL(REPORT_ISSUE_URL);
   url.searchParams.set("title", title);
   url.searchParams.set("body", body);
@@ -19,7 +19,7 @@ export function reportIssueUrl(title: string, body: string): string {
  * Reviewed text appended at the end of the body on an explicit tap. `build`
  * returns null when the source is absent, and the button does not render.
  */
-export interface ReviewInclusion {
+interface ReviewInclusion {
   id: string;
   label: string;
   build: () => string | null;
@@ -50,7 +50,7 @@ export const CHAT_REVIEW_COPY: ReviewCopy = {
   copyFailed: "Couldn't copy. Select the reviewed text and copy it manually.",
 };
 
-export interface DiagnosticReviewProps {
+interface DiagnosticReviewProps {
   mode: "copy" | "report";
   /**
    * The generated body. While the reader has not edited the field, a new

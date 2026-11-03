@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { readdir, readFile, stat, realpath } from "node:fs/promises";
-import { join, relative, resolve, sep, posix, dirname } from "node:path";
+import { join, relative, resolve, sep, posix } from "node:path";
 import ignore, { type Ignore } from "ignore";
 import { isWithin, resolveContained, type ContainmentPolicy } from "@schlessera/brain-common/internal/safe-path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
@@ -341,7 +341,7 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webm": "video/webm",
 };
 
-export function mimeFor(name: string, kind: FileContentKind): string {
+function mimeFor(name: string, kind: FileContentKind): string {
   const ext = extOf(name);
   if (MIME_BY_EXT[ext]) return MIME_BY_EXT[ext];
   if (kind === "markdown") return "text/markdown; charset=utf-8";
@@ -350,7 +350,7 @@ export function mimeFor(name: string, kind: FileContentKind): string {
   return "application/octet-stream";
 }
 
-export interface FileContent {
+interface FileContent {
   kind: FileContentKind;
   size: number;
   mtime: number;
@@ -536,4 +536,3 @@ export async function resolveAncestors(rel: string, root: string): Promise<{ anc
 }
 
 // Re-export for callers
-export { dirname };

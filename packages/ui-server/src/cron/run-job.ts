@@ -26,24 +26,24 @@ export const OUTPUT_TAIL_CHARS = 8_000;
  * (#3380). The worker's host, homes and XDG state are read-only or per-run;
  * a bare `EROFS` from a module's own subprocess does not say so.
  */
-export const READ_ONLY_BOUNDARY_HINT =
+const READ_ONLY_BOUNDARY_HINT =
   "the job wrote to a read-only path: it runs in a maintenance worker (the host execution boundary), where only the brain is writable and kept. " +
   "A module keeps durable state in .brain-ui/modules/<module-name>/ (CommandContext.stateDir()).";
 
 /** A read-only write in the job's own stderr that nothing above it already explained. */
-export function readOnlyWithoutBoundary(stderr: string): boolean {
+function readOnlyWithoutBoundary(stderr: string): boolean {
   return /\bEROFS\b|read-only file system/i.test(stderr) && !stderr.includes("host execution boundary");
 }
 
 /** Heartbeat cadence, comfortably inside the activity store's stale threshold. */
-export const HEARTBEAT_MS = 30_000;
+const HEARTBEAT_MS = 30_000;
 /** Child-visible path where span-sink JSONL may be appended. */
 export const SPAN_SINK_ENV = "BRAIN_ACTIVITY_SPAN_SINK";
 /**
  * The most stdout the `sync` job's result may hold. Past it the output is
  * passed through as it arrives and no result is read from it.
  */
-export const SYNC_RESULT_MAX_CHARS = 8_000_000;
+const SYNC_RESULT_MAX_CHARS = 8_000_000;
 
 interface TextSink {
   write(text: string): unknown;
@@ -64,7 +64,7 @@ interface RunRecorder {
   close(): void;
 }
 
-export interface RunJobOptions {
+interface RunJobOptions {
   jobName: string;
   command: string[];
   dbPath: string;
@@ -79,7 +79,7 @@ export interface RunJobOptions {
   stderr?: TextSink;
 }
 
-export interface RunJobDependencies {
+interface RunJobDependencies {
   spawn?: (
     command: string[],
     options: {
@@ -110,7 +110,7 @@ function writeLine(sink: TextSink, text: string): void {
 }
 
 /** Forward a stream verbatim while exposing decoded chunks for tail capture. */
-export async function teeStream(
+async function teeStream(
   stream: ReadableStream<Uint8Array>,
   sink: TextSink,
   onText: (text: string) => void
@@ -152,7 +152,7 @@ function holdStdout(sink: TextSink): TextSink & { release(): string | null } {
 }
 
 /** Keep the last `cap` characters, never the head. */
-export function appendTail(current: string, text: string, cap: number): string {
+function appendTail(current: string, text: string, cap: number): string {
   return (current + text).slice(-cap);
 }
 

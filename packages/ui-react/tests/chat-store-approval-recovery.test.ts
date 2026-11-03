@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore } from "../src/stores/chat-store";
-import { flushChatDeltas, handleServerMessage } from "../src/hooks/use-websocket";
+import { defaultRoot } from "../src/default-root";
+
+const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 // Approval recovery in the client (#964, D52 §4): a pending approval the host
 // re-delivers after a replay lands on its own turn, as one card, marked

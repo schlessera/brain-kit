@@ -9,7 +9,7 @@ import { Callout, Label, ListRow, Surface } from "@schlessera/brain-ui-kit";
  * revokes, and the row dims while the revoke is in flight.
  * `ToolPermissionsSection` is the container that owns the request.
  */
-export interface ToolPermissionsListProps {
+interface ToolPermissionsListProps {
   tools: string[];
   /** The tool whose revoke is in flight. */
   busy: string | null;

@@ -23,7 +23,7 @@ export type LocalDirection = "in" | "out" | "both";
  * (core unavailable / schema too old / not yet computed); "unsupported" means
  * the server predates the graph API entirely (404 on /graph/meta).
  */
-export type GraphErrorKind = "unavailable" | "unsupported" | "network";
+type GraphErrorKind = "unavailable" | "unsupported" | "network";
 
 interface GraphError {
   kind: GraphErrorKind;
@@ -36,25 +36,25 @@ class DiscoveryIntegrityFailure extends Error {
   }
 }
 
-export interface LocalParams {
+interface LocalParams {
   center: string | null;
   depth: 1 | 2 | 3;
   direction: LocalDirection;
 }
 
-export interface DiscoveryParams {
+interface DiscoveryParams {
   /** null = the precomputed default root (direction is fixed there). */
   root: string | null;
   maxDepth: number;
 }
 
-export interface ClustersParams {
+interface ClustersParams {
   /** null = all communities. */
   community: number | null;
   isolates: boolean;
 }
 
-export interface MaintenanceParams {
+interface MaintenanceParams {
   staleDays: number;
 }
 
@@ -70,7 +70,7 @@ export type SizeBy = "degree" | "pagerank";
 export type DiscoveryColorBy = "topic" | "distance" | "folder" | "entity";
 
 /** Which finding sections are visible — a client-side filter, no refetch. */
-export interface MaintenanceFilters {
+interface MaintenanceFilters {
   orphans: boolean;
   unreachable: boolean;
   broken: boolean;

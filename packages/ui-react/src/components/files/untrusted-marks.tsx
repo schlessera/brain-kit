@@ -14,11 +14,11 @@ import { ChevronLeft } from "lucide-react";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 
-export interface MarkedBy { label: string | null; you: boolean }
-export type MarkDetail =
+interface MarkedBy { label: string | null; you: boolean }
+type MarkDetail =
   | { path: string; marked: false; canClear: boolean }
   | { path: string; marked: true; markedAt: number; missing: boolean; markedBy?: MarkedBy; canClear: boolean };
-export interface MarkRow { path: string; marked: true; markedAt: number; missing: boolean; markedBy?: MarkedBy }
+interface MarkRow { path: string; marked: true; markedAt: number; missing: boolean; markedBy?: MarkedBy }
 
 /** What one host request came back as. `uncertain`: it may or may not have applied. */
 type Failure = "unsupported" | "not-found" | "forbidden" | "owner-required" | "unreachable" | "uncertain" | "signed-out";
@@ -61,7 +61,7 @@ const sendClear = (root: BrainUiRoot, path: string) => call<{ status: "cleared" 
   body => record(body) && (body.status === "cleared" || body.status === "already_cleared"));
 
 /** `12 Jul`: the design's mark date. */
-export function markDate(at: number): string {
+function markDate(at: number): string {
   return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 /** Who marked, for the owner only: the host sends no `markedBy` to anyone else. */
@@ -145,12 +145,12 @@ export function UntrustedMarksScope({ children }: { children: ReactNode }) {
 
 // ── One path's mark: the toolbar control, cue and rail ─────────────────────
 
-export type DetailState =
+type DetailState =
   | { status: "checking" } | { status: "unsupported" } | { status: "unknown" } | { status: "absent" }
   | { status: "ready"; mark: MarkDetail };
 
 /** The mark of the open file, read from the host whenever the path or the surface's revision changes. */
-export function useMarkDetail(path: string | null): [DetailState, () => void, (mark: MarkDetail) => void] {
+function useMarkDetail(path: string | null): [DetailState, () => void, (mark: MarkDetail) => void] {
   const root = useBrainUiRoot();
   const marks = useUntrustedMarks();
   const [state, setState] = useState<{ path: string | null; detail: DetailState }>({ path, detail: { status: "checking" } });
@@ -174,7 +174,7 @@ export function useMarkDetail(path: string | null): [DetailState, () => void, (m
 }
 
 /** `◆ untrusted · marked 12 Jul` (+ ` by …` for the owner): glyph and word, never colour alone. */
-export function MarkCue({ mark }: { mark: Extract<MarkDetail, { marked: true }> }) {
+function MarkCue({ mark }: { mark: Extract<MarkDetail, { marked: true }> }) {
   return (
     <div className="mt-0.5 flex items-start gap-1 text-[10px] [overflow-wrap:anywhere]" style={{ color: PURPLE }} data-untrusted-cue="">
       <span className="mt-px shrink-0" aria-hidden="true"><Icon icon="unverified" size={11} color={PURPLE} /></span>
@@ -198,7 +198,6 @@ const COPY = {
   stillUnknown: "Still couldn't check. Try again.",
   proxy: "On turns that run through the egress proxy, web access is limited to the untrusted allow-list and sites this chat already contacted. Your other web rules still apply.",
 } as const;
-export const PROXY_BULLET = COPY.proxy;
 
 /**
  * Send one intent for one captured path, and settle it from the host.

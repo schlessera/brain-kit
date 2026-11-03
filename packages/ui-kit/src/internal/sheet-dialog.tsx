@@ -5,7 +5,7 @@ import { BottomSheet } from "../chrome/BottomSheet.js";
 import { Overlay } from "../chrome/Overlay.js";
 
 /** The Working and Pending follow-up sheet adapter; Overlay owns modality. */
-export interface SheetDialogProps {
+interface SheetDialogProps {
   /** The dialog's accessible name and the sheet's title. */
   title: string;
   subtitle?: string;

@@ -15,7 +15,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import type { ChatMessage, TurnNotice as TurnNoticeValue } from "../../stores/chat-store.js";
 import { useChatStore } from "../../stores/chat-store.js";
 
-export const TURN_NOTICE_COPY: Record<TurnNoticeValue["cause"], { tag: string; body: string }> = {
+const TURN_NOTICE_COPY: Record<TurnNoticeValue["cause"], { tag: string; body: string }> = {
   timeout: {
     tag: "Turn timed out",
     body: "The host's time limit for one turn ran out, so this turn stopped.",

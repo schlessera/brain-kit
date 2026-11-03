@@ -29,7 +29,7 @@ import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { sharedFileMetaSchema, messageSourceSchema } from "@schlessera/brain-ui-sdk/schemas";
 
 /** The key one message's text gets. Exported so the writer and the joiner agree by construction. */
-export function messageTextHash(text: string): string {
+function messageTextHash(text: string): string {
   return new Bun.CryptoHasher("sha256").update(text).digest("hex");
 }
 
