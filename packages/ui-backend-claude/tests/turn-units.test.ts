@@ -158,7 +158,7 @@ describe("TurnTerminal", () => {
 
   test("a thrown worker host error names the turn; anything else is a diagnostic", async () => {
     expect(thrownTurnFailure(new Error("boom"))).toEqual({ diagnostic: { code: "CLAUDE_ERROR", message: "boom" } });
-    const hostError = new WorkerHostError("worker_host_unavailable" as never, "no host");
+    const hostError = new WorkerHostError("no host");
     const named = thrownTurnFailure(hostError);
     expect(named.refusal).toEqual({ code: "CLAUDE_ERROR", message: hostError.message,
       failure: { errorClass: hostError.errorClass, message: hostError.message } });
