@@ -31,7 +31,7 @@ Use maintenance workers for repository code, the CLI and Git. Host routes may
 perform narrowly validated descriptor operations, as the journal/revert do;
 they must not evaluate brain configuration, hooks, filters or executables.
 The existing brain client supplies boundary execution
-(`async function execBrain`, `packages/ui-server/src/brain/client.ts:285-340`).
+(`async function execBrain`, `packages/ui-server/src/brain/client.ts:302-357`).
 Do not turn the new surface into a host command runner or an extension seam.
 
 Reuse existing authorization. A requested reversible, fully journaled edit
@@ -82,7 +82,7 @@ Source foundations for the matrix:
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source
-  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:229-286`).
+  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:261-321`).
 - Journal collection requires no refs/reservations and only expires ended
   turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:300-320`).
   Retention is applied at admission

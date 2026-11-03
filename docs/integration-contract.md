@@ -52,6 +52,18 @@ an `allowlist` egress mode, or the exact origins in
 [the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
 [supported inputs](supported-inputs.md).
 
+## Module state area (additive, 0.45.0, #3380)
+
+A module keeps durable state in `<brain>/.brain-ui/modules/<module-name>/`,
+gitignored by the area's own `.gitignore`. Module commands get it as the new
+optional `CommandContext.stateDir()`, and `@schlessera/brain/module` exports
+`MODULE_STATE_DIR`, `moduleStatePath`, `moduleStateDir` and
+`ModuleStateError`. A scheduled module job in a maintenance worker writes it
+through the worker's data root, and output staging publishes it back after
+each run. A module command's `EROFS` outside the brain now exits 2 with a
+message naming the host execution boundary and the state area. See
+[the package API component](integration-contract/package-api.md#module-state-area).
+
 ## Module discovery outcome at crontab emission (additive, 0.45.0, #3381)
 
 `brain-ui-cron crontab` retries a failed module discovery a bounded number of

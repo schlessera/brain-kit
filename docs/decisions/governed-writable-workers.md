@@ -548,6 +548,35 @@ What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
 
+### Module jobs: durable state and other repositories — 2026-11-02 (#3380)
+
+A module's scheduled job runs in a maintenance worker like every repository
+job. That left a module two things it may need and cannot have: a durable
+place for state outside the brain (the host, homes and `XDG_STATE_HOME` are
+read-only or per-run), and a credential for a private repository other than
+the brain (`HOST_GIT_CREDENTIAL_ENV` is stripped, and only `sync` reaches a
+remote, through the mirror transport). The
+[maintainer ruled on #3380](https://github.com/schlessera/brain-kit/issues/3380):
+
+1. **Durable state lives in a named per-module area inside the brain**,
+   `.brain-ui/modules/<module-name>/`, gitignored, part of the module
+   contract and published through output staging on every run. Host
+   directories stay read-only. A module command reaches it as
+   `ctx.stateDir()`, resolved against the worker's data root, never the
+   read-only view its working directory shows
+   ([the contract](../integration-contract/package-api.md#module-state-area)).
+   A write to a read-only host path fails with a message that names this
+   boundary and the state area, not a bare `EROFS`.
+2. **Another repository is fetched by the host**, for repositories on an
+   allow-list declared in module configuration, the way the sync mirror
+   fetches: a host-private mirror, a separate transport worker holding the
+   host's credential, and the module job reading the mirror over the local
+   file transport. The worker never holds `GITHUB_TOKEN` or any generic
+   credential.
+
+Forwarding a generic `GITHUB_TOKEN` into maintenance workers and restoring
+host-directory writes remain out of scope.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 
@@ -596,7 +625,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:680-690`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:689-699`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -1037,7 +1066,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1136-1164`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1150-1178`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1145,6 +1174,24 @@ since a long hold is not revocation. A principal that really lost authority
 refuses `authority_revoked` at once, waiting or not (`export async function retryHeld`,
 `packages/ui-server/src/brain/authority-hold.ts:92-102`).
 
+**A pause the policy observation raises is a no-publication outcome (#2870,
+maintainer, 2026-10-25).** Policy publication runs inside its own journal
+observation, and that observation can itself reach a scope cap. Waiting there
+would hold the observation, and Continue is refused while one holds; throwing
+out of it would end the observation as failed and stop the turn's workers.
+The callback instead stages nothing and returns, so the observation completes
+successfully and releases its hold. The publisher then reports the hold
+outside it, the brain lock unwinds, and the same bounded wait runs, sharing
+its one deadline with every earlier wait of the request. Continue starts a
+fresh attempt that checks live authority, validation, ancestry and the base
+hash again and runs a new observation; the one approval carries over only to
+unchanged bytes on an unchanged base. Stop, cancellation, revocation, turn
+replacement and the deadline publish nothing and record no policy-updated
+event; a no-publication attempt records none either. Real observation and
+storage failures keep their existing handling, and a publication that
+committed before its report failed stays `unknown` and is never retried
+(`const held`, `packages/ui-server/src/brain/policy-proposal.ts:167-256`).
+
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
 The live receipt's polite accessibility status follows authoritative cost and
@@ -1159,7 +1206,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:217-244`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:219-253`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -2198,7 +2245,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:226`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:235`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2216,7 +2263,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1911`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1925`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2240,7 +2287,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:385-444`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:394-453`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2316,9 +2363,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:609-615`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:636-675`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:791-809`).
+`packages/ui-sdk/src/server/worker-launcher.ts:618-624`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:645-684`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:800-818`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3350,7 +3397,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:250-284`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:259-293`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -3488,11 +3535,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1099-1127`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1113-1141`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1136-1162`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1150-1176`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1325-1413`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1339-1427`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker

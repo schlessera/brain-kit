@@ -63,7 +63,10 @@ test("per-figure SVG PNG and PDF actions use the existing print share path",asyn
  root.request=async(_url,init)=>{const body=JSON.parse(String(init?.body));requests.push(body);return new Response(new Uint8Array([1,2,3]),{headers:{"content-type":body.format==="png"?"image/png":"application/pdf"}});};
  try{
  mount(<DiagramContent source={source} theme="dark" mode="chat"/>);await ready();
- for(const label of ["Image (PNG)","PDF","Vector (SVG)"]){await userEvent.click(host.querySelector('[aria-label="Share diagram"]')!);await userEvent.click([...host.querySelectorAll('[role="menuitem"]')].find(item=>item.textContent?.includes(label))!);await expect.poll(()=>files.length).toBe(["Image (PNG)","PDF","Vector (SVG)"].indexOf(label)+1);}
+ // The trigger click resolves before the menu necessarily commits (#2946):
+ // wait for the requested item itself, under the ordinary poll deadline.
+ const menuItem=(label:string)=>[...host.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item=>item.textContent?.includes(label));
+ for(const label of ["Image (PNG)","PDF","Vector (SVG)"]){await userEvent.click(host.querySelector('[aria-label="Share diagram"]')!);await expect.poll(()=>menuItem(label),{message:`SHARE_MENU_ITEM_RENDERED ${label}`}).toBeDefined();await userEvent.click(menuItem(label)!);await expect.poll(()=>files.length).toBe(["Image (PNG)","PDF","Vector (SVG)"].indexOf(label)+1);}
  expect(requests.map(item=>item.format),"SHARE_USES_EXISTING_RENDER_ROUTE").toEqual(["png","pdf"]);expect(requests.every(item=>item.content.includes('data-theme="print"'))).toBe(true);expect(files.map(file=>file.type)).toEqual(["image/png","application/pdf","image/svg+xml"]);expect(await files[2]!.text()).toContain('data-theme="print"');
  }finally{if(share)Object.defineProperty(navigator,"share",share);else delete (navigator as {share?:unknown}).share;if(canShare)Object.defineProperty(navigator,"canShare",canShare);else delete (navigator as {canShare?:unknown}).canShare;}
 });
