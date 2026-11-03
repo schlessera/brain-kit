@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:552-567`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:553-568`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -1273,7 +1273,7 @@ its working directory. No first-party code reads `.env` any other way. The
 launcher binds `/dev/null` over every present `.env*` name at the brain root,
 and over the file an `.env*` link leads to, after every other mount, so no
 later bind can restore it (`maintenanceEnvMasks`,
-`packages/ui-sdk/src/server/maintenance-env-masks.ts:66-70`). The worker cannot
+`packages/ui-sdk/src/server/maintenance-env-masks.ts:67-71`). The worker cannot
 open them: a read fails with `EACCES`, so Bun loads nothing and `cat .env`
 prints nothing. A new `.env*` name is a protected tier A path, so a turn
 cannot create one in the brain either.

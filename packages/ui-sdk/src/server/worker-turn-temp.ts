@@ -20,6 +20,7 @@
  * while it is copied. The destination is opened the same way below
  * `.brain/scratch/turns/<turnId>/`.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { hasIdentityReadRoot, prepareRecoveredWorkerFile, recoveredWorkerFile } from "./worker-identity-reader.js";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync,
   rmdirSync, statfsSync, unlinkSync, writeSync } from "node:fs";
@@ -45,7 +46,7 @@ const LINK_MAX_CHARS = 2000;
 const COPY_CHUNK = 1024 * 1024;
 
 /** Whether `path` is `dir` or lies below it. */
-export const within = (dir: string, path: string) => path === dir || path.startsWith(dir.endsWith("/") ? dir : `${dir}/`);
+export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 
 /**
  * A server-side path that opens the directory a held descriptor names.

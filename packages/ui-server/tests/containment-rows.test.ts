@@ -86,9 +86,11 @@ describe("ui-server safeResolve(rel, root): its resolver row", () => {
     ["dangling-in", "refused"],
     ["dangling-in/x", "refused"],
     ["dangling-out", "refused"],
-    // A symlink cycle is accepted: the path resolves nowhere.
-    ["cycle-a", "brain/cycle-a"],
-    ["cycle-a/x", "brain/cycle-a/x"],
+    // A symlink cycle is refused (#2506). The copy ui-server carried accepted
+    // it, answering a path that resolves nowhere; core and the SDK refused it,
+    // and the shared resolver keeps that stricter answer.
+    ["cycle-a", "refused"],
+    ["cycle-a/x", "refused"],
     // Every existing component must stay inside: out and back is refused.
     ["bounce/back/a.md", "refused"],
     // `.brain` is a scratch request (`isScratchPath`): no link under it is followed.
@@ -148,8 +150,10 @@ const PREDICATE_CASES: [string, string][] = [
 const LITERAL_SLASH = "T T - - - T - - - T T T T";
 
 const rows: [string, (root: string, path: string) => boolean, string][] = [
-  // relative()-based: both sides resolved; the root itself is excluded.
-  ["core-queries inside(dir, file)", coreQueriesInside, "- T - - T - T T - - - - T"],
+  // relative()-based: both sides resolved; the root itself is excluded. A
+  // child named `..c` is inside (#2506): the copy refused it, reading any
+  // relative path that starts with `..` as an escape.
+  ["core-queries inside(dir, file)", coreQueriesInside, "- T - - T - T T - - - T T"],
   // relative()-based: both sides resolved; the root itself is included.
   ["storage/process inside(root, path)", processInside, "T T - - T T T T T T - T T"],
   // Literal, except that root `/` holds everything.

@@ -1,4 +1,5 @@
 /** Optional installed RTK evidence belongs to one kernel-observed live worker. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { rewriteInstalledRtk } from "./rtk.js";
@@ -18,7 +19,7 @@ export function registerWorkerRtk(worker: LaunchedWorker, pid: number, input: Wo
     void worker.exited.then(() => { view.alive = false; }, () => { view.alive = false; });
   } catch { /* An unreadable worker cannot authorize an optional rewrite. */ }
 }
-export function within(root: string, path: string): boolean { return path === root || path.startsWith(root + "/"); }
+export function within(root: string, path: string): boolean { return isWithin(root, path); }
 /** ELF64 native static executables, including dependency-free static PIE. */
 export function isStaticNativeElf(path: string): boolean {
   const bytes = readFileSync(path);

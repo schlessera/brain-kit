@@ -20,8 +20,9 @@
  * fallback. Native connections stay inside core, opened and closed per call.
  */
 import type { Logger } from "@opentelemetry/api-logs";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createRequire } from "module";
-import { dirname, relative, isAbsolute } from "path";
+import { dirname, sep } from "path";
 import type {
   GraphMaintenanceResponse,
   GraphMetaResponse,
@@ -136,9 +137,9 @@ type Resolved =
   | { ok: true; entry: Record<string, unknown> }
   | { ok: false; reason: CoreQueriesUnavailableReason; version?: string };
 
+/** Strictly below `dir`, both resolved first: the package directory itself is not its entry. */
 export function inside(dir: string, file: string): boolean {
-  const rel = relative(dir, file);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  return isWithin(dir, file, { includeRoot: false, resolvePaths: true, separator: sep, trailingSeparator: "boundary" });
 }
 
 function resolveEntry(loader: CoreModuleLoader): Resolved {
