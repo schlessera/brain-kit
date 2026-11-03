@@ -202,6 +202,7 @@ try {
  const ready=Date.now()+10000;while((!existsSync("tmp/orphan")||!output.includes(${JSON.stringify(phase === "build" ? '"event":"build-exit"' : "TEST_LEADER_EXIT")}))&&Date.now()<ready)await Bun.sleep(10);
  expect(existsSync("tmp/orphan"),output).toBe(true);orphan=JSON.parse(readFileSync("tmp/orphan","utf8"));
  expect(output, "ACTUAL_LEADER_EXIT_BEFORE_CANCEL").toContain(${JSON.stringify(phase === "build" ? '"event":"build-exit"' : "TEST_LEADER_EXIT")});
+ /* Kept real time: a negative observation. Completion is the wrapper's exit plus EOF on both outputs, which the orphan still holds; a wrapper that ended it early would complete through process exits. Correct code never completes here, so no event marks the moment. */
  await Bun.sleep(30);expect(done,"EOF_HOLDER_BLOCKS_WRAPPER_COMPLETION").toBe(false);
  child.kill(${JSON.stringify(cancellation === "SIGKILL" ? "SIGKILL" : "SIGTERM")});const end=Date.now()+2500;while(!done&&Date.now()<end)await Bun.sleep(10);
  const survives=processIdentity(orphan.pid)?.start===orphan.start;
