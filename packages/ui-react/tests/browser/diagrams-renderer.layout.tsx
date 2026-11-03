@@ -33,7 +33,7 @@ test("actual constrained containers select authored layout or semantic fallback,
  setup(720);mount(<DiagramContent source={source} mode="chat" theme="light"/>);await ready();expect(screenSvg()!.dataset.diagramLayout).toBe("narrow");fontFloor(screenSvg()!);
  for(const width of [320,480,900]){host.style.width=`${width}px`;await expect.poll(()=>screenSvg()?.getBoundingClientRect().width).toBe(320);fontFloor(screenSvg()!);expect(host.scrollWidth).toBeLessThanOrEqual(width);}
  const absent=structuredClone(rendererSpec);delete (absent as {layouts?:unknown}).layouts;host.style.width="320px";mount(<DiagramContent source={JSON.stringify(absent)} mode="chat" theme="dark"/>);await expect.poll(()=>screenSvg()).toBeNull();expect(host.querySelector("[data-diagram-summary]")?.textContent).toBe(rendererSpec.desc);
- const opener=[...host.querySelectorAll<HTMLElement>("[role=button],button")].find(item=>item.textContent==="Open diagram")!;expect(opener.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);await userEvent.click(opener);
+ const opener=host.querySelector<HTMLButtonElement>('button[aria-label="Open diagram"]')!;expect(opener.getBoundingClientRect().height).toBeGreaterThanOrEqual(matchMedia("(any-pointer: coarse)").matches?44:28);await userEvent.click(opener);
  await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] svg.bk-diagram')).not.toBeNull();const drawing=document.querySelector<SVGSVGElement>('[aria-label="Diagram viewer"] svg.bk-diagram')!;expect([...drawing.querySelectorAll("[data-diagram-node] text")].map(text=>text.textContent),"EXPECTED_VIEWER_NODE_LABELS").toEqual(expect.arrayContaining(rendererSpec.nodes.map(node=>node.label)));fontFloor(drawing);await userEvent.keyboard("{Escape}");
 });
 test("keyboard nodes navigate like wiki links and incident edges and focus ring remain visible",async()=>{
@@ -72,7 +72,7 @@ test("320px viewer brings an offscreen linked keyboard target into view before n
  const previous=await commands.formViewport(320,720);
  try{
  setup(320);const paths:string[]=[];root.stores.file.setState({openFile:async(path)=>{paths.push(path);}});const absent=structuredClone(rendererSpec);delete (absent as {layouts?:unknown}).layouts;
- mount(<DiagramContent source={JSON.stringify(absent)} theme="dark" mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();await userEvent.click(host.querySelector('[role="button"]')!);
+ mount(<DiagramContent source={JSON.stringify(absent)} theme="dark" mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();await userEvent.click(host.querySelector('button[aria-label="Open diagram"]')!);
  await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] [data-diagram-node="raft"]')).not.toBeNull();
  const node=document.querySelector<SVGGElement>('[aria-label="Diagram viewer"] [data-diagram-node="raft"]')!;
  const stage=node.closest("svg")!.parentElement!.parentElement!;const before=node.getBoundingClientRect(),bounds=stage.getBoundingClientRect();expect(before.left<bounds.left||before.right>bounds.right,"CONTROL_NODE_STARTS_OFFSCREEN").toBe(true);
