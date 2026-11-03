@@ -45,7 +45,7 @@ const LINK_MAX_CHARS = 2000;
 const COPY_CHUNK = 1024 * 1024;
 
 /** Whether `path` is `dir` or lies below it. */
-const within = (dir: string, path: string) => path === dir || path.startsWith(dir.endsWith("/") ? dir : `${dir}/`);
+export const within = (dir: string, path: string) => path === dir || path.startsWith(dir.endsWith("/") ? dir : `${dir}/`);
 
 /**
  * A server-side path that opens the directory a held descriptor names.

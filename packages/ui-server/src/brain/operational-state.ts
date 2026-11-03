@@ -29,7 +29,7 @@ function canonical(path: string, links = 0): string {
   }
   return current;
 }
-const within = (root: string, path: string) => root === "/" || path === root || path.startsWith(`${root}/`);
+export const within = (root: string, path: string) => root === "/" || path === root || path.startsWith(`${root}/`);
 
 /** An outside name does not move an inode out of the brain if another name or a bind mount remains there. */
 function hasBrainAlias(brain: string, path: string, descendants = false): boolean {

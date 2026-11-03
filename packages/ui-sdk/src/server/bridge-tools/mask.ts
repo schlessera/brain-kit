@@ -123,7 +123,7 @@ export async function handleRequestImageMask(
  */
 const SCRATCH_DIR = ".brain/scratch";
 
-const under = (dir: string, path: string) => path === dir || path.startsWith(dir + sep);
+export const under = (dir: string, path: string) => path === dir || path.startsWith(dir + sep);
 
 function isSymlink(path: string): boolean {
   try {

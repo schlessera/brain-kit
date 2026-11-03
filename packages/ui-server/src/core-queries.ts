@@ -136,7 +136,7 @@ type Resolved =
   | { ok: true; entry: Record<string, unknown> }
   | { ok: false; reason: CoreQueriesUnavailableReason; version?: string };
 
-function inside(dir: string, file: string): boolean {
+export function inside(dir: string, file: string): boolean {
   const rel = relative(dir, file);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }

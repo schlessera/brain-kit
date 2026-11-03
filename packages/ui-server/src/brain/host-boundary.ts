@@ -172,7 +172,7 @@ const TURN_EGRESS_INACTIVE = "This host has no managed native storage, so govern
 /** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
 const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
 const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
-const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+export const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */

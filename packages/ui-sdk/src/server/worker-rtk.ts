@@ -18,7 +18,7 @@ export function registerWorkerRtk(worker: LaunchedWorker, pid: number, input: Wo
     void worker.exited.then(() => { view.alive = false; }, () => { view.alive = false; });
   } catch { /* An unreadable worker cannot authorize an optional rewrite. */ }
 }
-function within(root: string, path: string): boolean { return path === root || path.startsWith(root + "/"); }
+export function within(root: string, path: string): boolean { return path === root || path.startsWith(root + "/"); }
 /** ELF64 native static executables, including dependency-free static PIE. */
 export function isStaticNativeElf(path: string): boolean {
   const bytes = readFileSync(path);

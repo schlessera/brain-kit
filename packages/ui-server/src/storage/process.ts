@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, relative, isAbsolute } from "node:path";
 import { realpathSync, readFileSync } from "node:fs";
 import type { MetadataRoot, MetadataResult } from "./metadata.js";
-const inside = (root: string, path: string) => { const rel = relative(root, path); return !rel || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../")); };
+export const inside = (root: string, path: string) => { const rel = relative(root, path); return !rel || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../")); };
 /** Verify the installed public reader, never code or executables from content. */
 export function coreReader(brainPath: string, subpath: "storage" | "queries"): string {
   const manifestPath = realpathSync(fileURLToPath(import.meta.resolve("@schlessera/brain/package.json")));

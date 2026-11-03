@@ -6,7 +6,7 @@ import { isEnvName } from "./protected-paths.js";
 export type EnvMaskMetadata = { kind: "directory" | "file" | "symlink" | "other"; target?: string };
 export type EnvMaskQuery = { operation: "list" | "stat"; path: string };
 type Reply = string[] | EnvMaskMetadata | undefined;
-const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+export const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
 
 /** No contents are read. Queries preserve the worker's names through held input aliases. */
 export function* maintenanceEnvMaskQueries(source: string, brain: string,

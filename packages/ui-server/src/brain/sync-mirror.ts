@@ -26,7 +26,7 @@ const MIRROR_CONFIG = `[core]
 \tfsckObjects = true
 `;
 const CREDENTIAL_HELPER = '!f() { printf "username=x-access-token\\npassword=%s\\n" "$BRAIN_SYNC_TOKEN"; }; f';
-const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
+export const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 const mirrorLocks = createKeyedLock();
 
 /** One host-private mirror per brain/database; standalone clients get private temporary state. */

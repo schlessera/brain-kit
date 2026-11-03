@@ -6,7 +6,7 @@ import { nativeFileVersionFromFd, type NativeFileVersion } from "./native-file-v
 
 export interface ObservedWorkerFile { key: string; version: NativeFileVersion }
 interface Source { worker: string; host: string; rel: string }
-const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
+export const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
 const EMPTY: NativeFileVersion = { status: "known", hash: createHash("sha256").update("").digest("hex") };
 
 /** Sources come only from the launcher's resolved mounts, and live only until worker exit. */

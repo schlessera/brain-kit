@@ -58,7 +58,7 @@ export interface NativeReferencePoolConfig {
 export type QualifiedReferencePoolConfig = Required<Omit<NativeReferencePoolConfig, "headroomLedgerPath">> & { headroomLedgerPath?: string };
 
 const fixedPath = (path: unknown) => typeof path === "string" && isAbsolute(path) && !path.includes("\0") && !path.split("/").includes("..") && path.length > 1;
-const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
+export const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
 const page = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0 && (value as number) % 4096 === 0;
 
 export function validateNativeReferencePoolConfig(pool: NativeReferencePoolConfig, store: { storePath: string; fsid: string; socketPath: string }): QualifiedReferencePoolConfig {
