@@ -36,7 +36,7 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
   const renderer = createRoot(host);
   flushSync(() => renderer.render(<BrainUiProvider root={ui}><AppShell><ChatPage /></AppShell></BrainUiProvider>));
   const release = ui.connection.connect();
-  ctx.onTestFinished(async () => { flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+  ctx.onTestFinished(async () => { flushSync(() => renderer.unmount()); release(); ui.dispose(); network.restore(); host.remove(); await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
   const client = ui.connection.conversation;
   const deliver = (message: ServerMessage) => network.socket()!.deliver(message);

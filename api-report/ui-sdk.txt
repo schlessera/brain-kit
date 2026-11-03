@@ -1269,6 +1269,7 @@ export "./internal" (./src/internal.ts)
   workerSandboxWarnings
 
 export "./internal/client" (./src/internal-client.ts)
+  type FrontmatterBlock
   type LinkEdit
   askUserFormPayload
   askUserFormSpec
@@ -1280,6 +1281,7 @@ export "./internal/client" (./src/internal-client.ts)
   defaultAsrClientRegistry
   defaultToolRendererRegistry
   describeRetry
+  frontmatterBlock
   handleShareTargetRequest
   pruneStoredShares
   rebaseMessageBlocks

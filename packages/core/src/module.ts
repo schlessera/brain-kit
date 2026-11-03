@@ -17,7 +17,7 @@
 export { configurationRoot } from "./lib/config.js";
 
 // Path containment and atomic writes
-export { safeResolve, resolveWritable, writeFileSafely, WriteRefusedError } from "./lib/safe-path.js";
+export { safeResolve, resolveWritable, brainRelativeArgument, writeFileSafely, WriteRefusedError } from "./lib/safe-path.js";
 export type { WriteFileSafelyOptions } from "./lib/safe-path.js";
 
 // The scratch area (.brain/scratch)

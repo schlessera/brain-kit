@@ -21,6 +21,7 @@
  * only ever written through the server's own routes, as before 0.42. That
  * legacy host path is refused while a provider folder policy is active (#2284).
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -172,7 +173,8 @@ const TURN_EGRESS_INACTIVE = "This brain is not on managed native storage, which
 /** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
 const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
 const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
-const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+/** Deny direction (#3422): whether `path` is `dir` or below it; a `dir` of `/` holds every absolute path. */
+export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */

@@ -1,14 +1,18 @@
-/** Private UI-profile graph mechanics; core CLI graph defaults remain independent. */
+/**
+ * The supported `./queries` graph modes: the UI profile of the shared graph
+ * reader (`GraphReader`, `../lib/graph/reader.ts`). This adapter owns the
+ * result shapes, node materialization and typed failures; the reader's header
+ * lists every way this profile differs from the `brain graph` CLI.
+ */
 import type { Database } from "bun:sqlite";
 import { basename } from "path";
-import type { Node, Edge, Community, GraphMeta, Subgraph, Maintenance, Direction } from "./types.js";
+import type { Node, Community, GraphMeta, Subgraph, Maintenance, Direction } from "./types.js";
 import { QueryFailure } from "./snapshot.js";
-const MAX_NODES = 5000;
-const MAX_EDGES = 20000;
-const MAX_NEIGHBORHOOD_NODES = 1500;
-const MAX_NEIGHBORHOOD_DEPTH = 3;
-const MAX_DISCOVERY_DEPTH = 8;
-const DEFAULT_STALE_DAYS = 180;
+import { GraphReader, UI_GRAPH_PROFILE, VIRTUAL_ROOT_ID, parseGraphRootKey } from "../lib/graph/reader.js";
+/** Every supported graph read selects the UI profile here, and only here. */
+function reader(db: Database): GraphReader {
+  return new GraphReader(db, UI_GRAPH_PROFILE);
+}
 function requireComputedGraph(meta: Map<string, string>): void {
   if (!meta.get("graph_computed_at"))
     throw new QueryFailure("not_computed");
@@ -27,7 +31,7 @@ interface NodeRow {
   y: number | null;
 }
 /** Only markdown notes are graph nodes; other assets carry no wiki links. */
-const MARKDOWN_ONLY = "COALESCE(d.asset_type, 'markdown') = 'markdown'";
+const MARKDOWN_ONLY = UI_GRAPH_PROFILE.nodeScope("d");
 /**
  * The analytical columns come from tables that do not exist below schema v8,
  * so the select degrades to literals — that is what keeps the neighborhood
@@ -82,119 +86,11 @@ function loadNodesByIds(db: Database, ids: number[], withGraphTables: boolean): 
   }
   return out;
 }
-function lookupDocumentId(db: Database, path: string): number {
-  const normalized = path.replace(/^\.?\//, "");
-  const row = db
-    .query<{
-    id: number;
-  }, [
-    string
-  ]>(`SELECT d.id AS id FROM documents d WHERE ${MARKDOWN_ONLY} AND d.path = ?`)
-    .get(normalized);
-  if (!row)
+function lookupDocumentId(graph: GraphReader, path: string): number {
+  const id = graph.lookup(path);
+  if (id === null)
     throw new QueryFailure("not_found");
-  return row.id;
-}
-// --- link structure --------------------------------------------------------
-interface LinkStructure {
-  edges: Edge[];
-  out: Map<number, number[]>;
-  in: Map<number, number[]>;
-}
-/**
- * The one definition of an edge, shared by the adjacency load and the meta
- * count so /api/graph/meta agrees with `brain graph stats`: one edge per
- * distinct (source, target) DOCUMENT pair — two wiki links that resolve to the
- * same note are one edge — self-links dropped, and both ends markdown, since
- * non-markdown assets are not graph nodes.
- */
-const DISTINCT_EDGES_SQL = `SELECT DISTINCT l.source_id AS source, l.target_id AS target
-  FROM links l
-  JOIN documents d ON d.id = l.source_id AND ${MARKDOWN_ONLY}
-  JOIN documents t ON t.id = l.target_id AND COALESCE(t.asset_type, 'markdown') = 'markdown'
-   WHERE l.target_id IS NOT NULL AND l.target_id <> l.source_id`;
-/** The whole link table as an edge list plus adjacency maps in both directions. */
-function loadLinkStructure(db: Database): LinkStructure {
-  const edges = db.query<Edge, []>(DISTINCT_EDGES_SQL).all();
-  const out = new Map<number, number[]>();
-  const inbound = new Map<number, number[]>();
-  for (const edge of edges) {
-    push(out, edge.source, edge.target);
-    push(inbound, edge.target, edge.source);
-  }
-  return { edges, out, in: inbound };
-}
-function push(map: Map<number, number[]>, key: number, value: number): void {
-  const existing = map.get(key);
-  if (existing)
-    existing.push(value);
-  else
-    map.set(key, [value]);
-}
-interface BfsResult {
-  distances: Map<number, number>;
-  truncated: boolean;
-}
-/** Breadth-first walk, level by level, stopping at `maxDepth` or `limit` nodes. */
-function bfs(structure: LinkStructure, start: number, direction: Direction, maxDepth: number, limit: number): BfsResult {
-  const distances = new Map<number, number>([[start, 0]]);
-  let frontier = [start];
-  let depth = 0;
-  let truncated = false;
-  while (frontier.length > 0 && depth < maxDepth && !truncated) {
-    depth++;
-    const next: number[] = [];
-    for (const id of frontier) {
-      const neighbors: number[] = [];
-      if (direction !== "in")
-        neighbors.push(...(structure.out.get(id) ?? []));
-      if (direction !== "out")
-        neighbors.push(...(structure.in.get(id) ?? []));
-      for (const neighbor of neighbors) {
-        if (distances.has(neighbor))
-          continue;
-        if (distances.size >= limit) {
-          truncated = true;
-          break;
-        }
-        distances.set(neighbor, depth);
-        next.push(neighbor);
-      }
-      if (truncated)
-        break;
-    }
-    frontier = next;
-  }
-  return { distances, truncated };
-}
-// --- caps ------------------------------------------------------------------
-/**
- * Trims a subgraph to the response caps, keeping the highest-pagerank nodes
- * (a virtual root always survives — dropping the thing the view is rooted on
- * would be nonsense). Edges are then filtered to the surviving node set, which
- * is also how a whole-corpus edge list is narrowed to the requested subgraph.
- */
-function applyCaps(nodes: Node[], edges: Edge[], maxNodes: number): Subgraph {
-  let truncated = false;
-  let keptNodes = nodes;
-  if (nodes.length > maxNodes) {
-    truncated = true;
-    keptNodes = [...nodes]
-      .sort((a, b) => Number(b.virtual ?? false) - Number(a.virtual ?? false) || (b.pagerank ?? 0) - (a.pagerank ?? 0))
-      .slice(0, maxNodes);
-  }
-  const ids = new Set(keptNodes.map((n) => n.id));
-  let keptEdges = edges.filter((e) => ids.has(e.source) && ids.has(e.target));
-  if (keptEdges.length > MAX_EDGES) {
-    truncated = true;
-    const rank = new Map(keptNodes.map((n) => [n.id, n.pagerank ?? 0]));
-    keptEdges = keptEdges
-      .map((edge) => ({ edge, weight: Math.min(rank.get(edge.source) ?? 0, rank.get(edge.target) ?? 0) }))
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, MAX_EDGES)
-      .map((entry) => entry.edge);
-  }
-  return { nodes: keptNodes, edges: keptEdges, truncated };
+  return id;
 }
 // --- meta ------------------------------------------------------------------
 function countGraph(db: Database): {
@@ -203,7 +99,7 @@ function countGraph(db: Database): {
 } {
   const edges = db.query<{
     c: number;
-  }, []>(`SELECT COUNT(*) AS c FROM (${DISTINCT_EDGES_SQL})`).get();
+  }, []>(`SELECT COUNT(*) AS c FROM (${reader(db).edgeSql})`).get();
   return { nodeCount: countMarkdownDocs(db), edgeCount: edges?.c ?? 0 };
 }
 /**
@@ -221,29 +117,6 @@ function countMarkdownDocs(db: Database): number {
   return (db.query<{
     c: number;
   }, []>(`SELECT COUNT(*) AS c FROM documents d WHERE ${MARKDOWN_ONLY}`).get()?.c ?? 0);
-}
-function parseDefaultRoot(meta: Map<string, string>): {
-  path: string;
-  virtual: boolean;
-} | null {
-  const raw = meta.get("graph_root");
-  if (!raw)
-    return null;
-  if (raw.startsWith("virtual:"))
-    return { path: raw.slice("virtual:".length), virtual: true };
-  return { path: raw, virtual: false };
-}
-function parseRootLinks(meta: Map<string, string>): number[] {
-  const raw = meta.get("graph_root_links");
-  if (!raw)
-    return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isFinite(id)) : [];
-  }
-  catch {
-    return [];
-  }
 }
 function readCommunities(db: Database): Community[] {
   const rows = db
@@ -299,7 +172,7 @@ export function graphMeta(db: Database, meta: Map<string, string>, schemaVersion
     stale: isStale(db, computedAt),
     ...counts,
     communities: readCommunities(db),
-    defaultRoot: parseDefaultRoot(meta),
+    defaultRoot: parseGraphRootKey(meta.get("graph_root")),
   };
   if (meta.get("graph_layout_skipped") === "1")
     response.layoutSkipped = true;
@@ -326,19 +199,20 @@ export function graphClusters(db: Database, meta: Map<string, string>, opts: {
   includeIsolates?: boolean;
 }): Subgraph {
   requireComputedGraph(meta);
+  const graph = reader(db);
   const filters: string[] = [MARKDOWN_ONLY];
   const params: number[] = [];
   if (opts.community !== undefined) {
     filters.push("m.community = ?");
     params.push(opts.community);
   }
-  if (!opts.includeIsolates) {
+  if (!graph.includeIsolates(opts.includeIsolates)) {
     filters.push("(COALESCE(m.in_degree, 0) + COALESCE(m.out_degree, 0)) > 0");
   }
   const rows = db
     .query<NodeRow, number[]>(`${nodeSelect(true)} WHERE ${filters.join(" AND ")} ORDER BY m.pagerank DESC, d.id ASC`)
     .all(...params);
-  return applyCaps(rows.map((row) => toNode(row)), loadLinkStructure(db).edges, MAX_NODES);
+  return graph.scene(rows.map((row) => toNode(row)), graph.links().edges, graph.profile.sceneNodes);
 }
 /**
  * Deliberately exempt from the schema gate: an ego graph needs nothing but the
@@ -350,64 +224,52 @@ export function graphNeighborhood(db: Database, schemaVersion: number, opts: {
   depth?: number;
   direction?: Direction;
 }): Subgraph {
-  const depth = clamp(opts.depth ?? 1, 1, MAX_NEIGHBORHOOD_DEPTH);
-  const direction = opts.direction ?? "both";
-  const centerId = lookupDocumentId(db, opts.center);
+  const graph = reader(db);
+  const centerId = lookupDocumentId(graph, opts.center);
   const withGraphTables = schemaVersion >= 8;
-  const structure = loadLinkStructure(db);
-  const { distances, truncated } = bfs(structure, centerId, direction, depth, MAX_NEIGHBORHOOD_NODES);
+  const { distances, truncated } = graph.neighborhood(centerId, opts.depth, opts.direction);
   const rows = loadNodesByIds(db, [...distances.keys()], withGraphTables);
   const nodes = rows.map((row) => toNode(row, distances.get(row.id)));
-  const capped = applyCaps(nodes, structure.edges, MAX_NEIGHBORHOOD_NODES);
-  return { ...capped, truncated: capped.truncated || truncated };
+  return graph.scene(nodes, graph.links().edges, graph.profile.neighborhoodNodes, truncated);
 }
 export function graphDiscovery(db: Database, meta: Map<string, string>, opts: {
   root?: string;
   direction?: "out" | "both";
   maxDepth?: number;
 }): Subgraph {
-  const maxDepth = clamp(opts.maxDepth ?? MAX_DISCOVERY_DEPTH, 1, MAX_DISCOVERY_DEPTH);
-  const direction = opts.direction ?? "out";
+  const graph = reader(db);
+  const maxDepth = graph.discoveryDepth(opts.maxDepth);
   requireComputedGraph(meta);
-  const structure = loadLinkStructure(db);
+  const structure = graph.links();
   const total = countMarkdownDocs(db);
   if (opts.root) {
-    const rootId = lookupDocumentId(db, opts.root);
-    const { distances, truncated } = bfs(structure, rootId, direction, maxDepth, MAX_NODES);
+    const rootId = lookupDocumentId(graph, opts.root);
+    const { distances, truncated } = graph.discovery(rootId, maxDepth, opts.direction);
     const rows = loadNodesByIds(db, [...distances.keys()], true);
-    const capped = applyCaps(rows.map((row) => toNode(row, distances.get(row.id))), structure.edges, MAX_NODES);
+    const capped = graph.scene(rows.map((row) => toNode(row, distances.get(row.id))), structure.edges, graph.profile.sceneNodes, truncated);
     // Reach is a property of the graph, not of the scene, so it is measured
     // by a second walk with no depth window. A BFS can neither exceed the
     // node count in levels nor in nodes, so `total` bounds both exactly.
-    const reachable = bfs(structure, rootId, direction, total, total).distances.size;
+    const reachable = graph.walk(rootId, opts.direction ?? "out", total, total).distances.size;
     return {
       ...capped,
-      truncated: capped.truncated || truncated,
       reachableCount: reachable,
       unreachableCount: Math.max(0, total - reachable),
     };
   }
   // Default root: the distances were computed at index time, so `direction`
   // does not apply here — the precomputed walk is the one that was run.
-  const distanceRows = db
-    .query<{
-    document_id: number;
-    distance: number;
-  }, [
-    number
-  ]>("SELECT document_id, distance FROM graph_root_distances WHERE distance <= ?")
-    .all(maxDepth);
-  const distances = new Map(distanceRows.map((row) => [row.document_id, row.distance]));
+  const distances = graph.rootDistances(maxDepth);
   const rows = loadNodesByIds(db, [...distances.keys()], true);
   const nodes = rows.map((row) => toNode(row, distances.get(row.id)));
-  const root = parseDefaultRoot(meta);
+  const root = parseGraphRootKey(meta.get("graph_root"));
   const edges = [...structure.edges];
   if (root?.virtual) {
     // The entry file is excluded from indexing, so it has no documents row:
     // the node standing in for it is synthesized here, at id 0.
-    const rootLinks = parseRootLinks(meta).filter((id) => distances.has(id));
+    const rootLinks = graph.rootLinks(meta.get("graph_root_links")).filter((id) => distances.has(id));
     nodes.unshift({
-      id: 0,
+      id: VIRTUAL_ROOT_ID,
       path: root.path,
       title: basename(root.path),
       type: "root",
@@ -416,9 +278,9 @@ export function graphDiscovery(db: Database, meta: Map<string, string>, opts: {
       distance: 0,
       virtual: true,
     });
-    edges.unshift(...rootLinks.map((id) => ({ source: 0, target: id })));
+    edges.unshift(...rootLinks.map((id) => ({ source: VIRTUAL_ROOT_ID, target: id })));
   }
-  const response = applyCaps(nodes, edges, MAX_NODES);
+  const response: Subgraph = graph.scene(nodes, edges, graph.profile.sceneNodes);
   if (hasResolvedRoot(meta)) {
     // Every distance row is one reached DOCUMENT — a virtual root is none, so
     // this needs no adjustment for the synthesized node. Counted over the
@@ -435,7 +297,9 @@ export function graphMaintenance(db: Database, meta: Map<string, string>, opts: 
   staleDays?: number;
   now?: string;
 }): Maintenance {
-  const staleDays = clamp(opts.staleDays ?? DEFAULT_STALE_DAYS, 1, 3650);
+  const graph = reader(db);
+  const staleDays = graph.staleDays(opts.staleDays);
+  const limit = graph.profile.findingLimit;
   requireComputedGraph(meta);
   const orphans = db
     .query<NodeRow, [
@@ -443,7 +307,7 @@ export function graphMaintenance(db: Database, meta: Map<string, string>, opts: 
   ]>(`${nodeSelect(true)} WHERE ${MARKDOWN_ONLY}
      AND COALESCE(m.in_degree, 0) = 0 AND COALESCE(m.out_degree, 0) = 0
      ORDER BY d.updated DESC, d.id ASC LIMIT ?`)
-    .all(MAX_NODES)
+    .all(limit)
     .map((row) => toNode(row));
   // Keyed on whether a root was RESOLVED, not on whether any note has a
   // distance: a named root that reached nothing leaves the distances empty,
@@ -458,19 +322,9 @@ export function graphMaintenance(db: Database, meta: Map<string, string>, opts: 
          LEFT JOIN graph_root_distances rd ON rd.document_id = d.id
        WHERE ${MARKDOWN_ONLY} AND rd.document_id IS NULL
        ORDER BY m.pagerank DESC, d.id ASC LIMIT ?`)
-      .all(MAX_NODES)
+      .all(limit)
       .map((row) => toNode(row));
-  const brokenLinks = db
-    .query<{
-    sourcePath: string;
-    target: string;
-  }, [
-    number
-  ]>(`SELECT d.path AS sourcePath, l.target AS target
-     FROM links l JOIN documents d ON d.id = l.source_id
-    WHERE l.target_id IS NULL
-    ORDER BY d.path ASC, l.target ASC LIMIT ?`)
-    .all(MAX_NODES);
+  const brokenLinks = graph.brokenLinks();
   // `documents.updated` is a date, `indexed_at` a timestamp — compare on the
   // date prefix so a mix of both formats still sorts correctly.
   const cutoff = new Date((opts.now === undefined ? Date.now() : Date.parse(opts.now)) - staleDays * 86400000).toISOString().slice(0, 10);
@@ -483,10 +337,7 @@ export function graphMaintenance(db: Database, meta: Map<string, string>, opts: 
   ]>(`${nodeSelect(true, ", d.updated AS updated")}
      WHERE ${MARKDOWN_ONLY} AND substr(d.updated, 1, 10) < ?
      ORDER BY d.updated ASC, d.id ASC LIMIT ?`)
-    .all(cutoff, MAX_NODES)
+    .all(cutoff, limit)
     .map((row) => ({ ...toNode(row), updated: row.updated }));
   return { orphans, unreachable, brokenLinks, stale, staleDays };
-}
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

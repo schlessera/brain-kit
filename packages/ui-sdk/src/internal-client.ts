@@ -10,4 +10,5 @@ export { canonicalModelId, describeRetry, resolveThinkingLevel } from "./protoco
 export { pruneStoredShares, bindStoredShare, boundStoredShares, clearBoundStoredShares } from "./client/share-store.js";
 export { handleShareTargetRequest } from "./client/share-target-handler.js";
 export { askUserFormPayload, askUserFormSpec, resolveAskUserFormLimits } from "./tool-contracts/form.js";
+export { frontmatterBlock, type FrontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 export { rewriteLinkDestinations, rewriteLinkDestinationsWithEdits, rebaseMessageBlocks, type LinkEdit } from "./markdown-links.js";
