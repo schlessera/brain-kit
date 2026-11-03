@@ -182,6 +182,7 @@ export "." (./src/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HygieneAction
   type HygieneDiff
@@ -254,6 +255,7 @@ export "." (./src/index.ts)
   type RenderFormat
   type RenderRequest
   type ResolutionEffect
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -671,6 +673,7 @@ export "./client" (./src/client/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HelloState
   type HygieneAction
@@ -800,6 +803,7 @@ export "./client" (./src/client/index.ts)
   type RequestImageMaskInput
   type ResolutionEffect
   type ResolveActionInput
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -1511,6 +1515,7 @@ export "./protocol" (./src/protocol.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HygieneAction
   type HygieneDiff
@@ -1578,6 +1583,7 @@ export "./protocol" (./src/protocol.ts)
   type RenderFormat
   type RenderRequest
   type ResolutionEffect
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -2220,6 +2226,7 @@ export "./server" (./src/server/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HistoricalItem
   type HistoricalResultRef
@@ -2364,6 +2371,7 @@ export "./server" (./src/server/index.ts)
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -6997,6 +7005,8 @@ signatures (every public export and the types it is made of)
     const HANDOFF_MAX_REFERENCES: 8;
   HANDOFF_REFERENCES_HEADING (packages/ui-sdk/src/protocol.ts)
     const HANDOFF_REFERENCES_HEADING: "References:";
+  HOST_TIMEOUT_OUTCOME_DETAIL (packages/ui-sdk/src/protocol.ts)
+    const HOST_TIMEOUT_OUTCOME_DETAIL: "host_timeout";
   HandoffRequest (packages/ui-sdk/src/protocol.ts)
     export interface HandoffRequest {
         handoffId: string;
@@ -8433,6 +8443,11 @@ signatures (every public export and the types it is made of)
     export interface RouteMatchOptions {
         request: Request;
         url: URL;
+    }
+  RuntimeNotice (packages/ui-sdk/src/protocol.ts)
+    export interface RuntimeNotice {
+        cause: "aborted" | "unspecified";
+        message: string;
     }
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
     const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
@@ -10288,6 +10303,7 @@ signatures (every public export and the types it is made of)
         effectiveThinkingLevel?: ThinkingLevel;
         localAnswer?: LocalAnswer;
         failure?: TurnFailure;
+        runtimeNotice?: RuntimeNotice;
         retryOfTurnId?: string;
         turnId?: string;
         journal?: import("./turn-journal.js").TurnJournalSummary;
@@ -17546,6 +17562,13 @@ signatures (every public export and the types it is made of)
                 assistant: "assistant";
                 user: "user";
             }>;
+            runtimeNotice: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    aborted: "aborted";
+                    unspecified: "unspecified";
+                }>;
+                message: z.ZodString;
+            }, z.core.$loose>>>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
                 "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
@@ -19972,6 +19995,13 @@ signatures (every public export and the types it is made of)
                 assistant: "assistant";
                 user: "user";
             }>;
+            runtimeNotice: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    aborted: "aborted";
+                    unspecified: "unspecified";
+                }>;
+                message: z.ZodString;
+            }, z.core.$loose>>>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
                 "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
