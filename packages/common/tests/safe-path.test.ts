@@ -81,6 +81,9 @@ symlinkSync(outside, join(root, "bounce"));
 symlinkSync(join(root, "notes"), join(outside, "back"));
 symlinkSync("../../notes", join(root, ".brain/scratch/link"));
 symlinkSync(root, join(base, "root-link"));
+// A dangling chain that leaves the root and comes back to a missing target inside.
+symlinkSync(join(root, "notes/missing"), join(outside, "dangling-back"));
+symlinkSync(join(outside, "dangling-back"), join(root, "dangling-bounce"));
 
 const FINAL_FOLLOW: ContainmentPolicy = { missingRoot: "refuse", danglingLinks: "follow", components: "final" };
 const EVERY_REFUSE: ContainmentPolicy = { missingRoot: "lexical", danglingLinks: "refuse", components: "every" };
@@ -117,6 +120,9 @@ describe("resolveContained: one algorithm, sync and async", () => {
     ["dangling-in", "brain/notes/missing (as brain/dangling-in)", "refused dangling"],
     ["dangling-in/x", "brain/notes/missing/x (as brain/dangling-in/x)", "refused dangling"],
     ["dangling-out", "refused escape", "refused dangling"],
+    // Followed, the first hop already leaves the root: refused there, even
+    // though the chain ends inside.
+    ["dangling-bounce", "refused escape", "refused dangling"],
     // A dangling cycle: followed, it runs out of the link budget.
     ["cycle-a", "refused link-budget", "refused dangling"],
     ["cycle-a/x", "refused link-budget", "refused dangling"],

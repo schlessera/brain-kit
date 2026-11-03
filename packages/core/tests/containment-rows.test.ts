@@ -37,6 +37,9 @@ symlinkSync(outside, join(root, "bounce"));
 symlinkSync(join(root, "notes"), join(outside, "back"));
 symlinkSync("../../notes", join(root, ".brain/scratch/link"));
 symlinkSync(root, join(base, "root-link"));
+// A dangling chain that leaves the root and comes back to a missing target inside.
+symlinkSync(join(root, "notes/missing"), join(outside, "dangling-back"));
+symlinkSync(join(outside, "dangling-back"), join(root, "dangling-bounce"));
 
 /** The answer relative to the fixture base, or `refused`. */
 const answer = (path: string | null) => (path === null ? "refused" : relative(base, path) || ".");
@@ -74,6 +77,9 @@ describe("core safeResolve(root, rel): its resolver row", () => {
     ["dangling-in", "brain/notes/missing"],
     ["dangling-in/x", "brain/notes/missing/x"],
     ["dangling-out", "refused"],
+    // A dangling chain is refused as soon as it leaves the root, even when it
+    // ends inside.
+    ["dangling-bounce", "refused"],
     ["cycle-a", "refused"],
     ["cycle-a/x", "refused"],
     // Only the final path must be inside: out through one link and back
