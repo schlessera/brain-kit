@@ -66,9 +66,9 @@ load, and unknown keys are load errors):
 | `exclude`       | `{ segments?: string[] }`                         | Path segments the indexer should skip.                                                                |
 | `cron`          | `{ name, schedule, command }[]`                   | Advisory schedules consumed by container entrypoints and `brain doctor`.                              |
 
-Module commands receive `{ root, json, config, taxonomy }` — the module's own
-validated config block and the fully-merged taxonomy — so they never re-load
-`brain.config` themselves.
+Module commands receive `{ root, json, config, taxonomy, completions, stateDir }` —
+the module's own validated config block, the fully-merged taxonomy and the
+module's state directory — so they never re-load `brain.config` themselves.
 
 `defineModule` threads the configSchema's parsed type end to end: `setup(config)`,
 `ctx.config` in every command's `run()`, and `ctx.config` in every hygiene check
@@ -99,6 +99,33 @@ and a cast would hide the contract regressing back to `unknown`.
 How the contribution merges into the taxonomy — collisions, ordering,
 overrides — is covered in
 [concepts.md](concepts.md#document-types-and-the-taxonomy-model).
+
+### Durable state and scheduled jobs
+
+A module that keeps operational state between runs (a last-run time, a
+cursor, a small cache) keeps it in its **state area**: `ctx.stateDir()`
+returns `<brain>/.brain-ui/modules/<module-name>/`, creating it on first call.
+`moduleStateDir(root, name)` and `MODULE_STATE_DIR` from
+`@schlessera/brain/module` give the same path to code outside a command.
+
+- It is inside the brain and gitignored by its own
+  `.brain-ui/modules/.gitignore`, so it never reaches the brain's history,
+  whatever the root `.gitignore` says.
+- It resolves against the brain root the CLI resolved. Inside a worker that
+  is the writable data root, not the read-only view the worker's working
+  directory shows, so write through `ctx.stateDir()`, never relative to
+  `process.cwd()`.
+- It survives between runs. A scheduled job runs in a maintenance worker
+  while the host execution boundary holds: the host, every home directory
+  and `XDG_STATE_HOME` are read-only or discarded after the run, and the
+  brain is the one durable writable place. What a run writes in the state
+  area is published back through output staging, and the next run reads it.
+- Keep it small. Every changed file is copied back after each run.
+
+A module command that writes a read-only path outside the brain fails with a
+message that names the host execution boundary and the state area, not a
+bare `EROFS`. The cron runner adds the same explanation when a module job's
+own subprocess prints one.
 
 ### Hygiene checks read the index through `ctx.queries`
 

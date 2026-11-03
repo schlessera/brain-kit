@@ -31,7 +31,7 @@ Use maintenance workers for repository code, the CLI and Git. Host routes may
 perform narrowly validated descriptor operations, as the journal/revert do;
 they must not evaluate brain configuration, hooks, filters or executables.
 The existing brain client supplies boundary execution
-(`async function execBrain`, `packages/ui-server/src/brain/client.ts:271-325`).
+(`async function execBrain`, `packages/ui-server/src/brain/client.ts:302-357`).
 Do not turn the new surface into a host command runner or an extension seam.
 
 Reuse existing authorization. A requested reversible, fully journaled edit
@@ -70,11 +70,11 @@ by this spike.
 Source foundations for the matrix:
 
 - Packing runs two passes and deletes only loose duplicates already held in
-  packs (`export function packRepository`, `packages/core/src/lib/git-storage.ts:89-102`).
+  packs (`export function packRepository`, `packages/core/src/lib/git-storage.ts:115-121`).
   The upstream [maintenance manual](https://git-scm.com/docs/git-maintenance)
   explains these tasks; broad `gc` has different expiry behavior.
 - Staging eligibility, removal and acknowledgment are separate
-  (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-82`).
+  (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:15-72`).
 - Scratch pin loading and per-entry revalidation sit inside pruning
   (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:645-726`);
   explicit clean is different
@@ -82,11 +82,11 @@ Source foundations for the matrix:
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source
-  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:229-286`).
+  (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:261-321`).
 - Journal collection requires no refs/reservations and only expires ended
-  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:300-320`).
+  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:308-361`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:418-454`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:463-510`).
   Object copies reserve temporary bytes before writing
   (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:95-150`).
 - Turn-temp purge has its own scope and measured result
@@ -96,7 +96,7 @@ Source foundations for the matrix:
   [Operational recovery](../inbox-recovery.md) specifies backup consistency and
   restart behavior; it is not an index rebuild.
 - Startup input ownership is separate from writable staging
-  (`export async function prepareNativeWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:98-150`).
+  (`export async function prepareNativeWorkerStartupView`, `packages/ui-sdk/src/server/worker-startup-view.ts:108-160`).
   The [native storage decision](../decisions/native-brain-storage.md) supersedes
   complete user-space startup copies and defines checkpoint recovery ownership.
   The staged-write limit states the separation

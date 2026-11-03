@@ -134,7 +134,7 @@ one explicit providerless CLI planner/apply operation
 for this supported grammar, with `--json` and dry-run output, followed by the
 existing reconciliation. Re-read every consulted input and use the existing
 unchanged-source writer (`replaceIfUnchanged`,
-`packages/core/src/lib/hygiene.ts:1245-1255`) before application. Keep registry
+`packages/core/src/lib/hygiene.ts:1246-1256`) before application. Keep registry
 ownership, inbox/archive exclusions and all unhandled cases visible as log-only.
 The skill delegates these two mechanical operations; canonical judgment remains
 with it. That follow-up needs the additive contract documentation and normal

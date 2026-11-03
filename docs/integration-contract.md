@@ -41,6 +41,255 @@ and, for the CLI, [on the PR](https://github.com/schlessera/brain-kit/pull/3465#
 This ships in the 0.45.0 minor with the `breaking` label and a changeset that
 names the break.
 
+## Provider-relay requests and session taint (breaking before 1.0, #3246)
+
+Under the [maintainer's option C](https://github.com/schlessera/brain-kit/issues/3246),
+a validated request through the brain CLI's provider relay no longer taints a
+governed session (G6), and a tainted session no longer narrows it with
+`taint.egress.allow`. So `brain_context` reranking and WebFetch work in either
+order. Before, whichever came first tainted the session, and the other then
+failed with `taint_allowlist`. Reranking degraded with a `provider_unavailable`
+event.
+
+This changes documented taint-policy semantics. No configuration or wire
+shape changes. A relayed request still records its own `egress_connection`,
+never with `inference: true`. That record gains one additive field: the
+optional `provider: true` literal, mirroring `inference: true` and set only
+by a validated provider-relay operation
+([governance events](http-api.md#governance-events-additive-1651)). A later turn excludes
+those records when it rebuilds the session's contacted hosts, so a provider
+request never lets worker `CONNECT` reach the provider's host after taint, in
+the same turn or a later one. Records written before this field stay
+unmarked. The relayed request is still refused by the
+ordinary egress deny or allowlist rules, an unlisted origin, recipient or
+route, the byte ceilings, budget stops and cancellation. Worker HTTP and
+`CONNECT` traffic cannot claim the exemption, even to a provider's host, and
+the operation grants that traffic no contacted host.
+
+**Migration.** After untrusted input, taint alone no longer keeps content
+from a session's approved providers. To fence a provider, use `egress.deny`,
+an `allowlist` egress mode, or the exact origins in
+`BRAIN_UI_CLI_PROVIDER_ORIGINS`. There is no new opt-out field. See
+[the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
+[supported inputs](supported-inputs.md).
+
+## Module state area (additive, 0.45.0, #3380)
+
+A module keeps durable state in `<brain>/.brain-ui/modules/<module-name>/`,
+gitignored by the area's own `.gitignore`. Module commands get it as the new
+optional `CommandContext.stateDir()`, and `@schlessera/brain/module` exports
+`MODULE_STATE_DIR`, `moduleStatePath`, `moduleStateDir` and
+`ModuleStateError`. A scheduled module job in a maintenance worker writes it
+through the worker's data root, and output staging publishes it back after
+each run. A module command's `EROFS` outside the brain now exits 2 with a
+message naming the host execution boundary and the state area. See
+[the package API component](integration-contract/package-api.md#module-state-area).
+
+## Module discovery outcome at crontab emission (additive, 0.45.0, #3381)
+
+`brain-ui-cron crontab` retries a failed module discovery a bounded number of
+times, names each failed attempt's cause on stderr, and records the final
+outcome as a finished `modules` job: one `cron_runs` row, so authenticated
+`GET /api/status` lists it under `cronJobs`, and one `cron` root span in
+Activity. A skipped module cron is an `error` whose reason starts
+`module cron skipped:`; a successful discovery is a `success`. The crontab's
+bytes do not change. See [wire semantics](integration-contract/wire.md#module-discovery-outcome-additive-0450-3381).
+This ships in a minor; no breaking ruling is required.
+
+## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)
+
+A turn the host's hard elapsed-time limit ended stays `outcome: "cancelled"`,
+and now says why: `result.outcomeDetail: "host_timeout"`
+(`HOST_TIMEOUT_OUTCOME_DETAIL`), with `detail: "Turn timed out"` on its
+`status: cancelled`. A replayed assistant message gains
+`SessionHistoryMessage.runtimeNotice`, the agent runtime's own stop notice,
+whose text is no longer replayed as the agent's `content`. No existing field
+changes meaning; the limit and its configuration are unchanged. See
+[wire](integration-contract/wire.md#turn-stops-additive-in-0450). The SDK
+exports `HOST_TIMEOUT_OUTCOME_DETAIL` and `RuntimeNotice`; `@schlessera/brain-ui-react`
+adds the optional `ChatMessage.runtimeNotice`/`runtimeNoticeLive`,
+`AskUserExchange.endedBy`, `AnswerDelivery.sentAsMessage` and the `TurnNotice`
+type. This ships in a minor; no breaking ruling is required.
+
+## Apify settings, policy edits and spend for the owner (additive, 0.45.0, #3163)
+
+Internal `GET /api/apify` ([inventory](http-api.md)) keeps every field it had
+and adds two: `policy`, the effective `apify` block with each grant's
+`active`, `expired` or `other_account` status and the policy's content hash,
+and `spend`, this brain's ledger read (`absent`, `read` or `unavailable`, never
+zero for an unread ledger), today's account-wide and brain scopes and the runs
+whose charges are not final. `?session=&turn=` adds that turn's scope and
+`?refresh=1` re-verifies the token and settles open runs first. Two internal
+owner routes edit the policy from Settings through the existing policy-change
+review: `POST /api/apify/policy` turns one change (`enabled`, `discovery`,
+`actors` or `remove_grant`) against a named base hash into a pending
+`PolicyChangeReview` of the complete proposed `governance.md` and writes
+nothing; `POST /api/apify/policy/:turnId/:requestId` is the proposing owner's
+one answer. Only an approval lets the existing policy writer publish, inside a
+user journal window; a repeated or late answer returns the recorded receipt.
+Agents get 403 on all four routes, no route accepts or returns a token, and the
+shapes are typed as `ApifySettingsRead` and its parts in
+`@schlessera/brain-ui-sdk/protocol`. It ships in a minor; no breaking ruling is
+required.
+
+## Apify enablement and host-owned authentication (additive, 0.45.0, #3159)
+
+The governance policy accepts an optional strict `apify` block whose only field
+is `enabled` (default `false`); `brain policy check --json` reports the resolved
+`effective.apify` ([supported inputs](supported-inputs.md#governance-policy),
+[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)).
+The server reads `APIFY_TOKEN` as a host-only secret: no subprocess audience,
+operator extra or per-spawn name admits it. While the policy leaves Apify
+disabled the server contacts no Apify endpoint. When enabled it binds the
+account `GET /v2/users/me` reports on the fixed API origin, sends the token
+only as a bearer header, refuses redirects, and requires an owner to confirm a
+token's different account. Internal `GET /api/apify` and `POST /api/apify/account`
+([inventory](http-api.md)) report `disabled`, `authentication_required`,
+`configured` or `unavailable` to live human owners and never return a token.
+This adds no CLI command, MCP tool, wire frame or Actor execution; those follow
+the [Apify contract](decisions/apify-capability.md). It ships in a minor; no
+breaking ruling is required.
+
+## Apify discovery and concrete Actor consent (additive, 0.45.0, #3160)
+
+The governance policy's `apify` block adds `discovery` and `actors`
+(`deny`, `ask` or `allow`, default `ask`) and `actor_grants`, each grant
+`{ account_id, actor_id, build_number, profile_id, schema_sha256, pricing_sha256, origins, expires_at, max_run_usd }`
+([supported inputs](supported-inputs.md#governance-policy),
+[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)).
+The modes are independent: discovery permission never permits a run, and
+`actors: allow` admits only a run an unexpired grant matches exactly; every
+other run asks. The host's catalog calls use only the hosted MCP server's
+`search-actors` and `fetch-actor-details` tools, with telemetry off and no
+use-case text; build, input-schema and pricing facts come from the REST API.
+A run proposal binds account and authority generation, principal, session,
+turn, policy version, the immutable Actor id, the build id and number, the
+schema and pricing fingerprints, the qualified profile, the exact input, its
+target origins and the run cap. All of it is read again before and after the
+approval, and each proposal is consumed once before dispatch. Every approval is a
+per-use `command` confirmation, so neither a remembered tool grant nor an
+approval for a catalog tool, the MCP server or a tool name authorizes a run.
+Voice, autonomous and surfaceless turns are never prompted and get
+`approval_required`. Refusals use the contract's `provider_disabled`,
+`policy_denied`, `approval_required`, `proposal_stale`, `actor_unsupported`,
+`budget_exceeded` and `upstream_incompatible` codes. This adds no CLI command, MCP tool, wire frame,
+route or runnable Actor. No build is qualified yet, so every Actor can be
+inspected and none can run; spend admission, CLI/MCP operations and their
+presentation follow in #3161–#3163. It ships in a minor; no breaking ruling is
+required.
+
+## Apify spending limits, qualified profiles and the run ledger (additive, 0.45.0, #3161)
+
+The governance policy's `apify` block adds `limits`
+([supported inputs](supported-inputs.md#governance-policy),
+[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)):
+`{ run_usd, turn_usd, session_usd, day_usd, max_runs_per_turn, max_requests_per_turn, max_concurrent_runs, max_runtime_seconds, max_result_items, max_result_bytes, max_retention_seconds }`.
+Absent, `effective.apify.limits` is `null` and no Apify run is admitted;
+there is no default spending entitlement. Present, every field is required.
+A missing, negative, nonfinite or out-of-range field invalidates the policy,
+which disables Apify. Zero refuses what it bounds. `day_usd` and
+`max_concurrent_runs` are account-wide: they count every brain and principal
+that uses the same Apify account through the same ledger. With limits set,
+`max_requests_per_turn` replaces the fixed 32-operation discovery bound and
+counts every Apify request a turn makes, durably.
+
+A run is admitted only for a build with a qualified profile. The profile pins
+the build's exact input schema and price list, and qualifies only all-in
+pay-per-event builds with a verified currency cap and every event priced.
+The full input is validated against that schema. URLs may appear only in the
+profile's target fields. Work bounds are mapped to `max_result_items`. Targets
+need robots.txt permission checked by the host, or a written site permission
+for named origins. The cap must be at least Apify's minimum charge.
+No production build is qualified yet. Admission intersects
+`apify.limits` with the global `budgets` less inference already spent. It
+reserves the run cap plus the profile's bounded lifecycle (status, result and
+abort requests, and remote storage retention) in one atomic transaction before
+the start request. That request is sent once, with `build`, `timeout`,
+`memory`, `maxTotalChargeUsd`, `waitForFinish=0` and `restartOnError=false`
+as run options.
+
+The ledger is private operational state: a host-owned SQLite file (mode 0600)
+outside every brain and never `brain.db`. Every process opening the same file
+shares its `ledger_id` and one write lock. An unknown start
+(`remote_outcome_unknown`) keeps its reservation and is never sent again;
+only the run's own identity or an operator's attestation resolves it.
+Charge reports settle a run's liability exactly once, and a late report only
+raises it. A missing or unpriced report keeps the reservation. An abort, even
+a confirmed one, never zeroes a charge. Results are read only from the
+validated run's own dataset, under the session's opaque handle, within the
+item, byte, request and retention bounds. Redirects and signed URLs are refused.
+New refusal codes are `accounting_unavailable`, `remote_outcome_unknown` and
+`result_expired`. This adds no CLI command, MCP tool, wire frame or route;
+those follow in #3162 and #3163. It ships in a minor; no breaking ruling is
+required.
+
+## Apify liability in the global turn budgets (additive, 0.45.0, #3307)
+
+On a host that wires the Apify ledger into its turn budgets, each
+`TurnBudgetReceipt` scope counts the Apify liability the ledger holds for that
+turn, its conversation and this brain's UTC day once, as USD in `costUsd`,
+and reports it in a new optional `apifyUsd`. Admission, mid-turn stops, the
+relay's refusals and the SDK backstop all read the same total. `TurnBudgetCoverage`
+gains two values: one naming the Apify runs this host admitted, and one saying
+Apify accounting was unavailable, so Apify spend is not counted (never zero).
+A host without the ledger keeps the existing value. Apify admission reads
+inference without its own liability, so neither side counts it twice. See
+[the wire component](integration-contract/wire.md#completed-inference-usage-and-budgets-additive-1669).
+It ships in a minor; no breaking ruling is required, under the same reading as
+#1673's coverage change.
+
+## Apify operations through the CLI, MCP and both chat backends (additive, 0.45.0, #3162)
+
+Seven fixed operations reach Apify, each with one strict input schema shared
+by every front door: `discover`, `inspect`, `prepare`, `run`, `status`,
+`results` and `abort`. `brain apify <operation> --json`
+([CLI component](integration-contract/cli.md#apify-operations-additive-0450-3162)),
+the core MCP server's `brain_apify_<operation>` tools and both first-party
+backends' bridge tools of the same names
+([MCP component](integration-contract/mcp.md#apify-tools-additive-0450-3162))
+validate the same input and call the same consent, reservation and request
+functions, so no transport has a second consent, account or billing path.
+Each returns one envelope, `{ ok: true, operation, data }` or
+`{ ok: false, operation, error: { code, reason, message } }`. `code` is one of
+the contract's `provider_disabled`, `authentication_required`,
+`policy_denied`, `approval_required`, `proposal_stale`, `actor_unsupported`,
+`budget_exceeded`, `accounting_unavailable`, `result_expired`,
+`remote_outcome_unknown` and `upstream_incompatible`, or one of two additive
+codes: `provider_unavailable` (the Apify API could not be reached or verified;
+nothing was admitted) and `invalid_input` (the operation's own checks refused
+the input before anything was sent). Messages are fixed text; no token or
+upstream text reaches an envelope.
+
+Candidate, proposal, run and cursor references are opaque and bound to their
+brain, principal and session; a proposal also to its turn. Discovered Actor
+schemas are data: choosing an Actor never adds or removes a tool, and the
+roster is fixed for a session. `data` is the model view only: candidate
+summaries and inspected facts (both marked `untrusted: true`), a proposal and
+its review, a run's lifecycle state, one bounded page of results, an abort
+outcome. Accounting stays with the host.
+
+Both backends forward to the host, which builds each call's context from the
+authenticated turn and holds the credential and the ledger. The tools are in
+every interactive session's fixed roster and auto-allowed: the host asks per
+exact use. Voice, no-grant-surface and restricted autonomous turns keep their
+existing memberships: their rosters or availability checks refuse the tools,
+and the host refuses a non-interactive turn with `policy_denied`. Inference spend reaches admission without Apify's own liability, and the
+host's turn budgets count that liability from the same ledger (#3307); a run
+is therefore refused as `accounting_unavailable` (`session_unbound`) until the
+conversation is named, so its liability can be attributed. A
+cancelled, timed-out or budget-stopped turn aborts the runs it started. The
+first untrusted Apify text in a session records its taint with the new source
+`apify_result` ([governance events](http-api.md)).
+
+A standalone `brain apify` or `brain mcp` process uses its own `APIFY_TOKEN`
+and the shared ledger named by the new `BRAIN_APIFY_LEDGER`
+([supported inputs](supported-inputs.md)); the server opens the same variable,
+defaulting to `DB_PATH.apify-ledger.sqlite`. Without the ledger every
+standalone operation refuses as `accounting_unavailable`. Nobody can be asked
+there: a run needs an exact standing grant, else `approval_required`. Neither
+variable reaches any worker. This adds no wire frame or HTTP route. It ships
+in a minor; no breaking ruling is required.
+
 ## Explicit local chat deletion (additive, #3230)
 
 An authenticated owner can delete its own chat's local history with

@@ -16,6 +16,8 @@ import { FileViewerRaw } from "../../src/components/files/file-viewer-raw.js";
 import { CopyButton } from "../../src/components/chat/copy-button.js";
 import { MarkdownPre } from "../../src/components/chat/brain-markdown-code.js";
 import { MermaidBlock } from "../../src/components/chat/mermaid-block.js";
+import { DiagramContent } from "../../../module-diagrams/src/ui.js";
+import { rendererSpec } from "../../../module-diagrams/tests/fixtures/renderer-fixture.js";
 import { ZoomableImage } from "../../src/components/images/zoomable-image.js";
 import { SubagentView } from "../../src/components/chat/subagent-view.js";
 import { TrackChip } from "../../src/components/chat/track-chip.js";
@@ -448,6 +450,8 @@ const controls: { site: string; name: string | RegExp; view: ReactNode; row?: bo
   { site: "code head copy", name: "Copy", view: <MarkdownPre><code>{output}</code></MarkdownPre> },
   { site: "image expand", name: "Open image", view: <ZoomableImage src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='100'/%3E" alt="Ithaca route" />, sm: true, reveal: true },
   ...["Open diagram", "Share diagram", "Show source", "Copy"].map(name => ({ site: `diagram ${name}`, name, view: <MermaidBlock source="graph LR; Troy-->Ithaca" />, sm: true, reveal: true })),
+  // #3397: the framed diagram renderer's header actions.
+  ...["Open diagram", "Share diagram"].map(name => ({ site: `framed diagram ${name}`, name, view: <DiagramContent source={JSON.stringify(rendererSpec)} theme="light" mode="chat" />, sm: true })),
   { site: "subagent back", name: "Back", view: <SubagentView spanId="rigging" backRef={createRef<HTMLButtonElement>()} />, sm: true },
   { site: "track retry", name: "Retry ithaca.gpx", view: <TrackChip track={failedTrack} onRetry={noop} onRemove={noop} /> },
   { site: "track remove", name: "Remove ithaca.gpx", view: <TrackChip track={failedTrack} onRetry={noop} onRemove={noop} /> },

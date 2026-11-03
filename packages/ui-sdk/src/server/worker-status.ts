@@ -148,18 +148,18 @@ export function* createWorkerStatusPipeSteps() {
       }
     }
     return { source, gateSource,
-      release() { if (gateClosed) throw new Error("Worker start gate is closed"); writeSync(gateWriter!, "g"); closeGate(); },
+      release() { if (gateClosed) throw new Error("Worker start gate is closed"); writeSync(gateWriter!, "go\n"); closeGate(); },
       childPid(supervisor: number, deadline: number): number { return runWorkerStepsSync(childPidSteps(supervisor, deadline)); },
       /** `childPid`, waiting through steps so an asynchronous launch keeps its event loop (#2416). */
       childPidSteps,
       closeWriter() { if (!writerClosed) { writerClosed = true; closeSync(writer!); } },
       /**
-       * Closes the channel. bubblewrap's --block-fd treats the gate's EOF like
-       * its go byte, so an unreleased gate stays open until the supervisor and
-       * every process it gated are dead (#3387). Its supervisor is killed for
-       * that. A gate whose processes never die stays open for good: a held
-       * descriptor, never a released payload. Only a gate with no supervisor,
-       * which nothing can have opened, closes at once.
+       * Closes the channel. The in-sandbox start gate refuses on the gate's
+       * EOF (#3392). As a second guard, an unreleased gate still stays open
+       * until the supervisor and every process it gated are dead (#3387). Its
+       * supervisor is killed for that. A gate whose processes never die stays
+       * open for good: a held descriptor, never a released payload. Only a
+       * gate with no supervisor, which nothing can have opened, closes at once.
        */
       close(supervisor?: WorkerStatusSupervisor) {
         if (closed) return;

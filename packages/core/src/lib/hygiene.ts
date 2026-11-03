@@ -1165,6 +1165,14 @@ export interface ReconcileOptions {
   /** Dismissals and snoozes to record this run (`brain hygiene dismiss` / `snooze`). */
   dispositions?: HygieneDispositionRequest[];
   /**
+   * Remove the `kept` entry for `id` that Keep a permanent copy recorded
+   * under journal `journal` (#2781, rev 5 §5.7): Undo of the copy, after the
+   * copy and config are restored. The original returns to open without an
+   * invalidation receipt, since nothing about it changed. No such entry
+   * refuses `not-kept` before anything is written.
+   */
+  unkeep?: { id: string; journal: string };
+  /**
    * The brain's media policy, which decides whether a kept copy is still
    * tracked (`keptInvalidity`). Callers pass the loaded configuration's.
    */
@@ -1188,7 +1196,7 @@ export type HygieneDispositionRequest =
   | { kind: "kept"; id: string; expectFingerprint: string; copy: string; copySha256: string; journal: string; reason?: string };
 
 /** Why a disposition was refused. The `copy-…` and `not-media` reasons are a `kept` request's. */
-export type HygieneRefusalReason = "not-detected" | "stale-fingerprint" | "not-media" | "copy-missing" | "copy-untracked" | "copy-changed";
+export type HygieneRefusalReason = "not-detected" | "stale-fingerprint" | "not-media" | "copy-missing" | "copy-untracked" | "copy-changed" | "not-kept";
 
 /**
  * A disposition reconcile would not record: the finding is not detected now,
@@ -1205,6 +1213,8 @@ export class HygieneRefusal extends Error {
     super(
       reason === "not-detected"
         ? `${id} is not detected now; nothing was written`
+        : reason === "not-kept"
+          ? `${id} has no kept entry recorded by journal ${expectedFingerprint}; nothing was written`
         : reason === "stale-fingerprint"
           ? `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
           : reason === "not-media"
@@ -1364,6 +1374,12 @@ export function reconcile(
   for (const state of ["snoozed", "dismissed", "kept", "resolved", "open"] as const) {
     for (const entry of parsed[state].entries) if (!known.has(entry.id)) known.set(entry.id, entry);
   }
+  // Unkeep removes exactly the kept entry its journal recorded, or nothing at all.
+  const unkeep = opts.unkeep;
+  if (unkeep) {
+    const entry = known.get(unkeep.id);
+    if (!entry || entry.state !== "kept" || field(entry, "journal") !== unkeep.journal) throw new HygieneRefusal("not-kept", unkeep.id, unkeep.journal, null);
+  }
 
   // While any check failed, "not detected" may only mean "not looked for":
   // an entry that was not detected again is left as it is.
@@ -1481,7 +1497,16 @@ export function reconcile(
           }
         }
       } else if (state === "kept") {
-        if (finding) {
+        if (unkeep && unkeep.id === entry.id && field(entry, "journal") === unkeep.journal) {
+          // Undo of the copy: the original is pending again, as it was before Keep a permanent copy.
+          if (finding) {
+            next.open.push(openFrom(finding, entry.id, withoutFields(entry.lines, DISPOSITION_FIELDS), firstSeenOf(entry) ?? today));
+            counts.reopened++;
+          } else {
+            next.resolved.push(resolve_(entry, "original-pruned"));
+            counts.resolved++;
+          }
+        } else if (finding) {
           const why = keptInvalidity(root, policy, keptRecord(entry), finding, recorded?.fingerprint?.fields ?? {});
           if (why) invalidate(finding, recorded!, entry.lines, firstSeenOf(entry) ?? today, null, why);
           else next.kept.push(entry);

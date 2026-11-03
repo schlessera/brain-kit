@@ -114,7 +114,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     loadExtensions: options.loadExtensions ?? true,
   });
   const runtime = createSessionRuntime({ backend: options, sessionDir, resources });
-  const pool = createSessionPool(runtime, Boolean(options.sessionFactory));
+  const pool = createSessionPool(runtime, Boolean(options.sessionFactory), options.log);
   // Explicit chat deletion (#3229): one durable fence for every native path.
   const retirement = createSessionRetirement({ directory: () => piRetiredDirectory(sessionDir), validSessionId: isPiSessionId });
   const startTurn = createPiTurnRunner(pool, options, retirement);

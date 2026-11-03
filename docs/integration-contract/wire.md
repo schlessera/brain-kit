@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1052-1071`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1084-1102`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -104,8 +104,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3890-3896`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1898-1900`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4000-4006`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1938-1940`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -128,6 +128,23 @@ without reported usage adds to `unknownRuns` and never blocks by itself. The
 top-level `listPriceCostUsd` and `tokens` stay the agent's own completed
 inference. Nothing is reserved: requests already in flight when a scope
 becomes blocked complete and are counted, so a scope can end above its stop.
+
+**Apify liability (0.45.0, #3307).** On a host that wires its Apify ledger
+into the turn budgets, every scope also counts the Apify liability that ledger
+holds once, in USD: the turn's runs, the conversation's, and this brain's UTC
+day, where an unsettled run stays on every later day until it settles. It is
+known spend, so it adds to `costUsd` (which is then never null) and is
+reported again, already included, in the optional `apifyUsd`; it never adds
+tokens. Such a receipt's `coverage` is `"Built-in inference, relayed brain CLI
+providers and Apify runs this host admitted; other provider and tool spend is
+not metered"`. When that ledger cannot be read, inference keeps its own
+behaviour, `apifyUsd` is absent and `coverage` is `"Built-in inference and
+relayed brain CLI providers; Apify accounting is unavailable, so Apify spend
+is not counted; other provider and tool spend is not metered"`; the missing
+spend is unknown, not zero. A host without an Apify ledger keeps the earlier
+value and never sends `apifyUsd`. A client that validated the earlier
+literals must accept both new values. `listPriceCostUsd` and `tokens` stay
+the agent's own completed inference.
 
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries
@@ -526,6 +543,29 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
+Optional `subPhases` (additive, #3355) attributes the governed and journal
+phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
+measuring to `failureObservedAt` or terminal time once the record is terminal,
+and null before. Every step lies inside its phase's paired milestones, and the
+`observe_*` steps lie inside `observe`. Steps are carried by the record's next
+milestone or terminal write, never written on their own. `name` is open
+vocabulary, so a consumer tolerates names it does not know. A step that does
+not apply to a turn is absent. The current names are:
+
+- `governed`: `inference_origin` (the backend's relay origin, looked up before
+  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
+  `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
+  `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
+  `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
+- `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
+  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
+  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+
+Records written before this field have no `subPhases`; nothing is backfilled.
+
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
 in nullable `reason`. Admission refusal, cancellation/revocation and failures
@@ -604,6 +644,22 @@ A run whose worker hit a host resource limit (additive, #1660) carries one
 since the last report, or null when it does not count). `fatal: true` means
 the limit ended the worker; the root then also carries `brain.failure_class`
 `worker_resource_limit`.
+<a id="module-discovery-outcome-additive-0450-3381"></a>
+A module discovery at crontab emission (additive in 0.45.0, #3381) is a `cron`
+root span with `jobName` `modules`, opened and ended at once by
+`brain-ui-cron crontab` once its bounded retries settle. `outcome` `error`
+means module cron was skipped and the crontab carries core jobs only; its
+reason is `module cron skipped: <cause>`, where the cause is the last
+attempt's: the `brain module list` exit code and stderr tail, unreadable
+output, a host not reconciled, or a missing native configuration. `success`
+means discovery yielded the module list. The root carries
+`brain.module_discovery.attempts` (a number) and
+`brain.module_discovery.skipped` (a boolean). The same outcome is the
+`modules` job's latest `cron_runs` row, which `GET /api/status` lists under
+`cronJobs`. It is written only to a UI database outside the brain that already
+exists or sits behind a qualified native host, so a host that never qualified
+and has no database reports on stderr alone. No module job can carry the
+name: theirs are always `<module>-<entry>`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
 written by the in-process scheduler or the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
@@ -942,6 +998,44 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   drops an unreadable `failure` or `retry` and keeps the frame, because the
   frame is a turn's terminal. An unreadable `attempts` or `resetsAt` is dropped
   independently while keeping the rest of the failure and its frame.
+
+<a id="turn-stops-additive-in-0450"></a>
+
+### Turn timeouts and runtime stop notices (additive in 0.45.0, #3356)
+
+```
+result.outcomeDetail?: "host_timeout"                 // on outcome: "cancelled"
+status.detail?: "Turn timed out"                      // on the same turn's status: "cancelled"
+SessionHistoryMessage.runtimeNotice?: RuntimeNotice   // on an assistant message
+RuntimeNotice = { cause: "aborted" | "unspecified", message }
+HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout"          // exported from @schlessera/brain-ui-sdk/protocol
+```
+
+- **`host_timeout`** says the host's hard elapsed-time turn limit ended the
+  turn. It is set from the timeout itself, never inferred from an aborted
+  signal: a cancel someone asked for, a revoked principal, a budget or a
+  journal stop never carries it. The turn is still `outcome: "cancelled"` and
+  `isError: false`; a timeout is never reported as a success, and the field
+  does not change what `"timeout"` means under `outcome: "error"`. The limit
+  counts the time a question waits for the user and is neither paused nor
+  restarted by one. Pending questions are drained at the deadline, and a later
+  answer gets `ask_answer_receipt` `closed`/`ended`.
+- **`runtimeNotice`** is what the agent runtime itself wrote into the
+  transcript when a turn stopped, as opposed to anything the model said. The
+  Claude backend recognises it by the runtime's `<synthetic>` model and its
+  own constant texts: `No response requested.` (`unspecified`) and
+  `API Error: Request was aborted.` (`aborted`). The same words from the model
+  or the user stay their text. The notice's text is not repeated in
+  `content`, which holds the partial answer before it. A message that carries
+  a `failure` does not also carry a notice, and the same notice observed
+  twice on one message is one notice. Neither cause says who stopped the
+  turn or whether earlier tool calls took effect. A replay's turn-position
+  digests hash the notice where its text used to be, so failure and turn
+  records written before this change still join.
+- **Tolerance.** A client that does not read these keeps showing a
+  cancelled turn, and a notice-only assistant message as an empty one. A
+  client that validates with `@schlessera/brain-ui-sdk/schemas` drops an
+  unreadable `runtimeNotice` and keeps the message.
 
 <a id="manual-retry-receipts-additive-in-0400"></a>
 

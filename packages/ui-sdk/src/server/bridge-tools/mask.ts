@@ -154,9 +154,9 @@ function* scratchIgnoredSteps(rootReal: string, maintenance?: import("../mainten
   // a maintenance worker (#1648); one that cannot run refuses the mask.
   const inRepo =
     existsSync(join(rootReal, ".git")) ||
-    (yield* brainGitSteps(rootReal, ["rev-parse", "--git-dir"], maintenance)) === 0;
+    (yield* brainGitSteps(rootReal, ["rev-parse", "--git-dir"], { ...maintenance, tempKind: "scratch_query" })) === 0;
   const query = ["check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
-  return scratchIgnoreResult({ exitCode: yield* brainGitSteps(rootReal, query, { ...maintenance, ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
+  return scratchIgnoreResult({ exitCode: yield* brainGitSteps(rootReal, query, { ...maintenance, tempKind: "scratch_query", ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
 }
 
 function scratchIgnoreUnavailable(): Error {

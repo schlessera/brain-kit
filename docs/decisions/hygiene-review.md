@@ -47,7 +47,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:182-185`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:221-223`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:250-252`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -190,7 +190,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1522`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1538`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -213,7 +213,7 @@ receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:1007-1017`).
 
 Sync's count and review use one read-only function that applies these
 predicates to the log as it stands rather than trusting the file an entry sits
-in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1762-1777`).
+in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1778-1793`).
 Leave pending is a per-pass deferral in review state, never a log state: it
 skips the finding while its fingerprint holds, and the finding still counts.
 
@@ -227,9 +227,33 @@ Each Q1 limit is checked before the work it bounds; past one, or on a note
 that is not UTF-8, the whole scan is refused and the `refs` field records
 `too-large` or `unscannable`, never a digest. The digest leaves line numbers
 out, so an unrelated edit does not reopen a decision
-(`referenceDigest`, `packages/core/src/lib/media-references.ts:435-441`).
+(`referenceDigest`, `packages/core/src/lib/media-references.ts:441-447`).
 The contract is in
 [media awaiting review](../integration-contract/package-api.md#media-awaiting-review-additive-2780).
+
+**Media effects (#2781, rev 4 §5-§7, Rollback A).** Delete, Move, Persist here
+and Keep a permanent copy are planned by the CLI against the current files,
+with every file's expected bytes before and after in one premise, and applied
+only while that premise still holds. Capture comes first: the server retains
+every pre-image in the bounded change journal before the CLI writes, and
+refuses when the journal cannot hold it. Compensation, Undo and restart
+recovery share one per-file rule: a file is put back only while it still holds
+what the effect wrote, so a later edit is never overwritten and the outcome is
+`partial` instead (`restore`, `packages/ui-server/src/inbox/media-effects.ts:107-129`).
+No all-file atomicity is claimed. The contract is in
+[media review effects](../integration-contract/package-api.md#media-review-effects-additive-2781).
+
+**Undo from review (#2781, maintainer ruling 2026-11-03).** A confirmed media
+effect resolves its card, and a resolved card takes no option. So review
+reaches Undo through a review command, `{ operation: "undo-media", journalId }`,
+instead of keeping the card open ("applied · Undo available") until the next
+selection. That keeps the resolved lifecycle, and the Undo stays bound to the
+receipt's journal. It runs the CLI Undo's preflights. The card keeps its
+resolved status and gets the Undo's receipt, and the restored finding returns
+on a new card, never the old one. Undoing Keep a permanent copy also removes
+its `kept` entry after the copy and config are restored (rev 5 §5.7,
+`brain hygiene unkeep`), so the original is pending again rather than
+reopened as `copy-missing`.
 
 ## A disposition is not a repair or an authority grant
 
@@ -241,7 +265,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1496-1499`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1512-1515`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

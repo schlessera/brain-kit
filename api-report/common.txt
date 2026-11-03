@@ -3,6 +3,131 @@
 # A diff in this file is a public-surface change — review it as one.
 # Names marked `type` are type-only exports; the rest are runtime values.
 
+export "./internal/apify" (./src/internal-apify.ts)
+  APIFY_API_ORIGIN
+  APIFY_AUTHORITY_SETTING
+  APIFY_CATALOG_TOOLS
+  APIFY_COVERAGE
+  APIFY_DISCOVERY_LIMITS
+  APIFY_MCP_ORIGIN
+  APIFY_OPEN_STATES
+  APIFY_QUALIFIED_PROFILES
+  APIFY_RECIPIENT
+  APIFY_RUN_LIMITS
+  APIFY_TERMINAL_STATES
+  type ApifyAbortView
+  type ApifyAccount
+  type ApifyActorFacts
+  type ApifyActorGrant
+  type ApifyActorReview
+  type ApifyAdmission
+  type ApifyAdmissionLimits
+  type ApifyApprovalSurface
+  type ApifyAuthority
+  ApifyAuthorityError
+  type ApifyAuthorityOptions
+  type ApifyAuthorityRecord
+  type ApifyAuthorityStore
+  type ApifyBinding
+  type ApifyCallContext
+  type ApifyCandidateSummary
+  type ApifyCatalogCall
+  type ApifyCatalogResult
+  type ApifyCatalogTool
+  type ApifyConsent
+  type ApifyConsentCode
+  ApifyConsentError
+  type ApifyConsentOptions
+  type ApifyConsentPolicy
+  type ApifyConsentState
+  type ApifyCostBasis
+  type ApifyCoverage
+  type ApifyCoverageScope
+  type ApifyDiscoverResult
+  type ApifyInferenceSpend
+  ApifyInputError
+  type ApifyInspectResult
+  type ApifyLedger
+  ApifyLedgerRefusal
+  ApifyLedgerUnavailable
+  type ApifyMode
+  ApifyOperationRefusal
+  type ApifyPermissionRequest
+  type ApifyPolicyView
+  type ApifyPrepareResult
+  type ApifyPricingSummary
+  ApifyProfileError
+  ApifyProfileInputError
+  type ApifyProfileTarget
+  type ApifyProfiledInput
+  type ApifyProposalState
+  type ApifyProviderExposure
+  type ApifyProviderRouting
+  type ApifyQualifiedProfile
+  type ApifyRefusalCode
+  type ApifyRequest
+  type ApifyRequestMeter
+  type ApifyReservation
+  type ApifyResponse
+  type ApifyResultsPage
+  type ApifyRunAccounting
+  type ApifyRunCode
+  ApifyRunError
+  type ApifyRunPolicy
+  type ApifyRunRow
+  type ApifyRunState
+  type ApifyRunTicket
+  type ApifyRunView
+  type ApifyRuns
+  type ApifyRunsOptions
+  type ApifyScopeTotals
+  type ApifyServices
+  type ApifySitePermission
+  ApifySitePermissionUnavailable
+  type ApifyState
+  type ApifyStateReason
+  type ApifyStatus
+  type ApifyStoredCandidate
+  type ApifyStoredProposal
+  apifyBrainId
+  apifyRefusal
+  callApifyOperation
+  canonicalJson
+  createApifyAuthority
+  createApifyConsent
+  createApifyRequestMeter
+  createApifyRuns
+  eventMicros
+  governanceApifyConsentPolicy
+  governanceApifyPolicy
+  governanceApifyRunPolicy
+  ledgerConsentState
+  liability
+  lifecycleMicros
+  memoryConsentState
+  micros
+  openApifyLedger
+  profileFor
+  profileInput
+  qualifyProfile
+  sha256
+  utcDay
+
+export "./internal/apify-operations" (./src/apify-operations.ts)
+  APIFY_DESCRIPTIONS
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_INPUT_SCHEMAS
+  APIFY_MAX_RUN_USD
+  APIFY_OPERATIONS
+  APIFY_TOOL_NAMES
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyOperationInput
+  type ApifyToolName
+  apifyOperationOf
+
 export "./internal/cache-location" (./src/cache-location.ts)
   ASSET_CACHE_PATH
   CACHE_DIR
@@ -40,7 +165,11 @@ export "./internal/frontmatter-block" (./src/frontmatter-block.ts)
   frontmatterLength
 
 export "./internal/governance-policy" (./src/governance-policy.ts)
+  APIFY_LIMIT_BOUNDS
+  APIFY_MAX_ACTOR_GRANTS
+  APIFY_MAX_RUN_USD
   type AnchoredGovernancePolicy
+  type ApifyLimits
   BUILTIN_GOVERNANCE_POLICY
   type EffectiveGovernancePolicy
   GOVERNANCE_POLICY_MAX_BYTES

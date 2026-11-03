@@ -1,8 +1,8 @@
 import { existsSync } from "fs";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { ambientExecConfig, subprocessEnv } from "../config/env.js";
-import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 import {
   probeVersionCommand,
   assertVersionRequirements,
@@ -86,6 +86,17 @@ export interface BrainClient {
   storagePack?(opts?: MaintenanceRequest): Promise<unknown>;
 }
 
+type IndexOptions = NonNullable<Parameters<BrainClient["index"]>[0]>;
+const requeued = new WeakSet<object>();
+/**
+ * First-party wiring only, not exported by the package: options marked here
+ * make an automatic index refused at maintenance admission, because the
+ * budget is busy, stay pending and run again once the budget frees instead of
+ * failing (#3461). `close()` beginning ends the wait. A requested index
+ * passes unmarked options and still reports busy at once.
+ */
+export function requeueWhenBusy<T extends IndexOptions>(opts: T): T { requeued.add(opts); return opts; }
+
 interface ExecResult {
   stdout: string;
   stderr: string;
@@ -104,10 +115,10 @@ interface ExecResult {
 export const INDEX_DIRECTORY_CLI_VERSION = "0.44.0";
 
 /**
- * First core release with media hygiene findings and `hygiene next --defer`
- * (#2780). Review sends `--defer` only to leave a media finding pending, and
- * only a CLI at or past this release reports media findings, so an older CLI
- * is never asked for it. The release that ships it raises
+ * First core release with media findings, `hygiene next --defer`, `keep-copy`
+ * (#2780), `hygiene media` and `hygiene unkeep` (#2781). Review sends them only for a media
+ * finding, and only a CLI at or past this release reports media findings,
+ * so an older CLI is never asked for them. The release that ships it raises
  * {@link MIN_BRAIN_CLI_VERSION} to it; tests/cli-inventory.test.ts fails a
  * lockstep version at or past this one while the floor is lower.
  */
@@ -137,6 +148,23 @@ export function brainCliCommand(brainPath: string): string[] {
   const packaged = join(brainPath, "node_modules", ".bin", "brain");
   if (existsSync(packaged)) return [packaged];
   return ["bun", "scripts/brain-cli.ts"];
+}
+
+/**
+ * The CLI argv a masked worker runs (#2865). The worker launcher admits only
+ * an absolute executable, so the `scripts/brain-cli.ts` fallback's bare `bun`
+ * becomes the server's own Bun, the runtime every worker envelope already
+ * admits. The script stays relative: the worker starts in the brain's
+ * immutable startup view, so it resolves there, never against the live brain,
+ * and adds no mount. Any other relative executable has no admitted path and
+ * refuses by name. {@link brainCliCommand} and host calls are unchanged.
+ */
+export function workerBrainCliCommand(command: readonly string[]): { ok: true; command: string[] } | { ok: false; detail: string } {
+  const [executable, ...rest] = command;
+  if (!executable) return { ok: false, detail: "no CLI command was given" };
+  if (isAbsolute(executable)) return { ok: true, command: [...command] };
+  if (executable === "bun") return { ok: true, command: [process.execPath, ...rest] };
+  return { ok: false, detail: `its executable, ${executable}, is not an absolute path, and only the brain-cli fallback's bun is resolved, to the server's own runtime` };
 }
 
 /** The keyword index pass that builds a provider-restricted turn's private index (#1668). */
@@ -261,6 +289,9 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
   const exec = opts.exec ?? ambientExecConfig();
   const boundary = opts.boundary ?? createHostBoundary({ brainPath, exec });
   const minimumVersion = opts.minimumVersion;
+  // A pending automatic index is discarded, not run, once close() begins (#3461).
+  const ends = [opts.closing, opts.shutdown].filter((signal): signal is AbortSignal => signal !== undefined);
+  const requeueEnds = ends.length > 1 ? AbortSignal.any(ends) : ends[0];
   if (minimumVersion !== undefined) validateVersionMinimum(minimumVersion, "host versionRequirements.brainCli", "brain CLI during client construction");
   const log = opts.log ?? { emit() {}, enabled: () => false };
   const searchTimeoutMs = opts.searchTimeoutMs ?? SEARCH_TIMEOUT_MS;
@@ -296,6 +327,7 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       credentials,
       gate,
       purpose: `brain ${args.slice(0, 2).join(" ")}`,
+      ...(args[0] === "index" ? { maintenanceKind: "index" as const } : args[0] === "storage" ? { maintenanceKind: "git" as const } : {}),
       admissionSignal: maintenance?.admissionSignal,
       ...(args[0] === "sync" ? { sync: true } : {}),
       ...(lock ? { lock: { keyed: lock, key: "brain-docs" } } : {}),
@@ -475,7 +507,18 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       // Full rebuild; indexing is incremental by default since brain 22e82e1.
       if (opts?.force) args.push("--force");
 
-      const result = await execBrain(args, undefined, undefined, opts?.lock);
+      let result: ExecResult;
+      for (;;) {
+        try { result = await execBrain(args, undefined, undefined, opts?.lock); break; }
+        catch (error) {
+          // Nothing ran: admission refused before the worker started. Only an
+          // automatic caller waits; a requested index still reports busy.
+          if (!opts || !requeued.has(opts) || !(error instanceof MaintenanceTempBusyError)) throw error;
+          log.emit({ severityText: "INFO", body: "automatic index pending: maintenance temporary storage is busy; it runs when the budget frees",
+            attributes: { holders: error.holders.join(", ") } });
+          await error.freed(requeueEnds);
+        }
+      }
       if (result.exitCode !== 0) {
         throw new Error(`brain index failed: ${result.stderr}`);
       }

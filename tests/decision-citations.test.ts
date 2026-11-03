@@ -1,16 +1,15 @@
-// Every document under docs/ has `file:line` citations that hold or are explained.
+// The rules of the citation checker, `scripts/check-citations.ts`, on in-memory
+// trees, plus the one tree-wide rule that cannot drift with code: no citation
+// into a private repository (#303).
 //
-// A line number does not fail loudly when code moves under it — it comes to
-// name the neighbouring code. `voice-permission.md` was written with 36 exact
-// citations and eleven days later 16 had drifted; a single PR that inserted a
-// log block above `case "tool_denial"` turned a citation of the denial arm into
-// one of the approval arm, the opposite of the claim. This test is what makes
-// that a red build instead of a confidently wrong record. The convention it
-// enforces is in `docs/decisions/README.md`; the checker is
-// `scripts/check-citations.ts`, which also runs on its own as a report.
+// Whether every real citation still starts on its anchor is a release check,
+// not a merge check (maintainer ruling, 2026-11-03): any PR that moves lines in
+// a cited file drifts some other PR's citations, so failing every merge on it
+// turned main red for documentation alone. That check is
+// `experiments/decision-citations.test.ts`, which the experiment tier runs
+// before every publish. The convention is in `docs/decisions/README.md`.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
 import { join } from "path";
 import {
   checkRecords,
@@ -42,35 +41,22 @@ function check(record: string, files: Record<string, string> = { "src/hooks.ts":
 }
 
 describe("all documentation", () => {
+  // Drift (a citation whose anchor moved, a stale exception, the convention's
+  // own example) is a release check, not a merge check: it lives in
+  // experiments/decision-citations.test.ts and runs in the experiment tier
+  // before every publish (docs/decisions/README.md#citing-code). What stays
+  // here cannot drift with code: a citation into a private repository.
   const reports = checkRecords();
 
-  test("every citation names its anchor, or is a listed exception", () => {
-    const failing = reports
-      .filter(failsCheck)
+  test("no citation points into a private repository (#303)", () => {
+    const privateCitations = reports
+      .filter((report) => report.verdict.kind === "private")
       .map(describeReport);
-    expect(failing).toEqual([]);
-  });
-
-  test("every listed exception covers exactly the citations it declares", () => {
-    // Stale (the citation was anchored or reworded) or borrowed (a second
-    // identical citation inherits a reason written for the first) both fail.
-    expect(exceptionMismatches(reports)).toEqual([]);
-  });
-
-  test("the convention's own example is a citation that holds", () => {
-    // The example was written right and went stale within a day, when #230
-    // inserted a line above `enforcementHook`. It is checked like any other.
-    for (const file of ["AGENTS.md", "docs/decisions/README.md", "scripts/check-citations.ts"]) {
-      const text = readFileSync(join(ROOT, file), "utf8");
-      const example = text.match(/\(`enforcementHook`, `[^`]+`\)/)?.[0];
-      expect({ file, found: Boolean(example) }).toEqual({ file, found: true });
-      const [report] = checkRecords([{ doc: file, body: example! }], undefined, {});
-      expect({ file, verdict: report.verdict.kind }).toEqual({ file, verdict: "anchored" });
-    }
+    expect(privateCitations).toEqual([]);
   });
 
   test("the check reads the records at all", () => {
-    // A parser that found nothing would pass the first test trivially.
+    // A parser that found nothing would pass the test above trivially.
     expect(reports.filter((report) => report.verdict.kind === "anchored").length).toBeGreaterThan(
       100,
     );

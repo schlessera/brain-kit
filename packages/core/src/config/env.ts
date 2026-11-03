@@ -51,7 +51,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
   { name: "BRAIN_PROVIDER_RELAY_SOCKET", description: "Internal: absolute path of the server's provider relay socket in a governed or strict agent worker or a relayed maintenance worker. A built-in Gemini, Anthropic or OpenAI image provider whose key the server withheld sends its native request there, and the server adds the key, meters the request and refuses it once a budget is blocked; set by the worker launcher, not an operator input.", default: "no relay; a provider uses its key from the environment", required: false },
   { name: "BRAIN_AGENT_RUNNER_UNAVAILABLE", description: "Internal: set to `1` by the worker launcher in a credential-free maintenance worker, such as the one hosted `brain sync` runs in, where no agent can log in. The configured agent runner is then treated as absent: bare `brain sync` hands nothing to an agent and reports that judgment is unavailable, so a conflict it leaves is resolved by hand; set by the worker launcher, not an operator input.", default: "the configured agent runner is used", required: false },
   { name: "BRAIN_MEDIA_PINNED_PATH_LIMIT", description: "Trusted host bound on the distinct conversation-pinned scratch paths one media inventory reads (`brain hygiene`, review and `brain sync`'s media count). A positive integer; past it the inventory reports that conversation links were not fully checked, and never claims an exhaustive scan. Anything else stops media detection rather than being guessed.", default: "5000", required: false },
-  { name: "BRAIN_MEDIA_REFERENCE_LIMITS", description: "Trusted host bounds on the declared reference scan behind every media finding (`brain hygiene`, review and `brain sync`'s media count): comma-separated `<limit>=<positive integer>` pairs over `notes` (50000), `noteBytes` (268435456), `perNote` (4194304), `scanTime` in milliseconds (20000) and `refsPerFinding` (500), with `perNote` at most `noteBytes`. Past a limit the scan is refused and nothing claims the references were checked. Anything else stops media detection rather than being guessed.", default: "the Q1 defaults", required: false },
+  { name: "BRAIN_MEDIA_REFERENCE_LIMITS", description: "Trusted host bounds on the declared reference scan behind every media finding (`brain hygiene`, review and `brain sync`'s media count): comma-separated `<limit>=<positive integer>` pairs over `notes` (50000), `noteBytes` (268435456), `perNote` (4194304), `scanTime` in milliseconds (20000), `refsPerFinding` (500), and for a media effect's plan `rewrittenNotes` (200) and `preview` in bytes (1048576), with `perNote` at most `noteBytes`. Past a limit the scan or plan is refused and nothing claims the references were checked. Anything else stops media detection rather than being guessed.", default: "the Q1 defaults", required: false },
   { name: "BRAIN_WORKER_OUTPUT_ALLOWANCE", description: "Internal: JSON `{\"bytes\":N,\"setting\":\"NAME\"}` naming the size of a maintenance worker's private writable output stage and the host setting that controls it. When `brain maintain`'s git packing runs out of space, its `git` step names that allowance and setting; set by the worker launcher, not an operator input.", default: "the step reports the space shortfall without a setting", required: false },
   { name: "BRAIN_WORKER_CONFIG_ROOT", description: "Internal immutable configuration execution root for maintenance and hosted turn workers, supplied by the trusted worker launch. Root discovery maps it to BRAIN_WORKER_DATA_ROOT; configuration loading maps the data root back here.", required: false },
   {
@@ -126,6 +126,23 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
       "(default name only — a config `apiKeyEnv` can point elsewhere).",
     required: false,
   },
+  {
+    name: "APIFY_TOKEN",
+    description:
+      "Apify API token for a standalone `brain apify` or `brain mcp` process (#3162). Used only while the governance " +
+      "policy sets apify.enabled: true, and only as a bearer header to the fixed Apify origins; never printed. " +
+      "A chat worker never receives it.",
+    default: "unset: Apify refuses as authentication_required",
+    required: false,
+  },
+  {
+    name: "BRAIN_APIFY_LEDGER",
+    description:
+      "Absolute path of the shared Apify ledger a standalone `brain apify` or `brain mcp` process accounts in (#3162): " +
+      "the file the UI server opens, so the account's day limit and concurrency bound every process. A chat worker never receives it.",
+    default: "unset: every Apify operation refuses as accounting_unavailable",
+    required: false,
+  },
 ];
 
 export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
@@ -166,6 +183,10 @@ export interface CoreEnv {
   typesafeApiKey: string | undefined;
   /** BRAIN_AGENT_RUNNER_UNAVAILABLE is truthy: this worker can run no agent, whatever the brain configures. */
   agentRunnerUnavailable: boolean;
+  /** APIFY_TOKEN, trimmed, or undefined when unset or blank. */
+  apifyToken: string | undefined;
+  /** BRAIN_APIFY_LEDGER, trimmed, or undefined when unset or blank. */
+  apifyLedger: string | undefined;
   /** BRAIN_MEDIA_PINNED_PATH_LIMIT, unvalidated (`pinnedPathLimit` validates it). */
   mediaPinnedPathLimit: string | undefined;
   /** BRAIN_MEDIA_REFERENCE_LIMITS, unvalidated (`mediaReferenceLimits` validates it). */
@@ -197,6 +218,8 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): CoreEnv {
     claudeCodePath: env.CLAUDE_CODE_PATH || undefined,
     typesafeApiKey: env.TYPESAFE_API_KEY?.trim() || undefined,
     agentRunnerUnavailable: envFlag(env.BRAIN_AGENT_RUNNER_UNAVAILABLE, false),
+    apifyToken: env.APIFY_TOKEN?.trim() || undefined,
+    apifyLedger: env.BRAIN_APIFY_LEDGER?.trim() || undefined,
     mediaPinnedPathLimit: env.BRAIN_MEDIA_PINNED_PATH_LIMIT,
     mediaReferenceLimits: env.BRAIN_MEDIA_REFERENCE_LIMITS,
   };

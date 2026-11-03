@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONVERSATION_LIMITS, type DialogueEvidence, type DialoguePage } from "@schlessera/brain-ui-sdk/protocol";
+import { CONVERSATION_LIMITS, type DialogueEvidence, type DialoguePage, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createOffloopActivityStore } from "../src/activity/store-writes.js";
@@ -193,5 +193,70 @@ for (const merge of [false, true]) test(`native rejected writes retire drained q
     expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({ n: saved.filter(Boolean).length });
     expect(f.pages.flatMap(page => page.records).map(row => row.sequence)).toEqual(Array.from({ length: saved.filter(Boolean).length }, (_, i) => i + 1));
     expect((await f.catalog.dialogueRead!("odysseus", { sessionId: "voyage" }))!.coverage).toBe("partial");
+  } finally { await f.close(); }
+});
+
+// #3215: a fresh owner object (inactive-conversation bind, or adoptTurn's
+// lookup) carries its provisional ID until the alias settles. Its reserved
+// session already names the canonical archive, so admission must share it.
+function backendEvidence(turnId: string, start: number, text: string): DialogueEvidence {
+  return { kind: "backend", turnId, start, end: start + text.length, text, digest: Bun.SHA256.hash(text, "hex") };
+}
+for (const route of ["inactive-bind", "adopt-turn"] as const) for (const bound of ["count", "bytes"] as const) for (const outstanding of [true, false])
+test(`fresh-owner ${route} shares ${bound} admission with its canonical target outstanding=${outstanding}`, async () => {
+  const f = await fixture();
+  try {
+    // A provisional archive with no session, retired from live ingress.
+    await f.catalog.dialogueOpen!(opening);
+    await f.catalog.dialogueClose!("ithaca", "odysseus", 1, false);
+    const target = (await f.journal.open({ ...opening, conversationId: "troy", sessionId: "voyage" }))!;
+    await f.hold();
+    const text = bound === "bytes" ? "船".repeat(2000) : "mast";
+    const voiceText = bound === "bytes" ? "帆".repeat(2000) : "mast";
+    let count = 0, bytes = 0, offset = 0;
+    const expected: DialogueEvidence[] = [], saved: boolean[] = [];
+    const charge = (e: DialogueEvidence) => { count++; bytes += Buffer.byteLength(JSON.stringify(e)); expected.push(e); };
+    // The canonical target's own observations are still waiting on the writer.
+    if (outstanding) for (let i = 0; i < 100; i++) {
+      const e = { ...evidence(i, voiceText), conversationId: "troy" }; charge(e);
+      expect(f.journal.voice("troy", e, value => saved.push(value))).toBe(true);
+    }
+    if (route === "inactive-bind") f.journal.bind("ithaca", "odysseus", "voyage");
+    else {
+      f.journal.adoptTurn("mast-turn", "ithaca", "odysseus");
+      f.journal.backend({ type: "session_info", sessionId: "voyage", isNew: false, turnId: "mast-turn" } as ServerMessage);
+      charge({ kind: "request", turnId: "mast-turn" });
+    }
+    const next = () => backendEvidence("mast-turn", offset, text);
+    const delta = () => { f.journal.backend({ type: "text_delta", sessionId: "voyage", turnId: "mast-turn", text } as ServerMessage); offset += text.length; };
+    while (count < CONVERSATION_LIMITS.maxPendingDialogueObservations &&
+      bytes + Buffer.byteLength(JSON.stringify(next())) <= CONVERSATION_LIMITS.maxPendingDialogueBytes) { charge(next()); delta(); }
+    expect(f.failures).toEqual([]);
+    delta();
+    expect(f.failures, "FRESH_OWNER_ALIAS_CANNOT_SPLIT_PENDING_ADMISSION").toEqual(["queue_pressure"]);
+    let pendingCount = 0, pendingBytes = 0;
+    for (const queued of queues(f.journal).values()) { pendingCount += queued.count; pendingBytes += queued.bytes; }
+    expect({ pendingCount, pendingBytes }).toEqual({ pendingCount: count, pendingBytes: bytes });
+    if (bound === "count") expect(count).toBe(CONVERSATION_LIMITS.maxPendingDialogueObservations);
+    else expect(count).toBeLessThan(CONVERSATION_LIMITS.maxPendingDialogueObservations);
+    expect(bytes).toBeLessThanOrEqual(CONVERSATION_LIMITS.maxPendingDialogueBytes);
+    f.release(); await f.journal.settled();
+    await expect(f.journal.settled(true)).rejects.toThrow("pending writes exceeded");
+    expect(target.id).toBe("troy");
+    expect(saved).toEqual(Array(outstanding ? 100 : 0).fill(true));
+    expect(queues(f.journal).size, "FRESH_OWNER_QUEUES_RETIRE").toBe(0);
+    const rows = f.db.query("SELECT owner_id, identity, payload FROM dialogue_records ORDER BY sequence").all() as { owner_id: string; identity: string; payload: string }[];
+    expect(rows.map(row => JSON.parse(row.payload)), "ADMITTED_IN_ORDER_UNDER_CANONICAL_ARCHIVE").toEqual(expected);
+    expect(new Set(rows.map(row => row.owner_id))).toEqual(new Set(["troy"]));
+    expect(new Set(rows.map(row => row.identity)).size, "NO_EFFECT_REPLAY").toBe(count);
+    expect(f.pages.flatMap(page => page.records).map(row => row.evidence)).toEqual(expected);
+    expect(f.db.query("SELECT owner_id FROM dialogue_aliases WHERE id='ithaca'").get()).toEqual({ owner_id: "troy" });
+    // Settled callbacks return capacity: the bound is never a lifetime cap.
+    const failures = f.failures.length;
+    for (let i = 0; i < 100; i++) delta();
+    await f.journal.settled();
+    expect(f.failures.length, "SETTLED_CALLBACKS_RESTORE_ADMISSION").toBe(failures);
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get()).toEqual({ n: count + 100 });
+    expect(queues(f.journal).size).toBe(0);
   } finally { await f.close(); }
 });

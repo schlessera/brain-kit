@@ -32,6 +32,9 @@ export {
 } from "./lib/scratch.js";
 export type { ScratchReport, ScratchRemoval, ScratchFailure } from "./lib/scratch.js";
 
+// The per-module state area (.brain-ui/modules/<name>/, #3380)
+export { MODULE_STATE_DIR, ModuleStateError, moduleStateDir, moduleStatePath } from "./lib/module-state.js";
+
 // Frontmatter and generated regions
 export { splitFrontmatterBlock, rewriteGeneratedRegion, inertGeneratedText } from "./lib/generated-regions.js";
 

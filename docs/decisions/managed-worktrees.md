@@ -97,8 +97,8 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:570-582`;
-`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:862-873`).
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:575-587`;
+`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:861-872`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
 restricted worker never binds a generation. Nothing returns a host path to the
@@ -125,8 +125,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:506-518`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:351-365`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:562-574`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:392-406`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -199,7 +199,7 @@ The host side is `createReferenceTools`
 start, the host records its principal and what those workers bind: the public
 view, the principal's private view and the turn's worker generation, if one
 opened
-(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:583-589`).
+(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:588-594`).
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses
@@ -212,7 +212,7 @@ nothing.
 **Shared source is read through views.** Each such turn's workers bind the
 public view and their principal's private view whole and read-only at
 `/tmp/brain-reference/public` and `/tmp/brain-reference/private`
-(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:874-885`).
+(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:873-884`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
 (`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:741-753`).
@@ -400,7 +400,7 @@ selects undone copy.
 Markdown findings and the host's by core's ordinal rules (severity, known
 urgency, age, identity), and every operation that names a host finding goes to
 the host, never to the CLI
-(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:40-52`).
+(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:45-57`).
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
 afresh, after a failed removal too. Selection assesses its winner again before
