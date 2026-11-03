@@ -54,6 +54,8 @@ export interface EmitCrontabOptions {
    * Default true; BRAIN_UI_CRON_HYGIENE=off turns it off.
    */
   hygiene?: boolean;
+  /** Daily credentialed propagation prepass, off until the operator opts in. Core also requires its owner opt-in. */
+  propagation?: boolean;
 }
 
 /**
@@ -130,6 +132,7 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     legacyScraperPresent,
     subprocessEnvExtraNames = [],
     hygiene = true,
+    propagation = false,
   } = options;
 
   assertSingleLine("wrapperCommand", wrapperCommand);
@@ -165,6 +168,9 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     // repository code, so it goes through the wrapper and is never trusted.
     ...(hygiene
       ? [`0 6 * * 1 ${user} cd / && ${wrapper} hygiene -- brain hygiene reconcile 2>&1 | logger -t brain-hygiene`]
+      : []),
+    ...(propagation
+      ? [`45 5 * * * ${user} cd / && ${wrapper} hygiene-propagation -- brain hygiene propagation --json 2>&1 | logger -t brain-hygiene-propagation`]
       : []),
     "",
     "# Module jobs (from enabled modules' cron manifests, when exposed)",

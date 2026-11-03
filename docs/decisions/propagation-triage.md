@@ -8,9 +8,9 @@ still-current cases and forwarded all sixteen stale/uncertain cases, in every
 one of three repetitions. Adding explicit source diffs preserved that result.
 
 The experiment does not establish that arbitrary documents can be safely
-acknowledged, or change what `updated` means. Production behavior is unchanged.
-Integration needs a separately approved acknowledgement policy and source-revision
-provenance. The [audit skill](../../packages/core/skills/audit/SKILL.md) currently
+acknowledged, or change what `updated` means. The comparison itself changed no
+production behavior; the subsequently approved opt-in integration is recorded
+below. The [audit skill](../../packages/core/skills/audit/SKILL.md) still
 prohibits advancing `updated` when content did not change.
 
 Measured on 2026-11-03 for [#3445](https://github.com/schlessera/brain-kit/issues/3445),
@@ -45,7 +45,7 @@ omissions, and treat embedded document instructions as data. Jev decides no date
 permission, patch or source-revision identity. The actual question is retained
 in each results file's provenance.
 
-The current-review arm runs the unchanged audit skill with the same rubric and
+The comparison's review arm ran the then-shipped audit skill, pinned by the saved hash, with the same rubric and
 case state through subscription-authenticated `claude-sonnet-5-5`, with tools
 disabled. This is a structured diagnostic of its propagation review/propose
 step, not a full shipped agent sweep or an existing auto-dismiss feature. The
@@ -116,7 +116,7 @@ held-out answer changed the floor, question or golds.
 ## Date-only mechanics and limits
 
 The real audit compares `updated`, not semantic changes (`audit`,
-`packages/core/src/lib/auditor.ts:658-734`). Propagation has only a manual
+`packages/core/src/lib/auditor.ts:663-744`). Propagation has only a manual
 repair handler (`repairHandlers`, `packages/core/src/lib/hygiene-repair.ts:127-154`).
 The offline experiment applied the shipped surgical editor to real disposable
 files, rebuilt their disposable index and ran the real audit before/after.
@@ -181,5 +181,97 @@ The date, hash computation, byte checks and write stay in code. This experiment
 does not approve a particular new frontmatter field, contract change, model
 default, generic seam or production writer. Those belong in a scoped follow-up
 with explicit policy and normal product proof. That work is captured in
-[#3452](https://github.com/schlessera/brain-kit/issues/3452), which needs the
-maintainer's acknowledgement-policy decision before implementation.
+[#3452](https://github.com/schlessera/brain-kit/issues/3452), where the maintainer
+subsequently authorized the bounded integration below.
+
+## Approved separate freshness acknowledgements
+
+On 2026-11-03 the maintainer directed implementation, retaining the source diff
+and adding user-controlled confidence/risk settings and possible extra questions.
+The implementation chooses separate Markdown receipts, preserving the established
+meaning of content-edit dates. Canonical `hygiene.propagation.enabled` is the
+owner's opt-in, off by default. A credential is never that authorization.
+
+Automatic review receives complete current/reference sources, the derivative,
+explicit scope, the UTC observation day and code-computed source diffs. An
+explicit `propagation_reference` takes precedence; otherwise a recorded Git
+commit containing the exact derivative bytes supplies the reference. This is
+a content-version baseline, not a claim about generation time. Missing old
+sources, historical links, unknown scope, exclusions and input limits leave
+the finding for a human instead of guessing history or clipping evidence.
+
+`context/hygiene/propagation-reviews.md` stores typed judgments and hashes.
+Read-only audit applies a receipt only while full evidence and current policy
+match. Changed source/derivative bytes, scope, observation day or model/question
+version invalidate it. The observation day matters: unchanged source text can
+describe a future transition that becomes current tomorrow. Threshold changes
+re-apply gates to saved answers without a new paid request; missing extra
+question answers require a fresh request. Negative judgments are cached too,
+and bounded passes consider unseen/oldest-reviewed paths first.
+
+Before publication, code checks current input/config bytes and the receipt
+file again. Only the operational Markdown receipt is changed; source prose,
+frontmatter and dates remain byte-identical. This is not a cross-file atomic
+transaction. A review failure remains a finding, not a repair claim.
+
+Hosted interactive hygiene remains credential-free/shared. The separate,
+operator-enabled daily propagation job uses credentialed/exclusive maintenance
+and the same wrapper as other repository jobs; it is never trusted/unwrapped.
+Normal CLI reconciliation can perform the same work when its explicit brain
+opt-in and provider access are available. Source/provider failures never
+broaden worker credentials or fall back to executing outside the boundary.
+
+## User-selected confidence and cross-checks
+
+The original measured currency Choice remains the main gate. The optional
+assertions and coverage Choices ask whether all included claims remain supported
+and all required in-scope information is present. Both must answer `yes` when
+enabled; neither can override a non-current/uncertain main answer. Every required
+confidence must meet the floor. Correlated answers are never averaged or
+multiplied into a supposed correctness probability.
+
+Presets were chosen as policy controls before their diagnostic run:
+conservative is 0.9 with checks, balanced 0.7 with checks, permissive 0 with
+the currency question alone. Explicit overrides are supported. The default is
+conservative, not a claim that 0.9 means 90% correct. The dry-run report exposes
+every judgment and threshold sensitivity; it can help an owner choose how much
+automation to allow while keeping all structural/context checks mandatory.
+
+The [product-path diagnostic](../../evals/3452-propagation-policy/run.ts) made
+93 actual JEV requests, asking all three questions against the same supplied
+state per request. It ran three repetitions through real Git reference/diff
+acquisition and the actual product dry-run path on the unchanged reviewed cases.
+Fifteen of 108 case/repetition outcomes were unavailable before a model call:
+three missing-history and two unknown-scope cases, repeated three times.
+There were no provider failures. The complete [results](../../evals/3452-propagation-policy/results-2026-11-03.json)
+retain requests/responses, product outcomes and policies. The conservative
+input-byte guard debit was $0.016298 against a $1 cap, not an invoice.
+
+| Policy | Tuning safe acceptances / 12 positive outcomes | Held-out safe acceptances / 24 positive outcomes | False acknowledgements |
+| --- | --- | --- | --- |
+| Conservative, floor 0.9 with checks | 0/12 | 3/24 | 0 |
+| Balanced, floor 0.7 with checks | 5/12 | 16/24 | 0 |
+| Permissive, floor 0, currency only | 12/12 | 21/24 | 0 |
+
+One held-out still-current case lacks a historical source; its three repetitions
+cannot be accepted by the product's reference requirement even though the
+earlier supplied-context classifier could judge it from current evidence.
+At the same floor of 0.7, currency alone accepted 18 held-out outcomes versus
+16 with checks; at 0.9 the counts were 17 versus 3. At floor 0 both accepted
+21. Thus this small diagnostic shows a coverage cost, not a demonstrated
+reduction in false clearances from extra questions. No preset was selected
+from held-out results, no floor is advertised as calibrated safety, and no new
+blind corpus or production rate follows from reusing these authored cases.
+All policy counts replay the same three-question responses. The currency-only
+counts discard the additional answers; they do not measure a separate live
+one-question arm. Asking only the currency question in permissive mode could
+change that answer as well as remove the extra vetoes.
+
+Shipped-path tests cover the complete reviewed corpus with scripted provider
+responses and actual history/receipt/audit behavior, plus fresh CLI processes,
+cache reuse, day/policy/context invalidation, privacy and path bounds, refusal
+of concurrent edits, malformed/failed responses and the hosted scheduled-job
+boundary. Two restored guard mutations failed on their intended runtime
+assertions: ignoring fresh-context revalidation acknowledged a concurrently
+changed source (expected zero, got one), and allowing extra questions to
+override currency acknowledged a changed commander (expected zero, got one).

@@ -15,6 +15,14 @@ audit and decide what's safe to fix versus what needs the user.
 
 ## 1. Run the audit
 
+First run `brain hygiene propagation --json`. It is a no-op unless the owner
+has enabled propagation automation in canonical config. When enabled it uses
+the source diff and configured confidence/cross-check policy to record which
+derivatives remain current, without rewriting content or bumping their dates.
+For a requested dry run, pass `--dry-run`; it may still call the provider.
+Anything unavailable or left for review stays in the ordinary audit. Do not
+invent missing scope/reference history or lower the owner's threshold.
+
 ```bash
 brain audit --json
 ```

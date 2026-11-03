@@ -20,6 +20,22 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Diff-assisted propagation freshness review (additive, 0.45.0, #3452)
+
+Optional canonical `hygiene.propagation` configuration authorizes bounded JEV
+currency review with source diffs, user-selected confidence floors and veto-only
+cross-checks. It is off by default. Separate Markdown judgment receipts can
+suppress a propagation finding without changing content-edit dates; all changed
+or unavailable evidence returns to review. `brain hygiene propagation --json`
+adds inspectable dry-run/judgment/sensitivity output, and enabled reconciliation
+adds an optional `propagation` report. Scope/reference frontmatter and rule scope
+are additive inputs. See [CLI](integration-contract/cli.md#propagation-freshness-additive-0450-3452),
+[file semantics](integration-contract/frontmatter.md#propagation-freshness-additive-0450-3452)
+and [configuration](configuration.md#hygienepropagation). Hosted scheduling has
+a separate operator opt-in; existing interactive hygiene stays credential-free.
+This ships in a minor; existing dates, CLI fields and provider activation retain
+their meaning. No breaking ruling is required.
+
 ## Explicit local chat deletion (additive, #3230)
 
 An authenticated owner can delete its own chat's local history with

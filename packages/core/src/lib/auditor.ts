@@ -15,11 +15,16 @@ import type { LoadedModule } from "./module-types.js";
 import { bindContentIndexQueries } from "../queries/bound.js";
 import type { AuditIssue } from "./types.js";
 import type { Severity, Taxonomy } from "./taxonomy.js";
+import type { BrainConfig } from "./config.js";
+import type { PropagationConfig } from "./propagation-policy.js";
+import { acknowledgedPropagation } from "./propagation-state.js";
 
 /** Milliseconds per day. */
 const MS_PER_DAY = 86_400_000;
 
 export interface AuditOptions {
+  /** Explicit canonical automation policy; audit only reads matching Markdown receipts. */
+  propagationConfig?: PropagationConfig;
   /** Wall clock to measure ages against — injected for deterministic tests. */
   now?: Date;
   /**
@@ -687,6 +692,11 @@ export function audit(
   // for the derivatives generated from it (e.g. bios generated from a canonical
   // FACTS.md must not lag behind it).
   const reported = new Set<string>();
+  let acknowledged = new Set<string>();
+  if (opts.root) {
+    try { acknowledged = acknowledgedPropagation(opts.root, taxonomy, opts.propagationConfig, opts.now); }
+    catch { opts.onCheckFailed?.("propagation"); }
+  }
   for (const rule of taxonomy.propagation) {
     const source = docs.find((d) => d.path === rule.source);
     if (!source) continue;
@@ -695,7 +705,7 @@ export function audit(
     const glob = new Glob(rule.derivatives);
 
     for (const doc of docs) {
-      if (doc.path === rule.source || !glob.match(doc.path)) continue;
+      if (doc.path === rule.source || !glob.match(doc.path) || acknowledged.has(doc.path)) continue;
       const docUpdated = new Date(doc.updated).getTime();
       if (sourceUpdated > docUpdated) {
         reported.add(`${doc.path}\n${rule.source}`);
@@ -716,7 +726,7 @@ export function audit(
   // has no `updated` to compare, so it is never reported.
   const byPath = new Map(docs.map((d) => [d.path, d]));
   for (const doc of docs) {
-    if (!doc.generated_from) continue;
+    if (!doc.generated_from || acknowledged.has(doc.path)) continue;
     // A repo-relative path, normalized (`notes/./a.md`, `notes/../notes/a.md`).
     // One that leaves the repo normalizes to `../…`, which no document has.
     const source = byPath.get(posix.normalize(doc.generated_from));
@@ -1051,10 +1061,10 @@ export function audit(
  */
 export async function auditWithModules(
   db: Database,
-  brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[] },
+  brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[]; config?: BrainConfig | null },
   opts: AuditOptions = {}
 ): Promise<AuditIssue[]> {
-  const issues = audit(db, brain.taxonomy, { root: brain.root, ...opts });
+  const issues = audit(db, brain.taxonomy, { root: brain.root, propagationConfig: brain.config?.hygiene?.propagation, ...opts });
   // Missing modules cannot contribute their own hygiene checks. This concrete
   // built-in diagnostic reads data only and never imports an absent pack.
   if (!brain.modules.some(mod => mod.state !== "dormant" && mod.manifest.name === "diagrams")) {
