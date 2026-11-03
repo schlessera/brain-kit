@@ -393,6 +393,7 @@ async function runRetainedSession(
           // after this timer was armed.
           attributes: { ...turnLogAttributes(turn), "timeout.ms": host.turnTimeoutMs },
         });
+        turn.timedOutTurnId = turn.turnId;
         abortController.abort();
         // Reject any pending interactive request for this turn too. A bridge
         // that awaits askUser/approval without racing the abort signal would

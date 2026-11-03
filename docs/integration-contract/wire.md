@@ -104,8 +104,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3890-3896`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1898-1900`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3920-3926`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1904-1906`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -942,6 +942,44 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   drops an unreadable `failure` or `retry` and keeps the frame, because the
   frame is a turn's terminal. An unreadable `attempts` or `resetsAt` is dropped
   independently while keeping the rest of the failure and its frame.
+
+<a id="turn-stops-additive-in-0450"></a>
+
+### Turn timeouts and runtime stop notices (additive in 0.45.0, #3356)
+
+```
+result.outcomeDetail?: "host_timeout"                 // on outcome: "cancelled"
+status.detail?: "Turn timed out"                      // on the same turn's status: "cancelled"
+SessionHistoryMessage.runtimeNotice?: RuntimeNotice   // on an assistant message
+RuntimeNotice = { cause: "aborted" | "unspecified", message }
+HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout"          // exported from @schlessera/brain-ui-sdk/protocol
+```
+
+- **`host_timeout`** says the host's hard elapsed-time turn limit ended the
+  turn. It is set from the timeout itself, never inferred from an aborted
+  signal: a cancel someone asked for, a revoked principal, a budget or a
+  journal stop never carries it. The turn is still `outcome: "cancelled"` and
+  `isError: false`; a timeout is never reported as a success, and the field
+  does not change what `"timeout"` means under `outcome: "error"`. The limit
+  counts the time a question waits for the user and is neither paused nor
+  restarted by one. Pending questions are drained at the deadline, and a later
+  answer gets `ask_answer_receipt` `closed`/`ended`.
+- **`runtimeNotice`** is what the agent runtime itself wrote into the
+  transcript when a turn stopped, as opposed to anything the model said. The
+  Claude backend recognises it by the runtime's `<synthetic>` model and its
+  own constant texts: `No response requested.` (`unspecified`) and
+  `API Error: Request was aborted.` (`aborted`). The same words from the model
+  or the user stay their text. The notice's text is not repeated in
+  `content`, which holds the partial answer before it. A message that carries
+  a `failure` does not also carry a notice, and the same notice observed
+  twice on one message is one notice. Neither cause says who stopped the
+  turn or whether earlier tool calls took effect. A replay's turn-position
+  digests hash the notice where its text used to be, so failure and turn
+  records written before this change still join.
+- **Tolerance.** A client that does not read these keeps showing a
+  cancelled turn, and a notice-only assistant message as an empty one. A
+  client that validates with `@schlessera/brain-ui-sdk/schemas` drops an
+  unreadable `runtimeNotice` and keeps the message.
 
 <a id="manual-retry-receipts-additive-in-0400"></a>
 

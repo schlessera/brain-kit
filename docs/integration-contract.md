@@ -20,6 +20,21 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)
+
+A turn the host's hard elapsed-time limit ended stays `outcome: "cancelled"`,
+and now says why: `result.outcomeDetail: "host_timeout"`
+(`HOST_TIMEOUT_OUTCOME_DETAIL`), with `detail: "Turn timed out"` on its
+`status: cancelled`. A replayed assistant message gains
+`SessionHistoryMessage.runtimeNotice`, the agent runtime's own stop notice,
+whose text is no longer replayed as the agent's `content`. No existing field
+changes meaning; the limit and its configuration are unchanged. See
+[wire](integration-contract/wire.md#turn-stops-additive-in-0450). The SDK
+exports `HOST_TIMEOUT_OUTCOME_DETAIL` and `RuntimeNotice`; `@schlessera/brain-ui-react`
+adds the optional `ChatMessage.runtimeNotice`/`runtimeNoticeLive`,
+`AskUserExchange.endedBy`, `AnswerDelivery.sentAsMessage` and the `TurnNotice`
+type. This ships in a minor; no breaking ruling is required.
+
 ## Explicit local chat deletion (additive, #3230)
 
 An authenticated owner can delete its own chat's local history with

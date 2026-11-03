@@ -116,6 +116,7 @@ signatures (every public export and the types it is made of)
         editable?: boolean;
         mirror?: boolean;
         focus?: boolean;
+        sentAsMessage?: boolean;
     }
   AnswerPayload (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type AnswerPayload = {
@@ -160,6 +161,7 @@ signatures (every public export and the types it is made of)
     export interface AskUserExchange {
         requestId: string;
         terminal?: true;
+        endedBy?: "timeout";
         turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;
@@ -292,6 +294,8 @@ signatures (every public export and the types it is made of)
         failure?: TurnFailure;
         retryOfTurnId?: string;
         failureLive?: boolean;
+        runtimeNotice?: TurnNotice;
+        runtimeNoticeLive?: boolean;
         retry?: TurnRetry;
     }
   ChatPage (packages/ui-react/src/components/chat/chat-page.tsx)
@@ -888,6 +892,10 @@ signatures (every public export and the types it is made of)
     export interface TrackDisplay {
         view: TrackFileView;
         props: TrackMapProps;
+    }
+  TurnNotice (packages/ui-react/src/stores/chat-state.ts)
+    export interface TurnNotice {
+        cause: "timeout" | "aborted" | "unspecified";
     }
   UIShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface UIShellState {
