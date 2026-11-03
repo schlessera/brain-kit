@@ -1018,6 +1018,8 @@ export "./internal" (./src/internal.ts)
   type MaintenanceEnvelope
   type MaintenanceHost
   type MaintenanceResult
+  MaintenanceTempBusyError
+  type MaintenanceTempKind
   type MaintenanceWorker
   NATIVE_MANAGER_MAX_DELTA_BYTES
   NATIVE_MANAGER_OPERATION_TIMEOUT_MS
@@ -1226,6 +1228,7 @@ export "./internal" (./src/internal.ts)
   requestPolicyPermission
   requireWorkerHost
   requireWorkerHostAsync
+  reserveMaintenanceTemp
   resolveMaintenanceTempLimits
   resolveOutputStagingLimits
   resolveTurnTempLimits
