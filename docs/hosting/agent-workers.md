@@ -1620,7 +1620,11 @@ inference relay taints the session too, and a tainted session's new
 connections reach only `taint.egress.allow` and hosts its proxies already
 admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
 Without the proxy (hosts without managed native storage) nothing narrows
-egress, and the capabilities note says so. Files the
+egress, and the capabilities note says so. On a turn behind the proxy, the Bash
+classifier above is off: the proxy's connection taint is the shell signal, so
+ordinary commands such as `brain diagram --help` leave the session clean, and
+a shell read of an untrusted file that opens no connection does not taint it
+(#3429). Files the
 user marks untrusted are not a source yet. The rules are in
 [the decision record](../decisions/governed-writable-workers.md#untrusted-input-g6).
 

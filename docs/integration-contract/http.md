@@ -285,6 +285,15 @@ that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
 
+<a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
+
+**Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a
+turn behind the turn egress proxy, `taint` is no longer recorded with
+`source: "fetching_command"` or `"unclassified_command"`; the proxy's
+`egress_connection` source covers shell network access there. A turn without
+the proxy still records both. The payload shape and version are unchanged, and
+stored events keep their recorded sources.
+
 The kinds and each kind's payload are versioned separately. A payload change
 that is not purely additive bumps that kind's `schemaVersion`, and stored
 events keep the version they were written with, so a new version or a new
