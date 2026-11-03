@@ -57,8 +57,15 @@ export "." (./src/index.ts)
   type BrainStats
   type BudgetObservation
   type BudgetScope
+  CHAT_DELETION_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatDeletionOutcome
+  type ChatDeletionReceipt
+  type ChatDeletionRefusal
+  type ChatDeletionRequest
+  type ChatDeletionRetained
+  type ChatDeletionStore
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -262,6 +269,7 @@ export "." (./src/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
   type ServerConversationOpened
@@ -502,10 +510,17 @@ export "./client" (./src/client/index.ts)
   type BridgeToolName
   type BudgetObservation
   type BudgetScope
+  CHAT_DELETION_CAPABILITY
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatDeletionOutcome
+  type ChatDeletionReceipt
+  type ChatDeletionRefusal
+  type ChatDeletionRequest
+  type ChatDeletionRetained
+  type ChatDeletionStore
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -782,6 +797,7 @@ export "./client" (./src/client/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
   type ServerConversationOpened
@@ -1045,12 +1061,15 @@ export "./internal" (./src/internal.ts)
   type QuestionObservation
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
+  type RemovalRun
   type ReplayReceipt
   type Reservation
   type RestrictedEnvelope
   STALE_NATIVE_WRITE
   SUBPROCESS_ENV
   type SessionPromptFacts
+  type SessionRetirement
+  type SessionRetirementOptions
   type StateLedger
   TURN_TEMP_BUDGET_ENV
   TURN_TEMP_BYTES_ENV
@@ -1128,9 +1147,11 @@ export "./internal" (./src/internal.ts)
   classifyOutwardCall
   claudeMaskFilename
   claudeReportedMaskPath
+  combineRemovalOutcomes
   compileWorkerCommandPolicy
   createLimitTracker
   createNativeBrainManagerClient
+  createSessionRetirement
   createStateLedger
   createTurnTempPressure
   createTurnTempPromoter
@@ -1164,11 +1185,13 @@ export "./internal" (./src/internal.ts)
   mib
   mountPointsUnder
   nativeFileVersion
+  nativeObservationIdentity
   nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan
   outputStagingLimit
   outwardTarget
+  ownedNames
   parseCliProviderOrigins
   parseNativeBrainDelta
   parseWorkerStateBytes
@@ -1198,6 +1221,8 @@ export "./internal" (./src/internal.ts)
   recoveredWorkerFile
   recoveredWorkerFiles
   relayedProviderKeys
+  removeMetadataFile
+  removeOwnedArtifact
   requestPolicyPermission
   requireWorkerHost
   requireWorkerHostAsync
@@ -1213,7 +1238,9 @@ export "./internal" (./src/internal.ts)
   runMaintenanceWorker
   runMaintenanceWorkerSync
   sessionPromptContext
+  sessionPromptContextLocation
   sessionReplay
+  sessionReplayLocation
   startEgressProxy
   startInferenceRelay
   startProviderRelay
@@ -1320,8 +1347,15 @@ export "./protocol" (./src/protocol.ts)
   type BrainStats
   type BudgetObservation
   type BudgetScope
+  CHAT_DELETION_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatDeletionOutcome
+  type ChatDeletionReceipt
+  type ChatDeletionRefusal
+  type ChatDeletionRequest
+  type ChatDeletionRetained
+  type ChatDeletionStore
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -1517,6 +1551,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
   type ServerConversationOpened
@@ -1783,6 +1818,7 @@ export "./schemas" (./src/schemas.ts)
   serverAskUserListRequestSchema
   serverAskUserRankRequestSchema
   serverAskUserRequestSchema
+  serverChatRetiredSchema
   serverConversationClosedSchema
   serverConversationEventSchema
   serverConversationOpenedSchema
@@ -1963,10 +1999,17 @@ export "./server" (./src/server/index.ts)
   type BridgeToolName
   type BudgetObservation
   type BudgetScope
+  CHAT_DELETION_CAPABILITY
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
+  type ChatDeletionOutcome
+  type ChatDeletionReceipt
+  type ChatDeletionRefusal
+  type ChatDeletionRequest
+  type ChatDeletionRetained
+  type ChatDeletionStore
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -2276,6 +2319,7 @@ export "./server" (./src/server/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
   type ServerConversationOpened
@@ -2313,6 +2357,9 @@ export "./server" (./src/server/index.ts)
   type ServerUsage
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionHistoryRemovalOutcome
+  type SessionHistoryRemovalRequest
+  type SessionHistoryRemovalResult
   type SessionRecovery
   type SessionRecoveryLatest
   type SessionRecoveryPending
@@ -3474,6 +3521,7 @@ signatures (every public export and the types it is made of)
         }[];
         listSessions(): Promise<ChatSession[]>;
         getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
+        removeSessionHistory?(req: SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>;
     }
   AgentPolicyRead (packages/ui-sdk/src/protocol.ts)
     export interface AgentPolicyRead {
@@ -5230,6 +5278,7 @@ signatures (every public export and the types it is made of)
         costReporting: boolean;
         concurrentSessions: boolean;
         followUp: boolean;
+        historyRemoval?: boolean;
     }
   BackendContractHarness (packages/ui-sdk/src/testing/index.ts)
     export interface BackendContractHarness {
@@ -5515,6 +5564,8 @@ signatures (every public export and the types it is made of)
     }
   BudgetScope (packages/ui-sdk/src/turn-budgets.ts)
     export type BudgetScope = "turn" | "session" | "day";
+  CHAT_DELETION_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const CHAT_DELETION_CAPABILITY: "chatDeletion";
   COMPLETE_SHARE_CONTRACT (packages/ui-sdk/src/tool-contracts/inbox.ts)
     const COMPLETE_SHARE_CONTRACT: import("./contract.js").ToolContract<"complete_share", z.ZodObject<{
         files: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -5581,6 +5632,35 @@ signatures (every public export and the types it is made of)
         has(cacheName: string): Promise<boolean>;
         open(cacheName: string): Promise<CacheLike>;
     }
+  ChatDeletionOutcome (packages/ui-sdk/src/protocol.ts)
+    export type ChatDeletionOutcome = "pending" | "partial" | "unknown" | "removed";
+  ChatDeletionReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ChatDeletionReceipt {
+        operationId: string;
+        generation: number;
+        status: ChatDeletionOutcome;
+        stores: Partial<Record<ChatDeletionStore, ChatDeletionOutcome>>;
+        retained: ChatDeletionRetained[];
+    }
+  ChatDeletionRefusal (packages/ui-sdk/src/protocol.ts)
+    export type ChatDeletionRefusal = "unauthorized" | "unavailable" | "stale" | "unsupported" | "busy";
+  ChatDeletionRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ChatDeletionRequest {
+        operationId: string;
+        target: {
+            sessionId: string;
+        } | {
+            historyOwnerId: string;
+        };
+        expected: {
+            backendId: string | null;
+            generation: number;
+        };
+    }
+  ChatDeletionRetained (packages/ui-sdk/src/protocol.ts)
+    export type ChatDeletionRetained = "independent_content" | "effects_and_audit" | "provider_copies" | "backups" | "offline_devices";
+  ChatDeletionStore (packages/ui-sdk/src/protocol.ts)
+    export type ChatDeletionStore = "native" | "dialogue" | "tasks" | "projections" | "drafts";
   ChatFileAttachment (packages/ui-sdk/src/protocol.ts)
     export interface ChatFileAttachment {
         kind: "file";
@@ -6311,7 +6391,7 @@ signatures (every public export and the types it is made of)
         revision: number;
     }
   DraftErrorCode (packages/ui-sdk/src/protocol.ts)
-    export type DraftErrorCode = "DRAFT_CONFLICT" | "DRAFT_DELETED" | "DRAFT_TOO_LARGE" | "DRAFT_CAPACITY" | "DRAFT_NOT_FOUND" | "DRAFT_INVALID" | "DRAFT_PRECONDITION_REQUIRED" | "DRAFT_KEY_REUSED" | "DRAFT_NOT_ACCEPTED";
+    export type DraftErrorCode = "DRAFT_CONFLICT" | "DRAFT_DELETED" | "DRAFT_TOO_LARGE" | "DRAFT_CAPACITY" | "DRAFT_NOT_FOUND" | "DRAFT_INVALID" | "DRAFT_PRECONDITION_REQUIRED" | "DRAFT_KEY_REUSED" | "DRAFT_NOT_ACCEPTED" | "DRAFT_CHAT_RETIRED";
   DraftErrorResponse (packages/ui-sdk/src/protocol.ts)
     export type DraftErrorResponse = {
         error: "DRAFT_CONFLICT";
@@ -6345,6 +6425,9 @@ signatures (every public export and the types it is made of)
         message: string;
     } | {
         error: "DRAFT_NOT_ACCEPTED";
+        message: string;
+    } | {
+        error: "DRAFT_CHAT_RETIRED";
         message: string;
     };
   DraftListResponse (packages/ui-sdk/src/protocol.ts)
@@ -6709,7 +6792,7 @@ signatures (every public export and the types it is made of)
         finding: Record<string, unknown>;
         outcome?: {
             version: 1;
-            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded";
+            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred";
             supersededBy?: string;
             reason?: string;
             code?: string;
@@ -6734,7 +6817,7 @@ signatures (every public export and the types it is made of)
   HygieneEffect (packages/ui-sdk/src/protocol.ts)
     export interface HygieneEffect {
         kind: "hygiene";
-        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze";
+        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer";
         findingId: string;
         fingerprint: string;
         handler?: string;
@@ -6784,8 +6867,20 @@ signatures (every public export and the types it is made of)
             snoozed: number;
             nextSnoozeDueAt: string | null;
             informationalNotShown: number;
+            kept?: number;
         };
         blocker?: Record<string, unknown>;
+        kept?: number;
+        pass?: number;
+        deferred?: {
+            findingId: string;
+            fingerprint: string;
+        }[];
+        media?: {
+            awaitingReview: number;
+            setAside: number;
+            kept: number;
+        };
     }
   HygieneWorktreeDetails (packages/ui-sdk/src/protocol.ts)
     export interface HygieneWorktreeDetails {
@@ -9579,6 +9674,13 @@ signatures (every public export and the types it is made of)
         requestId: string;
         questions: AskUserQuestion[];
     }
+  ServerChatRetired (packages/ui-sdk/src/protocol.ts)
+    export interface ServerChatRetired {
+        type: "chat_retired";
+        sessionId?: string;
+        historyOwnerIds: string[];
+        generation: number;
+    }
   ServerConversationClosed (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationClosed {
         type: "conversation_closed";
@@ -9709,7 +9811,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage;
+    export type ServerMessage = ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -9925,6 +10027,18 @@ signatures (every public export and the types it is made of)
         retryOfTurnId?: string;
         turnId?: string;
         journal?: import("./turn-journal.js").TurnJournalSummary;
+    }
+  SessionHistoryRemovalOutcome (packages/ui-sdk/src/server/backend.ts)
+    export type SessionHistoryRemovalOutcome = "removed" | "partial" | "unknown";
+  SessionHistoryRemovalRequest (packages/ui-sdk/src/server/backend.ts)
+    export interface SessionHistoryRemovalRequest {
+        operationId: string;
+        sessionId: string;
+        signal?: AbortSignal;
+    }
+  SessionHistoryRemovalResult (packages/ui-sdk/src/server/backend.ts)
+    export interface SessionHistoryRemovalResult {
+        outcome: SessionHistoryRemovalOutcome;
     }
   SessionRecovery (packages/ui-sdk/src/protocol.ts)
     export interface SessionRecovery {
@@ -12534,6 +12648,7 @@ signatures (every public export and the types it is made of)
             status: z.ZodEnum<{
                 applying: "applying";
                 check_failed: "check_failed";
+                deferred: "deferred";
                 dismissed: "dismissed";
                 fixed: "fixed";
                 not_detected: "not_detected";
@@ -12569,6 +12684,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
             check: "check";
+            defer: "defer";
             dismiss: "dismiss";
             resolve: "resolve";
             snooze: "snooze";
@@ -12590,6 +12706,7 @@ signatures (every public export and the types it is made of)
         status: z.ZodEnum<{
             applying: "applying";
             check_failed: "check_failed";
+            deferred: "deferred";
             dismissed: "dismissed";
             fixed: "fixed";
             not_detected: "not_detected";
@@ -12640,6 +12757,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -12675,6 +12793,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -12765,11 +12884,23 @@ signatures (every public export and the types it is made of)
                 eligibleRemaining: z.ZodNumber;
                 fixed: z.ZodNumber;
                 informationalNotShown: z.ZodNumber;
+                kept: z.ZodDefault<z.ZodNumber>;
                 nextSnoozeDueAt: z.ZodNullable<z.ZodString>;
                 snoozed: z.ZodNumber;
             }, z.core.$strict>>;
+            deferred: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+            }, z.core.$strict>>>;
             dismissed: z.ZodNumber;
             fixed: z.ZodNumber;
+            kept: z.ZodDefault<z.ZodNumber>;
+            media: z.ZodOptional<z.ZodObject<{
+                awaitingReview: z.ZodNumber;
+                kept: z.ZodNumber;
+                setAside: z.ZodNumber;
+            }, z.core.$strict>>;
+            pass: z.ZodDefault<z.ZodNumber>;
             pauseReason: z.ZodOptional<z.ZodObject<{
                 kind: z.ZodLiteral<"actions-limit">;
                 retiredActionId: z.ZodString;
@@ -12796,11 +12927,23 @@ signatures (every public export and the types it is made of)
             eligibleRemaining: z.ZodNumber;
             fixed: z.ZodNumber;
             informationalNotShown: z.ZodNumber;
+            kept: z.ZodDefault<z.ZodNumber>;
             nextSnoozeDueAt: z.ZodNullable<z.ZodString>;
             snoozed: z.ZodNumber;
         }, z.core.$strict>>;
+        deferred: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            findingId: z.ZodString;
+            fingerprint: z.ZodString;
+        }, z.core.$strict>>>;
         dismissed: z.ZodNumber;
         fixed: z.ZodNumber;
+        kept: z.ZodDefault<z.ZodNumber>;
+        media: z.ZodOptional<z.ZodObject<{
+            awaitingReview: z.ZodNumber;
+            kept: z.ZodNumber;
+            setAside: z.ZodNumber;
+        }, z.core.$strict>>;
+        pass: z.ZodDefault<z.ZodNumber>;
         pauseReason: z.ZodOptional<z.ZodObject<{
             kind: z.ZodLiteral<"actions-limit">;
             retiredActionId: z.ZodString;
@@ -12861,6 +13004,7 @@ signatures (every public export and the types it is made of)
                 status: z.ZodEnum<{
                     applying: "applying";
                     check_failed: "check_failed";
+                    deferred: "deferred";
                     dismissed: "dismissed";
                     fixed: "fixed";
                     not_detected: "not_detected";
@@ -12896,6 +13040,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"hygiene">;
                 operation: z.ZodEnum<{
                     check: "check";
+                    defer: "defer";
                     dismiss: "dismiss";
                     resolve: "resolve";
                     snooze: "snooze";
@@ -13129,6 +13274,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -13164,6 +13310,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -13405,6 +13552,7 @@ signatures (every public export and the types it is made of)
                         status: z.ZodEnum<{
                             applying: "applying";
                             check_failed: "check_failed";
+                            deferred: "deferred";
                             dismissed: "dismissed";
                             fixed: "fixed";
                             not_detected: "not_detected";
@@ -13440,6 +13588,7 @@ signatures (every public export and the types it is made of)
                         kind: z.ZodLiteral<"hygiene">;
                         operation: z.ZodEnum<{
                             check: "check";
+                            defer: "defer";
                             dismiss: "dismiss";
                             resolve: "resolve";
                             snooze: "snooze";
@@ -13678,6 +13827,7 @@ signatures (every public export and the types it is made of)
                 status: z.ZodEnum<{
                     applying: "applying";
                     check_failed: "check_failed";
+                    deferred: "deferred";
                     dismissed: "dismissed";
                     fixed: "fixed";
                     not_detected: "not_detected";
@@ -13713,6 +13863,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"hygiene">;
                 operation: z.ZodEnum<{
                     check: "check";
+                    defer: "defer";
                     dismiss: "dismiss";
                     resolve: "resolve";
                     snooze: "snooze";
@@ -13809,6 +13960,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"hygiene">;
             operation: z.ZodEnum<{
                 check: "check";
+                defer: "defer";
                 dismiss: "dismiss";
                 resolve: "resolve";
                 snooze: "snooze";
@@ -14108,6 +14260,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -14143,6 +14296,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -14758,6 +14912,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
             check: "check";
+            defer: "defer";
             dismiss: "dismiss";
             resolve: "resolve";
             snooze: "snooze";
@@ -15280,6 +15435,13 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_request">;
+    }, z.core.$loose>;
+  serverChatRetiredSchema (packages/ui-sdk/src/schemas.ts)
+    const serverChatRetiredSchema: z.ZodObject<{
+        generation: z.ZodNumber;
+        historyOwnerIds: z.ZodArray<z.ZodString>;
+        sessionId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"chat_retired">;
     }, z.core.$loose>;
   serverConversationClosedSchema (packages/ui-sdk/src/schemas.ts)
     const serverConversationClosedSchema: z.ZodObject<{
@@ -16300,6 +16462,11 @@ signatures (every public export and the types it is made of)
                 outputTokens: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
         }, z.core.$loose>;
+    }, z.core.$loose>, z.ZodObject<{
+        generation: z.ZodNumber;
+        historyOwnerIds: z.ZodArray<z.ZodString>;
+        sessionId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"chat_retired">;
     }, z.core.$loose>, z.ZodObject<{
         attachmentCount: z.ZodOptional<z.ZodNumber>;
         files: z.ZodOptional<z.ZodArray<z.ZodType<import("./protocol.js").SharedFileMeta, unknown, z.core.$ZodTypeInternals<import("./protocol.js").SharedFileMeta, unknown>>>>;
@@ -18133,6 +18300,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -18168,6 +18336,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -18418,6 +18587,7 @@ signatures (every public export and the types it is made of)
                         status: z.ZodEnum<{
                             applying: "applying";
                             check_failed: "check_failed";
+                            deferred: "deferred";
                             dismissed: "dismissed";
                             fixed: "fixed";
                             not_detected: "not_detected";
@@ -18453,6 +18623,7 @@ signatures (every public export and the types it is made of)
                         kind: z.ZodLiteral<"hygiene">;
                         operation: z.ZodEnum<{
                             check: "check";
+                            defer: "defer";
                             dismiss: "dismiss";
                             resolve: "resolve";
                             snooze: "snooze";
@@ -20250,6 +20421,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
             check: "check";
+            defer: "defer";
             dismiss: "dismiss";
             resolve: "resolve";
             snooze: "snooze";

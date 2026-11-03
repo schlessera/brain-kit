@@ -51,7 +51,7 @@ next to it.
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
-  `packages/ui-sdk/src/server/subprocess-env.ts:129`), as
+  `packages/ui-sdk/src/server/subprocess-env.ts:134`), as
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
@@ -63,8 +63,8 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:142-210`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:442`).
+  `packages/ui-server/src/brain/client.ts:152-220`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:444`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:503-507`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:380-385`).
+  `packages/ui-server/src/app.ts:382-387`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -243,7 +243,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:142`). The SDK's
+  `packages/ui-server/src/brain/client.ts:152`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -447,9 +447,9 @@ into them.
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:91-95` and admitted
-  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:64`).
+  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:69`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
-  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:65`). The container privilege record's
+  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:70`). The container privilege record's
   environment table (brain-hosting-template) keeps both.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
@@ -509,7 +509,7 @@ bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
 `claude` with the inherited environment
 (`Bun.spawn(args`, `packages/core/src/providers/agents/cli-runners.ts:37-43`; `Bun.spawn([...CLAUDE_BASE_ARGS`, `cli-runners.ts:66-72`), and that
-environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:65`).
+environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:70`).
 
 > **2026-09-30 — Implementation context (the core runner paragraph above).**
 > The [old Claude runners](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37-L72)
@@ -1311,7 +1311,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:430-445`).
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:441-456`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a

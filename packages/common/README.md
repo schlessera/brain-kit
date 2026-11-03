@@ -15,6 +15,7 @@ one; it arrives as their dependency.
 | `@schlessera/brain-common/internal/protected-paths` | The protected worker path tiers shared by core policy validation and the sandbox. |
 | `@schlessera/brain-common/internal/governance-policy` | Data-only policy schema, defaults, parsing and anchored reads shared by the core CLI and hosted server (#1744). The server can read policy without installing its optional core peer. |
 | `@schlessera/brain-common/internal/index-location` | Where the disposable search index lives: the `.brain-index/` directory holding `brain.db` and its SQLite sidecars, and the legacy root-level names a brain migrates away from by rebuilding (#1668). |
+| `@schlessera/brain-common/internal/claude-subscription` | The subscription billing guard both Claude runners apply: the cleared credential variables, the neutralised flag settings, the settings refusal and the account verdict. core's CLI runner and the chat backend import it, so a newly found credential or routing variable is added once (#2493). |
 
 Nothing else belongs here. A further helper needs its own issue and a reason
 it cannot live in the package that uses it.
