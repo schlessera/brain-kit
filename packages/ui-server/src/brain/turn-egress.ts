@@ -4,7 +4,7 @@ import { startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/in
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import type { GovernanceEventInput } from "../governance/events.js";
-import { contactedHosts, recordFirstTaint, sessionTaint } from "../governance/session-taint.js";
+import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
@@ -18,6 +18,26 @@ export const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
 export const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
   "api.fastmail.com", "api.sendgrid.com", "smtp.sendgrid.net", "api.mailgun.net", "api.eu.mailgun.net", "smtp.mailgun.org",
   "smtp.eu.mailgun.org", "api.postmarkapp.com", "smtp.postmarkapp.com", "api.resend.com", "smtp.resend.com"] as const;
+
+/** What the session did that tainted it, as the destination card names it (#3430). */
+const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
+  web_fetch: "fetched a web page", web_search: "ran a web search", staged_share: "opened a shared file",
+  workspace_read: "read a file under workspaces/", mcp_document: "read a document from an external MCP server",
+  user_marked: "read a file marked untrusted", egress_connection: "received data from another site",
+  fetching_command: "ran a command that fetches content", unclassified_command: "ran a command that may have fetched content",
+};
+
+/**
+ * The card a tainted interactive session raises for a destination outside its
+ * taint allow-list (#3430): the destination, what tainted the session, and
+ * what allowing it does.
+ */
+export function taintedDestinationDescription(destination: { host: string; port: number; method: string }, source: TaintSource | null): string {
+  const cause = source ? `This session ${TAINT_SOURCE_WORDING[source]}, so content you did not write may be steering it.`
+    : "This session read content you did not write, which may be steering it.";
+  return `${cause} Allow it to connect to ${destination.host}:${destination.port}? `
+    + `Allowing lets it send data to ${destination.host} for the rest of this session without asking again.`;
+}
 
 /** Hosts an approved visible action names; an unresolved destination names none. */
 function actionHosts(action: Classification["actions"][number]): readonly string[] {
@@ -109,7 +129,8 @@ export async function prepareTurnEgress(options: {
         return normalized.startsWith("*.") ? record.host.endsWith(normalized.slice(1)) && record.host !== normalized.slice(2) : record.host === normalized;
       });
       const reason = record.reason === "destination_not_allowed" ? denied ? "denied_host" : "not_allowlisted"
-        : record.reason === "max_bytes_per_turn" ? "byte_cap" : record.reason === "taint_not_allowed" ? "taint_allowlist" : undefined;
+        : record.reason === "max_bytes_per_turn" ? "byte_cap"
+        : record.reason === "taint_not_allowed" || record.reason === "taint_not_approved" ? "taint_allowlist" : undefined;
       if (reason) track(options.record({ ...base(), kind: "egress_denial", payload: {
         host: record.host, port: record.port, method: record.method, reason, bytes: record.bytes,
       } }));
@@ -119,11 +140,34 @@ export async function prepareTurnEgress(options: {
    * Any admitted connection other than the inference relay taints the session
    * (G6), recorded before its first byte. Sticky: once read, never re-read.
    */
+  // A taint submitted but not yet committed counts (#2850).
+  const firstTaint = () => db ? writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId()) : null;
+  /**
+   * One card per destination host at a time: concurrent connections to the
+   * same new host share its answer. An allowed connection's admission adds
+   * its host to `contacted`, so the rest of this turn admits it, and its
+   * charged `egress_connection` record carries it into later turns
+   * (`contactedHosts`).
+   */
+  const asking = new Map<string, Promise<boolean>>();
+  const approveTainted = async (destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean> => {
+    let pending = asking.get(destination.host);
+    if (!pending) {
+      pending = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
+        input: { ...destination, target: `${destination.host}:${destination.port}` },
+        description: taintedDestinationDescription(destination, firstTaint()?.source ?? null),
+      }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(destination.host));
+      asking.set(destination.host, pending);
+    }
+    const allowed = await pending;
+    return allowed && !signal.aborted;
+  };
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
-    // A taint submitted but not yet committed counts (#2850).
-    tainted: () => tainted ||= (writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId())) !== null,
+    tainted: () => tainted ||= firstTaint() !== null,
     contacted: (host: string) => contacted.has(host),
+    // Voice has no grant surface; it keeps refusing without a card (#3430).
+    ...(options.origin === "interactive" ? { approve: approveTainted } : {}),
   } : undefined;
   /**
    * The proxy awaits this before the connection's first byte, so the taint

@@ -42,8 +42,11 @@ export interface EgressProxyOptions {
    * Untrusted-input narrowing (G6). While `tainted()` holds, a destination
    * other than the inference relay must also match `allow` or be one
    * `contacted()` reports; deny and the ordinary rules still apply first.
+   * `approve`, when present, asks before refusing a narrowed destination
+   * (#3430); absent, or resolving anything but `true`, refuses.
    */
-  taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean };
+  taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean;
+    approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean> };
   /**
    * A destination passed every check; called before its first upstream byte.
    * A returned promise is awaited first, so a durable record it makes commits
@@ -58,6 +61,16 @@ function matches(host: string, patterns: readonly string[]): boolean {
     const pattern = hostname(value);
     return pattern.startsWith("*.") ? host.endsWith(pattern.slice(1)) && host !== pattern.slice(2) : host === pattern;
   });
+}
+/**
+ * What a tool is told when the user declined a destination a tainted session
+ * asked for (#3430): curl, git and HTTP clients print the status text or body.
+ * Every other refusal keeps its bare 403.
+ */
+function refusal(reason: string | undefined): { status: string; body: string } | undefined {
+  if (reason !== "taint_not_approved") return undefined;
+  return { status: "Forbidden - declined by the user",
+    body: "Blocked: this session read untrusted content, this host is outside its allow-list, and the user declined the connection. Do not retry it; say what you needed it for.\n" };
 }
 /** No header controlled by the peer can select a second upstream or carry proxy authority. */
 const hopHeaders = new Set(["proxy-authorization", "proxy-connection", "connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"]);
@@ -95,10 +108,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const controller = new AbortController(); controllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false;
-    let finalOutcome: EgressRecord["outcome"] | undefined;
+    let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
-      finished = true; finalOutcome = outcome; controllers.delete(controller); controller.abort();
+      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
       try { options.observe({ ...(inference ? { inference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
@@ -112,34 +125,47 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       usedBytes += count; bytes += count; return true;
     };
+    /** One approval wait; cancelling this connection or the turn resolves it as refused. */
+    const approval = async (ask: ((destination: { host: string; port: number; method: string }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
+      if (!ask) return false;
+      let approved = false;
+      let cancelled: (() => void) | undefined;
+      try {
+        const cancellation = new Promise<false>(resolve => {
+          cancelled = () => resolve(false);
+          controller.signal.addEventListener("abort", cancelled, { once: true });
+          if (controller.signal.aborted) resolve(false);
+        });
+        approved = await Promise.race([ask({ host, port, method }, controller.signal), cancellation]) === true;
+      } catch { /* A failed approval denies. */ }
+      finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
+      return approved && !controller.signal.aborted && !stopped;
+    };
+    // An approval of this destination outside the taint allow-list (#3430).
+    let granted = false;
+    // Checked again after an approval wait, during which another connection may taint the session.
+    const narrowed = () => !granted && !inference && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+    const narrowing = async () => {
+      if (!narrowed()) return true;
+      if (options.taint?.approve) granted = await approval(options.taint.approve.bind(options.taint));
+      if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
+      return granted;
+    };
     const admit = async () => {
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
-      // Checked again after an approval wait, during which another connection may taint the session.
-      const narrowed = () => !inference && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
-      if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (!await narrowing()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
-        let approved = false;
-        let cancelled: (() => void) | undefined;
-        try {
-          const cancellation = new Promise<false>(resolve => {
-            cancelled = () => resolve(false);
-            controller.signal.addEventListener("abort", cancelled, { once: true });
-            if (controller.signal.aborted) resolve(false);
-          });
-          approved = await Promise.race([options.approveOutward?.({ host, port, method }, controller.signal), cancellation]) === true;
-        } catch { /* Missing/failed approval denies. */ }
-        finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
-        if (!approved || controller.signal.aborted || stopped) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        if (!await approval(options.approveOutward)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
       }
-      if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
+      if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
       try { await options.admitted?.({ host, port, method, inference }); } catch { finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
-    return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome };
+    return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -153,7 +179,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let connected = false;
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
-      if (!await op.admit() || client.destroyed) { client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"); return; }
+      if (!await op.admit() || client.destroyed) {
+        const declined = refusal(op.reason());
+        client.end(declined ? `HTTP/1.1 403 ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
+          : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        return;
+      }
       const upstream = track(connect({ host: target.hostname, port: Number(target.port || 80) }));
       upstream.once("connect", () => {
         if (stopped || client.destroyed) { upstream.destroy(); return; }
@@ -180,7 +211,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const op = operation(request.method ?? "GET", target);
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
     void (async () => {
-      if (!await op.admit() || response.destroyed) { response.writeHead(403); response.end(); return; }
+      if (!await op.admit() || response.destroyed) {
+        const declined = refusal(op.reason());
+        if (declined) response.writeHead(403, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
+        else { response.writeHead(403); response.end(); }
+        return;
+      }
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
       // Include the complete observable target and headers: a body-only cap
       // would allow uncharged exfiltration in query strings or header values.

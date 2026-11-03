@@ -299,6 +299,27 @@ test("a tainted turn reaches only taint-allowed or already contacted hosts; the 
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_ALLOW_LIST").toBe(200);
   } finally { proxy.stop(); origin.stop(true); }
 });
+test("a narrowed destination asks through taint.approve before refusing; a failed or absent approval refuses (#3430)", async () => {
+  let calls = 0; const records: EgressRecord[] = [], asked: Array<{ host: string; port: number; method: string }> = [];
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
+  let answer: () => Promise<boolean> = async () => true;
+  const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 65536,
+    taint: { allow: [], tainted: () => true, contacted: () => false, approve: async destination => { asked.push(destination); return answer(); } } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_APPROVED_ADMITS").toBe(200);
+    expect(asked, "EGRESS_TAINT_APPROVE_NAMES_DESTINATION").toEqual([{ host: "127.0.0.1", port: origin.port!, method: "GET" }]);
+    answer = async () => { throw new Error("Scylla"); };
+    const refused = await get(proxy.socketPath, origin.url.href);
+    expect(refused.status, "EGRESS_TAINT_FAILED_APPROVAL_REFUSES").toBe(403);
+    expect(refused.body, "EGRESS_TAINT_DECLINE_REASON").toContain("the user declined the connection");
+    expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "taint_not_approved", bytes: 0 });
+    // The relay's own admission is never narrowed, so never asked about.
+    const relay = proxy.inference("POST", new URL(`${origin.url.href}v1/messages`), new AbortController().signal);
+    expect(await relay.admit()).toBe(true); relay.finish("completed");
+    expect(asked, "EGRESS_TAINT_INFERENCE_NOT_ASKED").toHaveLength(2);
+    expect(calls).toBe(1);
+  } finally { proxy.stop(); origin.stop(true); }
+});
 test("taint narrowing never overrides deny or the ordinary allowlist, and its patterns are validated", async () => {
   const records: EgressRecord[] = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
