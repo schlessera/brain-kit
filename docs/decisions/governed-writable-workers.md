@@ -1137,6 +1137,24 @@ since a long hold is not revocation. A principal that really lost authority
 refuses `authority_revoked` at once, waiting or not (`export async function retryHeld`,
 `packages/ui-server/src/brain/authority-hold.ts:92-102`).
 
+**A pause the policy observation raises is a no-publication outcome (#2870,
+maintainer, 2026-10-25).** Policy publication runs inside its own journal
+observation, and that observation can itself reach a scope cap. Waiting there
+would hold the observation, and Continue is refused while one holds; throwing
+out of it would end the observation as failed and stop the turn's workers.
+The callback instead stages nothing and returns, so the observation completes
+successfully and releases its hold. The publisher then reports the hold
+outside it, the brain lock unwinds, and the same bounded wait runs, sharing
+its one deadline with every earlier wait of the request. Continue starts a
+fresh attempt that checks live authority, validation, ancestry and the base
+hash again and runs a new observation; the one approval carries over only to
+unchanged bytes on an unchanged base. Stop, cancellation, revocation, turn
+replacement and the deadline publish nothing and record no policy-updated
+event; a no-publication attempt records none either. Real observation and
+storage failures keep their existing handling, and a publication that
+committed before its report failed stays `unknown` and is never retried
+(`const held`, `packages/ui-server/src/brain/policy-proposal.ts:167-256`).
+
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
 The live receipt's polite accessibility status follows authoritative cost and
@@ -1151,7 +1169,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:217-244`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:219-253`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
