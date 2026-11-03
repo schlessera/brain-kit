@@ -133,7 +133,11 @@ Recovery copies reserve the existing aggregate output-staging budget in
 addition to retained source storage. Closing a handle aborts its pending copy;
 the copy reservation remains until that work drains and owned cleanup is
 confirmed. An unconfirmed cleanup retains ownership and reservations for
-reconciliation rather than reporting successful reclamation.
+reconciliation rather than reporting successful reclamation. For a Claude
+turn's end-of-turn cleanup, the server retries the close a few times with
+growing delays and releases the reservation once a retry is confirmed. If
+every retry is refused, the server log names the allowance that stays charged
+until the server restarts.
 
 Files made private are read by fixed, uncredentialed worker-UID code through
 authorized retained roots: no repository imports/evaluation, path escapes,

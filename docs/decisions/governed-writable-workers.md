@@ -3281,7 +3281,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:94`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:95`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3625,6 +3625,31 @@ that run after an asynchronous launch has returned.
 
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
+
+### A refused end-of-turn cleanup has a retry owner — 2026-10-25
+
+The maintainer selected [option 1 on #2871](https://github.com/schlessera/brain-kit/issues/2871):
+a bounded, server-owned reconciliation owner takes over a Claude turn's
+end-of-turn cleanup that the awaited close above could not confirm.
+
+- **The turn still fails.** The refusal is the turn's, as before; the
+  reconciler only takes ownership of the retryable close and the reservation.
+- **Finite retries, then observable failure.** It retries the close with
+  capped exponential backoff and a finite number of attempts. A close still
+  refused after the last attempt is logged with the runtime-state and
+  turn-temp allowance it keeps charged until the server restarts.
+- **Release once, only on confirmation.** The reservation is released exactly
+  once, after a retry resolves. An unconfirmed close never releases it.
+- **Shutdown releases nothing and waits for nothing.** It cancels pending
+  retries, does not wait for a close in flight, and reports what is still
+  held. The process's one reconciler stops when the process exits; its timers
+  never hold the process open.
+
+The owner is the reconciler
+(`export function createCleanupReconciler`, `packages/ui-backend-claude/src/cleanup-reconciler.ts:66-125`), and the turn
+hands its refusal over where it awaits the close
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi and a launch
+whose own cleanup is unconfirmed are outside this ruling.
 
 ### Turn completion includes worker teardown — 2026-10-25
 
