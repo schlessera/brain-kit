@@ -209,6 +209,27 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (operation !== "pause" && !state().pendingActionId) await ensureNext(principalId, !!state().pauseReason);
     return read();
   }
+  /**
+   * Undo a confirmed media effect from its resolved card (#2781, ruling
+   * 2026-11-03), under the same preflights as the CLI Undo: rollback data
+   * still retained and no file changed since. A refusal is a result, recorded
+   * on the card as its current Undo availability, never a write.
+   */
+  async function undoMedia(principalId: string, journalId: string): Promise<HygieneReviewRead & { mediaUndo: HygieneMediaReceipt }> {
+    authority(principalId);
+    if (!media) throw new Error("Media effects are unavailable");
+    const attempts = db.query("SELECT * FROM hygiene_effect_attempts WHERE status = 'finished' AND principal_id = ? ORDER BY rowid DESC").all(principalId) as Attempt[];
+    const attempt = attempts.find(a => mediaOperationId(a.id) === journalId);
+    if (!attempt) throw new Error("Media receipt unavailable");
+    const item = action(attempt.item_id), e = hygieneEffectSchema.parse(JSON.parse(attempt.effect_json));
+    if (!isMediaOperation(e.operation) || item.status !== "resolved" || busy(item.id)) throw new Error("Not an undoable media card");
+    const receipt = await media.undo({ id: `undo-${journalId}`, principalId, sourceId: journalId });
+    authority(principalId);
+    await write<void>("mediaUndo", now(), principalId, item.id, journalId, receipt, receipt.outcome === "refused" ? media.receipt(journalId, principalId) : null);
+    // The finding is pending again; an active review with no card selects it in order.
+    if (receipt.outcome === "undone" && state().status === "active" && !state().pendingActionId) await ensureNext(principalId);
+    return { ...read(), mediaUndo: receipt };
+  }
   async function preview(principalId: string, request: { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }) {
     authority(principalId); hygieneInputSchema.parse(request.input);
     const item = action(request.itemId), { option, effect: selected } = resolver.inspect(principalId, { type: "inbox_resolve", itemId: item.id, optionId: request.optionId });
@@ -315,7 +336,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     }
     if (state().status === "active" && !state().pendingActionId) await ensureNext();
   }
-  return { read, readFor, details, command, preview, resolver, recover,
+  return { read, readFor, details, command, undoMedia, preview, resolver, recover,
     /** The app attaches the journal-backed media effects once its journal is ready. */
     attachMedia(effects: MediaEffects) { media = effects; } };
 }

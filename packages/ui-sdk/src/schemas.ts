@@ -1,5 +1,5 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
-import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { sharedFileMetaSchema } from "./track-schemas.js";
 export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
@@ -728,6 +728,10 @@ export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), 
   kept: inboxSeq.default(0), pass: inboxSeq.default(0), deferred: z.array(z.strictObject({ findingId: id, fingerprint: id })).max(10_000).default([]),
   media: z.strictObject({ awaitingReview: inboxSeq, setAside: inboxSeq, kept: inboxSeq }).optional() }) satisfies z.ZodType<HygieneReviewState>;
 export const hygieneReviewCommandSchema = z.strictObject({ operation: z.enum(["start", "pause", "resume", "refresh"]) }) satisfies z.ZodType<HygieneReviewCommand>;
+/** Undo from review (#2781): the media receipt's journal ID, as `createMediaEffects` issues it. */
+export const hygieneReviewMediaUndoCommandSchema = z.strictObject({ operation: z.literal("undo-media"), journalId: z.string().regex(/^[A-Za-z0-9._-]{16,96}$/) }) satisfies z.ZodType<HygieneReviewMediaUndoCommand>;
+/** Every body `POST /hygiene/review` accepts. */
+export const hygieneReviewRequestSchema = z.union([hygieneReviewCommandSchema, hygieneReviewMediaUndoCommandSchema]) satisfies z.ZodType<HygieneReviewRequest>;
 export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema }) satisfies z.ZodType<HygienePreviewRequest>;
 const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
 const cancelBlockedEffectSchema = z.strictObject({ kind: z.literal("cancel_blocked") });
@@ -1636,7 +1640,7 @@ export const inboxActionItemSchema = inboxItemBaseSchema.extend({
   queue: z.literal("actions"), type: z.enum(["approve", "choose", "fyi"]), status: inboxActionStatusSchema,
   payload: z.looseObject({ title: inboxText, detail: z.string().max(MAX_PROMPT_CHARS) }), options: z.array(wireOptionSchema), hygiene: hygieneActionSchema.optional(),
 }).refine((item) => item.type !== "fyi" || item.options.length === 0, "FYIs cannot offer resolution options") satisfies z.ZodType<InboxActionItem>;
-export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable(), privateDetailAccess: z.strictObject({ itemId: id }).optional() }) satisfies z.ZodType<HygieneReviewRead>;
+export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable(), privateDetailAccess: z.strictObject({ itemId: id }).optional(), mediaUndo: hygieneMediaReceiptSchema.optional() }) satisfies z.ZodType<HygieneReviewRead>;
 const detailCount = z.number().int().min(0).nullable();
 export const hygieneWorktreeDetailsReadSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("details"), details: z.strictObject({

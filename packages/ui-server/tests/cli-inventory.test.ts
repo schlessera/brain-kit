@@ -25,6 +25,8 @@ const available: Record<string, string> = {
   // 0.45.0 (.changeset/media-review-effects.md, media-awaiting-review.md).
   "hygiene media delete": "0.45.0", "hygiene media move": "0.45.0", "hygiene media persist": "0.45.0",
   "hygiene media keep-copy": "0.45.0", "hygiene keep-copy": "0.45.0",
+  // #2781: Undo of a kept copy removes its kept entry (rev 5 §5.7). Unreleased until 0.45.0 (.changeset/media-undo-review.md).
+  "hygiene unkeep": "0.45.0",
 };
 // Dynamic branches may overapproximate a command's flags. Record availability
 // within its namespace; this inventory enforces versions, not valid usage.
@@ -49,7 +51,7 @@ const commandFlags: Record<string, Record<string, string>> = {
  * its flags. Every media effect acts on a media finding, which only a CLI at
  * HYGIENE_MEDIA_CLI_VERSION reports, so an older CLI is never asked for one.
  */
-const mediaCommands = ["hygiene media delete", "hygiene media move", "hygiene media persist", "hygiene media keep-copy", "hygiene keep-copy"];
+const mediaCommands = ["hygiene media delete", "hygiene media move", "hygiene media persist", "hygiene media keep-copy", "hygiene keep-copy", "hygiene unkeep"];
 const featureFloors: Record<string, string> = { "hygiene next --defer": HYGIENE_MEDIA_CLI_VERSION,
   ...Object.fromEntries(mediaCommands.map(command => [command, HYGIENE_MEDIA_CLI_VERSION])) };
 const globalFlags: Record<string, string> = { "--": "0.33.0", "--json": "0.33.0", "--version": "0.33.0" };
@@ -232,8 +234,8 @@ function inventory() {
   expect(selections).toBe(6);
   expect(probes).toBe(1);
   expect([...sites].sort()).toEqual(["packages/ui-server/src/brain/client.ts", "packages/ui-server/src/inbox/hygiene-review.ts", "packages/ui-server/src/inbox/media-effects.ts"]);
-  // Apply (`hygiene media`) and step 6b (`hygiene keep-copy`), and one bound CLI feeding them.
-  expect(mediaSites).toBe(2);
+  // Apply (`hygiene media`), step 6b (`hygiene keep-copy`) and its Undo (`hygiene unkeep`), and one bound CLI feeding them.
+  expect(mediaSites).toBe(3);
   expect(boundHygiene).toBe(1);
   // hygiene's forwarding wrapper adds --json to every subcommand.
   for (const [command, flags] of found) if (command.startsWith("hygiene ")) flags.add("--json");

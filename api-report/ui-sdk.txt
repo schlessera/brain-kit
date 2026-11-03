@@ -174,7 +174,9 @@ export "." (./src/index.ts)
   type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -637,7 +639,9 @@ export "./client" (./src/client/index.ts)
   type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -1444,7 +1448,9 @@ export "./protocol" (./src/protocol.ts)
   type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -1767,7 +1773,9 @@ export "./schemas" (./src/schemas.ts)
   hygieneOutcomeSchema
   hygienePreviewRequestSchema
   hygieneReviewCommandSchema
+  hygieneReviewMediaUndoCommandSchema
   hygieneReviewReadSchema
+  hygieneReviewRequestSchema
   hygieneReviewStateSchema
   hygieneWorktreeDetailsReadSchema
   inboxActionItemSchema
@@ -2131,7 +2139,9 @@ export "./server" (./src/server/index.ts)
   type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -6865,6 +6875,11 @@ signatures (every public export and the types it is made of)
     export interface HygieneReviewCommand {
         operation: "start" | "pause" | "resume" | "refresh";
     }
+  HygieneReviewMediaUndoCommand (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneReviewMediaUndoCommand {
+        operation: "undo-media";
+        journalId: string;
+    }
   HygieneReviewRead (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewRead {
         review: HygieneReviewState;
@@ -6872,7 +6887,10 @@ signatures (every public export and the types it is made of)
         privateDetailAccess?: {
             itemId: string;
         };
+        mediaUndo?: HygieneMediaReceipt;
     }
+  HygieneReviewRequest (packages/ui-sdk/src/protocol.ts)
+    export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
   HygieneReviewState (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewState {
         version: 1;
@@ -12980,6 +12998,11 @@ signatures (every public export and the types it is made of)
             start: "start";
         }>;
     }, z.core.$strict>;
+  hygieneReviewMediaUndoCommandSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewMediaUndoCommandSchema: z.ZodObject<{
+        journalId: z.ZodString;
+        operation: z.ZodLiteral<"undo-media">;
+    }, z.core.$strict>;
   hygieneReviewReadSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneReviewReadSchema: z.ZodObject<{
         action: z.ZodNullable<z.ZodObject<{
@@ -13247,6 +13270,52 @@ signatures (every public export and the types it is made of)
             version: z.ZodNumber;
             waitUntil: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>;
+        mediaUndo: z.ZodOptional<z.ZodObject<{
+            action: z.ZodEnum<{
+                "keep-copy": "keep-copy";
+                delete: "delete";
+                move: "move";
+                persist: "persist";
+            }>;
+            copySha256: z.ZodOptional<z.ZodString>;
+            files: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                state: z.ZodEnum<{
+                    "left-changed": "left-changed";
+                    changed: "changed";
+                    conflict: "conflict";
+                    created: "created";
+                    removed: "removed";
+                    restored: "restored";
+                    unchanged: "unchanged";
+                }>;
+            }, z.core.$strict>>;
+            journalId: z.ZodString;
+            outcome: z.ZodEnum<{
+                applied: "applied";
+                compensated: "compensated";
+                kept: "kept";
+                partial: "partial";
+                pending: "pending";
+                refused: "refused";
+                stale: "stale";
+                undone: "undone";
+            }>;
+            reason: z.ZodOptional<z.ZodString>;
+            refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                code: z.ZodString;
+                effective: z.ZodOptional<z.ZodNumber>;
+                limit: z.ZodOptional<z.ZodString>;
+                line: z.ZodOptional<z.ZodNumber>;
+                observed: z.ZodOptional<z.ZodNumber>;
+                path: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>>;
+            undo: z.ZodObject<{
+                available: z.ZodBoolean;
+                path: z.ZodOptional<z.ZodString>;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         privateDetailAccess: z.ZodOptional<z.ZodObject<{
             itemId: z.ZodString;
         }, z.core.$strict>>;
@@ -13292,6 +13361,18 @@ signatures (every public export and the types it is made of)
             version: z.ZodLiteral<1>;
         }, z.core.$strict>;
     }, z.core.$strict>;
+  hygieneReviewRequestSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
+        operation: z.ZodEnum<{
+            pause: "pause";
+            refresh: "refresh";
+            resume: "resume";
+            start: "start";
+        }>;
+    }, z.core.$strict>, z.ZodObject<{
+        journalId: z.ZodString;
+        operation: z.ZodLiteral<"undo-media">;
+    }, z.core.$strict>]>;
   hygieneReviewStateSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneReviewStateSchema: z.ZodObject<{
         blocker: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
