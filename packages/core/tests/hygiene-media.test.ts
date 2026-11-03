@@ -168,6 +168,43 @@ describe("recording kept", () => {
   });
 });
 
+describe("unkeep (Undo of Keep a permanent copy, #2781)", () => {
+  const unkeep = (root: string, journal = "7c1e", id = findingAt(root, LOOM).id, policy = policyWithCopy) =>
+    reconcile(root, candidatesOf(root, policy), new Map(), { now: NOW, media: policy, unkeep: { id, journal } });
+  const refusal = (fn: () => unknown) => { try { fn(); } catch (e) { return (e as HygieneRefusal).reason; } return null; };
+  const hygieneBytes = (root: string) => ["open.md", "kept.md", "resolved.md", "_index.md", "last-run.md"]
+    .map((name) => existsSync(join(root, "context/hygiene", name)) ? readFileSync(join(root, "context/hygiene", name), "utf8") : null);
+
+  test("after the copy and its rule are gone, the entry its journal recorded leaves kept.md and the original is open, with no receipt", () => {
+    const root = brain();
+    const loom = findingAt(root, LOOM);
+    writeKept(root, keptEntry(loom));
+    run(root);
+    // Undo restored the copy away and the config without its track rule.
+    rmSync(join(root, COPY));
+    const result = unkeep(root, "7c1e", loom.id, { ...DEFAULT_MEDIA_POLICY });
+    expect(result, "UNKEEP_NO_INVALIDATION").toMatchObject({ kept: 0, invalidations: [], reopened: 1 });
+    const kept = readFileSync(join(root, "context/hygiene/kept.md"), "utf8");
+    expect(kept).toContain("## Kept as a permanent copy\n\n(empty)\n");
+    const open = readFileSync(join(root, "context/hygiene/open.md"), "utf8");
+    expect(open).toContain(`### ${loom.id}`);
+    for (const gone of ["kept-on:", "copy:", "copy-sha256:", "journal:", "disposition-fingerprint:", "invalidated:"]) expect(open).not.toContain(gone);
+    expect(readHygieneLog(root).find((e) => e.id === loom.id)).toMatchObject({ state: "open", invalidation: null, disposition: null });
+    expect(counts(root, NOW, { ...DEFAULT_MEDIA_POLICY }).awaitingReview).toBe(1);
+  });
+
+  test("another journal's entry, or no kept entry at all, is refused with every hygiene file unchanged", () => {
+    const root = brain();
+    const loom = findingAt(root, LOOM);
+    writeKept(root, keptEntry(loom));
+    run(root);
+    const before = hygieneBytes(root);
+    expect(refusal(() => unkeep(root, "9d2f")), "UNKEEP_JOURNAL_BOUND").toBe("not-kept");
+    expect(refusal(() => unkeep(root, "7c1e", findingAt(root, SHIELD)?.id ?? "media-photos-achilles-shield-0000"))).toBe("not-kept");
+    expect(hygieneBytes(root)).toEqual(before);
+  });
+});
+
 describe("mediaReviewCounts", () => {
   /** Dismissed, snoozed and kept log files holding entries for the loom and the shield. */
   function logged(root: string, files: { dismissed?: string[]; snoozed?: string[]; kept?: string[] }): void {

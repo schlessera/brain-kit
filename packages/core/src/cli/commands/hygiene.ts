@@ -27,7 +27,7 @@ import { resolveEnv } from "../../config/env.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|media|resolve|undo|check> — the content-hygiene log under context/hygiene/
+const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|unkeep|media|resolve|undo|check> — the content-hygiene log under context/hygiene/
 
   reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, brain validate's corpus
@@ -90,7 +90,16 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|media|
       .brain/ and workspaces/, media.track keeps it, and it holds <sha256>.
       --json envelope: as dismiss, with "status": "kept", "copy", "copySha256"
       and "journal" appended; refused reasons add "not-media", "copy-missing",
-      "copy-untracked" and "copy-changed".`;
+      "copy-untracked" and "copy-changed".
+
+  unkeep <id> --journal <id>
+      Reconcile, then remove the kept entry that keep-copy recorded for <id>
+      under that journal ID: Undo of Keep a permanent copy, after the copy and
+      its config are restored. The original is open again, without an
+      invalidation receipt. Refused, with nothing written, when no such kept
+      entry exists.
+      --json envelope: { "status": "unkept", "id", "journal", "changedFiles" };
+      refused: { "status": "refused", "reason": "not-kept", "id", "journal" }`;
 
 const MEDIA_HELP = `
   media <delete|move|persist|keep-copy> <id> --expect-fingerprint <fp> [--to <path>]
@@ -353,6 +362,24 @@ export const hygieneCommand: CoreCommand = {
       return 0;
     }
 
+    if (sub === "unkeep") {
+      const id = pos[1], journal = flags.journal;
+      if (!id || pos.length !== 2) throw new UsageError("Usage: brain hygiene unkeep <id> --journal <id>");
+      if (typeof journal !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(journal)) throw new UsageError("--journal needs the Keep a permanent copy journal ID");
+      try {
+        const { result } = await detectAndReconcile(cli, { now: new Date(), unkeep: { id, journal } });
+        emit(cli.json, { status: "unkept", id, journal, changedFiles: result.changedFiles }, () => {
+          console.log(`unkept ${id}`);
+          for (const f of result.changedFiles) console.log(`  wrote ${f}`);
+        });
+        return 0;
+      } catch (e) {
+        if (!(e instanceof HygieneRefusal)) throw e;
+        emit(cli.json, { status: "refused", reason: e.reason, id, journal }, () => console.error(e.message));
+        return 1;
+      }
+    }
+
     if (sub === "dismiss" || sub === "snooze" || sub === "keep-copy") {
       const now = new Date();
       const request = dispositionRequest(sub, pos, flags, now);
@@ -389,7 +416,7 @@ export const hygieneCommand: CoreCommand = {
       }
     }
 
-    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|media|resolve|undo|check>");
+    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|unkeep|media|resolve|undo|check>");
     if (flags.extra === true) throw new UsageError("--extra needs a file");
     if (flags.fixed === true) throw new UsageError("--fixed needs a file");
     const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];

@@ -23,6 +23,9 @@ import { createHygieneReview } from "../src/inbox/hygiene-review.js";
 import { createPrincipal } from "../src/db/principals.js";
 import type { BrainClient } from "../src/brain/client.js";
 import { createInboxStore } from "../src/inbox/store.js";
+import { Hono } from "hono";
+import type { AppEnv } from "../src/app-env.js";
+import { createHygieneReviewRoutes } from "../src/routes/hygiene-review.js";
 const createInboxStoreRead = (db: Parameters<typeof createInboxStore>[0], id: string) => { const item = createInboxStore(db).getItem(id); return item?.queue === "actions" ? item : null; };
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 
@@ -128,6 +131,26 @@ test("Keep a permanent copy records the kept entry after the copy verifies; Undo
   expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg"))).toBe(false);
   expect(read(f.root, "brain.config.json")).toBe("{}\n");
   expect(read(f.root, SCRATCH), "MEDIA_KEEP_UNDO_ORIGINAL").toBe("dawn bytes");
+  // The kept entry goes in the same Undo (rev 5 §5.7): the original is pending again, never reopened as copy-missing.
+  expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_KEEP_UNDO_UNKEPT").not.toContain("harbour-dawn");
+  const entries = run(f.root, process.execPath, CORE_CLI, "hygiene", "--json", "list").stdout;
+  const original = (JSON.parse(entries) as { entries: Array<{ path: string; state: string; invalidation: unknown }> }).entries.find(e => e.path === SCRATCH);
+  expect(original, "MEDIA_KEEP_UNDO_OPEN").toMatchObject({ state: "open", invalidation: null });
+  expect(read(f.root, "context/hygiene/open.md")).not.toContain("copy-missing");
+});
+
+test("a later ordinary sync commits the kept copy and its rule, and never the scratch original", async () => {
+  const f = await setup();
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  expect((await f.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg")).outcome).toBe("kept");
+  run(f.root, "git", "config", "user.name", "Penelope"); run(f.root, "git", "config", "user.email", "penelope@example.test");
+  const synced = run(f.root, process.execPath, CORE_CLI, "sync", "commit");
+  expect(synced.code, `MEDIA_KEEP_SYNC_EXIT ${synced.stderr}`).toBe(0);
+  expect(run(f.root, "git", "show", "HEAD:places/ithaca/harbour-dawn.jpg").stdout, "MEDIA_KEEP_SYNC_COPY").toBe("dawn bytes");
+  expect(run(f.root, "git", "show", "HEAD:brain.config.json").stdout, "MEDIA_KEEP_SYNC_CONFIG").toBe('{ "media": { "track": ["places/ithaca/harbour-dawn.jpg"] } }\n');
+  expect(run(f.root, "git", "ls-files", "--", ".brain").stdout, "MEDIA_KEEP_SYNC_NO_SCRATCH").toBe("");
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
 });
 
 test("a refused kept entry (step 6b) removes the copy and restores the config", async () => {
@@ -230,4 +253,103 @@ test("review offers the media effects with their plans, applies one through the 
   expect(resolved?.status, "MEDIA_REVIEW_RESOLVED").toBe("resolved");
   expect(resolved?.hygiene?.outcome, "MEDIA_REVIEW_RECEIPT").toMatchObject({ status: "fixed", media: { outcome: "applied", action: "move", undo: { available: true } } });
   expect(done.review.fixed).toBe(1);
+});
+
+/** Two media findings in review, with nothing else selectable first. */
+async function reviewWithTwo(f: Awaited<ReturnType<typeof setup>>) {
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md"));
+  put(f.root, "photos/achilles-shield.jpg", "shield bytes");
+  return (await f.review.command(f.reviewer.id, "start")).action!;
+}
+const resolveWith = (f: Awaited<ReturnType<typeof setup>>, itemId: string, optionId: string) => f.review.resolver.resolveAsync(f.reviewer.id, { type: "inbox_resolve", itemId, optionId });
+
+test("undo-media from review undoes a resolved Delete, records the Undo on the card, and the finding returns on a successor card", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  const deleted = (card.hygiene!.finding as { path: string }).path;
+  const bytes = read(f.root, deleted);
+  await resolveWith(f, card.id, "media-delete");
+  const resolved = createInboxStoreRead(f.db, card.id)!;
+  expect(resolved.hygiene?.outcome).toMatchObject({ status: "fixed", media: { outcome: "applied", undo: { available: true } } });
+  expect(existsSync(join(f.root, deleted))).toBe(false);
+  expect(f.review.read().review.fixed).toBe(1);
+  const second = f.review.read().action!;
+
+  const result = await f.review.undoMedia(f.reviewer.id, resolved.hygiene!.outcome!.media!.journalId);
+  expect(result.mediaUndo, "MEDIA_REVIEW_UNDO").toMatchObject({ outcome: "undone", files: [{ path: deleted, state: "restored" }] });
+  expect(read(f.root, deleted), "MEDIA_REVIEW_UNDO_BYTES").toBe(bytes);
+  const after = createInboxStoreRead(f.db, card.id)!;
+  expect(after.status, "MEDIA_REVIEW_UNDO_CARD_TERMINAL").toBe("resolved");
+  expect(after.hygiene?.outcome, "MEDIA_REVIEW_UNDO_CARD").toMatchObject({ status: "undone", media: { outcome: "undone", action: "delete" } });
+  expect(result.review.fixed, "MEDIA_REVIEW_UNDO_COUNTER").toBe(0);
+  // The same command again changes nothing.
+  expect((await f.review.undoMedia(f.reviewer.id, resolved.hygiene!.outcome!.media!.journalId)).mediaUndo.outcome).toBe("undone");
+  expect(createInboxStoreRead(f.db, card.id)!.version).toBe(after.version);
+
+  // Leaving the other card pending selects the restored finding again, on a new card.
+  await resolveWith(f, second.id, "leave-pending");
+  const again = f.review.read().action;
+  expect(again?.hygiene?.findingId, "MEDIA_REVIEW_UNDO_RESELECTED").toBe(card.hygiene!.findingId);
+  expect(again?.id).not.toBe(card.id);
+  expect(again?.status).toBe("pending");
+});
+
+test("undo-media refuses before any write when a file changed since, and the card shows why", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  const deleted = (card.hygiene!.finding as { path: string }).path;
+  await resolveWith(f, card.id, "media-delete");
+  const journalId = createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId;
+  put(f.root, deleted, "Penelope wove it again\n");
+  const result = await f.review.undoMedia(f.reviewer.id, journalId);
+  expect(result.mediaUndo, "MEDIA_REVIEW_UNDO_REFUSED").toMatchObject({ outcome: "refused", reason: "changed-since" });
+  expect(read(f.root, deleted), "MEDIA_REVIEW_UNDO_REFUSAL_NO_WRITE").toBe("Penelope wove it again\n");
+  expect(createInboxStoreRead(f.db, card.id)!.hygiene?.outcome, "MEDIA_REVIEW_UNDO_REFUSAL_CARD").toMatchObject({ status: "fixed", media: { outcome: "applied", undo: { available: false, reason: "changed-since", path: deleted } } });
+  expect(result.review.fixed).toBe(1);
+  // Another principal cannot reach this receipt.
+  const other = createPrincipal(f.db, { authMethod: "password", label: "Telemachus", ttlSeconds: 86400 });
+  await expect(f.review.undoMedia(other.id, journalId), "MEDIA_REVIEW_UNDO_OWNER").rejects.toThrow();
+});
+
+test("undo-media of a kept copy from review removes the copy, its rule and its kept entry, and the kept counter drops", async () => {
+  const f = await setup();
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md")); rmSync(join(f.root, LOOM));
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  const card = (await f.review.command(f.reviewer.id, "start")).action!;
+  expect((card.hygiene!.finding as { path: string }).path).toBe(SCRATCH);
+  const previewed = await f.review.preview(f.reviewer.id, { itemId: card.id, optionId: "media-keep-copy", expectedVersion: card.version, input: "places/ithaca/harbour-dawn.jpg" });
+  expect(previewed.options.find(o => o.id === "media-keep-copy")?.media?.refusals).toEqual([]);
+  await resolveWith(f, card.id, "media-keep-copy");
+  expect(createInboxStoreRead(f.db, card.id)!.hygiene?.outcome?.status).toBe("kept");
+  expect(f.review.read().review.kept).toBe(1);
+  const result = await f.review.undoMedia(f.reviewer.id, createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId);
+  expect(result.mediaUndo, "MEDIA_REVIEW_UNDO_KEPT").toMatchObject({ outcome: "undone", action: "keep-copy" });
+  expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg"))).toBe(false);
+  expect(read(f.root, "brain.config.json")).toBe("{}\n");
+  expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_REVIEW_UNDO_UNKEPT").not.toContain("harbour-dawn");
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  expect(result.review.kept, "MEDIA_REVIEW_UNDO_KEPT_COUNTER").toBe(0);
+});
+
+test("POST /hygiene/review routes undo-media: a refusal is a 200 result, a malformed body 400, an unknown receipt 500", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  const deleted = (card.hygiene!.finding as { path: string }).path;
+  await resolveWith(f, card.id, "media-delete");
+  const journalId = createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId;
+  const app = new Hono<AppEnv>();
+  app.use("*", async (c, next) => { c.set("principal", { id: f.reviewer.id } as never); await next(); });
+  app.route("/", createHygieneReviewRoutes(f.review));
+  const post = async (body: unknown) => { const res = await app.request("/hygiene/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: res.status, body: await res.json() as Record<string, unknown> }; };
+  put(f.root, deleted, "Penelope wove it again\n");
+  const refused = await post({ operation: "undo-media", journalId });
+  expect(refused.status, "MEDIA_ROUTE_UNDO_REFUSED").toBe(200);
+  expect(refused.body.mediaUndo).toMatchObject({ outcome: "refused", reason: "changed-since" });
+  expect((await post({ operation: "undo-media" })).status, "MEDIA_ROUTE_UNDO_MALFORMED").toBe(400);
+  expect((await post({ operation: "undo-media", journalId: `media-${"0".repeat(40)}` })).status, "MEDIA_ROUTE_UNDO_UNKNOWN").toBe(500);
+  rmSync(join(f.root, deleted));
+  const undone = await post({ operation: "undo-media", journalId });
+  expect(undone, "MEDIA_ROUTE_UNDO").toMatchObject({ status: 200, body: { mediaUndo: { outcome: "undone" } } });
+  expect(existsSync(join(f.root, deleted))).toBe(true);
 });

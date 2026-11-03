@@ -3647,6 +3647,14 @@ export interface HygieneReviewState {
   media?: { awaitingReview: number; setAside: number; kept: number };
 }
 export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" | "refresh" }
+/**
+ * Undo from review (#2781): undoes a confirmed media effect from its
+ * resolved card, by the receipt's `journalId`, under the same preflights as
+ * the CLI Undo. Undoing Keep a permanent copy also removes its kept entry.
+ */
+export interface HygieneReviewMediaUndoCommand { operation: "undo-media"; journalId: string }
+/** Every body `POST /hygiene/review` accepts. */
+export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
 export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
 export interface HygieneReviewRead {
   review: HygieneReviewState;
@@ -3657,6 +3665,12 @@ export interface HygieneReviewRead {
    * never part of the replicated Action.
    */
   privateDetailAccess?: { itemId: string };
+  /**
+   * The Undo's own receipt, on the response to an `undo-media` command only
+   * (#2781): `undone`, `partial`, or `refused` with the reason (for example
+   * `changed-since` or `rollback-evicted`) and nothing written.
+   */
+  mediaUndo?: HygieneMediaReceipt;
 }
 /**
  * The recorded facts of a private managed-worktree finding, read by the owner

@@ -291,6 +291,30 @@ describe("Keep a permanent copy", () => {
     expect(read(root, "places/harbour-dawn.jpg")).toBe("Telemachus's own photo");
   });
 
+  test("a source changed while it is being copied refuses the copy before any write; no copy or private part is left", () => {
+    const root = brain();
+    pin(root, SCRATCH);
+    const { request, preview } = plan(root, "keep-copy", SCRATCH, "places/harbour-dawn.jpg");
+    let changed = false;
+    const result = apply(root, request, preview, { copyHooks: { afterChunk: () => { if (!changed) { changed = true; writeFileSync(join(root, SCRATCH), "dawn bytes, then dusk"); } } } });
+    expect(changed).toBe(true);
+    expect(result, "KEEP_SOURCE_CHANGED_MID_COPY").toMatchObject({ status: "refused", reason: "source-changed" });
+    expect(existsSync(join(root, "places/harbour-dawn.jpg")), "KEEP_MID_COPY_NO_COPY").toBe(false);
+    expect(readdirSync(join(root, "places")).filter((n) => n.endsWith(".part")), "KEEP_MID_COPY_NO_PART").toEqual([]);
+    expect(read(root, SCRATCH)).toBe("dawn bytes, then dusk");
+  });
+
+  test("the copy is published with link, never rename: a destination that appears just before publishing is kept", () => {
+    const root = brain();
+    pin(root, SCRATCH);
+    const { request, preview } = plan(root, "keep-copy", SCRATCH, "places/harbour-dawn.jpg");
+    const result = apply(root, request, preview, { copyHooks: { beforePublish: () => put(root, "places/harbour-dawn.jpg", "Telemachus's own photo") } });
+    expect(result, "KEEP_LINK_NOT_RENAME").toMatchObject({ status: "refused", reason: "exists" });
+    expect(read(root, "places/harbour-dawn.jpg"), "KEEP_LINK_NO_OVERWRITE").toBe("Telemachus's own photo");
+    expect(readdirSync(join(root, "places")).filter((n) => n.endsWith(".part"))).toEqual([]);
+    expect(read(root, SCRATCH)).toBe("dawn bytes");
+  });
+
   test("content media is not offered a copy", () => {
     const root = brain();
     expect(plan(root, "keep-copy", LOOM, "places/loom.png").preview.refusals.map((r) => r.code), "KEEP_NOT_SCRATCH").toEqual(["not-linked-scratch"]);

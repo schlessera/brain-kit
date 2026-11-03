@@ -131,6 +131,12 @@ export interface MediaEffectContext {
   limits?: MediaReferenceLimits;
   /** Tests inject the inventory; otherwise it is built afresh. */
   inventory?: MediaInventory;
+  /**
+   * Tests only: run inside Keep a permanent copy's copy step, after each
+   * chunk is written to the private `.part` and just before it is published,
+   * to change the source or the destination at exactly that moment.
+   */
+  copyHooks?: { afterChunk?: () => void; beforePublish?: () => void };
 }
 
 const sha256 = (data: string | Uint8Array) => createHash("sha256").update(data).digest("hex");
@@ -480,7 +486,7 @@ function replaceExpected(root: string, path: string, expected: string, text: str
 }
 
 /** Stream `source` into an exclusive private `.part` beside `destination`, hashing as it goes; publish it with link(2), which never overwrites. */
-function copyExclusive(root: string, source: string, destination: string, expected: string, opId: string): void {
+function copyExclusive(root: string, source: string, destination: string, expected: string, opId: string, hooks: MediaEffectContext["copyHooks"] = {}): void {
   const srcParent = openDir(root, posix.dirname(source) === "." ? "" : posix.dirname(source));
   const dstParent = openDir(root, posix.dirname(destination) === "." ? "" : posix.dirname(destination));
   const name = posix.basename(destination), part = `.${name}.${opId}.part`;
@@ -498,11 +504,13 @@ function copyExclusive(root: string, source: string, destination: string, expect
       let written = 0;
       while (written < read) written += writeSync(output, buffer, written, read - written, position + written);
       position += read;
+      hooks.afterChunk?.();
     }
     const endStat = fstatSync(input);
     fsyncSync(output);
     if (hash.digest("hex") !== expected || endStat.size !== startStat.size || endStat.mtimeMs !== startStat.mtimeMs) throw new StepFailed("source-changed");
     closeSync(output); output = undefined;
+    hooks.beforePublish?.();
     try { linkSync(at(dstParent, part), at(dstParent, name)); }
     catch (e) { throw new StepFailed((e as NodeJS.ErrnoException).code === "EEXIST" ? "exists" : "copy-failed"); }
     unlinkSync(at(dstParent, part)); partMade = false;
@@ -589,7 +597,7 @@ export function applyMediaEffect(ctx: MediaEffectContext, request: MediaEffectRe
       }
     }
     if (request.action === "keep-copy") {
-      copyExclusive(root, source, plan.destination!, sha, request.journal);
+      copyExclusive(root, source, plan.destination!, sha, request.journal, ctx.copyHooks);
       mark(plan.destination!, "created");
     }
     const config = plan.files.find((f) => f.role === "config");

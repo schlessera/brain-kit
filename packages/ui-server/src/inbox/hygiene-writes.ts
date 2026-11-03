@@ -3,7 +3,7 @@
  * never reapplied. All Action projections use the shared store/change stream. */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaReceipt, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
 import { hygieneDiffSchema, hygieneEffectSchema, hygieneMediaReceiptSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxAction, insertInboxAction, inboxIdentity } from "./actions.js";
@@ -106,7 +106,14 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         // Every remaining finding left pending is a complete pass too: the counts stay truthful.
         if (!finding) { save({ ...review, status: "complete", pauseReason: undefined, counts: next.counts, media: mediaOf(next) }); return; }
         const readmitting = paused && action(paused.retiredActionId).hygiene!.findingId === finding.id && action(paused.retiredActionId).hygiene!.fingerprint === finding.fingerprint;
-        const itemId = readmitting ? inboxIdentity("hygiene-readmission", paused.retiredActionId) : inboxIdentity("hygiene", finding.id, finding.fingerprint);
+        let itemId = readmitting ? inboxIdentity("hygiene-readmission", paused.retiredActionId) : inboxIdentity("hygiene", finding.id, finding.fingerprint);
+        // A media effect undone from review (#2781) leaves its card resolved and the finding
+        // pending at the same fingerprint: the finding gets a successor card, never the old one back.
+        let afterUndo = false;
+        for (let prior = store.getItem(itemId); prior?.queue === "actions" && prior.status === "resolved" && prior.hygiene?.outcome?.status === "undone"; prior = store.getItem(itemId)) {
+          itemId = inboxIdentity("hygiene-after-undo", prior.id);
+          afterUndo = true;
+        }
         const existing = store.orderedItems().map(v => v.item).find(i => i.queue === "actions" && i.hygiene?.findingId === finding.id && i.hygiene.fingerprint === finding.fingerprint && ["pending", "snoozed"].includes(i.status)) ?? store.getItem(itemId);
         if (existing) {
           if (existing.queue === "actions" && ["pending", "snoozed"].includes(existing.status)) {
@@ -116,7 +123,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           }
           throw new Error("Finding already has a terminal Action for this fingerprint");
         }
-        const threadId = readmitting ? inboxIdentity("hygiene-readmission-thread", itemId) : inboxIdentity("hygiene-thread", finding.id, finding.fingerprint);
+        const threadId = readmitting ? inboxIdentity("hygiene-readmission-thread", itemId) : afterUndo ? inboxIdentity("hygiene-after-undo-thread", itemId) : inboxIdentity("hygiene-thread", finding.id, finding.fingerprint);
         store.openReviewThread(threadId);
         const item: InboxActionItem = { id: itemId, dedupKey: itemId, threadId, queue: "actions", type: "choose", status: "pending", version: 1, createdAt: now(), updatedAt: now(), expiresAt: Number.MAX_SAFE_INTEGER,
           payload: { title: finding.title, detail: finding.path }, options, hygiene: { findingId: finding.id, fingerprint: finding.fingerprint, finding } };
@@ -205,6 +212,29 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           update(fresh, outcome(result), fresh.options.filter(o => o.id !== "undo").map(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" ? { ...o, preview: undefined, effect: { ...o.effect, previewToken: undefined } } : o));
         }
         db.query("UPDATE hygiene_effect_attempts SET status = 'finished', result_json = ? WHERE id = ?").run(JSON.stringify(result), attempt.id);
+      }).immediate();
+    },
+    /**
+     * Undo from review (#2781, ruling 2026-11-03): record the Undo's receipt on
+     * the resolved card that applied the effect. An undone effect no longer
+     * counts as fixed or kept; a refused Undo only refreshes the card's
+     * receipt, so its Undo availability is current.
+     */
+    mediaUndo(time: number, principalId: string, itemId: string, journalId: string, receipt: HygieneMediaReceipt, source: HygieneMediaReceipt | null) {
+      at = time;
+      authority(principalId);
+      return db.transaction(() => {
+        const item = action(itemId), prior = item.hygiene!.outcome;
+        if (item.status !== "resolved" || prior?.media?.journalId !== journalId) return;
+        const next: NonNullable<HygieneAction["outcome"]> = receipt.outcome === "undone" ? { version: 1, status: "undone", media: receipt }
+          : receipt.outcome === "partial" ? { version: 1, status: "check_failed", code: "partial", ...(receipt.reason ? { reason: receipt.reason } : {}), media: receipt }
+          : source ? { ...prior, media: source } : prior;
+        if (next === prior) return;
+        store.commit([{ kind: "hygiene_media_receipt", itemId, expectedVersion: item.version, outcome: hygieneOutcomeSchema.parse(next) }]);
+        if (receipt.outcome === "undone") {
+          const review = state();
+          save({ ...review, fixed: Math.max(0, review.fixed - (prior.status === "fixed" ? 1 : 0)), kept: Math.max(0, (review.kept ?? 0) - (prior.status === "kept" ? 1 : 0)) });
+        }
       }).immediate();
     },
     admit(time: number, principalId: string, request: ClientInboxResolve) {

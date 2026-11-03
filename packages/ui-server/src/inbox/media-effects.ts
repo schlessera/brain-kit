@@ -169,11 +169,28 @@ export function createMediaEffects(db: Database, options: {
     return () => failure;
   }
 
+  /**
+   * Undo of Keep a permanent copy also removes the kept entry step 6b wrote,
+   * after the copy and config are restored (rev 5 §5.7, ruling 2026-11-03),
+   * so the original is pending again rather than reopened as `copy-missing`.
+   * An entry already gone (invalidated, hand-moved) needs nothing; any other
+   * answer leaves the Undo `partial`.
+   */
+  async function releaseKept(source: Row): Promise<string | null> {
+    let answer: z.infer<typeof keptSchema>;
+    try { answer = keptSchema.parse(await options.cli(["unkeep", "--journal", source.id, "--", source.finding_id])); }
+    catch { return "kept-entry-unknown"; }
+    finally { await journal.observe(); }
+    return answer.status === "unkept" || answer.reason === "not-kept" ? null : "kept-entry-unremoved";
+  }
+
   async function compensate(row: Row, plan: HygieneMediaPlan, reason: string): Promise<HygieneMediaReceipt> {
     const versions = JSON.parse(row.versions) as Record<string, JournalVersion>;
     const files = await restore(plan.files, versions, row.journal_turn_id);
     const clean = files.every(f => ["restored", "unchanged"].includes(f.state));
-    return { journalId: row.id, action: plan.action, outcome: clean ? "compensated" : "partial", reason, files, undo: { available: false, reason: "no-confirmed-effect" } };
+    // A copy whose step 6b receipt was lost may have its entry: a copy never leaves a record behind.
+    const kept = clean && plan.action === "keep-copy" ? await releaseKept(row) : null;
+    return { journalId: row.id, action: plan.action, outcome: clean && !kept ? "compensated" : "partial", reason: kept ?? reason, files, undo: { available: false, reason: "no-confirmed-effect" } };
   }
 
   /**
@@ -273,7 +290,8 @@ export function createMediaEffects(db: Database, options: {
         const files = await restore(plan.files, JSON.parse(source.versions), source.journal_turn_id);
         await journal.observe();
         const clean = files.every(f => ["restored", "unchanged"].includes(f.state));
-        return { journalId: row.id, action: plan.action, outcome: clean ? "undone" : "partial", files, undo: { available: false, reason: "already-undone" } };
+        const kept = clean && plan.action === "keep-copy" ? await releaseKept(source) : null;
+        return { journalId: row.id, action: plan.action, outcome: clean && !kept ? "undone" : "partial", ...(kept ? { reason: kept } : {}), files, undo: { available: false, reason: "already-undone" } };
       });
     } catch {
       receipt = { journalId: row.id, action: plan.action, outcome: "partial", reason: "operation-unavailable", files: [], undo: { available: false } };
@@ -304,7 +322,9 @@ export function createMediaEffects(db: Database, options: {
         receipt = await exclusive(`media-recover:${row.id}`, async () => {
           const files = await restore(plan.files, JSON.parse((source ?? row).versions), (source ?? row).journal_turn_id);
           const clean = files.every(f => ["restored", "unchanged"].includes(f.state));
-          return { journalId: row.id, action: plan.action, outcome: row.source_id ? (clean ? "undone" : "partial") : (clean ? "compensated" : "partial"), reason: "interrupted", files, undo: { available: false, reason: "no-confirmed-effect" } };
+          // A copy's kept entry goes with it, whether an Undo or an apply was interrupted.
+          const kept = clean && plan.action === "keep-copy" ? await releaseKept(source ?? row) : null;
+          return { journalId: row.id, action: plan.action, outcome: clean && !kept ? (row.source_id ? "undone" : "compensated") : "partial", reason: kept ?? "interrupted", files, undo: { available: false, reason: "no-confirmed-effect" } };
         });
         if (source && ["undone", "partial"].includes(receipt.outcome)) await save(source, receipt.outcome === "undone" ? "undone" : "undo-partial", JSON.parse(source.receipt));
       }
