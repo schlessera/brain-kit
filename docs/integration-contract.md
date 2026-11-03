@@ -20,6 +20,21 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Shell taint behind the egress proxy (breaking before 1.0, #3429)
+
+On a turn whose worker runs behind the turn egress proxy
+(`runtime.workerHost.governed.egress.active`), the `taint` governance event no
+longer records `source: "fetching_command"` or `"unclassified_command"`. The
+proxy's `egress_connection` taint, recorded at the first admitted connection
+other than the inference relay, is the shell signal there. Every other source
+keeps its meaning, and a turn without the proxy keeps the shell classifier.
+Consumers must not expect a shell command alone to taint a proxied session; a
+shell read of an untrusted file without a connection does not taint it. No
+payload shape or kind changes. See the
+[governance events component](integration-contract/http.md#shell-taint-behind-the-egress-proxy-breaking-3429)
+and the [decision](decisions/governed-writable-workers.md#shell-classifier-off-behind-the-proxy).
+This is a pre-1.0 breaking minor under the maintainer ruling recorded on #3429.
+
 ## Explicit local chat deletion (additive, #3230)
 
 An authenticated owner can delete its own chat's local history with

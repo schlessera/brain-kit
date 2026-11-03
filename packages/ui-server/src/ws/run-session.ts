@@ -741,6 +741,10 @@ async function runRetainedSession(
               : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
             ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           });
+          // The worker reaches the network only through this proxy, which
+          // taints on its first admitted connection: shell commands no longer
+          // pass through the command classifier (#3429).
+          recorder?.setEgressProxied();
           // The CLI's paid providers reach the network only through this relay,
           // which holds their keys, shares the turn's egress admission and
           // meters each request on the turn (#1673).

@@ -1522,7 +1522,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:938`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -2096,7 +2096,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:344`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:353`).
 
 **What changes:**
 
@@ -3775,7 +3775,9 @@ Before the egress proxy lands, Bash commands classified as fetching (`curl`,
 `wget`, `git clone` and `fetch`, the `brain` scrape and import commands, and
 Chromium) taint the session. Any Bash call that the classifier cannot rule out
 as network-free also taints it. Erring towards taint costs only tighter
-outward rules.
+outward rules. Where the proxy runs, the classifier is off and the proxy's
+connection taint is the shell signal (superseded 2026-11-03, see
+[below](#shell-classifier-off-behind-the-proxy)).
 
 Taint is sticky for the session, because that content stays in the context
 window. A tainted session runs under tighter rules:
@@ -3794,9 +3796,10 @@ pi-web-access's `fetch_content` and `web_search`; a file tool or brain-kit
 document reader whose normalized path is under `.brain-ui/inbox/` or
 `workspaces/`, or a search whose output names a file there (an absolute path
 outside the brain and the strict area root counts any such segment); a
-fetching or unclassified Bash call; and any MCP tool whose server is not
+fetching or unclassified Bash call (only on a turn without the egress proxy
+since 2026-11-03, see below); and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:82-92`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:88-99`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
@@ -3832,6 +3835,35 @@ widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
+<a id="shell-classifier-off-behind-the-proxy"></a>
+
+**Shell classifier off behind the proxy — 2026-11-03
+([#3429](https://github.com/schlessera/brain-kit/issues/3429)).** This
+supersedes the unconditional Bash classifier in the implemented note above.
+The classifier tainted on every shell call it could not prove network-free,
+so almost every governed session was tainted by its first ordinary command
+(`brain diagram --help`, `cat notes/x.md`) without reading anything
+untrusted. On a turn whose worker runs behind the turn egress proxy, the
+proxy already taints at the first admitted connection other than the
+inference relay, before its first byte, whatever program made it. That turn
+now records neither `fetching_command` nor `unclassified_command`: once the
+proxy is up, the host tells the turn's recorder
+(`recorder?.setEgressProxied();`, `packages/ui-server/src/ws/run-session.ts:747`),
+and its shell calls skip the classifier
+(`const command = shellProxied ? null : commandTaintSource(tool, input);`,
+`packages/ui-server/src/activity/ingestion-taint.ts:90`). A `curl` on such a
+turn taints through the proxy's `egress_connection` record. Every non-shell
+source (web tools, other MCP servers, untrusted areas, marked files) still
+taints there. A turn without the proxy keeps the classifier unchanged
+(maintainer ruling A on #3429; B, keeping the fetching classification, and
+C, the current behaviour, were rejected).
+
+Known gap, accepted by that ruling: on a proxied turn, a shell command that
+reads an untrusted local file without opening a connection (`cat
+workspaces/x/README`, or a marked file) does not taint. Path detection is not
+extended to shell arguments, because parsing them is the shell classifier
+this ruling removes. File tools reading the same path still taint.
+
 **Files the user marks untrusted — 2026-11-02
 ([#2673](https://github.com/schlessera/brain-kit/issues/2673)).** A user can
 mark a brain file untrusted from Files, and the recorder above then treats an
@@ -3844,8 +3876,9 @@ first source (`fileSource`,
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked
-(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:236-242`).
-Shell reads are covered only by the Bash rules above, reads are never
+(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:244-250`).
+Shell reads are covered only by the Bash rules above, which do not apply on a
+turn behind the egress proxy (the known gap above); reads are never
 blocked, and a session that read the file before it was marked is not
 tainted retroactively.
 
