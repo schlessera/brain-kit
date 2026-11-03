@@ -181,3 +181,40 @@ accounting, responsive layouts, accessibility, consequence review and recovery
 rules. S4=B holds first public pane delivery until safe binary removal and the
 complete inspect/select/review/remove/result journey are ready; an interim
 read-only pane is not the approved shipping plan.
+
+## 2026-11-02 — Apify in Accounts › External services (#3163)
+
+The maintainer's [placement](https://github.com/schlessera/brain-kit/issues/3163),
+policy-control and spend-placement rulings (R1 A, R2 A, R3 A) add one section
+to the Accounts pane, under an **External services** heading after web search.
+It is inline from 900px and a drill-in below it: a `ListRow` (`Apify`, its
+state, `›`) opens the section with **Back to accounts**, and Back returns focus
+to the row. A "Why" link from an Apify refusal or cost line opens Accounts at
+the named group (on phones, the drill-in) and focuses that group's heading.
+
+Inside, in authority order: the provider card (state, the charged account as
+`username (…last4)`, Turn on/off, Check again, and for a changed account
+Review, which focuses the Approved Actors heading, and Use {account});
+Catalog search and Running Actors as three-way `radiogroup`s (Deny, Ask,
+Allow; arrows move focus, Enter or Space proposes); Approved Actors with
+Revoke or Remove per grant; the effective Limits with the overall budgets;
+Today with unresolved runs. Inactive grants (expired, other account, or Apify
+off) get a dashed border and a raised fill, not opacity, so their text keeps
+full contrast. Choosing a value or revoking shows the existing policy review
+(`ApprovalCard`, exact frontmatter diff, Approve and write, Decline) under
+that control and moves focus into it; after the answer focus returns to the
+control, or to the next grant or the heading after a revoke. Outcomes are
+announced politely: `Changed: …`, `Unchanged: {reason}`, `Not confirmed yet`,
+`Changed on another device.` The section re-reads the host every 30 seconds
+and on window focus, and drops the owner's account, grants and spend the
+moment the account locks.
+
+The run approval keeps `ToolPermissionCard` and the kit `ApprovalCard`: badge
+`Approval needed · paid run`, Allow once and Deny only, rows Actor, Sends to
+Apify, Charged to, Cost, Not covered (only when something is) and Limits, and
+the full input as #3253's evidence `Disclosure` over a 240px focusable,
+scrollable `pre`. Actor text is untrusted plain text: no links, no markdown.
+
+Turn cost details keep inference and Apify as two figures (`$0.89 + Apify up
+to $1.15` in the header, an Apify group in Turn facts). Activity shows today's
+totals in Done and unresolved runs in Running. The System pane shows no spend.

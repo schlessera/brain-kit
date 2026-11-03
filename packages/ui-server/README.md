@@ -330,7 +330,9 @@ under the [service terms](../geo/README.md#configuration).
 | `AGENT_BACKEND` | Primary agent backend: "claude" (default) or "pi". | claude |
 | `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
 | `ANTHROPIC_API_KEY` | Never used by a Claude profile without its own credential: those run on the subscription, with this cleared before Claude Code starts. The Claude backend uses it for model discovery only when no CLAUDE_CODE_OAUTH_TOKEN is set. | — |
+| `APIFY_TOKEN` | Apify API token, read only by the host. It authenticates nothing until the governance policy sets apify.enabled: true; the host then binds the account the fixed Apify API reports. Never passed to any subprocess, worker, prompt, log or response. | — |
 | `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
+| `BRAIN_APIFY_LEDGER` | Absolute path of the shared Apify ledger (#3161, #3162): reservations, run handles and request counts, private to the host user and outside every brain. A standalone `brain apify` or `brain mcp` process that sets the same path shares the account's day limit and concurrency bound with the server. Never passed to a worker. | DB_PATH.apify-ledger.sqlite (server); unset, which refuses Apify as accounting_unavailable (standalone CLI and MCP) |
 | `BRAIN_GEO_CONFIG_JSON` | Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup. | — |
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
 | `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
