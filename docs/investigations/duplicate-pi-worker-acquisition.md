@@ -49,15 +49,15 @@ fires only for injected `sessionFactory` doubles, which reuse identities.
 **ui-server.** The interactive turn path admits one in-flight `startTurn` per
 session. `handleChatMessage` queues a message for a session found in
 `startingBySession` or `bySession`
-(`const runningTurn`, `packages/ui-server/src/ws/run-session.ts:1222-1253`). Otherwise it calls
+(`const runningTurn`, `packages/ui-server/src/ws/run-session.ts:1226-1257`). Otherwise it calls
 `runSession`, which calls `runRetainedSession`. That registers
 `startingBySession` before its first await
 (`runRetainedSession`, `packages/ui-server/src/ws/run-session.ts:201-216`). Nothing on that path
 awaits between the check and the registration. The turn then moves to
 `bySession` (`coordinator.running.add(turn)`, `packages/ui-server/src/ws/run-session.ts:288-289`), awaits
-`backend.startTurn` directly (`await backend.startTurn`, `packages/ui-server/src/ws/run-session.ts:788`),
+`backend.startTurn` directly (`await backend.startTurn`, `packages/ui-server/src/ws/run-session.ts:792`),
 and releases `bySession` only in the slot's final `finally`
-(`coordinator.bySession.get(turn.sessionId) === turn`, `packages/ui-server/src/ws/run-session.ts:999-1001`). Retry admission refuses
+(`coordinator.bySession.get(turn.sessionId) === turn`, `packages/ui-server/src/ws/run-session.ts:1003-1005`). Retry admission refuses
 on the same two maps (`coordinator.bySession.has(msg.sessionId)`, `packages/ui-server/src/ws/dispatch.ts:242`). The other
 two backend callers run autonomous turns and pass no `sessionId`: the handoff
 summary (`await backend.startTurn`, `packages/ui-server/src/ws/handoff.ts:374-388`) and inbox work
