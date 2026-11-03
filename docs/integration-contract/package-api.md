@@ -213,6 +213,13 @@ omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
 
+## UI-kit enlarge icon (additive #3397)
+
+The semantic `IconName` gains `enlarge`: open content in its dedicated
+full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
+already uses for Open diagram. The framed diagram renderer's header uses it.
+No existing key, glyph or component changes.
+
 ## UI-kit Button reach (additive #3252)
 
 `ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's
