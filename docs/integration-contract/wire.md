@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -104,8 +104,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3985-3991`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1936-1938`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4000-4006`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1938-1940`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -542,6 +542,29 @@ boundary), or terminal time after interruption when no failure was observed. `ba
 backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
+
+Optional `subPhases` (additive, #3355) attributes the governed and journal
+phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
+measuring to `failureObservedAt` or terminal time once the record is terminal,
+and null before. Every step lies inside its phase's paired milestones, and the
+`observe_*` steps lie inside `observe`. Steps are carried by the record's next
+milestone or terminal write, never written on their own. `name` is open
+vocabulary, so a consumer tolerates names it does not know. A step that does
+not apply to a turn is absent. The current names are:
+
+- `governed`: `inference_origin` (the backend's relay origin, looked up before
+  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
+  `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
+  `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
+  `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
+- `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
+  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
+  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+
+Records written before this field have no `subPhases`; nothing is backfilled.
 
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
