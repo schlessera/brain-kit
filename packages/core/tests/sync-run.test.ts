@@ -194,7 +194,7 @@ describe("runSync", () => {
     expect(gitMayFail(brain.root, "check-ignore", "-q", NOTE)).toBe(1);
     expect(git(brain.root, "status", "--porcelain", "--", NOTE)).toBe(`?? ${NOTE}`);
     expect(run.leftovers.unknown).toEqual([NOTE]);
-    expect(needsAgent(run, false)).toBe(true);
+    expect(needsAgent(run)).toBe(true);
     expect(run.report).toContain(`unknown: ${NOTE} — its name matches *_token*, so it may be a secret: not ignored, not committed`);
     expect(run.report).toContain("Ignored:\n  .env.local (a secret; .gitignore: /.env.local)");
   });
@@ -566,13 +566,13 @@ describe("needsAgent", () => {
   const run = (status: RunEnvelope["status"], leftovers: Partial<RunEnvelope["leftovers"]> = {}) =>
     ({ status, leftovers: { unresolved: [], unknown: [], media: [], ...leftovers } }) as RunEnvelope;
 
-  test("a blocked push or an unknown file goes to the agent; media only at a terminal", () => {
-    expect(needsAgent(run("complete"), true)).toBe(false);
-    expect(needsAgent(run("failed"), true)).toBe(false);
-    expect(needsAgent(run("needs-judgment"), false)).toBe(true);
-    expect(needsAgent(run("complete", { unknown: ["misc/blob.dat"] }), false)).toBe(true);
-    expect(needsAgent(run("complete", { media: [{ path: "photos/eagle.jpg", bytes: 2048 }] }), false)).toBe(false);
-    expect(needsAgent(run("complete", { media: [{ path: "photos/eagle.jpg", bytes: 2048 }] }), true)).toBe(true);
+  test("a blocked push or an unknown file goes to the agent; media never does (#2780)", () => {
+    expect(needsAgent(run("complete"))).toBe(false);
+    expect(needsAgent(run("failed"))).toBe(false);
+    expect(needsAgent(run("needs-judgment"))).toBe(true);
+    expect(needsAgent(run("complete", { unknown: ["misc/blob.dat"] }))).toBe(true);
+    // Media awaits hygiene review, at a terminal or not.
+    expect(needsAgent(run("complete", { media: [{ path: "photos/eagle.jpg", bytes: 2048 }], mediaPending: 1 }))).toBe(false);
   });
 });
 

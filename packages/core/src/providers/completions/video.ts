@@ -12,12 +12,18 @@ function wait(signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Concrete Files API lifecycle. Only files created by this request are deleted. */
+/**
+ * Concrete Files API lifecycle. Only files created by this request are deleted.
+ * `send` is the transport deletion uses once the request's own is cancelled:
+ * the network by default, or the host's provider relay in a worker that holds
+ * no key (#2738).
+ */
 export async function withVideoFiles(
   ai: Pick<GoogleGenAI, "files">,
   parts: ContentPart[],
   signal: AbortSignal,
   generate: (parts: ContentPart[]) => Promise<string>,
+  send?: typeof fetch,
 ): Promise<string> {
   const uploaded: string[] = [];
   let result: string | undefined;
@@ -60,8 +66,9 @@ export async function withVideoFiles(
           abortSignal: AbortSignal.timeout(10_000), httpOptions: {
             timeout: 10_000,
             // Override this request's bound transport, preserving its API key
-            // while giving deletion a fresh deadline after cancellation.
-            fetch: (input, init) => fetch(input, init),
+            // (or its route through the relay) while giving deletion a fresh
+            // deadline after cancellation.
+            fetch: (input, init) => (send ?? fetch)(input, init),
           },
         } });
       } catch {

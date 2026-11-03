@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:227-231`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:232-236`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -620,11 +620,13 @@ the key and forwards it as the turn's own egress (G5). A key goes only to its
 built-in first-party origin, or to an exact origin the operator lists for that
 key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
 the backends' origin rulings grant the CLI nothing by analogy
-(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:255-260`).
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:323-328`).
 The inference relay's placeholder is not a key: the launcher names a key that
 holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
-reaches the host's key instead of failing authentication. Video and the `jev`
-reranker are not relayed and keep the named roadblock.
+reaches the host's key instead of failing authentication. The `jev` reranker
+is not relayed and keeps the named roadblock. Video was excluded from #1673's
+first slice; #2738 relays its Files lifecycle, admitting only upload URLs the
+host validated and the handles that turn's relay created.
 
 **Why tier B is protected by default.** Allow rules in project settings would
 skip the server's approval prompts. Releasing one is a policy choice the user
@@ -1065,7 +1067,7 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
@@ -1360,10 +1362,10 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:105`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:110`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
-`packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
+`packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
 or authority. Both also retain observations in host-private records and restore them before
 resumed native tools run. Claude keeps these records beside its transcript
@@ -1373,7 +1375,7 @@ the canonical brain root and native session identity; filenames contain only a
 SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
 regular-file validation and a 16 MiB per-session metadata bound protect the
 record (`saveNativeObservations`,
-`packages/ui-sdk/src/server/native-observation-storage.ts:66-79`).
+`packages/ui-sdk/src/server/native-observation-storage.ts:70-83`).
 Saves wait on the file system off the hosted server's event loop, land in call
 order, and complete before the tool they guard proceeds (#2416).
 
@@ -1899,7 +1901,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:485`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:492`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1933,7 +1935,9 @@ The capabilities note and the budget UI say so, rather than implying that G3
 covers everything.
 
 **How #1673 built it.** One relay serves the CLI's Gemini embeddings and
-non-video completions, Anthropic completions, and OpenAI and Gemini images.
+completions, Anthropic completions, and OpenAI and Gemini images; #2738 added
+the Gemini Files lifecycle a local video needs, whose upload, poll and delete
+attempts are recorded at zero cost because the Files API is free.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
 (`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
@@ -2204,7 +2208,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1910`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1911`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
