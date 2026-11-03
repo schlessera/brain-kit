@@ -79,7 +79,8 @@ export const VALUE_FLAGS = new Set([
   "revision", "action",
   "prompt", "at", "cron", "time-zone", "client-time-zone", "end-at", "scope-file",
   "attempt-timeout-ms", "max-operations", "id", "cursor",
-  "pins-file", "finding", "expect-fingerprint", "until", "reason", "handler", "input", "expect-preview",
+  "pins-file", "finding", "expect-fingerprint", "until", "reason", "handler", "input", "expect-preview", "defer",
+  "copy", "copy-sha256", "journal",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

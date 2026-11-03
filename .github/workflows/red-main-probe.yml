@@ -1,0 +1,66 @@
+# Triage probe for the red-main coordinator (#2942). Reruns only the named test
+# files at one SHA. A probe never counts as proof and never makes anything
+# mergeable; the coordinator reads its result to decide whether main is red.
+name: red-main-probe
+run-name: red-main probe ${{ inputs.purpose }} ${{ inputs.source_run }} ${{ inputs.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      purpose:
+        description: flake or bisect
+        required: true
+        type: choice
+        options: [flake, bisect]
+      source_run:
+        description: The main CI run whose failure is triaged
+        required: true
+      sha:
+        description: The commit to probe
+        required: true
+      tests:
+        description: JSON array of test files to rerun
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    # 12 minutes setup + 30 minutes proof + 3 minutes for other steps, as unit proof.
+    timeout-minutes: 45
+    steps:
+      - name: Validate dispatch identities
+        env:
+          SOURCE_RUN: ${{ inputs.source_run }}
+          PROBE_SHA: ${{ inputs.sha }}
+        run: |
+          [[ "$SOURCE_RUN" =~ ^[1-9][0-9]*$ ]] && [[ "$PROBE_SHA" =~ ^[a-f0-9]{40}$ ]]
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+          path: target
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+        working-directory: tooling
+      - run: bun install --frozen-lockfile --backend=copyfile
+        working-directory: target
+      - name: Real Chrome and offline Linux namespace prerequisites
+        timeout-minutes: 12
+        working-directory: target
+        run: bash scripts/ci-runtime-setup.sh
+      - name: Rerun only the failing test files
+        timeout-minutes: 30
+        env:
+          PROBE_TESTS: ${{ inputs.tests }}
+        run: bun tooling/scripts/red-main-cli.ts probe --target target

@@ -19,17 +19,21 @@ import {
 import { selectHygieneNext } from "../../lib/hygiene-next.js";
 import { checkHygiene, CONFIG_BLOCKER_ID, repairHandlers, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
 import { indexAll } from "../../lib/indexer.js";
+import { mediaPolicy } from "../../lib/media.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|check> — the content-hygiene log under context/hygiene/
+const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|resolve|undo|check> — the content-hygiene log under context/hygiene/
 
   reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, brain validate's corpus
       checks, silent edits, index table lag, and --extra candidates), join
       reports of the same problem into one finding with a stable ID, and
-      apply the open/snoozed/dismissed/resolved state machine to the log,
-      writing its files only where they change. --extra is a JSON array of
+      apply the open/snoozed/dismissed/kept/resolved state machine to the
+      log, writing its files only where they change. Media awaiting a decision
+      (the uncommitted MEDIA and LARGE files sync assesses, plus the scratch
+      files a conversation links) are findings of category "media"; a kept
+      entry (kept.md) holds while its permanent copy exists and is tracked. --extra is a JSON array of
       { "category", "path", "evidence", "message" } with optional "severity"
       (error|warning|info) and "urgency"; --fixed is a JSON array of
       { "path", "fix" }, the auto-fixes to record in last-run.md. When a check
@@ -39,24 +43,28 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
       index is still refreshed.
       --json envelope: { "opened", "reopened", "resolved", "stillOpen", "snoozed", "dismissed",
       "invalidated", "invalidations", "changedFiles", "detected": [{ "id", "category", "path",
-      "message", "severity", "urgency", "sources", "fingerprint" }], "autoFixed", "failedChecks" }
+      "message", "severity", "urgency", "sources", "fingerprint" }], "autoFixed", "failedChecks",
+      "kept" }
 
-  next [--extra <file.json>] [--finding <id> --dry-run]
+  next [--extra <file.json>] [--finding <id> --dry-run] [--defer <id>=<fp>,...]
       Reconcile and select one eligible canonical finding by severity, known
       urgency, age, then identity. Informational findings are counted but not
-      shown. The finding's handlers describe every available repair or manual
-      choice; handler remains "manual" for compatibility. Returns
-      { "finding", "counts" }; invalid configuration returns
+      shown, except media, which is always shown. The finding's handlers
+      describe every available repair or manual choice; handler remains
+      "manual" for compatibility. --defer skips findings left pending this
+      review pass while their fingerprint is still <fp>. Returns
+      { "finding", "counts", "media": { "awaitingReview", "setAside", "kept",
+      "links" } }, the same media counts brain sync reports; invalid configuration returns
       { "blocker": { "kind": "configuration", "message", "path", "line", "column" } }
       with exit 1 before any indexing or hygiene writes.
       --finding <id> --dry-run reads that detected open finding without
       Markdown writes, preserving the log for counts; the index is refreshed.
 
-  list [--state open|snoozed|dismissed|resolved]
+  list [--state open|snoozed|dismissed|resolved|kept]
       The log's entries.
       --json envelope: { "entries": [{ "id", "state", "path", "issue", "firstSeen",
       "lastSeen", "until", "dueAt", "resolvedBy", "resolvedOn", "sources", "severity",
-      "fingerprint", "disposition", "invalidation" }] }
+      "fingerprint", "disposition", "invalidation", "copy", "copySha256", "keptOn" }] }
 
   dismiss <id> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>]
   snooze <id> --until <date|date-time> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>]
@@ -69,7 +77,16 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
       reconcile --extra is detected only with the same --extra file.
       --json envelope: { "status": "dismissed"|"snoozed", "id", "fingerprint", "until",
       "reason", "changedFiles" }; refused: { "status": "refused", "reason":
-      "not-detected"|"stale-fingerprint", "id", "expectedFingerprint", "currentFingerprint" }`;
+      "not-detected"|"stale-fingerprint", "id", "expectedFingerprint", "currentFingerprint" }
+
+  keep-copy <id> --expect-fingerprint <fp> --copy <path> --copy-sha256 <sha256> --journal <id> [--reason <text>]
+      Reconcile, then record a media finding as kept (kept.md): its permanent
+      copy at <path> was made and verified by Keep a permanent copy. Refused,
+      with nothing written, unless the copy is a contained regular file outside
+      .brain/ and workspaces/, media.track keeps it, and it holds <sha256>.
+      --json envelope: as dismiss, with "status": "kept", "copy", "copySha256"
+      and "journal" appended; refused reasons add "not-media", "copy-missing",
+      "copy-untracked" and "copy-changed".`;
 
 const REPAIR_HELP = `
   resolve <id> --handler link-suggested|link-note|link-text|required-field
@@ -85,7 +102,7 @@ const REPAIR_HELP = `
       to recheck invalid brain.config without writing anything.
 `;
 
-const STATES: HygieneState[] = ["open", "snoozed", "dismissed", "resolved"];
+const STATES: HygieneState[] = ["open", "snoozed", "dismissed", "resolved", "kept"];
 const SEVERITIES: HygieneSeverity[] = ["error", "warning", "info"];
 
 /** A JSON array from a --extra or --fixed file. Anything malformed is a usage error, before any write. */
@@ -147,17 +164,28 @@ async function detectAndReconcile(cli: CliContext, opts: Omit<ReconcileOptions, 
   const db = openDatabase(cli.brain.dbPath);
   try {
     await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
-    const { candidates, failedChecks } = await detectCandidates(db, cli.brain, opts.now);
+    const { candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now);
     const docs = new Map(loadAuditDocs(db).map((d) => [d.path, d]));
-    const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks });
-    return { result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]) };
+    const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks, media: mediaPolicy(cli.brain.config) });
+    return { result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]), inventory: media };
   } finally {
     db.close();
   }
 }
 
-/** The disposition a `dismiss` or `snooze` asks for; malformed arguments are usage errors. */
-function dispositionRequest(sub: "dismiss" | "snooze", pos: string[], flags: Record<string, string | boolean>, now: Date): HygieneDispositionRequest {
+/** `--defer id=fp,...`: the findings left pending this review pass, at the fingerprint they were left at. */
+function readDeferred(value: string | boolean | undefined): Map<string, string> {
+  if (value === undefined) return new Map();
+  if (typeof value !== "string" || value === "") throw new UsageError("--defer needs <id>=<fingerprint>[,<id>=<fingerprint>...]");
+  return new Map(value.split(",").map((pair) => {
+    const m = /^([a-z0-9][a-z0-9_-]*-[0-9a-f]{4})=([0-9a-f]{12})$/.exec(pair);
+    if (!m) throw new UsageError(`--defer: "${pair}" is not <id>=<12-digit fingerprint>`);
+    return [m[1]!, m[2]!] as const;
+  }));
+}
+
+/** The disposition a `dismiss`, `snooze` or `keep-copy` asks for; malformed arguments are usage errors. */
+function dispositionRequest(sub: "dismiss" | "snooze" | "keep-copy", pos: string[], flags: Record<string, string | boolean>, now: Date): HygieneDispositionRequest {
   const id = pos[1];
   if (!id || pos.length > 2) throw new UsageError(`Usage: brain hygiene ${sub} <id> --expect-fingerprint <fp>${sub === "snooze" ? " --until <date|date-time>" : ""}`);
   const expectFingerprint = flags["expect-fingerprint"];
@@ -166,6 +194,17 @@ function dispositionRequest(sub: "dismiss" | "snooze", pos: string[], flags: Rec
   }
   if (flags.reason === true) throw new UsageError("--reason needs a text");
   const reason = typeof flags.reason === "string" ? flags.reason : undefined;
+  if (sub !== "keep-copy" && (flags.copy !== undefined || flags["copy-sha256"] !== undefined || flags.journal !== undefined)) {
+    throw new UsageError("--copy, --copy-sha256 and --journal are for brain hygiene keep-copy");
+  }
+  if (sub === "keep-copy") {
+    if (flags.until !== undefined) throw new UsageError("--until is for brain hygiene snooze");
+    const copy = flags.copy, sha = flags["copy-sha256"], journal = flags.journal;
+    if (typeof copy !== "string" || copy === "" || copy.startsWith("/")) throw new UsageError("--copy needs the copy's repo-relative path");
+    if (typeof sha !== "string" || !/^[0-9a-f]{64}$/.test(sha)) throw new UsageError("--copy-sha256 needs the copy's 64-digit SHA-256");
+    if (typeof journal !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(journal)) throw new UsageError("--journal needs the effect's journal ID");
+    return { kind: "kept", id, expectFingerprint, copy, copySha256: sha, journal, reason };
+  }
   if (sub === "dismiss") {
     if (flags.until !== undefined) throw new UsageError("--until is for brain hygiene snooze");
     return { kind: "dismissed", id, expectFingerprint, reason };
@@ -212,12 +251,14 @@ export const hygieneCommand: CoreCommand = {
       const now = new Date();
       if (flags.finding !== undefined && (typeof flags.finding !== "string" || !flags.finding || flags["dry-run"] !== true))
         throw new UsageError("--finding needs an ID and --dry-run");
-      const { result, findings } = await detectAndReconcile(cli, { now, extra, dryRun: flags["dry-run"] === true });
+      const deferred = readDeferred(flags.defer);
+      const { result, findings, inventory } = await detectAndReconcile(cli, { now, extra, dryRun: flags["dry-run"] === true });
       if (result.failedChecks.length > 0) {
         emit(cli.json, { blocker: { kind: "checks", failedChecks: result.failedChecks } }, () => console.error(`Review cannot start: checks failed: ${result.failedChecks.join(", ")}`));
         return 1;
       }
-      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now, typeof flags.finding === "string" ? flags.finding : undefined);
+      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now, typeof flags.finding === "string" ? flags.finding : undefined,
+        { media: mediaPolicy(cli.brain.config), inventory, deferred });
       const payload = { ...selected, finding: selected.finding
         ? { ...selected.finding, handlers: repairHandlers(cli.brain, selected.finding) } : null };
       emit(cli.json, payload, () => {
@@ -257,7 +298,7 @@ export const hygieneCommand: CoreCommand = {
     if (sub === "list") {
       const state = flags.state;
       if (state !== undefined && !STATES.includes(state as HygieneState)) {
-        throw new UsageError("--state must be open, snoozed, dismissed or resolved");
+        throw new UsageError("--state must be open, snoozed, dismissed, resolved or kept");
       }
       const entries = readHygieneLog(cli.brain.root).filter((e) => state === undefined || e.state === state);
       emit(cli.json, { entries }, () => {
@@ -267,7 +308,7 @@ export const hygieneCommand: CoreCommand = {
       return 0;
     }
 
-    if (sub === "dismiss" || sub === "snooze") {
+    if (sub === "dismiss" || sub === "snooze" || sub === "keep-copy") {
       const now = new Date();
       const request = dispositionRequest(sub, pos, flags, now);
       if (flags.extra === true) throw new UsageError("--extra needs a file");
@@ -282,6 +323,7 @@ export const hygieneCommand: CoreCommand = {
           until: request.kind === "snoozed" ? request.until : null,
           reason: request.reason?.replace(/\s+/g, " ").trim() || null,
           changedFiles: result.changedFiles,
+          ...(request.kind === "kept" ? { copy: request.copy, copySha256: request.copySha256, journal: request.journal } : {}),
         };
         emit(cli.json, payload, () => {
           console.log(`${request.kind} ${request.id}${request.kind === "snoozed" ? ` until ${request.until}` : ""}`);
@@ -302,7 +344,7 @@ export const hygieneCommand: CoreCommand = {
       }
     }
 
-    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|check>");
+    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|resolve|undo|check>");
     if (flags.extra === true) throw new UsageError("--extra needs a file");
     if (flags.fixed === true) throw new UsageError("--fixed needs a file");
     const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];

@@ -5,7 +5,8 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readd
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation } from "@schlessera/brain-ui-sdk/internal";
+import type { SessionHistoryRemovalOutcome } from "@schlessera/brain-ui-sdk/server";
 import { envSnapshot } from "./config/env.js";
 import { directory, files, isSessionId, regular, validateSessionId } from "./worker-state.js";
 
@@ -36,6 +37,16 @@ export function transcriptPaths(brainPath: string, env: Record<string, string | 
   if (existsSync(config)) directory(config);
   const project = brain.replace(/[^a-zA-Z0-9]/g, "-");
   return { live: join(config, "projects", project), archive: join(config, "transcript-archive", project) };
+}
+
+/** Content-free tombstones of explicitly retired sessions (#3229); permanent. */
+export function retiredDirectory(brainPath: string, env?: Record<string, string | undefined>): string {
+  return join(transcriptPaths(brainPath, env).archive, "retired");
+}
+/** A tombstone, aliased or not, fences the session: archive and restore never touch it again. */
+function retiredOnDisk(archive: string, id: string): boolean {
+  try { lstatSync(join(archive, "retired", id)); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ENOENT"; }
 }
 
 function syncTree(path: string) {
@@ -147,7 +158,8 @@ export function restoreArchivedSession(id: string, options: ArchiveOptions): voi
   validateSessionId(id);
   const { live, archive } = transcriptPaths(options.brainPath, options.env);
   const source = join(archive, id);
-  if (!existsSync(source)) return;
+  // A retired chat's archived copy is never restored, even if its removal has not finished.
+  if (!existsSync(source) || retiredOnDisk(archive, id)) return;
   const record = manifest(archive, id);
   // Never overwrite a newer live version. Archiving only takes idle files, so
   // a live file that differs is the newer one: keep it in place, set the
@@ -230,7 +242,7 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
     // Recovery precedes fresh moves. Committed manifests are immutable, so a
     // lost index write or partially removed source is safe to retry.
     for (const record of manifests(archive, options.log)) {
-      if (active.has(record.session.id)) continue;
+      if (active.has(record.session.id) || retiredOnDisk(archive, record.session.id)) continue;
       if (existsSync(join(archive, record.session.id, "restoring"))) {
         restoreArchivedSession(record.session.id, options);
       } else {
@@ -240,7 +252,7 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
     }
     for (const session of sessions) {
       const id = session.sessionId;
-      if (!isSessionId(id) || active.has(id) || existsSync(join(archive, id))) continue;
+      if (!isSessionId(id) || active.has(id) || existsSync(join(archive, id)) || retiredOnDisk(archive, id)) continue;
       const names = sessionFiles(live, id);
       if (!names.length) continue;
       const roots = [join(live, `${id}.jsonl`), join(live, id)].filter(existsSync);
@@ -271,4 +283,40 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
     try { (options.log ?? ((message, reason) => console.warn(message, reason)))("Claude transcript archival failed", error); }
     catch { /* Logging cannot fail a completed turn either. */ }
   } finally { if (claimed) scanning.delete(claimed); }
+}
+
+/**
+ * Remove every artifact this backend owns for one retired session (#3229):
+ * its live transcript and subordinate tree, its archived, staged and
+ * conflict copies and index entry, its display and prompt metadata and its
+ * file observations. Synchronous, so no archive step or restore interleaves.
+ * Only names derived from the validated session identity are touched; a
+ * redirected root or aliased artifact is left alone and reported partial.
+ */
+export function removeClaudeSession(id: string, options: Pick<ArchiveOptions, "brainPath" | "env">): SessionHistoryRemovalOutcome {
+  validateSessionId(id);
+  const { live, archive } = transcriptPaths(options.brainPath, options.env);
+  const config = dirname(dirname(live));
+  const outcomes: SessionHistoryRemovalOutcome[] = [
+    removeOwnedArtifact(live, `${id}.jsonl`),
+    removeOwnedArtifact(live, id),
+    removeOwnedArtifact(archive, id),
+    ...ownedNames(archive, name => name.startsWith(`.conflict-${id}-`) || name.startsWith(`.pending-${id}-`))
+      .map(name => removeOwnedArtifact(archive, name)),
+  ];
+  // The index carries titles: drop this entry and keep every other one as it was.
+  const indexPath = join(archive, "index.json");
+  if (existsSync(indexPath)) {
+    const entries = JSON.parse(regular(indexPath, METADATA_BYTES).toString()) as ArchivedSession[];
+    if (!Array.isArray(entries)) throw new Error("Invalid transcript archive index");
+    if (entries.some(entry => entry?.id === id)) index(archive, entries.filter(entry => entry?.id !== id));
+  }
+  if (existsSync(options.brainPath)) {
+    const brain = realpathSync(options.brainPath);
+    outcomes.push(
+      removeMetadataFile({ dir: join(archive, "native-observations"), name: `${nativeObservationIdentity(brain, id)}.json` }),
+      removeMetadataFile(sessionReplayLocation(config, brain, id)),
+      removeMetadataFile(sessionPromptContextLocation(config, brain, id)));
+  } else outcomes.push("unknown");
+  return combineRemovalOutcomes(outcomes);
 }

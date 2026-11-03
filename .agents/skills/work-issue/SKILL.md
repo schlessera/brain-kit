@@ -165,6 +165,7 @@ evidence, the exact next action and completion evidence needed to resume**:
 | Evidence of the reported failure | `needs: repro`; record attempts, conditions and the evidence still needed. |
 | Access, credential/login, authorized paid scope or reserved human verification | `needs: human`; finish independent work first, then put the exact human action and sanitized completion evidence in the body. |
 | Driving workflow/use case | `needs: use-case`; name the scenario that must be demonstrated. |
+| A published release or artifact | `needs: release`; name the required version and the publication evidence. |
 | Another issue/approved upstream task | `blocked`; add a canonical `Blocked by #N` line, with public cross-repo references where appropriate. |
 
 Remove `agent-ready` when readiness is false. A fully scoped task blocked
@@ -323,6 +324,22 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   merge/evidence procedure for native stacked PRs. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in
   the end-to-end request.
+
+## Main is red
+
+When any command prints `main red at <sha>` (the hosted gate, a cancelled
+proof run or an `integrate.ts` refusal), or `bun scripts/integrate.ts
+main-status --json` reports `"red": true`, follow
+[the red-main incident steps](references/red-main.md). In short: stop
+requesting proof for non-fix PRs; find the one incident issue named in the
+record and link duplicates there; try `bun scripts/red-main-incident.ts claim`
+— exactly one orchestrator wins it; the claimant assesses the cause, records
+its choice of a fix PR or a targeted revert PR (or explicit uncertainty) with
+the rationale, declares the PR and merges it through the normal route;
+everyone else posts evidence with `bun scripts/red-main-incident.ts evidence`.
+Keep coding and running fast checks meanwhile, and resume proof when
+`main-status` reports green. Never open a second incident. This does not end
+or replace work on your own claimed issue.
 
 ## Finish or hand off
 

@@ -32,6 +32,10 @@ export interface ViewerToolbarProps {
    * tab (#1084). Absent for every other kind.
    */
   openInTab?: string;
+  /** The untrusted-mark control (#2673), between Copy path and Share; null when none applies. */
+  untrusted?: ReactNode;
+  /** The untrusted cue or lookup line under the path. */
+  untrustedCue?: ReactNode;
   onMode: (mode: ViewMode) => void;
   onCopyPath: () => void;
   onReveal: () => void;
@@ -51,8 +55,10 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
           {p.fullPath}
           {p.size !== undefined && <span className="ml-2">· {formatSize(p.size)}</span>}
         </div>
+        {p.untrustedCue}
       </div>
       <IconButton size="md" name="Copy path" glyph={p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={p.onCopyPath} />
+      {p.untrusted}
       {p.openInTab && (
         <a
           href={p.openInTab}

@@ -24,6 +24,7 @@ describe("createPiBackend (no LLM)", () => {
         costReporting: true,
         concurrentSessions: true,
         followUp: true,
+        historyRemoval: true,
       });
     } finally {
       brain.cleanup();
