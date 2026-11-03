@@ -146,6 +146,7 @@ export const NEEDS_LABELS: LabelSpec[] = [
   needs("repro", "Blocked on a reproduction."),
   needs("human", "Waiting on an action only a human can perform. State the required action in the issue."),
   needs("use-case", "Deliberately parked until something real drives it."),
+  needs("release", "Waiting on a published release or artifact. State the required version and publication evidence."),
 ];
 
 /** Everything that is not a namespace. */
