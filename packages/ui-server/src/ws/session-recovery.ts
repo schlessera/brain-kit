@@ -11,15 +11,20 @@ export async function requireKnownSession(host: WsHost, ws: WSContext, connectio
     await withinStorageBudget(Promise.resolve(host.catalog.settled?.()), "Session admission settlement");
     if (connection.authorization.expiresAt <= Date.now()) host.expireAuthorizationContexts();
     if (host.closing || connection.closed || !connection.authorization.valid) return false;
+    // A retired chat is gone for every caller, however its id was retained (#3230).
+    if (host.catalog.chatRetired?.({ sessionId })) {
+      host.sendMessage(ws, { type: "error", sessionId, ...(requestId ? { requestId } : {}), code: "SESSION_NOT_FOUND",
+        message: "This conversation is not available on this host. Start a New conversation; your draft is kept." });
+      return false;
+    }
     // Older catalogs may expose ownership without the optional existence read.
-    const exists = host.catalog.hasSession?.(sessionId)
-      ?? (host.catalog.getStoredBackendId(sessionId) !== null ? true : undefined);
+    const exists = existsInCatalog(host, sessionId);
     if (exists === true) return true;
     if (exists === false) {
       const recovery = await readSessionRecovery(host, sessionId, connection.principal);
       if (connection.authorization.expiresAt <= Date.now()) host.expireAuthorizationContexts();
       if (host.closing || connection.closed || !connection.authorization.valid || recovery.kind === "unauthorized") return false;
-      if (recovery.kind === "ok") {
+      if (recovery.kind === "ok" && !host.catalog.chatRetired?.({ sessionId })) {
         if (allowImportedHistory) return true;
         // Imported history is real, but a read cannot invent a catalog/profile binding.
         host.sendMessage(ws, { type: "error", code: "CONVERSATION_STORAGE", sessionId, ...(requestId ? { requestId } : {}),
@@ -45,4 +50,9 @@ export async function requireKnownSession(host: WsHost, ws: WSContext, connectio
     }
   }
   return false;
+}
+
+function existsInCatalog(host: WsHost, sessionId: string): boolean | undefined {
+  return host.catalog.hasSession?.(sessionId)
+    ?? (host.catalog.getStoredBackendId(sessionId) !== null ? true : undefined);
 }

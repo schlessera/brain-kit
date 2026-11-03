@@ -46,6 +46,8 @@ import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
 import { createSessionProfileRoutes } from "./routes/session-profiles.js";
 import { createSessionRoutes } from "./routes/sessions.js";
+import { createChatDeletionRoutes } from "./routes/chat-deletions.js";
+import { createChatDeletion } from "./ws/chat-deletion.js";
 import { createDraftRoutes } from "./routes/drafts.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
@@ -963,7 +965,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
-    settled: () => host.historySettled() }));
+    settled: () => host.historySettled(), retired: target => host.catalog.chatRetired?.(target) === true }));
+  // Explicit local chat deletion (#3230), on a catalog that can retire chats.
+  if (host.catalog.retireChat && host.catalog.cleanChatStore) {
+    const chatDeletion = host.chatDeletion = createChatDeletion({ catalog: host.catalog, backends: () => registry.getBackends(),
+      busy: identities => host.chatBusy(identities), retired: (principalId, retirement) => host.chatRetired(principalId, retirement) });
+    app.route("/api", createChatDeletionRoutes({ deletion: chatDeletion, principalValid: principal => host.isPrincipalValid(principal) }));
+    // A deletion an earlier process left unfinished resumes under its own operation.
+    void chatDeletion.reconcile().catch(err => brainLog.emit({ severityText: "WARN", body: "chat deletion reconciliation failed",
+      attributes: { error: err instanceof Error ? err.message : String(err) } }));
+  }
   app.route("/api", createJournalRoutes({ journal }));
   const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
@@ -1045,7 +1056,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",
-    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
+    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files"), marks: { db, writer } })
   );
   app.route("/api", createQueueRoutes(intake));
   app.route("/api", createScheduleRoutes(schedules));

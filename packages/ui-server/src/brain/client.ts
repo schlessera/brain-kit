@@ -104,6 +104,16 @@ interface ExecResult {
 export const INDEX_DIRECTORY_CLI_VERSION = "0.44.0";
 
 /**
+ * First core release with media hygiene findings and `hygiene next --defer`
+ * (#2780). Review sends `--defer` only to leave a media finding pending, and
+ * only a CLI at or past this release reports media findings, so an older CLI
+ * is never asked for it. The release that ships it raises
+ * {@link MIN_BRAIN_CLI_VERSION} to it; tests/cli-inventory.test.ts fails a
+ * lockstep version at or past this one while the floor is lower.
+ */
+export const HYGIENE_MEDIA_CLI_VERSION = "0.45.0";
+
+/**
  * First core release with every required command and the .brain-index directory
  * (0.44.0); hygiene requires 0.41.0 and scratch pin input requires 0.42.0.
  * tests/cli-inventory.test.ts guards this floor as invocations change.

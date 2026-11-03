@@ -1,8 +1,15 @@
 import type { Logger } from "@opentelemetry/api-logs";
 import { realpath, stat } from "node:fs/promises";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import type { Database } from "bun:sqlite";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
+import type { AppEnv } from "../app-env.js";
+import type { Principal } from "../db/principals.js";
+import { getUntrustedMark, listUntrustedMarks, markKey, type UntrustedMark } from "../files/untrusted-marks.js";
+import { createUntrustedMarkWrites } from "../files/untrusted-mark-writes.js";
+import type { SqliteWriter } from "../db/write-worker.js";
 import {
+  safeResolve,
   listDirectory,
   readFileContent,
   resolveAncestors,
@@ -129,11 +136,50 @@ async function rangeResponse(
   return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${known}` } });
 }
 
-export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Hono {
+/**
+ * Who may clear an untrusted mark and see retained missing records and marker
+ * labels (#2673, authority ruling B): the human owner, by the same predicate
+ * the storage and history routes use. Every other authenticated principal is
+ * a reader.
+ */
+function isHumanOwner(principal: Principal | undefined): boolean {
+  return principal !== undefined && (principal.kind === "owner" || principal.kind === "ambient");
+}
+
+/**
+ * Whether `path` names a file this request may read: the `GET /files/content`
+ * rule, without reading it. A path that no longer resolves inside the brain
+ * (a parent became a link out of it) is as unreadable as a missing one.
+ */
+async function readableFile(path: string, brainRoot: string): Promise<boolean> {
+  try { return (await stat(await safeResolve(path, brainRoot))).isFile(); }
+  catch (err) { if (err instanceof PathEscapeError || (err as NodeJS.ErrnoException).code) return false; throw err; }
+}
+
+/**
+ * A mark as one principal may see it. Only the owner gets the marker's
+ * label, and `you` when the owner's own principal marked it; a reader's
+ * response carries no marker field at all (disclosure ruling A).
+ */
+function markView(mark: UntrustedMark, principal: Principal | undefined, missing: boolean) {
+  return {
+    path: mark.path, marked: true as const, markedAt: mark.markedAt, missing,
+    ...(isHumanOwner(principal) ? { markedBy: { label: mark.markedByLabel, you: mark.markedBy !== null && mark.markedBy === principal!.id } } : {}),
+  };
+}
+
+export interface FilesRouteDeps {
+  brainRoot: string;
+  log?: Logger;
+  /** The untrusted-mark records (#2673) and the hosted write worker they commit on. Absent: the mark routes are not mounted. */
+  marks?: { db: Database; writer?: SqliteWriter };
+}
+
+export function createFilesRoutes(deps: FilesRouteDeps): Hono<AppEnv> {
   const { brainRoot, log } = deps;
   let wikilinkBuild: Promise<void> | null = null;
   let wikilinkCache: { generatedAt: number; map: Record<string, string> } | null = null;
-  return new Hono()
+  const app = new Hono<AppEnv>()
   .get("/files/tree", async (c) => {
     const path = c.req.query("path") ?? "";
     try {
@@ -256,5 +302,82 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
       const { body, status } = errorResponse(err, log);
       return c.json(body, status);
     }
+  });
+  if (deps.marks) mountUntrustedMarks(app, brainRoot, deps.marks, log);
+  return app;
+}
+
+/**
+ * The untrusted-mark routes (#2673). Marking needs the read access
+ * `GET /files/content` already grants and a file at the path; it grants
+ * nothing further. Clearing is the owner's alone, for present and missing
+ * records. A reader never learns of a record whose file is gone, nor who
+ * marked a file: those are filtered here, not in the UI.
+ */
+function mountUntrustedMarks(app: Hono<AppEnv>, brainRoot: string, store: NonNullable<FilesRouteDeps["marks"]>, log?: Logger) {
+  const marks = { db: store.db, writes: createUntrustedMarkWrites(store.db, store.writer) };
+  const failed = (c: Context<AppEnv>, err: unknown) => { const { body, status } = errorResponse(err, log); return c.json(body, status); };
+  /** The request's record key, after the same path validation as a read. */
+  const keyFor = async (path: string | undefined) => {
+    if (!path) return { error: "missing_path" as const };
+    const key = markKey(path);
+    if (key === null) throw new PathEscapeError(path);
+    return { key, readable: await readableFile(key, brainRoot) };
+  };
+  const detail = (key: string, readable: boolean, principal: Principal | undefined) => {
+    const mark = getUntrustedMark(marks.db, key);
+    const owner = isHumanOwner(principal);
+    if (!readable && !(owner && mark)) return null;
+    return mark ? { ...markView(mark, principal, !readable), canClear: owner } : { path: key, marked: false as const, canClear: owner };
+  };
+
+  app.get("/files/untrusted", async (c) => {
+    try {
+      const target = await keyFor(c.req.query("path"));
+      if ("error" in target) return c.json(target, 400);
+      const view = detail(target.key, target.readable, c.get("principal"));
+      return view ? c.json(view) : c.json({ error: "not_found" }, 404);
+    } catch (err) { return failed(c, err); }
+  });
+
+  app.get("/files/untrusted/list", async (c) => {
+    const principal = c.get("principal");
+    const owner = isHumanOwner(principal);
+    try {
+      const rows: ReturnType<typeof markView>[] = [];
+      for (const mark of listUntrustedMarks(marks.db)) {
+        const readable = await readableFile(mark.path, brainRoot);
+        if (readable || owner) rows.push(markView(mark, principal, !readable));
+      }
+      // Missing records first, because they need the owner's action; then newest first.
+      rows.sort((a, b) => Number(b.missing) - Number(a.missing) || b.markedAt - a.markedAt || a.path.localeCompare(b.path));
+      return c.json({ marks: rows, canClear: owner });
+    } catch (err) { return failed(c, err); }
+  });
+
+  app.put("/files/untrusted", async (c) => {
+    const body = await c.req.json().catch(() => null) as { path?: unknown } | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) return c.json({ error: "invalid_body" }, 400);
+    if (body.path !== undefined && typeof body.path !== "string") return c.json({ error: "invalid_path" }, 400);
+    try {
+      const target = await keyFor(body.path as string | undefined);
+      if ("error" in target) return c.json(target, 400);
+      if (!target.readable) return c.json({ error: "not_found" }, 404);
+      const principal = c.get("principal");
+      const status = await marks.writes.mark(target.key, principal?.id ?? null, Date.now());
+      return c.json({ status, mark: detail(target.key, true, principal) });
+    } catch (err) { return failed(c, err); }
+  });
+
+  app.delete("/files/untrusted", async (c) => {
+    const principal = c.get("principal");
+    if (!isHumanOwner(principal)) return c.json({ error: "owner_required" }, 403);
+    const path = c.req.query("path");
+    if (!path) return c.json({ error: "missing_path" }, 400);
+    // A retained record is cleared by its key alone: its file may be gone.
+    const key = markKey(path);
+    if (key === null) return c.json({ error: "invalid_path" }, 400);
+    try { return c.json({ status: await marks.writes.clear(key) }); }
+    catch (err) { return failed(c, err); }
   });
 }

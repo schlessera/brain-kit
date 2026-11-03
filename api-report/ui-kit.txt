@@ -833,6 +833,7 @@ signatures (every public export and the types it is made of)
         onSend?: (value: string) => void;
         onStop?: () => void;
         onAttach?: () => void;
+        attachLabel?: string;
         onMic?: () => void;
         mic?: boolean;
         micLabel?: string;
