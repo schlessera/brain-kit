@@ -2573,4 +2573,47 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-transcript-details pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: "JetBrains Mono", ui-monospace, monospace; }
 /* Custom readable title stays in the scroll body; its dismissal has a separate
  * fixed-size header row so 200% text cannot pass under the close target. */
-.bk-overlay[data-transcript-details] .bk-overlay-close-slot { position: relative !important; top: auto !important; right: auto !important; flex: none; align-self: flex-end; margin: 8px 16px 0; }
+.bk-overlay[data-transcript-details] .bk-overlay-close-slot,
+.bk-overlay[data-status-details] .bk-overlay-close-slot { position: relative !important; top: auto !important; right: auto !important; flex: none; align-self: flex-end; margin: 8px 16px 0; }
+
+/* #3281: compact operation status. A 20px glyph in a 44px native target; the
+ * state is the glyph AND its existing semantic ink, never colour alone. Only
+ * `active` moves, on the shared `breathe` keyframe, so reduced motion reaches
+ * it through the one redefinition above (D52 scoped amendment). */
+.bk-status-indicator { display: inline-flex; position: relative; flex: none; vertical-align: middle; }
+.bk-status-indicator[data-tone="amber"] { --bk-status-ink: var(--bk-amber-ink); }
+.bk-status-indicator[data-tone="gold"] { --bk-status-ink: var(--bk-gold-ink); }
+.bk-status-indicator[data-tone="teal"] { --bk-status-ink: var(--bk-teal-ink); }
+.bk-status-indicator[data-tone="red"] { --bk-status-ink: var(--bk-red-ink); }
+.bk-status-indicator[data-tone="neutral"] { --bk-status-ink: var(--bk-neutral-ink); }
+.bk-status-indicator-slot { display: inline-block; width: 44px; height: 44px; }
+.bk-status-indicator-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 44px; height: 44px; padding: 0; margin: 0; border: 0; border-radius: 8px; background: transparent; color: var(--bk-status-ink); font: inherit; cursor: pointer; }
+.bk-status-indicator-btn:hover, .bk-status-indicator-btn[aria-expanded="true"] { background: var(--bk-color-raised); color: var(--bk-status-ink); }
+/* The paint is rounded; the 44px target is square to its corners. */
+.bk-status-indicator-btn::before { content: ""; position: absolute; inset: 0; }
+.bk-status-glyph { display: inline-flex; border-radius: 50%; }
+.bk-status-indicator[data-status-indicator="active"] .bk-status-glyph { animation: breathe 2s ease-in-out infinite; }
+.bk-status-count { position: absolute; top: 4px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); color: var(--bk-color-ink); font: 600 11px/16px "JetBrains Mono", ui-monospace, monospace; text-align: center; pointer-events: none; }
+.bk-status-tooltip { position: fixed; z-index: var(--bk-z-popover); box-sizing: border-box; max-width: min(22rem, calc(100vw - 32px)); max-height: calc(100dvh - 16px); overflow: auto; overflow-wrap: anywhere; padding: 12px; border-radius: 8px; background: var(--bk-color-raised); color: var(--bk-color-ink); box-shadow: inset 0 0 0 1px var(--bk-color-edge), 0 8px 24px var(--bk-palette-shadow); font: 400 .875rem/1.5 "Plus Jakarta Sans", sans-serif; }
+.bk-status-details { font: 400 1rem/1.5 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
+.bk-status-details h2 { font: inherit; font-weight: 600; margin: 0 0 12px; }
+.bk-status-details h2:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }
+.bk-status-details p { margin: 8px 0; }
+.bk-status-operations { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 16px; }
+.bk-status-operations > li { padding-top: 12px; border-top: 1px solid var(--bk-color-edge); }
+.bk-status-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; }
+.bk-status-state[data-tone="amber"] { color: var(--bk-amber-ink); }
+.bk-status-state[data-tone="gold"] { color: var(--bk-gold-ink); }
+.bk-status-state[data-tone="teal"] { color: var(--bk-teal-ink); }
+.bk-status-state[data-tone="red"] { color: var(--bk-red-ink); }
+.bk-status-state[data-tone="neutral"] { color: var(--bk-neutral-ink); }
+.bk-status-state-glyph { display: inline-flex; }
+.bk-status-state-word { font: 600 .75rem/1.5 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: .04em; }
+.bk-status-state-label { flex-basis: 100%; color: var(--bk-color-ink); font-weight: 600; }
+.bk-status-facts { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 4px 16px; margin: 8px 0; }
+.bk-status-facts > div { display: contents; }
+.bk-status-facts dt { color: var(--bk-color-ink-mute); font: 400 .8125rem/1.5 "JetBrains Mono", ui-monospace, monospace; }
+.bk-status-facts dd { margin: 0; font-size: .875rem; }
+@media (max-width: 480px) { .bk-status-facts { grid-template-columns: minmax(0, 1fr); gap: 0; } .bk-status-facts dd { margin-bottom: 8px; } }
+/* A wrapping row of reaching sm Buttons needs 16px between rows (#3252). */
+.bk-status-actions { display: flex; flex-wrap: wrap; gap: 16px 8px; margin-top: 12px; }
