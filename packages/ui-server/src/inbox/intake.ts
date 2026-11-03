@@ -1,12 +1,9 @@
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
-import { realpathSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { relative } from "node:path";
 import type { ShareIntakeResult } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { safeResolve } from "../files/walker.js";
+import { removeStagedArrival } from "../share/staging-fs.js";
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 
 import { shareContentHash, stageShareAt, type ShareInput } from "../share/staging.js";
@@ -50,15 +47,18 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     return db.query("SELECT * FROM inbox_intake_receipts WHERE dedup_key = ? AND state = 'committed'").get(key) as Receipt | null;
   }
   async function clean(id: string, guard?: StagingGuard): Promise<void> {
-    // safeResolve and server-only UUIDs prevent compensation touching other files.
-    for (const name of [id, `.${id}.partial`]) {
-      const path = await safeResolve(`${SHARE_STAGING_DIR}/${name}`, brainRoot);
-      // A turn's compensation judges each directory as resolved, just before removing it.
-      guard?.(relative(realpathSync(brainRoot), path));
-      await rm(path, { recursive: true, force: true });
-    }
+    // Server-only UUIDs and descriptor-anchored, no-follow removal (#2907)
+    // keep compensation inside the real staging directory. A turn's
+    // compensation judges each directory just before removing it. A refusal
+    // keeps the receipt for a later, safe retry.
+    removeStagedArrival(brainRoot, id, guard);
     await write("clean", id);
   }
+  /**
+   * Compensate every abandoned or refused arrival. A linked or changing
+   * staging directory refuses with `StagingTopologyError` and keeps the
+   * receipt, as a turn's protection refusal does.
+   */
   async function reconcile(guard?: StagingGuard): Promise<void> {
     const rows = db.query("SELECT staging_id FROM inbox_intake_receipts WHERE state = 'cleanup' OR (state = 'preparing' AND reconcile_after <= ?)").all(Date.now()) as { staging_id: string }[];
     for (const { staging_id: id } of rows) {

@@ -59,6 +59,7 @@ import { createTranscriptionWrites } from "./voice/transcription-writes.js";
 import { createSettingsWrites } from "./db/settings-writes.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
+import { StagingTopologyError } from "./share/staging-fs.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
 import { createScheduleRoutes } from "./routes/schedules.js";
@@ -526,7 +527,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   bootCleanup.push(() => intake.close());
-  await inbox.ready; await intake.reconcile();
+  await inbox.ready;
+  // A linked or changing staging directory keeps its receipts for a later,
+  // safe retry (#2907); it does not stop the server starting.
+  await intake.reconcile().catch(error => {
+    if (!(error instanceof StagingTopologyError)) throw error;
+    observability.logger("inbox").emit({ severityText: "ERROR", body: "inbox intake reconciliation refused the staging directory", attributes: { error: error.message } });
+  });
   // Aborted when close() begins: cancels module metadata still waiting for
   // admission. Aborted when close()'s grace period ends: cancels in-flight
   // shared CLI runs, admitted metadata included.
