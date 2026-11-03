@@ -47,7 +47,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:181-184`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:221-223`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:241-243`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -227,9 +227,21 @@ Each Q1 limit is checked before the work it bounds; past one, or on a note
 that is not UTF-8, the whole scan is refused and the `refs` field records
 `too-large` or `unscannable`, never a digest. The digest leaves line numbers
 out, so an unrelated edit does not reopen a decision
-(`referenceDigest`, `packages/core/src/lib/media-references.ts:435-441`).
+(`referenceDigest`, `packages/core/src/lib/media-references.ts:441-447`).
 The contract is in
 [media awaiting review](../integration-contract/package-api.md#media-awaiting-review-additive-2780).
+
+**Media effects (#2781, rev 4 §5-§7, Rollback A).** Delete, Move, Persist here
+and Keep a permanent copy are planned by the CLI against the current files,
+with every file's expected bytes before and after in one premise, and applied
+only while that premise still holds. Capture comes first: the server retains
+every pre-image in the bounded change journal before the CLI writes, and
+refuses when the journal cannot hold it. Compensation, Undo and restart
+recovery share one per-file rule: a file is put back only while it still holds
+what the effect wrote, so a later edit is never overwritten and the outcome is
+`partial` instead (`restore`, `packages/ui-server/src/inbox/media-effects.ts:107-129`).
+No all-file atomicity is claimed. The contract is in
+[media review effects](../integration-contract/package-api.md#media-review-effects-additive-2781).
 
 ## A disposition is not a repair or an authority grant
 

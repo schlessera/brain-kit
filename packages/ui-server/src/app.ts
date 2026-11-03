@@ -102,6 +102,7 @@ import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
 import { registerInboxWrites } from "./inbox/write-runtime.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
+import { createMediaEffects } from "./inbox/media-effects.js";
 import { createHygieneReviewRoutes } from "./routes/hygiene-review.js";
 import { createInboxStream } from "./inbox/stream.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
@@ -1029,6 +1030,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
   bootCleanup.push(() => reverts.close());
   host.turnReverts = reverts;
+  // Media review effects (#2781) capture in this same journal under the same
+  // writer gate. Once attached, an effect a restart interrupted is compensated.
+  const mediaGate = hostExecution.gate();
+  if (mediaGate && brain.hygiene) {
+    const hygieneCli = brain.hygiene.bind(brain);
+    hygieneReview.attachMedia(createMediaEffects(db, { brainPath: config.brainPath, journal, gate: mediaGate, lock: host.workerLock,
+      cli: args => hygieneCli(args),
+      authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } }));
+    await hygieneReview.recover();
+  }
   app.route("/api", createTurnRevertRoutes(reverts));
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).

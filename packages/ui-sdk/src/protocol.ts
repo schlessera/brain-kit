@@ -3558,21 +3558,69 @@ export interface HygieneDiff {
 }
 export interface HygieneEffect {
   kind: "hygiene";
-  /** `defer` is Leave pending (#2780): host-only, skipped for the rest of this review pass. */
-  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer";
+  /**
+   * `defer` is Leave pending (#2780): host-only, skipped for the rest of this
+   * review pass. The `media-*` operations (#2781) are a media finding's
+   * governed effects, applied only with a current previewed plan.
+   */
+  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer" | "media-delete" | "media-move" | "media-persist" | "media-keep-copy";
   findingId: string;
   fingerprint: string;
   handler?: string;
   input?: HygieneInput;
   previewToken?: string;
   undoToken?: string;
+  /** A Move's or copy's destination, as previewed (#2781). */
+  destination?: string;
+  /** The previewed media plan's premise; apply refuses `stale` when the brain no longer matches it. */
+  premiseDigest?: string;
+}
+/** A media finding's four effects (#2781). */
+export type HygieneMediaAction = "delete" | "move" | "persist" | "keep-copy";
+/** A named refusal: a result the domain expects, never an error (rev 5 §11). */
+export interface HygieneMediaRefusal { code: string; path?: string; line?: number; limit?: string; effective?: number; observed?: number }
+/** What a media effect will do, from `brain hygiene media … --dry-run` (#2781, rev 4 §9). */
+export interface HygieneMediaPlan {
+  action: HygieneMediaAction;
+  premiseDigest: string;
+  destination: string | null;
+  /** Every file or directory the effect writes, in apply order; `before`/`after` are SHA-256, `directory`, or null for absent. */
+  files: Array<{ path: string; role: "source" | "destination" | "note" | "config" | "directory"; before: string | null; after: string | null; bytes: number }>;
+  /** Bytes the journal retains before any write. */
+  captureBytes: number;
+  links: { state: "linked" | "unlinked" | "unknown"; conversations: number };
+  references: { complete: boolean; count: number };
+  rewrites: Array<{ note: string; line: number; kind: string; before: string; after: string }>;
+  blockers: Array<{ note: string; line: number; kind: string; target: string }>;
+  configDiff: { path: string; track: { before: string[]; after: string[] }; ignore: { before: string[]; after: string[] } } | null;
+  copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  resultClass: "TRACK" | "ARTIFACT" | null;
+  refusals: HygieneMediaRefusal[];
+}
+export type HygieneMediaFileState = "created" | "changed" | "removed" | "restored" | "unchanged" | "left-changed" | "conflict";
+/**
+ * A media effect's receipt (#2781, rev 4 §9). `compensated`: nothing remains
+ * of it. `partial`: some file could not be put back and is listed as
+ * `conflict` or `left-changed`. Undo availability is read when asked, from
+ * the journal's retained data and the files' current bytes.
+ */
+export interface HygieneMediaReceipt {
+  journalId: string;
+  action: HygieneMediaAction;
+  outcome: "pending" | "applied" | "kept" | "compensated" | "partial" | "refused" | "stale" | "undone";
+  reason?: string;
+  refusals?: HygieneMediaRefusal[];
+  files: Array<{ path: string; state: HygieneMediaFileState }>;
+  copySha256?: string;
+  undo: { available: boolean; reason?: string; path?: string };
 }
 export interface HygieneAction {
   findingId: string;
   fingerprint: string;
   /** Supported CLI projection, retained as display data. */
   finding: Record<string, unknown>;
-  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
+  /** `kept` (#2781) is a confirmed Keep a permanent copy; `media` is a media effect's receipt. */
+  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred" | "kept"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string }; media?: HygieneMediaReceipt };
 }
 export interface HygieneReviewState {
   version: 1;
@@ -3651,6 +3699,8 @@ export interface InboxOption {
   /** CLI-owned input descriptor; no client-selected effect. */
   input?: { type: "none" | "string" | "enum" | "date" | "strings" | "path"; values?: string[]; example?: string };
   preview?: HygieneDiff;
+  /** A media effect's previewed plan (#2781); the option applies only with it. */
+  media?: HygieneMediaPlan;
 }
 
 export interface InboxItemBase {
