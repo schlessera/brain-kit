@@ -109,9 +109,7 @@ describe("scores", () => {
   test("--out writes the same envelope that --json prints", async () => {
     const set = writeSet("out.jsonl", TOP1);
     const outPath = join(root, "evals", "runs", "latest.json");
-    // `--out` is repo-relative: an absolute path is refused, even inside the brain (#3422).
-    expect((await evalJson(["--set", set, "--out", outPath])).code).toBe(2);
-    const { code, out } = await evalJson(["--set", set, "--out", "evals/runs/latest.json"]);
+    const { code, out } = await evalJson(["--set", set, "--out", outPath]);
     expect(code).toBe(0);
     expect(JSON.parse(readFileSync(outPath, "utf-8"))).toEqual(out);
   });
@@ -278,6 +276,14 @@ describe("--out stays inside the brain", () => {
     expect(code).toBe(2);
     expect(stderr).toContain("Output path is not inside the brain");
     expect(existsSync(join(outside, "through-dir.json"))).toBe(false);
+  });
+
+  test("an absolute path through a symlinked directory that leaves the brain is refused (#3422)", async () => {
+    symlinkSync(outside, join(root, "evals", "abs-linked-dir"));
+    const { code, stderr } = await refusedOut(join(root, "evals", "abs-linked-dir", "through-abs.json"));
+    expect(code).toBe(2);
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(existsSync(join(outside, "through-abs.json"))).toBe(false);
   });
 
   test("a symlinked file inside the brain does not redirect the write", async () => {

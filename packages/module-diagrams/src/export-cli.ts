@@ -1,6 +1,6 @@
 import { existsSync,lstatSync } from "node:fs";
 import { basename,dirname,extname,join,relative } from "node:path";
-import { markdownFences,resolveWritable,writeFileSafely,renderHtmlArtifact,SCRATCH_DIR,scratchName,assertScratchWritable,writeScratchFile,isInScratch } from "@schlessera/brain/module";
+import { brainRelativeArgument,markdownFences,resolveWritable,writeFileSafely,renderHtmlArtifact,SCRATCH_DIR,scratchName,assertScratchWritable,writeScratchFile,isInScratch } from "@schlessera/brain/module";
 import {readRegularText} from "./regular-text.js";
 import { parseDiagram } from "./svg-model.js";
 import { embedDiagramFonts } from "./fonts.js";
@@ -15,7 +15,7 @@ const themes=new Set(["light","dark","print"]),formats=new Set(["svg","png","pdf
 const finding=(code:string,path:string,error:unknown):ArtifactFinding=>({code,path,message:error instanceof Error?error.message:String(error)});
 /** Bounded UTF-8 input, before a complete allocation, for files and stdin. */
 export async function readDiagramInput(root:string,input:string):Promise<{source:string;path:string;absolute:string|null}>{
- const absolute=input==="-"?null:resolveWritable(root,input);if(input!=="-"&&!absolute)throw Error("Input path must remain inside the brain");if(absolute&&!lstatSync(absolute).isFile())throw Error("Input must be a regular file");
+ const absolute=input==="-"?null:resolveWritable(root,brainRelativeArgument(root,input));if(input!=="-"&&!absolute)throw Error("Input path must remain inside the brain");if(absolute&&!lstatSync(absolute).isFile())throw Error("Input must be a regular file");
  const file=absolute?Bun.file(absolute):Bun.stdin,reader=file.stream().getReader(),chunks:Uint8Array[]=[];let size=0;
  try{for(;;){const item=await reader.read();if(item.done)break;size+=item.value.byteLength;if(size>1024*1024)throw Error("Diagram input exceeds the 1 MiB parse bound");chunks.push(item.value);}}finally{await reader.cancel();}
  return {source:new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(chunks,size)),path:absolute?relative(root,absolute):"-",absolute};
@@ -31,7 +31,7 @@ export async function exportDiagram(argv:string[],root:string):Promise<DiagramEx
  const result:DiagramExportResult={schema_version:1,ok:false,input:argv[0]??"",output:null,format:"svg",theme:"print",bytes:0,warnings:[],errors:[]};
  try{const parsed=args(argv);if(parsed.position.length!==1)throw Error("Usage: brain diagram export <file|-> --theme light|dark|print --format svg|png|pdf [--out path]");const theme=parsed.flags["--theme"]??"print",format=parsed.flags["--format"]??"svg";if(!themes.has(theme)||!formats.has(format))throw Error("Unknown diagram theme or artifact format");result.theme=theme as DiagramTheme;result.format=format as DiagramExportResult["format"];
   const input=await readDiagramInput(root,parsed.position[0]!);result.input=input.path;const checked=checkDiagram(input.source);result.warnings=checked.warnings.map(w=>finding(w.code,w.path,w.message));if(!checked.valid){result.errors=checked.errors.map(e=>finding(e.code,e.path,e.message));return result;}
-  const svg=embedDiagramFonts(toFlatSvg(input.source,result.theme)),defaultName=input.path==="-"?join(SCRATCH_DIR,scratchName(`diagram-${theme}`,format)):input.path.replace(/(?:\.diagram\.ya?ml|\.[^./\\]+)$/i,"")+`.${theme}.${format}`,output=parsed.flags["--out"]??defaultName;
+  const svg=embedDiagramFonts(toFlatSvg(input.source,result.theme)),defaultName=input.path==="-"?join(SCRATCH_DIR,scratchName(`diagram-${theme}`,format)):input.path.replace(/(?:\.diagram\.ya?ml|\.[^./\\]+)$/i,"")+`.${theme}.${format}`,output=parsed.flags["--out"]===undefined?defaultName:brainRelativeArgument(root,parsed.flags["--out"]);
   if(extname(output).toLowerCase()!==`.${format}`)throw Error("Output extension must match the artifact format");const destination=target(root,output);if(destination===input.absolute)throw Error("The source cannot be replaced by its derived artifact");if(isInScratch(root,output))assertScratchWritable(root,destination);
   let data:string|Uint8Array=svg;if(format!=="svg"){const box=/viewBox="[-0-9.]+ [-0-9.]+ ([0-9.]+) ([0-9.]+)"/.exec(svg)!;const width=Number(box[1]),height=Number(box[2]);data=await renderHtmlArtifact({html:`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0}svg{display:block}@page{size:${width}px ${height}px;margin:0}</style></head><body>${svg}</body></html>`,format:format as "png"|"pdf",width:Math.max(320,width)});}
   result.output=write(root,output,data,input.path!=="-"||!!parsed.flags["--out"]);result.bytes=typeof data==="string"?Buffer.byteLength(data):data.byteLength;result.ok=true;

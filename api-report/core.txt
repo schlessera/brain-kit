@@ -159,6 +159,7 @@ export "./module" (./src/module.ts)
   type WriteFileSafelyOptions
   WriteRefusedError
   assertScratchWritable
+  brainRelativeArgument
   buildTaxonomy
   configurationRoot
   geminiCompletions
@@ -1425,6 +1426,8 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
+  brainRelativeArgument (packages/core/src/lib/safe-path.ts)
+    export function brainRelativeArgument(root: string, arg: string): string;
   buildPathMatcher (packages/core/src/lib/reranker.ts)
     export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined;
   buildTaxonomy (packages/core/src/lib/taxonomy.ts)

@@ -59,6 +59,37 @@ export function safeResolveHeld(root: string, path: string): string | null {
 }
 
 /**
+ * A CLI path argument as the request `safeResolve` takes (#3422). An absolute
+ * argument lexically inside the brain (under the root as given or under its
+ * realpath) becomes brain-relative, `.` for the root itself. Anything else is
+ * returned unchanged, so the resolver gives its own answer: a relative
+ * argument is resolved as before, and an absolute one outside the brain, or
+ * one with a `..` segment, stays absolute and is refused. Only the spelling
+ * changes here: the relative result still goes through `safeResolve`, so a
+ * symlink on the way that leaves the brain is refused there.
+ *
+ * Every CLI argument that names a brain path goes through this before it
+ * reaches `safeResolve` or `resolveWritable`. Requests from anywhere else (MCP
+ * tools, settings, files) do not: they are repo-relative by contract.
+ */
+export function brainRelativeArgument(root: string, arg: string): string {
+  if (typeof arg !== "string" || !isAbsolute(arg)) return arg;
+  if (arg.split(/[\\/]/).includes("..")) return arg;
+  const bases = [resolve(root)];
+  try {
+    bases.push(realpathSync(root));
+  } catch {
+    // A root that does not resolve is refused by the resolver anyway.
+  }
+  for (const base of bases) {
+    const rel = relative(base, arg);
+    if (rel === "") return ".";
+    if (!isAbsolute(rel) && rel.split(sep)[0] !== "..") return rel.split(sep).join("/");
+  }
+  return arg;
+}
+
+/**
  * Resolve a path the caller may read or write: inside the brain root only.
  *
  * Containment exists so a tool argument cannot wander into `~/.ssh`. It once

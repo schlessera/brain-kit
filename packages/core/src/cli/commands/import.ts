@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { Glob } from "bun";
 
 import { stringifyDocument } from "../../lib/frontmatter.js";
-import { safeResolve, writeFileSafely } from "../../lib/safe-path.js";
+import { brainRelativeArgument, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
 import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
@@ -33,7 +33,7 @@ export const importCommand: CoreCommand = {
       throw new UsageError("Usage: brain import --stamp <dir>");
     }
 
-    const base = safeResolve(cli.brain.root, dir);
+    const base = safeResolve(cli.brain.root, brainRelativeArgument(cli.brain.root, dir));
     if (base === null) {
       throw new UsageError(`--stamp directory escapes the brain root: ${dir}`);
     }

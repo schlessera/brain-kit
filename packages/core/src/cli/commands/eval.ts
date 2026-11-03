@@ -36,7 +36,7 @@ import type {
   ScoreRow,
   SetHeader,
 } from "../../lib/retrieval-eval.js";
-import { resolveWritable, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
+import { brainRelativeArgument, resolveWritable, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
 import { isInScratch, isWriteRefusal, writeScratchFile } from "../../lib/scratch.js";
 import { hybridSearch, type SearchDeps } from "../../lib/search-engine.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
@@ -631,7 +631,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
   if (flags.lint === true) return lintSet(cli.json, root, setPath, redact);
   // Everything the CLI writes stays inside the brain (integration contract,
   // "Containment"): checked before any search runs, and again at the write.
-  const outRel = typeof flags.out === "string" ? flags.out : undefined;
+  const outRel = typeof flags.out === "string" ? brainRelativeArgument(root, flags.out) : undefined;
   if (outRel !== undefined && !resolveWritable(root, outRel)) {
     throw new UsageError(`Output path is not inside the brain: ${outRel}`);
   }

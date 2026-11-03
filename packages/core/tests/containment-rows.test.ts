@@ -12,7 +12,7 @@ import { tmpdir } from "os";
 import { join, relative } from "path";
 
 import { SCRATCH_DIR } from "../src/lib/scratch";
-import { safeResolve, safeResolveHeld } from "../src/lib/safe-path";
+import { brainRelativeArgument, safeResolve, safeResolveHeld } from "../src/lib/safe-path";
 
 const base = realpathSync(mkdtempSync(join(tmpdir(), "brain-kit-containment-rows-")));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -139,6 +139,48 @@ describe("core safeResolveHeld(root, abs): re-checking a path the caller holds (
     expect(safeResolveHeld(root, join(root, "bounce/back/a.md"))).toBeNull();
     expect(safeResolveHeld(root, join(root, "dangling-in"))).toBeNull();
     expect(safeResolveHeld(join(base, "nope"), join(base, "nope/x"))).toBeNull();
+  });
+});
+
+describe("core brainRelativeArgument(root, arg): CLI path arguments (#3422 ruling of 2026-11-03)", () => {
+  /** The argument after conversion, then `safeResolve`'s answer to it. */
+  const cli = (r: string, arg: string) => answer(safeResolve(r, brainRelativeArgument(r, arg)));
+
+  test("an absolute argument inside the brain becomes brain-relative and is accepted", () => {
+    expect(brainRelativeArgument(root, join(root, "notes/a.md"))).toBe("notes/a.md");
+    expect(brainRelativeArgument(root, root)).toBe(".");
+    expect(brainRelativeArgument(root, `${root}/`)).toBe(".");
+    expect(cli(root, join(root, "notes/a.md"))).toBe("brain/notes/a.md");
+    expect(cli(root, join(root, "notes/new.md"))).toBe("brain/notes/new.md");
+    // The root as given or its realpath: either spelling is inside the brain.
+    expect(cli(join(base, "root-link"), join(base, "root-link/notes/a.md"))).toBe("brain/notes/a.md");
+    expect(cli(join(base, "root-link"), join(root, "notes/a.md"))).toBe("brain/notes/a.md");
+  });
+
+  test("a relative argument is passed through unchanged", () => {
+    expect(brainRelativeArgument(root, "notes/a.md")).toBe("notes/a.md");
+    expect(brainRelativeArgument(root, "notes/../x")).toBe("notes/../x");
+  });
+
+  test("an absolute argument outside the brain stays absolute and is refused", () => {
+    for (const arg of [join(outside, "secret.md"), `${root}-other/secret.md`, "/", join(root, "notes/../../brain-other/secret.md")]) {
+      expect(brainRelativeArgument(root, arg)).toBe(arg);
+      expect(cli(root, arg)).toBe("refused");
+    }
+  });
+
+  test("a `..` segment keeps the argument absolute, even when its result would stay inside", () => {
+    const arg = join(root, "notes") + "/../file.md";
+    expect(brainRelativeArgument(root, arg)).toBe(arg);
+    expect(cli(root, arg)).toBe("refused");
+  });
+
+  test("an absolute argument through a link that leaves the brain is refused", () => {
+    expect(brainRelativeArgument(root, join(root, "link-out/secret.md"))).toBe("link-out/secret.md");
+    expect(cli(root, join(root, "link-out/secret.md"))).toBe("refused");
+    expect(cli(root, join(root, "link-out/new.md"))).toBe("refused");
+    expect(cli(root, join(root, "bounce/back/a.md"))).toBe("refused");
+    expect(cli(root, join(root, "dangling-in"))).toBe("refused");
   });
 });
 
