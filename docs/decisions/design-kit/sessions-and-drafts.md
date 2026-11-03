@@ -22,10 +22,19 @@ of the [six-part #943 design](https://github.com/schlessera/brain-kit/issues/943
 (2026-10-04) with its four residual answers, R1–R4 (2026-10-05). Where
 those later rulings do not replace it, the supplied navigation and
 parallel-session designs still bind; §8 lists what carries over. The measured input is
-[`docs/plans/navigation-recovery.md`](../../plans/navigation-recovery.md)
+[`docs/plans/navigation-recovery.md`](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/navigation-recovery.md)
 (#942). The row's adopted geometry is the
 [shared-row design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5998113323),
 which amends the #943 strip.
+
+> **2026-11-02 — The measured input left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #942, #943, #964, #965, #910, #951 and #979 are closed, and the Sessions
+> destination, host-backed drafts and latest-turn recovery are in source
+> (`const destinations`, `packages/ui-react/src/components/layout/desktop-routes.ts`;
+> `packages/ui-server/src/drafts/`). The report held measurements and
+> follow-up ownership, not rulings; every ruling it fed is in this entry. Read
+> it unchanged at the pinned link above. Its probes stay in the tree at
+> `scripts/probes/navigation-recovery/`.
 
 **What this amends.** D37 §1's destinations and New chat placement; D22's
 ≥1280 list pane and the space between transcript and composer; and the

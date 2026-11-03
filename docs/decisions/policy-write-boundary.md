@@ -9,10 +9,20 @@ The maintainer's three 2026-10-02 rulings on
 
 These choices bind implementation. They do not establish production containment,
 enable autonomous execution or make a release commitment. The
-[finite investigation](../plans/policy-write-boundary.md) remains evidence about
+[finite investigation](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/policy-write-boundary.md) remains evidence about
 its measured fixture. The [async collaboration decision](async-collaboration.md)
 and [voice decision](voice-permission.md#containment-shared-with-51-deliberately-not-identical)
 continue to bind authority and tool membership.
+
+> **2026-11-02 — The investigation left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #672, #674 and #676 are closed, and the workers and validated application
+> route this record selects are built, so the investigation is no longer a
+> plan. Every ruling it asked for is recorded below, and its six measured
+> escapes are retained as proof obligations in
+> [Evidence the implementation still owes](#evidence-the-implementation-still-owes).
+> Its measurements, mutation receipt and recorded environment are unchanged at
+> the pinned link above; the spike it ran is on the
+> [measurement archive](measurement-archive.md#policy-write-boundary-spike-750).
 
 ## Every writer enters through the boundary
 
