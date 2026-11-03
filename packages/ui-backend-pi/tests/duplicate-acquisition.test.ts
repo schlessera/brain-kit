@@ -81,7 +81,6 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
     await own.returns.promise;
     return result;
   });
-  const baseline = worker.processStateLedger().turnTempHeld;
   const backend = createPiBackend(options);
   const turn = (signal: AbortSignal, frames: ServerMessage[]) => startFixtureTurn(backend, brain, { prompt: "Return to Ithaca", profileId: "fixture",
     sessionId: ID, signal, workerSandbox: sandbox,
