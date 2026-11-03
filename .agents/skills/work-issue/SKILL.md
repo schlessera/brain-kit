@@ -165,6 +165,7 @@ evidence, the exact next action and completion evidence needed to resume**:
 | Evidence of the reported failure | `needs: repro`; record attempts, conditions and the evidence still needed. |
 | Access, credential/login, authorized paid scope or reserved human verification | `needs: human`; finish independent work first, then put the exact human action and sanitized completion evidence in the body. |
 | Driving workflow/use case | `needs: use-case`; name the scenario that must be demonstrated. |
+| A published release or artifact | `needs: release`; name the required version and the publication evidence. |
 | Another issue/approved upstream task | `blocked`; add a canonical `Blocked by #N` line, with public cross-repo references where appropriate. |
 
 Remove `agent-ready` when readiness is false. A fully scoped task blocked
