@@ -417,6 +417,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   announcements until it is.
 > - `Mark as seen` with no latest turn identity to store deletes the record,
 >   since there is nothing to acknowledge against.
+> - *(2026-11-03, #3406.)* An answer still being written is not the linked
+>   turn, even when it carries the turn its live frames named. History links
+>   a turn only once it has ended, so a replay strips that turn from a
+>   running answer. Before #3406, reopening a running session could beat its
+>   replay and record proof from the stale frame turn, and the tracker
+>   cleared before the turn ended.
 
 > **2026-10-06 — R3's read-only card and the shell's time, implemented by
 > #1072.** The rules are `packages/ui-react/src/lib/restored-approvals.ts`,
