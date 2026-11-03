@@ -20,6 +20,19 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Tainted destinations ask (additive, #3430)
+
+In a tainted interactive session behind the turn egress proxy, a connection to
+a host outside the session's taint allow-list and contacted hosts raises the
+existing tool-permission request (`toolName: "Network"`, `kind: "command"`)
+instead of being refused at once. An allow admits that host for the rest of
+the session. The request shape, the governance event kinds and the
+`egress_denial` reasons are unchanged; `egress_connection` gains the `reason`
+value `taint_not_approved` for a declined card. Voice and
+autonomous turns keep refusing without a request. See the
+[governance events component](integration-contract/http.md#tainted-destinations-ask-additive-3430)
+and the [decision](decisions/governed-writable-workers.md#tainted-destinations-ask).
+
 ## Shell taint behind the egress proxy (breaking before 1.0, #3429)
 
 On a turn whose worker runs behind the turn egress proxy

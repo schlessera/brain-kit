@@ -2177,7 +2177,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-166`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:80-213`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -3738,7 +3738,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:36-58`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:56-78`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -3783,7 +3783,9 @@ Taint is sticky for the session, because that content stays in the context
 window. A tainted session runs under tighter rules:
 
 - egress switches to the policy's `taint.egress` allow-list, which by default
-  is the hosts already used in the session plus the inference relay;
+  is the hosts already used in the session plus the inference relay (an
+  interactive turn asks before any other host since 2026-11-03, see
+  [below](#tainted-destinations-ask));
 - every outward action asks, even if `outward.allow` would allow it;
 - writes to steering artifacts are flagged in the journal (below).
 
@@ -3829,9 +3831,10 @@ first byte. Once the session is tainted, a new connection must pass the
 ordinary egress rules and also match `taint.egress.allow` or a host the
 session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
-`egress_denial` with reason `taint_allowlist`. The taint list narrows and never
-widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-166`). Hosts without managed
+`egress_denial` with reason `taint_allowlist` (an interactive turn asks first
+since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
+narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
+`packages/ui-server/src/brain/turn-egress.ts:80-213`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -3863,6 +3866,36 @@ reads an untrusted local file without opening a connection (`cat
 workspaces/x/README`, or a marked file) does not taint. Path detection is not
 extended to shell arguments, because parsing them is the shell classifier
 this ruling removes. File tools reading the same path still taint.
+
+<a id="tainted-destinations-ask"></a>
+
+**Tainted destinations ask — 2026-11-03
+([#3430](https://github.com/schlessera/brain-kit/issues/3430)).** This
+supersedes the refusal in the implemented note above for interactive turns.
+The silent, final refusal read as an outage: the agent saw `proxy refused the
+connection` or a bare 403, the user was never asked, and the only workaround
+was a hostname-wide `taint.egress.allow`. Now, when a tainted interactive
+turn's connection passes deny, `allowlist` mode and the byte ceiling but
+matches neither `taint.egress.allow` nor a contacted host, the proxy asks
+through the turn's tool-permission card (`toolName: "Network"`, `kind:
+"command"`, never remembered as a tool grant) before refusing
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:148-153`). The
+card names the destination, the session's first taint source and the
+consequence of allowing it
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:35-40`).
+Concurrent connections to the same host share one card. An allowed
+connection's admission adds its host to the turn's contacted hosts, and its
+charged `egress_connection` record carries the host into the session's later
+turns, so it is not asked for again; a different host still asks
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:153-164`).
+A decline refuses: the record stays an `egress_denial` with reason
+`taint_allowlist`, and the 403 carries a short reason the tool can print (`function refusal`,
+`packages/ui-sdk/src/server/egress-proxy.ts:70-74`). Stopping the turn while the
+card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
+grant surface, and autonomous turns, which have no turn proxy, refuse without
+a card as before; deny and `allowlist` mode still refuse first. Maintainer
+ruling A on #3430; B (ask only for reads) and C (keep refusing with an
+after-the-fact notice) were rejected.
 
 **Files the user marks untrusted — 2026-11-02
 ([#2673](https://github.com/schlessera/brain-kit/issues/2673)).** A user can

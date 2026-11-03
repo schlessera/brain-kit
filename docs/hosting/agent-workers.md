@@ -86,7 +86,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:77-83`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:90-96`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -1618,7 +1618,11 @@ A tainted session's outward actions all ask, whatever `outward.allow` says,
 on both backends. On the turn proxy, every admitted connection other than the
 inference relay taints the session too, and a tainted session's new
 connections reach only `taint.egress.allow` and hosts its proxies already
-admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
+admitted. In an interactive turn, a connection to any other host first shows
+a permission card naming the host and what tainted the session; allowing it
+admits that host for the rest of the session (#3430). Voice turns refuse
+without a card. Refusals, including a declined card, are `egress_denial`
+events with reason `taint_allowlist`.
 Without the proxy (hosts without managed native storage) nothing narrows
 egress, and the capabilities note says so. On a turn behind the proxy, the Bash
 classifier above is off: the proxy's connection taint is the shell signal, so

@@ -294,6 +294,22 @@ turn behind the turn egress proxy, `taint` is no longer recorded with
 the proxy still records both. The payload shape and version are unchanged, and
 stored events keep their recorded sources.
 
+<a id="tainted-destinations-ask-additive-3430"></a>
+
+**Tainted destinations ask (additive, #3430).** In a tainted interactive turn
+behind the proxy, a connection to a host outside `taint.egress.allow` and the
+session's contacted hosts now raises the existing tool-permission request
+before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
+`{ host, port, method, target }` with `target` as `host:port`, and a
+`description` naming what tainted the session and what allowing does. No
+request field, kind or card variant is added. An allowed connection records
+`egress_connection` as any admitted one does; a declined one records
+`egress_connection` with `reason: "taint_not_approved"` and the existing
+`egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
+is pending records the connection as `cancelled` with `turn_cancelled`, as any
+connection its turn stops. Voice turns refuse without a request, as before,
+with `reason: "taint_not_allowed"`.
+
 The kinds and each kind's payload are versioned separately. A payload change
 that is not purely additive bumps that kind's `schemaVersion`, and stored
 events keep the version they were written with, so a new version or a new
