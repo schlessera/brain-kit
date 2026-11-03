@@ -96,7 +96,7 @@ else
 fi`); chmodSync(shim, 0o755);
   const gh = join(bin, "gh"), actual = { sha: synthetic, tree, parents: [base, head] };
   writeFileSync(gh, `#!${process.execPath}
-    import {readFileSync,writeFileSync} from "node:fs";
+    import {readFileSync,renameSync,writeFileSync} from "node:fs";
     import {GitReservationStore,reservationTransition} from ${JSON.stringify(library)};
     const args=process.argv.slice(2), file=${JSON.stringify(apiState)}, s=JSON.parse(readFileSync(file,"utf8"));
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
@@ -121,7 +121,7 @@ fi`); chmodSync(shim, 0o755);
     else if(args[0]==="api") {
       const path=args.find(x=>x.startsWith("repos/"))??args[1];
       if(s.mode==="confirm-held"&&s.requested&&path.includes("actions/workflows/ci.yml/runs")){
-        writeFileSync(${JSON.stringify(join(dir, "held"))},JSON.stringify({pid:process.pid,start:readFileSync("/proc/self/stat","utf8").split(") ").at(-1).split(" ")[19]}));
+        writeFileSync(${JSON.stringify(join(dir, "held.tmp"))},JSON.stringify({pid:process.pid,start:readFileSync("/proc/self/stat","utf8").split(") ").at(-1).split(" ")[19]}));renameSync(${JSON.stringify(join(dir, "held.tmp"))},${JSON.stringify(join(dir, "held"))});
         await new Promise(()=>setInterval(()=>{},1000));
       }
       if(args.includes("--include")){console.log("HTTP/2.0 200 OK\\nDate: "+new Date(s.now).toUTCString()+"\\n\\n{}");writeFileSync(file,JSON.stringify(s));process.exit(0);}
