@@ -390,6 +390,14 @@ does not enable dispatch or alter its production gates. The additive schemas,
 refusals and replay behavior are recorded in the
 [completion contract](../integration-contract/mcp.md#interactive-share-completion-additive-1764).
 
+Amended 2026-11-02 ([#3353](https://github.com/schlessera/brain-kit/issues/3353)):
+the finite attempt budget bounds autonomous retries, and a bound filing turn is
+the user's own retry. Interactive claims therefore spend no attempts and ignore
+retry backoff, and the bound session can reclaim a share that earlier
+attempt-counting turns left `failed`, retiring its exhausted-retries Action. A
+retained file's link counts when its Markdown destination resolves to the
+retained path from the filed document's folder, as a renderer would follow it.
+
 ## Alternatives rejected
 
 - **Only staged-share listing, approval pushes and a hygiene UI.** Useful slices,
