@@ -86,7 +86,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:77-83`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:80-86`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -1372,10 +1372,16 @@ runs on arrival and again just before dispatch. Nothing is reserved in advance, 
 blocked complete and are counted: a busy turn can end slightly above its
 stop.
 
-**Egress.** A turn's relayed request is ordinary turn egress (G5): it passes
-the turn's deny, allowlist and taint rules and byte ceiling, and appears as an
-`egress_connection` with the provider's host and path. An `allowlist` policy
-therefore has to allow the provider's host for the CLI to reach it.
+**Egress.** A turn's relayed request is turn egress (G5): it passes the turn's
+deny and allowlist rules and byte ceiling, and appears as an
+`egress_connection` with the provider's host and path, tagged `provider: true`. An `allowlist` policy
+therefore has to allow the provider's host for the CLI to reach it. Since
+#3246, a relayed request neither taints the session nor is narrowed by its
+taint. Reranking and WebFetch therefore work in either order, and content can
+still reach an approved provider after untrusted input. The worker's own
+connections to the provider's host stay narrowed, in that turn and in later
+ones: the tag keeps the relay's request from making the host a contacted one
+([G6](../decisions/governed-writable-workers.md#untrusted-input-g6)).
 
 **Every governed and strict turn has the relay.** The server boots only on
 managed native storage (#1793), and a turn whose startup view the native

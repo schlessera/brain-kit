@@ -66,7 +66,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     method: z.string().min(1).max(20), path: z.string().max(16384).optional(), bytes: count,
     accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
-    inference: z.literal(true).optional(), reason: z.string().max(200).optional(),
+    inference: z.literal(true).optional(), provider: z.literal(true).optional(), reason: z.string().max(200).optional(),
   })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),
