@@ -38,6 +38,22 @@ The fifth drop answered the eleven questions the maintainer forwarded
    its reason rather than omitted. The query is a real input.
 4. **The composer is kit-owned.** The app's `ComposerView` retires; the app
    keeps only the attach sheet, the provider list and the handlers.
+
+   > **2026-11-02 — Clarified by #3045 (maintainer ruling of 2026-10-29).**
+   > The attach trigger's name and pointer tooltip list the menu's current
+   > actions; live conversation is reached through it. The name always starts
+   > with "Attach" and, when live conversation is available, reads
+   > "Attach — live conversation, photo, camera, files"; otherwise
+   > "Attach — photo, camera, files". The kit `Composer` takes that name as
+   > its additive `attachLabel` prop and paints it as a tooltip after 400ms
+   > of hover and at once on keyboard focus, dismissed by Escape or by opening
+   > the menu, and never under `(hover: none)`. On touch the attach sheet's
+   > subtitle names the same actions, and instructions say "Tap the paperclip
+   > (Attach), then Live conversation." A dictating composer's trigger stays
+   > inert, with no name and no tooltip. This clarifies §4 and the reviewed
+   > composer detail (capture is a menu behind attach); it adds no separate
+   > entry, no persistent desktop label and no touch long-press, and the kit
+   > and the menu keep their ownership.
 5. **No snooze on a blocking approval**; "Always allow" has no key.
 6. **Focus after the last decision in a list goes to the `EmptyState` heading
    that replaces the section, with the `InlineToast` receipt above it**; the
