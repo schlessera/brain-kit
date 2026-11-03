@@ -10,7 +10,7 @@ import { getConnInfo } from "hono/bun";
  * config says `trustProxy` (TRUST_PROXY=1) — set that ONLY when a trusted
  * reverse proxy in front of brain-ui sets the forwarding header.
  */
-export interface TailscaleGuardOptions {
+interface TailscaleGuardOptions {
   /** Trust x-forwarded-for / x-real-ip. */
   trustProxy: boolean;
   /** How many trusted proxies front the app (default 1). */

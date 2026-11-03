@@ -386,7 +386,7 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webm": "video/webm",
 };
 
-export function mimeFor(name: string, kind: FileContentKind): string {
+function mimeFor(name: string, kind: FileContentKind): string {
   const ext = extOf(name);
   if (MIME_BY_EXT[ext]) return MIME_BY_EXT[ext];
   if (kind === "markdown") return "text/markdown; charset=utf-8";
@@ -395,7 +395,7 @@ export function mimeFor(name: string, kind: FileContentKind): string {
   return "application/octet-stream";
 }
 
-export interface FileContent {
+interface FileContent {
   kind: FileContentKind;
   size: number;
   mtime: number;

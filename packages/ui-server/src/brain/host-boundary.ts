@@ -44,14 +44,13 @@ import { prepareMaintenanceGit } from "./maintenance-git.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
 /** Why `governed` cannot run on this server. */
-export type { GovernedUnavailableReason };
 
-export type GovernedAvailability =
+type GovernedAvailability =
   | { available: true }
   | { available: false; reason: GovernedUnavailableReason; detail: string };
 
 /** How a command meets the writer gate: not at all (a reader), shared, or exclusively. */
-export type GateUse = "none" | GateMode;
+type GateUse = "none" | GateMode;
 
 /** One evaluation of the brain's own code: its working directory is the brain. */
 export interface BrainExecution {
@@ -113,7 +112,6 @@ export interface StreamingExecution {
 }
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
-export { CREDENTIAL_FREE_ENV };
 
 /**
  * How each `brain` subcommand the server spawns meets the boundary. Every
@@ -176,7 +174,7 @@ const within = (dir: string, path: string) => path === dir || path.startsWith(`$
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */
-export function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
+function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
   const brain = real(input.brainPath);
   const cwd = real(hostExecution.cwd());
   if (within(brain, cwd)) {

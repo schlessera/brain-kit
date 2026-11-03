@@ -28,7 +28,7 @@ import { PartitionRefusedError, accountPartition, type LocalPartitions, type Par
  */
 
 /** Where the reader was, beyond the drafts themselves. */
-export interface WorkContext {
+interface WorkContext {
   sessionId: string | null;
   draftId: string;
   selectionStart: number | null;
@@ -44,7 +44,7 @@ export interface WorkContext {
 }
 
 /** What a view reports at the moment a snapshot is taken. */
-export type WorkProbe = () => Partial<Pick<WorkContext, "selectionStart" | "selectionEnd" | "scroll">>;
+type WorkProbe = () => Partial<Pick<WorkContext, "selectionStart" | "selectionEnd" | "scroll">>;
 
 /** What a restore hands back to the views, each consumed once. */
 export interface WorkRestore {
@@ -85,9 +85,9 @@ export interface LocalWork {
 }
 
 /** A pause after a change before it is written. */
-export const LOCAL_WRITE_DELAY_MS = 250;
+const LOCAL_WRITE_DELAY_MS = 250;
 /** The longest a change waits while changes keep coming. */
-export const LOCAL_WRITE_MAX_DELAY_MS = 2_000;
+const LOCAL_WRITE_MAX_DELAY_MS = 2_000;
 
 /**
  * What a transcript message says, in short: a replay rebuilds messages with
@@ -102,7 +102,7 @@ export function messageFingerprint(m: { role: string; content: string }): string
 }
 
 /** The composer's field, by the attribute the kit gives it; else an element's own id. */
-export function stableFocusId(el: Element | null): string | null {
+function stableFocusId(el: Element | null): string | null {
   if (!el || el === document.body) return null;
   if (el.matches("textarea[data-composer]")) return "composer";
   const named = el.closest("[data-focus-id]")?.getAttribute("data-focus-id");
@@ -110,7 +110,7 @@ export function stableFocusId(el: Element | null): string | null {
   return el.id ? `id:${el.id}` : null;
 }
 
-export function findByFocusId(id: string): HTMLElement | null {
+function findByFocusId(id: string): HTMLElement | null {
   if (id === "composer") return document.querySelector<HTMLElement>("textarea[data-composer]");
   if (id.startsWith("focus:")) return document.querySelector<HTMLElement>(`[data-focus-id="${CSS.escape(id.slice(6))}"]`);
   if (id.startsWith("id:")) return document.getElementById(id.slice(3));
@@ -185,7 +185,7 @@ function sameEditableSnapshot(a: ComposerDraft | undefined, b: ComposerDraft | u
   return a === b || !!a && !!b && a.edit === b.edit && a.deviceEpoch === b.deviceEpoch && sameContent(storeDraft(a), storeDraft(b));
 }
 
-export interface LocalWorkOptions {
+interface LocalWorkOptions {
   stores: BrainStores;
   partitions: LocalPartitions;
   /** This root's records, apart from another root's in the same partition. */

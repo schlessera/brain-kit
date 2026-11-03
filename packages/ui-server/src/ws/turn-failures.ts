@@ -13,7 +13,7 @@ export interface RecordedTurnFailure {
 }
 
 /** Position is among backend-normalized assistants, before local exchanges are inserted. */
-export function assistantCount(messages: SessionHistoryMessage[]): number {
+function assistantCount(messages: SessionHistoryMessage[]): number {
   return messages.filter((message) => message.role === "assistant").length;
 }
 
@@ -24,7 +24,7 @@ export function updatePrefix(hash: Bun.CryptoHasher, message: SessionHistoryMess
   hash.update("\n");
 }
 
-export function prefixDigest(messages: SessionHistoryMessage[], end: number): string {
+function prefixDigest(messages: SessionHistoryMessage[], end: number): string {
   const hash = new Bun.CryptoHasher("sha256");
   for (const message of messages.slice(0, end + 1)) updatePrefix(hash, message);
   return hash.digest("hex");

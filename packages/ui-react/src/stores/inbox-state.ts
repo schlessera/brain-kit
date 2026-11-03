@@ -30,7 +30,7 @@ import type {
  * decision is ever re-sent automatically.
  */
 
-export type DecisionKind = "commit" | "later" | "dismiss";
+type DecisionKind = "commit" | "later" | "dismiss";
 
 export interface InFlightDecision {
   kind: DecisionKind;
@@ -74,7 +74,7 @@ export type InboxOutcome =
   | { kind: "not-applied" }
   | { kind: "gone"; status: "dropped" | "expired" | "removed" };
 
-export interface InboxChangeNotice {
+interface InboxChangeNotice {
   fields: string[];
   before: InboxActionItem;
   reviewed: boolean;

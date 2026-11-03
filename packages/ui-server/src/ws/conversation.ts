@@ -51,15 +51,15 @@ import { MAX_RETAINED_RESULT_CHARS } from "./conversation-storage.js";
 import { handleChatMessage } from "./run-session.js";
 
 /** Conversations kept for resumption, live or detached, per host. */
-export const MAX_RETAINED_CONVERSATIONS = 16;
+const MAX_RETAINED_CONVERSATIONS = 16;
 /** Receipts one conversation keeps for resync; the oldest settled go first. */
-export const MAX_CONVERSATION_RECEIPTS = 64;
+const MAX_CONVERSATION_RECEIPTS = 64;
 /**
  * Request ids one conversation remembers as used. Receipts are evicted; the
  * id stays, so a reused id is refused rather than run a second time. A
  * conversation that has used this many asks the client to start a new one.
  */
-export const MAX_CONVERSATION_REQUEST_IDS = 4_096;
+const MAX_CONVERSATION_REQUEST_IDS = 4_096;
 
 interface Fragment {
   sequence: number;

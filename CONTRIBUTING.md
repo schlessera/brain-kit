@@ -441,6 +441,14 @@ internal: no compatibility promise, valid only at the same lockstep version.
 import of gray-matter. The reason is in
 [docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md).
 
+In ui-server, ui-kit and ui-react, `bun run lint` refuses an `export` in `src/`
+that no other file imports (`scripts/check-unused-exports.ts`). Drop the
+keyword, or delete the declaration if its own file does not use it either. An
+entry point's own exports and the declarations its api-report signatures
+record are exempt. Anything else that has to stay exported, such as a type
+that another file's declaration emit infers, gets an allowlist entry with a
+one-line reason in that script.
+
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs
 before `bun install` stays dependency-free.

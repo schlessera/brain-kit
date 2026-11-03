@@ -41,7 +41,7 @@ export class EmptyShareError extends Error {
   }
 }
 
-export type ShareLimitReason =
+type ShareLimitReason =
   | "too_many_files"
   | "file_too_large"
   | "share_too_large"
