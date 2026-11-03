@@ -498,6 +498,7 @@ export const TURN_TEMP_CONTRACT = defineToolContract({
 import { PROPOSE_POLICY_CHANGE_CONTRACT } from "./policy.js";
 import { INBOX_TOOL_CONTRACTS } from "./inbox.js";
 import { REFERENCE_TOOL_CONTRACTS } from "./reference.js";
+import { COMPUTE_TOOL_CONTRACTS } from "./compute.js";
 
 export const BRIDGE_TOOL_CONTRACTS = [
   PROPOSE_POLICY_CHANGE_CONTRACT,
@@ -512,6 +513,7 @@ export const BRIDGE_TOOL_CONTRACTS = [
   SHOW_BLOCK_CONTRACT,
   TURN_TEMP_CONTRACT,
   ...REFERENCE_TOOL_CONTRACTS,
+  ...COMPUTE_TOOL_CONTRACTS,
 ] as const;
 
 export type BridgeToolAdapter = ToolAdapter;
@@ -529,6 +531,7 @@ const names = [
   SHOW_BLOCK_CONTRACT.name,
   TURN_TEMP_CONTRACT.name,
   ...REFERENCE_TOOL_CONTRACTS.map(contract => contract.name),
+  ...COMPUTE_TOOL_CONTRACTS.map(contract => contract.name),
 ] as const;
 
 /**

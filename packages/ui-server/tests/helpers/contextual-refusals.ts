@@ -32,7 +32,7 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   const save = host.catalog.saveConversationTask!.bind(host.catalog);
   Object.defineProperty(host.catalog, "saveConversationTask", { value: (principal: string, receipt: Parameters<typeof save>[1]) =>
     rejectAdmission && receipt.state === "queued" ? Promise.reject(new Error("Fixture admission storage failure")) : save(principal, receipt) });
-  registerCleanup(async () => { for (const release of releases) release(); host.coordinator.reset(); await host.close(); db.close(); });
+  registerCleanup(async () => { for (const release of releases) release(); await host.close(); db.close(); });
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
   const handlers = createWsHandlers(host, testPrincipal());

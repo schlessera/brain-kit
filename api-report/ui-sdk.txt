@@ -4,6 +4,7 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
+  ACTIVITY_COMPUTE_CAPABILITY
   ALLOWED_IMAGE_MEDIA_TYPES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
@@ -442,6 +443,7 @@ export "." (./src/index.ts)
   sumModelUsage
 
 export "./client" (./src/client/index.ts)
+  ACTIVITY_COMPUTE_CAPABILITY
   ALLOWED_IMAGE_MEDIA_TYPES
   APIFY_ERROR_CODES
   APIFY_GUIDANCE
@@ -562,6 +564,23 @@ export "./client" (./src/client/index.ts)
   CHAT_DELETION_CAPABILITY
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
+  COMPUTE_CANCEL_CONTRACT
+  COMPUTE_CANCEL_TOOL_NAME
+  COMPUTE_COLLECT_CONTRACT
+  COMPUTE_COLLECT_TOOL_NAME
+  COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES
+  COMPUTE_HEALTH_CONTRACT
+  COMPUTE_HEALTH_INPUT_SCHEMA
+  COMPUTE_HEALTH_TOOL_NAME
+  COMPUTE_JOB_INPUT_SCHEMA
+  COMPUTE_PLAN_CONTRACT
+  COMPUTE_PLAN_TOOL_NAME
+  COMPUTE_REQUEST_INPUT_SCHEMA
+  COMPUTE_RUN_CONTRACT
+  COMPUTE_RUN_TOOL_NAME
+  COMPUTE_STATUS_CONTRACT
+  COMPUTE_STATUS_TOOL_NAME
+  COMPUTE_TOOL_CONTRACTS
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatDeletionNotAdmitted
@@ -615,6 +634,13 @@ export "./client" (./src/client/index.ts)
   type ClientToolDenial
   type CompleteShareInput
   type CompleteShareResult
+  type ComputeHealthToolInput
+  type ComputeJobToolInput
+  type ComputeRequestToolInput
+  type ComputeToolCall
+  type ComputeToolName
+  type ComputeToolRefusalCode
+  type ComputeToolResult
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConnectionStatus
@@ -1051,6 +1077,7 @@ export "./internal" (./src/internal.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  type CompiledWorkerCommandPolicy
   DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES
   DEFAULT_MAINTENANCE_TEMP_BYTES
   DEFAULT_OUTPUT_STAGING_BYTES
@@ -1231,6 +1258,7 @@ export "./internal" (./src/internal.ts)
   hasManagedNativeStorage
   hasWebSearchCredential
   heldCustomProviderKeys
+  hostComputeCredential
   hostMaintenanceTempLimits
   hostOutputStagingLimits
   hostProviderCredential
@@ -1362,6 +1390,7 @@ export "./internal/client" (./src/internal-client.ts)
 export "./package.json" (./package.json) [asset]
 
 export "./protocol" (./src/protocol.ts)
+  ACTIVITY_COMPUTE_CAPABILITY
   ALLOWED_IMAGE_MEDIA_TYPES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
@@ -1962,6 +1991,7 @@ export "./schemas" (./src/schemas.ts)
   validateResolutionEffect
 
 export "./server" (./src/server/index.ts)
+  ACTIVITY_COMPUTE_CAPABILITY
   ALLOWED_IMAGE_MEDIA_TYPES
   APIFY_ERROR_CODES
   APIFY_GUIDANCE
@@ -2124,6 +2154,23 @@ export "./server" (./src/server/index.ts)
   CHAT_DELETION_CAPABILITY
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
+  COMPUTE_CANCEL_CONTRACT
+  COMPUTE_CANCEL_TOOL_NAME
+  COMPUTE_COLLECT_CONTRACT
+  COMPUTE_COLLECT_TOOL_NAME
+  COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES
+  COMPUTE_HEALTH_CONTRACT
+  COMPUTE_HEALTH_INPUT_SCHEMA
+  COMPUTE_HEALTH_TOOL_NAME
+  COMPUTE_JOB_INPUT_SCHEMA
+  COMPUTE_PLAN_CONTRACT
+  COMPUTE_PLAN_TOOL_NAME
+  COMPUTE_REQUEST_INPUT_SCHEMA
+  COMPUTE_RUN_CONTRACT
+  COMPUTE_RUN_TOOL_NAME
+  COMPUTE_STATUS_CONTRACT
+  COMPUTE_STATUS_TOOL_NAME
+  COMPUTE_TOOL_CONTRACTS
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatDeletionNotAdmitted
@@ -2182,6 +2229,13 @@ export "./server" (./src/server/index.ts)
   type CompleteShareInput
   type CompleteShareResult
   type CompletedAutonomousToolCall
+  type ComputeHealthToolInput
+  type ComputeJobToolInput
+  type ComputeRequestToolInput
+  type ComputeToolCall
+  type ComputeToolName
+  type ComputeToolRefusalCode
+  type ComputeToolResult
   type ConfigurationCoverageRead
   type ConfirmPattern
   type ConfirmPatternSource
@@ -2669,6 +2723,7 @@ export "./server" (./src/server/index.ts)
   handleAskUserForm
   handleAskUserList
   handleAskUserRank
+  handleComputeTool
   handleGetCurrentLocation
   handleInboxTool
   handleQueryActivity
@@ -2818,8 +2873,32 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type BridgeToolName
   COMPLETE_SHARE_CONTRACT
   COMPLETE_SHARE_INPUT_SCHEMA
+  COMPUTE_CANCEL_CONTRACT
+  COMPUTE_CANCEL_TOOL_NAME
+  COMPUTE_COLLECT_CONTRACT
+  COMPUTE_COLLECT_TOOL_NAME
+  COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES
+  COMPUTE_HEALTH_CONTRACT
+  COMPUTE_HEALTH_INPUT_SCHEMA
+  COMPUTE_HEALTH_TOOL_NAME
+  COMPUTE_JOB_INPUT_SCHEMA
+  COMPUTE_PLAN_CONTRACT
+  COMPUTE_PLAN_TOOL_NAME
+  COMPUTE_REQUEST_INPUT_SCHEMA
+  COMPUTE_RUN_CONTRACT
+  COMPUTE_RUN_TOOL_NAME
+  COMPUTE_STATUS_CONTRACT
+  COMPUTE_STATUS_TOOL_NAME
+  COMPUTE_TOOL_CONTRACTS
   type CompleteShareInput
   type CompleteShareResult
+  type ComputeHealthToolInput
+  type ComputeJobToolInput
+  type ComputeRequestToolInput
+  type ComputeToolCall
+  type ComputeToolName
+  type ComputeToolRefusalCode
+  type ComputeToolResult
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
@@ -2903,6 +2982,8 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   visibleToolName
 
 signatures (every public export and the types it is made of)
+  ACTIVITY_COMPUTE_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const ACTIVITY_COMPUTE_CAPABILITY: "activityCompute";
   ALLOWED_IMAGE_MEDIA_TYPES (packages/ui-sdk/src/protocol.ts)
     const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
   APIFY_ERROR_CODES (packages/common/src/apify-operations.ts)
@@ -3626,7 +3707,7 @@ signatures (every public export and the types it is made of)
   ActivitySpanKind (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
   ActivitySpanOrigin (packages/ui-sdk/src/protocol.ts)
-    export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
+    export type ActivitySpanOrigin = "session" | "cron" | "autonomous" | "compute";
   ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
@@ -5375,12 +5456,44 @@ signatures (every public export and the types it is made of)
         repository: z.ZodOptional<z.ZodString>;
         revision: z.ZodOptional<z.ZodString>;
         worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_health", z.ZodObject<{
+        provider: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_plan", z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_run", z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_status", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_cancel", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_collect", z.ZodObject<{
+        job: z.ZodString;
     }, z.core.$strict>>];
   BRIDGE_TOOL_POSTURE (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_source" | "reference_worktree" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
+        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "brain_compute_cancel" | "brain_compute_collect" | "brain_compute_health" | "brain_compute_plan" | "brain_compute_run" | "brain_compute_status" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_source" | "reference_worktree" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -5585,6 +5698,7 @@ signatures (every public export and the types it is made of)
         }>;
         completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
         referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
+        compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
         apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
@@ -5918,6 +6032,120 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>], "disposition">>;
         receiptIds: z.ZodArray<z.ZodString>;
     }, z.core.$strict>;
+  COMPUTE_CANCEL_CONTRACT (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_CANCEL_CONTRACT: import("./contract.js").ToolContract<"brain_compute_cancel", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>;
+  COMPUTE_CANCEL_TOOL_NAME (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_CANCEL_TOOL_NAME: "brain_compute_cancel";
+  COMPUTE_COLLECT_CONTRACT (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_COLLECT_CONTRACT: import("./contract.js").ToolContract<"brain_compute_collect", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>;
+  COMPUTE_COLLECT_TOOL_NAME (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_COLLECT_TOOL_NAME: "brain_compute_collect";
+  COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES: number;
+  COMPUTE_HEALTH_CONTRACT (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_HEALTH_CONTRACT: import("./contract.js").ToolContract<"brain_compute_health", z.ZodObject<{
+        provider: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>;
+  COMPUTE_HEALTH_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_HEALTH_INPUT_SCHEMA: z.ZodObject<{
+        provider: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+  COMPUTE_HEALTH_TOOL_NAME (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_HEALTH_TOOL_NAME: "brain_compute_health";
+  COMPUTE_JOB_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_JOB_INPUT_SCHEMA: z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>;
+  COMPUTE_PLAN_CONTRACT (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_PLAN_CONTRACT: import("./contract.js").ToolContract<"brain_compute_plan", z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>;
+  COMPUTE_PLAN_TOOL_NAME (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_PLAN_TOOL_NAME: "brain_compute_plan";
+  COMPUTE_REQUEST_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_REQUEST_INPUT_SCHEMA: z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
+  COMPUTE_RUN_CONTRACT (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_RUN_CONTRACT: import("./contract.js").ToolContract<"brain_compute_run", z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>;
+  COMPUTE_RUN_TOOL_NAME (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_RUN_TOOL_NAME: "brain_compute_run";
+  COMPUTE_STATUS_CONTRACT (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_STATUS_CONTRACT: import("./contract.js").ToolContract<"brain_compute_status", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>;
+  COMPUTE_STATUS_TOOL_NAME (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_STATUS_TOOL_NAME: "brain_compute_status";
+  COMPUTE_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/compute.ts)
+    const COMPUTE_TOOL_CONTRACTS: readonly [import("./contract.js").ToolContract<"brain_compute_health", z.ZodObject<{
+        provider: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_plan", z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_run", z.ZodObject<{
+        argv: z.ZodArray<z.ZodString>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            max_bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodString;
+        }, z.core.$strict>>>;
+        cwd: z.ZodOptional<z.ZodString>;
+        env: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        lease_seconds: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodString;
+        retain: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_status", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_cancel", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_collect", z.ZodObject<{
+        job: z.ZodString;
+    }, z.core.$strict>>];
   CONVERSATION_CAPABILITY_KEYS (packages/ui-sdk/src/protocol.ts)
     const CONVERSATION_CAPABILITY_KEYS: readonly ["nonblockingWork", "manualEndpoint", "finalTranscript", "remoteOutputCancelAck", "exactPermissionSpeech", "echoIsolatedInput", "outputWordAlignment"];
   CONVERSATION_LIMITS (packages/ui-sdk/src/protocol.ts)
@@ -6340,6 +6568,40 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
     }
+  ComputeHealthToolInput (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeHealthToolInput = z.infer<typeof COMPUTE_HEALTH_INPUT_SCHEMA>;
+  ComputeJobToolInput (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeJobToolInput = z.infer<typeof COMPUTE_JOB_INPUT_SCHEMA>;
+  ComputeRequestToolInput (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeRequestToolInput = z.infer<typeof COMPUTE_REQUEST_INPUT_SCHEMA>;
+  ComputeToolCall (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeToolCall = {
+        tool: typeof COMPUTE_HEALTH_TOOL_NAME;
+        input: ComputeHealthToolInput;
+        toolUseId?: string;
+    } | {
+        tool: typeof COMPUTE_PLAN_TOOL_NAME | typeof COMPUTE_RUN_TOOL_NAME;
+        input: ComputeRequestToolInput;
+        toolUseId?: string;
+    } | {
+        tool: typeof COMPUTE_STATUS_TOOL_NAME | typeof COMPUTE_CANCEL_TOOL_NAME | typeof COMPUTE_COLLECT_TOOL_NAME;
+        input: ComputeJobToolInput;
+        toolUseId?: string;
+    };
+  ComputeToolName (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeToolName = (typeof COMPUTE_TOOL_CONTRACTS)[number]["name"];
+  ComputeToolRefusalCode (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeToolRefusalCode = "compute_disabled" | "provider_unknown" | "provider_unavailable" | "capability_unsupported" | "lease_required" | "policy_denied" | "approval_required" | "source_refused" | "budget_exceeded" | "concurrency_exhausted" | "accounting_unavailable" | "job_unknown";
+  ComputeToolResult (packages/ui-sdk/src/tool-contracts/compute.ts)
+    export type ComputeToolResult = ({
+        ok: true;
+    } & Record<string, unknown>) | {
+        ok: false;
+        error: {
+            code: ComputeToolRefusalCode;
+            message: string;
+        };
+    };
   ConfigurationCoverageRead (packages/ui-sdk/src/turn-journal.ts)
     export type ConfigurationCoverageRead = {
         state: "known";
@@ -7568,7 +7830,7 @@ signatures (every public export and the types it is made of)
         id: number;
         at: number;
         tool: string;
-        action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect";
+        action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run";
         target: string | null;
         decision: "policy_allowed" | "approved" | "declined" | "refused";
         historyRewrite: boolean;
@@ -11214,6 +11476,12 @@ signatures (every public export and the types it is made of)
         turnTemp?: string | false;
         referenceSource?: string | false;
         referenceWorktree?: string | false;
+        computeHealth?: string | false;
+        computePlan?: string | false;
+        computeRun?: string | false;
+        computeStatus?: string | false;
+        computeCancel?: string | false;
+        computeCollect?: string | false;
     }
   SystemStatus (packages/ui-sdk/src/protocol.ts)
     export interface SystemStatus {
@@ -13053,6 +13321,11 @@ signatures (every public export and the types it is made of)
     export function handleAskUserList(input: AskUserListInput, bridge: BackendBridge, requestId?: string): Promise<AskUserListPayload>;
   handleAskUserRank (packages/ui-sdk/src/server/bridge-tools/ask-user-rank.ts)
     export function handleAskUserRank(input: AskUserRankInput, bridge: BackendBridge, requestId?: string): Promise<AskUserRankPayload>;
+  handleComputeTool (packages/ui-sdk/src/server/bridge-tools/compute.ts)
+    export function handleComputeTool(name: ComputeToolName, input: unknown, bridge: Pick<BackendBridge, "compute">, toolUseId?: string): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handleGetCurrentLocation (packages/ui-sdk/src/server/bridge-tools/location.ts)
     export function handleGetCurrentLocation(input: GetCurrentLocationInput, bridge: BackendBridge, options: LocationHandlerOptions): Promise<LocationPayload>;
   handleInboxTool (packages/ui-sdk/src/server/bridge-tools/inbox.ts)
@@ -16661,6 +16934,7 @@ signatures (every public export and the types it is made of)
             name: z.ZodString;
             origin: z.ZodEnum<{
                 autonomous: "autonomous";
+                compute: "compute";
                 cron: "cron";
                 session: "session";
             }>;
@@ -16784,6 +17058,7 @@ signatures (every public export and the types it is made of)
             name: z.ZodString;
             origin: z.ZodEnum<{
                 autonomous: "autonomous";
+                compute: "compute";
                 cron: "cron";
                 session: "session";
             }>;
@@ -19295,6 +19570,7 @@ signatures (every public export and the types it is made of)
             name: z.ZodString;
             origin: z.ZodEnum<{
                 autonomous: "autonomous";
+                compute: "compute";
                 cron: "cron";
                 session: "session";
             }>;
@@ -19419,6 +19695,7 @@ signatures (every public export and the types it is made of)
             name: z.ZodString;
             origin: z.ZodEnum<{
                 autonomous: "autonomous";
+                compute: "compute";
                 cron: "cron";
                 session: "session";
             }>;

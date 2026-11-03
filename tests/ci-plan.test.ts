@@ -483,3 +483,26 @@ test("feedback-heavy cadence selects a changed ui-server file's heavy categories
   const draft = { ...plan, cadence: "draft" as const };
   expect(Object.values(proofSelections(draft)).some(Boolean), "DRAFT_STAYS_CHEAP").toBe(false);
 });
+
+describe("main aggregate re-plans with the metadata job's red-main set (#3541)", () => {
+  test("a push whose open incident widens the selection validates only with that snapshot", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const { emptyRedMain, openRed } = await import("../scripts/red-main");
+    const f = fixture(); f.write("docs/notes.md", "Ithaca lies west.\n"); f.git("add", "."); f.git("commit", "-qm", "docs only");
+    const head = f.git("rev-parse", "HEAD"), bad = "b".repeat(40);
+    const record = openRed(emptyRedMain(), { firstBad: bad, run: 11,
+      failures: [{ test: null, category: "browser", verdict: "real", reasons: ["in-affected-closure"], run: 11, sha: bad }] }, Date.parse("2026-07-12T00:00:00Z"));
+    const env = { GITHUB_EVENT_NAME: "push", GITHUB_SHA: head, BEFORE_SHA: f.base, HEAD_SHA: head }, event = { before: f.base };
+    // What the metadata job published: its plan includes the open red set.
+    const metadata = planFromEnvironment(f.dir, env, record); metadata.cadence = "integrated";
+    const outputs: Record<string, string> = { cadence: "integrated", red_main_oid: "a".repeat(40), ...Object.fromEntries(Object.entries(proofSelections(metadata)).map(([k, v]) => [k, String(v)])) };
+    expect(outputs.browser, "RED_SET_SELECTS_BROWSER").toBe("true");
+    expect(proofSelections(planFromEnvironment(f.dir, env)).browser, "DIFF_ALONE_SKIPS_BROWSER").toBe(false);
+    const seen: (string | undefined)[] = [];
+    expect(() => validateSelections(f.dir, event, env, outputs, oid => { seen.push(oid); return record; }), "AGGREGATE_ACCEPTS_SAME_SNAPSHOT").not.toThrow();
+    expect(seen, "AGGREGATE_READS_THE_METADATA_SNAPSHOT").toEqual(["a".repeat(40)]);
+    expect(() => validateSelections(f.dir, event, env, outputs, () => null)).toThrow("browser: required candidate selection differs from actual inputs");
+    const { red_main_oid: _omitted, ...withoutSnapshot } = outputs;
+    expect(() => validateSelections(f.dir, event, env, withoutSnapshot, () => record)).toThrow("missing its red-main coordination snapshot");
+  });
+});

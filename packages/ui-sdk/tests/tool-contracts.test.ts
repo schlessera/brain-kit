@@ -16,6 +16,7 @@ import {
   TURN_TEMP_CONTRACT,
   REFERENCE_SOURCE_CONTRACT,
   REFERENCE_WORKTREE_CONTRACT,
+  COMPUTE_TOOL_CONTRACTS,
   bridgeContractForToolName,
   parseToolPayload,
   toolBriefLines,
@@ -60,6 +61,8 @@ describe("the contract list is the single source", () => {
         turnTemp: TURN_TEMP_CONTRACT.name,
         referenceSource: REFERENCE_SOURCE_CONTRACT.name,
         referenceWorktree: REFERENCE_WORKTREE_CONTRACT.name,
+        computeHealth: "brain_compute_health", computePlan: "brain_compute_plan", computeRun: "brain_compute_run",
+        computeStatus: "brain_compute_status", computeCancel: "brain_compute_cancel", computeCollect: "brain_compute_collect",
       },
     });
     for (const contract of BRIDGE_TOOL_CONTRACTS) {
@@ -99,6 +102,7 @@ describe("the contract list is the single source", () => {
       TURN_TEMP_CONTRACT.brief(TURN_TEMP_CONTRACT.name),
       REFERENCE_SOURCE_CONTRACT.brief(REFERENCE_SOURCE_CONTRACT.name),
       REFERENCE_WORKTREE_CONTRACT.brief(REFERENCE_WORKTREE_CONTRACT.name),
+      ...COMPUTE_TOOL_CONTRACTS.map(contract => contract.brief(contract.name)),
     ]);
   });
 });

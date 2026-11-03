@@ -94,7 +94,7 @@ test("group labels also retain the rendered text floor", () => {
 
 test("width budgets follow the locked fonts, so a name that fits its box keeps its full size", async () => {
   const { fitDiagramText, TYPE_WIDTH_HEADROOM } = await import("../src/skin.js");
-  const { DIAGRAM_ADVANCES } = await import("../src/font-metrics.generated.js");
+  const { DIAGRAM_ADVANCES } = await import("../src/skin.js");
   // A 152px node leaves 136px after its 8px padding per side. Shaped in Chrome
   // with Plus Jakarta Sans 600 at 12px, "Penelope + the suitors" measures 127.9px; its budget is 132.1px.
   expect(fitDiagramText("Penelope + the suitors", "name", 136), "NAME_KEEPS_FULL_SIZE").toBe(12);

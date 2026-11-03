@@ -1286,14 +1286,17 @@ installation is absent or skewed.
 
 ## Extension interfaces
 
-These eleven seams are `@experimental` until 1.0: breaking changes are
+These thirteen seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
 own `@experimental` tag. Related experimental declarations include:
 `BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
 `SpeechSession`, `AsrClientOptions`, `AsrClientFactory`, `AsrClientRegistry`, `LiveConversationSession`,
 `LiveConversationEvent`, `ConversationScope`, `ConversationWorkRef`, `ConversationWorkResult`, `AdapterResult`, `ScrapeContext`,
 `RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
-`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
+`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome`, jobs `JobAdapter`,
+and the types the `ComputeProvider` seam is made of (`ComputeCapabilities`,
+`ComputeContext`, the outcome unions, `JobCost` and the rest listed under
+[external compute](#external-compute-seam-additive-3105)).
 [#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
 public signatures, including their reachable types, for 1.0 stability; the
 [package entry points](#package-entry-points) section states the boundary.
@@ -1320,6 +1323,7 @@ optional parameter does not change the server-owned `applyImageMask` route.
 | `AgentRunner` | `@schlessera/brain` |
 | `SkillEmitter` | `@schlessera/brain` |
 | `Reranker` | `@schlessera/brain` |
+| `ComputeProvider` | `@schlessera/brain` |
 | `AgentBackend` | `@schlessera/brain-ui-sdk/server` |
 | `SpeechProvider` | `@schlessera/brain-ui-sdk/server` |
 | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
@@ -1330,6 +1334,98 @@ optional parameter does not change the server-owned `applyImageMask` route.
 
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
+
+<a id="external-compute-seam-additive-3105"></a>
+
+### External compute seam (additive, #3105)
+
+`@schlessera/brain` exports `ComputeProvider` and `defineComputeProvider`,
+with the experimental types the seam is made of: `ComputeCapabilities`,
+`ComputeContext`, `ComputeLogger`, `ComputeOptionsSchema`, `ComputeJsonValue`,
+`ComputeRefusalCode`, `ComputeHealth`, `ComputeRefused`, `ComputeFailed`,
+`ComputeUncertain`, `ComputeExitReason`, `AllocationKey`, `SandboxRef`,
+`CommandHandle`, `AllocateRequest`, `SourceBundle`, `CommandSpec`,
+`ArtifactRequest`, `CostObservation`, `AllocateOutcome`, `FindOutcome`,
+`StageOutcome`, `ExecOutcome`, `CommandStatus`, `KillOutcome`,
+`CollectedArtifact`, `CollectOutcome`, `ReleaseOutcome` and `JobCost`.
+`@schlessera/brain/testing` adds `runComputeProviderContract` and
+`runComputeLifecycleContract` with their harness types.
+
+The `brain.config` key `compute.providers` selects instances by explicit id
+([configuration](../configuration.md#compute)); its absence keeps every
+compute operation except health refused with `compute_disabled`. The twelve
+refusal codes are the stable `ComputeRefusalCode` values. The environment
+inputs `BRAIN_COMPUTE_STATE_DIR` and `XDG_STATE_HOME` place the compute state
+directory, which must lie outside the brain checkout and is never `brain.db`.
+The built-in name `boat` resolves the separate
+`@schlessera/brain-compute-boat` package, core's optional peer; its exports
+are [their own component](#boat-compute-provider-additive-3106).
+
+The job lifecycle, store and reconciliation are first-party sharing through
+`@schlessera/brain/internal` with no compatibility promise; the CLI and MCP
+operations and their JSON shapes are specified with their own component when
+they ship. [The decision](../decisions/external-compute.md) is the contract
+design and [the guide](../extending/compute-providers.md) the authoring
+reference.
+
+<a id="boat-compute-provider-additive-3106"></a>
+
+### Hosted external compute (additive, 0.45.0, #3108)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) gains
+`COMPUTE_TOOL_CONTRACTS`, one contract per tool (`COMPUTE_HEALTH_CONTRACT`
+through `COMPUTE_COLLECT_CONTRACT`), their names, the strict input schemas
+`COMPUTE_HEALTH_INPUT_SCHEMA`, `COMPUTE_REQUEST_INPUT_SCHEMA` and
+`COMPUTE_JOB_INPUT_SCHEMA` (identical to core's), `COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES`
+and the types `ComputeToolCall`, `ComputeToolResult`, `ComputeToolRefusalCode`,
+`ComputeToolName` and the three input types. The contracts join
+`BRIDGE_TOOL_CONTRACTS` after the reference tools, so
+`BRIDGE_TOOL_POSTURE.names` and `allowedTools(adapter)` end with them, and
+`SurfaceTools` gains `computeHealth` through `computeCollect`. `/server` gains
+`handleComputeTool(name, input, bridge, toolUseId?)`, which validates the
+input and returns `{ text, isError }`, and `BackendBridge.compute?(call)`,
+through which a backend hands the host only the tool, its parsed input and the
+model's call id. `/protocol` gains `ACTIVITY_COMPUTE_CAPABILITY`, and
+`ActivitySpanOrigin` gains `compute`; the shipped `BrainWsClient` declares the
+capability. `JournalOutwardAction.action` gains `compute_run`. `/internal`
+gains `hostComputeCredential(name)`, the env chokepoint for a bound compute
+credential. Pi's internal `TOOL_RISK` classifies `brain_compute_run` and
+`brain_compute_cancel` as `mutate` and the other four as `read`; its session
+capabilities gain `compute`. The Claude backend disallows the six
+`mcp__brain__brain_compute_*` names in every session.
+
+Core's `/internal` (first-party, not a supported entry point) gains the
+operation set and driver: `createComputeOps`, `createComputeDriver`,
+`jobOutput`, `jobSettled`, `COMPUTE_TOOL_NAMES`, the three input schemas and
+their envelope types, and `ComputeApproval`. `ComputeOpsOptions.hosted?:
+{ sourcePolicy, approve, budget, recheck? }` lets a host admit with its turn's
+frozen data-to-provider rules and its own ledger, without the
+inside-a-worker refusal or a policy re-read, and `ComputeServiceOptions.recheck?(caller)`
+is asked under the admission lock before the slot count and reservation; false
+refuses `policy_denied` with nothing reserved. `ComputeRunHooks.onCreated`
+may answer `"cancel"`, which records a cancel request before the job's first
+drive, so nothing is allocated. `@schlessera/brain-ui-server`
+gains the server settings `BRAIN_UI_COMPUTE_KEYS` and
+`BRAIN_UI_COMPUTE_STATE_DIR`, and `ServerConfig.compute`. The tools are
+specified in the [MCP contract](mcp.md#external-compute-bridge-tools-additive-0450-3108).
+
+### Boat compute provider (additive, #3106)
+
+`@schlessera/brain-compute-boat` is a new lockstep package and core's optional
+peer. Its root entry exports `computeProvider` (the `ComputeProvider` the
+`boat` built-in resolves to, id `"boat"`), `defaultKeyEnv`
+(`"BRAIN_COMPUTE_BOAT_API_KEY"`), `BOAT_CAPABILITIES`, `boatOptionsSchema`
+with its `BoatOptions` type, and `BOAT_MACHINES`. The instance `options` it
+accepts are `machine`, `from`, `environment` and `org`, validated strictly.
+It imports `@schlessera/brain` for types only, depends at runtime on `zod`
+alone, ships no vendor SDK and no install script, and makes no request until a
+provider method is called. Core loads it lazily; an instance naming `boat`
+without it installed is `provider_unavailable`. Its behaviour against Boat
+(credential-free sandboxes, readiness, stop as release rather than pause,
+retention, cost and the error table) is specified in the
+[package README](../../packages/compute-boat/README.md); its conformance is
+the two suites above. Boat's environment variable for its own CLI is never
+read.
 
 <a id="dictation-speech-integration-and-conformance"></a>
 
