@@ -9,6 +9,8 @@ import { resolveModelSpec } from "./profiles.js";
 export interface SessionRuntime {
   newSession(profileId: string | undefined, env: SessionEnv): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
   openSession(sessionId: string, env: SessionEnv): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
+  /** Drop a retired session's in-memory observation cache once its turns drained (#3229). */
+  forget?(sessionId: string): void;
 }
 
 export function createSessionRuntime(options: {
@@ -34,5 +36,6 @@ export function createSessionRuntime(options: {
   return {
     newSession: (profileId, env) => acquire(env, profileId),
     openSession: (sessionId, env) => acquire(env, undefined, sessionId),
+    forget: (sessionId) => { nativeFileVersions.delete(sessionId); },
   };
 }
