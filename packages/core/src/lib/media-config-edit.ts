@@ -18,9 +18,16 @@ export interface MediaPolicyLists {
   ignore: string[];
 }
 
-/** One approved change: add an exact `media.track` entry, and remove an exact `media.ignore` entry with it. */
+/**
+ * One approved change to the two lists: at most one entry added and at most
+ * one removed, on different lists. Persist here adds a `media.track` entry
+ * and may remove the `media.ignore` entry that would still win over it;
+ * `brain config media` makes one change of any of the four kinds.
+ */
 export interface MediaPolicyEdit {
   addTrack?: string;
+  removeTrack?: string;
+  addIgnore?: string;
   removeIgnore?: string;
 }
 
@@ -136,38 +143,45 @@ function appendProperty(input: string, node: ts.ObjectLiteralExpression, file: t
 export function planMediaPolicyEdit(source: string, format: "ts" | "json", edit: MediaPolicyEdit): { text: string; lists: MediaPolicyLists } {
   const parsed = parse(source, format);
   const { file, input } = parsed;
+  const adds = (["track", "ignore"] as const).filter((l) => edit[l === "track" ? "addTrack" : "addIgnore"] !== undefined);
+  const removes = (["track", "ignore"] as const).filter((l) => edit[l === "track" ? "removeTrack" : "removeIgnore"] !== undefined);
+  if (adds.length > 1 || removes.length > 1 || (adds.length === 1 && adds[0] === removes[0])) refuse("one edit adds at most one entry and removes at most one, on different lists");
   const splices: Array<{ start: number; end: number; text: string }> = [];
-  const track = values(parsed.track), ignore = values(parsed.ignore);
-  if (edit.addTrack !== undefined && !track.includes(edit.addTrack)) {
-    const literal = JSON.stringify(edit.addTrack);
-    if (parsed.track) {
-      const last = parsed.track.elements.at(-1);
+  const lists: MediaPolicyLists = { track: values(parsed.track), ignore: values(parsed.ignore) };
+  for (const list of adds) {
+    const pattern = (list === "track" ? edit.addTrack : edit.addIgnore)!;
+    if (lists[list].includes(pattern)) continue;
+    const literal = JSON.stringify(pattern), array = parsed[list];
+    if (array) {
+      const last = array.elements.at(-1);
       if (last) splices.push({ start: last.end, end: last.end, text: `, ${literal}` });
-      else splices.push({ start: parsed.track.getStart(file), end: parsed.track.end, text: `[${literal}]` });
+      else splices.push({ start: array.getStart(file), end: array.end, text: `[${literal}]` });
     } else if (parsed.media) {
-      const { at, insert } = appendProperty(input, parsed.media, file, `"track": [${literal}]`);
+      const { at, insert } = appendProperty(input, parsed.media, file, `"${list}": [${literal}]`);
       splices.push({ start: at, end: at, text: insert });
     } else {
-      const { at, insert } = appendProperty(input, parsed.root, file, `"media": { "track": [${literal}] }`);
+      const { at, insert } = appendProperty(input, parsed.root, file, `"media": { "${list}": [${literal}] }`);
       splices.push({ start: at, end: at, text: insert });
     }
-    track.push(edit.addTrack);
+    lists[list].push(pattern);
   }
-  if (edit.removeIgnore !== undefined) {
-    const elements = parsed.ignore?.elements ?? ([] as unknown as ts.NodeArray<ts.Expression>);
-    const i = elements.findIndex((e) => (e as ts.StringLiteralLike).text === edit.removeIgnore);
-    if (i < 0) refuse(`media.ignore does not list ${JSON.stringify(edit.removeIgnore)}`);
+  for (const list of removes) {
+    const pattern = (list === "track" ? edit.removeTrack : edit.removeIgnore)!;
+    const array = parsed[list];
+    const elements = array?.elements ?? ([] as unknown as ts.NodeArray<ts.Expression>);
+    const i = elements.findIndex((e) => (e as ts.StringLiteralLike).text === pattern);
+    if (i < 0) refuse(`media.${list} does not list ${JSON.stringify(pattern)}`);
     const el = elements[i]!;
-    if (elements.length === 1) splices.push({ start: parsed.ignore!.getStart(file), end: parsed.ignore!.end, text: "[]" });
+    if (elements.length === 1) splices.push({ start: array!.getStart(file), end: array!.end, text: "[]" });
     else if (i < elements.length - 1) splices.push({ start: el.getStart(file), end: elements[i + 1]!.getStart(file), text: "" });
     else splices.push({ start: elements[i - 1]!.end, end: el.end, text: "" });
-    ignore.splice(ignore.indexOf(edit.removeIgnore), 1);
+    lists[list].splice(lists[list].indexOf(pattern), 1);
   }
   let text = input;
   for (const s of splices.sort((a, b) => b.start - a.start)) text = text.slice(0, s.start) + s.text + text.slice(s.end);
   text = text.slice(parsed.prefix.length);
   // The result must read back as exactly the intended lists.
   const after = readMediaPolicyLists(text, format);
-  if (JSON.stringify(after) !== JSON.stringify({ track, ignore })) refuse("the edited config does not read back as the intended lists");
+  if (JSON.stringify(after) !== JSON.stringify(lists)) refuse("the edited config does not read back as the intended lists");
   return { text, lists: after };
 }

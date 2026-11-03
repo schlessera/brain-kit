@@ -768,6 +768,14 @@ characters, and a glob with no `/` also matches the file name alone.
 media: { ignore: ["assets/renders/*"], track: ["me/*.jpg"] }
 ```
 
+`brain config media <add-track|remove-track|add-ignore|remove-ignore>
+<pattern>` changes one entry without running the config: it previews the
+change with `--dry-run`, including the files sync sees now that the pattern
+matches, then applies it with `--expect-sha` from that preview. It works only
+when the lists are literal arrays in a directly exported object; anything
+else is refused, for you to edit by hand
+([cli.md](integration-contract/cli.md)).
+
 ## `sync`
 
 How `brain sync` integrates remote commits and settles what git cannot: a

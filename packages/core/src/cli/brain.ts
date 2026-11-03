@@ -80,8 +80,10 @@ function beforeTerminator(args: string[]): string[] {
 // reports, and rewrites frontmatter only with --apply and no --dry-run;
 // `brain hygiene` writes under `reconcile` without --dry-run, and under
 // `dismiss` and `snooze`;
-// `brain registry` rewrites index tables unless --check.
+// `brain registry` rewrites index tables unless --check;
+// `brain config media` edits the config unless --dry-run.
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
+  config: (args) => args[0] === "media" && !args.includes("--dry-run"),
   geo: (args) => args[0] === "map",
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
   hygiene: (args) => (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
