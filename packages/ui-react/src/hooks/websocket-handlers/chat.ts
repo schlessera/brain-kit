@@ -399,9 +399,9 @@ export const chatFrameHandlers = {
     if (failed) context.state.setRetryHandle(context.key, msg.retryOfTurnId);
     context.resyncIfNeeded(msg.sessionId);
   },
-  // Receipts are consumed by the connection before transcript demultiplexing.
-  retry_receipt: () => {},
-  ask_answer_receipt: () => {},
+  // Receipts are connection-wide: they never reach a session's demux.
+  retry_receipt: (msg, context) => context.retryReceipt(msg),
+  ask_answer_receipt: (msg, context) => context.answerReceipt(msg),
   // The SDK client answers its own probes; a pong never reaches a consumer.
   pong: () => {},
   message_blocks: (msg, context) => {
