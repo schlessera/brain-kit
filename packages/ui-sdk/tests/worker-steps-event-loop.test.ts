@@ -205,21 +205,28 @@ test("an exit settles only once its release has, and a failed supervision is ref
 });
 
 test("a supervisor lost while a status request is outstanding refuses once and ignores the late answer", async () => {
-  const requests = statusRequests([{ exited: true, code: 0 }], 150);
+  // The request is held open, so it is outstanding by construction rather
+  // than by a sleep shorter than its reply.
+  const entered = Promise.withResolvers<void>(), reply = Promise.withResolvers<void>(), answered = Promise.withResolvers<void>();
+  let requests = 0;
+  const status = () => workerStep<IdentityWorkerStatus>(() => { throw new Error("IDENTITY_STATUS_MUST_NOT_BLOCK"); }, async () => {
+    entered.resolve(); await reply.promise; requests++;
+    setTimeout(answered.resolve, 0); // after the late answer's own continuation has run
+    return { exited: true, code: 0 };
+  });
   const owner = supervision();
   let lose!: (code: number) => void;
-  try {
-    const exit = identityWorkerExit(requests.status, new Promise<number>(resolve => { lose = resolve; }), owner.hooks);
-    await Bun.sleep(150);
-    expect(requests.seen.requests, "IDENTITY_REQUEST_OUTSTANDING").toBe(0);
-    lose(1);
-    const refusal = await exit.catch((error: unknown) => error);
-    expect((refusal as WorkerHostError).requirement).toBe("worker_identity_supervisor_lost (1)");
-    await Bun.sleep(200);
-    expect(requests.seen.requests).toBe(1);
-    // The late answer neither settles again nor releases the broker a second time.
-    expect(owner.state()).toEqual({ finished: true, released: 0 });
-  } finally { requests.stop(); }
+  const exit = identityWorkerExit(status, new Promise<number>(resolve => { lose = resolve; }), owner.hooks);
+  await entered.promise;
+  expect(requests, "IDENTITY_REQUEST_OUTSTANDING").toBe(0);
+  lose(1);
+  const refusal = await exit.catch((error: unknown) => error);
+  expect((refusal as WorkerHostError).requirement).toBe("worker_identity_supervisor_lost (1)");
+  reply.resolve();
+  await answered.promise;
+  expect(requests).toBe(1);
+  // The late answer neither settles again nor releases the broker a second time.
+  expect(owner.state()).toEqual({ finished: true, released: 0 });
 });
 
 test("a separate-UID maintenance launch waits for its helper worker with the event loop free", async () => {
