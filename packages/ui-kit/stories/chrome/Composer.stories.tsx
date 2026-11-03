@@ -401,10 +401,10 @@ export const RecallStatic = meta.story({
 export const AttachIsAMenu = meta.story({
   args: { onAttach: fn(), onMic: fn(), onSend: fn() },
   play: async ({ canvas, userEvent, args }) => {
-    const attach = await canvas.findByRole("button", { name: "Attach — photo, camera, file" });
+    const attach = await canvas.findByRole("button", { name: "Attach — photo, camera, files" });
     await expect(attach).toHaveAttribute("aria-haspopup", "menu");
     const names = (await canvas.findAllByRole("button")).map((b) => b.getAttribute("aria-label"));
-    await expect(names).toEqual(["Attach — photo, camera, file", "Dictate", "Send"]);
+    await expect(names).toEqual(["Attach — photo, camera, files", "Dictate", "Send"]);
     await userEvent.click(attach);
     await expect(args.onAttach).toHaveBeenCalled();
   },
