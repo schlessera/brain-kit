@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:227-231`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:232-236`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -620,11 +620,13 @@ the key and forwards it as the turn's own egress (G5). A key goes only to its
 built-in first-party origin, or to an exact origin the operator lists for that
 key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
 the backends' origin rulings grant the CLI nothing by analogy
-(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:255-260`).
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:323-328`).
 The inference relay's placeholder is not a key: the launcher names a key that
 holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
-reaches the host's key instead of failing authentication. Video and the `jev`
-reranker are not relayed and keep the named roadblock.
+reaches the host's key instead of failing authentication. The `jev` reranker
+is not relayed and keeps the named roadblock. Video was excluded from #1673's
+first slice; #2738 relays its Files lifecycle, admitting only upload URLs the
+host validated and the handles that turn's relay created.
 
 **Provider requests and taint — 2026-11-02
 ([#3246](https://github.com/schlessera/brain-kit/issues/3246)).** As built,
@@ -1073,7 +1075,7 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
@@ -1368,10 +1370,10 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:105`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:110`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
-`packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
+`packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
 or authority. Both also retain observations in host-private records and restore them before
 resumed native tools run. Claude keeps these records beside its transcript
@@ -1381,7 +1383,7 @@ the canonical brain root and native session identity; filenames contain only a
 SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
 regular-file validation and a 16 MiB per-session metadata bound protect the
 record (`saveNativeObservations`,
-`packages/ui-sdk/src/server/native-observation-storage.ts:66-79`).
+`packages/ui-sdk/src/server/native-observation-storage.ts:70-83`).
 Saves wait on the file system off the hosted server's event loop, land in call
 order, and complete before the tool they guard proceeds (#2416).
 
@@ -1907,7 +1909,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:485`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:492`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1941,7 +1943,9 @@ The capabilities note and the budget UI say so, rather than implying that G3
 covers everything.
 
 **How #1673 built it.** One relay serves the CLI's Gemini embeddings and
-non-video completions, Anthropic completions, and OpenAI and Gemini images.
+completions, Anthropic completions, and OpenAI and Gemini images; #2738 added
+the Gemini Files lifecycle a local video needs, whose upload, poll and delete
+attempts are recorded at zero cost because the Files API is free.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
 (`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
@@ -2100,7 +2104,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:334`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:344`).
 
 **What changes:**
 
@@ -2271,7 +2275,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:245-327`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:248-330`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -3803,7 +3807,7 @@ document reader whose normalized path is under `.brain-ui/inbox/` or
 outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call; and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:51-61`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:82-92`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
@@ -3838,6 +3842,52 @@ widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
 `packages/ui-server/src/brain/turn-egress.ts:60-168`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
+
+**Files the user marks untrusted — 2026-11-02
+([#2673](https://github.com/schlessera/brain-kit/issues/2673)).** A user can
+mark a brain file untrusted from Files, and the recorder above then treats an
+admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
+`Glob`, pi `read_file`, `edit_file` or `grep`, or brain-kit's own document
+reader, whose normalized brain-relative path is marked, or a search whose
+output names it, records `taint` with `source: "user_marked"` as the session's
+first source (`fileSource`,
+`packages/ui-server/src/activity/ingestion-taint.ts:74-79`). An untrusted area
+still names its own source first, and an absolute path outside the brain's
+host path is not matched against marks. A mark is looked up when the call
+completes; a lookup that fails counts as marked
+(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:236-242`).
+Shell reads are covered only by the Bash rules above, reads are never
+blocked, and a session that read the file before it was marked is not
+tainted retroactively.
+
+The marks are host records in the UI database, never `brain.db` or
+frontmatter, so they survive a restart and `brain index --force`
+(`untrustedMarkOperations`, `packages/ui-server/src/files/untrusted-marks.ts:51-63`).
+The maintainer settled five rules on 2026-10-23, and the host enforces each of
+them on direct requests (`mountUntrustedMarks`,
+`packages/ui-server/src/routes/files.ts:317-383`):
+
+- **Rename and move (B).** A mark is keyed by its brain-relative path. A file
+  that moves or disappears keeps its old-path record, which is listed as
+  missing so the owner can recover by marking the new path. Nothing follows
+  the rename, so the new path stays unmarked until it is marked, and the
+  old-path mark applies again if a file returns to that path.
+- **Authority (B).** Any authenticated principal that can already read the
+  file may mark it; marking grants no further access. Only the owner may clear
+  a mark, including a retained missing one. The owner is the human owner the
+  storage and history routes already admit, an `owner` or `ambient` principal
+  (`isHumanOwner`, `packages/ui-server/src/routes/files.ts:145-147`); no
+  role is added. Clearing stops new sessions being tainted by that file and
+  never removes a session's recorded taint.
+- **Visible scope (A).** Files views only: a toolbar control, viewer and tree
+  cues and a `Marked untrusted` list of user marks. Chat links and attachment
+  rows carry no cue.
+- **Missing records (A).** Only the owner may list or inspect a retained
+  record whose file is gone. Every other principal sees only marks on files it
+  can currently read, even a mark it made itself; the host leaves the rest out
+  of rows and counts.
+- **Marker identity (A).** The owner may see the marking principal's label.
+  Other principals' responses carry the marking date and no identity field.
 
 **The runtime's own traffic — 2026-11-02
 ([#3244](https://github.com/schlessera/brain-kit/issues/3244)).** The Claude

@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 159 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 164 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -92,6 +92,10 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
+| GET | `/api/files/untrusted` | I | Read one path's untrusted mark as this principal may see it | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| PUT | `/api/files/untrusted` | I | Mark a readable file untrusted | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| DELETE | `/api/files/untrusted` | I | Clear a present or retained mark (owner only) | React Files toolbar and `Marked untrusted` list (#2673); paired UI transport. Its authority rules are specified below. |
+| GET | `/api/files/untrusted/list` | I | List the marks this principal may see | React `Marked untrusted` list (#2673); paired UI transport. Its disclosure rules are specified below. |
 | GET | `/api/geo/coastline` | S | Read attributed map geometry for a bounding box | Independent map clients; preserve show_block map HTTP promise and graceful geometry degradation. |
 | GET | `/api/governance/roadblocks` | I | Retained roadblock rankings for the paired activity bridge | #1672; authenticated and local-only. The additive `query_activity` scope is the supported agent contract. |
 | GET | `/api/governance/events` | S | Read the governance events kept with session history | Independent diagnostics and the roadblock report; additive #1651 ([contract](integration-contract/http.md#governance-events-additive-1651)). Versioned per kind; never renders to the user. |
@@ -141,6 +145,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/plan` | S | Review eligible and excluded history paths | Current human principal; exact session/turn; optional action revert/restore. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Read latest original history receipt | Bound to current principal/session/source turn; never retries effects. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/:operationId` | S | Reconcile one original operation | Same bound identity; missing receipt stays unavailable. |
+| POST | `/api/chat-deletions` | S | Delete the caller's own chat's local history | Authenticated owner only; stable caller operation identity; content-free per-store outcomes (#3230). |
 | POST | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Start a user-only journaled revert or restoration | Stable caller operation identity; raw stale-state comparison; gate and shared server locks. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
@@ -192,7 +197,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 159 declared endpoints are mounted regardless of backend, renderer or
+All 164 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -577,6 +582,10 @@ optional list without discarding healthy backends; registry-level failure is
 Message shapes follow the SDK/wire history contract. An unknown/unavailable
 backend or history failure is 500 `{ error }`; the route does not translate
 missing sessions into a universal 404 or provide a separate history deadline.
+A chat deleted under [explicit chat deletion](#explicit-chat-deletion-additive-3230)
+(additive, #3230) is the one exception: before or after its history is read it
+answers 404 `{ error: "SESSION_NOT_FOUND", message }` with no messages, and it
+is absent from `GET /api/sessions`, including `retainedConversations`.
 
 <a id="retained-turn-journal"></a>
 
@@ -1025,6 +1034,47 @@ true }`, disclosing nothing about the session. An unknown session is 404
 that failed or timed out when none had the session, is 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, never a successful
 `unknown`.
 
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+## Explicit chat deletion (additive, #3230)
+
+**POST /api/chat-deletions** deletes the authenticated owner's own chat's local
+history under the [approved policy](decisions/chat-history-deletion.md). It is
+mounted, and `server_hello.capabilities.chatDeletion: true` is sent, only by a
+host whose catalog can retire chats. The body is the SDK's `ChatDeletionRequest`:
+`operationId` (a client-minted key, at most 2048 characters), `target` naming
+exactly one of `{ sessionId }` or `{ historyOwnerId }`, and `expected: { backendId,
+generation }`, what the caller reviewed (a dialogue page's `generation`, or 1 for a
+chat with no host-retained dialogue). Any other shape is 400
+`{ error: "INVALID_CHAT_DELETION", message }`. Every response is
+`Cache-Control: no-store`.
+
+Before anything is retired, a refusal is `{ error: "CHAT_DELETION_REFUSED",
+reason, message }`: 403 `unauthorized` (not a usable owner principal: agents,
+ambient callers without an owner mapping and revoked principals), 404
+`unavailable` (absent, foreign, already retired under another key, or with no
+recorded owner; the same answer whichever), 409 `stale` (the backend or
+generation differs from `expected`), 409 `unsupported` (the chat's backend does
+not advertise and implement native removal) or 409 `busy` (a running or starting
+turn, queued follow-ups or unsettled live-conversation work; stop or finish it
+first). Otherwise the chat is retired and the answer is 200 with the SDK's
+`ChatDeletionReceipt`: `operationId`, the terminal `generation`, the overall
+`status`, each selected store's outcome (`native` for a backend session,
+`dialogue`, `tasks`, `projections`, `drafts`) and `retained`, which always lists
+`independent_content`, `effects_and_audit`, `provider_copies`, `backups` and
+`offline_devices`. `status` is `removed` only when every selected store confirmed
+removal; `pending`, `partial` and `unknown` say cleanup is not confirmed, and
+repeating the same `operationId` retries it. A host restart also resumes it.
+The handler re-checks the principal after its asynchronous steps and answers a
+revoked one with the guard's 401, disclosing nothing. A storage failure before a
+receipt exists is 500 `{ error: "CHAT_DELETION_FAILED", message }`, never a
+reported deletion. Receipts and errors carry no chat text, title, raw path or
+free-form failure. No success claims secure erasure, provider forgetting or an
+undone effect, and an older backup can restore deleted text.
+
+Draft routes refuse a draft bound to a deleted chat with 410
+`{ error: "DRAFT_CHAT_RETIRED", message }`, list omits it, and `GET` answers 404.
+
 ## Imported track UI transport (#526)
 
 The paired UI uses authenticated `POST /api/track-upload` multipart intake and
@@ -1072,6 +1122,35 @@ real-Chrome test `packages/ui-react/tests/html-preview-runtime.test.ts`
 asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
+
+## Untrusted file marks (internal, #2673)
+
+The four `/api/files/untrusted` operations are protected, internal UI
+transport: their payloads carry no independent-client guarantee, but their
+authority and disclosure rules are security properties and are pinned by
+`packages/ui-server/tests/untrusted-marks.test.ts`.
+
+- A mark is a host record in the UI database keyed by the normalized
+  brain-relative path, never a `brain.db` row or frontmatter key, so it
+  survives a restart and `brain index --force`. A moved or deleted file keeps
+  its old-path record; nothing follows a rename.
+- `PUT` with JSON `{ path }` needs the read access `GET /api/files/content`
+  already grants and a regular file at the path: a missing path or directory
+  is 404 `not_found`, invalid path syntax 400 `invalid_path`. It answers
+  `{ status: "marked" | "already_marked", mark }`. Marking grants nothing else.
+- `DELETE ?path=` is the human owner's alone (an `owner` or `ambient`
+  principal, the storage routes' rule); any other principal gets 403
+  `owner_required`. It clears present and retained missing records and answers
+  `{ status: "cleared" | "already_cleared" }`. It never removes a session's
+  recorded taint.
+- `GET ?path=` answers `{ path, marked: false, canClear }` or
+  `{ path, marked: true, markedAt, missing, markedBy?, canClear }`. A reader
+  asking about a path with no readable file gets 404 `not_found`, whether or
+  not a record is retained there.
+- `GET /list` answers `{ marks, canClear }`, missing records first and then
+  newest first. The owner sees every record; any other principal sees only
+  records whose file it can currently read. Only the owner's rows and details
+  carry `markedBy: { label, you }`; other principals' responses omit the field.
 
 ## Saved-audio transcription
 

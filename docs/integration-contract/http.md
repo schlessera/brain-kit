@@ -39,6 +39,17 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+<a id="untrusted-file-marks-additive-2673"></a>
+
+### Untrusted file marks (additive, #2673)
+
+Four internal `/api/files/untrusted` operations mark a readable brain file
+untrusted, read one path's mark, list the marks a principal may see and let the
+owner clear one. They are paired UI transport, specified with their authority
+and disclosure rules in [the HTTP inventory](../http-api.md#untrusted-file-marks-internal-2673).
+The `taint` governance event's shape is unchanged: its reserved
+`source: "user_marked"` value is now produced.
+
 <a id="brain-wide-configuration-coverage-additive-3257"></a>
 
 ### Brain-wide configuration coverage (additive, #3257)

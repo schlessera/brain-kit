@@ -276,6 +276,13 @@ actor/time/reason and immediately removes the old authority without waiving
 proof. Native candidates need separately qualified prefix integration; this
 ordinary command rejects them. See the [binding decision](../../../../docs/decisions/ci-utility.md#exact-candidate-integration-reservation).
 
+While main is red, `confirm` and `merge` refuse every PR that is not a
+declared fix, and hosted proof containing the bad commit is refused or
+cancelled. Do not retry it; follow [the red-main incident steps](red-main.md)
+and resume when `main-status` reports green. A fix or targeted revert PR for
+the incident is declared with `bun scripts/integrate.ts declare-fix <pr>` and
+then uses this same reservation and merge procedure.
+
 ## Merge and verify
 
 Before every merge, assign the PR and each completed/advanced issue a release

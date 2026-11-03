@@ -231,9 +231,10 @@ index status, final sync status, and every leftover with its reason.
 - `updated` reflects when content last meaningfully changed: `run` bumps it only for edited
   notes whose body changed, never for merge results. Do not bump it by hand for a merge.
 - `brain sync` with no verb runs `brain sync run` itself, prints its report, and starts this
-  skill only when the run needs judgment, left unknown files, or left media with a terminal
-  attached. You may therefore find local changes already committed and a merge already in
-  progress; Step 1 picks up from there.
+  skill only when the run needs judgment or left unknown files; media alone never starts it
+  (the report counts it as `Media awaiting review: N` for hygiene review). You may therefore
+  find local changes already committed and a merge already in progress; Step 1 picks up from
+  there.
 
 ## CLI it relies on
 

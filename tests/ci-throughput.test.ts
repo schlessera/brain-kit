@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectPullObservation, concurrency, summarizeThroughput, validateWorkEvent, type PullObservation, type WorkEvent } from "../scripts/ci-throughput";
 import { attachTimingEvidence, type TimingSnapshot } from "../scripts/ci-timings";
+import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { collectReservationHistory, mergeLeaseObservations, reservationObservations, type LeaseObservation } from "../scripts/ci-coordination";
 import { emptyReservation, reservationTransition, GitReservationStore } from "../scripts/integration-reservation";
 
@@ -139,10 +140,15 @@ test("native reservation collection reads an explicitly local offline Git remote
     const store = new GitReservationStore(work);
     const state = reservationTransition(emptyReservation(), { kind: "acquire", candidate: { repository: `https://github.com/${repo}`, pr: 42, head, base }, id: "2".repeat(32) }, 1, Date.parse(at(0)));
     expect(store.publish({ oid: null, state: emptyReservation() }, state)).toBe(true);
+    // Red-main record writes share the ref and leave reservation.json unchanged (#2942).
+    const failure = { test: "tests/raft.test.ts", category: "unit" as const, verdict: "real" as const, reasons: ["in-affected-closure"], run: 7, sha: head };
+    expect(store.publishRedMain(store.read(), openRed(emptyRedMain(), { firstBad: head, run: 7, failures: [failure] }, Date.parse(at(0)) + 1))).toBe(true);
+    expect(store.publishRedMain(store.read(), declareFix(store.read().redMain, 43, Date.parse(at(0)) + 2))).toBe(true);
     // The production collector uses Git argv against this local remote only.
     process.chdir(work);
     const history = collectReservationHistory(repo, at(0));
     expect(history.leases.length).toBe(1); expect(history.leases[0]!.pr).toBe(42);
+    expect(history.leases[0]!.sources, "RED_MAIN_WRITES_ARE_NOT_LEASE_SOURCES").toHaveLength(1);
   } finally { process.chdir(cwd); rmSync(dir, { recursive: true, force: true }); }
 });
 
