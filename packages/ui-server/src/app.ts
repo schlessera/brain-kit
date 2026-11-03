@@ -139,7 +139,7 @@ import {
   validateBackendVersionRequirements,
   type BackendRegistry,
 } from "./agent/backend.js";
-import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
+import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
 import { createIndexBatch } from "./brain/index-batch.js";
 import { INDEX_READ_ROUTES, indexReadBarrier } from "./routes/index-barrier.js";
@@ -542,9 +542,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // without provider keys (#1648). The credentialed reindex that fills in its
   // vectors waits for the writer gate; one at a time, and one more if more
   // changes arrived meanwhile.
-  // A refresh cancelled by close() is not a failure; every other error still reports.
-  const ignoreShutdown = (error: unknown) => { if (error !== shutdown.signal.reason) throw error; };
-  const keyedReindex = coalesced(() => brain.index().catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
+  // A refresh cancelled by close(), or still pending for maintenance
+  // admission when close() begins (#3461), is not a failure; every other
+  // error still reports.
+  const ignoreShutdown = (error: unknown) => { if (error !== shutdown.signal.reason && error !== closeBegun.signal.reason) throw error; };
+  const keyedReindex = coalesced(() => brain.index(requeueWhenBusy({})).catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
     body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
   bootCleanup.push(() => keyedReindex.idle());
   // A migrating brain rebuilds its index in the new directory once, at boot,
@@ -636,7 +638,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       recordPolicy: (turnId, origin, profile, policy) => governedRecords("recordPolicy", turnId, origin, profile, policy.hash, policy.source,
         JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
-      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
+      index: lock => brain.index(requeueWhenBusy({ lock })).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
       exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   // Budget writes commit on the write worker (#2850).
