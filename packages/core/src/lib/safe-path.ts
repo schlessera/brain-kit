@@ -2,25 +2,60 @@ import { randomBytes } from "crypto";
 import { resolveContainedSync, type ContainmentPolicy } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, fchmodSync, linkSync, lstatSync, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
 import type { Stats } from "fs";
-import { basename, dirname, join } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
-const CORE_CONTAINMENT: ContainmentPolicy = { missingRoot: "refuse", danglingLinks: "follow", components: "final" };
+const CORE_CONTAINMENT: ContainmentPolicy = { missingRoot: "refuse", danglingLinks: "refuse", components: "every" };
 
 /**
- * Resolve a relative path and verify it stays inside `root`, following
+ * Whether a request is refused before it is resolved: anything but a string,
+ * an absolute path, and a segment that is `..` or holds `:` or `\\` (#3422).
+ * A NUL is refused by the shared resolver.
+ */
+function refusedRequest(relPath: string): boolean {
+  if (typeof relPath !== "string") return true;
+  if (relPath.startsWith("/") || relPath.startsWith("\\")) return true;
+  return relPath.split("/").some((segment) => segment === ".." || segment.includes(":") || segment.includes("\\"));
+}
+
+/**
+ * Resolve a repo-relative path and verify it stays inside `root`, following
  * symlinks (realpath) so a symlink inside the repo can't escape it.
- * Returns the canonical absolute path, or null if the path escapes (or the
- * root itself does not exist).
+ * Returns the canonical absolute path, or null if the path is refused,
+ * escapes, or the root itself does not exist.
  *
  * core's row of the shared resolver (`@schlessera/brain-common/internal/safe-path`,
- * #2506): synchronous, `null` for every refusal, an absolute path accepted
- * when it lies inside the root, `..` accepted while the result stays inside,
- * a dangling link followed to a target that must stay inside, and only the
- * final path checked, not each component on the way.
+ * #2506), with the strictest answer in every row since #3422: synchronous,
+ * `null` for every refusal; an absolute request is refused even inside the
+ * root, and so is any `..` segment, even one whose result would stay inside,
+ * and `:` or `\\` in a segment; a dangling link is refused wherever it points;
+ * and every existing component on the way must stay inside, not only the
+ * final path. A caller holding an absolute path passes it relative to the
+ * root (`relative(root, abs)`), which a path outside the root turns into a
+ * refused `..`.
  */
 export function safeResolve(root: string, relPath: string): string | null {
+  if (refusedRequest(relPath)) return null;
   const contained = resolveContainedSync(root, relPath, CORE_CONTAINMENT);
   return contained.ok ? contained.canonical : null;
+}
+
+/**
+ * Re-check a path the caller already holds as absolute: a canonical answer
+ * `safeResolve` gave earlier, or a file core located itself (the brain's
+ * config). It is `safeResolve` of the same path taken relative to the root's
+ * realpath, or to the root as given, whichever holds it lexically; a path
+ * under neither is refused. Not for requests: a request is relative, and
+ * `safeResolve` refuses an absolute one (#3422).
+ */
+export function safeResolveHeld(root: string, path: string): string | null {
+  if (typeof path !== "string" || !isAbsolute(path)) return null;
+  const canonicalRoot = safeResolve(root, ".");
+  if (!canonicalRoot) return null;
+  for (const base of [canonicalRoot, resolve(root)]) {
+    const rel = relative(base, path);
+    if (rel === "" || (!isAbsolute(rel) && rel.split(sep)[0] !== "..")) return safeResolve(root, rel || ".");
+  }
+  return null;
 }
 
 /**
@@ -33,8 +68,8 @@ export function safeResolve(root: string, relPath: string): string | null {
  * what lands there, and gitignored and pruned, so it is never canonical. A
  * write into it goes through `ensureScratch`.
  */
-export function resolveWritable(root: string, relOrAbs: string): string | null {
-  return safeResolve(root, relOrAbs);
+export function resolveWritable(root: string, relPath: string): string | null {
+  return safeResolve(root, relPath);
 }
 
 /**

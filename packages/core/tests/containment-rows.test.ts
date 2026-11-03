@@ -1,11 +1,10 @@
 /**
  * core's row of the resolver matrix (#2506): `safeResolve(root, rel)` is
- * synchronous, returns the canonical path or `null`, accepts an absolute path
- * that lies inside the root, accepts `..` while the result stays inside,
- * follows a dangling link whose target stays inside, and refuses everything
- * when the root's realpath fails. Written against the copy core carried
- * before the shared `@schlessera/brain-common/internal/safe-path`, and kept
- * unchanged across the move.
+ * synchronous and returns the canonical path or `null`. Since #3422 it gives
+ * the strictest answer in every row: it refuses an absolute request even
+ * inside the root, any `..` segment, `:` or `\\` in a segment, a dangling
+ * link wherever it points, a path that leaves through one link and comes back
+ * through another, and everything when the root's realpath fails.
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
@@ -13,7 +12,7 @@ import { tmpdir } from "os";
 import { join, relative } from "path";
 
 import { SCRATCH_DIR } from "../src/lib/scratch";
-import { safeResolve } from "../src/lib/safe-path";
+import { safeResolve, safeResolveHeld } from "../src/lib/safe-path";
 
 const base = realpathSync(mkdtempSync(join(tmpdir(), "brain-kit-containment-rows-")));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -55,17 +54,21 @@ describe("core safeResolve(root, rel): its resolver row", () => {
     ["notes//a.md", "brain/notes/a.md"],
     ["notes/a.md/", "brain/notes/a.md"],
     ["file.md/x", "brain/file.md/x"],
-    // `..` is accepted while the result stays inside.
-    ["notes/../notes/a.md", "brain/notes/a.md"],
+    // `..` is refused even when the result stays inside (#3422).
+    ["notes/../notes/a.md", "refused"],
+    ["notes/sub/..", "refused"],
     ["notes/../../x", "refused"],
     // Sibling prefix: `brain-other` starts with `brain`.
     ["../brain-other/secret.md", "refused"],
-    // Absolute: accepted only inside the root.
-    [join(root, "notes/a.md"), "brain/notes/a.md"],
+    // Absolute: refused even inside the root (#3422).
+    [join(root, "notes/a.md"), "refused"],
+    [root, "refused"],
     ["/etc/passwd", "refused"],
-    // Windows syntax is not checked.
-    ["a:b", "brain/a:b"],
-    ["a\\b", "brain/a\\b"],
+    // Windows syntax is refused in any segment (#3422).
+    ["a:b", "refused"],
+    ["notes/a:b.md", "refused"],
+    ["a\\b", "refused"],
+    ["\\notes", "refused"],
     ["a\0b", "refused"],
     // Links: canonical answers, escapes refused, including for a file that
     // does not exist yet under a symlinked parent.
@@ -73,18 +76,19 @@ describe("core safeResolve(root, rel): its resolver row", () => {
     ["link-in/new.md", "brain/notes/new.md"],
     ["link-out/secret.md", "refused"],
     ["link-out/new.md", "refused"],
-    // A dangling link is followed to its target, which must stay inside.
-    ["dangling-in", "brain/notes/missing"],
-    ["dangling-in/x", "brain/notes/missing/x"],
+    // A dangling link is refused wherever it points (#3422).
+    ["dangling-in", "refused"],
+    ["dangling-in/x", "refused"],
     ["dangling-out", "refused"],
     // A dangling chain is refused as soon as it leaves the root, even when it
     // ends inside.
     ["dangling-bounce", "refused"],
     ["cycle-a", "refused"],
     ["cycle-a/x", "refused"],
-    // Only the final path must be inside: out through one link and back
-    // through another is accepted.
-    ["bounce/back/a.md", "brain/notes/a.md"],
+    // Every component must stay inside, not only the final path: out through
+    // one link and back through another is refused (#3422).
+    ["bounce/back/a.md", "refused"],
+    ["bounce/back", "refused"],
     // Scratch is not special to the resolver.
     [".brain", "brain/.brain"],
     [".brain/scratch/s.txt", "brain/.brain/scratch/s.txt"],
@@ -117,6 +121,24 @@ describe("core safeResolve(root, rel): its resolver row", () => {
     rmSync(swap);
     renameSync(join(base, "swapped-away"), swap);
     expect(answer(safeResolve(root, "swap/new.md"))).toBe("brain/swap/new.md");
+  });
+});
+
+describe("core safeResolveHeld(root, abs): re-checking a path the caller holds (#3422)", () => {
+  test("an absolute path under the root's realpath or the root as given gets safeResolve's answer", () => {
+    expect(answer(safeResolveHeld(root, join(root, "notes/a.md")))).toBe("brain/notes/a.md");
+    expect(answer(safeResolveHeld(root, root))).toBe("brain");
+    expect(answer(safeResolveHeld(join(base, "root-link"), join(base, "root-link/notes/a.md")))).toBe("brain/notes/a.md");
+    expect(answer(safeResolveHeld(join(base, "root-link"), join(root, "notes/a.md")))).toBe("brain/notes/a.md");
+  });
+
+  test("a relative path, a path outside the root and a path through a refused link are refused", () => {
+    expect(safeResolveHeld(root, "notes/a.md")).toBeNull();
+    expect(safeResolveHeld(root, join(outside, "secret.md"))).toBeNull();
+    expect(safeResolveHeld(root, `${root}-other/secret.md`)).toBeNull();
+    expect(safeResolveHeld(root, join(root, "bounce/back/a.md"))).toBeNull();
+    expect(safeResolveHeld(root, join(root, "dangling-in"))).toBeNull();
+    expect(safeResolveHeld(join(base, "nope"), join(base, "nope/x"))).toBeNull();
   });
 });
 

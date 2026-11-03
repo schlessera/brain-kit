@@ -64,11 +64,10 @@ export function isScratchPath(rel: string): boolean {
 /**
  * ui-server's row of the shared resolver (`@schlessera/brain-common/internal/safe-path`,
  * #2506): every existing component, not only the final path, stays inside;
- * a dangling link is refused wherever it points; and a root that does not
- * exist yet contains the lexical path (the server resolves into a brain it
- * may create).
+ * a dangling link is refused wherever it points; and a root whose realpath
+ * fails refuses everything (#3422), as core and the SDK do.
  */
-const SERVER_CONTAINMENT = { missingRoot: "lexical", danglingLinks: "refuse", components: "every" } as const satisfies ContainmentPolicy;
+const SERVER_CONTAINMENT = { missingRoot: "refuse", danglingLinks: "refuse", components: "every" } as const satisfies ContainmentPolicy;
 
 /**
  * Resolve a repo-relative path to an absolute path, rejecting any escape

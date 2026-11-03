@@ -382,6 +382,26 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+<a id="strictest-path-containment-answers-breaking-before-10-0450-3422"></a>
+**Breaking before 1.0: strictest path containment answers (0.45.0, #3422).**
+`safeResolve(root, rel)` and `resolveWritable(root, rel)` take a path relative
+to the brain root. They return its canonical path, or `null` for any of these:
+
+- an absolute `rel`, even one inside the root;
+- a `..` segment, even one whose result would stay inside;
+- `:` or `\` in a segment, or a NUL;
+- a dangling symlink, wherever it points;
+- a path whose existing components do not all stay inside, such as one that
+  leaves through one link and comes back through another;
+- a root whose realpath fails.
+
+Before 0.45.0, core accepted an absolute path inside the root and a `..` that
+stayed inside. It also followed a dangling link to an inside target and checked
+only the final path. A caller holding an absolute path passes it relative to
+the root's realpath. The CLI's path arguments resolve through these helpers, so
+the [containment guarantee](#guarantees-consumers-may-rely-on) now holds
+literally for `--out` and document paths.
+
 **Additive frozen configuration root (#2848).** `@schlessera/brain/module`
 exports `configurationRoot(root: string): string`. When `root` equals the
 trusted worker's `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT` is

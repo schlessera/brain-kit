@@ -19,7 +19,8 @@ export function registerWorkerRtk(worker: LaunchedWorker, pid: number, input: Wo
     void worker.exited.then(() => { view.alive = false; }, () => { view.alive = false; });
   } catch { /* An unreadable worker cannot authorize an optional rewrite. */ }
 }
-export function within(root: string, path: string): boolean { return isWithin(root, path); }
+/** Whether `path` is `root` or below it; a `root` of `/` holds every absolute path (#3422), as a mount at `/` holds every binary. */
+export function within(root: string, path: string): boolean { return isWithin(root, path, { trailingSeparator: "boundary" }); }
 /** ELF64 native static executables, including dependency-free static PIE. */
 export function isStaticNativeElf(path: string): boolean {
   const bytes = readFileSync(path);
@@ -101,7 +102,7 @@ export async function rewriteWorkerRtk(worker: LaunchedWorker | undefined, comma
         const fields = line.split(" ");
         const path = fields[4]!.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8)));
         return { path, options: fields[5]!.split(",") };
-      }).filter(mount => mount.path === "/" || within(mount.path, binary)).sort((a,b) => b.path.length - a.path.length);
+      }).filter(mount => within(mount.path, binary)).sort((a,b) => b.path.length - a.path.length);
       if (!mounts[0]?.options.includes("ro") || mounts[0]?.options.includes("noexec")) return command;
       const host = statSync(binary);
       if (host.dev !== info.dev || host.ino !== info.ino || ![0, process.geteuid!()].includes(host.uid) || host.nlink !== 1 || (host.mode & 0o6022) || host.size > 32 * 1024 * 1024 || !isStaticNativeElf(binary)) return command;

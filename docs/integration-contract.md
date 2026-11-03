@@ -20,6 +20,24 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Strictest path containment answers (breaking before 1.0, 0.45.0, #3422)
+
+`safeResolve` and `resolveWritable` from `@schlessera/brain/module` now return
+`null` in these cases:
+
+- an absolute path, even inside the root;
+- any `..` segment;
+- `:` or `\` in a segment;
+- a dangling symlink;
+- a path any existing component of which leaves the root.
+
+The CLI's path arguments resolve through them, so an absolute `--out` or
+document path is refused even inside the brain, as the containment guarantee
+already states. The [maintainer ruling](https://github.com/schlessera/brain-kit/issues/3422#issuecomment-6599244174)
+is recorded on the issue. See [the package API component](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422).
+This ships in the 0.45.0 minor with the `breaking` label and a changeset that
+names the break.
+
 ## Maintenance worker output allowance (additive, 0.45.0, #3357)
 
 A maintenance worker's launcher may declare its output stage's size and setting

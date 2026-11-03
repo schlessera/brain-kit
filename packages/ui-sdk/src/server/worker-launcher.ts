@@ -256,8 +256,8 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     const path = realpathSync(requested);
     // The read envelope is explicit. The host root, a home or a whole system
     // tree would make it the old read-only host view under another name.
-    if (path === "/" || path === "/tmp" || path === "/home" || path === "/etc" || path === "/run" || path === "/var" || path === "/proc"
-      || brain === path || brain.startsWith(`${path}/`)) {
+    if (path === "/tmp" || path === "/home" || path === "/etc" || path === "/run" || path === "/var" || path === "/proc"
+      || holds(path, brain)) {
       throw new WorkerHostError(`restricted read path ${path} is broader than an explicit envelope`);
     }
     if (seen.has(path)) continue;
@@ -274,7 +274,7 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
       && (directory.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
       && (socket.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
       && (!separateIdentity || directory.gid === process.getgid?.() && socket.gid === process.getgid?.())
-      && !within(brain, inference) && !within(inference, brain);
+      && !holds(brain, inference) && !holds(inference, brain);
   } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
   if (!valid) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
@@ -295,7 +295,7 @@ function transportMounts(envelope: NonNullable<WorkerLaunch["transport"]>, brain
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] !== "--bind" && argv[index] !== "--ro-bind") continue;
     const source = realpathSync(argv[index + 1]!);
-    if (within(source, brain) || within(brain, source)) throw new WorkerHostError("a transport mount must not expose the brain or its ancestors");
+    if (holds(source, brain) || holds(brain, source)) throw new WorkerHostError("a transport mount must not expose the brain or its ancestors");
     index += 2;
   }
   argv.push("--dir", MAINTENANCE_HOME,
@@ -372,7 +372,7 @@ function serverSocketDirectory(requested: string, socket: string, brain: string)
       && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
       && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
       && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
-      && !within(brain, directory) && !within(directory, brain)) return directory;
+      && !holds(brain, directory) && !holds(directory, brain)) return directory;
   } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
   throw new WorkerHostError("the provider relay requires its private server-owned directory and socket");
 }
@@ -405,9 +405,9 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
       if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
       covered = parent;
     }
-    if (covered !== path && (within(covered, brain) || within(brain, covered) || envelope.readPaths.some(requested => {
+    if (covered !== path && (holds(covered, brain) || holds(brain, covered) || envelope.readPaths.some(requested => {
       const runtime = realpathSync(requested);
-      return within(covered, runtime) || within(runtime, covered);
+      return holds(covered, runtime) || holds(runtime, covered);
     }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
     return covered;
   };
@@ -417,7 +417,9 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     try { path = realpathSync(requested); } catch { continue; }
     const info = statSync(path);
     if (!info.isDirectory() && !info.isFile()) continue;
-    if (path === "/" || within(brain, path)) {
+    // Masking `/` is refused for itself, not as a holder of the brain: a mask
+    // over another ancestor of the brain is allowed, as the brain is bound back.
+    if (path === "/" || holds(brain, path)) {
       throw new WorkerHostError(`a maintenance worker cannot mask ${path}: it is the brain, inside it or the root`);
     }
     // Host /tmp is already absent behind the worker's private tmpfs. A
@@ -466,7 +468,9 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   if (envelope.home) {
     if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker sees the server's home");
     const home = realpathSync(envelope.home.path);
-    if (home === "/" || within(brain, home)) throw new WorkerHostError("the server's home must be a directory outside the brain");
+    // `/` is refused for itself: a home that holds the brain is ordinary, but
+    // one at `/` would bind the whole host back over the masks.
+    if (home === "/" || holds(brain, home)) throw new WorkerHostError("the server's home must be a directory outside the brain");
     if (envelope.home.overlay) throw new WorkerHostError("maintenance HOME overlays are not bounded; use read-only HOME and bounded XDG directories");
     argv.push("--ro-bind", home, home);
     // A mask inside the home (the UI database's directory below it) is laid
@@ -478,13 +482,13 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   if (!envelope.credentials || envelope.maskEnvFiles) argv.push(...maintenanceEnvMasks(brain, brain));
   for (const requested of envelope.writeFiles ?? []) {
     const real = realpathSync(requested);
-    if (!lstatSync(real).isFile() || within(brain, real)) throw new WorkerHostError("a maintenance worker's writable file must be a regular file outside the brain");
+    if (!lstatSync(real).isFile() || holds(brain, real)) throw new WorkerHostError("a maintenance worker's writable file must be a regular file outside the brain");
     argv.push("--bind", real, real);
   }
   for (const requested of envelope.writeDirectories ?? []) {
     const info = lstatSync(requested);
     const real = realpathSync(requested);
-    if (!info.isDirectory() || info.isSymbolicLink() || real === "/" || within(brain, real) || within(real, brain)) {
+    if (!info.isDirectory() || info.isSymbolicLink() || holds(brain, real) || holds(real, brain)) {
       throw new WorkerHostError("a maintenance worker's writable storage must be an unlinked directory outside the brain");
     }
     argv.push("--bind", real, real);
@@ -519,8 +523,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   const brain = realpathSync(input.brainPath);
   const scratch = input.scratchPath ? realpathSync(normalize(input.scratchPath)) : WORKER_SCRATCH;
-  if (!isAbsolute(scratch) || scratch === brain || scratch.startsWith(`${brain}/`)
-    || brain.startsWith(`${scratch}/`) || scratch === "/" || brain === "/" || brain === "/tmp") {
+  if (!isAbsolute(scratch) || holds(brain, scratch) || holds(scratch, brain) || brain === "/tmp") {
     throw new WorkerHostError("scratch must be a separate location outside the authoritative brain and its ancestors");
   }
   if (input.turnTempBytes !== undefined) {
@@ -562,7 +565,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
         && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
         && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
         && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
-        && !within(brain, directory) && !within(directory, brain);
+        && !holds(brain, directory) && !holds(directory, brain);
     } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
     if (!valid) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
     egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
@@ -601,7 +604,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
-  const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
+  const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => holds(reserved, runtimeCanonicalName(path)) || holds(runtimeCanonicalName(path), reserved))));
   const runtimePaths = input.restricted?.readPaths ?? transport?.readPaths ?? maintenance?.readPaths
     ?? input.sandbox?.readPaths ?? [...restrictedReadPaths(runtimeEntries), ...runtimeEntries];
   // Validate names before stat/mount planning too: a missing executable under
@@ -727,6 +730,12 @@ export function workerCommand(input: WorkerLaunch): string[] {
 
 /** Whether `path` is `dir` or lies below it. */
 export const within = (dir: string, path: string) => isWithin(dir, path);
+/**
+ * {@link within} in the deny direction (#3422): a `dir` of `/` holds every
+ * absolute path, so a refusal of "the brain or its ancestors" refuses `/`
+ * without a check of its own.
+ */
+export const holds = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 
 /** Resolve aliases even when the final installed entry is not present yet. */
 function runtimeCanonicalName(requested: string): string {
@@ -745,7 +754,7 @@ function runtimeCanonicalName(requested: string): string {
 function validateRuntimePlacement(requested: string, reserved: readonly string[]): void {
   if (!isAbsolute(requested)) throw new WorkerHostError("owned runtime paths must be absolute");
   for (const path of new Set([normalize(requested), runtimeCanonicalName(requested)])) {
-    const conflict = reserved.find(privatePath => within(path, privatePath) || within(privatePath, path));
+    const conflict = reserved.find(privatePath => holds(path, privatePath) || holds(privatePath, path));
     if (conflict) throw new WorkerHostError(`owned runtime path ${requested} (${path}) collides with reserved private worker path ${conflict}; install the runtime in a separate noncolliding directory`);
   }
 }
@@ -838,7 +847,7 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
     const path = mount.path;
     const info = lstatSync(path, { throwIfNoEntry: false });
     if (path !== join(brain, rel) || !info?.isDirectory() || realpathSync(path) !== path
-      || within(path, scratch) || within(scratch, path) || (state !== undefined && (within(path, state) || within(state, path)))) {
+      || holds(path, scratch) || holds(scratch, path) || (state !== undefined && (holds(path, state) || holds(state, path)))) {
       throw new WorkerHostError(`the writable ${name} area must be a real directory at its own path inside the brain`);
     }
     out.binds.push("--bind", input.areaOutput ? join(input.areaOutput.source, rel) : path,
@@ -858,7 +867,7 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
     if (sandbox.restricted || input.restricted || input.maintenance || input.transport || workerProfile(sandbox) === "restricted")
       throw new WorkerHostError("only an interactive governed or strict worker binds a managed worktree generation");
     if (!isAbsolute(source) || !info?.isDirectory() || realpathSync(source) !== normalize(source) || info.uid !== 0 || (info.mode & 0o7777) !== 0o755
-      || within(brain, source) || within(source, brain))
+      || holds(brain, source) || holds(source, brain))
       throw new WorkerHostError("a managed worktree generation must be its pool's root-owned directory outside the brain");
     out.binds.push("--bind", source, WORKER_WORKTREE_ROOT);
   }
@@ -871,7 +880,7 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
     if (sandbox.restricted || input.restricted || input.maintenance || input.transport || workerProfile(sandbox) === "restricted")
       throw new WorkerHostError("only an interactive governed or strict worker binds a reference source view");
     if (!isAbsolute(source) || !info?.isDirectory() || realpathSync(source) !== normalize(source) || info.uid !== 0 || (info.mode & 0o7777) !== 0o755
-      || within(brain, source) || within(source, brain))
+      || holds(brain, source) || holds(source, brain))
       throw new WorkerHostError("a reference source view must be its pool's root-owned directory outside the brain");
     out.binds.push("--ro-bind", source, `${WORKER_REFERENCE_ROOT}/${domain}`);
   }

@@ -207,9 +207,11 @@ describe("brain image --scratch", () => {
     rmSync(outside, { recursive: true, force: true });
   });
 
-  test("an absolute --out inside the brain is reported repo-relative after generation, as in the dry run", async () => {
+  test("--out is repo-relative: an absolute path is refused even inside the brain (#3422), and the output is reported as given", async () => {
     stubProvider();
-    expect(await run(["a lighthouse", "--draft", "--out", join(root, "assets", "draft.png")])).toBe(0);
+    expect(await run(["a lighthouse", "--draft", "--out", join(root, "assets", "draft.png")])).toBe(1);
+    out.length = 0;
+    expect(await run(["a lighthouse", "--draft", "--out", "assets/draft.png"])).toBe(0);
     const payload = JSON.parse(out.join("\n")) as { output: string; outputs: string[] };
     expect(payload.output).toBe("assets/draft.png");
     expect(payload.outputs).toEqual(["assets/draft.png"]);

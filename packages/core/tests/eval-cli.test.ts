@@ -109,7 +109,9 @@ describe("scores", () => {
   test("--out writes the same envelope that --json prints", async () => {
     const set = writeSet("out.jsonl", TOP1);
     const outPath = join(root, "evals", "runs", "latest.json");
-    const { code, out } = await evalJson(["--set", set, "--out", outPath]);
+    // `--out` is repo-relative: an absolute path is refused, even inside the brain (#3422).
+    expect((await evalJson(["--set", set, "--out", outPath])).code).toBe(2);
+    const { code, out } = await evalJson(["--set", set, "--out", "evals/runs/latest.json"]);
     expect(code).toBe(0);
     expect(JSON.parse(readFileSync(outPath, "utf-8"))).toEqual(out);
   });

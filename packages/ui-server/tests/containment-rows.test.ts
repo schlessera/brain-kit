@@ -2,12 +2,12 @@
  * ui-server's rows of the containment matrices (#2506). `safeResolve(rel,
  * root)` is asynchronous and throws `PathEscapeError`; it refuses absolute
  * paths, `..` anywhere, `:` or `\\` in a segment and dangling links; every
- * existing component must stay inside, not only the final path; a missing
- * root falls back to the lexical root; it answers the lexical path, not the
- * canonical one; and under `.brain` a scratch request follows no link. The
- * predicates each keep their own argument order, equality, root `/` and
- * normalisation answers. Written against the copies ui-server carried before
- * the shared `@schlessera/brain-common/internal/safe-path`.
+ * existing component must stay inside, not only the final path; a root whose
+ * realpath fails refuses everything (#3422); it answers the lexical path, not
+ * the canonical one; and under `.brain` a scratch request follows no link.
+ * The predicates each keep their own argument order, equality and
+ * normalisation answers; a deny-direction predicate takes a root `/` as
+ * holding every absolute path (#3422).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
@@ -15,9 +15,9 @@ import { tmpdir } from "os";
 import { join, relative } from "path";
 
 import { inside as coreQueriesInside } from "../src/core-queries";
-import { within as hostBoundaryWithin } from "../src/brain/host-boundary";
+import { createHostBoundary, within as hostBoundaryWithin } from "../src/brain/host-boundary";
 import { within as operationalStateWithin } from "../src/brain/operational-state";
-import { within as syncMirrorWithin } from "../src/brain/sync-mirror";
+import { syncTransportCommand, within as syncMirrorWithin } from "../src/brain/sync-mirror";
 import { isScratchPath, safeResolve } from "../src/files/walker";
 import { inside as processInside } from "../src/storage/process";
 
@@ -109,10 +109,11 @@ describe("ui-server safeResolve(rel, root): its resolver row", () => {
     expect(await answer("notes/a.md", join(base, "root-link"))).toBe("brain/notes/a.md");
   });
 
-  test("a missing root falls back to the lexical root; a dangling or unreadable one does not", async () => {
-    expect(await answer("notes/a.md", join(base, "nope"))).toBe("nope/notes/a.md");
+  test("a root whose realpath fails refuses everything (#3422)", async () => {
+    expect(await answer("notes/a.md", join(base, "nope"))).toBe("refused");
+    expect(await answer("", join(base, "nope"))).toBe("refused");
     expect(await answer("x", join(root, "dangling-in"))).toBe("refused");
-    expect(await answer("x", join(root, "file.md/x"))).toBe("error ENOTDIR");
+    expect(await answer("x", join(root, "file.md/x"))).toBe("refused");
   });
 
   test("each call reads the filesystem again: a directory swapped for an escaping link is refused", async () => {
@@ -147,7 +148,9 @@ const PREDICATE_CASES: [string, string][] = [
   ["/a/b", "/a/b/"], ["/a/b", "/a/b/../c"], ["/a/b", "/a/b/..c"], ["/a/b", "/a/b//c"],
 ];
 //                                  =  c  sp pa /x /  rel tr trE p/ .. ..c //
-const LITERAL_SLASH = "T T - - - T - - - T T T T";
+// Deny direction (#3422): root `/` holds every absolute path, as does a root
+// written with its trailing separator.
+const DENY_BOUNDARY = "T T - - T T - T - T T T T";
 
 const rows: [string, (root: string, path: string) => boolean, string][] = [
   // relative()-based: both sides resolved; the root itself is excluded. A
@@ -156,10 +159,9 @@ const rows: [string, (root: string, path: string) => boolean, string][] = [
   ["core-queries inside(dir, file)", coreQueriesInside, "- T - - T - T T - - - T T"],
   // relative()-based: both sides resolved; the root itself is included.
   ["storage/process inside(root, path)", processInside, "T T - - T T T T T T - T T"],
-  // Literal, except that root `/` holds everything.
-  ["operational-state within(root, path)", operationalStateWithin, "T T - - T T T - - T T T T"],
-  ["sync-mirror within(root, path)", syncMirrorWithin, LITERAL_SLASH],
-  ["host-boundary within(dir, path)", hostBoundaryWithin, LITERAL_SLASH],
+  ["operational-state within(root, path)", operationalStateWithin, DENY_BOUNDARY],
+  ["sync-mirror within(root, path)", syncMirrorWithin, DENY_BOUNDARY],
+  ["host-boundary within(dir, path)", hostBoundaryWithin, DENY_BOUNDARY],
 ];
 
 describe("ui-server containment predicates: their matrix rows", () => {
@@ -168,4 +170,24 @@ describe("ui-server containment predicates: their matrix rows", () => {
       expect(PREDICATE_CASES.map(([root, path]) => (predicate(root, path) ? "T" : "-")).join(" ")).toBe(expected);
     });
   }
+});
+
+/**
+ * Each deny site that refuses "the brain or its ancestors" refuses `/`
+ * (#3422). Under the old literal rule `/` held nothing below it, so a local
+ * sync remote of `/` was mounted writable and host credential state at `/`
+ * was accepted beside the brain.
+ */
+describe("ui-server deny sites refuse `/` (#3422)", () => {
+  test.skipIf(!Bun.which("git", { PATH: "/usr/bin:/bin" }))("a local sync remote at `/` (sync-mirror syncTransportCommand)", () => {
+    for (const remote of ["/", "file:///"]) {
+      expect(() => syncTransportCommand({ brain: root, mirror: join(base, "mirror"), remote, env: {}, args: [] }))
+        .toThrow("the sync transport must not mount the brain or its ancestors");
+    }
+  });
+
+  test("host credential state at `/` (host-boundary createHostBoundary)", () => {
+    expect(() => createHostBoundary({ brainPath: root, credentialDomain: { directory: "/" } }))
+      .toThrow("Host credential state must be separate from repository input.");
+  });
 });

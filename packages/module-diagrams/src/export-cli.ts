@@ -20,7 +20,7 @@ export async function readDiagramInput(root:string,input:string):Promise<{source
  try{for(;;){const item=await reader.read();if(item.done)break;size+=item.value.byteLength;if(size>1024*1024)throw Error("Diagram input exceeds the 1 MiB parse bound");chunks.push(item.value);}}finally{await reader.cancel();}
  return {source:new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(chunks,size)),path:absolute?relative(root,absolute):"-",absolute};
 }
-function target(root:string,path:string):string {const parent=resolveWritable(root,dirname(path));if(!parent)throw Error("Output path must remain inside the brain");const result=join(parent,basename(path)),entry=lstatSync(result,{throwIfNoEntry:false});if(entry?.isSymbolicLink()||entry&&!entry.isFile())throw Error("Output must be an unlinked regular file name");if(!resolveWritable(root,result))throw Error("Output path must remain inside the brain");return result;}
+function target(root:string,path:string):string {const parent=resolveWritable(root,dirname(path));if(!parent)throw Error("Output path must remain inside the brain");const result=join(parent,basename(path)),entry=lstatSync(result,{throwIfNoEntry:false});if(entry?.isSymbolicLink()||entry&&!entry.isFile())throw Error("Output must be an unlinked regular file name");if(resolveWritable(root,path)!==result)throw Error("Output path must remain inside the brain");return result;}
 function ownedTarget(root:string,path:string,id:string,document:string):boolean {
  const absolute=target(root,path);if(!existsSync(absolute))return false;
  const identity=derivedIdentity(readRegularText(absolute,8*1024*1024));if(!identity||identity.id!==id||identity.document!==document)throw Error(`Refusing to replace an unrelated SVG: ${path}`);return true;
