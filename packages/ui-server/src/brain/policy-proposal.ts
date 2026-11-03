@@ -97,8 +97,9 @@ export interface PolicyProposalTurn {
   isAuthorized(): boolean; isAvailable(): boolean;
   /**
    * A scope pause, which stops publication without revoking authority (#2853):
-   * waited for, bounded, outside the lock. Inside the policy's own journal
-   * observation it refuses as before; waiting there would hold that observation.
+   * waited for, bounded, outside the lock. One the policy's own journal
+   * observation raises publishes nothing and lets that observation complete;
+   * the wait runs after it, and a fresh attempt checks everything again (#2870).
    */
   hold?: AuthorityHold;
   approve(review: PolicyChangeReview): Promise<boolean>;
@@ -163,8 +164,9 @@ export function createPolicyProposals(options: {
     /** Settles once every write submitted before it has settled: history joins proposals by session. */
     async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     async propose(turn: PolicyProposalTurn, requestId: string, raw: PolicyChangeInput): Promise<PolicyChangeReview> {
+      const held = () => !turn.signal.aborted && !turn.isAuthorized() && !!turn.hold?.active();
       const authority = (waits = true) => {
-        if (!turn.signal.aborted && !turn.isAuthorized() && waits && turn.hold?.active()) throw new AuthorityHeld();
+        if (waits && held()) throw new AuthorityHeld();
         if (turn.signal.aborted || !turn.isAuthorized() || !turn.isAvailable()) throw new Refusal("refused", "This request no longer has current interactive authority. Nothing was written.");
       };
       // An attempt that meets a hold has published nothing; it runs again once the hold clears.
@@ -209,13 +211,16 @@ export function createPolicyProposals(options: {
               const currentValidation = validate(bytes);
               if (!currentValidation.ok || currentValidation.status !== "valid") throw new Refusal("invalid", `This proposal no longer passes validation: ${currentValidation.errors.join("; ")}. Nothing was written. A fresh proposal is required.`);
               const created: string[] = [];
-              let target: Target | undefined, temp: string | undefined;
+              let target: Target | undefined, temp: string | undefined, unpublished = false;
               try {
                 target = open(root, review.baseHash === null, created); verify(target, review.baseHash);
                 options.beforeCommit?.(); authority(); verify(target, review.baseHash);
                 // No awaited code between final authority/base/topology check and publication.
                 await options.observeUserPolicy(turn.turnId, () => {
                   // Journal observation may precede this callback; recheck at the exact write.
+                  // A scope pause that observation raised is not a failed observation: stage
+                  // nothing and return, so it completes and the pause can be answered (#2870).
+                  if (held()) { unpublished = true; return; }
                   authority(false); verify(target!, review.baseHash);
                   // The operation owns the staging inode for this synchronous
                   // callback only. Both journal observations are outside its
@@ -226,9 +231,12 @@ export function createPolicyProposals(options: {
                     const fd = openSync(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target!.mode ?? 0o644);
                     temp = staging; // Only a successfully created inode belongs to this operation.
                     try { writeFileSync(fd, bytes); if (target!.mode !== undefined) fchmodSync(fd, target!.mode); fsyncSync(fd); } finally { closeSync(fd); }
-                    authority(false); verify(target!, review.baseHash);
-                    if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
-                    committed = true;
+                    if (held()) unpublished = true;
+                    else {
+                      authority(false); verify(target!, review.baseHash);
+                      if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
+                      committed = true;
+                    }
                   } catch (error) { publicationFailed = true; publicationError = error; }
                   // First publication uses link rather than an overwriting
                   // rename; unlink its remaining name before observation.
@@ -240,8 +248,12 @@ export function createPolicyProposals(options: {
                     }
                   }
                   if (publicationFailed) throw publicationError;
+                  if (unpublished) return;
                   fsyncSync(target!.chain.at(-1)!.fd);
                 });
+                // Nothing was published and the observation, its hold and (on
+                // unwinding) the lock are released: wait out the pause and retry.
+                if (unpublished) throw new AuthorityHeld();
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
                 await options.recordEvent(review, turn);
               } finally {
