@@ -3558,7 +3558,8 @@ export interface HygieneDiff {
 }
 export interface HygieneEffect {
   kind: "hygiene";
-  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze";
+  /** `defer` is Leave pending (#2780): host-only, skipped for the rest of this review pass. */
+  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer";
   findingId: string;
   fingerprint: string;
   handler?: string;
@@ -3571,7 +3572,7 @@ export interface HygieneAction {
   fingerprint: string;
   /** Supported CLI projection, retained as display data. */
   finding: Record<string, unknown>;
-  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
+  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
 }
 export interface HygieneReviewState {
   version: 1;
@@ -3581,8 +3582,21 @@ export interface HygieneReviewState {
   pendingActionId?: string;
   /** Shared cap retirement pauses review without disposing its finding. */
   pauseReason?: { kind: "actions-limit"; retiredActionId: string; retirementReceiptId: string };
-  counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number };
+  /** `kept` (#2780) counts entries kept as a permanent copy; read as 0 from a row stored before it. */
+  counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number; kept?: number };
   blocker?: Record<string, unknown>;
+  /** Media originals kept as a permanent copy during review; 0 for a row stored before it. */
+  kept?: number;
+  /** The review pass: a Start after a complete or idle review begins a new one. 0 for a row stored before it. */
+  pass?: number;
+  /**
+   * Findings left pending (Leave pending, #2780) in this pass, at the
+   * fingerprint they were left at. They are skipped until the pass ends or
+   * their fingerprint changes, and they still count as awaiting review.
+   */
+  deferred?: { findingId: string; fingerprint: string }[];
+  /** The media counts `brain sync` reports, from the last selection. */
+  media?: { awaitingReview: number; setAside: number; kept: number };
 }
 export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" | "refresh" }
 export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }

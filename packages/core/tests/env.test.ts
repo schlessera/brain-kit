@@ -52,6 +52,8 @@ describe("config/env descriptor", () => {
         "BRAIN_AGENT_RUNNER_UNAVAILABLE",
         "BRAIN_APIFY_LEDGER",
         "BRAIN_CHROME_NO_SANDBOX",
+        "BRAIN_MEDIA_PINNED_PATH_LIMIT",
+        "BRAIN_MEDIA_REFERENCE_LIMITS",
         "BRAIN_PROVIDER_RELAY_SOCKET",
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",
