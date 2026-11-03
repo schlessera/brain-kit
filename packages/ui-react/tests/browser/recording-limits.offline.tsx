@@ -8,6 +8,11 @@ import { generateWav, AUDIO_FIXTURES } from "./offline/audio-fixtures.ts";
 import { recordingCell } from "./offline/recording-cell.ts";
 import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
 
+/** The user-facing m:ss for committed audio, written independently of production's formatter.
+ * Native capture advances in real time, so a test that does not control the clock derives the
+ * expected text from the row it read rather than assuming how far capture got. */
+const savedClock = (ms: number) => `${Math.floor(ms / 60_000)}:${(Math.floor(ms / 1000) % 60).toString().padStart(2, "0")}`;
+
 test("registered production warning and deadline finalize short native audio and release capture resources", async (ctx) => {
   const c = recordingCell(ctx);
   const microphone = watchMicrophone();
@@ -329,7 +334,7 @@ test("registered wall backstop finalizes native audio as interrupted", async (ct
   expect(row.savedThroughMs).toBeLessThan(10_000);
   expect(row.durationMs).toBe(row.savedThroughMs);
   expect(c.events.filter((event) => event.kind === "warning")).toHaveLength(1);
-  expect(c.events.at(-1)).toEqual({ kind: "stopped", savedThroughMs: row.savedThroughMs, message: `Recording stopped. Saved up to 0:00; the end may be missing.` });
+  expect(c.events.at(-1)).toEqual({ kind: "stopped", savedThroughMs: row.savedThroughMs, message: `Recording stopped. Saved up to ${savedClock(row.savedThroughMs)}; the end may be missing.` });
   expect(microphone.streams).toHaveLength(1);
   expect(microphone.streams[0]!.getTracks().every((track) => track.readyState === "ended")).toBe(true);
   expect(c.store.active()).toBeNull();
