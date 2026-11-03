@@ -278,6 +278,14 @@ describe("--out stays inside the brain", () => {
     expect(existsSync(join(outside, "through-dir.json"))).toBe(false);
   });
 
+  test("an absolute path through a symlinked directory that leaves the brain is refused (#3422)", async () => {
+    symlinkSync(outside, join(root, "evals", "abs-linked-dir"));
+    const { code, stderr } = await refusedOut(join(root, "evals", "abs-linked-dir", "through-abs.json"));
+    expect(code).toBe(2);
+    expect(stderr).toContain("Output path is not inside the brain");
+    expect(existsSync(join(outside, "through-abs.json"))).toBe(false);
+  });
+
   test("a symlinked file inside the brain does not redirect the write", async () => {
     const target = join(outside, "through-file.json");
     writeFileSync(target, "untouched");

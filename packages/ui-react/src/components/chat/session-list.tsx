@@ -36,7 +36,7 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
  * (Continue on another backend) is a stop only beside the row that holds the
  * list's stop, so Tab leaves the list in one or two steps however long it is.
  */
-export interface SessionRowData {
+interface SessionRowData {
   id: string;
   title: string | null;
   /** Already formatted: "2h ago". */
@@ -71,7 +71,7 @@ export interface DraftRowData {
   current: boolean;
 }
 
-export interface SessionGroupData {
+interface SessionGroupData {
   label: string;
   sessions: SessionRowData[];
 }

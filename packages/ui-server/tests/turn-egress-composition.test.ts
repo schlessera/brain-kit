@@ -22,9 +22,14 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import { createPrincipal, isUsablePrincipal, resolvePrincipal } from "../src/db/principals";
 
+// Captured before the fixture helper's hooks stand in for it.
+const realRefusal = startup.assertManagedTurnStartupView;
+
 test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as const)("a governed %s turn's network composition and durable egress record (managed storage: %p)", async (kind, managed) => {
-  // The copied fixture brain has no manager-acquired view; stand in for one where the case needs it.
+  // The fixture view stands in for a manager-acquired one; without managed storage the turn is refused (#3314).
   const storage = spyOn(startup, "isManagedWorkerStartupView").mockReturnValue(managed);
+  // Only the real refusal decides; the fixture helper's stand-in is set aside.
+  const refusal = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(realRefusal);
   const root = mkdtempSync(join(tmpdir(), "odysseus-turn-egress-")), brain = join(root, "brain");
   mkdirSync(join(brain, "context/policies"), { recursive: true });
   // The fixture origin is an outward host: only the classified read may reach it without a card.
@@ -35,8 +40,9 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
-  let proxyDir: string | undefined, output: string | undefined, workerExit: number | undefined, workerErrors = "";
+  let proxyDir: string | undefined, output: string | undefined, workerExit: number | undefined, workerErrors = "", started = false;
   const backend = makeFakeBackend({ id: kind, startTurn: async request => {
+    started = true;
     request.bridge.emit({ type: "session_info", sessionId: `voyage-${kind}`, isNew: true });
     proxyDir = request.workerSandbox?.egress?.dir;
     if (proxyDir) {
@@ -57,13 +63,16 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
     activity: { store, stream, governance: input => { recordGovernanceEvent(db, input); } },
     isPrincipalAuthorized: id => { const found = resolvePrincipal(db, id); return found !== null && isUsablePrincipal(found, Date.now()); } });
   try {
-    await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus checks the harbour.", attachments: [] });
-    const records = queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 });
     if (!managed) {
-      expect(proxyDir, "TURN_EGRESS_UNMANAGED_STORAGE_KEEPS_NETWORK").toBeUndefined();
-      expect(records).toEqual([]);
+      await expect(turns.begin("unmanaged-voyage", new AbortController().signal), "TURN_EGRESS_UNMANAGED_STORAGE_REFUSED").rejects.toThrow(startup.UNMANAGED_TURN_STORAGE);
+      await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus checks the harbour.", attachments: [] }).catch(() => {});
+      expect(started, "TURN_EGRESS_UNMANAGED_TURN_NEVER_STARTS").toBe(false);
+      expect(proxyDir).toBeUndefined();
+      expect(queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 })).toEqual([]);
       return;
     }
+    await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus checks the harbour.", attachments: [] });
+    const records = queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 });
     expect(proxyDir, "TURN_EGRESS_GOVERNED_TURN_COMPOSED").toBeDefined();
     expect(workerExit, `TURN_EGRESS_BACKEND_BRIDGE_TRACKS_CLASSIFICATION ${workerErrors}`).toBe(0);
     expect(output).toBe("Ithaca");
@@ -72,5 +81,5 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
       payload: { method: "GET", host: "127.0.0.1", port: origin.port, path: "/voyage", outcome: "completed" } });
     expect(JSON.stringify(records)).not.toContain("odysseus-query");
     expect(existsSync(proxyDir!), "TURN_EGRESS_PROXY_REMOVED_AT_TURN_END").toBe(false);
-  } finally { storage.mockRestore(); host.close(); origin.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { storage.mockRestore(); refusal.mockRestore(); host.close(); origin.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -40,9 +40,9 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 /** Agent Skills standard: lowercase kebab, no traversal, bounded. */
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 /** A SKILL.md past this is not a skill, it's a document dump. */
-export const MAX_SKILL_CONTENT_BYTES = 128 * 1024;
+const MAX_SKILL_CONTENT_BYTES = 128 * 1024;
 
-export interface SkillEntry {
+interface SkillEntry {
   /** Directory name (= the skill's identity for enable/disable/remove). */
   name: string;
   /** Frontmatter description, or empty when unparseable. */
@@ -54,7 +54,7 @@ export interface SkillEntry {
   warning?: string;
 }
 
-export interface SkillDetail extends SkillEntry {
+interface SkillDetail extends SkillEntry {
   content: string;
   /** Files in the skill directory besides SKILL.md (repo-relative names). */
   extraFiles: string[];
@@ -64,7 +64,7 @@ export class SkillValidationError extends Error {}
 export class SkillNotFoundError extends Error {}
 export class SkillConflictError extends Error {}
 
-export interface SkillManager {
+interface SkillManager {
   list(): SkillEntry[];
   get(name: string): SkillDetail;
   create(name: string, content: string): SkillEntry;

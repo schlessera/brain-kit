@@ -15,7 +15,7 @@ function schemaAt(schema: Record<string, unknown>, path: SettingsPath): Record<s
 }
 
 /** Metadata enriches the schema; schema fields and complete unsupported values never disappear. */
-export function settingsFields(schema: Record<string, unknown>, described: ModuleSettingsField[], value: unknown): ModuleSettingsField[] {
+function settingsFields(schema: Record<string, unknown>, described: ModuleSettingsField[], value: unknown): ModuleSettingsField[] {
   const result = [...described];
   const covered = new Set(described.flatMap((f) => f.kind === "variant" ? f.variants?.flatMap((v) => v.fields.map((child) => child.key)) ?? [] : [f.key]));
   const properties = record(schema.properties) ? schema.properties : {};

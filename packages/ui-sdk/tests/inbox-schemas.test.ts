@@ -221,3 +221,18 @@ test("human hygiene refresh and superseded receipts round-trip without accepting
   const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "active", position: 1, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 0, deferred: [] }, action: { ...actionItem, status: "dropped", hygiene: { findingId: "finding", fingerprint: "old", finding: { evidence: "Eumaeus hut" }, outcome: { version: 1, status: "superseded", supersededBy: "new-card" } } } };
   expect(read).toEqual(hygieneReviewReadSchema.parse(read));
 });
+
+test("undo-media names a media receipt and nothing else; its response carries the Undo receipt (#2781)", async () => {
+  const { hygieneReviewCommandSchema, hygieneReviewRequestSchema, hygieneReviewReadSchema } = await import("../src/schemas.js");
+  const journalId = `media-${"0123456789abcdef".repeat(2)}01234567`;
+  expect(hygieneReviewRequestSchema.parse({ operation: "undo-media", journalId })).toEqual({ operation: "undo-media", journalId });
+  expect(hygieneReviewRequestSchema.parse({ operation: "refresh" })).toEqual({ operation: "refresh" });
+  // The lifecycle command schema is unchanged and never accepts it.
+  expect(hygieneReviewCommandSchema.safeParse({ operation: "undo-media", journalId }).success).toBe(false);
+  for (const bad of [{ operation: "undo-media" }, { operation: "undo-media", journalId: "short" }, { operation: "undo-media", journalId: "../../etc/passwd-0000000000" },
+    { operation: "undo-media", journalId, principalId: "owner" }, { operation: "refresh", journalId }])
+    expect(hygieneReviewRequestSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "complete", position: 1, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 1, deferred: [] }, action: null,
+    mediaUndo: { journalId: `undo-${journalId}`, action: "delete", outcome: "undone", files: [{ path: "photos/penelope-loom.png", state: "restored" }], undo: { available: false, reason: "already-undone" } } };
+  expect(read).toEqual(hygieneReviewReadSchema.parse(read));
+});

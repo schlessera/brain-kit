@@ -24,7 +24,7 @@ import type { WebSearchConfig, WebSearchProvider } from "../../lib/api-client.js
  * Key values never come back from the server; the view only ever learns "a
  * key is stored".
  */
-export interface WebSearchChainProps {
+interface WebSearchChainProps {
   config: WebSearchConfig;
   busy: boolean;
   error: string | null;

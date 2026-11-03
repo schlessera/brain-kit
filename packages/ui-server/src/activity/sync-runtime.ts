@@ -16,7 +16,7 @@ import type { Database } from "bun:sqlite";
 import type { SpanOutcome } from "./store.js";
 
 /** How the latest sync run stands on invoking an agent. */
-export type SyncAgentState =
+type SyncAgentState =
   /** The run has not ended; nothing is recorded yet. */
   | "pending"
   | "not-invoked"
@@ -24,7 +24,7 @@ export type SyncAgentState =
   /** The run ended without a readable result: nothing is known. */
   | "unknown";
 
-export interface SyncRunRuntime {
+interface SyncRunRuntime {
   runId: string;
   startedAt: string;
   endedAt: string | null;

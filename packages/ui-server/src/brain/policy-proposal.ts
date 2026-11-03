@@ -1,12 +1,11 @@
 /** The only privileged policy writer. Worker input is never approval authority. */
-import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync,
-  openSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, constants, fchmodSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
-import { parseGovernancePolicy, GOVERNANCE_POLICY_PATH, GOVERNANCE_POLICY_MAX_BYTES } from "@schlessera/brain-common/internal/governance-policy";
+import { parseGovernancePolicy, GOVERNANCE_POLICY_PATH, GovernancePolicyReadError, openGovernancePolicyAnchored, verifyGovernancePolicyAnchored,
+  type AnchoredGovernancePolicy, type GovernancePolicyReadRefusal } from "@schlessera/brain-common/internal/governance-policy";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { PROPOSE_POLICY_CHANGE_INPUT_SCHEMA, type PolicyChangeInput, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
@@ -15,53 +14,22 @@ import * as proposalWrites from "./policy-proposal-writes.js";
 
 const hash = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 class Refusal extends Error { constructor(readonly state: "stale" | "invalid" | "refused", message: string) { super(message); } }
-interface Dir { fd: number; path: string; dev: number; ino: number }
-interface Target { chain: Dir[]; at: string; bytes: Buffer | null; mode?: number }
-const flags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
-function read(at: string): { bytes: Buffer | null; mode?: number } {
-  let fd: number;
-  try { fd = openSync(at, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { bytes: null }; throw error; }
-  try {
-    const info = fstatSync(fd);
-    if (!info.isFile() || info.nlink !== 1) throw new Refusal("refused", "Policy must be an ordinary file with one link. Nothing was written.");
-    if (info.size > GOVERNANCE_POLICY_MAX_BYTES) throw new Refusal("refused", "Policy exceeds the 1 MiB bound. Nothing was written.");
-    const bytes = readFileSync(fd), after = fstatSync(fd);
-    if (bytes.length > GOVERNANCE_POLICY_MAX_BYTES || after.size !== info.size || after.mtimeMs !== info.mtimeMs || after.ctimeMs !== info.ctimeMs)
-      throw new Refusal("stale", "Policy changed during review. Nothing was written.");
-    return { bytes, mode: info.mode & 0o7777 };
-  } finally { closeSync(fd); }
+type Target = AnchoredGovernancePolicy;
+/** The writer's review states and wording for common's anchored-read refusals. */
+const REFUSALS: Record<GovernancePolicyReadRefusal, [Refusal["state"], string]> = {
+  not_regular: ["refused", "Policy must be an ordinary file with one link. Nothing was written."],
+  oversize: ["refused", "Policy exceeds the 1 MiB bound. Nothing was written."],
+  changed: ["stale", "Policy changed during review. Nothing was written."],
+  ancestry: ["refused", "Policy ancestry changed. Nothing was written."],
+  mismatch: ["stale", "The policy changed since this was proposed. Nothing was written. A fresh proposal is required."],
+};
+function refusing<T>(read: () => T): T {
+  try { return read(); }
+  catch (error) { if (error instanceof GovernancePolicyReadError) throw new Refusal(...REFUSALS[error.refusal]); throw error; }
 }
-function close(target: Target) { for (const dir of target.chain.reverse()) closeSync(dir.fd); }
-function open(root: string, create = false, created: string[] = []): Target {
-  const chain: Dir[] = [];
-  try {
-    let visible = root;
-    const parts = GOVERNANCE_POLICY_PATH.split("/");
-    for (let i = 0; i < parts.length; i++) {
-      const anchored = i === 0 ? root : `/proc/self/fd/${chain.at(-1)!.fd}/${parts[i - 1]}`;
-      if (create && i > 0) {
-        try { mkdirSync(anchored, { mode: 0o755 }); created.push(visible); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
-      }
-      const fd = openSync(anchored, flags), info = fstatSync(fd);
-      chain.push({ fd, path: visible, dev: info.dev, ino: info.ino });
-      visible = join(visible, parts[i]!);
-    }
-    const at = `/proc/self/fd/${chain.at(-1)!.fd}/governance.md`;
-    return { chain, at, ...read(at) };
-  } catch (error) { for (const dir of chain.reverse()) closeSync(dir.fd); throw error; }
-}
-function verify(target: Target, expected: string | null) {
-  for (const dir of target.chain) {
-    const named = lstatSync(dir.path, { throwIfNoEntry: false });
-    if (!named?.isDirectory() || named.isSymbolicLink() || named.dev !== dir.dev || named.ino !== dir.ino)
-      throw new Refusal("refused", "Policy ancestry changed. Nothing was written.");
-  }
-  const current = read(target.at).bytes;
-  if ((current === null ? null : hash(current)) !== expected)
-    throw new Refusal("stale", "The policy changed since this was proposed. Nothing was written. A fresh proposal is required.");
-}
+const open = (root: string, create = false, created: string[] = []): Target => refusing(() => openGovernancePolicyAnchored(root, { create, created }));
+const verify = (target: Target, expected: string | null) => { refusing(() => verifyGovernancePolicyAnchored(target, expected)); };
+const close = (target: Target) => target.close();
 function base(root: string): Buffer | null {
   let target: Target;
   try { target = open(root); }
@@ -97,8 +65,9 @@ export interface PolicyProposalTurn {
   isAuthorized(): boolean; isAvailable(): boolean;
   /**
    * A scope pause, which stops publication without revoking authority (#2853):
-   * waited for, bounded, outside the lock. Inside the policy's own journal
-   * observation it refuses as before; waiting there would hold that observation.
+   * waited for, bounded, outside the lock. One the policy's own journal
+   * observation raises publishes nothing and lets that observation complete;
+   * the wait runs after it, and a fresh attempt checks everything again (#2870).
    */
   hold?: AuthorityHold;
   approve(review: PolicyChangeReview): Promise<boolean>;
@@ -163,8 +132,9 @@ export function createPolicyProposals(options: {
     /** Settles once every write submitted before it has settled: history joins proposals by session. */
     async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     async propose(turn: PolicyProposalTurn, requestId: string, raw: PolicyChangeInput): Promise<PolicyChangeReview> {
+      const held = () => !turn.signal.aborted && !turn.isAuthorized() && !!turn.hold?.active();
       const authority = (waits = true) => {
-        if (!turn.signal.aborted && !turn.isAuthorized() && waits && turn.hold?.active()) throw new AuthorityHeld();
+        if (waits && held()) throw new AuthorityHeld();
         if (turn.signal.aborted || !turn.isAuthorized() || !turn.isAvailable()) throw new Refusal("refused", "This request no longer has current interactive authority. Nothing was written.");
       };
       // An attempt that meets a hold has published nothing; it runs again once the hold clears.
@@ -209,26 +179,32 @@ export function createPolicyProposals(options: {
               const currentValidation = validate(bytes);
               if (!currentValidation.ok || currentValidation.status !== "valid") throw new Refusal("invalid", `This proposal no longer passes validation: ${currentValidation.errors.join("; ")}. Nothing was written. A fresh proposal is required.`);
               const created: string[] = [];
-              let target: Target | undefined, temp: string | undefined;
+              let target: Target | undefined, temp: string | undefined, unpublished = false;
               try {
                 target = open(root, review.baseHash === null, created); verify(target, review.baseHash);
                 options.beforeCommit?.(); authority(); verify(target, review.baseHash);
                 // No awaited code between final authority/base/topology check and publication.
                 await options.observeUserPolicy(turn.turnId, () => {
                   // Journal observation may precede this callback; recheck at the exact write.
+                  // A scope pause that observation raised is not a failed observation: stage
+                  // nothing and return, so it completes and the pause can be answered (#2870).
+                  if (held()) { unpublished = true; return; }
                   authority(false); verify(target!, review.baseHash);
                   // The operation owns the staging inode for this synchronous
                   // callback only. Both journal observations are outside its
                   // lifetime; no path/prefix ignore can hide real worker files.
-                  const staging = `/proc/self/fd/${target!.chain.at(-1)!.fd}/.brain-policy-${crypto.randomUUID()}`;
+                  const staging = `/proc/self/fd/${target!.directories.at(-1)!.fd}/.brain-policy-${crypto.randomUUID()}`;
                   let publicationFailed = false, publicationError: unknown;
                   try {
                     const fd = openSync(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target!.mode ?? 0o644);
                     temp = staging; // Only a successfully created inode belongs to this operation.
                     try { writeFileSync(fd, bytes); if (target!.mode !== undefined) fchmodSync(fd, target!.mode); fsyncSync(fd); } finally { closeSync(fd); }
-                    authority(false); verify(target!, review.baseHash);
-                    if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
-                    committed = true;
+                    if (held()) unpublished = true;
+                    else {
+                      authority(false); verify(target!, review.baseHash);
+                      if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
+                      committed = true;
+                    }
                   } catch (error) { publicationFailed = true; publicationError = error; }
                   // First publication uses link rather than an overwriting
                   // rename; unlink its remaining name before observation.
@@ -240,8 +216,12 @@ export function createPolicyProposals(options: {
                     }
                   }
                   if (publicationFailed) throw publicationError;
-                  fsyncSync(target!.chain.at(-1)!.fd);
+                  if (unpublished) return;
+                  fsyncSync(target!.directories.at(-1)!.fd);
                 });
+                // Nothing was published and the observation, its hold and (on
+                // unwinding) the lock are released: wait out the pause and retry.
+                if (unpublished) throw new AuthorityHeld();
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
                 await options.recordEvent(review, turn);
               } finally {

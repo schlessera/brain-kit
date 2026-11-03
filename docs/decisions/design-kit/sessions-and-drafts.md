@@ -22,10 +22,19 @@ of the [six-part #943 design](https://github.com/schlessera/brain-kit/issues/943
 (2026-10-04) with its four residual answers, R1–R4 (2026-10-05). Where
 those later rulings do not replace it, the supplied navigation and
 parallel-session designs still bind; §8 lists what carries over. The measured input is
-[`docs/plans/navigation-recovery.md`](../../plans/navigation-recovery.md)
+[`docs/plans/navigation-recovery.md`](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/navigation-recovery.md)
 (#942). The row's adopted geometry is the
 [shared-row design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5998113323),
 which amends the #943 strip.
+
+> **2026-11-02 — The measured input left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #942, #943, #964, #965, #910, #951 and #979 are closed, and the Sessions
+> destination, host-backed drafts and latest-turn recovery are in source
+> (`const destinations`, `packages/ui-react/src/components/layout/desktop-routes.ts`;
+> `packages/ui-server/src/drafts/`). The report held measurements and
+> follow-up ownership, not rulings; every ruling it fed is in this entry. Read
+> it unchanged at the pinned link above. Its probes stay in the tree at
+> `scripts/probes/navigation-recovery/`.
 
 **What this amends.** D37 §1's destinations and New chat placement; D22's
 ≥1280 list pane and the space between transcript and composer; and the
@@ -284,6 +293,15 @@ the summary's count drops, or the summary goes. A dropped follow-up
 popovers appear without a transition. D22's one ambient animation stays the
 filament.
 
+> **2026-11-03 — scoped amendment (#3281, maintainer ruling of 2026-11-02).**
+> The compact operation-status control,
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281),
+> may breathe in its `active` state only. The amendment covers that component
+> and its two selected consumers: the draft's indicator (#3155) and
+> deletion recovery in the Sessions header (#3231). It uses the shared
+> `breathe` keyframe, so reduced motion makes it static. No other tracker, row
+> or pane gains motion, and the rule above holds for everything else.
+
 <a id="4-trackers-under-recovery-a"></a>
 
 ### 4. Trackers under Recovery A
@@ -341,7 +359,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1580-1610`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1610-1640`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -417,6 +435,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   announcements until it is.
 > - `Mark as seen` with no latest turn identity to store deletes the record,
 >   since there is nothing to acknowledge against.
+> - *(2026-11-03, #3406.)* An answer still being written is not the linked
+>   turn, even when it carries the turn its live frames named. History links
+>   a turn only once it has ended, so a replay strips that turn from a
+>   running answer. Before #3406, reopening a running session could beat its
+>   replay and record proof from the stale frame turn, and the tracker
+>   cleared before the turn ended.
 
 > **2026-10-06 — R3's read-only card and the shell's time, implemented by
 > #1072.** The rules are `packages/ui-react/src/lib/restored-approvals.ts`,

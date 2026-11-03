@@ -87,11 +87,19 @@ source is an install problem: keep its source revision, 859-file inventory and
 qualification fingerprints unchanged. A frozen lockfile does not repair a
 modified shared package cache, and copying that cache copies the modifications
 ([#1980](https://github.com/schlessera/brain-kit/issues/1980)). Recover only the
-owned checkout through a fresh private cache and independent file copies:
+owned checkout through a fresh private cache and independent file copies,
+**under umask `022`**. The installation identity includes file modes, and the
+installer's umask narrows them. The qualified install was made under `022`, so
+an install under any other umask, such as `0077`, never matches, even though its
+package, file and byte counts are identical. Run the recovery in a subshell so
+your own umask is unchanged:
 
 ```sh
-native_fixture_cache=$(mktemp -d)
-bun install --force --frozen-lockfile --backend=copyfile --cache-dir "$native_fixture_cache"
+(
+  umask 022
+  native_fixture_cache=$(mktemp -d)
+  bun install --force --frozen-lockfile --backend=copyfile --cache-dir "$native_fixture_cache"
+)
 bun run test ./tests/native-diagram-inputs.test.ts
 ```
 
@@ -440,6 +448,14 @@ internal: no compatibility promise, valid only at the same lockstep version.
 `scripts/check-frontmatter-parse.ts`, part of `bun run lint`, refuses any other
 import of gray-matter. The reason is in
 [docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md).
+
+In ui-server, ui-kit and ui-react, `bun run lint` refuses an `export` in `src/`
+that no other file imports (`scripts/check-unused-exports.ts`). Drop the
+keyword, or delete the declaration if its own file does not use it either. An
+entry point's own exports and the declarations its api-report signatures
+record are exempt. Anything else that has to stay exported, such as a type
+that another file's declaration emit infers, gets an allowlist entry with a
+one-line reason in that script.
 
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs

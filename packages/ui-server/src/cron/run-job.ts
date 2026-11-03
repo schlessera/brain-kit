@@ -21,15 +21,29 @@ import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 export const STDERR_TAIL_CHARS = 2_000;
 /** Tail of combined stdout/stderr retained as the job_output activity event. */
 export const OUTPUT_TAIL_CHARS = 8_000;
+/**
+ * What a worker job's failure says when its output shows a read-only write
+ * (#3380). The worker's host, homes and XDG state are read-only or per-run;
+ * a bare `EROFS` from a module's own subprocess does not say so.
+ */
+const READ_ONLY_BOUNDARY_HINT =
+  "the job wrote to a read-only path: it runs in a maintenance worker (the host execution boundary), where only the brain is writable and kept. " +
+  "A module keeps durable state in .brain-ui/modules/<module-name>/ (CommandContext.stateDir()).";
+
+/** A read-only write in the job's own stderr that nothing above it already explained. */
+function readOnlyWithoutBoundary(stderr: string): boolean {
+  return /\bEROFS\b|read-only file system/i.test(stderr) && !stderr.includes("host execution boundary");
+}
+
 /** Heartbeat cadence, comfortably inside the activity store's stale threshold. */
-export const HEARTBEAT_MS = 30_000;
+const HEARTBEAT_MS = 30_000;
 /** Child-visible path where span-sink JSONL may be appended. */
 export const SPAN_SINK_ENV = "BRAIN_ACTIVITY_SPAN_SINK";
 /**
  * The most stdout the `sync` job's result may hold. Past it the output is
  * passed through as it arrives and no result is read from it.
  */
-export const SYNC_RESULT_MAX_CHARS = 8_000_000;
+const SYNC_RESULT_MAX_CHARS = 8_000_000;
 
 interface TextSink {
   write(text: string): unknown;
@@ -50,7 +64,7 @@ interface RunRecorder {
   close(): void;
 }
 
-export interface RunJobOptions {
+interface RunJobOptions {
   jobName: string;
   command: string[];
   dbPath: string;
@@ -65,7 +79,7 @@ export interface RunJobOptions {
   stderr?: TextSink;
 }
 
-export interface RunJobDependencies {
+interface RunJobDependencies {
   spawn?: (
     command: string[],
     options: {
@@ -96,7 +110,7 @@ function writeLine(sink: TextSink, text: string): void {
 }
 
 /** Forward a stream verbatim while exposing decoded chunks for tail capture. */
-export async function teeStream(
+async function teeStream(
   stream: ReadableStream<Uint8Array>,
   sink: TextSink,
   onText: (text: string) => void
@@ -138,7 +152,7 @@ function holdStdout(sink: TextSink): TextSink & { release(): string | null } {
 }
 
 /** Keep the last `cap` characters, never the head. */
-export function appendTail(current: string, text: string, cap: number): string {
+function appendTail(current: string, text: string, cap: number): string {
   return (current + text).slice(-cap);
 }
 
@@ -279,7 +293,8 @@ export async function runJob(
     const cronExec = trusted ? {} : options.exec;
     const env = { ...options.childEnv, [SPAN_SINK_ENV]: sinkPath };
     let proc: SpawnedJob;
-    if (!trusted && options.boundary?.isolated()) {
+    const inWorker = !trusted && Boolean(options.boundary?.isolated());
+    if (inWorker && options.boundary) {
       // The sink is the one host file the job may append to.
       closeSync(openSync(sinkPath, "a", 0o600));
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
@@ -335,6 +350,11 @@ export async function runJob(
       const cause = proc.signalCode ? `killed by ${proc.signalCode}` : `exit code ${exitCode}`;
       const trimmedTail = stderrTail.trim();
       errorMessage = trimmedTail ? `${cause}; stderr tail: ${trimmedTail}` : cause;
+      if (inWorker && readOnlyWithoutBoundary(stderrTail)) {
+        writeLine(stderr, `[cron-run] ${options.jobName}: ${READ_ONLY_BOUNDARY_HINT}`);
+        outputTail = appendTail(outputTail, `[cron-run] ${READ_ONLY_BOUNDARY_HINT}\n`, OUTPUT_TAIL_CHARS);
+        errorMessage = `${READ_ONLY_BOUNDARY_HINT} (${errorMessage})`;
+      }
     }
   } catch (error) {
     exitCode = 127;

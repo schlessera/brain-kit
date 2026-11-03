@@ -26,8 +26,22 @@ export "." (./src/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -170,14 +184,22 @@ export "." (./src/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
   type HygieneInput
+  type HygieneMediaAction
+  type HygieneMediaFileState
+  type HygieneMediaPlan
+  type HygieneMediaReceipt
+  type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -242,6 +264,7 @@ export "." (./src/index.ts)
   type RenderFormat
   type RenderRequest
   type ResolutionEffect
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -420,6 +443,11 @@ export "." (./src/index.ts)
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -462,8 +490,28 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyOperation
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -636,15 +684,23 @@ export "./client" (./src/client/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HelloState
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
   type HygieneInput
+  type HygieneMediaAction
+  type HygieneMediaFileState
+  type HygieneMediaPlan
+  type HygieneMediaReceipt
+  type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -765,6 +821,7 @@ export "./client" (./src/client/index.ts)
   type RequestImageMaskInput
   type ResolutionEffect
   type ResolveActionInput
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -955,6 +1012,7 @@ export "./client" (./src/client/index.ts)
   type WorkerLimitName
   type WorkerLimitSource
   type WorkerLimitsStatus
+  apifyOperationOf
   bridgeContractForToolName
   composeHandoffText
   createAsrClient
@@ -1004,6 +1062,7 @@ export "./internal" (./src/internal.ts)
   GIT_LOCK_KEY
   HOST_GIT_CREDENTIAL_ENV
   HOST_MASKS
+  HOST_ONLY_SECRET_ENV
   type HostCredentialDomain
   HostCredentialExclusionError
   INFERENCE_PLACEHOLDER
@@ -1020,6 +1079,8 @@ export "./internal" (./src/internal.ts)
   type MaintenanceEnvelope
   type MaintenanceHost
   type MaintenanceResult
+  MaintenanceTempBusyError
+  type MaintenanceTempKind
   type MaintenanceWorker
   NATIVE_MANAGER_MAX_DELTA_BYTES
   NATIVE_MANAGER_OPERATION_TIMEOUT_MS
@@ -1083,6 +1144,7 @@ export "./internal" (./src/internal.ts)
   type TurnTempPurgeRecord
   type TurnTempPurgeResult
   type TurnTempSpace
+  UNMANAGED_TURN_STORAGE
   VERSION_PROBE_TIMEOUT_MS
   type VisibleOutwardAction
   WEB_SEARCH_FALLBACK_ON
@@ -1141,6 +1203,7 @@ export "./internal" (./src/internal.ts)
   acquireHostCredentialExclusion
   applyClassification
   archivesDocument
+  assertManagedTurnStartupView
   assertScratchMask
   assertScratchMaskAsync
   bashCommand
@@ -1228,6 +1291,7 @@ export "./internal" (./src/internal.ts)
   requestPolicyPermission
   requireWorkerHost
   requireWorkerHostAsync
+  reserveMaintenanceTemp
   resolveMaintenanceTempLimits
   resolveOutputStagingLimits
   resolveTurnTempLimits
@@ -1271,6 +1335,7 @@ export "./internal" (./src/internal.ts)
   workerSandboxWarnings
 
 export "./internal/client" (./src/internal-client.ts)
+  type FrontmatterBlock
   type LinkEdit
   type ShareTargetError
   askUserFormPayload
@@ -1283,6 +1348,7 @@ export "./internal/client" (./src/internal-client.ts)
   defaultAsrClientRegistry
   defaultToolRendererRegistry
   describeRetry
+  frontmatterBlock
   handleShareTargetRequest
   isShareTargetRequest
   pruneStoredShares
@@ -1318,8 +1384,22 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -1459,14 +1539,22 @@ export "./protocol" (./src/protocol.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HygieneAction
   type HygieneDiff
   type HygieneEffect
   type HygieneInput
+  type HygieneMediaAction
+  type HygieneMediaFileState
+  type HygieneMediaPlan
+  type HygieneMediaReceipt
+  type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -1526,6 +1614,7 @@ export "./protocol" (./src/protocol.ts)
   type RenderFormat
   type RenderRequest
   type ResolutionEffect
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -1784,10 +1873,15 @@ export "./schemas" (./src/schemas.ts)
   hygieneDiffSchema
   hygieneEffectSchema
   hygieneInputSchema
+  hygieneMediaPlanSchema
+  hygieneMediaReceiptSchema
+  hygieneMediaRefusalSchema
   hygieneOutcomeSchema
   hygienePreviewRequestSchema
   hygieneReviewCommandSchema
+  hygieneReviewMediaUndoCommandSchema
   hygieneReviewReadSchema
+  hygieneReviewRequestSchema
   hygieneReviewStateSchema
   hygieneWorktreeDetailsReadSchema
   inboxActionItemSchema
@@ -1869,6 +1963,11 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_ANSWER_UPDATE_REQUIRED
   ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
@@ -1913,9 +2012,29 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnSubPhase
   type ActivityView
   type AgentBackend
   type AgentPolicyRead
+  type ApifyAccountRead
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyGrantRead
+  type ApifyLimitsRead
+  type ApifyOperation
+  type ApifyPolicyChange
+  type ApifyPolicyMode
+  type ApifyPolicyProposalRead
+  type ApifyPolicyRead
+  type ApifyProviderReason
+  type ApifyProviderState
+  type ApifySettingsRead
+  type ApifySpendRead
+  type ApifySpendScopeRead
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
+  type ApifyUnresolvedRunRead
   type ApprovalChannel
   type AskAnswerBinding
   type AskUserAnnotation
@@ -2145,6 +2264,7 @@ export "./server" (./src/server/index.ts)
   HANDOFF_MAX_CHARS
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
+  HOST_TIMEOUT_OUTCOME_DETAIL
   type HandoffRequest
   type HistoricalItem
   type HistoricalResultRef
@@ -2153,9 +2273,16 @@ export "./server" (./src/server/index.ts)
   type HygieneDiff
   type HygieneEffect
   type HygieneInput
+  type HygieneMediaAction
+  type HygieneMediaFileState
+  type HygieneMediaPlan
+  type HygieneMediaReceipt
+  type HygieneMediaRefusal
   type HygienePreviewRequest
   type HygieneReviewCommand
+  type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
+  type HygieneReviewRequest
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
@@ -2289,6 +2416,7 @@ export "./server" (./src/server/index.ts)
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
+  type RuntimeNotice
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -2503,6 +2631,7 @@ export "./server" (./src/server/index.ts)
   type WorkerLimitsStatus
   type WrappedKillOptions
   type WriteLock
+  apifyOperationOf
   assertLiveConversationProvider
   assertLiveConversationSession
   assertLoadedSdk
@@ -2535,6 +2664,7 @@ export "./server" (./src/server/index.ts)
   fetchCoastline
   filterSubprocessEnv
   geoConfigSchema
+  handleApifyTool
   handleAskUser
   handleAskUserForm
   handleAskUserList
@@ -2631,6 +2761,11 @@ export "./testing" (./src/testing/index.ts)
   runSpeechProviderContract
 
 export "./tool-contracts" (./src/tool-contracts/index.ts)
+  APIFY_ERROR_CODES
+  APIFY_GUIDANCE
+  APIFY_OPERATIONS
+  APIFY_TOOL_CONTRACTS
+  APIFY_TOOL_NAMES
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_FORM_CONTRACT
@@ -2652,6 +2787,12 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   ASK_USER_RANK_PAYLOAD_SCHEMA
   ASK_USER_RANK_TOOL_NAME
   ASK_USER_TOOL_NAME
+  type ApifyEnvelope
+  type ApifyErrorCode
+  type ApifyOperation
+  type ApifyToolCall
+  type ApifyToolName
+  type ApifyToolResult
   type AskUserFormAnswer
   type AskUserFormAnswers
   type AskUserFormInput
@@ -2752,6 +2893,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ToolInput
   type ToolPayload
   type TurnTempInput
+  apifyOperationOf
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
@@ -2763,6 +2905,24 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
 signatures (every public export and the types it is made of)
   ALLOWED_IMAGE_MEDIA_TYPES (packages/ui-sdk/src/protocol.ts)
     const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  APIFY_ERROR_CODES (packages/common/src/apify-operations.ts)
+    const APIFY_ERROR_CODES: readonly ["provider_disabled", "authentication_required", "policy_denied", "approval_required", "proposal_stale", "actor_unsupported", "budget_exceeded", "accounting_unavailable", "result_expired", "remote_outcome_unknown", "upstream_incompatible", "provider_unavailable", "invalid_input"];
+  APIFY_GUIDANCE (packages/common/src/apify-operations.ts)
+    const APIFY_GUIDANCE: string;
+  APIFY_OPERATIONS (packages/common/src/apify-operations.ts)
+    const APIFY_OPERATIONS: readonly ["discover", "inspect", "prepare", "run", "status", "results", "abort"];
+  APIFY_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/apify.ts)
+    const APIFY_TOOL_CONTRACTS: readonly ToolContract<ApifyToolName>[];
+  APIFY_TOOL_NAMES (packages/common/src/apify-operations.ts)
+    const APIFY_TOOL_NAMES: Readonly<{
+        abort: "brain_apify_abort";
+        discover: "brain_apify_discover";
+        inspect: "brain_apify_inspect";
+        prepare: "brain_apify_prepare";
+        results: "brain_apify_results";
+        run: "brain_apify_run";
+        status: "brain_apify_status";
+    }>;
   API_FAILURE_DETAIL (packages/ui-sdk/src/testing/index.ts)
     const API_FAILURE_DETAIL: "model not supported by this runtime";
   ASK_ANSWER_UPDATE_REQUIRED (packages/ui-sdk/src/protocol.ts)
@@ -3502,6 +3662,15 @@ signatures (every public export and the types it is made of)
         budgetAdmissionMs: number | null;
         journalBeginMs: number | null;
         backendStartupMs: number | null;
+        subPhases?: ActivityTurnSubPhase[];
+    }
+  ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnSubPhase {
+        phase: "governed" | "journal";
+        name: string;
+        startedAt: number;
+        endedAt: number | null;
+        elapsedMs: number | null;
     }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
@@ -3540,6 +3709,157 @@ signatures (every public export and the types it is made of)
         };
         protectedPaths: string[];
         workerLimits: WorkerLimitsStatus | null;
+    }
+  ApifyAccountRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyAccountRead {
+        id: string;
+        username: string | null;
+    }
+  ApifyEnvelope (packages/common/src/apify-operations.ts)
+    export type ApifyEnvelope = {
+        ok: true;
+        operation: ApifyOperation;
+        data: unknown;
+    } | {
+        ok: false;
+        operation: ApifyOperation;
+        error: {
+            code: ApifyErrorCode;
+            reason: string | null;
+            message: string;
+        };
+    };
+  ApifyErrorCode (packages/common/src/apify-operations.ts)
+    export type ApifyErrorCode = typeof APIFY_ERROR_CODES[number];
+  ApifyGrantRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyGrantRead {
+        account_id: string;
+        actor_id: string;
+        build_number: string;
+        profile_id: string;
+        origins: string[];
+        expires_at: string;
+        max_run_usd: number;
+        status: "active" | "expired" | "other_account";
+    }
+  ApifyLimitsRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyLimitsRead {
+        run_usd: number;
+        turn_usd: number;
+        session_usd: number;
+        day_usd: number;
+        max_runs_per_turn: number;
+        max_requests_per_turn: number;
+        max_concurrent_runs: number;
+        max_runtime_seconds: number;
+        max_result_items: number;
+        max_result_bytes: number;
+        max_retention_seconds: number;
+    }
+  ApifyOperation (packages/common/src/apify-operations.ts)
+    export type ApifyOperation = typeof APIFY_OPERATIONS[number];
+  ApifyPolicyChange (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyPolicyChange = {
+        enabled: boolean;
+    } | {
+        discovery: ApifyPolicyMode;
+    } | {
+        actors: ApifyPolicyMode;
+    } | {
+        remove_grant: {
+            account_id: string;
+            actor_id: string;
+            build_number: string;
+            profile_id: string;
+            expires_at: string;
+        };
+    };
+  ApifyPolicyMode (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyPolicyMode = "deny" | "ask" | "allow";
+  ApifyPolicyProposalRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyPolicyProposalRead {
+        turn_id: string;
+        request_id: string;
+        review: import("./tool-contracts/policy.js").PolicyChangeReview;
+    }
+  ApifyPolicyRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyPolicyRead {
+        path: "context/policies/governance.md";
+        hash: string | null;
+        valid: boolean;
+        enabled: boolean;
+        discovery: ApifyPolicyMode;
+        actors: ApifyPolicyMode;
+        grants: ApifyGrantRead[];
+        limits: ApifyLimitsRead | null;
+        budgets: {
+            turn_usd: number;
+            session_usd: number;
+            day_usd: number;
+        };
+    }
+  ApifyProviderReason (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyProviderReason = "not_enabled" | "policy_invalid" | "token_missing" | "token_rejected" | "account_changed" | "upstream_unreachable" | "upstream_incompatible";
+  ApifyProviderState (packages/ui-sdk/src/apify-settings.ts)
+    export type ApifyProviderState = "disabled" | "authentication_required" | "configured" | "unavailable";
+  ApifySettingsRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySettingsRead {
+        state: ApifyProviderState;
+        reason: ApifyProviderReason | null;
+        account: ApifyAccountRead | null;
+        pending_account: ApifyAccountRead | null;
+        checked_at: string | null;
+        policy: ApifyPolicyRead;
+        spend: ApifySpendRead;
+    }
+  ApifySpendRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySpendRead {
+        ledger: "absent" | "read" | "unavailable";
+        observed_at: string;
+        coverage: string | null;
+        day: ApifySpendScopeRead | null;
+        brain_day: ApifySpendScopeRead | null;
+        turn?: ApifySpendScopeRead | null;
+        unresolved: ApifyUnresolvedRunRead[];
+    }
+  ApifySpendScopeRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifySpendScopeRead {
+        scope: "turn" | "session" | "day" | "brain_day";
+        liability_usd: number;
+        charged_usd: number;
+        reserved_usd: number;
+        residual_usd: number;
+        runs: number;
+        open_runs: number;
+        unknown_runs: number;
+        operator_resolved: number;
+        limit_usd: number | null;
+    }
+  ApifyToolCall (packages/ui-sdk/src/tool-contracts/apify.ts)
+    export interface ApifyToolCall {
+        tool: ApifyToolName;
+        input: Record<string, unknown>;
+    }
+  ApifyToolName (packages/common/src/apify-operations.ts)
+    export type ApifyToolName = typeof APIFY_TOOL_NAMES[ApifyOperation];
+  ApifyToolResult (packages/ui-sdk/src/tool-contracts/apify.ts)
+    export type ApifyToolResult = ApifyEnvelope;
+  ApifyUnresolvedRunRead (packages/ui-sdk/src/apify-settings.ts)
+    export interface ApifyUnresolvedRunRead {
+        key: string;
+        actor_id: string;
+        build_number: string;
+        state: "dispatching" | "unknown" | "running" | "aborting" | "succeeded" | "failed" | "timed_out" | "aborted" | "refused";
+        abort: "requested" | "confirmed" | "unresolved" | null;
+        cost_basis: "reserved" | "events" | "unknown" | "operator" | "none";
+        reserved_usd: number;
+        charged_usd: number | null;
+        liability_usd: number;
+        remote_outcome_unknown: boolean;
+        session_id: string;
+        turn_id: string;
+        started_at: string;
+        updated_at: string;
     }
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
@@ -5265,6 +5585,7 @@ signatures (every public export and the types it is made of)
         }>;
         completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
         referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
+        apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -5556,6 +5877,7 @@ signatures (every public export and the types it is made of)
         scope: BudgetScope;
         legacyRuns?: number;
         costUsd: number | null;
+        apifyUsd?: number;
         tokens: number | null;
         unknownRuns: number;
         warnUsd: number;
@@ -6743,6 +7065,8 @@ signatures (every public export and the types it is made of)
     const HANDOFF_MAX_REFERENCES: 8;
   HANDOFF_REFERENCES_HEADING (packages/ui-sdk/src/protocol.ts)
     const HANDOFF_REFERENCES_HEADING: "References:";
+  HOST_TIMEOUT_OUTCOME_DETAIL (packages/ui-sdk/src/protocol.ts)
+    const HOST_TIMEOUT_OUTCOME_DETAIL: "host_timeout";
   HandoffRequest (packages/ui-sdk/src/protocol.ts)
     export interface HandoffRequest {
         handoffId: string;
@@ -6802,7 +7126,7 @@ signatures (every public export and the types it is made of)
         finding: Record<string, unknown>;
         outcome?: {
             version: 1;
-            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred";
+            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred" | "kept";
             supersededBy?: string;
             reason?: string;
             code?: string;
@@ -6811,6 +7135,7 @@ signatures (every public export and the types it is made of)
                 field: string;
                 message: string;
             };
+            media?: HygieneMediaReceipt;
         };
     }
   HygieneDiff (packages/ui-sdk/src/protocol.ts)
@@ -6827,16 +7152,102 @@ signatures (every public export and the types it is made of)
   HygieneEffect (packages/ui-sdk/src/protocol.ts)
     export interface HygieneEffect {
         kind: "hygiene";
-        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer";
+        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer" | "media-delete" | "media-move" | "media-persist" | "media-keep-copy";
         findingId: string;
         fingerprint: string;
         handler?: string;
         input?: HygieneInput;
         previewToken?: string;
         undoToken?: string;
+        destination?: string;
+        premiseDigest?: string;
     }
   HygieneInput (packages/ui-sdk/src/protocol.ts)
     export type HygieneInput = string | string[] | null;
+  HygieneMediaAction (packages/ui-sdk/src/protocol.ts)
+    export type HygieneMediaAction = "delete" | "move" | "persist" | "keep-copy";
+  HygieneMediaFileState (packages/ui-sdk/src/protocol.ts)
+    export type HygieneMediaFileState = "created" | "changed" | "removed" | "restored" | "unchanged" | "left-changed" | "conflict";
+  HygieneMediaPlan (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneMediaPlan {
+        action: HygieneMediaAction;
+        premiseDigest: string;
+        destination: string | null;
+        files: Array<{
+            path: string;
+            role: "source" | "destination" | "note" | "config" | "directory";
+            before: string | null;
+            after: string | null;
+            bytes: number;
+        }>;
+        captureBytes: number;
+        links: {
+            state: "linked" | "unlinked" | "unknown";
+            conversations: number;
+        };
+        references: {
+            complete: boolean;
+            count: number;
+        };
+        rewrites: Array<{
+            note: string;
+            line: number;
+            kind: string;
+            before: string;
+            after: string;
+        }>;
+        blockers: Array<{
+            note: string;
+            line: number;
+            kind: string;
+            target: string;
+        }>;
+        configDiff: {
+            path: string;
+            track: {
+                before: string[];
+                after: string[];
+            };
+            ignore: {
+                before: string[];
+                after: string[];
+            };
+        } | null;
+        copy: {
+            bytes: number;
+            sha256: string;
+            diskFreeAdvisory: number | null;
+        } | null;
+        resultClass: "TRACK" | "ARTIFACT" | null;
+        refusals: HygieneMediaRefusal[];
+    }
+  HygieneMediaReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneMediaReceipt {
+        journalId: string;
+        action: HygieneMediaAction;
+        outcome: "pending" | "applied" | "kept" | "compensated" | "partial" | "refused" | "stale" | "undone";
+        reason?: string;
+        refusals?: HygieneMediaRefusal[];
+        files: Array<{
+            path: string;
+            state: HygieneMediaFileState;
+        }>;
+        copySha256?: string;
+        undo: {
+            available: boolean;
+            reason?: string;
+            path?: string;
+        };
+    }
+  HygieneMediaRefusal (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneMediaRefusal {
+        code: string;
+        path?: string;
+        line?: number;
+        limit?: string;
+        effective?: number;
+        observed?: number;
+    }
   HygienePreviewRequest (packages/ui-sdk/src/protocol.ts)
     export interface HygienePreviewRequest {
         itemId: string;
@@ -6848,6 +7259,11 @@ signatures (every public export and the types it is made of)
     export interface HygieneReviewCommand {
         operation: "start" | "pause" | "resume" | "refresh";
     }
+  HygieneReviewMediaUndoCommand (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneReviewMediaUndoCommand {
+        operation: "undo-media";
+        journalId: string;
+    }
   HygieneReviewRead (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewRead {
         review: HygieneReviewState;
@@ -6855,7 +7271,10 @@ signatures (every public export and the types it is made of)
         privateDetailAccess?: {
             itemId: string;
         };
+        mediaUndo?: HygieneMediaReceipt;
     }
+  HygieneReviewRequest (packages/ui-sdk/src/protocol.ts)
+    export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
   HygieneReviewState (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewState {
         version: 1;
@@ -7079,6 +7498,7 @@ signatures (every public export and the types it is made of)
             example?: string;
         };
         preview?: HygieneDiff;
+        media?: HygieneMediaPlan;
     }
   InboxQueueItem (packages/ui-sdk/src/protocol.ts)
     export type InboxQueueItem = InboxItemBase & {
@@ -8179,6 +8599,11 @@ signatures (every public export and the types it is made of)
     export interface RouteMatchOptions {
         request: Request;
         url: URL;
+    }
+  RuntimeNotice (packages/ui-sdk/src/protocol.ts)
+    export interface RuntimeNotice {
+        cause: "aborted" | "unspecified";
+        message: string;
     }
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
     const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
@@ -10034,6 +10459,7 @@ signatures (every public export and the types it is made of)
         effectiveThinkingLevel?: ThinkingLevel;
         localAnswer?: LocalAnswer;
         failure?: TurnFailure;
+        runtimeNotice?: RuntimeNotice;
         retryOfTurnId?: string;
         turnId?: string;
         journal?: import("./turn-journal.js").TurnJournalSummary;
@@ -11014,7 +11440,7 @@ signatures (every public export and the types it is made of)
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
   TurnBudgetCoverage (packages/ui-sdk/src/turn-budgets.ts)
-    export type TurnBudgetCoverage = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
+    export type TurnBudgetCoverage = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered" | "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
   TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
     export interface TurnBudgetReceipt {
         listPriceCostUsd: number | null;
@@ -11330,6 +11756,8 @@ signatures (every public export and the types it is made of)
         acquire(): Promise<() => void>;
         withLock<T>(fn: () => Promise<T> | T): Promise<T>;
     }
+  apifyOperationOf (packages/common/src/apify-operations.ts)
+    export function apifyOperationOf(name: string): ApifyOperation | undefined;
   assertLiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
     export function assertLiveConversationProvider(provider: LiveConversationProvider): void;
   assertLiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
@@ -12612,6 +13040,11 @@ signatures (every public export and the types it is made of)
   geoConfigSchema (packages/geo/src/config.ts) recorded in api-report/geo.txt
   getShareStore (packages/ui-sdk/src/client/share-store.ts)
     export function getShareStore(): ShareStore;
+  handleApifyTool (packages/ui-sdk/src/server/bridge-tools/apify.ts)
+    export function handleApifyTool(name: ApifyToolName, input: unknown, bridge: Pick<BackendBridge, "apify">): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handleAskUser (packages/ui-sdk/src/server/bridge-tools/ask-user.ts)
     export function handleAskUser(input: AskUserInput, bridge: BackendBridge, requestId?: string): Promise<AskUserPayload>;
   handleAskUserForm (packages/ui-sdk/src/server/bridge-tools/ask-user-form.ts)
@@ -12654,6 +13087,52 @@ signatures (every public export and the types it is made of)
                 field: z.ZodString;
                 message: z.ZodString;
             }, z.core.$strict>>;
+            media: z.ZodOptional<z.ZodObject<{
+                action: z.ZodEnum<{
+                    "keep-copy": "keep-copy";
+                    delete: "delete";
+                    move: "move";
+                    persist: "persist";
+                }>;
+                copySha256: z.ZodOptional<z.ZodString>;
+                files: z.ZodArray<z.ZodObject<{
+                    path: z.ZodString;
+                    state: z.ZodEnum<{
+                        "left-changed": "left-changed";
+                        changed: "changed";
+                        conflict: "conflict";
+                        created: "created";
+                        removed: "removed";
+                        restored: "restored";
+                        unchanged: "unchanged";
+                    }>;
+                }, z.core.$strict>>;
+                journalId: z.ZodString;
+                outcome: z.ZodEnum<{
+                    applied: "applied";
+                    compensated: "compensated";
+                    kept: "kept";
+                    partial: "partial";
+                    pending: "pending";
+                    refused: "refused";
+                    stale: "stale";
+                    undone: "undone";
+                }>;
+                reason: z.ZodOptional<z.ZodString>;
+                refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    code: z.ZodString;
+                    effective: z.ZodOptional<z.ZodNumber>;
+                    limit: z.ZodOptional<z.ZodString>;
+                    line: z.ZodOptional<z.ZodNumber>;
+                    observed: z.ZodOptional<z.ZodNumber>;
+                    path: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>>>;
+                undo: z.ZodObject<{
+                    available: z.ZodBoolean;
+                    path: z.ZodOptional<z.ZodString>;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>;
+            }, z.core.$strict>>;
             reason: z.ZodOptional<z.ZodString>;
             status: z.ZodEnum<{
                 applying: "applying";
@@ -12661,6 +13140,7 @@ signatures (every public export and the types it is made of)
                 deferred: "deferred";
                 dismissed: "dismissed";
                 fixed: "fixed";
+                kept: "kept";
                 not_detected: "not_detected";
                 refused: "refused";
                 snoozed: "snoozed";
@@ -12687,12 +13167,17 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   hygieneEffectSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneEffectSchema: z.ZodObject<{
+        destination: z.ZodOptional<z.ZodString>;
         findingId: z.ZodString;
         fingerprint: z.ZodString;
         handler: z.ZodOptional<z.ZodString>;
         input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
+            "media-delete": "media-delete";
+            "media-keep-copy": "media-keep-copy";
+            "media-move": "media-move";
+            "media-persist": "media-persist";
             check: "check";
             defer: "defer";
             dismiss: "dismiss";
@@ -12700,17 +13185,198 @@ signatures (every public export and the types it is made of)
             snooze: "snooze";
             undo: "undo";
         }>;
+        premiseDigest: z.ZodOptional<z.ZodString>;
         previewToken: z.ZodOptional<z.ZodString>;
         undoToken: z.ZodOptional<z.ZodString>;
     }, z.core.$strict>;
   hygieneInputSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneInputSchema: z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>;
+  hygieneMediaPlanSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneMediaPlanSchema: z.ZodObject<{
+        action: z.ZodEnum<{
+            "keep-copy": "keep-copy";
+            delete: "delete";
+            move: "move";
+            persist: "persist";
+        }>;
+        blockers: z.ZodArray<z.ZodObject<{
+            kind: z.ZodString;
+            line: z.ZodNumber;
+            note: z.ZodString;
+            target: z.ZodString;
+        }, z.core.$strict>>;
+        captureBytes: z.ZodNumber;
+        configDiff: z.ZodNullable<z.ZodObject<{
+            ignore: z.ZodObject<{
+                after: z.ZodArray<z.ZodString>;
+                before: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>;
+            path: z.ZodString;
+            track: z.ZodObject<{
+                after: z.ZodArray<z.ZodString>;
+                before: z.ZodArray<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
+        copy: z.ZodNullable<z.ZodObject<{
+            bytes: z.ZodNumber;
+            diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+            sha256: z.ZodString;
+        }, z.core.$strict>>;
+        destination: z.ZodNullable<z.ZodString>;
+        files: z.ZodArray<z.ZodObject<{
+            after: z.ZodNullable<z.ZodString>;
+            before: z.ZodNullable<z.ZodString>;
+            bytes: z.ZodNumber;
+            path: z.ZodString;
+            role: z.ZodEnum<{
+                config: "config";
+                destination: "destination";
+                directory: "directory";
+                note: "note";
+                source: "source";
+            }>;
+        }, z.core.$strict>>;
+        links: z.ZodObject<{
+            conversations: z.ZodNumber;
+            state: z.ZodEnum<{
+                linked: "linked";
+                unknown: "unknown";
+                unlinked: "unlinked";
+            }>;
+        }, z.core.$strict>;
+        premiseDigest: z.ZodString;
+        references: z.ZodObject<{
+            complete: z.ZodBoolean;
+            count: z.ZodNumber;
+        }, z.core.$strict>;
+        refusals: z.ZodArray<z.ZodObject<{
+            code: z.ZodString;
+            effective: z.ZodOptional<z.ZodNumber>;
+            limit: z.ZodOptional<z.ZodString>;
+            line: z.ZodOptional<z.ZodNumber>;
+            observed: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        resultClass: z.ZodNullable<z.ZodEnum<{
+            ARTIFACT: "ARTIFACT";
+            TRACK: "TRACK";
+        }>>;
+        rewrites: z.ZodArray<z.ZodObject<{
+            after: z.ZodString;
+            before: z.ZodString;
+            kind: z.ZodString;
+            line: z.ZodNumber;
+            note: z.ZodString;
+        }, z.core.$strict>>;
+    }, z.core.$strip>;
+  hygieneMediaReceiptSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneMediaReceiptSchema: z.ZodObject<{
+        action: z.ZodEnum<{
+            "keep-copy": "keep-copy";
+            delete: "delete";
+            move: "move";
+            persist: "persist";
+        }>;
+        copySha256: z.ZodOptional<z.ZodString>;
+        files: z.ZodArray<z.ZodObject<{
+            path: z.ZodString;
+            state: z.ZodEnum<{
+                "left-changed": "left-changed";
+                changed: "changed";
+                conflict: "conflict";
+                created: "created";
+                removed: "removed";
+                restored: "restored";
+                unchanged: "unchanged";
+            }>;
+        }, z.core.$strict>>;
+        journalId: z.ZodString;
+        outcome: z.ZodEnum<{
+            applied: "applied";
+            compensated: "compensated";
+            kept: "kept";
+            partial: "partial";
+            pending: "pending";
+            refused: "refused";
+            stale: "stale";
+            undone: "undone";
+        }>;
+        reason: z.ZodOptional<z.ZodString>;
+        refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            code: z.ZodString;
+            effective: z.ZodOptional<z.ZodNumber>;
+            limit: z.ZodOptional<z.ZodString>;
+            line: z.ZodOptional<z.ZodNumber>;
+            observed: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>>;
+        undo: z.ZodObject<{
+            available: z.ZodBoolean;
+            path: z.ZodOptional<z.ZodString>;
+            reason: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  hygieneMediaRefusalSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneMediaRefusalSchema: z.ZodObject<{
+        code: z.ZodString;
+        effective: z.ZodOptional<z.ZodNumber>;
+        limit: z.ZodOptional<z.ZodString>;
+        line: z.ZodOptional<z.ZodNumber>;
+        observed: z.ZodOptional<z.ZodNumber>;
+        path: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
   hygieneOutcomeSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneOutcomeSchema: z.ZodObject<{
         code: z.ZodOptional<z.ZodString>;
         fieldError: z.ZodOptional<z.ZodObject<{
             field: z.ZodString;
             message: z.ZodString;
+        }, z.core.$strict>>;
+        media: z.ZodOptional<z.ZodObject<{
+            action: z.ZodEnum<{
+                "keep-copy": "keep-copy";
+                delete: "delete";
+                move: "move";
+                persist: "persist";
+            }>;
+            copySha256: z.ZodOptional<z.ZodString>;
+            files: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                state: z.ZodEnum<{
+                    "left-changed": "left-changed";
+                    changed: "changed";
+                    conflict: "conflict";
+                    created: "created";
+                    removed: "removed";
+                    restored: "restored";
+                    unchanged: "unchanged";
+                }>;
+            }, z.core.$strict>>;
+            journalId: z.ZodString;
+            outcome: z.ZodEnum<{
+                applied: "applied";
+                compensated: "compensated";
+                kept: "kept";
+                partial: "partial";
+                pending: "pending";
+                refused: "refused";
+                stale: "stale";
+                undone: "undone";
+            }>;
+            reason: z.ZodOptional<z.ZodString>;
+            refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                code: z.ZodString;
+                effective: z.ZodOptional<z.ZodNumber>;
+                limit: z.ZodOptional<z.ZodString>;
+                line: z.ZodOptional<z.ZodNumber>;
+                observed: z.ZodOptional<z.ZodNumber>;
+                path: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>>;
+            undo: z.ZodObject<{
+                available: z.ZodBoolean;
+                path: z.ZodOptional<z.ZodString>;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>;
         }, z.core.$strict>>;
         reason: z.ZodOptional<z.ZodString>;
         status: z.ZodEnum<{
@@ -12719,6 +13385,7 @@ signatures (every public export and the types it is made of)
             deferred: "deferred";
             dismissed: "dismissed";
             fixed: "fixed";
+            kept: "kept";
             not_detected: "not_detected";
             refused: "refused";
             snoozed: "snoozed";
@@ -12747,6 +13414,11 @@ signatures (every public export and the types it is made of)
             start: "start";
         }>;
     }, z.core.$strict>;
+  hygieneReviewMediaUndoCommandSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewMediaUndoCommandSchema: z.ZodObject<{
+        journalId: z.ZodString;
+        operation: z.ZodLiteral<"undo-media">;
+    }, z.core.$strict>;
   hygieneReviewReadSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneReviewReadSchema: z.ZodObject<{
         action: z.ZodNullable<z.ZodObject<{
@@ -12763,6 +13435,52 @@ signatures (every public export and the types it is made of)
                         field: z.ZodString;
                         message: z.ZodString;
                     }, z.core.$strict>>;
+                    media: z.ZodOptional<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            "keep-copy": "keep-copy";
+                            delete: "delete";
+                            move: "move";
+                            persist: "persist";
+                        }>;
+                        copySha256: z.ZodOptional<z.ZodString>;
+                        files: z.ZodArray<z.ZodObject<{
+                            path: z.ZodString;
+                            state: z.ZodEnum<{
+                                "left-changed": "left-changed";
+                                changed: "changed";
+                                conflict: "conflict";
+                                created: "created";
+                                removed: "removed";
+                                restored: "restored";
+                                unchanged: "unchanged";
+                            }>;
+                        }, z.core.$strict>>;
+                        journalId: z.ZodString;
+                        outcome: z.ZodEnum<{
+                            applied: "applied";
+                            compensated: "compensated";
+                            kept: "kept";
+                            partial: "partial";
+                            pending: "pending";
+                            refused: "refused";
+                            stale: "stale";
+                            undone: "undone";
+                        }>;
+                        reason: z.ZodOptional<z.ZodString>;
+                        refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                            code: z.ZodString;
+                            effective: z.ZodOptional<z.ZodNumber>;
+                            limit: z.ZodOptional<z.ZodString>;
+                            line: z.ZodOptional<z.ZodNumber>;
+                            observed: z.ZodOptional<z.ZodNumber>;
+                            path: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>>>;
+                        undo: z.ZodObject<{
+                            available: z.ZodBoolean;
+                            path: z.ZodOptional<z.ZodString>;
+                            reason: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
                     reason: z.ZodOptional<z.ZodString>;
                     status: z.ZodEnum<{
                         applying: "applying";
@@ -12770,6 +13488,7 @@ signatures (every public export and the types it is made of)
                         deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
+                        kept: "kept";
                         not_detected: "not_detected";
                         refused: "refused";
                         snoozed: "snoozed";
@@ -12796,12 +13515,17 @@ signatures (every public export and the types it is made of)
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
                 }, z.core.$loose>, z.ZodObject<{
+                    destination: z.ZodOptional<z.ZodString>;
                     findingId: z.ZodString;
                     fingerprint: z.ZodString;
                     handler: z.ZodOptional<z.ZodString>;
                     input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
+                        "media-delete": "media-delete";
+                        "media-keep-copy": "media-keep-copy";
+                        "media-move": "media-move";
+                        "media-persist": "media-persist";
                         check: "check";
                         defer: "defer";
                         dismiss: "dismiss";
@@ -12809,6 +13533,7 @@ signatures (every public export and the types it is made of)
                         snooze: "snooze";
                         undo: "undo";
                     }>;
+                    premiseDigest: z.ZodOptional<z.ZodString>;
                     previewToken: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
@@ -12849,6 +13574,83 @@ signatures (every public export and the types it is made of)
                     values: z.ZodOptional<z.ZodArray<z.ZodString>>;
                 }, z.core.$strict>>;
                 label: z.ZodString;
+                media: z.ZodOptional<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        "keep-copy": "keep-copy";
+                        delete: "delete";
+                        move: "move";
+                        persist: "persist";
+                    }>;
+                    blockers: z.ZodArray<z.ZodObject<{
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                        target: z.ZodString;
+                    }, z.core.$strict>>;
+                    captureBytes: z.ZodNumber;
+                    configDiff: z.ZodNullable<z.ZodObject<{
+                        ignore: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                        path: z.ZodString;
+                        track: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
+                    copy: z.ZodNullable<z.ZodObject<{
+                        bytes: z.ZodNumber;
+                        diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                        sha256: z.ZodString;
+                    }, z.core.$strict>>;
+                    destination: z.ZodNullable<z.ZodString>;
+                    files: z.ZodArray<z.ZodObject<{
+                        after: z.ZodNullable<z.ZodString>;
+                        before: z.ZodNullable<z.ZodString>;
+                        bytes: z.ZodNumber;
+                        path: z.ZodString;
+                        role: z.ZodEnum<{
+                            config: "config";
+                            destination: "destination";
+                            directory: "directory";
+                            note: "note";
+                            source: "source";
+                        }>;
+                    }, z.core.$strict>>;
+                    links: z.ZodObject<{
+                        conversations: z.ZodNumber;
+                        state: z.ZodEnum<{
+                            linked: "linked";
+                            unknown: "unknown";
+                            unlinked: "unlinked";
+                        }>;
+                    }, z.core.$strict>;
+                    premiseDigest: z.ZodString;
+                    references: z.ZodObject<{
+                        complete: z.ZodBoolean;
+                        count: z.ZodNumber;
+                    }, z.core.$strict>;
+                    refusals: z.ZodArray<z.ZodObject<{
+                        code: z.ZodString;
+                        effective: z.ZodOptional<z.ZodNumber>;
+                        limit: z.ZodOptional<z.ZodString>;
+                        line: z.ZodOptional<z.ZodNumber>;
+                        observed: z.ZodOptional<z.ZodNumber>;
+                        path: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>;
+                    resultClass: z.ZodNullable<z.ZodEnum<{
+                        ARTIFACT: "ARTIFACT";
+                        TRACK: "TRACK";
+                    }>>;
+                    rewrites: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                    }, z.core.$strict>>;
+                }, z.core.$strip>>;
                 preview: z.ZodOptional<z.ZodObject<{
                     after: z.ZodString;
                     before: z.ZodString;
@@ -12884,6 +13686,52 @@ signatures (every public export and the types it is made of)
             version: z.ZodNumber;
             waitUntil: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>;
+        mediaUndo: z.ZodOptional<z.ZodObject<{
+            action: z.ZodEnum<{
+                "keep-copy": "keep-copy";
+                delete: "delete";
+                move: "move";
+                persist: "persist";
+            }>;
+            copySha256: z.ZodOptional<z.ZodString>;
+            files: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                state: z.ZodEnum<{
+                    "left-changed": "left-changed";
+                    changed: "changed";
+                    conflict: "conflict";
+                    created: "created";
+                    removed: "removed";
+                    restored: "restored";
+                    unchanged: "unchanged";
+                }>;
+            }, z.core.$strict>>;
+            journalId: z.ZodString;
+            outcome: z.ZodEnum<{
+                applied: "applied";
+                compensated: "compensated";
+                kept: "kept";
+                partial: "partial";
+                pending: "pending";
+                refused: "refused";
+                stale: "stale";
+                undone: "undone";
+            }>;
+            reason: z.ZodOptional<z.ZodString>;
+            refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                code: z.ZodString;
+                effective: z.ZodOptional<z.ZodNumber>;
+                limit: z.ZodOptional<z.ZodString>;
+                line: z.ZodOptional<z.ZodNumber>;
+                observed: z.ZodOptional<z.ZodNumber>;
+                path: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>>;
+            undo: z.ZodObject<{
+                available: z.ZodBoolean;
+                path: z.ZodOptional<z.ZodString>;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>;
+        }, z.core.$strict>>;
         privateDetailAccess: z.ZodOptional<z.ZodObject<{
             itemId: z.ZodString;
         }, z.core.$strict>>;
@@ -12929,6 +13777,18 @@ signatures (every public export and the types it is made of)
             version: z.ZodLiteral<1>;
         }, z.core.$strict>;
     }, z.core.$strict>;
+  hygieneReviewRequestSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
+        operation: z.ZodEnum<{
+            pause: "pause";
+            refresh: "refresh";
+            resume: "resume";
+            start: "start";
+        }>;
+    }, z.core.$strict>, z.ZodObject<{
+        journalId: z.ZodString;
+        operation: z.ZodLiteral<"undo-media">;
+    }, z.core.$strict>]>;
   hygieneReviewStateSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneReviewStateSchema: z.ZodObject<{
         blocker: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -13010,6 +13870,52 @@ signatures (every public export and the types it is made of)
                     field: z.ZodString;
                     message: z.ZodString;
                 }, z.core.$strict>>;
+                media: z.ZodOptional<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        "keep-copy": "keep-copy";
+                        delete: "delete";
+                        move: "move";
+                        persist: "persist";
+                    }>;
+                    copySha256: z.ZodOptional<z.ZodString>;
+                    files: z.ZodArray<z.ZodObject<{
+                        path: z.ZodString;
+                        state: z.ZodEnum<{
+                            "left-changed": "left-changed";
+                            changed: "changed";
+                            conflict: "conflict";
+                            created: "created";
+                            removed: "removed";
+                            restored: "restored";
+                            unchanged: "unchanged";
+                        }>;
+                    }, z.core.$strict>>;
+                    journalId: z.ZodString;
+                    outcome: z.ZodEnum<{
+                        applied: "applied";
+                        compensated: "compensated";
+                        kept: "kept";
+                        partial: "partial";
+                        pending: "pending";
+                        refused: "refused";
+                        stale: "stale";
+                        undone: "undone";
+                    }>;
+                    reason: z.ZodOptional<z.ZodString>;
+                    refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                        code: z.ZodString;
+                        effective: z.ZodOptional<z.ZodNumber>;
+                        limit: z.ZodOptional<z.ZodString>;
+                        line: z.ZodOptional<z.ZodNumber>;
+                        observed: z.ZodOptional<z.ZodNumber>;
+                        path: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>>;
+                    undo: z.ZodObject<{
+                        available: z.ZodBoolean;
+                        path: z.ZodOptional<z.ZodString>;
+                        reason: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
                 reason: z.ZodOptional<z.ZodString>;
                 status: z.ZodEnum<{
                     applying: "applying";
@@ -13017,6 +13923,7 @@ signatures (every public export and the types it is made of)
                     deferred: "deferred";
                     dismissed: "dismissed";
                     fixed: "fixed";
+                    kept: "kept";
                     not_detected: "not_detected";
                     refused: "refused";
                     snoozed: "snoozed";
@@ -13043,12 +13950,17 @@ signatures (every public export and the types it is made of)
                     }, z.core.$loose>>;
                 }, z.core.$loose>;
             }, z.core.$loose>, z.ZodObject<{
+                destination: z.ZodOptional<z.ZodString>;
                 findingId: z.ZodString;
                 fingerprint: z.ZodString;
                 handler: z.ZodOptional<z.ZodString>;
                 input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                 kind: z.ZodLiteral<"hygiene">;
                 operation: z.ZodEnum<{
+                    "media-delete": "media-delete";
+                    "media-keep-copy": "media-keep-copy";
+                    "media-move": "media-move";
+                    "media-persist": "media-persist";
                     check: "check";
                     defer: "defer";
                     dismiss: "dismiss";
@@ -13056,6 +13968,7 @@ signatures (every public export and the types it is made of)
                     snooze: "snooze";
                     undo: "undo";
                 }>;
+                premiseDigest: z.ZodOptional<z.ZodString>;
                 previewToken: z.ZodOptional<z.ZodString>;
                 undoToken: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>, z.ZodObject<{
@@ -13096,6 +14009,83 @@ signatures (every public export and the types it is made of)
                 values: z.ZodOptional<z.ZodArray<z.ZodString>>;
             }, z.core.$strict>>;
             label: z.ZodString;
+            media: z.ZodOptional<z.ZodObject<{
+                action: z.ZodEnum<{
+                    "keep-copy": "keep-copy";
+                    delete: "delete";
+                    move: "move";
+                    persist: "persist";
+                }>;
+                blockers: z.ZodArray<z.ZodObject<{
+                    kind: z.ZodString;
+                    line: z.ZodNumber;
+                    note: z.ZodString;
+                    target: z.ZodString;
+                }, z.core.$strict>>;
+                captureBytes: z.ZodNumber;
+                configDiff: z.ZodNullable<z.ZodObject<{
+                    ignore: z.ZodObject<{
+                        after: z.ZodArray<z.ZodString>;
+                        before: z.ZodArray<z.ZodString>;
+                    }, z.core.$strict>;
+                    path: z.ZodString;
+                    track: z.ZodObject<{
+                        after: z.ZodArray<z.ZodString>;
+                        before: z.ZodArray<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
+                copy: z.ZodNullable<z.ZodObject<{
+                    bytes: z.ZodNumber;
+                    diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                    sha256: z.ZodString;
+                }, z.core.$strict>>;
+                destination: z.ZodNullable<z.ZodString>;
+                files: z.ZodArray<z.ZodObject<{
+                    after: z.ZodNullable<z.ZodString>;
+                    before: z.ZodNullable<z.ZodString>;
+                    bytes: z.ZodNumber;
+                    path: z.ZodString;
+                    role: z.ZodEnum<{
+                        config: "config";
+                        destination: "destination";
+                        directory: "directory";
+                        note: "note";
+                        source: "source";
+                    }>;
+                }, z.core.$strict>>;
+                links: z.ZodObject<{
+                    conversations: z.ZodNumber;
+                    state: z.ZodEnum<{
+                        linked: "linked";
+                        unknown: "unknown";
+                        unlinked: "unlinked";
+                    }>;
+                }, z.core.$strict>;
+                premiseDigest: z.ZodString;
+                references: z.ZodObject<{
+                    complete: z.ZodBoolean;
+                    count: z.ZodNumber;
+                }, z.core.$strict>;
+                refusals: z.ZodArray<z.ZodObject<{
+                    code: z.ZodString;
+                    effective: z.ZodOptional<z.ZodNumber>;
+                    limit: z.ZodOptional<z.ZodString>;
+                    line: z.ZodOptional<z.ZodNumber>;
+                    observed: z.ZodOptional<z.ZodNumber>;
+                    path: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>>;
+                resultClass: z.ZodNullable<z.ZodEnum<{
+                    ARTIFACT: "ARTIFACT";
+                    TRACK: "TRACK";
+                }>>;
+                rewrites: z.ZodArray<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    kind: z.ZodString;
+                    line: z.ZodNumber;
+                    note: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$strip>>;
             preview: z.ZodOptional<z.ZodObject<{
                 after: z.ZodString;
                 before: z.ZodString;
@@ -13280,6 +14270,52 @@ signatures (every public export and the types it is made of)
                         field: z.ZodString;
                         message: z.ZodString;
                     }, z.core.$strict>>;
+                    media: z.ZodOptional<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            "keep-copy": "keep-copy";
+                            delete: "delete";
+                            move: "move";
+                            persist: "persist";
+                        }>;
+                        copySha256: z.ZodOptional<z.ZodString>;
+                        files: z.ZodArray<z.ZodObject<{
+                            path: z.ZodString;
+                            state: z.ZodEnum<{
+                                "left-changed": "left-changed";
+                                changed: "changed";
+                                conflict: "conflict";
+                                created: "created";
+                                removed: "removed";
+                                restored: "restored";
+                                unchanged: "unchanged";
+                            }>;
+                        }, z.core.$strict>>;
+                        journalId: z.ZodString;
+                        outcome: z.ZodEnum<{
+                            applied: "applied";
+                            compensated: "compensated";
+                            kept: "kept";
+                            partial: "partial";
+                            pending: "pending";
+                            refused: "refused";
+                            stale: "stale";
+                            undone: "undone";
+                        }>;
+                        reason: z.ZodOptional<z.ZodString>;
+                        refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                            code: z.ZodString;
+                            effective: z.ZodOptional<z.ZodNumber>;
+                            limit: z.ZodOptional<z.ZodString>;
+                            line: z.ZodOptional<z.ZodNumber>;
+                            observed: z.ZodOptional<z.ZodNumber>;
+                            path: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>>>;
+                        undo: z.ZodObject<{
+                            available: z.ZodBoolean;
+                            path: z.ZodOptional<z.ZodString>;
+                            reason: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
                     reason: z.ZodOptional<z.ZodString>;
                     status: z.ZodEnum<{
                         applying: "applying";
@@ -13287,6 +14323,7 @@ signatures (every public export and the types it is made of)
                         deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
+                        kept: "kept";
                         not_detected: "not_detected";
                         refused: "refused";
                         snoozed: "snoozed";
@@ -13313,12 +14350,17 @@ signatures (every public export and the types it is made of)
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
                 }, z.core.$loose>, z.ZodObject<{
+                    destination: z.ZodOptional<z.ZodString>;
                     findingId: z.ZodString;
                     fingerprint: z.ZodString;
                     handler: z.ZodOptional<z.ZodString>;
                     input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
+                        "media-delete": "media-delete";
+                        "media-keep-copy": "media-keep-copy";
+                        "media-move": "media-move";
+                        "media-persist": "media-persist";
                         check: "check";
                         defer: "defer";
                         dismiss: "dismiss";
@@ -13326,6 +14368,7 @@ signatures (every public export and the types it is made of)
                         snooze: "snooze";
                         undo: "undo";
                     }>;
+                    premiseDigest: z.ZodOptional<z.ZodString>;
                     previewToken: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
@@ -13366,6 +14409,83 @@ signatures (every public export and the types it is made of)
                     values: z.ZodOptional<z.ZodArray<z.ZodString>>;
                 }, z.core.$strict>>;
                 label: z.ZodString;
+                media: z.ZodOptional<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        "keep-copy": "keep-copy";
+                        delete: "delete";
+                        move: "move";
+                        persist: "persist";
+                    }>;
+                    blockers: z.ZodArray<z.ZodObject<{
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                        target: z.ZodString;
+                    }, z.core.$strict>>;
+                    captureBytes: z.ZodNumber;
+                    configDiff: z.ZodNullable<z.ZodObject<{
+                        ignore: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                        path: z.ZodString;
+                        track: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
+                    copy: z.ZodNullable<z.ZodObject<{
+                        bytes: z.ZodNumber;
+                        diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                        sha256: z.ZodString;
+                    }, z.core.$strict>>;
+                    destination: z.ZodNullable<z.ZodString>;
+                    files: z.ZodArray<z.ZodObject<{
+                        after: z.ZodNullable<z.ZodString>;
+                        before: z.ZodNullable<z.ZodString>;
+                        bytes: z.ZodNumber;
+                        path: z.ZodString;
+                        role: z.ZodEnum<{
+                            config: "config";
+                            destination: "destination";
+                            directory: "directory";
+                            note: "note";
+                            source: "source";
+                        }>;
+                    }, z.core.$strict>>;
+                    links: z.ZodObject<{
+                        conversations: z.ZodNumber;
+                        state: z.ZodEnum<{
+                            linked: "linked";
+                            unknown: "unknown";
+                            unlinked: "unlinked";
+                        }>;
+                    }, z.core.$strict>;
+                    premiseDigest: z.ZodString;
+                    references: z.ZodObject<{
+                        complete: z.ZodBoolean;
+                        count: z.ZodNumber;
+                    }, z.core.$strict>;
+                    refusals: z.ZodArray<z.ZodObject<{
+                        code: z.ZodString;
+                        effective: z.ZodOptional<z.ZodNumber>;
+                        limit: z.ZodOptional<z.ZodString>;
+                        line: z.ZodOptional<z.ZodNumber>;
+                        observed: z.ZodOptional<z.ZodNumber>;
+                        path: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>;
+                    resultClass: z.ZodNullable<z.ZodEnum<{
+                        ARTIFACT: "ARTIFACT";
+                        TRACK: "TRACK";
+                    }>>;
+                    rewrites: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                    }, z.core.$strict>>;
+                }, z.core.$strip>>;
                 preview: z.ZodOptional<z.ZodObject<{
                     after: z.ZodString;
                     before: z.ZodString;
@@ -13558,6 +14678,52 @@ signatures (every public export and the types it is made of)
                             field: z.ZodString;
                             message: z.ZodString;
                         }, z.core.$strict>>;
+                        media: z.ZodOptional<z.ZodObject<{
+                            action: z.ZodEnum<{
+                                "keep-copy": "keep-copy";
+                                delete: "delete";
+                                move: "move";
+                                persist: "persist";
+                            }>;
+                            copySha256: z.ZodOptional<z.ZodString>;
+                            files: z.ZodArray<z.ZodObject<{
+                                path: z.ZodString;
+                                state: z.ZodEnum<{
+                                    "left-changed": "left-changed";
+                                    changed: "changed";
+                                    conflict: "conflict";
+                                    created: "created";
+                                    removed: "removed";
+                                    restored: "restored";
+                                    unchanged: "unchanged";
+                                }>;
+                            }, z.core.$strict>>;
+                            journalId: z.ZodString;
+                            outcome: z.ZodEnum<{
+                                applied: "applied";
+                                compensated: "compensated";
+                                kept: "kept";
+                                partial: "partial";
+                                pending: "pending";
+                                refused: "refused";
+                                stale: "stale";
+                                undone: "undone";
+                            }>;
+                            reason: z.ZodOptional<z.ZodString>;
+                            refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                                code: z.ZodString;
+                                effective: z.ZodOptional<z.ZodNumber>;
+                                limit: z.ZodOptional<z.ZodString>;
+                                line: z.ZodOptional<z.ZodNumber>;
+                                observed: z.ZodOptional<z.ZodNumber>;
+                                path: z.ZodOptional<z.ZodString>;
+                            }, z.core.$strict>>>;
+                            undo: z.ZodObject<{
+                                available: z.ZodBoolean;
+                                path: z.ZodOptional<z.ZodString>;
+                                reason: z.ZodOptional<z.ZodString>;
+                            }, z.core.$strict>;
+                        }, z.core.$strict>>;
                         reason: z.ZodOptional<z.ZodString>;
                         status: z.ZodEnum<{
                             applying: "applying";
@@ -13565,6 +14731,7 @@ signatures (every public export and the types it is made of)
                             deferred: "deferred";
                             dismissed: "dismissed";
                             fixed: "fixed";
+                            kept: "kept";
                             not_detected: "not_detected";
                             refused: "refused";
                             snoozed: "snoozed";
@@ -13591,12 +14758,17 @@ signatures (every public export and the types it is made of)
                             }, z.core.$loose>>;
                         }, z.core.$loose>;
                     }, z.core.$loose>, z.ZodObject<{
+                        destination: z.ZodOptional<z.ZodString>;
                         findingId: z.ZodString;
                         fingerprint: z.ZodString;
                         handler: z.ZodOptional<z.ZodString>;
                         input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                         kind: z.ZodLiteral<"hygiene">;
                         operation: z.ZodEnum<{
+                            "media-delete": "media-delete";
+                            "media-keep-copy": "media-keep-copy";
+                            "media-move": "media-move";
+                            "media-persist": "media-persist";
                             check: "check";
                             defer: "defer";
                             dismiss: "dismiss";
@@ -13604,6 +14776,7 @@ signatures (every public export and the types it is made of)
                             snooze: "snooze";
                             undo: "undo";
                         }>;
+                        premiseDigest: z.ZodOptional<z.ZodString>;
                         previewToken: z.ZodOptional<z.ZodString>;
                         undoToken: z.ZodOptional<z.ZodString>;
                     }, z.core.$loose>, z.ZodObject<{
@@ -13644,6 +14817,83 @@ signatures (every public export and the types it is made of)
                         values: z.ZodOptional<z.ZodArray<z.ZodString>>;
                     }, z.core.$strict>>;
                     label: z.ZodString;
+                    media: z.ZodOptional<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            "keep-copy": "keep-copy";
+                            delete: "delete";
+                            move: "move";
+                            persist: "persist";
+                        }>;
+                        blockers: z.ZodArray<z.ZodObject<{
+                            kind: z.ZodString;
+                            line: z.ZodNumber;
+                            note: z.ZodString;
+                            target: z.ZodString;
+                        }, z.core.$strict>>;
+                        captureBytes: z.ZodNumber;
+                        configDiff: z.ZodNullable<z.ZodObject<{
+                            ignore: z.ZodObject<{
+                                after: z.ZodArray<z.ZodString>;
+                                before: z.ZodArray<z.ZodString>;
+                            }, z.core.$strict>;
+                            path: z.ZodString;
+                            track: z.ZodObject<{
+                                after: z.ZodArray<z.ZodString>;
+                                before: z.ZodArray<z.ZodString>;
+                            }, z.core.$strict>;
+                        }, z.core.$strict>>;
+                        copy: z.ZodNullable<z.ZodObject<{
+                            bytes: z.ZodNumber;
+                            diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                            sha256: z.ZodString;
+                        }, z.core.$strict>>;
+                        destination: z.ZodNullable<z.ZodString>;
+                        files: z.ZodArray<z.ZodObject<{
+                            after: z.ZodNullable<z.ZodString>;
+                            before: z.ZodNullable<z.ZodString>;
+                            bytes: z.ZodNumber;
+                            path: z.ZodString;
+                            role: z.ZodEnum<{
+                                config: "config";
+                                destination: "destination";
+                                directory: "directory";
+                                note: "note";
+                                source: "source";
+                            }>;
+                        }, z.core.$strict>>;
+                        links: z.ZodObject<{
+                            conversations: z.ZodNumber;
+                            state: z.ZodEnum<{
+                                linked: "linked";
+                                unknown: "unknown";
+                                unlinked: "unlinked";
+                            }>;
+                        }, z.core.$strict>;
+                        premiseDigest: z.ZodString;
+                        references: z.ZodObject<{
+                            complete: z.ZodBoolean;
+                            count: z.ZodNumber;
+                        }, z.core.$strict>;
+                        refusals: z.ZodArray<z.ZodObject<{
+                            code: z.ZodString;
+                            effective: z.ZodOptional<z.ZodNumber>;
+                            limit: z.ZodOptional<z.ZodString>;
+                            line: z.ZodOptional<z.ZodNumber>;
+                            observed: z.ZodOptional<z.ZodNumber>;
+                            path: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>>;
+                        resultClass: z.ZodNullable<z.ZodEnum<{
+                            ARTIFACT: "ARTIFACT";
+                            TRACK: "TRACK";
+                        }>>;
+                        rewrites: z.ZodArray<z.ZodObject<{
+                            after: z.ZodString;
+                            before: z.ZodString;
+                            kind: z.ZodString;
+                            line: z.ZodNumber;
+                            note: z.ZodString;
+                        }, z.core.$strict>>;
+                    }, z.core.$strip>>;
                     preview: z.ZodOptional<z.ZodObject<{
                         after: z.ZodString;
                         before: z.ZodString;
@@ -13833,6 +15083,52 @@ signatures (every public export and the types it is made of)
                     field: z.ZodString;
                     message: z.ZodString;
                 }, z.core.$strict>>;
+                media: z.ZodOptional<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        "keep-copy": "keep-copy";
+                        delete: "delete";
+                        move: "move";
+                        persist: "persist";
+                    }>;
+                    copySha256: z.ZodOptional<z.ZodString>;
+                    files: z.ZodArray<z.ZodObject<{
+                        path: z.ZodString;
+                        state: z.ZodEnum<{
+                            "left-changed": "left-changed";
+                            changed: "changed";
+                            conflict: "conflict";
+                            created: "created";
+                            removed: "removed";
+                            restored: "restored";
+                            unchanged: "unchanged";
+                        }>;
+                    }, z.core.$strict>>;
+                    journalId: z.ZodString;
+                    outcome: z.ZodEnum<{
+                        applied: "applied";
+                        compensated: "compensated";
+                        kept: "kept";
+                        partial: "partial";
+                        pending: "pending";
+                        refused: "refused";
+                        stale: "stale";
+                        undone: "undone";
+                    }>;
+                    reason: z.ZodOptional<z.ZodString>;
+                    refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                        code: z.ZodString;
+                        effective: z.ZodOptional<z.ZodNumber>;
+                        limit: z.ZodOptional<z.ZodString>;
+                        line: z.ZodOptional<z.ZodNumber>;
+                        observed: z.ZodOptional<z.ZodNumber>;
+                        path: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>>;
+                    undo: z.ZodObject<{
+                        available: z.ZodBoolean;
+                        path: z.ZodOptional<z.ZodString>;
+                        reason: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
                 reason: z.ZodOptional<z.ZodString>;
                 status: z.ZodEnum<{
                     applying: "applying";
@@ -13840,6 +15136,7 @@ signatures (every public export and the types it is made of)
                     deferred: "deferred";
                     dismissed: "dismissed";
                     fixed: "fixed";
+                    kept: "kept";
                     not_detected: "not_detected";
                     refused: "refused";
                     snoozed: "snoozed";
@@ -13866,12 +15163,17 @@ signatures (every public export and the types it is made of)
                     }, z.core.$loose>>;
                 }, z.core.$loose>;
             }, z.core.$loose>, z.ZodObject<{
+                destination: z.ZodOptional<z.ZodString>;
                 findingId: z.ZodString;
                 fingerprint: z.ZodString;
                 handler: z.ZodOptional<z.ZodString>;
                 input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                 kind: z.ZodLiteral<"hygiene">;
                 operation: z.ZodEnum<{
+                    "media-delete": "media-delete";
+                    "media-keep-copy": "media-keep-copy";
+                    "media-move": "media-move";
+                    "media-persist": "media-persist";
                     check: "check";
                     defer: "defer";
                     dismiss: "dismiss";
@@ -13879,6 +15181,7 @@ signatures (every public export and the types it is made of)
                     snooze: "snooze";
                     undo: "undo";
                 }>;
+                premiseDigest: z.ZodOptional<z.ZodString>;
                 previewToken: z.ZodOptional<z.ZodString>;
                 undoToken: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>, z.ZodObject<{
@@ -13919,6 +15222,83 @@ signatures (every public export and the types it is made of)
                 values: z.ZodOptional<z.ZodArray<z.ZodString>>;
             }, z.core.$strict>>;
             label: z.ZodString;
+            media: z.ZodOptional<z.ZodObject<{
+                action: z.ZodEnum<{
+                    "keep-copy": "keep-copy";
+                    delete: "delete";
+                    move: "move";
+                    persist: "persist";
+                }>;
+                blockers: z.ZodArray<z.ZodObject<{
+                    kind: z.ZodString;
+                    line: z.ZodNumber;
+                    note: z.ZodString;
+                    target: z.ZodString;
+                }, z.core.$strict>>;
+                captureBytes: z.ZodNumber;
+                configDiff: z.ZodNullable<z.ZodObject<{
+                    ignore: z.ZodObject<{
+                        after: z.ZodArray<z.ZodString>;
+                        before: z.ZodArray<z.ZodString>;
+                    }, z.core.$strict>;
+                    path: z.ZodString;
+                    track: z.ZodObject<{
+                        after: z.ZodArray<z.ZodString>;
+                        before: z.ZodArray<z.ZodString>;
+                    }, z.core.$strict>;
+                }, z.core.$strict>>;
+                copy: z.ZodNullable<z.ZodObject<{
+                    bytes: z.ZodNumber;
+                    diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                    sha256: z.ZodString;
+                }, z.core.$strict>>;
+                destination: z.ZodNullable<z.ZodString>;
+                files: z.ZodArray<z.ZodObject<{
+                    after: z.ZodNullable<z.ZodString>;
+                    before: z.ZodNullable<z.ZodString>;
+                    bytes: z.ZodNumber;
+                    path: z.ZodString;
+                    role: z.ZodEnum<{
+                        config: "config";
+                        destination: "destination";
+                        directory: "directory";
+                        note: "note";
+                        source: "source";
+                    }>;
+                }, z.core.$strict>>;
+                links: z.ZodObject<{
+                    conversations: z.ZodNumber;
+                    state: z.ZodEnum<{
+                        linked: "linked";
+                        unknown: "unknown";
+                        unlinked: "unlinked";
+                    }>;
+                }, z.core.$strict>;
+                premiseDigest: z.ZodString;
+                references: z.ZodObject<{
+                    complete: z.ZodBoolean;
+                    count: z.ZodNumber;
+                }, z.core.$strict>;
+                refusals: z.ZodArray<z.ZodObject<{
+                    code: z.ZodString;
+                    effective: z.ZodOptional<z.ZodNumber>;
+                    limit: z.ZodOptional<z.ZodString>;
+                    line: z.ZodOptional<z.ZodNumber>;
+                    observed: z.ZodOptional<z.ZodNumber>;
+                    path: z.ZodOptional<z.ZodString>;
+                }, z.core.$strict>>;
+                resultClass: z.ZodNullable<z.ZodEnum<{
+                    ARTIFACT: "ARTIFACT";
+                    TRACK: "TRACK";
+                }>>;
+                rewrites: z.ZodArray<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    kind: z.ZodString;
+                    line: z.ZodNumber;
+                    note: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$strip>>;
             preview: z.ZodOptional<z.ZodObject<{
                 after: z.ZodString;
                 before: z.ZodString;
@@ -13963,12 +15343,17 @@ signatures (every public export and the types it is made of)
   inboxOptionSchema (packages/ui-sdk/src/schemas.ts)
     const inboxOptionSchema: z.ZodObject<{
         effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
+            destination: z.ZodOptional<z.ZodString>;
             findingId: z.ZodString;
             fingerprint: z.ZodString;
             handler: z.ZodOptional<z.ZodString>;
             input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
             kind: z.ZodLiteral<"hygiene">;
             operation: z.ZodEnum<{
+                "media-delete": "media-delete";
+                "media-keep-copy": "media-keep-copy";
+                "media-move": "media-move";
+                "media-persist": "media-persist";
                 check: "check";
                 defer: "defer";
                 dismiss: "dismiss";
@@ -13976,6 +15361,7 @@ signatures (every public export and the types it is made of)
                 snooze: "snooze";
                 undo: "undo";
             }>;
+            premiseDigest: z.ZodOptional<z.ZodString>;
             previewToken: z.ZodOptional<z.ZodString>;
             undoToken: z.ZodOptional<z.ZodString>;
         }, z.core.$strict>, z.ZodObject<{
@@ -14026,6 +15412,83 @@ signatures (every public export and the types it is made of)
             values: z.ZodOptional<z.ZodArray<z.ZodString>>;
         }, z.core.$strict>>;
         label: z.ZodString;
+        media: z.ZodOptional<z.ZodObject<{
+            action: z.ZodEnum<{
+                "keep-copy": "keep-copy";
+                delete: "delete";
+                move: "move";
+                persist: "persist";
+            }>;
+            blockers: z.ZodArray<z.ZodObject<{
+                kind: z.ZodString;
+                line: z.ZodNumber;
+                note: z.ZodString;
+                target: z.ZodString;
+            }, z.core.$strict>>;
+            captureBytes: z.ZodNumber;
+            configDiff: z.ZodNullable<z.ZodObject<{
+                ignore: z.ZodObject<{
+                    after: z.ZodArray<z.ZodString>;
+                    before: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>;
+                path: z.ZodString;
+                track: z.ZodObject<{
+                    after: z.ZodArray<z.ZodString>;
+                    before: z.ZodArray<z.ZodString>;
+                }, z.core.$strict>;
+            }, z.core.$strict>>;
+            copy: z.ZodNullable<z.ZodObject<{
+                bytes: z.ZodNumber;
+                diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                sha256: z.ZodString;
+            }, z.core.$strict>>;
+            destination: z.ZodNullable<z.ZodString>;
+            files: z.ZodArray<z.ZodObject<{
+                after: z.ZodNullable<z.ZodString>;
+                before: z.ZodNullable<z.ZodString>;
+                bytes: z.ZodNumber;
+                path: z.ZodString;
+                role: z.ZodEnum<{
+                    config: "config";
+                    destination: "destination";
+                    directory: "directory";
+                    note: "note";
+                    source: "source";
+                }>;
+            }, z.core.$strict>>;
+            links: z.ZodObject<{
+                conversations: z.ZodNumber;
+                state: z.ZodEnum<{
+                    linked: "linked";
+                    unknown: "unknown";
+                    unlinked: "unlinked";
+                }>;
+            }, z.core.$strict>;
+            premiseDigest: z.ZodString;
+            references: z.ZodObject<{
+                complete: z.ZodBoolean;
+                count: z.ZodNumber;
+            }, z.core.$strict>;
+            refusals: z.ZodArray<z.ZodObject<{
+                code: z.ZodString;
+                effective: z.ZodOptional<z.ZodNumber>;
+                limit: z.ZodOptional<z.ZodString>;
+                line: z.ZodOptional<z.ZodNumber>;
+                observed: z.ZodOptional<z.ZodNumber>;
+                path: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>;
+            resultClass: z.ZodNullable<z.ZodEnum<{
+                ARTIFACT: "ARTIFACT";
+                TRACK: "TRACK";
+            }>>;
+            rewrites: z.ZodArray<z.ZodObject<{
+                after: z.ZodString;
+                before: z.ZodString;
+                kind: z.ZodString;
+                line: z.ZodNumber;
+                note: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strip>>;
         preview: z.ZodOptional<z.ZodObject<{
             after: z.ZodString;
             before: z.ZodString;
@@ -14266,6 +15729,52 @@ signatures (every public export and the types it is made of)
                         field: z.ZodString;
                         message: z.ZodString;
                     }, z.core.$strict>>;
+                    media: z.ZodOptional<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            "keep-copy": "keep-copy";
+                            delete: "delete";
+                            move: "move";
+                            persist: "persist";
+                        }>;
+                        copySha256: z.ZodOptional<z.ZodString>;
+                        files: z.ZodArray<z.ZodObject<{
+                            path: z.ZodString;
+                            state: z.ZodEnum<{
+                                "left-changed": "left-changed";
+                                changed: "changed";
+                                conflict: "conflict";
+                                created: "created";
+                                removed: "removed";
+                                restored: "restored";
+                                unchanged: "unchanged";
+                            }>;
+                        }, z.core.$strict>>;
+                        journalId: z.ZodString;
+                        outcome: z.ZodEnum<{
+                            applied: "applied";
+                            compensated: "compensated";
+                            kept: "kept";
+                            partial: "partial";
+                            pending: "pending";
+                            refused: "refused";
+                            stale: "stale";
+                            undone: "undone";
+                        }>;
+                        reason: z.ZodOptional<z.ZodString>;
+                        refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                            code: z.ZodString;
+                            effective: z.ZodOptional<z.ZodNumber>;
+                            limit: z.ZodOptional<z.ZodString>;
+                            line: z.ZodOptional<z.ZodNumber>;
+                            observed: z.ZodOptional<z.ZodNumber>;
+                            path: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>>>;
+                        undo: z.ZodObject<{
+                            available: z.ZodBoolean;
+                            path: z.ZodOptional<z.ZodString>;
+                            reason: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
                     reason: z.ZodOptional<z.ZodString>;
                     status: z.ZodEnum<{
                         applying: "applying";
@@ -14273,6 +15782,7 @@ signatures (every public export and the types it is made of)
                         deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
+                        kept: "kept";
                         not_detected: "not_detected";
                         refused: "refused";
                         snoozed: "snoozed";
@@ -14299,12 +15809,17 @@ signatures (every public export and the types it is made of)
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
                 }, z.core.$loose>, z.ZodObject<{
+                    destination: z.ZodOptional<z.ZodString>;
                     findingId: z.ZodString;
                     fingerprint: z.ZodString;
                     handler: z.ZodOptional<z.ZodString>;
                     input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
+                        "media-delete": "media-delete";
+                        "media-keep-copy": "media-keep-copy";
+                        "media-move": "media-move";
+                        "media-persist": "media-persist";
                         check: "check";
                         defer: "defer";
                         dismiss: "dismiss";
@@ -14312,6 +15827,7 @@ signatures (every public export and the types it is made of)
                         snooze: "snooze";
                         undo: "undo";
                     }>;
+                    premiseDigest: z.ZodOptional<z.ZodString>;
                     previewToken: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
@@ -14352,6 +15868,83 @@ signatures (every public export and the types it is made of)
                     values: z.ZodOptional<z.ZodArray<z.ZodString>>;
                 }, z.core.$strict>>;
                 label: z.ZodString;
+                media: z.ZodOptional<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        "keep-copy": "keep-copy";
+                        delete: "delete";
+                        move: "move";
+                        persist: "persist";
+                    }>;
+                    blockers: z.ZodArray<z.ZodObject<{
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                        target: z.ZodString;
+                    }, z.core.$strict>>;
+                    captureBytes: z.ZodNumber;
+                    configDiff: z.ZodNullable<z.ZodObject<{
+                        ignore: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                        path: z.ZodString;
+                        track: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
+                    copy: z.ZodNullable<z.ZodObject<{
+                        bytes: z.ZodNumber;
+                        diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                        sha256: z.ZodString;
+                    }, z.core.$strict>>;
+                    destination: z.ZodNullable<z.ZodString>;
+                    files: z.ZodArray<z.ZodObject<{
+                        after: z.ZodNullable<z.ZodString>;
+                        before: z.ZodNullable<z.ZodString>;
+                        bytes: z.ZodNumber;
+                        path: z.ZodString;
+                        role: z.ZodEnum<{
+                            config: "config";
+                            destination: "destination";
+                            directory: "directory";
+                            note: "note";
+                            source: "source";
+                        }>;
+                    }, z.core.$strict>>;
+                    links: z.ZodObject<{
+                        conversations: z.ZodNumber;
+                        state: z.ZodEnum<{
+                            linked: "linked";
+                            unknown: "unknown";
+                            unlinked: "unlinked";
+                        }>;
+                    }, z.core.$strict>;
+                    premiseDigest: z.ZodString;
+                    references: z.ZodObject<{
+                        complete: z.ZodBoolean;
+                        count: z.ZodNumber;
+                    }, z.core.$strict>;
+                    refusals: z.ZodArray<z.ZodObject<{
+                        code: z.ZodString;
+                        effective: z.ZodOptional<z.ZodNumber>;
+                        limit: z.ZodOptional<z.ZodString>;
+                        line: z.ZodOptional<z.ZodNumber>;
+                        observed: z.ZodOptional<z.ZodNumber>;
+                        path: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>;
+                    resultClass: z.ZodNullable<z.ZodEnum<{
+                        ARTIFACT: "ARTIFACT";
+                        TRACK: "TRACK";
+                    }>>;
+                    rewrites: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                    }, z.core.$strict>>;
+                }, z.core.$strip>>;
                 preview: z.ZodOptional<z.ZodObject<{
                     after: z.ZodString;
                     before: z.ZodString;
@@ -14915,12 +16508,17 @@ signatures (every public export and the types it is made of)
     export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;
   resolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const resolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        destination: z.ZodOptional<z.ZodString>;
         findingId: z.ZodString;
         fingerprint: z.ZodString;
         handler: z.ZodOptional<z.ZodString>;
         input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
+            "media-delete": "media-delete";
+            "media-keep-copy": "media-keep-copy";
+            "media-move": "media-move";
+            "media-persist": "media-persist";
             check: "check";
             defer: "defer";
             dismiss: "dismiss";
@@ -14928,6 +16526,7 @@ signatures (every public export and the types it is made of)
             snooze: "snooze";
             undo: "undo";
         }>;
+        premiseDigest: z.ZodOptional<z.ZodString>;
         previewToken: z.ZodOptional<z.ZodString>;
         undoToken: z.ZodOptional<z.ZodString>;
     }, z.core.$strict>, z.ZodObject<{
@@ -15033,6 +16632,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -15146,6 +16755,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -16316,13 +17935,16 @@ signatures (every public export and the types it is made of)
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                     "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                     "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                 }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
                 scopes: z.ZodArray<z.ZodObject<{
+                    apifyUsd: z.ZodOptional<z.ZodNumber>;
                     blockTokens: z.ZodNumber;
                     blockUsd: z.ZodNumber;
                     blocked: z.ZodBoolean;
@@ -16428,13 +18050,16 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>, z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -17150,13 +18775,16 @@ signatures (every public export and the types it is made of)
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                     coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                         "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                         "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                        "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                     }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
                     scopes: z.ZodArray<z.ZodObject<{
+                        apifyUsd: z.ZodOptional<z.ZodNumber>;
                         blockTokens: z.ZodNumber;
                         blockUsd: z.ZodNumber;
                         blocked: z.ZodBoolean;
@@ -17276,6 +18904,13 @@ signatures (every public export and the types it is made of)
                 assistant: "assistant";
                 user: "user";
             }>;
+            runtimeNotice: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    aborted: "aborted";
+                    unspecified: "unspecified";
+                }>;
+                message: z.ZodString;
+            }, z.core.$loose>>>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
                 "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
@@ -17631,6 +19266,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -17745,6 +19390,16 @@ signatures (every public export and the types it is made of)
                 governed: "governed";
                 journal: "journal";
             }>>;
+            subPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodEnum<{
+                    governed: "governed";
+                    journal: "journal";
+                }>;
+                startedAt: z.ZodNumber;
+            }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
             turnId: z.ZodString;
@@ -18306,6 +19961,52 @@ signatures (every public export and the types it is made of)
                         field: z.ZodString;
                         message: z.ZodString;
                     }, z.core.$strict>>;
+                    media: z.ZodOptional<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            "keep-copy": "keep-copy";
+                            delete: "delete";
+                            move: "move";
+                            persist: "persist";
+                        }>;
+                        copySha256: z.ZodOptional<z.ZodString>;
+                        files: z.ZodArray<z.ZodObject<{
+                            path: z.ZodString;
+                            state: z.ZodEnum<{
+                                "left-changed": "left-changed";
+                                changed: "changed";
+                                conflict: "conflict";
+                                created: "created";
+                                removed: "removed";
+                                restored: "restored";
+                                unchanged: "unchanged";
+                            }>;
+                        }, z.core.$strict>>;
+                        journalId: z.ZodString;
+                        outcome: z.ZodEnum<{
+                            applied: "applied";
+                            compensated: "compensated";
+                            kept: "kept";
+                            partial: "partial";
+                            pending: "pending";
+                            refused: "refused";
+                            stale: "stale";
+                            undone: "undone";
+                        }>;
+                        reason: z.ZodOptional<z.ZodString>;
+                        refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                            code: z.ZodString;
+                            effective: z.ZodOptional<z.ZodNumber>;
+                            limit: z.ZodOptional<z.ZodString>;
+                            line: z.ZodOptional<z.ZodNumber>;
+                            observed: z.ZodOptional<z.ZodNumber>;
+                            path: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>>>;
+                        undo: z.ZodObject<{
+                            available: z.ZodBoolean;
+                            path: z.ZodOptional<z.ZodString>;
+                            reason: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
                     reason: z.ZodOptional<z.ZodString>;
                     status: z.ZodEnum<{
                         applying: "applying";
@@ -18313,6 +20014,7 @@ signatures (every public export and the types it is made of)
                         deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
+                        kept: "kept";
                         not_detected: "not_detected";
                         refused: "refused";
                         snoozed: "snoozed";
@@ -18339,12 +20041,17 @@ signatures (every public export and the types it is made of)
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
                 }, z.core.$loose>, z.ZodObject<{
+                    destination: z.ZodOptional<z.ZodString>;
                     findingId: z.ZodString;
                     fingerprint: z.ZodString;
                     handler: z.ZodOptional<z.ZodString>;
                     input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
+                        "media-delete": "media-delete";
+                        "media-keep-copy": "media-keep-copy";
+                        "media-move": "media-move";
+                        "media-persist": "media-persist";
                         check: "check";
                         defer: "defer";
                         dismiss: "dismiss";
@@ -18352,6 +20059,7 @@ signatures (every public export and the types it is made of)
                         snooze: "snooze";
                         undo: "undo";
                     }>;
+                    premiseDigest: z.ZodOptional<z.ZodString>;
                     previewToken: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
@@ -18392,6 +20100,83 @@ signatures (every public export and the types it is made of)
                     values: z.ZodOptional<z.ZodArray<z.ZodString>>;
                 }, z.core.$strict>>;
                 label: z.ZodString;
+                media: z.ZodOptional<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        "keep-copy": "keep-copy";
+                        delete: "delete";
+                        move: "move";
+                        persist: "persist";
+                    }>;
+                    blockers: z.ZodArray<z.ZodObject<{
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                        target: z.ZodString;
+                    }, z.core.$strict>>;
+                    captureBytes: z.ZodNumber;
+                    configDiff: z.ZodNullable<z.ZodObject<{
+                        ignore: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                        path: z.ZodString;
+                        track: z.ZodObject<{
+                            after: z.ZodArray<z.ZodString>;
+                            before: z.ZodArray<z.ZodString>;
+                        }, z.core.$strict>;
+                    }, z.core.$strict>>;
+                    copy: z.ZodNullable<z.ZodObject<{
+                        bytes: z.ZodNumber;
+                        diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                        sha256: z.ZodString;
+                    }, z.core.$strict>>;
+                    destination: z.ZodNullable<z.ZodString>;
+                    files: z.ZodArray<z.ZodObject<{
+                        after: z.ZodNullable<z.ZodString>;
+                        before: z.ZodNullable<z.ZodString>;
+                        bytes: z.ZodNumber;
+                        path: z.ZodString;
+                        role: z.ZodEnum<{
+                            config: "config";
+                            destination: "destination";
+                            directory: "directory";
+                            note: "note";
+                            source: "source";
+                        }>;
+                    }, z.core.$strict>>;
+                    links: z.ZodObject<{
+                        conversations: z.ZodNumber;
+                        state: z.ZodEnum<{
+                            linked: "linked";
+                            unknown: "unknown";
+                            unlinked: "unlinked";
+                        }>;
+                    }, z.core.$strict>;
+                    premiseDigest: z.ZodString;
+                    references: z.ZodObject<{
+                        complete: z.ZodBoolean;
+                        count: z.ZodNumber;
+                    }, z.core.$strict>;
+                    refusals: z.ZodArray<z.ZodObject<{
+                        code: z.ZodString;
+                        effective: z.ZodOptional<z.ZodNumber>;
+                        limit: z.ZodOptional<z.ZodString>;
+                        line: z.ZodOptional<z.ZodNumber>;
+                        observed: z.ZodOptional<z.ZodNumber>;
+                        path: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strict>>;
+                    resultClass: z.ZodNullable<z.ZodEnum<{
+                        ARTIFACT: "ARTIFACT";
+                        TRACK: "TRACK";
+                    }>>;
+                    rewrites: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        kind: z.ZodString;
+                        line: z.ZodNumber;
+                        note: z.ZodString;
+                    }, z.core.$strict>>;
+                }, z.core.$strip>>;
                 preview: z.ZodOptional<z.ZodObject<{
                     after: z.ZodString;
                     before: z.ZodString;
@@ -18593,6 +20378,52 @@ signatures (every public export and the types it is made of)
                             field: z.ZodString;
                             message: z.ZodString;
                         }, z.core.$strict>>;
+                        media: z.ZodOptional<z.ZodObject<{
+                            action: z.ZodEnum<{
+                                "keep-copy": "keep-copy";
+                                delete: "delete";
+                                move: "move";
+                                persist: "persist";
+                            }>;
+                            copySha256: z.ZodOptional<z.ZodString>;
+                            files: z.ZodArray<z.ZodObject<{
+                                path: z.ZodString;
+                                state: z.ZodEnum<{
+                                    "left-changed": "left-changed";
+                                    changed: "changed";
+                                    conflict: "conflict";
+                                    created: "created";
+                                    removed: "removed";
+                                    restored: "restored";
+                                    unchanged: "unchanged";
+                                }>;
+                            }, z.core.$strict>>;
+                            journalId: z.ZodString;
+                            outcome: z.ZodEnum<{
+                                applied: "applied";
+                                compensated: "compensated";
+                                kept: "kept";
+                                partial: "partial";
+                                pending: "pending";
+                                refused: "refused";
+                                stale: "stale";
+                                undone: "undone";
+                            }>;
+                            reason: z.ZodOptional<z.ZodString>;
+                            refusals: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                                code: z.ZodString;
+                                effective: z.ZodOptional<z.ZodNumber>;
+                                limit: z.ZodOptional<z.ZodString>;
+                                line: z.ZodOptional<z.ZodNumber>;
+                                observed: z.ZodOptional<z.ZodNumber>;
+                                path: z.ZodOptional<z.ZodString>;
+                            }, z.core.$strict>>>;
+                            undo: z.ZodObject<{
+                                available: z.ZodBoolean;
+                                path: z.ZodOptional<z.ZodString>;
+                                reason: z.ZodOptional<z.ZodString>;
+                            }, z.core.$strict>;
+                        }, z.core.$strict>>;
                         reason: z.ZodOptional<z.ZodString>;
                         status: z.ZodEnum<{
                             applying: "applying";
@@ -18600,6 +20431,7 @@ signatures (every public export and the types it is made of)
                             deferred: "deferred";
                             dismissed: "dismissed";
                             fixed: "fixed";
+                            kept: "kept";
                             not_detected: "not_detected";
                             refused: "refused";
                             snoozed: "snoozed";
@@ -18626,12 +20458,17 @@ signatures (every public export and the types it is made of)
                             }, z.core.$loose>>;
                         }, z.core.$loose>;
                     }, z.core.$loose>, z.ZodObject<{
+                        destination: z.ZodOptional<z.ZodString>;
                         findingId: z.ZodString;
                         fingerprint: z.ZodString;
                         handler: z.ZodOptional<z.ZodString>;
                         input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
                         kind: z.ZodLiteral<"hygiene">;
                         operation: z.ZodEnum<{
+                            "media-delete": "media-delete";
+                            "media-keep-copy": "media-keep-copy";
+                            "media-move": "media-move";
+                            "media-persist": "media-persist";
                             check: "check";
                             defer: "defer";
                             dismiss: "dismiss";
@@ -18639,6 +20476,7 @@ signatures (every public export and the types it is made of)
                             snooze: "snooze";
                             undo: "undo";
                         }>;
+                        premiseDigest: z.ZodOptional<z.ZodString>;
                         previewToken: z.ZodOptional<z.ZodString>;
                         undoToken: z.ZodOptional<z.ZodString>;
                     }, z.core.$loose>, z.ZodObject<{
@@ -18679,6 +20517,83 @@ signatures (every public export and the types it is made of)
                         values: z.ZodOptional<z.ZodArray<z.ZodString>>;
                     }, z.core.$strict>>;
                     label: z.ZodString;
+                    media: z.ZodOptional<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            "keep-copy": "keep-copy";
+                            delete: "delete";
+                            move: "move";
+                            persist: "persist";
+                        }>;
+                        blockers: z.ZodArray<z.ZodObject<{
+                            kind: z.ZodString;
+                            line: z.ZodNumber;
+                            note: z.ZodString;
+                            target: z.ZodString;
+                        }, z.core.$strict>>;
+                        captureBytes: z.ZodNumber;
+                        configDiff: z.ZodNullable<z.ZodObject<{
+                            ignore: z.ZodObject<{
+                                after: z.ZodArray<z.ZodString>;
+                                before: z.ZodArray<z.ZodString>;
+                            }, z.core.$strict>;
+                            path: z.ZodString;
+                            track: z.ZodObject<{
+                                after: z.ZodArray<z.ZodString>;
+                                before: z.ZodArray<z.ZodString>;
+                            }, z.core.$strict>;
+                        }, z.core.$strict>>;
+                        copy: z.ZodNullable<z.ZodObject<{
+                            bytes: z.ZodNumber;
+                            diskFreeAdvisory: z.ZodNullable<z.ZodNumber>;
+                            sha256: z.ZodString;
+                        }, z.core.$strict>>;
+                        destination: z.ZodNullable<z.ZodString>;
+                        files: z.ZodArray<z.ZodObject<{
+                            after: z.ZodNullable<z.ZodString>;
+                            before: z.ZodNullable<z.ZodString>;
+                            bytes: z.ZodNumber;
+                            path: z.ZodString;
+                            role: z.ZodEnum<{
+                                config: "config";
+                                destination: "destination";
+                                directory: "directory";
+                                note: "note";
+                                source: "source";
+                            }>;
+                        }, z.core.$strict>>;
+                        links: z.ZodObject<{
+                            conversations: z.ZodNumber;
+                            state: z.ZodEnum<{
+                                linked: "linked";
+                                unknown: "unknown";
+                                unlinked: "unlinked";
+                            }>;
+                        }, z.core.$strict>;
+                        premiseDigest: z.ZodString;
+                        references: z.ZodObject<{
+                            complete: z.ZodBoolean;
+                            count: z.ZodNumber;
+                        }, z.core.$strict>;
+                        refusals: z.ZodArray<z.ZodObject<{
+                            code: z.ZodString;
+                            effective: z.ZodOptional<z.ZodNumber>;
+                            limit: z.ZodOptional<z.ZodString>;
+                            line: z.ZodOptional<z.ZodNumber>;
+                            observed: z.ZodOptional<z.ZodNumber>;
+                            path: z.ZodOptional<z.ZodString>;
+                        }, z.core.$strict>>;
+                        resultClass: z.ZodNullable<z.ZodEnum<{
+                            ARTIFACT: "ARTIFACT";
+                            TRACK: "TRACK";
+                        }>>;
+                        rewrites: z.ZodArray<z.ZodObject<{
+                            after: z.ZodString;
+                            before: z.ZodString;
+                            kind: z.ZodString;
+                            line: z.ZodNumber;
+                            note: z.ZodString;
+                        }, z.core.$strict>>;
+                    }, z.core.$strip>>;
                     preview: z.ZodOptional<z.ZodObject<{
                         after: z.ZodString;
                         before: z.ZodString;
@@ -19573,13 +21488,16 @@ signatures (every public export and the types it is made of)
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                     coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                         "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                         "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                        "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                     }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
                     scopes: z.ZodArray<z.ZodObject<{
+                        apifyUsd: z.ZodOptional<z.ZodNumber>;
                         blockTokens: z.ZodNumber;
                         blockUsd: z.ZodNumber;
                         blocked: z.ZodBoolean;
@@ -19699,6 +21617,13 @@ signatures (every public export and the types it is made of)
                 assistant: "assistant";
                 user: "user";
             }>;
+            runtimeNotice: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    aborted: "aborted";
+                    unspecified: "unspecified";
+                }>;
+                message: z.ZodString;
+            }, z.core.$loose>>>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
                 "voice-context": "voice-context";
                 "voice-conversation": "voice-conversation";
@@ -19975,13 +21900,16 @@ signatures (every public export and the types it is made of)
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
                 coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                     "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                     "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
                 }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
                 scopes: z.ZodArray<z.ZodObject<{
+                    apifyUsd: z.ZodOptional<z.ZodNumber>;
                     blockTokens: z.ZodNumber;
                     blockUsd: z.ZodNumber;
                     blocked: z.ZodBoolean;
@@ -20089,13 +22017,16 @@ signatures (every public export and the types it is made of)
     const serverUsageSchema: z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -20233,13 +22164,16 @@ signatures (every public export and the types it is made of)
   turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const turnBudgetReceiptSchema: z.ZodObject<{
         coverage: z.ZodEnum<{
+            "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
             "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
             "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+            "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
         }>;
         listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
         listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         observedAt: z.ZodNumber;
         scopes: z.ZodArray<z.ZodObject<{
+            apifyUsd: z.ZodOptional<z.ZodNumber>;
             blockTokens: z.ZodNumber;
             blockUsd: z.ZodNumber;
             blocked: z.ZodBoolean;
@@ -20268,13 +22202,16 @@ signatures (every public export and the types it is made of)
         }>>;
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered";
                 "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
                 "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered": "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered";
             }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
             scopes: z.ZodArray<z.ZodObject<{
+                apifyUsd: z.ZodOptional<z.ZodNumber>;
                 blockTokens: z.ZodNumber;
                 blockUsd: z.ZodNumber;
                 blocked: z.ZodBoolean;
@@ -20424,12 +22361,17 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   v1ResolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const v1ResolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        destination: z.ZodOptional<z.ZodString>;
         findingId: z.ZodString;
         fingerprint: z.ZodString;
         handler: z.ZodOptional<z.ZodString>;
         input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
+            "media-delete": "media-delete";
+            "media-keep-copy": "media-keep-copy";
+            "media-move": "media-move";
+            "media-persist": "media-persist";
             check: "check";
             defer: "defer";
             dismiss: "dismiss";
@@ -20437,6 +22379,7 @@ signatures (every public export and the types it is made of)
             snooze: "snooze";
             undo: "undo";
         }>;
+        premiseDigest: z.ZodOptional<z.ZodString>;
         previewToken: z.ZodOptional<z.ZodString>;
         undoToken: z.ZodOptional<z.ZodString>;
     }, z.core.$strict>, z.ZodObject<{

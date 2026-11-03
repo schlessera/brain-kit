@@ -28,7 +28,7 @@ import { attachmentFromDraft, mintDraftId } from "../lib/drafts.js";
  * is the acknowledged one.
  */
 
-export type DraftSaveFailure =
+type DraftSaveFailure =
   /** Dirty and unreachable, or a transient refusal: retried with backoff. */
   | { kind: "unsaved" }
   /** 413: `limit` bytes (or images), named by `bound`. */
@@ -37,7 +37,7 @@ export type DraftSaveFailure =
   | { kind: "full"; limit: number; bound: string };
 
 /** What the host acknowledged for a draft: its revision, and the local edit it holds. */
-export interface DraftHostCopy {
+interface DraftHostCopy {
   revision: number;
   /** The `edit` generation this revision holds; -1 when it holds another device's. */
   edit: number;
@@ -80,7 +80,7 @@ export interface ComposerDraft {
   bind: { sessionId: string; requestId: string } | null;
 }
 
-export type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
+type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
 
 /** One send: an immutable snapshot of what left the composer (D52 §5). */
 export interface DraftSend {
@@ -127,6 +127,10 @@ export interface LocalDraft {
   /** @internal A device-local keep-both branch; its other version stays reachable. */
   deviceConflict?: { otherId: string; sessionId: string | null };
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
+  /** A first save got no answer: the host may hold it, and a reconciliation is owed (#1214). */
+  uncertain?: boolean;
+  /** An accepted first message's session, still to be bound on the host (#1214). */
+  bind?: { sessionId: string; requestId: string } | null;
 }
 
 export interface DraftStoreState {
@@ -250,7 +254,7 @@ export const hasContent = (d: Pick<ComposerDraft, "text" | "attachments"> | unde
   Boolean(d && (d.text.length > 0 || d.attachments.length > 0));
 
 /** The draft's content is the revision the host acknowledged. */
-export const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.edit === d.edit;
+const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.edit === d.edit;
 
 function blank(draftId: string, sessionId: string | null, now: number): ComposerDraft {
   return {
@@ -497,8 +501,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         for (const k of kept) {
           const state = get();
           if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
-          // An emptied draft comes back only while its deletion is owed to the host.
-          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean) && !k.deviceConflict) continue;
+          // An emptied draft comes back only while its deletion is owed to the
+          // host, or while a lost first save may have left a copy there (#1214).
+          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean) && !k.deviceConflict && !(k.uncertain && !k.host)) continue;
           // A session whose draft this page already holds keeps that one.
           if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
           // An id handed to the session before this arrived goes to it, as in
@@ -515,6 +520,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             edit,
             // Its images upload again before the next save: the ids they had are not kept.
             host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], updatedAt: k.host.updatedAt } : null,
+            // The draft client's uncertain-save and bind paths pick these up again (#1214).
+            uncertain: k.uncertain === true && k.host === null,
+            bind: k.bind ?? null,
           });
         }
       },
@@ -551,7 +559,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           // The caller keeps its prior expectation until those edits save.
           if (other && (!preserveOther || !drafts[other.draftId])) {
             const edit = 1;
-            drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...other, edit,
+            const { uncertain: _uncertain, bind: _bind, ...content } = other;
+            drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...content, edit,
               host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
           }
           return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
@@ -561,7 +570,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const current = get().drafts[kept.draftId];
         if (current) release(current.attachments, []);
         const edit = 1;
-        const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
+        // Another tab's pending reconciliation stays that tab's to finish.
+        const { uncertain: _uncertain, bind: _bind, ...content } = kept;
+        const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...content, edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
           host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
         set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));
       },
@@ -814,6 +825,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           return;
         }
         if (local.host && local.host.revision >= draft.revision) return;
+        // Emptied after a first save that got no answer: the draft client
+        // settles that copy itself (deleting it, or a conflict on a newer
+        // revision), so a host refresh never brings the cleared text back.
+        if (!local.host && local.uncertain && !hasContent(local)) return;
         if (local.conflict?.sameId && local.conflict.other.revision >= draft.revision) return;
         // The host holds exactly what is here (a save whose answer was lost):
         // that is an acknowledgement, not another device's version.

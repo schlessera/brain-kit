@@ -953,6 +953,13 @@ export interface SessionHistoryMessage {
    * whatever the turn answered before it failed.
    */
   failure?: TurnFailure;
+  /**
+   * On an `assistant` message: a notice the agent runtime wrote into the
+   * transcript itself when a turn stopped, rather than anything the model
+   * said (additive; #3356). Its text is not repeated in `content`, which
+   * holds whatever the turn answered before it.
+   */
+  runtimeNotice?: RuntimeNotice;
   /** Host-held exact original request, present only on an eligible latest failure. */
   retryOfTurnId?: string;
   /**
@@ -964,6 +971,18 @@ export interface SessionHistoryMessage {
   turnId?: string;
   /** Host-retained facts for this proven turn, never inferred from backend text. */
   journal?: import("./turn-journal.js").TurnJournalSummary;
+}
+
+/**
+ * A runtime-authored notice on a replayed assistant message (additive;
+ * #3356). `cause` is only what the runtime's own record establishes:
+ * `aborted` when it recorded an aborted request, otherwise `unspecified`.
+ * Neither says who stopped the turn or whether earlier tool calls took
+ * effect. `message` is the runtime's text, as written.
+ */
+export interface RuntimeNotice {
+  cause: "aborted" | "unspecified";
+  message: string;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
@@ -1146,6 +1165,11 @@ export interface ServerResultMessage {
    * "timeout" for a max-turns/max-budget stop. A new VALUE here never breaks
    * an old client because the field is free-form and advisory; the precise
    * taxonomy lives in the server's activity record.
+   *
+   * Under `outcome: "cancelled"` (additive; #3356), `"host_timeout"` says the
+   * host's hard elapsed-time turn limit ended the turn, rather than a cancel
+   * someone asked for. Absent on a cancelled turn means the host does not say
+   * why it was cancelled.
    */
   outcomeDetail?: string;
   /**
@@ -1159,6 +1183,12 @@ export interface ServerResultMessage {
   /** This turn's actual admitted resumed-state observation; absent means unknown. */
   stateRoom?: StateRoomObservation;
 }
+
+/**
+ * `result.outcomeDetail` on an `outcome: "cancelled"` turn that the host's
+ * hard elapsed-time turn limit ended (additive; #3356).
+ */
+export const HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout";
 
 /**
  * A provider or API failure that ended a turn (additive; #575), normalised
@@ -3212,6 +3242,19 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
   return v === "openrouter" || v === "direct";
 }
 
+/**
+ * One timed step inside the governed-admission or journal-begin phase (#3355).
+ * `name` is open vocabulary: consumers tolerate names they do not know.
+ */
+export interface ActivityTurnSubPhase {
+  phase: "governed" | "journal";
+  name: string;
+  startedAt: number;
+  /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
+  endedAt: number | null;
+  elapsedMs: number | null;
+}
+
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
@@ -3241,6 +3284,8 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
+  /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
+  subPhases?: ActivityTurnSubPhase[];
 }
 
 export interface ActivityRunSummary {
@@ -3642,21 +3687,69 @@ export interface HygieneDiff {
 }
 export interface HygieneEffect {
   kind: "hygiene";
-  /** `defer` is Leave pending (#2780): host-only, skipped for the rest of this review pass. */
-  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer";
+  /**
+   * `defer` is Leave pending (#2780): host-only, skipped for the rest of this
+   * review pass. The `media-*` operations (#2781) are a media finding's
+   * governed effects, applied only with a current previewed plan.
+   */
+  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer" | "media-delete" | "media-move" | "media-persist" | "media-keep-copy";
   findingId: string;
   fingerprint: string;
   handler?: string;
   input?: HygieneInput;
   previewToken?: string;
   undoToken?: string;
+  /** A Move's or copy's destination, as previewed (#2781). */
+  destination?: string;
+  /** The previewed media plan's premise; apply refuses `stale` when the brain no longer matches it. */
+  premiseDigest?: string;
+}
+/** A media finding's four effects (#2781). */
+export type HygieneMediaAction = "delete" | "move" | "persist" | "keep-copy";
+/** A named refusal: a result the domain expects, never an error (rev 5 §11). */
+export interface HygieneMediaRefusal { code: string; path?: string; line?: number; limit?: string; effective?: number; observed?: number }
+/** What a media effect will do, from `brain hygiene media … --dry-run` (#2781, rev 4 §9). */
+export interface HygieneMediaPlan {
+  action: HygieneMediaAction;
+  premiseDigest: string;
+  destination: string | null;
+  /** Every file or directory the effect writes, in apply order; `before`/`after` are SHA-256, `directory`, or null for absent. */
+  files: Array<{ path: string; role: "source" | "destination" | "note" | "config" | "directory"; before: string | null; after: string | null; bytes: number }>;
+  /** Bytes the journal retains before any write. */
+  captureBytes: number;
+  links: { state: "linked" | "unlinked" | "unknown"; conversations: number };
+  references: { complete: boolean; count: number };
+  rewrites: Array<{ note: string; line: number; kind: string; before: string; after: string }>;
+  blockers: Array<{ note: string; line: number; kind: string; target: string }>;
+  configDiff: { path: string; track: { before: string[]; after: string[] }; ignore: { before: string[]; after: string[] } } | null;
+  copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  resultClass: "TRACK" | "ARTIFACT" | null;
+  refusals: HygieneMediaRefusal[];
+}
+export type HygieneMediaFileState = "created" | "changed" | "removed" | "restored" | "unchanged" | "left-changed" | "conflict";
+/**
+ * A media effect's receipt (#2781, rev 4 §9). `compensated`: nothing remains
+ * of it. `partial`: some file could not be put back and is listed as
+ * `conflict` or `left-changed`. Undo availability is read when asked, from
+ * the journal's retained data and the files' current bytes.
+ */
+export interface HygieneMediaReceipt {
+  journalId: string;
+  action: HygieneMediaAction;
+  outcome: "pending" | "applied" | "kept" | "compensated" | "partial" | "refused" | "stale" | "undone";
+  reason?: string;
+  refusals?: HygieneMediaRefusal[];
+  files: Array<{ path: string; state: HygieneMediaFileState }>;
+  copySha256?: string;
+  undo: { available: boolean; reason?: string; path?: string };
 }
 export interface HygieneAction {
   findingId: string;
   fingerprint: string;
   /** Supported CLI projection, retained as display data. */
   finding: Record<string, unknown>;
-  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
+  /** `kept` (#2781) is a confirmed Keep a permanent copy; `media` is a media effect's receipt. */
+  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred" | "kept"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string }; media?: HygieneMediaReceipt };
 }
 export interface HygieneReviewState {
   version: 1;
@@ -3683,6 +3776,14 @@ export interface HygieneReviewState {
   media?: { awaitingReview: number; setAside: number; kept: number };
 }
 export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" | "refresh" }
+/**
+ * Undo from review (#2781): undoes a confirmed media effect from its
+ * resolved card, by the receipt's `journalId`, under the same preflights as
+ * the CLI Undo. Undoing Keep a permanent copy also removes its kept entry.
+ */
+export interface HygieneReviewMediaUndoCommand { operation: "undo-media"; journalId: string }
+/** Every body `POST /hygiene/review` accepts. */
+export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
 export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
 export interface HygieneReviewRead {
   review: HygieneReviewState;
@@ -3693,6 +3794,12 @@ export interface HygieneReviewRead {
    * never part of the replicated Action.
    */
   privateDetailAccess?: { itemId: string };
+  /**
+   * The Undo's own receipt, on the response to an `undo-media` command only
+   * (#2781): `undone`, `partial`, or `refused` with the reason (for example
+   * `changed-since` or `rollback-evicted`) and nothing written.
+   */
+  mediaUndo?: HygieneMediaReceipt;
 }
 /**
  * The recorded facts of a private managed-worktree finding, read by the owner
@@ -3735,6 +3842,8 @@ export interface InboxOption {
   /** CLI-owned input descriptor; no client-selected effect. */
   input?: { type: "none" | "string" | "enum" | "date" | "strings" | "path"; values?: string[]; example?: string };
   preview?: HygieneDiff;
+  /** A media effect's previewed plan (#2781); the option applies only with it. */
+  media?: HygieneMediaPlan;
 }
 
 export interface InboxItemBase {
@@ -3901,6 +4010,7 @@ export interface AgentPolicyRead {
 }
 
 export type { BudgetScope, BudgetObservation, TurnBudgetCoverage, TurnBudgetReceipt } from "./turn-budgets.js";
+export type { ApifyProviderState, ApifyProviderReason, ApifyAccountRead, ApifyPolicyMode, ApifyGrantRead, ApifyLimitsRead, ApifyPolicyRead, ApifySpendScopeRead, ApifyUnresolvedRunRead, ApifySpendRead, ApifySettingsRead, ApifyPolicyChange, ApifyPolicyProposalRead } from "./apify-settings.js";
 
 /** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
 export interface ServerUsage extends SessionScoped {

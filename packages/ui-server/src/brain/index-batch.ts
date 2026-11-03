@@ -12,7 +12,7 @@
  */
 
 /** What became of one application's queued paths. */
-export interface IndexOutcome {
+interface IndexOutcome {
   /** The application's own committed paths. */
   paths: readonly string[];
   /** True only once an update that covered them completed. */

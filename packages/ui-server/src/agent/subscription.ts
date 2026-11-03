@@ -28,9 +28,9 @@ export const MINTED_AT_ENV = "BRAIN_UI_CLAUDE_TOKEN_MINTED_AT";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** `claude setup-token`'s default lifetime, 31536000 s, as measured (#183). */
-export const TOKEN_LIFETIME_MS = 365 * DAY_MS;
+const TOKEN_LIFETIME_MS = 365 * DAY_MS;
 /** How far ahead of expiry the warning starts. */
-export const EXPIRY_WARNING_MS = 30 * DAY_MS;
+const EXPIRY_WARNING_MS = 30 * DAY_MS;
 /** At most one expiry warning per this interval while the server runs. */
 const WARNING_INTERVAL_MS = DAY_MS;
 
@@ -92,7 +92,7 @@ export interface SubscriptionStatus {
     | null;
 }
 
-export interface SubscriptionMonitorOptions {
+interface SubscriptionMonitorOptions {
   config: SubscriptionConfig;
   log: Logger;
   /** The app's database, where turns are recorded. */
@@ -107,7 +107,7 @@ export interface SubscriptionMonitorOptions {
   every?: (check: () => void, ms: number) => () => void;
 }
 
-export interface SubscriptionMonitor {
+interface SubscriptionMonitor {
   /** The hourly pass: keeps the last proof, and warns about expiry at most once a day. */
   tick(): void;
   status(): Promise<SubscriptionStatus>;

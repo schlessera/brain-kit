@@ -14,8 +14,8 @@ const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
  * any host on these ports is outward; the hosts are HTTP mail-send APIs and
  * provider relays on alternate ports. `outward.hosts` adds the rest.
  */
-export const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
-export const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
+const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
+const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
   "api.fastmail.com", "api.sendgrid.com", "smtp.sendgrid.net", "api.mailgun.net", "api.eu.mailgun.net", "smtp.mailgun.org",
   "smtp.eu.mailgun.org", "api.postmarkapp.com", "smtp.postmarkapp.com", "api.resend.com", "smtp.resend.com"] as const;
 
@@ -116,8 +116,8 @@ export async function prepareTurnEgress(options: {
     } catch { fail(); }
   };
   /**
-   * Any admitted connection other than the inference relay taints the session
-   * (G6), recorded before its first byte. Sticky: once read, never re-read.
+   * Any admitted connection other than a host relay taints the session (G6),
+   * recorded before its first byte. Sticky: once read, never re-read.
    */
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
@@ -130,8 +130,10 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean }): Promise<void> => {
-    if (destination.inference) return;
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean }): Promise<void> => {
+    // A host relay's operation neither taints the session nor makes its host
+    // one the worker's own traffic may reach once tainted (G6, #3246).
+    if (destination.inference || destination.provider) return;
     contacted.add(destination.host);
     if (!writes || tainted) return;
     tainted = true;

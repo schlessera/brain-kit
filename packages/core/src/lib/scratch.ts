@@ -46,10 +46,14 @@ import {
 import type { Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
+import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { modeOf, WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
 
-/** Repo-relative scratch directory. Every mechanism that needs it reads this. */
-export const SCRATCH_DIR = ".brain/scratch";
+/**
+ * Repo-relative scratch directory. Every mechanism that needs it reads this;
+ * the value is the one the SDK and server share (`BRAIN_SCRATCH_DIR`, #2506).
+ */
+export const SCRATCH_DIR = BRAIN_SCRATCH_DIR;
 
 /** Files older than this are pruned. */
 export const SCRATCH_TTL_MS = 7 * 24 * 60 * 60 * 1000;

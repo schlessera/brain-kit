@@ -19,7 +19,7 @@ export function toolState(outcome: ActivitySpanOutcome | undefined | null): RunT
   return isFailureOutcome(outcome) ? "failed" : "idle";
 }
 
-export interface LiveRunCardProps {
+interface LiveRunCardProps {
   name: string;
   /** The step in flight, if the run has steps at all (a plain cron job has none). */
   current: string | null;
@@ -57,7 +57,7 @@ export function LiveRunCard(p: LiveRunCardProps) {
   );
 }
 
-export interface HistoryRowProps {
+interface HistoryRowProps {
   name: string;
   cron: boolean;
   /** The run's outcome, or null while unknown. */
@@ -87,7 +87,7 @@ export function HistoryRow(p: HistoryRowProps) {
   );
 }
 
-export interface IntentCardProps {
+interface IntentCardProps {
   intent: ActivityIntent;
   /** When it was raised, already formatted. */
   when: string;
@@ -120,7 +120,7 @@ export function IntentCard(p: IntentCardProps) {
   );
 }
 
-export interface RunRollupReceiptProps {
+interface RunRollupReceiptProps {
   origin: string;
   outcome: ActivitySpanOutcome | null;
   when: string;
