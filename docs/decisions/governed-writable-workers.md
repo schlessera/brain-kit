@@ -1520,7 +1520,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:924`). The refresh usually finishes
+`packages/ui-server/src/ws/session-run/teardown.ts:54`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in

@@ -102,7 +102,7 @@ Both reviewers verified every row below against the source.
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:136-144` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:1112` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:225` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:739` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:441` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `packages/ui-server/src/db/account-writes.ts:31-36` | inserts a credential; calls **neither** helper |
@@ -178,8 +178,8 @@ ceremony in flight can mint a session for a credential deleted meanwhile.
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:173`),
 turn startup awaits routing and billing before `startTurn`
-(`resolveTurnTarget`, `ws/run-session.ts:209`; `const billing = await resolveRunBilling`,
-`ws/run-session.ts:401`), and queued follow-ups execute later. Each connection holds a
+(`resolveTurnTarget`, `ws/session-run/slot.ts:33`; `const billing = await resolveRunBilling`,
+`ws/session-run/turn.ts:39`), and queued follow-ups execute later. Each connection holds a
 server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
