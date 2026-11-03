@@ -54,7 +54,7 @@ maintainer chose option B on #142 on 2026-09-28.
   - Rule 1: gray-matter may be loaded (`import`, `import type`, `export …
     from`, `import x = require()`, `require()`, `import()`, subpaths) only by
     the files in its `ALLOWED` list (`ALLOWED`,
-    `scripts/check-frontmatter-parse.ts:40-62`).
+    `scripts/check-frontmatter-parse.ts:50-72`).
   - Rule 2: inside those files, the default binding may only be called with an
     object literal where gray-matter takes its options, or named in a type.
     Aliases, re-exports, `matter.read`, `matter.cache` and variable options
@@ -104,6 +104,44 @@ sentinels and restores complete descriptors in `finally`; no test input is code.
 This repairs the documented data-only input guarantee. It changes no supported
 YAML meaning, envelope, approval authority, descriptor read, size limit or
 last-valid fallback. See the [file-layer contract](../integration-contract/frontmatter.md#file-layer-contracts).
+
+## Where the block starts and ends (#2507, 2026-11-03)
+
+Finding the fences without parsing the YAML has one answer too:
+`frontmatterBlock` (`frontmatterBlock`,
+`packages/common/src/frontmatter-block.ts:42-55`), reached through
+`@schlessera/brain-common/internal/frontmatter-block`. It returns the offsets
+of the opening fence, the inner YAML lines and the end of the block, plus
+whether a closing fence was found, by gray-matter's rule: an optional byte
+order mark, `---` not followed by a fourth `-`, the first `\n---` after it, and
+one line ending after that. It imports nothing, so ui-react reaches it through
+ui-sdk's browser-safe `internal/client` entry. `frontmatterLength` moved with
+it; core re-exports it. A table-driven test holds it to `parseFrontmatter` on a
+byte order mark, CRLF, trailing whitespace after either fence, a closing fence
+at the end of the file, `----`, a leading blank line, an unclosed block, an
+empty block and a `...` line.
+
+Nine places had their own rule. Each now asks `frontmatterBlock`, and each
+default is the parser's answer, except where a stricter answer protects a
+write:
+
+| Site | Disagreed on | Rule now |
+| --- | --- | --- |
+| `brain validate` | BOM (reported `frontmatter-missing`); `----` counted as a fence | the parser's |
+| `brain import --stamp` | BOM (stamped a second block over the first, which became body) | the parser's |
+| OKF bundle check | BOM (rejected explicitly: a marked concept "missing frontmatter", a marked `index.md` block let through) | the parser's |
+| generated regions | none in effect; its search ignored the BOM offset | the parser's, still refusing an unclosed block |
+| `brain tags --apply` and the key editor | two `frontmatterBounds`/`readScalar` pairs; the tags copy searched back from the block's end and took the closing fence into the block when a `---` rule followed it | one pair, in `frontmatter-edit.ts`; an unclosed block has no bounds |
+| hygiene log files | BOM (frontmatter read as body and rewritten) | the parser's opening; **stricter closing**: a block not closed by a `---` line with only whitespace after it is refused, including `----`, `---x` and `...` closers the parser would end at or run past, because hygiene rewrites the body |
+| ui-react `splitFrontmatter` | BOM; a closing fence at the end of the file | the parser's, except that an unclosed block is shown as body rather than swallowed, so the viewer never hides text |
+| ui-server policy review `split` | accepts a `...` closer | unchanged for now; open on #2507 |
+
+Rule 3 of the gate (`scanFences`, `scripts/check-frontmatter-parse.ts:222-252`)
+refuses a hand-written detector in package source: a non-multiline regex
+anchored at a leading `---` (a BOM before it included), `startsWith("---…")`
+and `indexOf`/`lastIndexOf("\n---…")`. Files that emit or post-process a fence
+they wrote, and the pending policy splitter, are listed in `FENCE_ALLOWED`
+with a reason each.
 
 ## Rejected alternatives
 
@@ -158,6 +196,9 @@ file is parsed once per run.
 - An edit to the helper is made once, in `packages/common`.
 - A new entry in `ALLOWED` needs a reason that says why the file cannot reach
   the cache. "It only parses once" is not one: the cache is process-wide.
+- A new entry in `FENCE_ALLOWED` needs a reason that says why the file is not
+  reading an arbitrary document's fences: it emits them, or it post-processes
+  text it emitted.
 
 ## Superseded: a copy per parsing package
 
