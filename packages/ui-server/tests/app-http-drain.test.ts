@@ -51,6 +51,7 @@ test("shutdown cancels an unfinished body without waiting for its producer cance
   pending=Promise.resolve(fixture.app.fetch(new Request("http://localhost/api/render",{method:"POST",headers:{"content-type":"application/json"},body})));
   await entered.promise;
   closing=fixture.app.close();
+  // Failure maximum: on success the response settles first and the 1500 ms branch is never awaited.
   const outcome=await Promise.race([pending.then(response=>response.status),Bun.sleep(1500).then(()=>"still reading" as const)]);
   expect(outcome,"SHUTDOWN_DOES_NOT_WAIT_FOR_UNFINISHED_CLIENT_BODY").not.toBe("still reading");
   expect(cancelled,"SHUTDOWN_CANCELS_ORIGINAL_BODY_READER").toBe(true);
@@ -93,6 +94,7 @@ test("shutdown releases a byte-cap cancellation wait while preserving its 413 re
   pending=Promise.resolve(fixture.app.fetch(new Request("http://localhost/api/render",{method:"POST",headers:{"content-type":"application/json"},body}))).then(response=>{settled=true;return response;});
   await cancelling.promise;expect(settled,"ORDINARY_BYTE_CAP_STILL_WAITS_FOR_ITS_PRODUCER_CANCEL").toBe(false);
   closing=fixture.app.close();
+  // Failure maximum: on success the response settles first and the 1500 ms branch is never awaited.
   const outcome=await Promise.race([pending.then(response=>response.status),Bun.sleep(1500).then(()=>"still cancelling" as const)]);
   expect(outcome,"SHUTDOWN_DOES_NOT_WAIT_FOR_STALLED_PRODUCER_CANCEL").toBe(413);expect(renders).toBe(0);await closing;
  }finally{releaseCancel.resolve();await pending?.catch(()=>{});await closing?.catch(()=>{});await fixture.close();rmSync(state,{recursive:true,force:true});}

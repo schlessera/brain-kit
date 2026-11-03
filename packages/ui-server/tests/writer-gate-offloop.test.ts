@@ -63,9 +63,9 @@ test("a release counts for this process's next acquisition at once, and settles 
     let settled = false;
     void released.then(() => { settled = true; });
     const next = gate.acquire("exclusive", "revert:ithaca");
-    await Bun.sleep(50);
-    expect(settled, "GATE_RELEASE_SETTLES_AFTER_ITS_COMMIT").toBe(false);
-    await slow;
+    // The release commit is queued on the write worker behind the hold, whose
+    // replies arrive in order: the release has not settled when the hold answers.
+    expect(await slow.then(() => settled), "GATE_RELEASE_SETTLES_AFTER_ITS_COMMIT").toBe(false);
     await released;
     expect(row(f, first.id), "GATE_RELEASE_COMMITTED").toBeNull();
     // Without seeing the release it would wait a whole poll.
