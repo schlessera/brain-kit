@@ -113,6 +113,7 @@ test("shutdown during a retry neither releases nor waits for the close in flight
   const summary = reconciler.close();
   expect(summary, "SHUTDOWN_REPORTS_EVERYTHING_HELD").toEqual({ held: 2, bytes: 6 * MiB, turnTempBytes: 2 * MiB });
   expect(logs.some(line => line.includes("stopped with 2 unconfirmed cleanups")), "SHUTDOWN_LOGS_WHAT_IS_HELD").toBe(true);
+  expect(clock.live(), "SHUTDOWN_CANCELS_RETRY_TIMERS").toBe(0);
   gate.resolve();
   await clock.tick();
   expect(released, "SHUTDOWN_DOES_NOT_RELEASE_A_CLOSE_CONFIRMED_AFTER_IT").toBe(0);

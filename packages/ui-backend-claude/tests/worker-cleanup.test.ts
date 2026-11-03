@@ -35,7 +35,9 @@ test.skipIf(!native)("Claude keeps a worker's reservation charged until its awai
     turnTemp.closeAsync = async () => { closing.resolve(); await gate.promise; await close(); };
     return worker;
   });
-  const cleanup = createCleanupReconciler({ attempts: 3, baseDelayMs: 50, log: () => {} });
+  // Retries run when the test says so, not on a timer racing the worker's release wait.
+  const scheduled: Array<() => void> = [];
+  const cleanup = createCleanupReconciler({ attempts: 3, log: () => {}, schedule: run => { scheduled.push(run); return () => {}; } });
   const turn = async (ledger: ReturnType<typeof createStateLedger>) => {
     const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined,
       { ledger, cleanup, limits: { allowanceBytes: 4 * MiB, budgetBytes: 8 * MiB }, turnTempLimits: { allowanceBytes: MiB, budgetBytes: 2 * MiB } });
@@ -64,6 +66,8 @@ test.skipIf(!native)("Claude keeps a worker's reservation charged until its awai
     // The reconciler retries the refused handle's close; a confirmed retry releases it.
     expect(cleanup.held, "CLAUDE_REFUSED_CLEANUP_RETAINED").toBe(1);
     gate = Promise.withResolvers<void>(); gate.resolve();
+    expect(scheduled.length, "CLAUDE_REFUSED_CLEANUP_RETRY_SCHEDULED").toBe(1);
+    scheduled.shift()!();
     for (let waited = 0; refused.live && waited < 100; waited++) await Bun.sleep(20);
     expect(refused.live, "CLAUDE_CONFIRMED_RETRY_RELEASES_RESERVATION").toBe(0);
     expect(cleanup.held, "CLAUDE_CONFIRMED_RETRY_NOT_HELD").toBe(0);
