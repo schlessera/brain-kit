@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:552-567`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:561-576`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -1425,18 +1425,24 @@ the keys, unmetered. Worker-host status says which applies.
 ### Worker startup status
 
 The live launcher reads bubblewrap's `--json-status-fd` through a dedicated,
-unlinked pipe. Before releasing its `--block-fd` start gate, it checks that
-the reported child descends from this launch and runs in a different PID
-namespace. Runtime-state and turn-temp mounts are verified and initial state
-is populated while that gate is closed. The trusted bootstrap still rejects
-unexpected inherited descriptors; a fixed host shell opens only the status
-and gate channels afterwards, and bubblewrap closes both before the payload
-runs. Setup refusal ends the unstarted worker. bubblewrap starts the payload
-on the gate's end-of-file as it does on its go byte, so a refused gate stays
-open until bubblewrap and every process it gated are confirmed dead. The
+unlinked pipe. Before releasing its start gate, it checks that the reported
+child descends from this launch and runs in a different PID namespace.
+Runtime-state and turn-temp mounts are verified and initial state is populated
+while that gate is closed. The trusted bootstrap still rejects unexpected
+inherited descriptors; a fixed host shell opens only the status and gate
+channels afterwards. bubblewrap keeps the status channel out of the sandbox.
+The gate channel reaches only the trusted absolute `/bin/sh` that runs first
+inside it: that shell reads one line, requires exactly `go`, closes the gate
+descriptor and only then becomes the payload, so the payload holds neither
+channel and its stdin is untouched. End-of-file, a partial line or any other
+line ends the sandbox unstarted. So a server that dies before release, which
+closes the gate's only writer, never starts the payload. bubblewrap's own
+`--block-fd` is not used, because it starts the payload on end-of-file.
+
+Setup refusal ends the unstarted worker. As a second guard, a refused gate
+stays open until bubblewrap and every process it gated are confirmed dead. The
 refusal stops bubblewrap and kills its children and the verified sandbox
-process itself; bubblewrap's own death does not end that process, even with
-`--die-with-parent`. A gate whose processes never die stays open.
+process itself. A gate whose processes never die stays open.
 
 This startup qualification does not provide a separate worker UID or the
 external descriptor broker. The separate-UID implementation remains tracked
