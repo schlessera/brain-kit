@@ -214,8 +214,12 @@ covered-until marker would block normal activity-detail retention.
 list --json` from `BRAIN_PATH` (default `/data/brain`), re-validates every
 module cron field before placing it in a system crontab line, and keeps the
 legacy `scripts/jobs/scrape-all.ts` fallback when that file exists and no
-enabled module exposes the `jobs` command. Its deployment parameters default
-to the historical shell values:
+enabled module exposes the `jobs` command. A discovery that yields nothing is
+retried twice, after 5 and then 15 seconds, and each failed attempt names its
+cause on stderr. When every attempt fails, the crontab carries core jobs only
+and the skip is recorded as a failed `modules` job in `cron_runs` and
+Activity, so `/api/status` shows it; a later successful start records a
+success. Its deployment parameters default to the historical shell values:
 
 | Flag | Default |
 | --- | --- |

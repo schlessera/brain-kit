@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "fs";
+import { relative, sep } from "path";
 
 import { loadAuditDocs } from "../../lib/auditor.js";
 import { openDatabase } from "../../lib/db.js";
@@ -20,10 +21,13 @@ import { selectHygieneNext } from "../../lib/hygiene-next.js";
 import { checkHygiene, CONFIG_BLOCKER_ID, repairHandlers, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
 import { indexAll } from "../../lib/indexer.js";
 import { mediaPolicy } from "../../lib/media.js";
+import type { MediaAction } from "../../lib/media-effects.js";
+import { mediaReferenceLimits } from "../../lib/media-references.js";
+import { resolveEnv } from "../../config/env.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|resolve|undo|check> — the content-hygiene log under context/hygiene/
+const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|unkeep|media|resolve|undo|check> — the content-hygiene log under context/hygiene/
 
   reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, brain validate's corpus
@@ -86,7 +90,32 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|resolv
       .brain/ and workspaces/, media.track keeps it, and it holds <sha256>.
       --json envelope: as dismiss, with "status": "kept", "copy", "copySha256"
       and "journal" appended; refused reasons add "not-media", "copy-missing",
-      "copy-untracked" and "copy-changed".`;
+      "copy-untracked" and "copy-changed".
+
+  unkeep <id> --journal <id>
+      Reconcile, then remove the kept entry that keep-copy recorded for <id>
+      under that journal ID: Undo of Keep a permanent copy, after the copy and
+      its config are restored. The original is open again, without an
+      invalidation receipt. Refused, with nothing written, when no such kept
+      entry exists.
+      --json envelope: { "status": "unkept", "id", "journal", "changedFiles" };
+      refused: { "status": "refused", "reason": "not-kept", "id", "journal" }`;
+
+const MEDIA_HELP = `
+  media <delete|move|persist|keep-copy> <id> --expect-fingerprint <fp> [--to <path>]
+      [--dry-run | --expect-premise <digest> --journal <id>]
+      A media finding's effect (#2781). --dry-run plans it and writes nothing:
+      { "status": "preview", "id", "action", "fingerprint", "source", "destination",
+      "links", "references", "rewrites", "blockers", "configDiff", "captureBytes",
+      "copy", "resultClass", "files", "premiseDigest", "refusals" }. move and
+      keep-copy need --to. Apply needs the preview's premiseDigest and the
+      caller's journal ID: the caller retains every listed pre-image first and
+      compensates from it; this command never does. Apply returns { "status":
+      "applied"|"stale"|"refused"|"interrupted", "id", "action", "journal",
+      "reason", "refusals", "files": [{ ..., "state" }], "copySha256" }.
+      keep-copy writes the copy and its config only; brain hygiene keep-copy
+      records the kept entry after the caller has verified it.
+`;
 
 const REPAIR_HELP = `
   resolve <id> --handler link-suggested|link-note|link-text|required-field
@@ -220,7 +249,7 @@ function dispositionRequest(sub: "dismiss" | "snooze" | "keep-copy", pos: string
 
 export const hygieneCommand: CoreCommand = {
   summary: "Reconcile, read and triage the content-hygiene log",
-  helpBlock: HELP + REPAIR_HELP,
+  helpBlock: HELP + MEDIA_HELP + REPAIR_HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
     const sub = pos[0];
@@ -295,6 +324,31 @@ export const hygieneCommand: CoreCommand = {
       return ["fixed", "preview", "undone"].includes(result.status) ? 0 : 1;
     }
 
+    if (sub === "media") {
+      // Loaded only for this verb: the effect module's dependencies stay out of every other one.
+      const { applyMediaEffect, MEDIA_ACTIONS, planMediaEffect } = await import("../../lib/media-effects.js");
+      const action = pos[1], id = pos[2];
+      if (!MEDIA_ACTIONS.includes(action as MediaAction) || !id || pos.length !== 3) {
+        throw new UsageError("Usage: brain hygiene media <delete|move|persist|keep-copy> <id> --expect-fingerprint <fp> [--to <path>] [--dry-run | --expect-premise <digest> --journal <id>]");
+      }
+      if (typeof flags["expect-fingerprint"] !== "string") throw new UsageError("media needs --expect-fingerprint <fp>");
+      if (flags.to !== undefined && typeof flags.to !== "string") throw new UsageError("--to needs a repo-relative path");
+      if (cli.configError) throw new UsageError(`Invalid brain.config: ${cli.configError}; no changes made`);
+      const request = { id, action: action as MediaAction, expectFingerprint: flags["expect-fingerprint"], ...(typeof flags.to === "string" ? { destination: flags.to } : {}) };
+      const configPath = cli.brain.configPath === null ? null : relative(cli.brain.root, cli.brain.configPath).split(sep).join("/");
+      const ctx = { root: cli.brain.root, policy: mediaPolicy(cli.brain.config), configPath, limits: mediaReferenceLimits(resolveEnv().mediaReferenceLimits) };
+      let result;
+      if (flags["dry-run"] === true) result = planMediaEffect(ctx, request);
+      else {
+        if (typeof flags["expect-premise"] !== "string" || typeof flags.journal !== "string") {
+          throw new UsageError("Preview with --dry-run first, then apply with --expect-premise <premiseDigest> --journal <id>");
+        }
+        result = applyMediaEffect(ctx, { ...request, expectPremise: flags["expect-premise"], journal: flags.journal });
+      }
+      emit(cli.json, result, () => console.log(JSON.stringify(result, null, 2)));
+      return ["preview", "applied"].includes(result.status) ? 0 : 1;
+    }
+
     if (sub === "list") {
       const state = flags.state;
       if (state !== undefined && !STATES.includes(state as HygieneState)) {
@@ -306,6 +360,24 @@ export const hygieneCommand: CoreCommand = {
         for (const e of entries) console.log(`${e.state.padEnd(8)} ${e.id}${e.path ? `  ${e.path}` : ""}`);
       });
       return 0;
+    }
+
+    if (sub === "unkeep") {
+      const id = pos[1], journal = flags.journal;
+      if (!id || pos.length !== 2) throw new UsageError("Usage: brain hygiene unkeep <id> --journal <id>");
+      if (typeof journal !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(journal)) throw new UsageError("--journal needs the Keep a permanent copy journal ID");
+      try {
+        const { result } = await detectAndReconcile(cli, { now: new Date(), unkeep: { id, journal } });
+        emit(cli.json, { status: "unkept", id, journal, changedFiles: result.changedFiles }, () => {
+          console.log(`unkept ${id}`);
+          for (const f of result.changedFiles) console.log(`  wrote ${f}`);
+        });
+        return 0;
+      } catch (e) {
+        if (!(e instanceof HygieneRefusal)) throw e;
+        emit(cli.json, { status: "refused", reason: e.reason, id, journal }, () => console.error(e.message));
+        return 1;
+      }
     }
 
     if (sub === "dismiss" || sub === "snooze" || sub === "keep-copy") {
@@ -344,7 +416,7 @@ export const hygieneCommand: CoreCommand = {
       }
     }
 
-    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|resolve|undo|check>");
+    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|unkeep|media|resolve|undo|check>");
     if (flags.extra === true) throw new UsageError("--extra needs a file");
     if (flags.fixed === true) throw new UsageError("--fixed needs a file");
     const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];

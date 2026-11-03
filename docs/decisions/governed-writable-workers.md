@@ -596,7 +596,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:680-690`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:689-699`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -1029,7 +1029,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1136-1164`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1150-1178`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -2190,7 +2190,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:226`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:235`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2208,7 +2208,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1911`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1925`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2232,7 +2232,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:385-444`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:394-453`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2308,9 +2308,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:609-615`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:636-675`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:791-809`).
+`packages/ui-sdk/src/server/worker-launcher.ts:618-624`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:645-684`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:800-818`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3281,7 +3281,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:94`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:95`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3341,7 +3341,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:250-284`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:259-293`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -3479,11 +3479,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1099-1127`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1113-1141`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1136-1162`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1150-1176`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1325-1413`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1339-1427`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -3625,6 +3625,31 @@ that run after an asynchronous launch has returned.
 
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
+
+### A refused end-of-turn cleanup has a retry owner — 2026-10-25
+
+The maintainer selected [option 1 on #2871](https://github.com/schlessera/brain-kit/issues/2871):
+a bounded, server-owned reconciliation owner takes over a Claude turn's
+end-of-turn cleanup that the awaited close above could not confirm.
+
+- **The turn still fails.** The refusal is the turn's, as before; the
+  reconciler only takes ownership of the retryable close and the reservation.
+- **Finite retries, then observable failure.** It retries the close with
+  capped exponential backoff and a finite number of attempts. A close still
+  refused after the last attempt is logged with the runtime-state and
+  turn-temp allowance it keeps charged until the server restarts.
+- **Release once, only on confirmation.** The reservation is released exactly
+  once, after a retry resolves. An unconfirmed close never releases it.
+- **Shutdown releases nothing and waits for nothing.** It cancels pending
+  retries, does not wait for a close in flight, and reports what is still
+  held. The process's one reconciler stops when the process exits; its timers
+  never hold the process open.
+
+The owner is the reconciler
+(`export function createCleanupReconciler`, `packages/ui-backend-claude/src/cleanup-reconciler.ts:66-125`), and the turn
+hands its refusal over where it awaits the close
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi and a launch
+whose own cleanup is unconfirmed are outside this ruling.
 
 ### Turn completion includes worker teardown — 2026-10-25
 

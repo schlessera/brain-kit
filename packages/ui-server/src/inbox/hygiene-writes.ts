@@ -3,8 +3,8 @@
  * never reapplied. All Action projections use the shared store/change stream. */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
-import { hygieneDiffSchema, hygieneEffectSchema, hygieneOutcomeSchema, hygieneReviewStateSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaReceipt, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
+import { hygieneDiffSchema, hygieneEffectSchema, hygieneMediaReceiptSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxAction, insertInboxAction, inboxIdentity } from "./actions.js";
 import { createInboxResolver, inboxSnoozeUntil } from "./resolve.js";
@@ -20,7 +20,7 @@ export const nextSchema = z.union([z.object({ blocker: z.record(z.string(), z.un
 export const mediaOf = (next: z.infer<typeof nextSchema>) => "media" in next && next.media ? { awaitingReview: next.media.awaitingReview, setAside: next.media.setAside, kept: next.media.kept } : undefined;
 /** A fresh review's state. */
 export const IDLE_REVIEW: HygieneReviewState = { version: 1, status: "idle", position: 0, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 0, deferred: [] };
-export const resultSchema = z.looseObject({ status: z.enum(["preview", "fixed", "stale", "refused", "check_failed", "undone", "still_detected", "not_detected", "dismissed", "snoozed", "deferred"]), id: text, reason: text.nullable().optional(), code: text.optional(), fieldError: z.object({ field: text, message: text }).optional(), diff: hygieneDiffSchema.optional(), previewToken: id.optional(), undoToken: z.string().regex(/^[0-9a-f]{32}$/).optional() });
+export const resultSchema = z.looseObject({ status: z.enum(["preview", "fixed", "stale", "refused", "check_failed", "undone", "still_detected", "not_detected", "dismissed", "snoozed", "deferred", "kept"]), id: text, reason: text.nullable().optional(), code: text.optional(), fieldError: z.object({ field: text, message: text }).optional(), diff: hygieneDiffSchema.optional(), previewToken: id.optional(), undoToken: z.string().regex(/^[0-9a-f]{32}$/).optional(), media: hygieneMediaReceiptSchema.optional() });
 export type Result = z.infer<typeof resultSchema>;
 export interface Attempt { id: string; item_id: string; principal_id: string; request_json: string; effect_json: string; wait_until: number | null }
 export class HygieneAuthorityError extends Error {}
@@ -60,9 +60,9 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
   }
   function busy(itemId: string) { return db.query("SELECT 1 FROM hygiene_effect_attempts WHERE item_id = ? AND status = 'started'").get(itemId) !== null; }
   function outcome(result: Result): NonNullable<HygieneAction["outcome"]> {
-    const { status, reason, code, undoToken, fieldError } = result;
+    const { status, reason, code, undoToken, fieldError, media } = result;
     if (status === "preview") throw new Error("Preview is not an outcome");
-    return hygieneOutcomeSchema.parse({ version: 1, status, reason: reason ?? undefined, code, undoToken, fieldError });
+    return hygieneOutcomeSchema.parse({ version: 1, status, reason: reason ?? undefined, code, undoToken, fieldError, media });
   }
   const missingPreview = (options: InboxOption[]) => options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
   return {
@@ -106,7 +106,14 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         // Every remaining finding left pending is a complete pass too: the counts stay truthful.
         if (!finding) { save({ ...review, status: "complete", pauseReason: undefined, counts: next.counts, media: mediaOf(next) }); return; }
         const readmitting = paused && action(paused.retiredActionId).hygiene!.findingId === finding.id && action(paused.retiredActionId).hygiene!.fingerprint === finding.fingerprint;
-        const itemId = readmitting ? inboxIdentity("hygiene-readmission", paused.retiredActionId) : inboxIdentity("hygiene", finding.id, finding.fingerprint);
+        let itemId = readmitting ? inboxIdentity("hygiene-readmission", paused.retiredActionId) : inboxIdentity("hygiene", finding.id, finding.fingerprint);
+        // A media effect undone from review (#2781) leaves its card resolved and the finding
+        // pending at the same fingerprint: the finding gets a successor card, never the old one back.
+        let afterUndo = false;
+        for (let prior = store.getItem(itemId); prior?.queue === "actions" && prior.status === "resolved" && prior.hygiene?.outcome?.status === "undone"; prior = store.getItem(itemId)) {
+          itemId = inboxIdentity("hygiene-after-undo", prior.id);
+          afterUndo = true;
+        }
         const existing = store.orderedItems().map(v => v.item).find(i => i.queue === "actions" && i.hygiene?.findingId === finding.id && i.hygiene.fingerprint === finding.fingerprint && ["pending", "snoozed"].includes(i.status)) ?? store.getItem(itemId);
         if (existing) {
           if (existing.queue === "actions" && ["pending", "snoozed"].includes(existing.status)) {
@@ -116,7 +123,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           }
           throw new Error("Finding already has a terminal Action for this fingerprint");
         }
-        const threadId = readmitting ? inboxIdentity("hygiene-readmission-thread", itemId) : inboxIdentity("hygiene-thread", finding.id, finding.fingerprint);
+        const threadId = readmitting ? inboxIdentity("hygiene-readmission-thread", itemId) : afterUndo ? inboxIdentity("hygiene-after-undo-thread", itemId) : inboxIdentity("hygiene-thread", finding.id, finding.fingerprint);
         store.openReviewThread(threadId);
         const item: InboxActionItem = { id: itemId, dedupKey: itemId, threadId, queue: "actions", type: "choose", status: "pending", version: 1, createdAt: now(), updatedAt: now(), expiresAt: Number.MAX_SAFE_INTEGER,
           payload: { title: finding.title, detail: finding.path }, options, hygiene: { findingId: finding.id, fingerprint: finding.fingerprint, finding } };
@@ -152,6 +159,17 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         } else update(current, outcome(result));
       }).immediate();
     },
+    /** A media option's fresh plan (#2781), installed only on the card it was previewed for. */
+    mediaPreview(time: number, principalId: string, item: InboxActionItem, request: { itemId: string; optionId: string; expectedVersion: number }, optionId: string, planned: InboxOption) {
+      at = time;
+      authority(principalId);
+      return db.transaction(() => {
+        if (busy(item.id)) throw new Error("Effect in progress");
+        const current = action(item.id);
+        if (current.version !== request.expectedVersion || current.status !== "pending") throw new Error("Inbox version conflict");
+        update(current, undefined, current.options.map(o => o.id === optionId ? inboxOptionSchema.parse(planned) : o));
+      }).immediate();
+    },
     finish(time: number, attempt: Attempt, result: Result, options: InboxOption[]) {
       at = time;
       const e = hygieneEffectSchema.parse(JSON.parse(attempt.effect_json));
@@ -168,7 +186,9 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         }
         update(item, outcome(result), options);
         const current = action(item.id);
-        const confirmed = (e.operation === "resolve" && result.status === "fixed") || (e.operation === "check" && result.status === "not_detected") || (e.operation === "dismiss" && result.status === "dismissed") || (e.operation === "snooze" && result.status === "snoozed");
+        const confirmed = (e.operation === "resolve" && result.status === "fixed") || (e.operation === "check" && result.status === "not_detected") || (e.operation === "dismiss" && result.status === "dismissed") || (e.operation === "snooze" && result.status === "snoozed")
+          // A media effect resolves its card once applied and verified, or kept (#2781); compensated and partial stay pending.
+          || (e.operation.startsWith("media-") && (result.status === "fixed" || (e.operation === "media-keep-copy" && result.status === "kept")));
         if (e.operation === "defer" && result.status === "deferred") {
           // Leave pending (#2780): nonterminal and untimed. The finding is
           // skipped for the rest of this pass at this fingerprint; a new pass
@@ -184,7 +204,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           if (e.operation !== "snooze") store.commit([{ kind: "resolution", id: inboxIdentity("resolution", item.id), itemId: item.id, optionId: request.optionId, principalId: attempt.principal_id, reason: request.reason }]);
           store.commit([{ kind: "transition", itemId: item.id, expectedVersion: current.version, to: e.operation === "dismiss" ? "dismissed" : e.operation === "snooze" ? "snoozed" : "resolved", ...(attempt.wait_until !== null ? { waitUntil: attempt.wait_until } : {}) }]);
           const review = state();
-          if (review.pendingActionId === item.id) save({ ...review, pendingActionId: undefined, fixed: review.fixed + (e.operation === "resolve" || e.operation === "check" ? 1 : 0), dismissed: review.dismissed + (e.operation === "dismiss" ? 1 : 0), snoozed: review.snoozed + (e.operation === "snooze" ? 1 : 0) });
+          if (review.pendingActionId === item.id) save({ ...review, pendingActionId: undefined, fixed: review.fixed + (e.operation === "resolve" || e.operation === "check" || (e.operation.startsWith("media-") && result.status === "fixed") ? 1 : 0), dismissed: review.dismissed + (e.operation === "dismiss" ? 1 : 0), snoozed: review.snoozed + (e.operation === "snooze" ? 1 : 0), kept: (review.kept ?? 0) + (result.status === "kept" ? 1 : 0) });
         }
         if (result.status === "undone") {
           // An inverse restores the defect. Require a new preview before another write.
@@ -192,6 +212,29 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           update(fresh, outcome(result), fresh.options.filter(o => o.id !== "undo").map(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" ? { ...o, preview: undefined, effect: { ...o.effect, previewToken: undefined } } : o));
         }
         db.query("UPDATE hygiene_effect_attempts SET status = 'finished', result_json = ? WHERE id = ?").run(JSON.stringify(result), attempt.id);
+      }).immediate();
+    },
+    /**
+     * Undo from review (#2781, ruling 2026-11-03): record the Undo's receipt on
+     * the resolved card that applied the effect. An undone effect no longer
+     * counts as fixed or kept; a refused Undo only refreshes the card's
+     * receipt, so its Undo availability is current.
+     */
+    mediaUndo(time: number, principalId: string, itemId: string, journalId: string, receipt: HygieneMediaReceipt, source: HygieneMediaReceipt | null) {
+      at = time;
+      authority(principalId);
+      return db.transaction(() => {
+        const item = action(itemId), prior = item.hygiene!.outcome;
+        if (item.status !== "resolved" || prior?.media?.journalId !== journalId) return;
+        const next: NonNullable<HygieneAction["outcome"]> = receipt.outcome === "undone" ? { version: 1, status: "undone", media: receipt }
+          : receipt.outcome === "partial" ? { version: 1, status: "check_failed", code: "partial", ...(receipt.reason ? { reason: receipt.reason } : {}), media: receipt }
+          : source ? { ...prior, media: source } : prior;
+        if (next === prior) return;
+        store.commit([{ kind: "hygiene_media_receipt", itemId, expectedVersion: item.version, outcome: hygieneOutcomeSchema.parse(next) }]);
+        if (receipt.outcome === "undone") {
+          const review = state();
+          save({ ...review, fixed: Math.max(0, review.fixed - (prior.status === "fixed" ? 1 : 0)), kept: Math.max(0, (review.kept ?? 0) - (prior.status === "kept" ? 1 : 0)) });
+        }
       }).immediate();
     },
     admit(time: number, principalId: string, request: ClientInboxResolve) {
@@ -208,6 +251,8 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         if (busy(item.id)) return null;
         if (item.status !== "pending" || item.expiresAt <= now()) throw new Error("Action is not resolvable");
         if (e.operation === "resolve" && (!e.handler || e.input === undefined || !e.previewToken || !option.preview)) throw new Error("Confirm a valid preview first");
+        // A media effect applies only the plan it previewed, without refusals (#2781).
+        if (e.operation.startsWith("media-") && (!e.premiseDigest || option.media?.premiseDigest !== e.premiseDigest || option.media.refusals.length > 0 || (["media-move", "media-keep-copy"].includes(e.operation) && option.media.destination !== e.destination))) throw new Error("Confirm a valid preview first");
         if (e.operation === "undo" && (!e.undoToken || !option.preview || item.hygiene.outcome?.status !== "check_failed")) throw new Error("No confirmed inverse available");
         const waitUntil = e.operation === "snooze" ? inboxSnoozeUntil(now(), thread.stakes, item.version, timeZone) : null;
         const attempt: Attempt = { id: inboxIdentity("hygiene-attempt", item.id, String(item.version), option.id), item_id: item.id, principal_id: principalId, request_json: JSON.stringify(request), effect_json: JSON.stringify(e), wait_until: waitUntil };
