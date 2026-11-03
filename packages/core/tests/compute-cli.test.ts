@@ -218,7 +218,7 @@ describe("run", () => {
     let id: string | undefined;
     while (Date.now() < deadline) {
       id = jobIds(box).find((j) => !before.has(j));
-      if (id && JSON.parse(readFileSync(join(box.state, "jobs", id, "job.json"), "utf8")).state === "running") break;
+      if (id && existsSync(join(box.state, "jobs", id, "job.json")) && JSON.parse(readFileSync(join(box.state, "jobs", id, "job.json"), "utf8")).state === "running") break;
       await Bun.sleep(50);
     }
     expect(id).toBeDefined();
