@@ -136,6 +136,17 @@ export "./internal/cache-location" (./src/cache-location.ts)
   LEGACY_SIDECAR_CACHES
   SIDECAR_CACHES
 
+export "./internal/claude-subscription" (./src/claude-subscription.ts)
+  CLEARED_API_CREDENTIALS
+  type ClaudeAccount
+  type CliSettingsReport
+  NEUTRALISED_SETTINGS
+  OAUTH_TOKEN_SOURCES
+  SUBSCRIPTION_TIERS
+  type SubscriptionVerdict
+  settingsRefusal
+  subscriptionVerdict
+
 export "./internal/env" (./src/env-core.ts)
   type DynamicEnvReadSpec
   type EnvVarSpec

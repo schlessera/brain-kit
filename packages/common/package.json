@@ -80,6 +80,11 @@
       "bun": "./src/apify-operations.ts",
       "types": "./dist/apify-operations.d.ts",
       "default": "./dist/apify-operations.js"
+    },
+    "./internal/claude-subscription": {
+      "bun": "./src/claude-subscription.ts",
+      "types": "./dist/claude-subscription.d.ts",
+      "default": "./dist/claude-subscription.js"
     }
   },
   "files": [
