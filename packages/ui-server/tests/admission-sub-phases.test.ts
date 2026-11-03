@@ -1,16 +1,15 @@
 /** #3355: governed admission and journal begin attribute their time to named steps. */
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
-import * as startup from "../../ui-sdk/src/server/worker-startup-view.js";
-import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
+import { replaceNativeStartupAcquisitionForFixture } from "./helpers/fixture-native-startup.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 
 type Step = NonNullable<ActivityTurnLifecycle["subPhases"]>[number];
@@ -46,11 +45,11 @@ test("steps persist with the next milestone and follow the phase failure rules",
 });
 
 test("real governed admission records each step inside governedAdmissionMs", async () => {
-  const brain = mkdtempSync(join(tmpdir(), "odysseus-admission-steps-")), views: startup.WorkerStartupView[] = [];
+  const brain = mkdtempSync(join(tmpdir(), "odysseus-admission-steps-"));
   writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n");
-  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async path => {
-    const view = createFixtureWorkerStartupView(path); views.push(view); return view;
-  });
+  // The shared stand-in copies the startup view and admits it at the managed-storage
+  // refusal only (#3314); that refusal keeps its own tests.
+  const restore = replaceNativeStartupAcquisitionForFixture();
   const execution = { boundary: { async prepare() { return { available: true }; }, maintenance: {} },
     gate() { return { async acquire() { return { release() {} }; } }; }, manifests() { return {}; } };
   const turns = createGovernedTurns({ nativeManager: {} as never, brainPath: brain, execution: execution as never, profile: "strict", maskPaths: [], async index() {}, report() {} });
@@ -68,7 +67,7 @@ test("real governed admission records each step inside governedAdmissionMs", asy
       expectWithin(record.subPhases!, "governed", record.governedStartedAt!, record.governedAcquiredAt!);
     } finally { await hold.end(); }
   } finally {
-    acquire.mockRestore(); for (const view of views) await view.cleanup(); await turns.close(); db.close();
+    await turns.close(); restore(); db.close();
     rmSync(brain, { recursive: true, force: true });
   }
 });

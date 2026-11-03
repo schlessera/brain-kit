@@ -69,7 +69,7 @@ for (const mode of ["success", "failure", "oversized", "timeout", "abort"] as co
     const seen = observeLaunch({ pool: true,
       script: blocked ? "printf Ithaca; exec sleep 30" : `printf Ithaca; printf Penelope >&2; exit ${mode === "failure" ? 3 : 0}`,
       ...(mode === "abort" ? { launched: (child: Launched) => { child.stdout.once("data", () => controller.abort()); } } : {}) });
-    const result = await outcome(runMaskedBrainCli({ ...f, signal: controller.signal, command: [],
+    const result = await outcome(runMaskedBrainCli({ ...f, signal: controller.signal, command: ["/bin/sh"],
       ...(mode === "timeout" ? { timeoutMs: 100 } : {}), ...(mode === "oversized" ? { outputBytes: 2 } : {}) }));
     const open = seen.open();
     expect(seen.held(), "POOL_HELD_THROUGH_MASKED_CLI_TEARDOWN").toBe(true);
@@ -91,7 +91,7 @@ test("a masked CLI output read failure stops its worker and releases its stdio",
     child = launched;
     child.stdout.once("data", () => child!.stdout.destroy(new Error("Odysseus stopped the read")));
   } });
-  const work = outcome(runMaskedBrainCli({ ...f, signal: new AbortController().signal, command: [] }));
+  const work = outcome(runMaskedBrainCli({ ...f, signal: new AbortController().signal, command: ["/bin/sh"] }));
   try {
     const result = await Promise.race([work, Bun.sleep(10_000).then(() => undefined)]);
     expect(result, "OUTPUT_READ_FAILURE_STOPS_WORKER").toBeDefined();
@@ -127,7 +127,7 @@ for (const path of ["masked CLI", "turn tree"] as const) for (const abort of [fa
     const tree = path === "turn tree" ? await createTurnDataTree({ brainPath: f.brain, view: f.startupView, maskPaths: [], mount: true }) : undefined;
     if (tree) cleanup.push(() => tree.close());
     const work = outcome(tree ? tree.planAdd({}, controller.signal)
-      : runMaskedBrainCli({ ...f, signal: controller.signal, command: [] })).then(result => { settled = true; return result; });
+      : runMaskedBrainCli({ ...f, signal: controller.signal, command: ["/bin/sh"] })).then(result => { settled = true; return result; });
     try {
       expect(await Promise.race([calling.promise.then(() => true), work.then(() => false), Bun.sleep(10_000).then(() => false)]), "SETTLEMENT_REACHES_RELEASE").toBe(true);
       expect(await Promise.race([child!.exited, Bun.sleep(10_000).then(() => "no exit")]), "EXIT_REPORTED_WHILE_RELEASE_PENDING").toBe(0);
