@@ -62,7 +62,7 @@ export function acceptRequest(
 }
 
 /** The outcome of one recovery read, before it becomes an HTTP response. */
-export type RecoveryRead =
+type RecoveryRead =
   | { kind: "ok"; recovery: SessionRecovery }
   | { kind: "unauthorized" }
   | { kind: "not_found" };
@@ -169,7 +169,7 @@ function pendingOf(host: WsHost, sessionId: string): SessionRecoveryPending[] {
 const NO_HISTORY = Symbol("no history");
 
 /** How long one backend may take to say whether it holds a session, as `/api/sessions` allows. */
-export const RECOVERY_PROBE_MS = 3_000;
+const RECOVERY_PROBE_MS = 3_000;
 
 /**
  * Unfinished existence probes, per host, by backend and session. A backend

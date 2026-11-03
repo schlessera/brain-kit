@@ -3,10 +3,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { AskUserRankExchangeCard } from "../../src/components/chat/ask-user-rank-card.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
-import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
+import { defaultRoot } from "../../src/default-root.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
 import type { AskUserRankSpec, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+
+const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 afterEach(cleanup);
 afterAll(unregisterAskUserRankDom);

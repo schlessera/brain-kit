@@ -82,7 +82,7 @@ export function rewriteMessageBlockLinks(
 }
 
 /** The text parts of a history message, in order, as the client will number them. */
-export function textPartsOf(message: SessionHistoryMessage): string[] {
+function textPartsOf(message: SessionHistoryMessage): string[] {
   if (message.parts) {
     return message.parts.filter((part) => part.kind === "text").map((part) => (part as { text: string }).text);
   }

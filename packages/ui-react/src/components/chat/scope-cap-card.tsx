@@ -6,7 +6,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 
-export const scopeLimitName: Record<ScopeCapReceipt["dimension"], string> = {
+const scopeLimitName: Record<ScopeCapReceipt["dimension"], string> = {
   files_changed: "File limit", minutes: "Time limit", tool_calls: "Tool-call limit", turn_bytes: "Write allowance", free_space_floor: "Free-space floor",
 };
 export function scopeNumber(dimension: ScopeCapReceipt["dimension"], value: number): string {

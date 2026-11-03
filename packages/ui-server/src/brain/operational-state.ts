@@ -131,7 +131,7 @@ export function operationalStateMasks(input: OperationalStateLayout): string[] {
   return [...masks];
 }
 
-export interface OperationalStateRefusal {
+interface OperationalStateRefusal {
   available: false;
   reason: GovernedUnavailableReason;
   detail: string;

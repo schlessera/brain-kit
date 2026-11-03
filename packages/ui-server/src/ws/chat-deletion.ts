@@ -23,7 +23,7 @@ type Retired = Extract<RetireChatResult, { status: "retired" }>;
  * (an older one can restore text), and devices that are offline until they
  * reconnect and learn the chat was retired.
  */
-export const CHAT_DELETION_RETAINED: readonly ChatDeletionRetained[] = ["independent_content", "effects_and_audit", "provider_copies", "backups", "offline_devices"];
+const CHAT_DELETION_RETAINED: readonly ChatDeletionRetained[] = ["independent_content", "effects_and_audit", "provider_copies", "backups", "offline_devices"];
 
 export interface ChatDeletionDeps {
   catalog: Pick<SessionCatalog, "retireChat" | "chatRetirement" | "recordChatCleanup" | "cleanChatStore" | "unfinishedChatRetirements">;
@@ -38,7 +38,7 @@ export interface ChatDeletionDeps {
 export type ChatDeletionResult = { status: "refused"; reason: RetireRefusal } | { status: "retired"; receipt: ChatDeletionReceipt };
 
 /** The wire receipt: store categories and outcomes only. */
-export function chatDeletionReceipt(retirement: Retired): ChatDeletionReceipt {
+function chatDeletionReceipt(retirement: Retired): ChatDeletionReceipt {
   return { operationId: retirement.operationId, generation: retirement.generation, status: retirement.cleanup,
     stores: { ...retirement.stores }, retained: [...CHAT_DELETION_RETAINED] };
 }

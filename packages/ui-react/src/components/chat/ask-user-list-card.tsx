@@ -31,7 +31,7 @@ import { DISMISSED_NOTE } from "./ask-user-card.js";
 import type { RecordHead } from "./answer-text.js";
 
 /** "you answered 7 · 3m ago", or without the time when none is known. */
-export function listAnsweredMeta(count: number, total: number, answeredAt: number | undefined): string {
+function listAnsweredMeta(count: number, total: number, answeredAt: number | undefined): string {
   const what = count === total ? `you answered ${count}` : `you answered ${count} of ${total}`;
   return answeredAt === undefined ? what : `${what} · ${formatRelativeTime(answeredAt)}`;
 }

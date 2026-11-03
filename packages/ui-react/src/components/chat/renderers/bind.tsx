@@ -37,7 +37,7 @@ export function boundToolNames(contract: ToolComponentContract): string[] {
   ];
 }
 
-export interface BindOptions<Contract extends ToolComponentContract> {
+interface BindOptions<Contract extends ToolComponentContract> {
   icon?: ToolRenderer["icon"];
   label?: string;
   /** Collapsed one-liner, from the parsed payload. */

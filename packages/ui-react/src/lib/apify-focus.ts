@@ -6,7 +6,7 @@
  */
 import type { BrainUiRoot } from "../root.js";
 
-export type ApifySettingsTarget = "provider" | "discovery" | "actors" | "grants" | "limits" | "today";
+type ApifySettingsTarget = "provider" | "discovery" | "actors" | "grants" | "limits" | "today";
 
 const requests = new WeakMap<BrainUiRoot, ApifySettingsTarget>();
 

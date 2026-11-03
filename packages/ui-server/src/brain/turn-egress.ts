@@ -14,8 +14,8 @@ const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
  * any host on these ports is outward; the hosts are HTTP mail-send APIs and
  * provider relays on alternate ports. `outward.hosts` adds the rest.
  */
-export const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
-export const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
+const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
+const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
   "api.fastmail.com", "api.sendgrid.com", "smtp.sendgrid.net", "api.mailgun.net", "api.eu.mailgun.net", "smtp.mailgun.org",
   "smtp.eu.mailgun.org", "api.postmarkapp.com", "smtp.postmarkapp.com", "api.resend.com", "smtp.resend.com"] as const;
 

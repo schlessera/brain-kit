@@ -7,7 +7,7 @@ import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
 export const RECORDING_MAX_MS = 600_000;
-export const RECORDING_WALL_BACKSTOP_MS = 660_000;
+const RECORDING_WALL_BACKSTOP_MS = 660_000;
 const LIMIT_FLUSH_MARGIN_MS = 250;
 // Internal scheduler tolerance: modest callback jitter is not evidence of lost audio.
 const AUDIO_TIMER_LATENESS_MS = 1000;
@@ -86,7 +86,7 @@ export interface RecordingStore {
   onEvent(listener: (event: RecordingEvent) => void): () => void;
   dispose(): void;
 }
-export interface RecordingStoreOptions {
+interface RecordingStoreOptions {
   partitions: LocalPartitions;
   heldAccountKey: () => string | null;
   root: BrainUiServices;
