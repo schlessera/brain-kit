@@ -6,8 +6,8 @@
 import type { StoreApi } from "zustand/vanilla";
 import type { ChatKey, ChatMessage, ChatState, MessagePart, SessionChat } from "../chat-state.js";
 
-export type ChatSet = StoreApi<ChatState>["setState"];
-export type ChatGet = StoreApi<ChatState>["getState"];
+type ChatSet = StoreApi<ChatState>["setState"];
+type ChatGet = StoreApi<ChatState>["getState"];
 
 /** What every slice of one chat store shares. */
 export interface ChatSliceContext {

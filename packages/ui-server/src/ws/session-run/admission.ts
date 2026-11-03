@@ -12,7 +12,7 @@ import type { RunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent } from "./budget.js";
 import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
 
-export type WorkerHostAdmission =
+type WorkerHostAdmission =
   | { readonly kind: "admitted"; readonly identity: WorkerNoteFacts["identity"] | undefined }
   | { readonly kind: "denied"; readonly error: unknown };
 

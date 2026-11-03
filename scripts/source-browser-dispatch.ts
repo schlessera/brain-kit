@@ -9,7 +9,7 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 const helperConsumers:Record<string,string>={
   // Re-audited when #1362 moved inbound routing out of connection.ts: only
   // runStateForFrame is imported; it never acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/ws-client/inbound.ts":"053f8db41bb21b5525c6c7e15a04281ba5ade6273b4f1f05cd415b470f368c63",
+  "packages/ui-react/src/ws-client/inbound.ts":"18d84fd93fc0f5ced9114e5bd5f5270632d70105d10f254be999fa3677bcf163",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 const declarations=[

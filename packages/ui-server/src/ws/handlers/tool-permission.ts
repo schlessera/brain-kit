@@ -7,7 +7,7 @@ import { turnIdMatches, type ClientMessageHandler, type HandlerContext } from ".
  * whose turn echo does not match the settled request learns `unknown` — it
  * was never about that request.
  */
-export function replyResolution(
+function replyResolution(
   { host, ws, connection, requireEcho }: HandlerContext,
   toolUseId: string,
   echoed: string | undefined

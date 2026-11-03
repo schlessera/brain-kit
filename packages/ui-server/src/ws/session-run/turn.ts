@@ -15,7 +15,7 @@ import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
  * `denied` it and the slot stops. The slot acts on each in the same
  * synchronous run as its next dequeue or its close.
  */
-export type SlotTurnResult =
+type SlotTurnResult =
   | { readonly kind: "ran"; readonly outcome: TurnOutcome }
   | { readonly kind: "revoked" }
   | { readonly kind: "denied"; readonly error: unknown };

@@ -10,7 +10,7 @@ import type { ChatSliceContext } from "./buffers.js";
 import { withoutRetry } from "./buffers.js";
 import { textsOf } from "./transcript.js";
 
-export type StreamingSliceSlice = Pick<ChatState,
+type StreamingSliceSlice = Pick<ChatState,
   | "finishAssistantMessage"
   | "failAssistantMessage"
   | "setTurnNotice"

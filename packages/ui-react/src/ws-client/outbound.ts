@@ -3,11 +3,11 @@ import { localExchangesForDraft, restorationOf } from "../stores/chat-state.js";
 import type { BrainUiServices } from "../root.js";
 import type { RestorationDriver } from "./restoration.js";
 
-export interface OutboundSocket {
+interface OutboundSocket {
   send(message: ClientMessage): boolean;
 }
 
-export interface OutboundDeps {
+interface OutboundDeps {
   /** The current socket, or null while none is leased. */
   socket: () => OutboundSocket | null;
   /** The voice conversation that owns a session's history, if any. */

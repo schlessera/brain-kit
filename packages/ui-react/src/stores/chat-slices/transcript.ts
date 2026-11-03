@@ -13,7 +13,7 @@ import { appendPart, emptyChat, evictStale, revokeAttachmentUrls } from "./buffe
  * the buffer it replaces had already learned the turn from the live request,
  * keep it: the answer must be sent with that binding.
  */
-export function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessage[] {
+function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessage[] {
   const turns = new Map<string, string>();
   for (const m of previous) for (const e of m.askUserExchanges ?? []) if (e.turnId) turns.set(e.requestId, e.turnId);
   if (turns.size === 0) return next;
@@ -95,7 +95,7 @@ export function textsOf(m: ChatMessage): string[] {
   return m.parts.flatMap((part) => (part.kind === "text" ? [part.text] : []));
 }
 
-export function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
+function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
   // Only the transcript's tail can still be streaming: a message after it
   // (a follow-up that started) means its turn is over.
   const tail = next.length - 1;
@@ -329,7 +329,7 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   };
 }
 
-export type TranscriptSliceSlice = Pick<ChatState,
+type TranscriptSliceSlice = Pick<ChatState,
   | "historyLoads"
   | "noteHistoryLoaded"
   | "setMessages"

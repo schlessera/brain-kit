@@ -1,7 +1,7 @@
 import { BrainUiClient, type BrainUiClientOptions, type ConnectionStatus, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
 import type { ClientMessage, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 
-export interface SocketLeaseOptions {
+interface SocketLeaseOptions {
   url: () => string;
   disposed: () => boolean;
   /** The account is unlocked: only then may a frame reach the page. */
@@ -120,5 +120,3 @@ export function createSocketLease(options: SocketLeaseOptions) {
     owners: (): number => owners,
   };
 }
-
-export type SocketLease = ReturnType<typeof createSocketLease>;

@@ -62,7 +62,7 @@ function addExchange(
   return { messages: msgs, askUser: exchange };
 }
 
-export type AskUserSliceSlice = Pick<ChatState,
+type AskUserSliceSlice = Pick<ChatState,
   | "setAskUserRequest"
   | "setAskUserListRequest"
   | "setAskUserRankRequest"

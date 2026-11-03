@@ -567,3 +567,4 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   };
 }
 
+export type DraftClient = ReturnType<typeof createDraftClient>;

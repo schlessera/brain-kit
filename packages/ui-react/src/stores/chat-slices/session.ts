@@ -10,7 +10,7 @@ import type { ChatSliceContext } from "./buffers.js";
 import { emptyChat, evictStale, revokeAttachmentUrls } from "./buffers.js";
 import type { ChatPersistence } from "./persistence.js";
 
-export type SessionSliceSlice = Pick<ChatState,
+type SessionSliceSlice = Pick<ChatState,
   | "buffers"
   | "draft"
   | "pendingDraftId"

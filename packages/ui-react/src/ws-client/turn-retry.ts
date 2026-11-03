@@ -2,7 +2,7 @@ import type { ClientMessage, ServerMessage } from "@schlessera/brain-ui-sdk/prot
 import type { BrainUiServices } from "../root.js";
 
 /** How long a sent retry waits for its receipt before it reads as unknown. */
-export const RETRY_RECEIPT_WAIT_MS = 5000;
+const RETRY_RECEIPT_WAIT_MS = 5000;
 
 /**
  * Retrying a failed turn: the request, its receipt and the socket's part in

@@ -278,7 +278,7 @@ export interface RunningTurn {
 // Pending interactive requests are tagged with their turn so a per-session
 // cancel/disconnect can drain only that session's pending entries, and with
 // the turnId that raised them (the slot's id mutates across queued follow-ups).
-interface PendingApproval {
+export interface PendingApproval {
   turn: RunningTurn;
   turnId: string;
   /**
@@ -310,7 +310,7 @@ interface ToolResolutionRecord {
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
 const MAX_RESOLVED_APPROVALS = 512;
 
-export interface PendingAskUser {
+interface PendingAskUser {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingApproval.request. */
@@ -320,7 +320,7 @@ export interface PendingAskUser {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserList {
+interface PendingAskUserList {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -330,7 +330,7 @@ export interface PendingAskUserList {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserRank {
+interface PendingAskUserRank {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -340,7 +340,7 @@ export interface PendingAskUserRank {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserForm {
+interface PendingAskUserForm {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -361,7 +361,7 @@ export type PendingAsk =
   | { kind: "ask_user_form"; entry: PendingAskUserForm };
 
 /** The entry type a pending ask of kind `K` carries. */
-export type PendingAskEntry<K extends AskKind> = Extract<PendingAsk, { kind: K }>["entry"];
+type PendingAskEntry<K extends AskKind> = Extract<PendingAsk, { kind: K }>["entry"];
 
 /** A session start reserved before asynchronous backend routing finishes. */
 export interface StartingSession {
@@ -371,18 +371,18 @@ export interface StartingSession {
 }
 
 /** A handoff creation in flight (#61); `sessionId` is set once its destination exists. */
-export interface PendingHandoff {
+interface PendingHandoff {
   sessionId?: string;
 }
 
 /** A running handoff preparation summary (#61). */
-export interface HandoffPreparation {
+interface HandoffPreparation {
   abort: AbortController;
   owner: unknown;
 }
 
 /** What a coordinator reports to, fixed when it is constructed. */
-export interface TurnCoordinatorOptions {
+interface TurnCoordinatorOptions {
   /** Where collisions are reported; absent (a bare coordinator in a test) means silence. */
   log?: Logger;
   /** Told about every settled permission request, whichever path settled it. */

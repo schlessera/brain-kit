@@ -4,7 +4,7 @@ import { REVOKED_REASON, type HostWorkOutcome, type RunningTurn } from "../turns
 import type { TurnStops } from "./types.js";
 
 /** The terminal a turn's recorder writes; cancellation and timeout are host-owned facts. */
-export type RecorderDisposition = "success" | "error" | "cancelled" | "timeout";
+type RecorderDisposition = "success" | "error" | "cancelled" | "timeout";
 
 /** How a turn ended, for its lifecycle span and its host work item. */
 export interface TurnOutcome {
@@ -37,7 +37,7 @@ export interface TurnFacts {
   readonly stops: TurnStops;
 }
 
-export type CompletedTurn = TurnOutcome & {
+type CompletedTurn = TurnOutcome & {
   readonly recorder: RecorderDisposition;
   /** The backend resolved but reported a runtime failure on its result frame. */
   readonly resultFailed: boolean;
@@ -85,9 +85,9 @@ export interface FailedTurnFacts extends TurnFacts {
  * - `scope_stopped`: a scope cap already narrated why it stopped the turn.
  * - `reported`: the terminal is emitted as an error frame.
  */
-export type FailedTurnDelivery = "cancelled_before_start" | "scope_stopped" | "reported";
+type FailedTurnDelivery = "cancelled_before_start" | "scope_stopped" | "reported";
 
-export type FailedTurn = TurnOutcome & {
+type FailedTurn = TurnOutcome & {
   readonly delivery: FailedTurnDelivery;
   readonly recorder: RecorderDisposition;
   /** What the turn ended on: an asynchronous stop wins over the error that unwound it. */

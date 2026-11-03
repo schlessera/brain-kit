@@ -13,9 +13,9 @@ import type { FollowUpPlacement } from "./follow-ups.js";
 import type { AccountServices } from "./account.js";
 import type { createConversationClient } from "../voice/conversation-client.js";
 
-export type InboundConversation = Pick<ReturnType<typeof createConversationClient>, "frame" | "historyOwnerFor" | "state">;
+type InboundConversation = Pick<ReturnType<typeof createConversationClient>, "frame" | "historyOwnerFor" | "state">;
 
-export interface InboundDeps {
+interface InboundDeps {
   disposed: () => boolean;
   conversation: InboundConversation;
   deltas: DeltaBuffer;
