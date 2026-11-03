@@ -32,6 +32,15 @@ export function diagramGroupBounds(group: DiagramGroup): DiagramBox {
   const top = group.scopeKind === "admin" ? 1 : 8;
   return { x: group.x - 1, y: group.y - top, width: group.width + 2, height: group.height + top + 1 };
 }
+/**
+ * The painted heading of a group: an admin scope's 24px header band, or the
+ * masked label that sits across a group's top border (see the group case in
+ * `svg-model.ts`). Edge labels and cardinalities must not cover it.
+ */
+export function diagramGroupHeading(group: DiagramGroup): DiagramBox {
+  if (group.scopeKind === "admin") return { x: group.x, y: group.y, width: group.width, height: 24 };
+  return { x: group.x + 4, y: group.y - 7, width: Math.min(typeWidthBudget(group.label, "label") + 8, group.width - 8), height: 14 };
+}
 const EPS = 1e-7, RADIUS = 8, CLEARANCE = 24, PARALLEL = 12, LABEL_GAP = 8;
 const frameSizes: Record<string, [number, number]> = { "doc-inline": [960, 600], "doc-wide": [1280, 720], "slide-16x9": [1280, 720], "slide-4x3": [1024, 768], "social-og": [1200, 632], "social-square": [1080, 1080], "print-a4-landscape": [1120, 792], "print-a3-landscape": [1584, 1120], "print-letter-landscape": [1056, 816] };
 const equal = (a: DiagramPoint, b: DiagramPoint) => Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS;
@@ -289,7 +298,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
       const text = end === "from" ? edge.fromCardinality : edge.toCardinality; if (!text) continue;
       const port = connector[end], n = normal(port.side), width = Math.ceil((typeWidthBudget(text, "label") + 8) / 4) * 4;
       const box: DiagramCardinality = {kind:"cardinality",edge:connector.edge,end,text,width,height:16,x:n.x ? port.x + (n.x > 0 ? 12 : -12-width) : port.x+12,y:n.y ? port.y + (n.y>0?12:-28) : port.y-24};
-      if (!contains(viewBox,box) || nodes.some(node=>overlaps(box,node)) || cardinalities.some(other=>overlaps(box,other)) || connectors.some(route=>route.points.slice(1).some((point,index)=>segmentHits(route.points[index]!,point,box,LABEL_GAP)) || route.bridges.some(bridge=>overlaps(box,{x:bridge.x-14,y:bridge.y-14,width:28,height:28})) || route.points.slice(1,-1).some((corner,index)=>overlaps(box,cornerBounds(route.points[index]!,corner,route.points[index+2]!))))) fail(connector.edge,"cardinality has no readable endpoint clearance; move nodes");
+      if (!contains(viewBox,box) || nodes.some(node=>overlaps(box,node)) || cardinalities.some(other=>overlaps(box,other)) || groups.some(group=>overlaps(box,diagramGroupHeading(group))) || connectors.some(route=>route.points.slice(1).some((point,index)=>segmentHits(route.points[index]!,point,box,LABEL_GAP)) || route.bridges.some(bridge=>overlaps(box,{x:bridge.x-14,y:bridge.y-14,width:28,height:28})) || route.points.slice(1,-1).some((corner,index)=>overlaps(box,cornerBounds(route.points[index]!,corner,route.points[index+2]!))))) fail(connector.edge,"cardinality has no readable endpoint clearance; move nodes");
       cardinalities.push(box);
     }
   }
@@ -310,7 +319,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
         candidates.push({ kind: "label-mask", edge: connector.edge, opaque: true, gap: 8, segment, x, y, width, height });
       }
     }
-    const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !cardinalities.some(label => overlaps(candidate,label)) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
+    const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !cardinalities.some(label => overlaps(candidate,label)) && !groups.some(group => overlaps(candidate, diagramGroupHeading(group))) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
       route.bridges.some(bridge => overlaps(candidate, { x: bridge.x - 6 - LABEL_GAP, y: bridge.y - 6 - LABEL_GAP, width: 12 + 2 * LABEL_GAP, height: 12 + 2 * LABEL_GAP })) ||
       route.points.slice(1, -1).some((corner, index) => overlaps(candidate, cornerBounds(route.points[index]!, corner, route.points[index + 2]!)))));
     if (!mask) fail(connector.edge, "the label has no opaque open-canvas mask with an 8px connector gap; move boxes or shorten the label");
