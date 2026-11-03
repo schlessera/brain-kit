@@ -395,21 +395,57 @@ const MS_PER_DAY = 86_400_000;
 /** Silent edits count once the file is this many days newer than its `updated`. */
 const SILENT_EDIT_DAYS = 7;
 
+/** A document whose file changed after its frontmatter `updated`, as the index holds it. */
+export interface SilentEdit {
+  path: string;
+  title: string;
+  /** The file's modification time when it was indexed. */
+  file_mtime: string;
+  /** The frontmatter `updated` value. */
+  updated: string;
+}
+
 /**
- * Silently edited files: the same query `brain briefing` runs, without its
- * row limit, kept when the file is more than SILENT_EDIT_DAYS newer than its
- * frontmatter `updated`.
+ * The one silent-edit query: every non-archived document whose file is newer
+ * than its frontmatter `updated`, unless `brain accept-mtime` baselined that
+ * mtime. Most recently changed file first; `limit` keeps only the first that
+ * many. `brain briefing` lists these rows; hygiene keeps the ones that drifted
+ * far enough (`silentEditCandidates`).
  */
-export function silentEdits(db: Database): HygieneCandidate[] {
-  const rows = db
-    .prepare(
-      `SELECT file_mtime, updated, path FROM documents
+export function silentEdits(db: Database, opts: { limit?: number } = {}): SilentEdit[] {
+  // A negative LIMIT is no limit in SQLite, so one statement serves both.
+  return db
+    .query(
+      `SELECT file_mtime, updated, path, title FROM documents
        WHERE file_mtime > updated
          AND (accepted_mtime IS NULL OR file_mtime > accepted_mtime)
          AND status != 'archived'
-       ORDER BY path`
+       ORDER BY file_mtime DESC LIMIT ?`
     )
-    .all() as { file_mtime: string; updated: string; path: string }[];
+    .all(opts.limit ?? -1) as SilentEdit[];
+}
+
+/**
+ * Baseline the current file mtimes as non-suspicious, so `silentEdits` stops
+ * reporting them: one indexed document's, or (no path) every document's.
+ * Returns how many documents changed.
+ */
+export function acceptMtimes(db: Database, path?: string): number {
+  return path === undefined
+    ? db.run("UPDATE documents SET accepted_mtime = file_mtime WHERE file_mtime IS NOT NULL").changes
+    : db.run("UPDATE documents SET accepted_mtime = file_mtime WHERE path = ? AND file_mtime IS NOT NULL", [path]).changes;
+}
+
+/** SQLite's BINARY collation: byte order of the UTF-8 encodings. */
+const byUtf8 = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
+
+/**
+ * Silently edited files as hygiene candidates, in path order: the
+ * `silentEdits` rows whose file is more than SILENT_EDIT_DAYS newer than its
+ * frontmatter `updated`.
+ */
+export function silentEditCandidates(db: Database): HygieneCandidate[] {
+  const rows = silentEdits(db).sort((a, b) => byUtf8(a.path, b.path));
   const out: HygieneCandidate[] = [];
   for (const row of rows) {
     const drift = Math.floor((Date.parse(row.file_mtime) - Date.parse(row.updated)) / MS_PER_DAY);
@@ -653,7 +689,7 @@ export async function detectCandidates(
   } catch {
     failed.add("validation");
   }
-  const silent = silentEdits(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
+  const silent = silentEditCandidates(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
   // Media awaiting a decision (#2780): the same inventory `brain sync` counts.
   let media: MediaInventory | null = null;
   try {
