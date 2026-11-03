@@ -23,6 +23,9 @@ import {
   reconcile,
   replaceIfUnchanged,
   shortPath,
+  acceptMtimes,
+  silentEditCandidates,
+  silentEdits,
   type HygieneCandidate,
 } from "../src/lib/hygiene";
 import type { LoadedModule } from "../src/lib/module-types";
@@ -61,6 +64,62 @@ const stale: HygieneCandidate = {
 const STALE_ID = "staleness-context-current-focus-c515";
 
 const entry = (id: string, ...lines: string[]) => [`### ${id}`, ...lines].join("\n");
+
+describe("silent edits (#1353)", () => {
+  // One query serves briefing (newest first, limited) and hygiene (drifted
+  // more than seven days, in path order).
+  function index(): Database {
+    const database = openDatabase(":memory:");
+    const insert = database.prepare(
+      `INSERT INTO documents (path, title, type, status, created, updated, content, indexed_at, file_mtime)
+       VALUES (?, ?, 'note', ?, '2026-01-01', ?, '', '2026-07-01', ?)`
+    );
+    insert.run("b.md", "B", "active", "2026-01-01", "2026-03-01"); // 59 days of drift
+    insert.run("a.md", "A", "active", "2026-01-01", "2026-02-01"); // 31 days
+    insert.run("c.md", "C", "active", "2026-01-01", "2026-01-05"); // 4 days: briefing only
+    insert.run("archived.md", "Archived", "archived", "2026-01-01", "2026-05-01");
+    insert.run("current.md", "Current", "active", "2026-06-01", "2026-05-01");
+    insert.run("accepted.md", "Accepted", "active", "2026-01-01", "2026-04-01");
+    acceptMtimes(database, "accepted.md");
+    return database;
+  }
+
+  test("silentEdits lists newest first and honours its limit", () => {
+    const database = index();
+    try {
+      expect(silentEdits(database).map((r) => r.path)).toEqual(["b.md", "a.md", "c.md"]);
+      expect(silentEdits(database, { limit: 2 })).toEqual([
+        { file_mtime: "2026-03-01", updated: "2026-01-01", path: "b.md", title: "B" },
+        { file_mtime: "2026-02-01", updated: "2026-01-01", path: "a.md", title: "A" },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  test("silentEditCandidates keeps edits over seven days apart, in path order", () => {
+    const database = index();
+    try {
+      expect(silentEditCandidates(database)).toEqual([
+        { category: "silent-edit", path: "a.md", evidence: "a.md", message: "File changed 2026-02-01, frontmatter updated 2026-01-01 (31 days apart)" },
+        { category: "silent-edit", path: "b.md", evidence: "b.md", message: "File changed 2026-03-01, frontmatter updated 2026-01-01 (59 days apart)" },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  test("acceptMtimes baselines one path or every document, and counts them", () => {
+    const database = index();
+    try {
+      expect(acceptMtimes(database, "missing.md")).toBe(0);
+      expect(acceptMtimes(database)).toBe(6);
+      expect(silentEdits(database)).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+});
 
 describe("stable IDs", () => {
   // Each hash4 below was computed from the documented formula with
@@ -651,9 +710,27 @@ describe("writing the log", () => {
     expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}\n${seen}\n\nAsked about this on Monday.\n- resolved-by: auto-disappeared`);
   });
 
+  test("a log file whose frontmatter follows a byte order mark keeps it as frontmatter (#2507)", () => {
+    const root = tempRoot();
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    const frontmatter = '\uFEFF---\ntype: context\ntitle: "Open"\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n';
+    mkdirSync(join(root, "context/hygiene"), { recursive: true });
+    writeFileSync(log(root, "open.md"), `${frontmatter}\n## TODO markers\n\n${entry(idOf(goes), seen)}\n`);
+    expect(reconcile(root, [], docs, { now: NOW })).toMatchObject({ resolved: 1 });
+    // The block is read where the indexer reads it: kept, mark included, with only `updated` set.
+    expect(read(root, "open.md")).toStartWith(frontmatter.replace("updated: 2026-01-01", `updated: ${TODAY}`));
+    expect(read(root, "open.md")).not.toContain(`### ${idOf(goes)}`);
+    expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}`);
+  });
+
   test.each([
     ["frontmatter that is not valid YAML", '---\ntitle: "unclosed\nupdated: 2026-01-01\n---\n\n## Resolved\n', "not valid YAML"],
     ["frontmatter that is never closed", "---\ntitle: Resolved\n\n## Resolved\n", "never closed"],
+    // The indexer ends these blocks at the dashes; an author probably did not (#2507).
+    ["a closing fence with text after its dashes", "---\ntitle: Resolved\n---x\n\n## Resolved\n---\n", "never closed"],
+    ["a four-dash closing line", "---\ntitle: Resolved\n----\n\n## Resolved\n---\n", "never closed"],
+    ["a ... closing line", "---\ntitle: Resolved\n...\n\n## Resolved\n", "never closed"],
+    ["a byte order mark before a block that is never closed", "\uFEFF---\ntitle: Resolved\n\n## Resolved\n", "never closed"],
     ["frontmatter that is a list, not a mapping", "---\n- one\n- two\n---\n\n## Resolved\n", "not a YAML mapping"],
     ["a section holding entries and other text", "## Parked\n\nA note.\n\n### todo-notes-goes-abcd\n- resolved-by: manual\n", 'section "## Parked"'],
   ])("a log file with %s is refused, and nothing is written", (_, text, message) => {

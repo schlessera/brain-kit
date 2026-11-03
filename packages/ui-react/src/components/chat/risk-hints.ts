@@ -35,7 +35,7 @@ function asString(v: unknown): string {
 }
 
 /** The extracted, plain-value meaning risk rules test against. */
-export type ResolvedSemantics = {
+type ResolvedSemantics = {
   /** Shell command line the call executes, or "". */
   command: string;
   /** Filesystem path the call writes, or "". */
@@ -67,7 +67,7 @@ function sniffSemantics(tool: ToolCall): ResolvedSemantics {
 }
 
 /** Evaluate a renderer's semantics accessors (each optional) for one call. */
-export function resolveSemantics(
+function resolveSemantics(
   tool: ToolCall,
   semantics?: ToolSemantics
 ): ResolvedSemantics {
@@ -84,12 +84,12 @@ export function resolveSemantics(
   };
 }
 
-export type RiskRule = {
+type RiskRule = {
   test: (sem: ResolvedSemantics) => boolean;
   message: string;
 };
 
-export const RISK_RULES: RiskRule[] = [
+const RISK_RULES: RiskRule[] = [
   {
     // Note: the Bash input view already badges this red, so this line is
     // secondary. Kept for consistency so the advisory row reflects every known

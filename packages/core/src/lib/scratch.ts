@@ -46,10 +46,14 @@ import {
 import type { Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
+import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { modeOf, WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
 
-/** Repo-relative scratch directory. Every mechanism that needs it reads this. */
-export const SCRATCH_DIR = ".brain/scratch";
+/**
+ * Repo-relative scratch directory. Every mechanism that needs it reads this;
+ * the value is the one the SDK and server share (`BRAIN_SCRATCH_DIR`, #2506).
+ */
+export const SCRATCH_DIR = BRAIN_SCRATCH_DIR;
 
 /** Files older than this are pruned. */
 export const SCRATCH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -397,14 +401,16 @@ export interface ScratchPruneReport extends ScratchReport {
   pinError?: string;
 }
 
-function readScratchPins(root: string, pinsFile?: string): Set<string> {
+/**
+ * The pin snapshot as written, read-only: its directory must resolve inside
+ * the brain, the file is opened without following a link and must be a
+ * regular file, and every listed path must be a plain scratch path. Anything
+ * else throws, so no caller ever reads a malformed snapshot as a smaller one.
+ * Pruning (below) and the media inventory (`media-inventory.ts`) both read it
+ * through here.
+ */
+export function readScratchPinSnapshot(root: string, pinsFile?: string): { ready: boolean; sessions: Record<string, string[]> } {
   const path = resolve(root, pinsFile ?? SCRATCH_PINS_FILE);
-  // A standalone brain has no retained server conversations. Once the server
-  // creates this directory, even a missing snapshot must suspend pruning.
-  if (!pinsFile && !lstatSync(dirname(path), { throwIfNoEntry: false })) {
-    if (lstatSync(join(root, ".brain/scratch-pins-required"), { throwIfNoEntry: false })) throw new Error("managed scratch pin data is missing");
-    return new Set();
-  }
   if (realpathSync(dirname(path)) !== dirname(path) || lstatSync(path).isSymbolicLink()) {
     throw new Error("scratch pin data is redirected");
   }
@@ -414,21 +420,34 @@ function readScratchPins(root: string, pinsFile?: string): Set<string> {
     if (!fstatSync(fd).isFile()) throw new Error("scratch pin data is not a regular file");
     data = JSON.parse(readFileSync(fd, "utf8")) as Record<string, unknown>;
   } finally { closeSync(fd); }
-  if (data.version !== 1 || data.ready !== true || !data.sessions || typeof data.sessions !== "object" || Array.isArray(data.sessions)) {
+  if (data.version !== 1 || typeof data.ready !== "boolean" || !data.sessions || typeof data.sessions !== "object" || Array.isArray(data.sessions)) {
     throw new Error("scratch pin data is incomplete or invalid");
   }
-  const paths = new Set<string>();
-  for (const values of Object.values(data.sessions)) {
+  const sessions: Record<string, string[]> = {};
+  for (const [key, values] of Object.entries(data.sessions)) {
     if (!Array.isArray(values)) throw new Error("invalid scratch pin session");
     for (const value of values) {
       if (typeof value !== "string" || !value.startsWith(`${SCRATCH_DIR}/`) ||
           value.split("/").some(part => !part || part === "." || part === "..") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) {
         throw new Error("invalid scratch pin path");
       }
-      paths.add(value);
     }
+    sessions[key] = values as string[];
   }
-  return paths;
+  return { ready: data.ready, sessions };
+}
+
+function readScratchPins(root: string, pinsFile?: string): Set<string> {
+  const path = resolve(root, pinsFile ?? SCRATCH_PINS_FILE);
+  // A standalone brain has no retained server conversations. Once the server
+  // creates this directory, even a missing snapshot must suspend pruning.
+  if (!pinsFile && !lstatSync(dirname(path), { throwIfNoEntry: false })) {
+    if (lstatSync(join(root, ".brain/scratch-pins-required"), { throwIfNoEntry: false })) throw new Error("managed scratch pin data is missing");
+    return new Set();
+  }
+  const snapshot = readScratchPinSnapshot(root, pinsFile);
+  if (!snapshot.ready) throw new Error("scratch pin data is incomplete or invalid");
+  return new Set(Object.values(snapshot.sessions).flat());
 }
 
 interface Entry {

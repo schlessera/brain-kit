@@ -103,6 +103,11 @@ Repeat the identical restore command after interruption. Resumption requires
 the same artifact checksum, canonical brain directory and unchanged restored
 database. Existing staging files must match exactly; only that restore's
 private publication temporaries are reaped. Changed state refuses resumption.
+Restore changes staging only through directories opened without following
+links, from the brain's canonical root down, as intake does. A `.brain-ui`,
+`.brain-ui/inbox` or arrival directory that is a link, or becomes one while the
+restore runs, refuses with `inbox_staging_symlink`; nothing is written to or
+removed from whatever the link names.
 After successful completion the destination is populated, so another restore
 is refused.
 

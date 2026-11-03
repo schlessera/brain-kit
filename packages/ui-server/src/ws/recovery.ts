@@ -62,7 +62,7 @@ export function acceptRequest(
 }
 
 /** The outcome of one recovery read, before it becomes an HTTP response. */
-export type RecoveryRead =
+type RecoveryRead =
   | { kind: "ok"; recovery: SessionRecovery }
   | { kind: "unauthorized" }
   | { kind: "not_found" };
@@ -169,7 +169,7 @@ function pendingOf(host: WsHost, sessionId: string): SessionRecoveryPending[] {
 const NO_HISTORY = Symbol("no history");
 
 /** How long one backend may take to say whether it holds a session, as `/api/sessions` allows. */
-export const RECOVERY_PROBE_MS = 3_000;
+const RECOVERY_PROBE_MS = 3_000;
 
 /**
  * Unfinished existence probes, per host, by backend and session. A backend
@@ -209,6 +209,8 @@ function boundedHistory<T>(read: Promise<T>): Promise<T> {
 export async function readSessionRecovery(host: WsHost, sessionId: string, principal: Principal): Promise<RecoveryRead> {
   if (!host.isPrincipalValid(principal)) return { kind: "unauthorized" };
   const { catalog, coordinator } = host;
+  // A retired chat has no recovery state to report (#3230).
+  if (catalog.chatRetired?.({ sessionId })) return { kind: "not_found" };
   const known = () =>
     coordinator.bySession.has(sessionId) ||
     coordinator.startingBySession.has(sessionId) ||
@@ -233,6 +235,7 @@ export async function readSessionRecovery(host: WsHost, sessionId: string, princ
     }
     // Authorization is re-read after every asynchronous step.
     if (!host.isPrincipalValid(principal)) return { kind: "unauthorized" };
+    if (catalog.chatRetired?.({ sessionId })) return { kind: "not_found" };
     if (!found && !known()) {
       // A backend that failed or timed out might hold it: that is a failed
       // read, not an absent session.

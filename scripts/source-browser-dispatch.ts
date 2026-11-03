@@ -10,7 +10,7 @@ const helperConsumers:Record<string,string>={
   // Re-audited merged retained-history and stale-chat routing: only runStateForFrame
   // is imported; neither path acquires or mutates chatFrameHandlers.
   "packages/ui-react/src/connection.ts":"d1ab0f54089c75972f0597f4c2ca65bec2a0db418bad2ea438d05ccf558847ae",
-  "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
+  "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 const declarations=[
   {
@@ -22,7 +22,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d"
+        "source": "c92372d533f83154ec28a41e89504cab7d5486dd4e6d9ed632c0c05c49dd9130"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
@@ -42,7 +42,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "6f326e9a67bafbda3f3939be28515aff5324d3cbe5e4a41949616a0fc73b202c"
+        "source": "b20f60edcd8c3438d3ecc38952d7b5a7850adf4549c2eb6495a79b22596cad1e"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

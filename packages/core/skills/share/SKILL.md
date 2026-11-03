@@ -134,6 +134,14 @@ for an identical file under `assets/` linked by the filed note, or
 `{sourcePath, disposition: "discarded", reason}`. Discarding requires the
 existing exact approval; payload text cannot grant it.
 
+Link a retained file with an ordinary Markdown link that works from the filed
+note's own folder: `[Confirmation](../../assets/documents/x.pdf)` from
+`travel/ithaca/accommodation.md`. A destination that starts with `/` resolves
+from the brain root instead, wherever the note is. Write a space as `%20` or wrap the path in `<…>`. Wiki-links
+(`[[x.pdf]]`, `![[x.pdf]]`) and a path inside backticks or a code block do not
+count. If you edit a note again after filing it, pass the receipt of its latest
+application; an older receipt for the same note is superseded.
+
 The server checks this session's ownership, actual document hashes, original
 intake bytes and retained binary links before committing Queue `done` once.
 This works with autonomous dispatch disabled. A lost completion reply can

@@ -22,7 +22,7 @@ import {
 } from "../lib/trackers.js";
 import type { TrackerAnnouncement } from "../lib/tracker-announcer.js";
 
-export interface TrackerSeenObservation {
+interface TrackerSeenObservation {
   sessionId: string;
   turnId: string;
   revision: number;

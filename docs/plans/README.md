@@ -10,21 +10,17 @@ judge any part of it. Once it ships, the plan stops being a plan: the durable
 half moves to [`../decisions/`](../decisions/README.md) and the rest is deleted,
 because the code has become the better answer to "what does this do".
 
-| Plan | Design |
-| --- | --- |
-| [async-collaboration.md](async-collaboration.md) | The cross-package containment and collaboration design. |
-| [async-collaboration-requirements.md](async-collaboration-requirements.md) | The requirements it came from. |
-| [policy-write-boundary.md](policy-write-boundary.md) | U10's measured filesystem boundaries, escape cases and worker/effect-route ruling required before implementation. |
-| [index-query-api.md](index-query-api.md) | Consumer migration using supported query results, approved optional-peer/root-bound context boundaries, reader inventory and safe SQL retirement. |
-| [navigation-recovery.md](navigation-recovery.md) | Measured navigation reach, cold-session evidence and draft races informing the tracker design. |
-| [storage-accounting.md](storage-accounting.md) | Proposed local storage ownership, deduplicated capacity and bounded measurement model, with synthetic evidence. |
-| [voice-conversation.md](voice-conversation.md) | Proposed turn-taking, screen and interruption model; requirements for the later speech-architecture ruling. |
-| [storage-growth.md](storage-growth.md) | Proposed bounded aggregate history, comparable growth and capacity-specific guidance, with explicit policy choices. |
-| [storage-lifecycle.md](storage-lifecycle.md) | Storage cleanup eligibility, recovery boundaries and synthetic byte-lifecycle evidence for the storage design. |
-| [host-owned-web-search.md](host-owned-web-search.md) | Pinned MCP/full-extension comparison, offline worker prototypes and authority boundaries for executor selection. |
-| [module-renderers.md](module-renderers.md) | The content-renderer seam, Mermaid on it, the diagram spec, computed geometry, the brain-kit skin, surface and print matrix, ordering, and the upstream sync procedure. |
-| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: source inventory, capability matrix, routing, admission/ownership/cleanup schema, bounded on-demand reader, composer states and the proof briefs for #3153–#3155. |
-| [chat-history-deletion.md](chat-history-deletion.md) | Approved local deletion policy with unbuilt lifecycle design, retained-record boundaries and proof obligations. |
+| Plan | Design | Open work |
+| --- | --- | --- |
+| [async-collaboration.md](async-collaboration.md) | The cross-package containment and collaboration design. | [#51](https://github.com/schlessera/brain-kit/issues/51) |
+| [async-collaboration-requirements.md](async-collaboration-requirements.md) | The requirements it came from. | [#51](https://github.com/schlessera/brain-kit/issues/51) |
+| [index-query-api.md](index-query-api.md) | Consumer migration using supported query results, approved optional-peer/root-bound context boundaries, reader inventory and safe SQL retirement. | [#701](https://github.com/schlessera/brain-kit/issues/701) |
+| [voice-conversation.md](voice-conversation.md) | Proposed turn-taking, screen and interruption model; requirements for the later speech-architecture ruling. | [#54](https://github.com/schlessera/brain-kit/issues/54) |
+| [eleven-realtime-evaluation.md](eleven-realtime-evaluation.md) | Documentation-stage evaluation of Eleven Realtime v1 Max as a third live-conversation engine, the API choice, the unresolved nonblocking-result question and the prepared live probe. | [#3100](https://github.com/schlessera/brain-kit/issues/3100) |
+| [host-owned-web-search.md](host-owned-web-search.md) | Pinned MCP/full-extension comparison, offline worker prototypes and authority boundaries for executor selection. | [#1863](https://github.com/schlessera/brain-kit/issues/1863) |
+| [module-renderers.md](module-renderers.md) | The content-renderer seam, Mermaid on it, the diagram spec, computed geometry, the brain-kit skin, surface and print matrix, ordering, and the upstream sync procedure. | [#2079](https://github.com/schlessera/brain-kit/issues/2079) |
+| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: source inventory, capability matrix, routing, admission/ownership/cleanup schema, bounded on-demand reader, composer states and the proof briefs for #3153–#3155. | [#3150](https://github.com/schlessera/brain-kit/issues/3150) |
+| [chat-history-deletion.md](chat-history-deletion.md) | Approved local deletion policy with unbuilt lifecycle design, retained-record boundaries and proof obligations. | [#3234](https://github.com/schlessera/brain-kit/issues/3234) |
 
 ## What does not live here
 

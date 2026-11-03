@@ -58,9 +58,15 @@ SVG, PNG or PDF through the existing share path, always using the print palette.
 
 Inline figures retain native coordinates so displayed text never shrinks below
 9px. A constrained container uses the authored 320px layout when it fits;
-otherwise it shows the caption, semantic summary and a 44px Open diagram button.
+otherwise it shows the caption and semantic summary.
+In chat and file views the figure is one framed content block: the title and
+compact Open diagram and Share diagram icon buttons share its header row (44px
+targets under a touch pointer). The frame's edge is an inset outline, so a
+320px column still fits the authored 320px layout, and the frame replaces the
+drawing's own screen edge. Share output embeds the unframed figure.
 The dedicated viewer starts at readable 100% with explicit pan/zoom controls.
-Browser print uses a white, non-interactive drawing without the screen frame.
+Browser print uses a white, non-interactive drawing without the screen frame,
+the frame or the header actions.
 
 ## Ordered axis diagrams
 

@@ -84,7 +84,7 @@ export function subagentSpans(state: ActivityState, sessionId: string): Activity
 
 /** Stable empty result for `eventsFor` — a fresh `[]` per call would defeat
  *  reference-equality checks in zustand selectors. */
-export const EMPTY_EVENTS: ActivitySpanEvent[] = Object.freeze(
+const EMPTY_EVENTS: ActivitySpanEvent[] = Object.freeze(
   [] as ActivitySpanEvent[]
 ) as ActivitySpanEvent[];
 

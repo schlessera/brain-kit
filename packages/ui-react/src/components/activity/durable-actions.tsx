@@ -65,7 +65,7 @@ function provenance(thread: InboxThread | undefined): string | undefined {
 }
 
 /** Send one decision frame and record it, or do nothing at all. */
-export function useSendDecision() {
+function useSendDecision() {
   const root = useBrainUiRoot();
   return (item: InboxActionItem, decision: Omit<InFlightDecision, "state" | "sentVersion">): boolean => {
     const inbox = root.stores.inbox.getState();

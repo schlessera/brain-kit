@@ -8,6 +8,8 @@
  * per-image estimate is not a provider receipt. An unpriced attempt with
  * reported tokens counts toward the unpriced-token stops; an attempt without
  * reported usage is unknown spend, never zero, and never blocks by itself.
+ * The one exception is a Gemini Files lifecycle attempt, which the provider
+ * does not charge for (#2738).
  */
 import type { ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import { priceUsage, type RollupPricing } from "../activity/store.js";
@@ -22,7 +24,7 @@ export const GEMINI_EMBEDDING_PRICES: Readonly<Record<string, Readonly<Record<st
   "gemini-embedding-2": Object.freeze({ TEXT: 0.2 / 1_000_000, IMAGE: 0.45 / 1_000_000 }),
 });
 
-export interface PricedProviderAttempt {
+interface PricedProviderAttempt {
   /** List price of this attempt, or null when unknown. */
   costUsd: number | null;
   /** Null when there is no price; true when the rate is a dated or fallback estimate. */
@@ -33,6 +35,11 @@ export interface PricedProviderAttempt {
 
 export function priceProviderAttempt(receipt: Pick<ProviderRelayReceipt, "family" | "operation" | "model" | "usage" | "inlineMedia">,
   pricing: RollupPricing): PricedProviderAttempt {
+  // The Files lifecycle (upload, poll, delete) costs nothing: "The Files API is
+  // available at no cost in all regions where the Gemini API is available"
+  // (https://ai.google.dev/gemini-api/docs/files, read 2026-11-02). The video's
+  // tokens are charged on the generation that uses it (#2738).
+  if (receipt.family === "gemini" && receipt.operation === "files") return { costUsd: 0, estimate: false, tokens: null };
   const usage = receipt.usage;
   const classes = usage ? [usage.inputTokens, usage.outputTokens, usage.cacheReadTokens, usage.cacheCreationTokens] : [];
   const tokens = classes.some(value => value !== undefined) ? classes.reduce<number>((sum, value) => sum + (value ?? 0), 0) : null;

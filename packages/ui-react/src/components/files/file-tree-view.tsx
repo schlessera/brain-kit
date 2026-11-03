@@ -27,7 +27,7 @@ export function fileKind(name: string, isDir: boolean, expanded: boolean): FileK
   return IMAGE_EXT.has(ext) ? "image" : "file";
 }
 
-export interface TreeRowProps {
+interface TreeRowProps {
   name: string;
   kind: FileKind;
   depth: number;
@@ -46,6 +46,11 @@ export interface TreeRowProps {
    * uses; the container decides from `mtime`, the row only prints.
    */
   staleDays?: number;
+  /**
+   * The host lists this file as marked untrusted (#2673): the purple flag and
+   * the word `untrusted` in the meta, so the row's name says it too.
+   */
+  untrusted?: boolean;
   children?: ReactNode;
   onClick: () => void;
   onRetry?: () => void;
@@ -59,7 +64,7 @@ export interface TreeRowProps {
 }
 
 /** How long the reveal flash runs before the request is cleared. */
-export const HIGHLIGHT_MS = 1800;
+const HIGHLIGHT_MS = 1800;
 
 export function TreeRow(p: TreeRowProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -79,9 +84,9 @@ export function TreeRow(p: TreeRowProps) {
           kind={p.kind}
           depth={p.depth}
           active={p.active}
-          meta={p.loading ? "loading…" : p.staleDays !== undefined ? `stale ${p.staleDays}d` : undefined}
-          metaTone={!p.loading && p.staleDays !== undefined ? "gold" : undefined}
-          flag={p.staleDays !== undefined ? "gold" : undefined}
+          meta={p.loading ? "loading…" : [p.untrusted ? "untrusted" : "", p.staleDays !== undefined ? `stale ${p.staleDays}d` : ""].filter(Boolean).join(" · ") || undefined}
+          metaTone={p.loading ? undefined : p.untrusted ? "purple" : p.staleDays !== undefined ? "gold" : undefined}
+          flag={p.untrusted ? "purple" : p.staleDays !== undefined ? "gold" : undefined}
           onClick={p.onClick}
           onFold={p.onFold}
         />
@@ -96,7 +101,7 @@ export function TreeRow(p: TreeRowProps) {
   );
 }
 
-export interface FileTreeViewProps {
+interface FileTreeViewProps {
   /** The root listing: `loading` before it arrives, `error` when it failed, `ready` with rows. */
   state: "loading" | "error" | "ready";
   error?: string;

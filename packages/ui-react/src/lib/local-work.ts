@@ -28,7 +28,7 @@ import { PartitionRefusedError, accountPartition, type LocalPartitions, type Par
  */
 
 /** Where the reader was, beyond the drafts themselves. */
-export interface WorkContext {
+interface WorkContext {
   sessionId: string | null;
   draftId: string;
   selectionStart: number | null;
@@ -44,7 +44,7 @@ export interface WorkContext {
 }
 
 /** What a view reports at the moment a snapshot is taken. */
-export type WorkProbe = () => Partial<Pick<WorkContext, "selectionStart" | "selectionEnd" | "scroll">>;
+type WorkProbe = () => Partial<Pick<WorkContext, "selectionStart" | "selectionEnd" | "scroll">>;
 
 /** What a restore hands back to the views, each consumed once. */
 export interface WorkRestore {
@@ -85,9 +85,9 @@ export interface LocalWork {
 }
 
 /** A pause after a change before it is written. */
-export const LOCAL_WRITE_DELAY_MS = 250;
+const LOCAL_WRITE_DELAY_MS = 250;
 /** The longest a change waits while changes keep coming. */
-export const LOCAL_WRITE_MAX_DELAY_MS = 2_000;
+const LOCAL_WRITE_MAX_DELAY_MS = 2_000;
 
 /**
  * What a transcript message says, in short: a replay rebuilds messages with
@@ -102,7 +102,7 @@ export function messageFingerprint(m: { role: string; content: string }): string
 }
 
 /** The composer's field, by the attribute the kit gives it; else an element's own id. */
-export function stableFocusId(el: Element | null): string | null {
+function stableFocusId(el: Element | null): string | null {
   if (!el || el === document.body) return null;
   if (el.matches("textarea[data-composer]")) return "composer";
   const named = el.closest("[data-focus-id]")?.getAttribute("data-focus-id");
@@ -110,7 +110,7 @@ export function stableFocusId(el: Element | null): string | null {
   return el.id ? `id:${el.id}` : null;
 }
 
-export function findByFocusId(id: string): HTMLElement | null {
+function findByFocusId(id: string): HTMLElement | null {
   if (id === "composer") return document.querySelector<HTMLElement>("textarea[data-composer]");
   if (id.startsWith("focus:")) return document.querySelector<HTMLElement>(`[data-focus-id="${CSS.escape(id.slice(6))}"]`);
   if (id.startsWith("id:")) return document.getElementById(id.slice(3));
@@ -132,8 +132,8 @@ const isStr = (v: unknown): v is string => typeof v === "string";
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isStrOrNull = (v: unknown): v is string | null => v === null || isStr(v);
 
-/** A kept draft, if it is well formed: what comes out of storage is not trusted. */
-function parseDraft(raw: unknown): LocalDraft | null {
+/** @internal A kept draft, if it is well formed: what comes out of storage is not trusted. */
+export function parseDraft(raw: unknown): LocalDraft | null {
   const r = raw as Partial<StoredDraft> | null;
   if (!r || r.v !== 1 || !isStr(r.draftId) || !isStrOrNull(r.sessionId ?? null) || !isStr(r.text) || !isNum(r.editedAt) || !Array.isArray(r.attachments)) return null;
   const attachments: PendingAttachment[] = [];
@@ -144,7 +144,12 @@ function parseDraft(raw: unknown): LocalDraft | null {
   const h = r.host;
   const host = h && isNum(h.revision) && isStrOrNull(h.sessionId ?? null) && isNum(h.updatedAt) && typeof h.clean === "boolean"
     ? { revision: h.revision, sessionId: h.sessionId ?? null, updatedAt: h.updatedAt, clean: h.clean } : null;
-  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}) };
+  // A record written before #1214 has neither: it restores as it always did.
+  // A malformed bind is dropped on its own, never the whole draft.
+  const b = r.bind;
+  const bind = b && isStr(b.sessionId) && isStr(b.requestId) ? { sessionId: b.sessionId, requestId: b.requestId } : null;
+  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
+    ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}) };
 }
 
 function parseContext(raw: unknown): WorkContext | null {
@@ -166,7 +171,8 @@ function parseContext(raw: unknown): WorkContext | null {
   };
 }
 
-function storeDraft(d: ComposerDraft): StoredDraft {
+/** @internal The record a draft is kept on this device as. */
+export function storeDraft(d: ComposerDraft): StoredDraft {
   return {
     v: 1,
     draftId: d.draftId,
@@ -177,6 +183,9 @@ function storeDraft(d: ComposerDraft): StoredDraft {
     deviceOnly: d.deviceOnly === true,
     ...(d.deviceConflict ? { deviceConflict: d.deviceConflict } : {}),
     host: d.host ? { revision: d.host.revision, sessionId: d.host.sessionId, updatedAt: d.host.updatedAt, clean: d.host.edit === d.edit } : null,
+    // Reconciliation the draft client still owes the host (#1214).
+    ...(d.uncertain ? { uncertain: true } : {}),
+    ...(d.bind ? { bind: { sessionId: d.bind.sessionId, requestId: d.bind.requestId } } : {}),
   };
 }
 
@@ -185,7 +194,7 @@ function sameEditableSnapshot(a: ComposerDraft | undefined, b: ComposerDraft | u
   return a === b || !!a && !!b && a.edit === b.edit && a.deviceEpoch === b.deviceEpoch && sameContent(storeDraft(a), storeDraft(b));
 }
 
-export interface LocalWorkOptions {
+interface LocalWorkOptions {
   stores: BrainStores;
   partitions: LocalPartitions;
   /** This root's records, apart from another root's in the same partition. */
@@ -344,7 +353,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     const nextCommitted = new Map<string, string>();
     for (const d of Object.values(drafts)) {
       // An emptied draft the host still holds is kept too: its deletion is still owed.
-      if (!hasContent(d) && d.host === null && !d.deviceConflict) continue;
+      // So is one whose first save got no answer: the host may hold it (#1214).
+      if (!hasContent(d) && d.host === null && !d.deviceConflict && !d.uncertain) continue;
       next.set(d.draftId, d);
       const value = storeDraft(d);
       const serialized = JSON.stringify(value);
@@ -358,7 +368,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     for (const id of written.keys()) if (!next.has(id)) {
       const baseline = committed.get(id);
       const saved = baseline ? parseDraft(JSON.parse(baseline)) : null;
-      if (saved && !saved.text && !saved.attachments.length && !saved.host) { next.set(id, null); nextCommitted.set(id, baseline!); }
+      // An empty tombstone stays; an emptied uncertain record is not one and is deleted once settled.
+      if (saved && !saved.text && !saved.attachments.length && !saved.host && !saved.uncertain) { next.set(id, null); nextCommitted.set(id, baseline!); }
       else changes.push({ delete: draftKey(id) });
     }
     const ctx = context();
@@ -421,7 +432,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
             const branch = mintDraftId();
             const source = incoming ?? { v: 1 as const, draftId: id, sessionId: drafts[id]?.sessionId ?? parseDraft(saved)?.sessionId ?? null, text: "", attachments: [], editedAt: Date.now(), host: null };
             const viewSession = source.sessionId ?? predecessor?.saved.sessionId ?? null;
-            const value: StoredDraft = { ...source, draftId: branch, sessionId: null, host: null, deviceRevision: 1, deviceConflict: { otherId: other?.draftId ?? id, sessionId: viewSession } };
+            const value: StoredDraft = { ...source, draftId: branch, sessionId: null, host: null, uncertain: undefined, bind: undefined, deviceRevision: 1, deviceConflict: { otherId: other?.draftId ?? id, sessionId: viewSession } };
             planned.push({ put: draftKey(branch), value });
             result.push({ source: id, branch, sessionId: viewSession, other: other ? parseDraft(other) : null, kept });
             next.delete(id); nextCommitted.delete(id); nextVersions.delete(id);
@@ -441,7 +452,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
             // Keep an empty revision tombstone. A stale write after deletion
             // must branch rather than reuse the deleted identity's revision.
             if (saved) {
-              const value: StoredDraft = { ...saved, text: "", attachments: [], host: null, deviceConflict: undefined, deviceRevision: draftVersion(saved) + 1 };
+              const value: StoredDraft = { ...saved, text: "", attachments: [], host: null, deviceConflict: undefined, uncertain: undefined, bind: undefined, deviceRevision: draftVersion(saved) + 1 };
               planned.push({ put: key, value }); actual.set(key, value);
               next.set(id, null); nextCommitted.set(id, serializedDraft(value)!); nextVersions.set(id, value.deviceRevision!);
             }

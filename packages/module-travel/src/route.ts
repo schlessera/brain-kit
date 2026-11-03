@@ -1,6 +1,6 @@
 import { readFileSync, lstatSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
-import { safeResolve, writeFileSafely, WriteRefusedError } from "@schlessera/brain/module";
+import { brainRelativeArgument, safeResolve, writeFileSafely, WriteRefusedError } from "@schlessera/brain/module";
 import { parseHtml, ScrapeClient } from "@schlessera/brain-scrape";
 import { MAX_ROUTE_BYTES, parseGpx, quantizeRoute, routeMetrics, routePoint, trimRoute, writeGpx } from "./route-gpx.js";
 import type { RouteGeometry, RouteMetrics } from "./route-gpx.js";
@@ -125,10 +125,11 @@ export async function importRoute(root: string, source: string, to: string, star
   if (metrics.recorded_duration_s === null) warnings.push("Incomplete or non-monotonic timestamps: recorded duration remains unknown.");
   if (startM || endM) warnings.push("Trim boundaries interpolate position, elevation and timestamps along each edge.");
   for (let suffix = 1; suffix <= 10_000; suffix++) {
-    const candidate = join(directory, `${stem}${suffix === 1 ? "" : `-${suffix}`}.gpx`);
-    if (lstatSync(candidate, { throwIfNoEntry: false })) continue;
-    const output = safeResolve(root, candidate);
-    if (!output || safeResolve(root, directory) !== directory) throw new Error("Route output directory changed or escapes the brain root.");
+    const file = `${stem}${suffix === 1 ? "" : `-${suffix}`}.gpx`;
+    if (lstatSync(join(directory, file), { throwIfNoEntry: false })) continue;
+    // Requests stay root-relative: `safeResolve` refuses an absolute path (#3422).
+    const output = safeResolve(root, join(to, file));
+    if (!output || safeResolve(root, to) !== directory) throw new Error("Route output directory changed or escapes the brain root.");
     try { writeFileSafely(output, gpx, { replace: false }); }
     catch (error) { if (error instanceof WriteRefusedError && error.message.startsWith("EEXIST:")) continue; throw error; }
     return { source_kind: kind, gpx: relative(canonicalRoot, output).replaceAll("\\", "/"), ...metrics, trim: { start_m: startM, end_m: endM }, warnings,
@@ -159,7 +160,7 @@ export async function runRoute(args: string[], root: string, json: boolean): Pro
       else source = arg;
     }
     if (!source || !to) throw new Error("Usage: brain travel route <url|file> --to <dir> [--name <label>] [--date YYYY-MM-DD] [--trim-start-m N] [--trim-end-m N] [--json]");
-    const route = await importRoute(root, source, to, start, end, { name, date });
+    const route = await importRoute(root, brainRelativeArgument(root, source), brainRelativeArgument(root, to), start, end, { name, date });
     if (json) console.log(JSON.stringify({ route }, null, 2));
     else console.log(`${route.gpx}: ${route.distance_km} km, ascent ${route.ascent_m === null ? "unknown" : `${route.ascent_m} m`}, ${route.shape}.\n${route.warnings.join("\n")}`.trim());
     return 0;

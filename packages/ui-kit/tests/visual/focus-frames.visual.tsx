@@ -36,32 +36,59 @@ afterEach(async () => {
   iframeViewport = undefined; outerViewport = undefined;
 });
 
+/** One focus inventory, mounted fresh for each case. The host is as wide as the
+ * 560px grid plus its padding, so a whole-inventory review capture holds the
+ * controls rather than an empty 1280px canvas (#3291). */
+async function mountInventory(theme: "dark" | "light", width: number) {
+  iframeViewport = { width: innerWidth, height: innerHeight };
+  outerViewport = await commands.formViewport(width, 1600); await page.viewport(width, 1600);
+  document.documentElement.dataset.theme = theme;
+  consumer = document.createElement("style"); consumer.textContent = await commands.formConsumerStyles() + "\n[data-focus-menu] > [data-command-palette], [data-focus-picker] > div { position:relative !important; bottom:auto !important; margin:0; }"; document.head.append(consumer);
+  host = document.createElement("div"); host.dataset.focusInventory = "";
+  host.style.cssText = "padding:8px;box-sizing:border-box;width:100%;max-width:576px;background:var(--bk-color-canvas)"; document.body.append(host);
+  const click = vi.fn(); root = createRoot(host);
+  flushSync(() => root!.render(<div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, maxWidth: 560 }}>
+    <CommandPalette query="" onQueryChange={() => {}} onSelect={() => {}} maxHeight={110}
+      groups={[{ label: "Run", items: Array.from({ length: 8 }, (_, i) => ({ label: `Inspect crew ${i + 1}`, icon: "file" as const, onClick: click })) }]} />
+    <FilterRow items={[{ label: "All", onClick: click }, { label: "Ready", onClick: click }]} />
+    <Surface radius={12} onClick={click}>Inspect the voyage</Surface>
+    <div data-focus-menu="" style={{ position: "relative", height: 420 }}><SlashPalette filter="" onSelect={click} /></div>
+    <div data-focus-rows="" className="bk-focus-clip" style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--bk-color-edge)" }}>
+      <ListRow title="First note" onClick={click} /><ListRow title="Last note" onClick={click} last />
+    </div>
+    <Composer value="" onChange={() => {}} onSend={click} />
+    <AskOtherField value="" onChange={() => {}} />
+    <ToolPermissionsList tools={["Inspect fleet", "Inspect route"]} busy={null} error={null} onRevoke={click} />
+    <Rows><ToggleRow checked={true} label="Show links" onChange={click} /><ToggleRow checked={false} label="Show islands" onChange={click} last /></Rows>
+    <div data-focus-picker="" style={{ position: "relative" }}><ModelPicker models={[]} selectedModelId={null} modelLocked
+      lockedAction={{ label: "Continue on another backend", onSelect: click }} onModel={click} onEffort={click} onDismiss={click} /></div>
+  </div>));
+  await document.fonts.ready;
+  return host!;
+}
+
+/** Review inventory focus targets, in document order. */
+const INVENTORY = [
+  ["surface", '[data-focus-inventory] [role="button"]'],
+  ["rows-first", '[data-focus-rows] > :first-child'],
+  ["rows-last", '[data-focus-rows] > :last-child'],
+  ["composer", 'textarea'],
+  ["other", '[aria-label="Your own answer"]'],
+  ["tools-first", '[aria-label="Inspect fleet"]'],
+  ["tools-last", '[aria-label="Inspect route"]'],
+  ["graph-first", '[aria-label="Show links"]'],
+  ["graph-last", '[aria-label="Show islands"]'],
+  ["locked-model", '[data-locked-action]'],
+] as const;
+
+// Each theme/width pair is three cases: the command query, filter and slash
+// menu, then each half of the review inventory. Every capture is a Playwright
+// screenshot round trip; one case holding all 22 of them ran 6-16s on hosted
+// runners against the 15s budget (#3291). The split keeps every capture and
+// assertion, and no case carries more than half of the original captures.
 for (const theme of ["dark", "light"] as const) for (const width of [320, 1280]) {
-  test(`continuous focused corners and contained control rings: ${theme} ${width}`, async () => {
-    iframeViewport = { width: innerWidth, height: innerHeight };
-    outerViewport = await commands.formViewport(width, 1600); await page.viewport(width, 1600);
-    document.documentElement.dataset.theme = theme;
-    consumer = document.createElement("style"); consumer.textContent = await commands.formConsumerStyles() + "\n[data-focus-menu] > [data-command-palette], [data-focus-picker] > div { position:relative !important; bottom:auto !important; margin:0; }"; document.head.append(consumer);
-    host = document.createElement("div"); host.dataset.focusInventory = "";
-    host.style.cssText = "padding:8px;box-sizing:border-box;width:100%;background:var(--bk-color-canvas)"; document.body.append(host);
-    const click = vi.fn(); root = createRoot(host);
-    flushSync(() => root!.render(<div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, maxWidth: 560 }}>
-      <CommandPalette query="" onQueryChange={() => {}} onSelect={() => {}} maxHeight={110}
-        groups={[{ label: "Run", items: Array.from({ length: 8 }, (_, i) => ({ label: `Inspect crew ${i + 1}`, icon: "file" as const, onClick: click })) }]} />
-      <FilterRow items={[{ label: "All", onClick: click }, { label: "Ready", onClick: click }]} />
-      <Surface radius={12} onClick={click}>Inspect the voyage</Surface>
-      <div data-focus-menu="" style={{ position: "relative", height: 420 }}><SlashPalette filter="" onSelect={click} /></div>
-      <div data-focus-rows="" className="bk-focus-clip" style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--bk-color-edge)" }}>
-        <ListRow title="First note" onClick={click} /><ListRow title="Last note" onClick={click} last />
-      </div>
-      <Composer value="" onChange={() => {}} onSend={click} />
-      <AskOtherField value="" onChange={() => {}} />
-      <ToolPermissionsList tools={["Inspect fleet", "Inspect route"]} busy={null} error={null} onRevoke={click} />
-      <Rows><ToggleRow checked={true} label="Show links" onChange={click} /><ToggleRow checked={false} label="Show islands" onChange={click} last /></Rows>
-      <div data-focus-picker="" style={{ position: "relative" }}><ModelPicker models={[]} selectedModelId={null} modelLocked
-        lockedAction={{ label: "Continue on another backend", onSelect: click }} onModel={click} onEffort={click} onDismiss={click} /></div>
-    </div>));
-    await document.fonts.ready;
+  test(`continuous focused corners on the query, filter and slash menu: ${theme} ${width}`, async () => {
+    const host = await mountInventory(theme, width);
     const input = host.querySelector<HTMLInputElement>('[role="combobox"]')!;
     const before = input.parentElement!.getBoundingClientRect();
     await userEvent.click(input);
@@ -99,7 +126,15 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
       expect.soft(cornerInk(menuPng, theme, false, bottom, 12), `SLASH_${label}_LEFT_CONTINUOUS_INK`).toBeGreaterThan(3);
       expect.soft(cornerInk(menuPng, theme, true, bottom, 12), `SLASH_${label}_RIGHT_CONTINUOUS_INK`).toBeGreaterThan(3);
     }
-    for (const [name, selector] of [["surface", '[data-focus-inventory] [role="button"]'], ["rows-first", '[data-focus-rows] > :first-child'], ["rows-last", '[data-focus-rows] > :last-child'], ["composer", 'textarea'], ["other", '[aria-label="Your own answer"]'], ["tools-first", '[aria-label="Inspect fleet"]'], ["tools-last", '[aria-label="Inspect route"]'], ["graph-first", '[aria-label="Show links"]'], ["graph-last", '[aria-label="Show islands"]'], ["locked-model", '[data-locked-action]']] as const) {
+    expect(document.documentElement.scrollWidth, "no viewport overflow").toBeLessThanOrEqual(width);
+  });
+
+  for (const [subject, group] of [
+    ["padded fields and clipped rows", INVENTORY.slice(0, 5)],
+    ["Settings, graph and locked-model rows", INVENTORY.slice(5)],
+  ] as const) test(`contained control rings on ${subject}: ${theme} ${width}`, async () => {
+    const host = await mountInventory(theme, width);
+    for (const [name, selector] of group) {
       const el = name.startsWith("tools-") ? [...host.querySelectorAll<HTMLElement>('[role="button"]')].find(e => e.textContent?.includes(name === "tools-first" ? "Inspect fleet" : "Inspect route"))!
         : name.startsWith("graph-") ? [...host.querySelectorAll<HTMLElement>('[role="button"]')].find(e => e.textContent?.includes(name === "graph-first" ? "Show links" : "Show islands"))!
         : host.querySelector<HTMLElement>(selector)!; el.focus();

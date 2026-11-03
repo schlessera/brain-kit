@@ -122,14 +122,20 @@ taken in `rail-mixed` only; regenerate them with
 runs write review captures to `.vitest-attachments/session-strip/` instead.
 
 `streaming-handoff.visual.tsx` drives the same populated first-token fixture
-and play function as StreamingAnswer's `LoadingToReady` story. Its 700ms clock
-runs from the committed text/outgoing-ghost layers to actual ghost removal,
-observed through native DOM mutations. Both transition observations are required.
-Input dispatch delays and later polling cannot extend that component interval.
+and play function as StreamingAnswer's `LoadingToReady` story;
+`ghost-handoff.visual.tsx` does the same for ActionCard through `playHandoff`.
+Both count the handoff on the page's own clock (`watchHandoff`,
+`stories/_handoff-clock.ts`, #3417): from the committed text/outgoing-ghost
+layers to actual ghost removal, observed through native DOM mutations, the
+outgoing fade must last at most the approved 600ms of animation time and the
+ghost must be gone within three rendered frames of that fade's `animationend`.
+No wall-clock cap remains: a stalled runner delays the removal timer, the fade's
+end and every frame alike. Both transition observations are required.
 The controls delay first-token dispatch, delay final observation after removal,
-and retain the native outgoing ghost for 800ms to prove the cap still rejects
-a genuinely slow handoff. Both themes retain the story's layout, geometry,
-nonempty token/tail and rendered-opacity assertions; the approved fade stays 600ms.
+and block the main thread for 150ms across the fade's end; all pass. A ghost
+retained 200ms past its fade and a fade slowed to 900ms still fail. Both themes
+retain the story's layout, geometry, nonempty token/tail and rendered-opacity
+assertions; the approved fade stays 600ms.
 
 
 `focus-frames.visual.tsx` captures actual focus paint in dark and paper at

@@ -1,4 +1,5 @@
 import { Glob } from "bun";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 import { parseFrontmatter, type ParsedFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
   existsSync,
@@ -488,8 +489,9 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
   return report;
 }
 
+/** Whether the file has frontmatter, by the fences `parseFrontmatter` reads its data from (#2507). */
 function hasFrontmatter(raw: string): boolean {
-  return raw.charCodeAt(0) !== 0xfeff && /^---[ \t]*\r?\n/.test(raw);
+  return frontmatterBlock(raw) !== null;
 }
 
 function markdownLinks(content: string): string[] {

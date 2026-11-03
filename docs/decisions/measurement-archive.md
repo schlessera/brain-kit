@@ -192,6 +192,34 @@ a date.
 - **Measured source:** not recorded. **Introduced by:** `e8f94c6c1f1f`.
 - **Files:** [probe.py](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike/probe.py), [worker.ts](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike/worker.ts)
 
+### Archived later
+
+> **2026-11-02 — Files removed from `main` after the original archive commit.**
+> Each was added to `archive/measurements` as a new commit on top of the
+> branch, at its original path, byte for byte. The 94-file count above and the
+> branch's top-level `manifest.json` and `SHA256SUMS` describe only the original
+> commit; each later bundle carries its own manifest and checksums.
+
+#### Unreferenced CI selection replays (#2512)
+
+- **Path:** `docs/process/evidence/independent-test-replay.json`, `docs/process/evidence/browser-input-closure-replay.json`
+- **Role:** historical output (100-PR replays of independent Bun test-leaf selection and of browser proof input discovery, both at the 2026-10-16 cutoff).
+- **Consumers before removal:** none. No document, test, script or CI step named either file; one note inside `docs/process/evidence/test-wait-review-partition.json` mentions `independent-test-replay.json` in passing, which is a pointer, not a consumer.
+- **Disposition:** archived in commit [`c24a848238724b797386fdd9e9dbdbf2bb254d59`](https://github.com/schlessera/brain-kit/tree/c24a848238724b797386fdd9e9dbdbf2bb254d59/scripts/measurements/retired-docs-2542-2026-11-02), copied from main commit `5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0`.
+- **Measured source:** `626a03af4a9db064751230a84732755b8afa961e` (browser-input-closure-replay.json sourceBase); not recorded for independent-test-replay.json. **Introduced by:** `d6b527290fe2` (#2147), `b6d7391de6ba` (#2152).
+- **SHA-256:** `4b5cd6bd74882b34893b958cca88ff90c5d1c3e60a28115712e5966062b1a496` (independent-test-replay.json), `6cf33fd312f82c3a0b4ec43274a2d714b45995720a40363beae62e662b35adaf` (browser-input-closure-replay.json).
+- **Files:** [independent-test-replay.json](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/process/evidence/independent-test-replay.json), [browser-input-closure-replay.json](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/process/evidence/browser-input-closure-replay.json)
+
+#### Storage design experiments (#2511)
+
+- **Path:** `docs/plans/storage-accounting-experiment.py`, `docs/plans/storage-growth-experiment.ts`
+- **Role:** finished experiments (the #1780 fixture inventory prototype and the #2014 offline rule-qualification traces).
+- **Consumers before removal:** run only from `docs/plans/storage-accounting.md` and `docs/plans/storage-growth.md`, which were retired in the same change. No test, script or CI step runs either file, and neither sits under a TypeScript or lint root. The shipped storage code carries its own tests.
+- **Disposition:** archived in commit [`c24a848238724b797386fdd9e9dbdbf2bb254d59`](https://github.com/schlessera/brain-kit/tree/c24a848238724b797386fdd9e9dbdbf2bb254d59/scripts/measurements/retired-docs-2542-2026-11-02), copied from main commit `5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0`. The plans that record their conditions and results stay readable at that main commit.
+- **Measured source:** not recorded. **Introduced by:** `1ed6e3d431fa` (#1785), `65ed23dc942e` (#2020).
+- **SHA-256:** `e614e2887bbc470df39830d8432414ffced2d8559ad9b21b781be799b8b48bdf` (storage-accounting-experiment.py), `409624b52f10098f110f8d8e047679099dc9cfe2c9e4effa3cb1abe0007e0050` (storage-growth-experiment.ts).
+- **Files:** [storage-accounting-experiment.py](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/plans/storage-accounting-experiment.py), [storage-growth-experiment.ts](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/plans/storage-growth-experiment.ts)
+
 ### Retained in place (241 files)
 
 > **2026-10-10 — #838 spike harnesses removed.** The maintainer ruled the
@@ -275,6 +303,21 @@ lists 240 of them, and the triage answers file under
   suggestions documents and one to the site-model spike's README. It links them
   at the pinned commit `c577320cb4b9e3224a84a374e975ef5910db1edd`, which still
   contains them, so those links stay valid and were not changed.
+- Three root scripts lost their last consumer once their driving issues closed,
+  and were removed from `main` by
+  [#2510](https://github.com/schlessera/brain-kit/issues/2510). They are
+  harnesses, not measurement output, so they were not added to the archive
+  branch. Main commit `a62db8f27a22fd2df744308e9b1ee12bc50f3da2` is the last
+  to contain all four files; read them there:
+  - `scripts/measure-graph-routes.ts` timed graph reads for
+    [#1030](https://github.com/schlessera/brain-kit/issues/1030), after #697
+    moved them onto `./queries`.
+  - `scripts/replay-ci-consumers.ts` replayed root-proof consumer selection
+    for #2149 (closing #2123). It read a 100-PR snapshot that was never
+    committed.
+  - `scripts/generated-inputs.ts` and its test `tests/generated-inputs.test.ts`
+    came from #2178 (refs #2126 and #2190). It was library code with no
+    production caller, so only its own test ran it.
 
 ## Pointers moved to the archive
 
@@ -297,6 +340,12 @@ git restore --source 48227b09076b350d70d9d20b8492ffcfb5b95771 -- <original-path>
 
 Each record keeps its measurements, failures and limits. Only the location of
 the evidence changed.
+
+> **2026-11-02 — `docs/plans/policy-write-boundary.md` retired ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> The plan left `main` once its work shipped. Read it, with its links to this
+> archive, at main commit
+> [`5a0ce18f`](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/policy-write-boundary.md);
+> [the all-writer decision](policy-write-boundary.md) links it there.
 
 ## Keeping new output out
 

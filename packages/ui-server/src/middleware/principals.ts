@@ -40,7 +40,7 @@ const MAX_AGENT_TTL_DAYS = SESSION_TTL_SECONDS / SECONDS_PER_DAY;
 const MAX_LABEL_LENGTH = 64;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 
-export interface PrincipalManagementContext {
+interface PrincipalManagementContext {
   db: Database;
   revoker: Pick<WsHost, "revokePrincipals">;
   log?: Logger;

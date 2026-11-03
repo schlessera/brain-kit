@@ -276,6 +276,29 @@ actor/time/reason and immediately removes the old authority without waiving
 proof. Native candidates need separately qualified prefix integration; this
 ordinary command rejects them. See the [binding decision](../../../../docs/decisions/ci-utility.md#exact-candidate-integration-reservation).
 
+The merge path also reads the `check:pr` receipt from the PR body. It refuses
+a PR with no receipt (`confirm` says so before acquiring), and one whose
+skipped, timed-out or preempted checks map to hosted categories the exact-head
+proof did not run, naming each. Rerun the check locally and paste the new
+receipt, or get the category selected; never edit a receipt by hand
+([local check receipts](../../../../docs/decisions/ci-utility.md#local-check-receipts)).
+
+While main is red, a declared fix for the open record, forward fix or
+targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
+--fixes-main-run <run-id> --issues owner/repo#N,...`. It dispatches fix probes
+that must show the record's failing test files red on the exact base and green
+on the exact head, waits for the exact-head fast invariants and squashes under
+the reservation. It refuses category-level failures; use ordinary confirmation
+for those. Never merge a red-main fix any other way
+([expedited red-main fixes](../../../../docs/decisions/ci-utility.md#expedited-red-main-fixes)).
+
+While main is red, `confirm` and `merge` refuse every PR that is not a
+declared fix, and hosted proof containing the bad commit is refused or
+cancelled. Do not retry it; follow [the red-main incident steps](red-main.md)
+and resume when `main-status` reports green. A fix or targeted revert PR for
+the incident is declared with `bun scripts/integrate.ts declare-fix <pr>` and
+then uses this same reservation and merge procedure.
+
 ## Merge and verify
 
 Before every merge, assign the PR and each completed/advanced issue a release

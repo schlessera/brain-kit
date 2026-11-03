@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import * as fsp from "node:fs/promises";
-import { mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { mkdir, writeFile, symlink, rm, realpath } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -101,6 +101,17 @@ describe("safeResolve", () => {
   });
   test("rejects symlink escape", async () => {
     await expect(safeResolve("escape-link", root)).rejects.toBeInstanceOf(PathEscapeError);
+  });
+  test("rejects a link into a sibling directory that shares the root's name as a prefix", async () => {
+    const sibling = `${await realpath(root)}-other`;
+    await mkdir(sibling, { recursive: true });
+    try {
+      await symlink(sibling, join(root, "sibling-link"));
+      await expect(safeResolve("sibling-link/x.md", root)).rejects.toBeInstanceOf(PathEscapeError);
+    } finally {
+      await rm(join(root, "sibling-link"), { force: true });
+      await rm(sibling, { recursive: true, force: true });
+    }
   });
   test("accepts repo-relative path", async () => {
     await expect(safeResolve("notes/foo.md", root)).resolves.toBeTruthy();

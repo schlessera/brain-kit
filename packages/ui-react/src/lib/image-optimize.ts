@@ -12,7 +12,7 @@
  */
 
 /** What "optimized" means: long-edge ceiling and a byte target to land under. */
-export interface OptimizeTarget {
+interface OptimizeTarget {
   maxEdge: number;
   maxBytes: number;
 }
@@ -29,7 +29,7 @@ export const SHARE_OPTIMIZED: OptimizeTarget = {
   maxBytes: 1_048_576,
 };
 
-export interface OptimizeStep {
+interface OptimizeStep {
   width: number;
   height: number;
   quality: number;
@@ -124,7 +124,7 @@ function encode(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 }
 
-export interface OptimizeResult {
+interface OptimizeResult {
   blob: Blob;
   width: number;
   height: number;
