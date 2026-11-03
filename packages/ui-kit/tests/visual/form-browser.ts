@@ -3,7 +3,14 @@ import type { BrowserCommand } from "vitest/node";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-/** Keep Vitest's portrait iframe at full painted scale when capturing a long card. */
+/**
+ * Keep Vitest's portrait iframe at full painted scale when capturing a long card.
+ * Sets the outer page to `width + 100` × `height + 120` and returns its previous
+ * size. Restore with `formViewport(previous.width - 100, previous.height - 120)`:
+ * passing the previous size back unchanged grows the page on every call, and the
+ * larger page then changes the iframe scale for every later file in the browser
+ * (#3502).
+ */
 export const formViewport: BrowserCommand<
   [number, number],
   { width: number; height: number }
