@@ -55,7 +55,7 @@ and draft routes refuse drafts bound to it. Browser invalidation (#3231) is not 
 **Built (#3337):** typed chats created from now on name their owner. Under the
 [2026-11-02 ruling](https://github.com/schlessera/brain-kit/issues/3337#issuecomment-6586465475),
 when an authenticated typed request creates a backend session, the host records a
-content-free `(session, principal)` binding (migration `075_chat_session_owners.sql`).
+content-free `(session, principal)` binding (migration `076_chat_session_owners.sql`).
 The bridge offers the creator only on a new, non-host-work turn whose
 authorization is current
 (`const creator`, `packages/ui-server/src/ws/bridge.ts:245`). The write worker
