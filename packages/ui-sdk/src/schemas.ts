@@ -82,6 +82,7 @@ import type {
   ServerLocationRequest,
   ServerMaskRequest,
   ServerMessage,
+  ServerChatRetired,
   DialogueEvidence, DialogueRecord, DialoguePage, ClientDialogueRead, ServerDialogueHistory,
   ServerResultMessage,
   MessageBlock,
@@ -691,13 +692,16 @@ export const inboxWorkPayloadSchema = z.strictObject({
 export const hygieneInputSchema = z.union([z.string().max(4096), z.array(z.string().max(256)).max(128), z.null()]);
 export const hygieneDiffSchema = z.strictObject({ path: inboxTargetPath, before: z.string().max(MAX_PROMPT_CHARS), after: z.string().max(MAX_PROMPT_CHARS), changes: z.array(z.strictObject({ before: z.string().max(MAX_PROMPT_CHARS), after: z.string().max(MAX_PROMPT_CHARS), line: z.number().int().min(1) })).max(1024) }) satisfies z.ZodType<HygieneDiff>;
 export const hygieneEffectSchema = z.strictObject({
-  kind: z.literal("hygiene"), operation: z.enum(["resolve", "check", "undo", "dismiss", "snooze"]),
+  kind: z.literal("hygiene"), operation: z.enum(["resolve", "check", "undo", "dismiss", "snooze", "defer"]),
   findingId: id, fingerprint: id, handler: id.optional(), input: hygieneInputSchema.optional(),
   previewToken: id.optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(),
 }) satisfies z.ZodType<HygieneEffect>;
-export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed", "superseded"]), supersededBy: id.optional(), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional() });
+export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed", "superseded", "deferred"]), supersededBy: id.optional(), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional() });
 export const hygieneActionSchema = z.strictObject({ findingId: id, fingerprint: id, finding: z.record(z.string(), z.unknown()), outcome: hygieneOutcomeSchema.optional() }) satisfies z.ZodType<HygieneAction>;
-export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), status: z.enum(["idle", "active", "paused", "complete", "blocked"]), position: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, pendingActionId: id.optional(), pauseReason: z.strictObject({ kind: z.literal("actions-limit"), retiredActionId: id, retirementReceiptId: id }).optional(), counts: z.strictObject({ eligibleRemaining: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, nextSnoozeDueAt: z.string().nullable(), informationalNotShown: inboxSeq }).optional(), blocker: z.record(z.string(), z.unknown()).optional() }) satisfies z.ZodType<HygieneReviewState>;
+export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), status: z.enum(["idle", "active", "paused", "complete", "blocked"]), position: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, pendingActionId: id.optional(), pauseReason: z.strictObject({ kind: z.literal("actions-limit"), retiredActionId: id, retirementReceiptId: id }).optional(), counts: z.strictObject({ eligibleRemaining: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, nextSnoozeDueAt: z.string().nullable(), informationalNotShown: inboxSeq, kept: inboxSeq.default(0) }).optional(), blocker: z.record(z.string(), z.unknown()).optional(),
+  // Additive in #2780: a row stored before these fields parses with their defaults.
+  kept: inboxSeq.default(0), pass: inboxSeq.default(0), deferred: z.array(z.strictObject({ findingId: id, fingerprint: id })).max(10_000).default([]),
+  media: z.strictObject({ awaitingReview: inboxSeq, setAside: inboxSeq, kept: inboxSeq }).optional() }) satisfies z.ZodType<HygieneReviewState>;
 export const hygieneReviewCommandSchema = z.strictObject({ operation: z.enum(["start", "pause", "resume", "refresh"]) }) satisfies z.ZodType<HygieneReviewCommand>;
 export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema }) satisfies z.ZodType<HygienePreviewRequest>;
 const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
@@ -1028,8 +1032,10 @@ const turnRetrySchema = z.looseObject({
 
 export const turnBudgetReceiptSchema = z.looseObject({
   listPriceCostUsd: z.number().finite().nonnegative().nullable(), listPriceIsEstimate:z.boolean().nullable().optional(), tokens: z.number().int().nonnegative().nullable(),
-  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
-  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(),
+  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
+  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(), apifyUsd:z.number().finite().nonnegative().optional(),
     tokens:z.number().int().nonnegative().nullable(), unknownRuns:z.number().int().nonnegative(),
     warnUsd:z.number().finite().nonnegative(), blockUsd:z.number().finite().nonnegative(), blockTokens:z.number().int().nonnegative(),
     warnTokens:z.number().int().nonnegative().optional(), resetAt:z.number().int().nonnegative().optional(), warning:z.boolean(), blocked:z.boolean() })).max(3),
@@ -1066,6 +1072,11 @@ export const turnJournalSummarySchema = z.looseObject({
   budget: turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
 
+const runtimeNoticeSchema = z.looseObject({
+  cause: z.enum(["aborted", "unspecified"]),
+  message: z.string().max(4_000),
+}) satisfies z.ZodType<import("./protocol.js").RuntimeNotice>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -1090,6 +1101,7 @@ const historyMessageSchema = z.looseObject({
   effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
+  runtimeNotice: runtimeNoticeSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
   turnId: id.optional().catch(undefined),
   journal: turnJournalSummarySchema.optional().catch(undefined),
@@ -1886,6 +1898,13 @@ export const serverSessionQueueSchema = z.looseObject({
     .optional(),
 }) satisfies z.ZodType<ServerSessionQueue>;
 
+export const serverChatRetiredSchema = z.looseObject({
+  type: z.literal("chat_retired"),
+  sessionId: id.optional(),
+  historyOwnerIds: z.array(id).max(256),
+  generation: z.number().int().min(1),
+}) satisfies z.ZodType<ServerChatRetired>;
+
 export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),sessionId:id.optional(),turnId:id,
   usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
@@ -1900,6 +1919,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverScopeDecisionReceiptSchema,
   serverTurnJournalSchema,
   serverUsageSchema,
+  serverChatRetiredSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,

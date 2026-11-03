@@ -393,6 +393,7 @@ async function runRetainedSession(
           // after this timer was armed.
           attributes: { ...turnLogAttributes(turn), "timeout.ms": host.turnTimeoutMs },
         });
+        turn.timedOutTurnId = turn.turnId;
         abortController.abort();
         // Reject any pending interactive request for this turn too. A bridge
         // that awaits askUser/approval without racing the abort signal would
@@ -909,6 +910,11 @@ async function runRetainedSession(
         await turnEgress?.settled();
         host.dialogue.retireTurn(turn.turnId);
         if (referenceTurn) host.referenceTools?.end(turn.turnId);
+        // Apify (#3162): a cancelled, timed-out or budget-stopped turn aborts the
+        // runs it started, off the turn's path; a finished turn leaves them for
+        // later status reads in its conversation.
+        if (host.apify && (turn.cancelled || abortController.signal.aborted || budgetFailure))
+          void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
         try {

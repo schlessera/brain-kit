@@ -487,6 +487,17 @@ aggregate explicitly for parallel maintenance. Neither value derives from
 agent-session concurrency or uses agent turn temp, runtime state or the
 separately bounded startup/publication storage.
 
+Admission is immediate: a command that does not fit is refused with
+`worker_state_busy` before anything runs. The refusal names what holds the
+budget by kind only (`index`, `scratch query`, `git`, `sync`, `probe` or
+`command`), never a path or a process. At the defaults one allowance fills the
+budget, so the automatic index and a turn's scratch check cannot overlap
+(#3461). An automatic index that loses that race stays pending and runs as
+soon as the budget frees; it is not reported as a failure, and close
+discards it. A turn whose scratch check loses keeps `.brain/scratch/`
+read-only for that turn, as before. An index you request still reports busy
+at once.
+
 Each command's sized private `/tmp` contains scratch and fresh XDG config,
 cache, data and state directories. Credential-free HOME is also in that
 filesystem. Credentialed HOME is readable but read-only; writes requiring a
@@ -878,6 +889,30 @@ left on device`). Copying up a modified existing file consumes its full copied
 bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
+
+Maintenance Git packing is bounded by the same allowance. Hosted `brain
+maintain` runs git's incremental `loose-objects`, `incremental-repack` and
+`pack-refs` tasks inside its maintenance worker, so each new pack is written into
+that worker's output stage, never directly into the brain's `.git`. The
+launcher declares the stage's size and setting to the worker in
+`BRAIN_WORKER_OUTPUT_ALLOWANCE`. A pack larger than the space left fails the `git`
+step with a named refusal instead of git's bare `Out of diskspace`:
+
+```text
+FAILED — no space: git packing ran out of space in the maintenance worker's output stage (allowance 268435456 bytes, set by BRAIN_UI_OUTPUT_STAGING_BYTES; 264241152 bytes available when the step started). git: fatal: sha1 file '.git/objects/pack/tmp_pack_…' write error. Out of diskspace
+```
+
+The available figure is the stage's free space when the step started, measured
+the way `brain storage pack --json` reports `headroom`. To let the pack through,
+raise `BRAIN_UI_OUTPUT_STAGING_BYTES` above the largest pack the step writes (a
+multiple of 4096) and restart the server. Unset, the budget follows it as
+allowance × `MAX_CONCURRENT_SESSIONS`; an explicit
+`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` must be raised to at least the new
+allowance too. The cost: every consumer, each agent turn as well as each
+maintenance run, then reserves the larger allowance, so the admitted total grows
+with it, or fewer consumers fit at once under an explicit budget. A
+`brain maintain` run outside a hosted worker reports the same shortfall against
+the filesystem holding `.git`, without a hosted setting.
 
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work
@@ -1311,7 +1346,8 @@ worker keeps its ordinary messages. The token's grammar is part of the
 **What #1673 changes.** On a turn with a turn proxy, the commands above that
 use a Gemini, Anthropic or OpenAI image provider work again, through the
 [metered relay](#metered-provider-relay-1673), with no key in the worker. The
-`jev` reranker and `brain video watch` still report `provider_unavailable`.
+`jev` reranker still reports `provider_unavailable`; `brain video watch` is
+relayed since #2738.
 A relayed Claude API-key turn holds the inference placeholder under
 `ANTHROPIC_API_KEY`; the launcher names that key in `BRAIN_WITHHELD_KEYS`, and
 the CLI's `anthropic-haiku` reaches the host's key through the relay instead of
@@ -1327,8 +1363,22 @@ own at `/run/brain-providers/relay.sock`. The launcher names it in
 `BRAIN_PROVIDER_RELAY_SOCKET`. A built-in provider whose key is withheld sends
 its native request there (the routes are in the
 [CLI contract](../integration-contract/cli.md#provider-relay-additive-0440-1673)):
-Gemini embeddings and non-video completions, Anthropic completions, and OpenAI
-and Gemini images. Video uploads and the `jev` reranker are not relayed.
+Gemini embeddings and completions, the Gemini Files lifecycle a local video
+needs (#2738), Anthropic completions, and OpenAI and Gemini images. The `jev`
+reranker is not relayed.
+
+**Video files (#2738).** A relayed `brain video watch` uploads, polls, uses and
+deletes its file through the relay. The relay keeps the upload URL the provider
+issued on the host and gives the worker a token URL instead; it accepts a
+provider URL only on the authorized origin's `/upload/` path. It polls,
+deletes or names in a generation only the Files handles its own uploads
+created, so a worker cannot reach another file on the host's account, and it
+has no other `GET` or `DELETE` route. The upload start and the bytes wait on the
+budget like any other request; polling and deletion do not, so cleanup always
+runs. Each step is its own attempt row (operation `files`), priced at zero
+because the Files API is free; the video's tokens are charged on the
+generation. Files a turn leaves behind, after a cancel or a killed worker, are
+deleted with the host's key when the turn's relay stops.
 
 **Who may receive a key.** The relay sends `GEMINI_API_KEY` only to
 `https://generativelanguage.googleapis.com`, `ANTHROPIC_API_KEY` only to
@@ -1392,7 +1442,12 @@ namespace. Runtime-state and turn-temp mounts are verified and initial state
 is populated while that gate is closed. The trusted bootstrap still rejects
 unexpected inherited descriptors; a fixed host shell opens only the status
 and gate channels afterwards, and bubblewrap closes both before the payload
-runs. Setup refusal ends the unstarted worker.
+runs. Setup refusal ends the unstarted worker. bubblewrap starts the payload
+on the gate's end-of-file as it does on its go byte, so a refused gate stays
+open until bubblewrap and every process it gated are confirmed dead. The
+refusal stops bubblewrap and kills its children and the verified sandbox
+process itself; bubblewrap's own death does not end that process, even with
+`--die-with-parent`. A gate whose processes never die stays open.
 
 This startup qualification does not provide a separate worker UID or the
 external descriptor broker. The separate-UID implementation remains tracked
@@ -1586,7 +1641,8 @@ The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/
 qualifies existing first-party request shapes. The
 [metered provider relay](#metered-provider-relay-1673) built on it in
 [#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the rows
-below except video and JeV.
+below except video and JeV; [#2738](https://github.com/schlessera/brain-kit/issues/2738)
+added video.
 
 | CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
 | --- | --- | --- | --- |

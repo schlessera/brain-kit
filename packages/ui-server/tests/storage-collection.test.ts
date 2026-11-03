@@ -69,13 +69,15 @@ test("revocation during a real scan never publishes its result", async () => {
 
 test("bounded process cancellation reaps the real child", async () => {
   const { storageProcess } = await import("../src/storage/process");
-  const { readFileSync, existsSync } = await import("node:fs");
+  const { existsSync } = await import("node:fs");
+  const { readPositivePid } = await import("../../../tests/helpers/atomic-file");
   const f = fixture(), pidFile = join(f.app, "pid"), controller = new AbortController();
-  const pending = storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", `await Bun.write(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000);`], { signal: controller.signal });
+  const pending = storageProcess([process.execPath, "--config=/dev/null", "--no-env-file", "-e", `const fs=require("node:fs");fs.writeFileSync(${JSON.stringify(pidFile + ".tmp")},String(process.pid));fs.renameSync(${JSON.stringify(pidFile + ".tmp")},${JSON.stringify(pidFile)});setInterval(()=>{},1000);`], { signal: controller.signal });
   try {
     for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise(done => setTimeout(done, 5));
     expect(existsSync(pidFile)).toBe(true);
-    const pid = Number(readFileSync(pidFile, "utf8"));
+    // PID 0 would make the reap check below fail falsely: process.kill(0, 0) succeeds.
+    const pid = readPositivePid(pidFile, "STORAGE_CHILD_PID_PUBLISHED");
     controller.abort();
     await expect(pending).rejects.toThrow("cancelled");
     expect(() => process.kill(pid, 0), "STORAGE_CANCEL_REAPS_CHILD").toThrow();

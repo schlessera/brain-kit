@@ -16,12 +16,16 @@ export type Signature = "timeout" | "assertion" | "setup" | "unknown";
 export type Verdict = "real" | "suspected-flake";
 
 export interface RedFailure { test: string | null; category: Category; verdict: "real"; reasons: string[]; run: number; sha: string; }
+/** An expedited fix squash (#2940): its red/green probe evidence, fast-invariant run and numeric actor. */
+export interface ExpeditedFix { pr: number; head: string; base: string; squash: string; baseProbe: number; headProbe: number; feedbackRun: number; actor: number; at: number; }
 export interface RedIncident {
   /** First red after the last run where the failing set actually ran green. */
   firstBad: string; run: number; opened: number;
   failures: RedFailure[]; incident: number | null; fixes: number[]; reported: string[];
   /** The one fix claim (#2944). Absent in records written before claims existed. */
   claim?: FixClaim | null;
+  /** Optional and additive: absent until an expedited fix lands. */
+  expedited?: ExpeditedFix[];
 }
 /** Who owns the fix: a worker under an orchestrator, for a renewable term. */
 export interface FixClaim {
@@ -35,7 +39,7 @@ export interface RedMainRecord {
   version: 1; updated: number; open: RedIncident | null; suspects: Suspect[];
   last: { action: Action; at: number; run: number | null } | null;
 }
-const ACTIONS = ["open", "update", "refine", "incident", "declare-fix", "report", "clear", "suspect", "probe", "claim", "takeover", "renew-claim", "release-claim"] as const;
+const ACTIONS = ["open", "update", "refine", "incident", "declare-fix", "report", "clear", "suspect", "probe", "claim", "takeover", "renew-claim", "release-claim", "expedite"] as const;
 type Action = typeof ACTIONS[number];
 /** A claim lasts this long from its last renewal; after that any orchestrator may take it over. */
 export const CLAIM_TERM_MS = 60 * 60_000;
@@ -60,7 +64,9 @@ export function parseRedMain(text: string): RedMainRecord {
       !Array.isArray(o.fixes) || o.fixes.length > MAX_FIXES || !o.fixes.every(positive) ||
       !Array.isArray(o.reported) || o.reported.length > MAX_REPORTED || !o.reported.every(sha => SHA.test(sha)) ||
       o.failures.some(f => !f || !(f.test === null || testPath(f.test)) || !category(f.category) || f.verdict !== "real" ||
-        !Array.isArray(f.reasons) || !f.reasons.length || f.reasons.some(x => typeof x !== "string" || !/^[a-z0-9-]{1,60}$/.test(x)) || !positive(f.run) || !SHA.test(f.sha)))) throw new Error("Invalid red-main incident");
+        !Array.isArray(f.reasons) || !f.reasons.length || f.reasons.some(x => typeof x !== "string" || !/^[a-z0-9-]{1,60}$/.test(x)) || !positive(f.run) || !SHA.test(f.sha)) ||
+      (o.expedited !== undefined && (!Array.isArray(o.expedited) || o.expedited.length > MAX_FIXES || o.expedited.some(e => !e ||
+        ![e.pr, e.baseProbe, e.headProbe, e.feedbackRun, e.actor].every(positive) || ![e.head, e.base, e.squash].every(sha => SHA.test(sha)) || !Number.isSafeInteger(e.at)))))) throw new Error("Invalid red-main incident");
   if (o && Object.hasOwn(o, "claim") && !validClaim(o.claim, o, r.updated)) throw new Error("Invalid red-main fix claim");
   if (r.last !== null && (!r.last || r.last.at !== r.updated || !(r.last.run === null || positive(r.last.run)) ||
       !ACTIONS.includes(r.last.action))) throw new Error("Invalid red-main audit");
@@ -152,6 +158,14 @@ export function releaseFixClaim(record: RedMainRecord, who: Claimant, now: numbe
   const open = claimable(record, who), held = open.claim ?? null;
   if (!held || !sameClaimant(held, who)) throw new Error("This worker does not hold the fix claim");
   return next(record, now, "release-claim", open.run, { open: { ...open, claim: null } });
+}
+
+/** Records an expedited fix squash on the open record; the next green main run that includes the red set still clears it. */
+export function recordExpedited(record: RedMainRecord, fix: ExpeditedFix, now: number): RedMainRecord {
+  if (!record.open) throw new Error("No open red-main record to record an expedited fix on");
+  if (!record.open.fixes.includes(fix.pr)) throw new Error("Only a declared fix can be recorded as expedited");
+  if (record.open.expedited?.some(e => e.squash === fix.squash)) return record;
+  return next(record, now, "expedite", record.open.run, { open: { ...record.open, expedited: [...record.open.expedited ?? [], fix].slice(-MAX_FIXES) } });
 }
 
 export function reportLanded(record: RedMainRecord, sha: string, now: number): RedMainRecord {

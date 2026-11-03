@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const [source, dir, brain, socket, selectedBackend = "claude"] = process.argv.slice(2);
@@ -290,11 +290,13 @@ try {
   app.wsHost.failureReplay.begin = async (...args: any[]) => { const answer = await replayBegin(...args), finish = answer.finish.bind(answer); answer.finish = async (...values: any[]) => { const start = performance.now(); event("failure_replay_finish_start"); try { return await finish(...values); } finally { event("failure_replay_finish_end", { elapsedMs: performance.now() - start }); } }; return answer; };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
-  writeFileSync(join(dir!, "ready.json"), JSON.stringify({
+  // Published by rename: the parent polls for ready.json and then parses it.
+  writeFileSync(join(dir!, "ready.json.tmp"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
     port: server.port, egressPort: egressOrigin.port, principalId: principal.id, pid: process.pid, secret: SECRET,
     dbBytes: statSync(dbPath).size, status: app.activity?.runtime?.snapshot?.()
   }));
+  renameSync(join(dir!, "ready.json.tmp"), join(dir!, "ready.json"));
   event("ready", { port: server.port });
   let closing = false;
   process.on("SIGTERM", async () => {
