@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildDiagram, DiagramGeometryError } from "../src/geometry.js";
+import { buildDiagram, diagramGroupHeading, DiagramGeometryError, type DiagramGroup } from "../src/geometry.js";
 import { checkDiagram } from "../src/check.js";
 import { assertFan, assertIndependent, assertLabelGap, assertMasks, assertOrthogonal, assertPathCorrespondence, assertSixRules, assertTransit, connectors } from "./geometry-assertions.js";
 import { cases, node, spec } from "./fixtures/geometry-cases.js";
@@ -67,5 +67,24 @@ test("generated required-rule classes always produce nonvacuous geometry", () =>
     if (name === "fan") expect(connectors(tree).filter(route => route.from.node === "raft")).toHaveLength(2);
     if (name === "transit") expect(connectors(tree)[0]!.transit, "GENERATED_TRUE_UNAVOIDABLE_TRANSIT").toEqual(["athena"]);
     if (name === "vertical") expect(tree.elements.some(item => item.kind === "label-mask"), "GENERATED_TRUE_VERTICAL_LABEL").toBe(true);
+  }
+});
+
+test("an edge label never covers a group heading", () => {
+  // The SAIL label's first legal spot on its vertical run sat on the fleet's
+  // heading, so the two texts painted over each other.
+  const fleet = { schema_version: 1, type: "architecture", title: "Homeward fleet", desc: "Odysseus sends the order down to the ships on 2026-07-12.", size: "fit",
+    nodes: [{ id: "order", label: "Odysseus", at: [16, 64], size: [144, 48] }, { id: "ship", label: "Lead ship", at: [16, 160], size: [144, 48] }, { id: "rear", label: "Rear ship", at: [192, 160], size: [144, 48] }],
+    edges: [{ from: "order", to: "ship", label: "SAIL" }],
+    groups: [{ id: "fleet", label: "ITHACAN FLEET", members: ["ship", "rear"] }] };
+  expect(checkDiagram(JSON.stringify(fleet)).errors).toEqual([]);
+  const tree = buildDiagram(fleet as never);
+  const headings = tree.elements.filter((item): item is DiagramGroup => item.kind === "group").map(diagramGroupHeading);
+  const labels = tree.elements.filter(item => item.kind === "edge-label" || item.kind === "label-mask" || item.kind === "cardinality");
+  expect(labels.length).toBeGreaterThan(0);
+  for (const label of labels) for (const heading of headings) {
+    const box = label as unknown as { x: number; y: number; width: number; height: number };
+    const overlap = box.x < heading.x + heading.width && box.x + box.width > heading.x && box.y < heading.y + heading.height && box.y + box.height > heading.y;
+    expect(overlap, `LABEL_CLEARS_GROUP_HEADING ${JSON.stringify(box)} vs ${JSON.stringify(heading)}`).toBe(false);
   }
 });

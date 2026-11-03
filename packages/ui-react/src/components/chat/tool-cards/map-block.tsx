@@ -36,7 +36,7 @@ type FrameGeometry = PlaceMapFrame["geometry"];
  * width over this many pixels, and buckets 495 up to 660, which errs towards
  * streets rather than an empty map.
  */
-export const MAP_BLOCK_REQUEST_WIDTH = 495;
+const MAP_BLOCK_REQUEST_WIDTH = 495;
 
 /** Below this viewport width the list starts collapsed past eight rows. */
 const LIST_OPEN_FROM_PX = 480;

@@ -492,6 +492,45 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+<a id="strictest-path-containment-answers-breaking-before-10-0450-3422"></a>
+**Breaking before 1.0: strictest path containment answers (0.45.0, #3422).**
+`safeResolve(root, rel)` and `resolveWritable(root, rel)` take a path relative
+to the brain root. They return its canonical path, or `null` for any of these:
+
+- an absolute `rel`, even one inside the root;
+- a `..` segment, even one whose result would stay inside;
+- `:` or `\` in a segment, or a NUL;
+- a dangling symlink, wherever it points;
+- a path whose existing components do not all stay inside, such as one that
+  leaves through one link and comes back through another;
+- a root whose realpath fails.
+
+Before 0.45.0, core accepted an absolute path inside the root and a `..` that
+stayed inside. It also followed a dangling link to an inside target and checked
+only the final path. A caller holding an absolute path passes it relative to
+the root's realpath.
+
+The CLI keeps accepting absolute path arguments inside the brain
+([maintainer ruling](https://github.com/schlessera/brain-kit/pull/3465#issuecomment-6602766385)).
+Before resolving one, it converts it with the new, additive
+`brainRelativeArgument(root, arg): string`, also exported from
+`@schlessera/brain/module` for module commands. An absolute argument lexically
+under the root as given or under its realpath becomes repo-relative (`.` for
+the root itself). Any other argument comes back unchanged, so `safeResolve`
+still refuses an absolute path outside the brain and one with a `..` segment.
+The converted path still goes through `safeResolve`, so an absolute path
+through a symlink that leaves the brain is refused. The arguments it covers:
+
+- `brain read`, `archive` and `process` `<path>`;
+- `import --stamp`;
+- `render` `<path>` and `--out`;
+- `eval --out`;
+- `geo` track paths, `--compare`, `--along` and `map --out`;
+- `okf export --out`;
+- `image --out`, `--ref` and `--mask`;
+- `diagram export|build` `<path>` and `--out`;
+- `travel photo --to`, and `travel route` `<file>` and `--to`.
+
 **Additive frozen configuration root (#2848).** `@schlessera/brain/module`
 exports `configurationRoot(root: string): string`. When `root` equals the
 trusted worker's `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT` is
@@ -1994,6 +2033,9 @@ unload a module or cancel running sessions.
   document paths are repo-relative (no absolute, `~`, `..`, or control
   characters) and resolved through a symlink-aware canonicalizer, so neither a
   symlinked directory nor a dangling symlink redirects a write out of the repo.
+  A CLI path argument may also be absolute: one inside the brain root is
+  converted to a repo-relative path first, and one outside it is refused
+  (0.45.0, #3422).
 - **Mutating commands require an initialized brain.** `add`, `import`, `index`,
   `archive`, `accept-mtime`, `process`, `maintain`, `sync`, `skills sync`, and
   `setup`, plus `okf export`, exit 1 when no `brain.config` is found rather than initializing a

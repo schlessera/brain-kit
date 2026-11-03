@@ -112,12 +112,12 @@ export interface QueuedFollowUp {
  * clips the list itself: every pending follow-up is always reported, and
  * only a very long prompt is shortened.
  */
-export const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
+const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
 
 const wireBytes = (text: string) => Buffer.byteLength(JSON.stringify(text), "utf8");
 
 /** Head of `text` within `bytes` serialized bytes, with an elision note when cut. */
-export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
+function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
   if (wireBytes(text) <= bytes) return text;
   const budget = Math.max(0, bytes - 64);
   // The longest head that fits: wire size grows with length, so bisect.
@@ -278,7 +278,7 @@ export interface RunningTurn {
 // Pending interactive requests are tagged with their turn so a per-session
 // cancel/disconnect can drain only that session's pending entries, and with
 // the turnId that raised them (the slot's id mutates across queued follow-ups).
-export interface PendingApproval {
+interface PendingApproval {
   turn: RunningTurn;
   turnId: string;
   /**
@@ -299,7 +299,7 @@ export interface PendingApproval {
  * happened (#957). `expired` is a terminal turn that resolved the request
  * itself; it never needed a `tool_result`.
  */
-export interface ToolResolutionRecord {
+interface ToolResolutionRecord {
   outcome: "granted" | "denied" | "expired";
   turnId: string;
   sessionId: string | null;
@@ -308,7 +308,7 @@ export interface ToolResolutionRecord {
 }
 
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
-export const MAX_RESOLVED_APPROVALS = 512;
+const MAX_RESOLVED_APPROVALS = 512;
 
 export interface PendingAskUser {
   turn: RunningTurn;
@@ -358,7 +358,7 @@ export type AskKind = "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user
  * repeated or late answer, or a status query after a lost receipt, gets the
  * host's actual outcome instead of silence.
  */
-export interface AskOutcome {
+interface AskOutcome {
   requestId: string;
   sessionId: string | null;
   turnId: string;
@@ -378,17 +378,17 @@ export interface AskOutcome {
  * deal from growing this without limit; the oldest outcome goes first, and a
  * forgotten request answers `not_recognized`, which stops replay just the same.
  */
-export const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
-export const ASK_OUTCOME_MAX = 1024;
+const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
+const ASK_OUTCOME_MAX = 1024;
 
-export interface PendingLocation {
+interface PendingLocation {
   turn: RunningTurn;
   turnId: string;
   resolve: (result: LocationFix) => void;
   reject: (err: Error) => void;
 }
 
-export interface PendingMask {
+interface PendingMask {
   turn: RunningTurn;
   turnId: string;
   resolve: (png: Uint8Array) => void;

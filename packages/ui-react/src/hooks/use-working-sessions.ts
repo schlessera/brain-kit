@@ -7,7 +7,7 @@ import type { ListedSession } from "../stores/session-list-state.js";
 import type { TrackerView } from "../lib/trackers.js";
 
 /** One tracker as the strip, its sheet, the drawer and the pane draw it. */
-export type WorkingSessionData = Omit<WorkingSession, "onOpen">;
+type WorkingSessionData = Omit<WorkingSession, "onOpen">;
 
 /**
  * What a tracker is called (D52 §3): #1004's few-word label when the host
@@ -33,7 +33,7 @@ const CANT_CHECK = {
 } as const;
 
 /** #948's view of one tracker, in the kit's vocabulary (`WorkingSession`). */
-export function workingSession(view: TrackerView, label: string): WorkingSessionData {
+function workingSession(view: TrackerView, label: string): WorkingSessionData {
   const base = { id: view.sessionId, label, startedAt: view.startedAt, endedAt: view.endedAt };
   switch (view.state) {
     case "needs_you":
@@ -53,7 +53,7 @@ export function workingSession(view: TrackerView, label: string): WorkingSession
   }
 }
 
-export interface WorkingSessions {
+interface WorkingSessions {
   /**
    * The trackers to draw as Working rows and pills, in D52 §4's order: none
    * that is cleared, every live one, and at most 24 done or cancelled.

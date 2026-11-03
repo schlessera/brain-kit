@@ -8,6 +8,7 @@ import {
   isInScratch,
   isWriteRefusal,
   pruneScratch,
+  brainRelativeArgument,
   resolveWritable,
   safeResolve,
   scratchName,
@@ -130,7 +131,7 @@ function slugify(prompt: string): string {
 }
 
 function loadImage(root: string, rel: string): ImageInput {
-  const abs = safeResolve(root, rel);
+  const abs = safeResolve(root, brainRelativeArgument(root, rel));
   if (!abs) throw new Error(`Path escapes the brain root: ${rel}`);
   if (!existsSync(abs)) throw new Error(`No such file: ${rel}`);
   const ext = extname(abs).toLowerCase();
@@ -282,7 +283,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // earlier draft must keep showing that draft.
     const toScratch = parsed.flags.scratch === true;
     const outRel =
-      (parsed.flags.out as string | undefined) ??
+      (parsed.flags.out === undefined ? undefined : brainRelativeArgument(ctx.root, parsed.flags.out as string)) ??
       (toScratch
         ? `${SCRATCH_DIR}/${scratchName(slugify(prompt), ext)}`
         : `${cfg.imagesDir}/${slugify(prompt)}-${new Date().toISOString().slice(0, 10)}.${ext}`);

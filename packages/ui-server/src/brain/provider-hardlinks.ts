@@ -7,7 +7,7 @@
 import { lstatSync, readdirSync, type BigIntStats } from "node:fs";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
-export interface ProviderHardlink { readonly path: string; readonly masked: string }
+interface ProviderHardlink { readonly path: string; readonly masked: string }
 
 const SLASH = Buffer.from("/");
 const vanished = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";

@@ -61,7 +61,7 @@ export function dropShareClaim(id: string): void {
   else storage()?.setItem(CLAIM_KEY, JSON.stringify(remaining));
 }
 
-export type ShareUploadOutcome =
+type ShareUploadOutcome =
   | { ok: true; result: ShareIntakeResult }
   | { ok: false; error: string; status?: number; limit?: number };
 

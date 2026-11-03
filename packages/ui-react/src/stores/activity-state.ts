@@ -10,7 +10,6 @@ import {
 } from "./activity-store-helpers.js";
 
 export {
-  EMPTY_EVENTS,
   childSpans,
   eventsFor,
   narrativeEventsFor,

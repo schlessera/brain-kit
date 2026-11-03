@@ -16,9 +16,11 @@ import {
 
 import { useHandoffStore } from "../../src/stores/handoff-store.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
-import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
+import { defaultRoot } from "../../src/default-root.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
 import { failurePresentation } from "../../src/lib/turn-failure.js";
+
+const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 afterEach(cleanup);
 afterAll(unregisterTurnFailureDom);

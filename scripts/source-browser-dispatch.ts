@@ -10,7 +10,7 @@ const helperConsumers:Record<string,string>={
   // Re-audited merged retained-history and stale-chat routing: only runStateForFrame
   // is imported; neither path acquires or mutates chatFrameHandlers.
   "packages/ui-react/src/connection.ts":"d1ab0f54089c75972f0597f4c2ca65bec2a0db418bad2ea438d05ccf558847ae",
-  "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
+  "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 const declarations=[
   {

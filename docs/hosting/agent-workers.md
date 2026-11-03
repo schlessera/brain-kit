@@ -1288,7 +1288,7 @@ its working directory. No first-party code reads `.env` any other way. The
 launcher binds `/dev/null` over every present `.env*` name at the brain root,
 and over the file an `.env*` link leads to, after every other mount, so no
 later bind can restore it (`maintenanceEnvMasks`,
-`packages/ui-sdk/src/server/maintenance-env-masks.ts:66-70`). The worker cannot
+`packages/ui-sdk/src/server/maintenance-env-masks.ts:67-71`). The worker cannot
 open them: a read fails with `EACCES`, so Bun loads nothing and `cat .env`
 prints nothing. A new `.env*` name is a protected tier A path, so a turn
 cannot create one in the brain either.

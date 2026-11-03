@@ -259,7 +259,7 @@ and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:1
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
 `packages/ui-react/src/lib/draft-client.ts:45-57`); browser reloadable work belongs
-to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).
+to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:236-254`).
 The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`; gating its
 resume case alone would leave HTTP, background readers and provider startup open.
 
