@@ -132,11 +132,28 @@ async function successfulBuild(storageFailure?: StorageFailure) {
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
     const wrapper = join(root, "node_modules/.bin/tsc");
+    // The optional dependency holds until a peer has finished and its slot has
+    // been refilled. Correct order refills it with the other peer; a consumer
+    // started there instead compiles, and fails, before the dependency's output
+    // exists. Both peers are ready from the start, so with two jobs a correct
+    // order never waits on the consumer.
     writeFileSync(wrapper, `#!${process.execPath}
-const args=process.argv.slice(2);
-if(args.some(arg=>arg.includes("/z-dependency/"))) await Bun.sleep(500);
+import { existsSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+const args=process.argv.slice(2), name=basename(dirname(args[args.indexOf("-p")+1]));
+const marker=(package_,state)=>join(${JSON.stringify(root)},package_+"-"+state);
+writeFileSync(marker(name,"started"),"");
+if(name==="z-dependency"){
+  const peers=["b-peer","c-peer"];
+  // Bounded by the owning test process: once it is gone, this hold ends.
+  while(!(peers.some(peer=>existsSync(marker(peer,"done"))) && (peers.every(peer=>existsSync(marker(peer,"started"))) || existsSync(marker("a-consumer","done"))))){
+    if(!existsSync("/proc/${process.pid}")){console.error("NO_PEER_SLOT_REFILLED_BEFORE_THE_DEPENDENCY");process.exit(3);}
+    await Bun.sleep(5);
+  }
+}
 const compiler=Bun.spawn([process.execPath,${JSON.stringify(join(repo, "node_modules/typescript/bin/tsc"))},...args],{stdout:"inherit",stderr:"inherit"});
 process.exitCode=await compiler.exited;
+writeFileSync(marker(name,"done"),String(process.exitCode));
 `);
     chmodSync(wrapper, 0o755);
     for (const name of ["a-consumer", "b-peer", "c-peer", "z-dependency"]) {
