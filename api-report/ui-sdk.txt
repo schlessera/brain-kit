@@ -84,13 +84,11 @@ export "." (./src/index.ts)
   type BrainStats
   type BudgetObservation
   type BudgetScope
+  CHAT_DELETION_CAPABILITY
   COMPOSER_FILES_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatAttachmentReference
-  CHAT_DELETION_CAPABILITY
-  CONVERSATION_CAPABILITY_KEYS
-  CONVERSATION_LIMITS
   type ChatDeletionOutcome
   type ChatDeletionReceipt
   type ChatDeletionRefusal
@@ -1472,13 +1470,11 @@ export "./protocol" (./src/protocol.ts)
   type BrainStats
   type BudgetObservation
   type BudgetScope
+  CHAT_DELETION_CAPABILITY
   COMPOSER_FILES_CAPABILITY
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatAttachmentReference
-  CHAT_DELETION_CAPABILITY
-  CONVERSATION_CAPABILITY_KEYS
-  CONVERSATION_LIMITS
   type ChatDeletionOutcome
   type ChatDeletionReceipt
   type ChatDeletionRefusal

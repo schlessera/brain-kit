@@ -1031,8 +1031,8 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
-                    chat_attachment: "chat_attachment";
                     apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     mcp_document: "mcp_document";

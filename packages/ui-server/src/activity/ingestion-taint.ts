@@ -3,7 +3,7 @@ import { posix } from "node:path";
 import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
-export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "workspace_read" | "mcp_document"
+export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attachment" | "workspace_read" | "mcp_document"
   | "user_marked" | "fetching_command" | "unclassified_command";
 
 /** Whether a brain-relative path carries the user's untrusted mark (#2673). */
