@@ -48,6 +48,15 @@ tool changes; the deletion endpoint is not part of this change. See
 [the package component](integration-contract/package-api.md#native-history-removal-additive-3229).
 This ships in a minor; no breaking ruling is required.
 
+## Maintenance worker output allowance (additive, 0.45.0, #3357)
+
+A maintenance worker's launcher may declare its output stage's size and setting
+in `BRAIN_WORKER_OUTPUT_ALLOWANCE`. A `brain maintain` git step that runs out of
+space then names that limit, its bytes, the setting and the starting headroom;
+without it, the same refusal names the headroom alone. No JSON shape changes.
+See [the CLI component](integration-contract/cli.md#maintenance-worker-output-allowance-additive-0450-3357).
+This ships in a minor; no breaking ruling is required.
+
 ## Agent runner unavailable in maintenance workers (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker's launcher sets

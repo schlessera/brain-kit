@@ -9,8 +9,9 @@ import { readBrainApplicationBase } from "../brain/application.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxStore } from "./store.js";
 import { acquireInboxRunLifetime, inboxRunIsLive } from "./lifetime.js";
-import { enqueueInboxCleanup } from "./actions.js";
+import { enqueueInboxCleanup, inboxIdentity, retireInboxAction } from "./actions.js";
 import { recoverAutonomousItem } from "./yield.js";
+import { markdownLinkTargets } from "./share-links.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
 
 interface Binding { item_id: string; staging_id: string; principal_id: string; session_id: string | null; run_id: string; completion_json: string | null }
@@ -71,8 +72,19 @@ export function setup(db: Database, { root }: { root: string }): WriteProcedures
         // The existing runtime owns expired-lease recovery, including attempt limits.
         if (item.runId !== runId) throw new Error("Share awaits lease recovery");
       } else {
-        if (item.status !== "ready" || item.expiresAt <= Date.now() || (item.waitUntil ?? 0) > Date.now()) throw new Error("Share is not ready for recovery");
-        store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "claimed", runId, leaseUntil: Date.now() + 10 * 60_000 }]);
+        // Each turn is the user's own retry, never an autonomous one: claims
+        // spend no attempts and ignore retry backoff. A share that earlier
+        // turns exhausted to `failed` stays recoverable by its filing session.
+        if (!["ready", "failed"].includes(item.status) || item.expiresAt <= Date.now()) throw new Error("Share is not ready for recovery");
+        let version = item.version;
+        if (item.status === "failed") {
+          store.commit([{ kind: "transition", itemId: item.id, expectedVersion: version, to: "ready" }]); version++;
+          // The exhausted-retries Action no longer describes this share, and a
+          // pending one would hold its staging cleanup after completion.
+          const deadLetter = store.getItem(inboxIdentity("dead-letter", item.id));
+          if (deadLetter?.queue === "actions" && ["pending", "snoozed"].includes(deadLetter.status)) retireInboxAction(db, deadLetter, "dropped", Date.now(), false);
+        }
+        store.commit([{ kind: "transition", itemId: item.id, expectedVersion: version, to: "claimed", runId, leaseUntil: Date.now() + 10 * 60_000, countAttempt: false }]);
       }
       if (!db.query("SELECT 1 FROM inbox_interactive_shares WHERE item_id = ?").get(binding.item_id))
         db.query("INSERT INTO inbox_interactive_shares (item_id, staging_id, principal_id, session_id, run_id) VALUES (?, ?, ?, ?, ?)").run(binding.item_id, binding.staging_id, principalId, binding.session_id, runId);
@@ -185,21 +197,28 @@ export function setup(db: Database, { root }: { root: string }): WriteProcedures
           return { itemId: binding.item_id, status: "done" as const, replay: true };
         }
         if (new Set(input.receiptIds).size !== input.receiptIds.length) throw new Error("Require distinct filing receipts");
-        const documents: string[] = [];
+        // A later edit of the same note supersedes an earlier receipt's hash.
+        // Each path is proven by whichever passed receipt matches its content.
+        const claims = new Map<string, { id: string; contentHash: string }[]>();
         for (const id of input.receiptIds) {
           const row = db.query("SELECT result_json FROM inbox_share_applications WHERE id = ? AND item_id = ?").get(id, binding.item_id) as { result_json: string | null } | null;
           const receipt = row?.result_json ? JSON.parse(row.result_json) as BrainApplicationResult : null;
           if (!receipt?.ok || receipt.shareReceiptId !== id || !receipt.changes.length) throw new Error("Unsupported, forged or unrelated filing receipt");
           for (const change of receipt.changes) {
             if (!change.contentHash) throw new Error("Destructive effects do not prove share filing");
-            const document = readBrainApplicationBase(root, change.path);
-            if (document.expectedBaseHash !== change.contentHash) throw new Error("Filed content no longer matches its authoritative receipt");
-            documents.push(document.content);
+            claims.set(change.path, [...claims.get(change.path) ?? [], { id, contentHash: change.contentHash }]);
           }
+        }
+        const documents: { path: string; content: string }[] = [];
+        for (const [path, receipts] of claims) {
+          const document = readBrainApplicationBase(root, path);
+          if (!receipts.some(r => r.contentHash === document.expectedBaseHash))
+            throw new Error(`Filed content at ${path} no longer matches receipt ${receipts.map(r => r.id).join(", ")}; pass the receipt of the latest filing application for each path`);
+          documents.push({ path, content: document.content });
         }
         // A source reference identifies the filing, rather than an unrelated write
         // made in the same chat. It is evidence of association, never a trust grant.
-        if (!documents.some(d => d.includes(`share-source:${binding.staging_id}`))) throw new Error("Filing must reference this share's source identity");
+        if (!documents.some(d => d.content.includes(`share-source:${binding.staging_id}`))) throw new Error("Filing must reference this share's source identity");
         const row = db.query("SELECT result_json, binary_hashes_json FROM inbox_intake_receipts WHERE item_id = ? AND state = 'committed'").get(binding.item_id) as { result_json: string; binary_hashes_json: string };
         const manifest = JSON.parse(row.result_json) as ShareIntakeResult;
         const originalHashes = JSON.parse(row.binary_hashes_json) as { path: string; sha256: string }[];
@@ -213,7 +232,11 @@ export function setup(db: Database, { root }: { root: string }): WriteProcedures
           if (disposition.disposition === "retained") {
             if (!disposition.path.startsWith("assets/") || disposition.path.split("/").some(p => p.startsWith("."))) throw new Error("Retained evidence requires an ordinary assets path");
             if (hash(binary(root, disposition.path)) !== hash(source)) throw new Error("Retained binary differs from the original");
-            if (!documents.some(d => d.includes(`](${disposition.path})`))) throw new Error("Retained binary must be linked by the filed document");
+            if (!documents.some(d => markdownLinkTargets(d.path, d.content).has(disposition.path))) {
+              const note = documents.find(d => d.content.includes(`share-source:${binding.staging_id}`))!.path;
+              const relative = encodeURI("../".repeat(note.split("/").length - 1) + disposition.path);
+              throw new Error(`Retained binary must be linked by the filed document: expected a Markdown link that resolves to ${disposition.path} from ${note}, such as [label](${relative}) or [label](${encodeURI(`/${disposition.path}`)}); wiki-links and links inside code do not count`);
+            }
           }
         }
         authorize(principalId, current);

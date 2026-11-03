@@ -14,6 +14,7 @@ import { editFrontmatter, type FrontmatterValue } from "./frontmatter-edit.js";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { canonicalFindings, detectCandidates, HYGIENE_DIR, HygieneLogError, readHygieneLog, reconcile, replaceIfUnchanged, type HygieneFinding } from "./hygiene.js";
 import { getMarkdownFiles, indexAll } from "./indexer.js";
+import { mediaPolicy } from "./media.js";
 import { safeResolve, writeFileSafely } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { validateDetailed } from "./validate.js";
@@ -204,14 +205,14 @@ function logContained(root: string): boolean {
   const canonicalRoot = safeResolve(root, ".");
   if (!canonicalRoot) return false;
   const expected = join(canonicalRoot, HYGIENE_DIR);
-  return safeResolve(root, HYGIENE_DIR) === expected && ["open.md", "snoozed.md", "dismissed.md", "resolved.md", "_index.md", "last-run.md", "repairs"].every(name => safeResolve(root, `${HYGIENE_DIR}/${name}`) === join(expected, name));
+  return safeResolve(root, HYGIENE_DIR) === expected && ["open.md", "snoozed.md", "dismissed.md", "resolved.md", "kept.md", "_index.md", "last-run.md", "repairs"].every(name => safeResolve(root, `${HYGIENE_DIR}/${name}`) === join(expected, name));
 }
 
 async function markResolved(brain: BrainContext, id: string, by: string, now: Date): Promise<string[]> {
   if (!logContained(brain.root)) throw new HygieneLogError("hygiene log is not contained");
   const d = await repairDetection(brain, now);
   if (d.failedChecks.length || d.findings.has(id)) throw new HygieneLogError("resolution check did not complete");
-  return reconcile(brain.root, d.candidates, d.docs, { now, resolution: { id, by } }).changedFiles;
+  return reconcile(brain.root, d.candidates, d.docs, { now, resolution: { id, by }, media: mediaPolicy(brain.config) }).changedFiles;
 }
 
 /** Apply uses the same real validation as preview/detection; tests inject a
