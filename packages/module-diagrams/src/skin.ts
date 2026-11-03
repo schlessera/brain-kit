@@ -1,4 +1,5 @@
 import { DIAGRAM_PALETTE } from "./skin.generated.js";
+import { DIAGRAM_ADVANCES } from "./font-metrics.generated.js";
 import type { DiagramSpec } from "./spec.js";
 export { DIAGRAM_PALETTE, DIAGRAM_TOKEN_CSS } from "./skin.generated.js";
 export type DiagramTheme = "light" | "dark" | "print";
@@ -12,10 +13,18 @@ export const DIAGRAM_TYPE: Record<DiagramTypeRole, DiagramTypeStyle> = {
  label: { family: '"JetBrains Mono", ui-monospace, monospace', size: 9.5, weight: 600, tracking: 0.09, uppercase: true },
 };
 /** Per-code-point widths include wide glyphs and tracking rather than script averages. */
+/** Headroom over the locked fonts' measured advances, for hinting and a briefly substituted fallback face. */
+export const TYPE_WIDTH_HEADROOM = 1.03;
 export function typeWidthBudget(text: string, role: DiagramTypeRole, fontSize: number = DIAGRAM_TYPE[role].size): number {
  if (!Number.isFinite(fontSize) || fontSize < 9) throw Error("Diagram type must be at least 9px");
- const style = DIAGRAM_TYPE[role], value = style.uppercase ? text.toUpperCase() : text;
- return Array.from(value).reduce((width, char) => width + fontSize * (/[\u0000-\u007f]/.test(char) ? role === "name" || role === "title" || role === "note" ? /[MWmw@%]/.test(char) ? 1.1 : /[il .,'!]/.test(char) ? 0.4 : 0.72 : 0.62 : 1.2) + style.tracking * fontSize, 0);
+ const style = DIAGRAM_TYPE[role], value = style.uppercase ? text.toUpperCase() : text, advances = DIAGRAM_ADVANCES[role];
+ // Printable ASCII uses the locked font's measured advance (kerning only narrows a run, so
+ // the sum bounds it); other code points keep the conservative estimate.
+ return Array.from(value).reduce((width, char) => {
+  const code = char.codePointAt(0)!, measured = code >= 0x20 && code < 0x7f ? advances[code - 0x20] : undefined;
+  const em = measured !== undefined ? measured * TYPE_WIDTH_HEADROOM : /[\u0000-\u007f]/.test(char) ? role === "name" || role === "title" || role === "note" ? /[MWmw@%]/.test(char) ? 1.1 : /[il .,'!]/.test(char) ? 0.4 : 0.72 : 0.62 : 1.2;
+  return width + fontSize * em + style.tracking * fontSize;
+ }, 0);
 }
 /** Shared painter/checker fit policy; never shrink below the floor. */
 export function fitDiagramText(text: string, role: DiagramTypeRole, availableWidth: number): number {
