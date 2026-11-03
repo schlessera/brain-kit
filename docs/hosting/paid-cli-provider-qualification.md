@@ -8,7 +8,8 @@ contract proposed for [#1673](https://github.com/schlessera/brain-kit/issues/167
 the maintainer's 2026-10-23 rulings on that issue: first-party recipients by
 default plus `BRAIN_UI_CLI_PROVIDER_ORIGINS`, a socket the CLI finds through
 `BRAIN_PROVIDER_RELAY_SOCKET`, per-attempt rows with no reservation, maintenance
-charged to its turn or day, and no relay for video or JeV. The sections below
+charged to its turn or day, and no relay for video or JeV. #2738 later relayed
+the video Files lifecycle (see below). The sections below
 keep the audit's evidence and requirements; where the relay settles one, it
 says so.
 
@@ -109,11 +110,15 @@ missing usage means unknown spend, not zero spend.
 Embedding and generation routes can be constrained to known methods and model
 paths. Video requires more: the native Files lifecycle follows a provider upload
 URL, sends bytes, polls an owned handle and deletes it with a fresh cleanup
-deadline (`withVideoFiles`, `packages/core/src/providers/completions/video.ts:16-76`).
+deadline (`withVideoFiles`, `packages/core/src/providers/completions/video.ts:21-83`).
 The host must validate upload destinations and retain a private registry of
 handles created by that turn. It must not accept worker-selected arbitrary
-upload URLs or general GET/DELETE access. The existing POST-only relay cannot be
-claimed to cover that lifecycle. Multipart edits must preserve native boundaries,
+upload URLs or general GET/DELETE access. #1673's POST-only relay did not cover
+that lifecycle. #2738 extends it to: it hands the worker a token URL in place of
+the provider's upload URL, which must be on the authorized origin's `/upload/`
+path; it polls, deletes or names in a generation only handles its own uploads
+created; and it deletes the turn's leftover files when it stops
+([agent workers](agent-workers.md#metered-provider-relay-1673)). Multipart edits must preserve native boundaries,
 references, masks and cancellation rather than reconstructing a JSON approximation.
 
 ### Capture units before converting the response
