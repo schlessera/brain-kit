@@ -10,14 +10,15 @@ import { DiagramContent } from "../../../module-diagrams/src/ui.js";
 import { BrainUiProvider, createBrainUiRoot, type BrainUiRoot } from "@schlessera/brain-ui-react";
 import { CONTROL_RING, ring } from "../../../ui-kit/stories/_stage.js";
 
-let host: HTMLDivElement, render: Root, root: BrainUiRoot, styles: HTMLStyleElement, viewport: { width: number; height: number };
+let host: HTMLDivElement, render: Root, root: BrainUiRoot, styles: HTMLStyleElement, viewport: { width: number; height: number }, frameViewport: { width: number; height: number };
 const originalTheme = document.documentElement.dataset.theme;
-const LONG = "The homecoming relay from Troy to Ithaca, with every harbour, crew muster and provision ledger Odysseus kept";
+const LONG = "Odysseus relays each harbour, muster and ledger to Ithaca"; // the spec's 60-character title maximum
 beforeAll(async () => {
-  viewport = await commands.formViewport(1400, 1000);
+  frameViewport = { width: innerWidth, height: innerHeight };
+  viewport = await commands.formViewport(1400, 1700); await page.viewport(1340, 1600);
   styles = document.createElement("style"); styles.dataset.diagramCaptureConsumer = ""; styles.textContent = await commands.formConsumerStyles(); document.head.append(styles);
 });
-afterAll(async () => { styles?.remove(); await commands.formViewport(viewport.width - 100, viewport.height - 120); });
+afterAll(async () => { styles?.remove(); await page.viewport(frameViewport.width, frameViewport.height); await commands.formViewport(viewport.width - 100, viewport.height - 120); });
 afterEach(async () => { await commands.mermaidMedia("screen"); if (render) flushSync(() => render.unmount()); root?.dispose(); host?.remove(); document.documentElement.dataset.theme = originalTheme; });
 
 function mount(width: number, theme: "light" | "dark", source: string) {
@@ -91,8 +92,8 @@ test("the semantic fallback keeps the same frame and header at 320px", async () 
   await expect.poll(() => host.querySelector("[data-diagram-summary]")).not.toBeNull();
   expect(parts().svg).toBeNull();
   assertFrame(320);
-  const summary = host.querySelector<HTMLElement>("[data-diagram-summary]")!.getBoundingClientRect(), frame = parts().figure.getBoundingClientRect();
-  expect(summary.left - frame.left, "SUMMARY_INSET").toBeGreaterThanOrEqual(12);
+  const summary = host.querySelector<HTMLElement>("[data-diagram-summary]")!, range = document.createRange(); range.selectNodeContents(summary);
+  expect(range.getBoundingClientRect().left - parts().figure.getBoundingClientRect().left, "SUMMARY_TEXT_INSET").toBeGreaterThanOrEqual(12);
   await page.screenshot({ element: host, path: "../../.vitest-attachments/diagram-frame/dark-320-fallback.png" });
 });
 
