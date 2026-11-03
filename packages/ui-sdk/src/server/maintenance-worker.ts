@@ -20,7 +20,7 @@ import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerB
 import { WorkerIdentityCleanupError, workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
-import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenance-temp-budget.js";
+import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempKind } from "./maintenance-temp-budget.js";
 import { OUTPUT_STAGING_BYTES_ENV, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
@@ -37,6 +37,8 @@ export interface MaintenanceCommand {
   tempLimits?: WorkerStateLimits;
   /** Existing host operational-state identity; absent standalone callers use their private domain. */
   tempDomain?: MaintenanceTempDomain;
+  /** What the reservation is for, named by a busy refusal (#3461); default `command`. */
+  tempKind?: MaintenanceTempKind;
   brainPath: string;
   startupView?: WorkerStartupView;
   /** Host-chosen output workspace; never mounted over the configuration view. */
@@ -260,7 +262,7 @@ export function launchMaintenanceWorkerAsync(input: MaintenanceCommand): Promise
 
 function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<MaintenanceWorker> {
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
-  const reservation = reserveMaintenanceTemp(limits, tempDomain(input));
+  const reservation = reserveMaintenanceTemp(limits, tempDomain(input), input.tempKind);
   let startupView: WorkerStartupView | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
@@ -426,7 +428,7 @@ export async function probeNativeMaintenanceWorker(brainPath: string, tempLimits
   try {
     outputs = await prepareNativeWorkerOutput(realpathSync(brainPath), { startupView, signal });
     const result = await runMaintenanceWorker({ brainPath, startupView: outputs.view, output: { ...outputs.output, target: "/tmp/brain-maintenance-output" },
-      command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" }, credentials: false, tempKind: "probe",
       ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), signal, timeoutMs: 5_000 });
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0,300) || `exit ${result.exitCode}`})` };
@@ -449,12 +451,12 @@ const EMPTY_REPOSITORY = "/tmp/brain-empty-repository";
  * trusts the brain it serves. `emptyRepository` asks through a fresh empty
  * repository inside the worker, for a brain outside any repository.
  */
-export function brainGitSync(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number } & MaintenanceHost = {}): number {
+export function brainGitSync(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number; tempKind?: MaintenanceTempKind } & MaintenanceHost = {}): number {
   return runWorkerStepsSync(brainGitSteps(brain, args, options));
 }
 
 /** `brainGitSync` as steps, for a caller that can await the worker (#2416). */
-export function* brainGitSteps(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number } & MaintenanceHost = {}): WorkerSteps<number> {
+export function* brainGitSteps(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number; tempKind?: MaintenanceTempKind } & MaintenanceHost = {}): WorkerSteps<number> {
   const git = Bun.which("git");
   if (!git) return 127;
   const root = realpathSync(brain);
@@ -473,7 +475,7 @@ export function* brainGitSteps(brain: string, args: readonly string[], options: 
     : [git, ...safe, ...args];
   try {
     return (yield* runMaintenanceWorkerSteps({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
-      credentials: false, timeoutMs: options.timeoutMs ?? 10_000 })).exitCode;
+      credentials: false, tempKind: options.tempKind ?? "git", timeoutMs: options.timeoutMs ?? 10_000 })).exitCode;
   } catch (error) { if (error instanceof WorkerStateError) throw error; return 127; }
 }
 
@@ -488,7 +490,7 @@ export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerSta
     outputs = prepareWorkerOutput(realpathSync(brainPath), { startupView });
     const result = runMaintenanceWorkerSync({ brainPath, startupView: outputs.view, output: outputs.output,
       command: ["/bin/sh", "-c", 'printf "qualified" > "$BRAIN_ROOT/.brain-maintenance-probe"'], env: { PATH: "/usr/bin:/bin" },
-      credentials: false, ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });
+      credentials: false, tempKind: "probe", ...(tempLimits ? { tempLimits } : {}), ...(tempDomain ? { tempDomain } : {}), timeoutMs: 5_000 });
     if (result.exitCode === 0) return { ok: true };
     return { ok: false, requirement: `a credential-free maintenance worker could not start (${result.stderr.trim().slice(0, 300) || `exit ${result.exitCode}`})` };
   } catch (error) {
@@ -507,7 +509,7 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
 
 function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: number }): WorkerSteps<MaintenanceResult> {
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
-  const reservation = reserveMaintenanceTemp(limits, tempDomain(input));
+  const reservation = reserveMaintenanceTemp(limits, tempDomain(input), input.tempKind);
   let startupView: WorkerStartupView | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
