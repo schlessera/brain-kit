@@ -62,6 +62,17 @@ describe("validate", () => {
     });
   });
 
+  test("accepts frontmatter after a byte order mark, as the indexer reads it (#2507)", () => {
+    const fields = { type: "identity", title: "Identity", created: '"2026-01-01"', updated: '"2026-01-02"', tags: "[me]" };
+    const root = makeCorpus({ "me/identity.md": `\uFEFF${doc(fields)}` });
+    expect(validate(root, taxonomy).filter((i) => i.level === "error")).toEqual([]);
+  });
+
+  test("a four-dash first line is not frontmatter (#2507)", () => {
+    const root = makeCorpus({ "notes/raw.md": "----\ntitle: x\n----\nbody\n" });
+    expect(validate(root, taxonomy)).toContainEqual({ file: "notes/raw.md", level: "error", message: "Missing YAML frontmatter" });
+  });
+
   test("reports an invalid type and lists the taxonomy's valid types", () => {
     const root = makeCorpus({
       "notes/x.md": doc({ type: "bogus", title: "X", tags: "[a]" }),
