@@ -1337,7 +1337,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
+  return (`export function bashTool`, `packages/ui-backend-pi/src/file-tools.ts:151`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1443,10 +1443,10 @@ evidence is unproven.
 The pi backend reports evidence only from its own record of each call's RPCs.
 A call that names two tools, takes the write lock as a read, or reports only
 part of its read proves nothing (`export function provenToolExecution`,
-`packages/ui-backend-pi/src/worker-session.ts:48-56`). It reports nothing at
+`packages/ui-backend-pi/src/worker-session.ts:29-37`). It reports nothing at
 all for a worker that loads extensions. Extension handlers run on every tool
 event, bridge reads included, and can write at any time
-(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:457`).
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:139`).
 With extensions loaded, which is pi's default, every result is observed as
 before. The worker's reports are evidence only while it has run nothing but
 curated code. Once it admits a call outside the provable set (`bash`, `grep`,
@@ -2763,7 +2763,7 @@ every turn without a proven recipient:
     document's text there.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:99-105`), together with
+    `packages/ui-backend-pi/src/worker-session.ts:75-81`), together with
     that session's fixed system-prompt append. Its stored native file
     observations are content hashes, not text. Pi has no memory folder; its
     worker receives only `settings.json` (with `auth.json` and `models.json`
@@ -3641,7 +3641,7 @@ the accepted cancellation (`cancelAcquiredSession`,
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
-`packages/ui-backend-pi/src/worker-session.ts:758-774`). Its inactive path
+`packages/ui-backend-pi/src/worker-session.ts:212-228`). Its inactive path
 awaits exit and protocol consumption, the awaited turn-temp close above, then
 stdio release even if exit or cleanup refuses. Failed cleanup keeps the
 reservation charged and remains retryable. Disposal and Stop signalling keep
