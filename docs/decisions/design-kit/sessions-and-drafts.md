@@ -471,7 +471,10 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   the case, not a change: one restored on load, taken in from another tab,
 >   or made by leaving the session in view announces nothing then. Work that
 >   starts in a session nobody is watching announces its first settled view.
->   Changes that arrive together are each announced.
+>   Changes that arrive together are each announced. A read that could not
+>   answer (`can't check`) or that was contradicted (`unknown`) is not what a
+>   change is measured from: the same state of the same turn, read again
+>   after it, is not announced a second time (#3414).
 > - Opening a tracker moves focus once the session's replayed history is
 >   complete (a chunk has come and none has followed it for 150ms) and, for
 >   `needs you`, its card is drawn: 5 seconds at most, then with what is

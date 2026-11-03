@@ -6,6 +6,9 @@ export type AnnouncedState = Extract<TrackerState, "needs_you" | "failed" | "don
 
 const ANNOUNCED: ReadonlySet<TrackerState> = new Set<AnnouncedState>(["needs_you", "failed", "done"]);
 
+/** States that say only that the work could not be read; they never become the baseline a change is measured from. */
+const UNREAD: ReadonlySet<TrackerState> = new Set<TrackerState>(["cant_check", "unknown"]);
+
 export interface TrackerAnnouncement {
   sessionId: string;
   state: AnnouncedState;
@@ -22,6 +25,12 @@ export interface TrackerAnnouncement {
  * and a re-read that says the same thing announce nothing, and neither does
  * anything before a tracker's view is `settled` (nothing has answered for it
  * yet).
+ *
+ * A read that could not answer (`can't check`) or that contradicted what was
+ * known (`unknown`) says nothing new about the work, so it does not replace
+ * the state last seen to settle (#3414). The read after it that says the same
+ * thing again (the same failure of the same turn) announces nothing. Work
+ * that moved on during the gap is still a change.
  *
  * The first settled view of a tracker is its baseline, not a change: a
  * tracker restored on load, taken in from another tab, or made by leaving a
@@ -46,6 +55,7 @@ export function createTrackerAnnouncer() {
         present.add(view.sessionId);
         if (!view.settled) continue;
         const before = last.get(view.sessionId);
+        if (before !== undefined && UNREAD.has(view.state)) continue;
         last.set(view.sessionId, { state: view.state, turnId: view.turnId });
         const first = before === undefined;
         const wasFresh = fresh.delete(view.sessionId);
