@@ -1363,13 +1363,17 @@ remain binding. Nothing here changes what counts as `proof`.
 ### Proof-system lane
 
 The [#2938 ruling](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403426650),
-as [amended for the Phase B gate](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403467288):
+as [amended for the Phase B gate](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6403467288)
+and [for the window and bundling](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6580707195):
 
 1. **Serialized lane.** Proof-system and global-tooling changes land one at a
    time, under the existing reservation. Product changes do not wait on them.
+   Related proof-system changes may land together as one squash, which counts
+   as one change for the lane, the window and the epoch. Each issue it delivers
+   still carries its own failing-first and mutation receipts.
 2. **Stability window.** After a proof-system change merges, the next one may
-   merge only when that change's own main run and the next two main runs are
-   green.
+   merge once that change's own main run is green. If a main run fails, the
+   lane reopens at the next green main run.
 3. **Off-main qualification is required.** A test optimization (shard layout,
    timeout budgets, selection rules, worker counts) is qualified by replay or
    dispatch runs before merging, with the evidence on the PR. Red-main fixes
@@ -1422,6 +1426,129 @@ Each implementation task is tracked separately:
 - lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
 - automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
+
+### Red-main record and coordinator
+
+The [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614)
+are implemented by [#2942](https://github.com/schlessera/brain-kit/issues/2942):
+
+- **Strict flake handling.** A rerun is only a triage probe that decides whether
+  main is declared red. It never turns proof green or makes anything mergeable.
+  It always files or updates an issue on the test, and a second suspected flake
+  on one test within seven days is treated as real. "Never rerun a real failure"
+  stays.
+- **A red main stops doomed work.** Hosted proof whose merge ref contains the
+  bad commit is refused or cancelled, except declared fixes. Draft heavy
+  feedback runs the same gate on its requested head. Each machine keeps its own
+  resources for a fix it is building.
+- **Coordination runs on GitHub.** A coordinator workflow on main CI completion
+  and the shared reservation ref hold the repository-level record. Orchestrators
+  read and enforce it and never message each other.
+- **Merge blocking while red is cooperative, plus detection.** `integrate.ts`
+  refuses non-fix confirmation and merges. Any squash that lands anyway is
+  reported on its PR and on the incident. There is no repository ruleset.
+- **Several declared fixes** may exist for one incident; the first whose fix is
+  confirmed wins.
+- **One incident issue per record**, created once by the coordinator.
+
+The record is `red-main.json`, stored beside `reservation.json` in the same
+coordination ref and updated with the same exact `--force-with-lease`
+compare-and-swap. A write to either file preserves the other. It holds the
+first bad SHA, the failing tests and categories with the estimator's reasons,
+the opening run, the incident issue, the declared fix PRs, the squashes already
+reported, and a bounded ledger of suspected flakes.
+`bun scripts/integrate.ts main-status --json` reads it, and
+`declare-fix <pr>` adds a fix. It is leakage-screened like the reservation.
+
+The estimator is deterministic. It decides from the failing test's membership
+in the squash's own affected closure (an unknown closure counts as inside),
+the error signature from JUnit (timeout or assertion), environment-setup step
+failure, and earlier suspicions within the window. A suspected flake reruns
+only its failing test files at that SHA through `red-main-probe.yml`. A real
+failure opens the record. The first bad SHA is the first commit after the last
+main run where the failing category actually ran green. When that range has
+2–10 commits, probes rerun only the failing test files at each candidate and
+narrow it; a wider range keeps the conservative first candidate.
+
+Main runs run their selected proof even when the metadata job fails. Each main
+run selects its own affected set plus every test and category in the open
+record. All of its jobs read one pinned coordination snapshot, and the
+metadata job prints the included set. The record is cleared only by a green
+main run that printed the same open record as included. The first step of a
+non-draft PR run refuses with `main red at <sha>, incident #<n>` when its merge
+ref contains the bad commit and the PR is not a declared fix. Draft runs keep
+their cheap gates. One ancestry rule decides every refusal and cancellation
+(`gateDecision`, `scripts/red-main.ts:209-216`): proof is doomed only when the
+tree it tests contains the bad commit and its PR is not a declared fix
+([#3321](https://github.com/schlessera/brain-kit/issues/3321)). The coordinator
+cancels a queued or running PR proof run only when its PR's base or head, as
+recorded when the run was created, descends from the bad commit
+(`cancelDoomed`, `scripts/red-main-coordinator.ts:154-179`). A run whose base
+GitHub did not record, or whose ancestry cannot be determined, is left alone.
+So proof for a PR against an integration or release branch forked before the
+bad commit keeps running. `integrate.ts` applies the same rule to the
+candidate's base and head before confirming or merging, and refuses when
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:62-66`). A non-fix squash
+that lands while red is reported once on its PR and on the incident, and
+recorded as an `incident` event through `scripts/ci-timings.ts record` in the
+coordinator's `red-main-events` artifact.
+
+`red-main.yml` declares no workflow-level permissions. Its one job has
+`contents: write` (the coordination ref), `actions: write` (cancel doomed PR
+runs, dispatch probes, read logs and artifacts), `issues: write` (incident and
+flake issues) and `pull-requests: write` (landed-while-red reports). It runs
+trusted default-branch tooling and parses candidate logs and artifacts as data.
+`red-main-probe.yml` has `contents: read` only. The incident workflow in the
+skills is #2944, and the expedited fix merge is #2940.
+
+#### Incident workflow and recovery
+
+[#2944](https://github.com/schlessera/brain-kit/issues/2944) is how
+orchestrators work the incident, following the 2026-10-25 direction that they
+work it like any other issue. All coordination goes through the record and
+the incident issue; agents never message each other.
+
+- **One fix claim, written atomically.** `bun scripts/red-main-incident.ts
+  claim` writes `open.claim` into `red-main.json` through the same
+  compare-and-swap: the claimant's worker and orchestrator IDs (opaque
+  tokens), when it claimed and last renewed, and an expiry one hour after the
+  last renewal. Exactly one concurrent claimant wins. The claim is then
+  mirrored to the issue's assignment and a claim comment; a rerun mirrors it
+  once. `renew` extends the term and `release` drops it. An expired claim may
+  be taken over: the new claim keeps the expired claimant in `takeover`, and a
+  takeover comment names it on the issue. Clearing the record removes the
+  claim. Records written before claims existed have no `claim` field and stay
+  valid; a present claim is validated strictly.
+- **Evidence in one fixed format.** `evidence` appends one comment to the
+  incident named in the record: a marker, the kind, the incident, who posted
+  it and whether they hold the claim, an optional SHA or issue, a one-line
+  summary and fenced details. The kinds are reproduction, bisect, log,
+  ruled-out, related, duplicate, fix-attempt and decision. A duplicate issue is
+  linked on the incident and pointed back to it. The command never files an
+  issue and never writes the record, and every comment passes the leakage
+  gate.
+- **Waiting.** Workers whose proof was refused or cancelled keep coding, run
+  fast checks or add evidence, and resume proof when `main-status` reports
+  green.
+
+The [2026-11-02 recovery ruling](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6574880345)
+settles what the claimant does:
+
+1. **Fix or targeted revert, from evidence.** After a quick assessment the
+   incident owner chooses a fix PR or a targeted revert PR. The choice rests on
+   causal and current-tree evidence; a red check or the latest squash alone is
+   not proof of cause.
+2. **The rationale is on the incident.** The owner records the choice and why
+   as `decision` evidence (`--choice fix|revert|uncertain`, with details),
+   including the dependency and conflict assessment. A revert preserves
+   unrelated and later good work. When neither change is supportable, the
+   decision says so explicitly instead of guessing.
+3. **The normal route, no shortcut.** Either PR is a declared fix and follows
+   normal required review, proof and recorded merge handling, including the
+   declared-red-main-fix route where it applies, with exact proof of the
+   resulting main: the green main run that includes the failing set. The
+   controller never merges anything itself, and there is no unbounded
+   recovery loop; a failed attempt gets a new assessment and decision.
 
 ### Hosted heavy feedback on draft heads
 
@@ -1489,8 +1616,36 @@ branch, so the request always runs main's admission code.
   feedback run. The [#2952](https://github.com/schlessera/brain-kit/issues/2952)
   runner-slot wait measures whether this is enough.
 - **Red main.** The refusal while main is red is the red-main gate from
-  [#2942](https://github.com/schlessera/brain-kit/issues/2942). Whichever of
-  #2942 and #3272 lands second adds that gate to the admission job.
+  [#2942](https://github.com/schlessera/brain-kit/issues/2942). The admission
+  job runs it on the requested head after admission
+  (`redMain.name`, `scripts/heavy-feedback-workflow.ts:85`), so feedback is
+  refused only when that head contains the bad commit and the PR is not a
+  declared fix ([#3321](https://github.com/schlessera/brain-kit/issues/3321)).
+
+### Conditional concurrency direction
+
+The [2026-11-02 maintainer decision on #2934](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6574700840)
+replaces the October deferral with a conditional direction. Concurrent integration
+is permitted: base-tolerant confirmation for candidates whose affected closures are
+disjoint, with reservations keyed by closure. That permission only takes effect
+once all three of these hold:
+
+1. **Stability gate.** Seven consecutive days within one proof-policy epoch,
+   first-main green at or above 80%, and every red incident attributed.
+2. **Measured benefit.** A complete measured baseline shows a material benefit
+   from reducing lease waits and reconfirmation.
+3. **Qualification.**
+   - Complete affected closures and global inputs are qualified.
+   - Unknown or changed graphs, and conflicts, are serialized conservatively.
+   - Coordination is deterministic.
+   - Each merge has an exact head/base/squash audit.
+   - Main runs full combined-tree proof, and each incident has an owner.
+
+Selected proof, the red-main controls and the current permissions are preserved.
+This is a policy direction, not a finding that any gate is met. Until a
+qualified rollout, the exact-base confirmation and the single exact-candidate
+reservation above still apply. Before any implementation, this record and the
+concrete child task briefs on #2934 are updated.
 
 ## Historical measurement and upstream guidance
 

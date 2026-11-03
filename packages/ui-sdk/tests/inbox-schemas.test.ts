@@ -13,7 +13,10 @@ const parseClient = (value: unknown) => parseClientMessage(JSON.stringify(value)
 const parseServer = (value: unknown) => parseServerMessage(JSON.stringify(value));
 
 test("review reads retain an optional strict Actions-limit pause reason and accept existing states", () => {
-  const review: HygieneReviewState = { version: 1, status: "paused", position: 1, fixed: 0, dismissed: 0, snoozed: 0 };
+  // A row stored before #2780 parses with the media review defaults.
+  const stored = { version: 1 as const, status: "paused" as const, position: 1, fixed: 0, dismissed: 0, snoozed: 0 };
+  const review = { ...stored, kept: 0, pass: 0, deferred: [] as { findingId: string; fingerprint: string }[] };
+  expect(hygieneReviewReadSchema.parse({ review: stored, action: null })).toEqual({ review, action: null });
   expect(hygieneReviewReadSchema.parse({ review, action: null })).toEqual({ review, action: null });
   const pauseReason: NonNullable<HygieneReviewState["pauseReason"]> = { kind: "actions-limit", retiredActionId: "retired-card", retirementReceiptId: "retirement-fyi" };
   const read = { review: { ...review, pauseReason }, action: null };
@@ -215,6 +218,6 @@ test("human hygiene refresh and superseded receipts round-trip without accepting
   const { hygieneReviewCommandSchema, hygieneReviewReadSchema } = await import("../src/schemas.js");
   expect(hygieneReviewCommandSchema.parse({ operation: "refresh" })).toEqual({ operation: "refresh" });
   expect(hygieneReviewCommandSchema.safeParse({ operation: "refresh", principalId: "owner" }).success).toBe(false);
-  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "active", position: 1, fixed: 0, dismissed: 0, snoozed: 0 }, action: { ...actionItem, status: "dropped", hygiene: { findingId: "finding", fingerprint: "old", finding: { evidence: "Eumaeus hut" }, outcome: { version: 1, status: "superseded", supersededBy: "new-card" } } } };
+  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "active", position: 1, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 0, deferred: [] }, action: { ...actionItem, status: "dropped", hygiene: { findingId: "finding", fingerprint: "old", finding: { evidence: "Eumaeus hut" }, outcome: { version: 1, status: "superseded", supersededBy: "new-card" } } } };
   expect(read).toEqual(hygieneReviewReadSchema.parse(read));
 });

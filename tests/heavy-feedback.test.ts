@@ -84,13 +84,14 @@ test("the request script reads the live head, dispatches it from the default bra
     calls.push({ args, input });
     if (args.join(" ") === `api repos/${REPO}/pulls/7`) return JSON.stringify(pull);
     if (args.join(" ") === `api repos/${REPO}`) return JSON.stringify({ default_branch: "main" });
+    // Like GitHub, the dispatch answers with an empty body unless the request asks for its run details.
     if (args.join(" ") === `api --method POST repos/${REPO}/actions/workflows/heavy-feedback.yml/dispatches --input -`)
-      return JSON.stringify({ workflow_run_id: 99, run_url: `https://api.github.com/repos/${REPO}/actions/runs/99`, html_url: `https://github.com/${REPO}/actions/runs/99` });
+      return JSON.parse(input!).return_run_details !== true ? "" : JSON.stringify({ workflow_run_id: 99, run_url: `https://api.github.com/repos/${REPO}/actions/runs/99`, html_url: `https://github.com/${REPO}/actions/runs/99` });
     throw new Error(`Unexpected gh ${args.join(" ")}`);
   };
   expect(await requestHeavyFeedback(gh(draft), REPO, 7)).toEqual({ pr: 7, head: HEAD, base: BASE, workflow: "heavy-feedback.yml",
     run: 99, url: `https://github.com/${REPO}/actions/runs/99`, api: `https://api.github.com/repos/${REPO}/actions/runs/99` });
-  expect(JSON.parse(calls.at(-1)!.input!)).toEqual({ ref: "main", inputs: { pr: "7", head_sha: HEAD } });
+  expect(JSON.parse(calls.at(-1)!.input!)).toEqual({ ref: "main", inputs: { pr: "7", head_sha: HEAD }, return_run_details: true });
   calls.length = 0;
   await expect(requestHeavyFeedback(gh({ ...draft, draft: false }), REPO, 7), "READY_REQUEST_REFUSED").rejects.toThrow("is ready");
   expect(calls.some(call => call.args.includes("POST")), "NO_DISPATCH_AFTER_REFUSAL").toBe(false);
@@ -118,6 +119,12 @@ test("the workflow is ci.yml's category jobs with per-PR cancellation and an agg
   expect(workflow.jobs.aggregate.name).toBe(FEEDBACK_AGGREGATE);
   expect(Object.entries(workflow.jobs).map(([id, job]: [string, any]) => job.name ?? id)).not.toContain("proof");
   expect(workflow.on.pull_request.types, "PUSH_CANCELS_FEEDBACK").toContain("synchronize");
+  // Feedback on a head containing main's recorded bad commit is refused like proof (#2942).
+  const admission = workflow.jobs.changeset.steps.map((step: any) => step.run ?? step.uses);
+  expect(admission.indexOf("bun scripts/red-main-cli.ts gate"), "RED_MAIN_GATE").toBeGreaterThan(admission.lastIndexOf("bun install --frozen-lockfile"));
+  expect(admission.indexOf("bun scripts/red-main-cli.ts gate"), "GATE_BEFORE_PLAN").toBeLessThan(admission.indexOf("bun scripts/ci-plan.ts"));
+  expect(workflow.jobs.changeset.steps.find((step: any) => step.run === "bun scripts/red-main-cli.ts gate").env).toEqual({ PR_NUMBER: "${{ inputs.pr }}" });
+  expect(() => renderHeavyFeedbackWorkflow(ci.replace("run: bun scripts/red-main-cli.ts gate", "run: bun scripts/red-main-cli.ts noop")), "GATE_REQUIRED").toThrow("lost its red-main gate");
   for (const name of ["unit", "runtime_host", "browser"]) {
     const pins = (job: any) => job.steps.filter((step: any) => step.uses).map((step: any) => `${step.uses} ${JSON.stringify({ ...step.with, ref: undefined })}`);
     expect(pins(workflow.jobs[name]), `${name}_SAME_PINS`).toEqual(pins(source.jobs[name]));

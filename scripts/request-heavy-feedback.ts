@@ -26,9 +26,10 @@ export async function requestHeavyFeedback(gh: GH, repository: string, pr: numbe
   const live = await requireLiveDraftHead(api, { repository, pr, head });
   const branch = JSON.parse(await gh(["api", `repos/${repository}`]))?.default_branch;
   if (typeof branch !== "string" || !branch) throw new Error("Default branch unavailable");
-  // The dispatch endpoint answers 200 with workflow_run_id, run_url and html_url.
+  // Only with return_run_details does the dispatch endpoint answer 200 with
+  // workflow_run_id, run_url and html_url; without it the body is empty.
   const body = await gh(["api", "--method", "POST", `repos/${repository}/actions/workflows/${FEEDBACK_WORKFLOW}/dispatches`, "--input", "-"],
-    JSON.stringify({ ref: branch, inputs: { pr: String(pr), head_sha: live.head } }));
+    JSON.stringify({ ref: branch, inputs: { pr: String(pr), head_sha: live.head }, return_run_details: true }));
   const response = body ? JSON.parse(body) : undefined;
   if (!Number.isSafeInteger(response?.workflow_run_id) || typeof response.html_url !== "string" || typeof response.run_url !== "string") throw new Error("GitHub accepted the dispatch without returning its run identity");
   return { pr, head: live.head, base: live.base, workflow: FEEDBACK_WORKFLOW, run: response.workflow_run_id, url: response.html_url, api: response.run_url };

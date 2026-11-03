@@ -20,6 +20,7 @@ import { buildDiagramShareOptions } from "../chat/mermaid-share.js";
 import { buildImageShareOptions } from "../images/image-share.js";
 import type { FileContentResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { ViewerEmpty, ViewerFailure, ViewerExpired, ViewerLoading, ViewerToolbar } from "./file-viewer-frame.js";
+import { UntrustedMarksScope, useUntrustedToolbar } from "./untrusted-marks.js";
 
 /**
  * The container (S7): reads the file store, builds the share options (they
@@ -27,6 +28,10 @@ import { ViewerEmpty, ViewerFailure, ViewerExpired, ViewerLoading, ViewerToolbar
  * `file-viewer-frame.tsx`, rendered from props.
  */
 export function FileViewer() {
+  return <UntrustedMarksScope><FileViewerContent /></UntrustedMarksScope>;
+}
+
+function FileViewerContent() {
   const root = useBrainUiRoot();
   const declarations = useContentRendererDeclarations();
   const viewer = useRef<HTMLDivElement>(null);
@@ -61,6 +66,9 @@ export function FileViewer() {
         setViewMode={setViewMode}
         previewAvailable={previewAvailable}
         content={content ?? null}
+        // The mark applies to a file this view loaded: none on a failure, a forbidden or a missing file.
+        markLoaded={!loading && !error && !expired && content?.path === currentPath}
+        focusTitle={() => viewer.current?.querySelector<HTMLElement>("[data-file-title]")?.focus({ preventScroll: true })}
         onRevealInTree={() => setTreeExpanded(true)}
       />
 
@@ -110,6 +118,8 @@ function Toolbar({
   setViewMode,
   previewAvailable,
   content,
+  markLoaded,
+  focusTitle,
   onRevealInTree,
 }: {
   fileName: string;
@@ -119,10 +129,13 @@ function Toolbar({
   setViewMode: (m: "preview" | "raw") => void;
   previewAvailable: boolean;
   content: FileContentResponse | null;
+  markLoaded: boolean;
+  focusTitle: () => void;
   onRevealInTree: () => void;
 }) {
   const root = useBrainUiRoot();
   const [copied, setCopied] = useState(false);
+  const untrusted = useUntrustedToolbar(fullPath, markLoaded, fileName, focusTitle);
   const shareOptions = content ? buildFileShareOptions(root, content, fileName) : [];
   return (
     <ViewerToolbar
@@ -134,6 +147,8 @@ function Toolbar({
       copied={copied}
       share={shareOptions.length > 0 ? <ShareMenu options={shareOptions} title="Share" /> : null}
       openInTab={content?.kind === "html" ? htmlPreviewUrl(root, content.path) : undefined}
+      untrusted={untrusted.control}
+      untrustedCue={untrusted.cue}
       onMode={setViewMode}
       onCopyPath={() => {
         navigator.clipboard.writeText(fullPath);
