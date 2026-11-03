@@ -25,10 +25,22 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   await held.turnEgress?.settled();
   host.dialogue.retireTurn(turn.turnId);
   if (held.referenceTurn) host.referenceTools?.end(turn.turnId);
+  const budgetFailure = run.stops.budget;
+  // External compute (#3108, ruling R7): a cancelled, timed-out,
+  // budget-stopped or revoked turn cancels the jobs it started; a turn
+  // that ended normally leaves them to the host driver, so a later turn
+  // of the conversation can collect them. Not awaited: release is bounded
+  // by each provider call, and the turn's end must not wait on a vendor.
+  if (host.computeTools) {
+    if (run.abortController.signal.aborted || turn.cancelled || outcome.revoked) {
+      const reason = turn.cancelled ? "the turn was cancelled" : outcome.revoked ? "the turn's authority was revoked"
+        : budgetFailure ? "the turn's budget stopped it" : "the turn was stopped";
+      void host.computeTools.cancelTurn(turn.turnId, reason).catch(error => host.log.emit({ severityText: "ERROR", body: `compute jobs of a stopped turn were not cancelled: ${String(error)}` }));
+    } else host.computeTools.endTurn(turn.turnId);
+  }
   // Apify (#3162): a cancelled, timed-out or budget-stopped turn aborts the
   // runs it started, off the turn's path; a finished turn leaves them for
   // later status reads in its conversation.
-  const budgetFailure = run.stops.budget;
   if (host.apify && (turn.cancelled || run.abortController.signal.aborted || budgetFailure))
     void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
   // No grant after this point: the final observation covers everything granted.

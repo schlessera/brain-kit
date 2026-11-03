@@ -9,7 +9,7 @@ import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../
 import { replaceNativeStartupAcquisitionForFixture } from "../../../ui-server/tests/helpers/fixture-native-startup.js";
 import { changeRepository, fixtureBrain, turnDataTree } from "../../../../tests/fixtures/provider-history-brain.js";
 import type { Captures, HistoryCapture } from "../../../../tests/helpers/provider-history.js";
-import type { ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
+import type { ComputeToolCall, ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 const scratch = process.argv[2]!;
 const captures: Captures = {};
@@ -23,6 +23,14 @@ const SOURCE_FRESHNESS = [{ commit: "1".repeat(40), freshness: "fresh", hour: 0,
   { commit: "2".repeat(40), freshness: "stale", hour: 1, error: "The Ithaca remote did not answer." }] as const;
 /** Scenarios whose every turn calls a reference tool: `reference` withholds the handler on turn 1, the others answer every turn. */
 const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness"];
+/**
+ * External compute (#3108): every turn asks the host for one job's status. Turn 1
+ * has no host handler (compute disabled and the turn is voice), and the host's answer changes
+ * between the other turns; tools, system and earlier history stay put.
+ */
+const COMPUTE_STATES = ["running", "running", "succeeded"] as const;
+/** Scenarios whose every turn calls a host bridge tool. */
+const TOOL_SCENARIOS = [...REFERENCE_SCENARIOS, "compute"];
 let scenario = "";
 let brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -30,9 +38,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read") === true;
-  const tool = main && (REFERENCE_SCENARIOS.includes(scenario) ? turnOpen : sequence++ === 0);
+  const tool = main && (TOOL_SCENARIOS.includes(scenario) ? turnOpen : sequence++ === 0);
   if (main) turnOpen = false;
-  const content = tool ? [scenario === "freshness"
+  const content = tool ? [scenario === "compute"
+    ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__brain_compute_status", input: { job: "cj_ithaca" } }
+    : scenario === "freshness"
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } }
     : REFERENCE_SCENARIOS.includes(scenario)
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_worktree", input: REFERENCE_ACTIONS[turnIndex] }
@@ -51,7 +61,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "datatree"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "datatree", "compute"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -70,12 +80,17 @@ try {
         workerStartupView: view, workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
           ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
         client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
-        ...(scenario === "posture" && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
+        ...((scenario === "posture" || scenario === "compute") && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" as const }; },
           async proposePolicyChange() { throw new Error("Unused fixture capability"); },
           // The local CLI replays turn 0's MCP roster on resume, so the assembled roster is held as well.
-          ...(REFERENCE_SCENARIOS.includes(scenario) ? { activity(event: { kind: string; prefix?: { tools: string | null } }) {
+          ...(TOOL_SCENARIOS.includes(scenario) ? { activity(event: { kind: string; prefix?: { tools: string | null } }) {
             if (event.kind === "prompt_prefix") (capture.rosters ??= []).push(event.prefix!.tools);
+          } } : {}),
+          ...(scenario === "compute" && turnIndex !== 1 ? { async compute(call: ComputeToolCall) {
+            (capture.calls ??= []).push(call);
+            return { ok: true as const, job: { id: "cj_ithaca", instance: "boat-small", provider: "boat", state: COMPUTE_STATES[turnIndex]!,
+              cleanup: { state: turnIndex === 2 ? "released" : "none" }, cost: { estimate: { usd: null, basis: "none" }, actual: { usd: null, coverage: "unknown", source: "none" } } } };
           } } : {}),
           // The second turn has no host handler: the tool refuses, and the roster must not change.
           ...(REFERENCE_SCENARIOS.includes(scenario) && (scenario !== "reference" || turnIndex !== 1) ? { async referenceAccess(call: ReferenceToolCall) {

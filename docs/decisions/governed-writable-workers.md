@@ -375,7 +375,7 @@ their own, keep repository-controlled code off the host
 Each case below was reproduced on a disposable fixture:
 
 - **The config's dependencies.** The host imports `brain.config.ts`
-  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:594`).
+  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:644`).
   The config can import local helpers and local module entries, and those
   files are not on any fixed list.
 - **Bun startup.** A newly created `bunfig.toml` preload runs before any
@@ -2011,6 +2011,19 @@ over a block does. Nothing is reserved, so requests already in flight complete a
 are counted; a scope can end above its stop by those requests. A credentialed
 maintenance run is charged to the turn whose tool started it, otherwise to its
 UTC day alone, under the brain's current policy.
+
+**Hosted external compute (#3108).** Unlike a relayed request, an external
+compute job reserves before it allocates: its instance's hourly ceiling times
+its lease, against the turn, conversation and UTC-day scopes of the turn that
+starts it, in one immediate transaction under core's admission lock, so two
+callers cannot both take the last budget or slot. A job without a ceiling is
+admitted with its cost unknown and bounded by its lease, its instance's
+concurrency and the existing blocks
+([ruling 4](external-compute.md#rulings)). An unavailable ledger refuses the
+job. The reservation is settled once, with the provider's complete cost or as
+unknown, and counts until then. Approval, data routing and credential
+isolation are recorded in
+[the compute decision](external-compute.md#settled-by-3108).
 
 **Warnings.** Crossing a warn limit is recorded as a governance event. It
 appears once, beside the existing cost display. It is also added to the
@@ -3888,7 +3901,7 @@ document reader whose normalized path is under `.brain-ui/inbox/` or
 outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call; and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:82-92`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:84-94`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
@@ -3932,7 +3945,7 @@ admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
 reader, whose normalized brain-relative path is marked, or a search whose
 output names it, records `taint` with `source: "user_marked"` as the session's
 first source (`fileSource`,
-`packages/ui-server/src/activity/ingestion-taint.ts:74-79`). An untrusted area
+`packages/ui-server/src/activity/ingestion-taint.ts:76-81`). An untrusted area
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked
@@ -4064,7 +4077,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 `context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
 
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
-  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:644-678`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
   `packages/ui-server/src/brain/host-boundary.ts:514-525`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal

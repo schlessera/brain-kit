@@ -13,6 +13,8 @@ export interface TurnOutcome {
   readonly reason?: string;
   /** No backend ran, so the slot publishes the cancelled status itself. */
   readonly cancelledBeforeStart: boolean;
+  /** Admission refused the turn because its principal was revoked or expired. */
+  readonly revoked?: boolean;
 }
 
 /** What teardown records when classification itself never ran. */
@@ -125,5 +127,6 @@ export function classifyFailedTurn(facts: FailedTurnFacts): FailedTurn {
     terminal,
     admissionBlock,
     budgetUnavailable: terminal instanceof BudgetUnavailable,
+    ...(revoked ? { revoked } : {}),
   };
 }

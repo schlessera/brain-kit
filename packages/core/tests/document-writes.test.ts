@@ -112,6 +112,7 @@ const PLAIN_WRITERS: Record<string, string> = {
   "lib/sync/merge-state.ts": "markers inside .git",
   "lib/sync/pull.ts": "derived caches set aside around a merge",
   "testing/agent-runners.ts": "test support, never run against a brain",
+  "testing/compute.ts": "test support: a disposable fixture brain the suite creates and removes",
   "testing/skill-emitters.ts": "test support, never run against a brain",
 };
 
