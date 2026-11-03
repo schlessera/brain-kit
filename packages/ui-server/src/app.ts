@@ -532,7 +532,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   bootCleanup.push(() => intake.close());
-  await inbox.ready; await intake.reconcile();
+  await inbox.ready; await intake.recover();
   // Aborted when close() begins: cancels module metadata still waiting for
   // admission. Aborted when close()'s grace period ends: cancels in-flight
   // shared CLI runs, admitted metadata included.
