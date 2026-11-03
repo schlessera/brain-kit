@@ -104,10 +104,10 @@ interface ExecResult {
 export const INDEX_DIRECTORY_CLI_VERSION = "0.44.0";
 
 /**
- * First core release with media hygiene findings and `hygiene next --defer`
- * (#2780). Review sends `--defer` only to leave a media finding pending, and
- * only a CLI at or past this release reports media findings, so an older CLI
- * is never asked for it. The release that ships it raises
+ * First core release with media findings, `hygiene next --defer`, `keep-copy`
+ * (#2780) and `hygiene media` (#2781). Review sends them only for a media
+ * finding, and only a CLI at or past this release reports media findings,
+ * so an older CLI is never asked for them. The release that ships it raises
  * {@link MIN_BRAIN_CLI_VERSION} to it; tests/cli-inventory.test.ts fails a
  * lockstep version at or past this one while the floor is lower.
  */

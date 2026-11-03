@@ -101,8 +101,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
   /** A media effect's CLI plan, or null when the CLI could not plan it (not detected, stale). */
-  async function mediaPlan(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"], destination?: string): Promise<HygieneMediaPlan | null> {
-    const parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", operation.slice("media-".length), f.id, "--expect-fingerprint", f.fingerprint, ...(destination !== undefined ? ["--to", destination] : []), "--dry-run"]));
+  async function mediaPlan(f: { id: string; fingerprint: string }, operation: MediaOperation, destination?: string): Promise<HygieneMediaPlan | null> {
+    const parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...(destination !== undefined ? ["--to", destination] : []), "--dry-run"]));
     return parsed.success ? parsed.data : null;
   }
   /** The options' media plan: only a plan without refusals carries the premise that lets it apply. */
@@ -133,8 +133,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
       // the option, so an unavailable action shows why.
       if (finding.category === "media" && media) {
         const scratch = finding.path.startsWith(".brain/scratch/");
-        const rows: Array<[HygieneEffect["operation"], string, boolean]> = [["media-persist", "Persist here", false], ["media-move", "Move to a final location…", true],
-          ...(scratch ? [["media-keep-copy", "Keep a permanent copy…", true] as [HygieneEffect["operation"], string, boolean]] : []), ["media-delete", "Delete…", false]];
+        const rows: Array<[MediaOperation, string, boolean]> = [["media-persist", "Persist here", false], ["media-move", "Move to a final location…", true],
+          ...(scratch ? [["media-keep-copy", "Keep a permanent copy…", true] as [MediaOperation, string, boolean]] : []), ["media-delete", "Delete…", false]];
         for (const [operation, label, needsPath] of rows) {
           const option: InboxOption = { id: operation, label, effect: effect(finding, operation), ...(needsPath ? { input: { type: "path" as const } } : {}) };
           options.push(inboxOptionSchema.parse(needsPath ? option : withPlan(option, await mediaPlan(finding, operation))));
@@ -213,7 +213,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     authority(principalId); hygieneInputSchema.parse(request.input);
     const item = action(request.itemId), { option, effect: selected } = resolver.inspect(principalId, { type: "inbox_resolve", itemId: item.id, optionId: request.optionId });
     if (item.version !== request.expectedVersion || item.status !== "pending" || busy(item.id)) throw new Error("Inbox version conflict");
-    if (selected.kind === "hygiene" && selected.operation.startsWith("media-")) {
+    if (selected.kind === "hygiene" && isMediaOperation(selected.operation)) {
       if (!media) throw new Error("Media effects are unavailable");
       const destination = typeof request.input === "string" ? request.input : undefined;
       const plan = await mediaPlan({ id: selected.findingId, fingerprint: selected.fingerprint }, selected.operation, destination);
@@ -230,7 +230,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string, attemptId: string): Promise<Result> {
     // Leave pending is review state only: nothing is sent to the CLI.
     if (e.operation === "defer") return { id: e.findingId, status: "deferred" };
-    if (e.operation.startsWith("media-")) {
+    if (isMediaOperation(e.operation)) {
       const plan = action(request.itemId).options.find(o => o.id === request.optionId)?.media;
       if (!media || !plan) return { id: e.findingId, status: "refused", reason: "media-effects-unavailable" };
       return mediaResult(e.findingId, await media.apply({ id: mediaOperationId(attemptId), principalId, findingId: e.findingId, fingerprint: e.fingerprint, plan }));
@@ -294,7 +294,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         const entry = listed.entries.find(v => v.id === e.findingId);
         const matches = entry?.fingerprint === e.fingerprint && entry.state === (e.operation === "dismiss" ? "dismissed" : "snoozed") && (e.operation !== "snooze" || Date.parse(entry.dueAt ?? "") === attempt.wait_until);
         result = { id: e.findingId, status: matches ? e.operation === "dismiss" ? "dismissed" : "snoozed" : "check_failed", code: matches ? undefined : "receipt-unknown" };
-      } else if (e.operation.startsWith("media-")) {
+      } else if (isMediaOperation(e.operation)) {
         // Until the journal-backed effects attach, an interrupted media effect stays started.
         if (!media) continue;
         // Recovery compensates an interrupted effect from its journal row; it never re-applies one.
@@ -319,6 +319,12 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     /** The app attaches the journal-backed media effects once its journal is ready. */
     attachMedia(effects: MediaEffects) { media = effects; } };
 }
+
+/** The four media review effects (#2781) and the `brain hygiene media` action each one runs. */
+const MEDIA_ACTIONS = { "media-delete": "delete", "media-move": "move", "media-persist": "persist", "media-keep-copy": "keep-copy" } as const;
+type MediaOperation = keyof typeof MEDIA_ACTIONS;
+/** Narrows an effect to a media one, so the generic disposition argv can never carry one. */
+const isMediaOperation = (operation: HygieneEffect["operation"]): operation is MediaOperation => Object.hasOwn(MEDIA_ACTIONS, operation);
 
 /** A media effect's operation identity, derived from the review attempt that admitted it. */
 export const mediaOperationId = (attemptId: string) => `media-${createHash("sha256").update(attemptId).digest("hex").slice(0, 40)}`;
