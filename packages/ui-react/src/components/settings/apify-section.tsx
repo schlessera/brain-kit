@@ -10,7 +10,7 @@ import { takeApifyFocus } from "../../lib/apify-focus.js";
 import { ApifyView, type ApifyEdit, type ApifyFocusTarget } from "./apify-view.js";
 
 /** How often an open section re-reads the host, so a change made on another device shows up. */
-export const APIFY_SETTINGS_REFRESH_MS = 30_000;
+const APIFY_SETTINGS_REFRESH_MS = 30_000;
 
 /**
  * The Apify section's container (S6): the load, the owner/root lifetime

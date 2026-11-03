@@ -34,7 +34,7 @@ export const MODULE_DISCOVERY_JOB_NAME = "modules";
 export const MODULE_DISCOVERY_RETRY_DELAYS_MS: readonly number[] = [5_000, 15_000];
 
 /** The most of a failed `brain module list`'s stderr a cause carries. */
-export const DISCOVERY_STDERR_TAIL_CHARS = 500;
+const DISCOVERY_STDERR_TAIL_CHARS = 500;
 
 /** One discovery attempt: the payload, or why there is none. */
 export type DiscoveryAttempt =
@@ -46,7 +46,7 @@ export type DiscoveryAttempt =
       retryable: boolean;
     };
 
-export interface DiscoveryOutcome {
+interface DiscoveryOutcome {
   modules: BrainModuleListPayload | null;
   attempts: number;
   /** The last attempt's cause; absent when discovery succeeded. */
@@ -108,7 +108,7 @@ export async function readModuleList(
   return { modules: parsed as BrainModuleListPayload };
 }
 
-export interface DiscoverModulesOptions {
+interface DiscoverModulesOptions {
   /** One whole attempt: qualify the host, read the list, release the host. */
   attempt: () => Promise<DiscoveryAttempt>;
   /** Waits between attempts; its length plus one bounds the attempts. */
@@ -155,7 +155,7 @@ export async function discoverModules(options: DiscoverModulesOptions): Promise<
  * successful start clears the signal. Fail-open, as the cron wrapper's own
  * tracking is: the crontab is emitted whether or not this write lands.
  */
-export function recordModuleDiscovery(db: Database, outcome: DiscoveryOutcome): void {
+function recordModuleDiscovery(db: Database, outcome: DiscoveryOutcome): void {
   const error = outcome.modules === null ? `module cron skipped: ${outcome.cause ?? "module discovery unavailable"}` : undefined;
   const run = recordCronRun(db, MODULE_DISCOVERY_JOB_NAME);
   const store = createActivityStore(db, { writer: `cron:${process.pid}` });
@@ -172,7 +172,7 @@ export function recordModuleDiscovery(db: Database, outcome: DiscoveryOutcome): 
   store.rollupRun(runId);
 }
 
-export interface PersistModuleDiscoveryOptions {
+interface PersistModuleDiscoveryOptions {
   brainPath: string;
   dbPath: string | undefined;
   /**

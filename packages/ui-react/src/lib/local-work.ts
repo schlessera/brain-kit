@@ -118,7 +118,7 @@ function findByFocusId(id: string): HTMLElement | null {
 }
 
 type StoredAttachment = { data: string; mediaType: string; bytes: number; name: string };
-export type StoredDraft = Omit<LocalDraft, "attachments"> & { v: 1; deviceRevision?: number; attachments: StoredAttachment[] };
+type StoredDraft = Omit<LocalDraft, "attachments"> & { v: 1; deviceRevision?: number; attachments: StoredAttachment[] };
 const draftVersion = (value: unknown): number => (value as StoredDraft | undefined)?.deviceRevision ?? 0;
 function serializedDraft(value: unknown): string | undefined {
   if (value === undefined) return undefined;

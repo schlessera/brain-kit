@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { readdir, readFile, stat, realpath } from "node:fs/promises";
-import { join, relative, resolve, sep, posix, dirname } from "node:path";
+import { join, relative, resolve, sep, posix } from "node:path";
 import ignore, { type Ignore } from "ignore";
 import { isWithin, resolveContained, type ContainmentPolicy } from "@schlessera/brain-common/internal/safe-path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
@@ -536,4 +536,3 @@ export async function resolveAncestors(rel: string, root: string): Promise<{ anc
 }
 
 // Re-export for callers
-export { dirname };

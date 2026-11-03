@@ -26,12 +26,12 @@ export const OUTPUT_TAIL_CHARS = 8_000;
  * (#3380). The worker's host, homes and XDG state are read-only or per-run;
  * a bare `EROFS` from a module's own subprocess does not say so.
  */
-export const READ_ONLY_BOUNDARY_HINT =
+const READ_ONLY_BOUNDARY_HINT =
   "the job wrote to a read-only path: it runs in a maintenance worker (the host execution boundary), where only the brain is writable and kept. " +
   "A module keeps durable state in .brain-ui/modules/<module-name>/ (CommandContext.stateDir()).";
 
 /** A read-only write in the job's own stderr that nothing above it already explained. */
-export function readOnlyWithoutBoundary(stderr: string): boolean {
+function readOnlyWithoutBoundary(stderr: string): boolean {
   return /\bEROFS\b|read-only file system/i.test(stderr) && !stderr.includes("host execution boundary");
 }
 

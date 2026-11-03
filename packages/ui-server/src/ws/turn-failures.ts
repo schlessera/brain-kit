@@ -28,7 +28,7 @@ export function updatePrefix(hash: Bun.CryptoHasher, message: SessionHistoryMess
   hash.update("\n");
 }
 
-function prefixDigest(messages: SessionHistoryMessage[], end: number): string {
+export function prefixDigest(messages: SessionHistoryMessage[], end: number): string {
   const hash = new Bun.CryptoHasher("sha256");
   for (const message of messages.slice(0, end + 1)) updatePrefix(hash, message);
   return hash.digest("hex");

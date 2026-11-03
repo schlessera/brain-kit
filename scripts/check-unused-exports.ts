@@ -67,18 +67,12 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-server/src/brain/native-journal-observer.ts", name: "NativeJournalReleaseAccounting", reason: INFERRED("createNativeJournalCapture") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupReport", reason: INFERRED("createInboxRuntime") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupRequest", reason: INFERRED("createInboxRuntime") },
-  // Open PR #3424 (#2506) imports isScratchPath from a new walker test, and
-  // rewrites the import line `dirname` comes from. Once #3424 lands,
-  // isScratchPath's entry goes stale and fails this gate, and should then be
-  // removed. The dirname re-export can go in the same change.
-  { file: "packages/ui-server/src/files/walker.ts", name: "isScratchPath", reason: "imported by the walker test that open PR #3424 adds; this entry goes stale when it lands" },
   // Readers of source text rather than importers.
   { file: "packages/ui-server/src/bin/brain-ui-cron.ts", name: "USAGE", reason: "tests/release-manifest.test.ts reads the subcommand list from the `export const USAGE` source text" },
   ...["listSpecFromInput", "formSpecFromInput", "rankSpecFromInput"].map(name => ({
     file: "packages/ui-react/src/hooks/websocket-handlers/chat.ts", name,
     reason: "scripts/source-browser-dispatch.ts pins this file's sha256; an edit needs a reviewed re-pin there",
   })),
-  { file: "packages/ui-server/src/files/walker.ts", name: "dirname", reason: "its node:path import line is rewritten by open PR #3424; drop with the isScratchPath entry once that lands" },
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" }
