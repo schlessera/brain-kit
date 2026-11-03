@@ -6,7 +6,7 @@ import { checkNodeLink } from "./node-link-check.js";
 import { checkDiagramSkin } from "./skin.js";
 import { checkDiagramLayouts } from "./layout.js";
 import { checkAxis } from "./axis-check.js";
-import { buildDiagram, DiagramGeometryError } from "./geometry.js";
+import { buildDiagram, DIAGRAM_MARGIN, diagramGroupBounds, DiagramGeometryError } from "./geometry.js";
 import { isMap, parseDocument } from "yaml";
 import { AXIS_TYPES, diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
 
@@ -128,7 +128,19 @@ export function checkDiagram(source: string): DiagramCheckResult {
     });
   }
   if (!output.errors.length && (FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) {
-    try { buildDiagram(spec); }
+    try {
+      const tree = buildDiagram(spec);
+      // A fixed canvas keeps its size, so the uniform image margin is advice for boxes there.
+      if (spec.size !== "fit") {
+        const near = (box: { x: number; y: number; width: number; height: number }) => box.x < tree.viewBox.x + DIAGRAM_MARGIN || box.y < tree.viewBox.y + DIAGRAM_MARGIN
+          || box.x + box.width > tree.viewBox.x + tree.viewBox.width - DIAGRAM_MARGIN || box.y + box.height > tree.viewBox.y + tree.viewBox.height - DIAGRAM_MARGIN;
+        const message = (name: string) => `${name} is closer than ${DIAGRAM_MARGIN}px to the canvas edge; move it inward or use size: fit`;
+        tree.elements.forEach(item => {
+          if (item.kind === "node" && near(item)) output.warnings.push(finding(`$.nodes[${spec.nodes.findIndex(node => node.id === item.id)}].at`, "margin", message(`Node '${item.id}'`)));
+          if (item.kind === "group" && !item.scopeKind && near(diagramGroupBounds(item))) output.warnings.push(finding(`$.groups[${(spec.groups ?? []).findIndex(group => group.id === item.id)}]`, "margin", message(`Group '${item.id}'`)));
+        });
+      }
+    }
     catch (failure) {
       if (failure instanceof DiagramGeometryError) output.errors.push(...failure.findings);
       else throw failure;
