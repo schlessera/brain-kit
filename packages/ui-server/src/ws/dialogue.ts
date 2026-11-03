@@ -227,11 +227,7 @@ export class DialogueJournal {
     const bytes = Buffer.byteLength(JSON.stringify(evidence));
     // Distinct live references can share (or adopt) one archive. Keep its
     // combined admission bound while each callback retires its stable entry.
-    let pendingCount = 0, pendingBytes = 0;
-    for (const [queuedOwner, queued] of this.queues) if (queuedOwner.id === owner.id) {
-      pendingCount += queued.count;
-      pendingBytes += queued.bytes;
-    }
+    const { pendingCount, pendingBytes } = this.archivePending(owner);
     if (pendingCount >= CONVERSATION_LIMITS.maxPendingDialogueObservations || pendingBytes + bytes > CONVERSATION_LIMITS.maxPendingDialogueBytes) {
       if (evidence.kind !== "backend") owner.coverage = "partial";
       this.failure ??= new Error(
@@ -288,6 +284,29 @@ export class DialogueJournal {
         if (!q.count) this.queues.delete(owner);
       });
     this.track(done, owner, evidence.kind);
+  }
+  /**
+   * Pending admission of every live reference that resolves to owner's archive.
+   * A fresh owner object (an inactive-conversation bind, or adoptTurn's lookup)
+   * keeps its provisional ID until its writes settle, but bind reserves its
+   * session first, and one session names one archive. Equal IDs or equal
+   * sessions, closed transitively, therefore share one budget (#3215).
+   */
+  private archivePending(owner: DialogueOwner): { pendingCount: number; pendingBytes: number } {
+    const ids = new Set([owner.id]), sessions = new Set(owner.session_id ? [owner.session_id] : []);
+    const members = new Set<DialogueOwner>();
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const queuedOwner of this.queues.keys()) {
+        if (members.has(queuedOwner) || !(ids.has(queuedOwner.id) || (queuedOwner.session_id && sessions.has(queuedOwner.session_id)))) continue;
+        members.add(queuedOwner); ids.add(queuedOwner.id);
+        if (queuedOwner.session_id) sessions.add(queuedOwner.session_id);
+        grew = true;
+      }
+    }
+    let pendingCount = 0, pendingBytes = 0;
+    for (const member of members) { const queued = this.queues.get(member)!; pendingCount += queued.count; pendingBytes += queued.bytes; }
+    return { pendingCount, pendingBytes };
   }
   private notifyFailure(owner:DialogueOwner,cause:"queue_pressure"|"storage_error"|"storage_indeterminate",kind?:DialogueEvidence["kind"]):void {
     if(kind !== "backend") owner.coverage="partial";

@@ -131,6 +131,18 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="reading-a-chat-deletions-outcome-additive-3455"></a>
+
+## Reading a chat deletion's outcome (additive, #3455)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ChatDeletionNotAdmitted`, the 404 body of
+`GET /api/chat-deletions/:operationId` when nothing is retired under that
+operation for the caller. In `@schlessera/brain-ui-server`, the chat deletion
+service gains `read(operationId, principalId)`, which returns the caller's
+current receipt or null and never admits or cleans up. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ## Explicit chat deletion (additive, #3230)
@@ -4375,3 +4387,15 @@ packet audio. Unsupported codec/container forms, including audio/mp4, retain
 conservative elapsed-wall timestamps for the rest of that recording. Old stored
 wall timestamps remain readable without migration. No field, stop reason or
 state is added. This semantic change ships in a minor before 1.0.
+
+<a id="composer-attach-label-additive-0450-3045"></a>
+
+## Composer attach label (additive, 0.45.0, #3045)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`attachLabel?: string`, the attach trigger's accessible name. Omitted or empty,
+it is "Attach — photo, camera, files" (previously the fixed
+"Attach — photo, camera, file"). An actionable trigger also paints that name as
+an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
+composer's, has neither. Existing props and defaults are otherwise unchanged,
+and no wire schema changes. `api-report/` records the added prop.
