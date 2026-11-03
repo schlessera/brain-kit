@@ -11,13 +11,17 @@ export interface NativeDiagramDiagnostic {
  version:1;status:string;stage:string;expected:{source:string;installation:string};
  actual?:Partial<NativeDiagramIdentity>;sourceInputs?:number;
  installation?:{packages:number;files:number;bytes:number};
- pins?:{path:string;expected:string;actual?:string;owned:boolean}[];errorCode?:string;
+ pins?:{path:string;expected:string;actual?:string;owned:boolean}[];errorCode?:string;recovery?:string;
 }
 
 // Candidate qualification is exact: all source/installation drift requires fresh
 // execution and requalification. The separate Docker mount boundary closes
 // active initialization/shared-library reads; byte hashes alone do not.
 const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b",installation:"0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245"};
+// The installation identity includes file modes, which the installer's umask
+// narrows: the qualified install was made under umask 022, and any other umask
+// (such as 0077) can never match. Recovery replaces only this owned install.
+const installationRecovery="Reinstall this owned checkout under umask 022 from a fresh private cache: umask 022 && bun install --force --frozen-lockfile --backend=copyfile --cache-dir \"$(mktemp -d)\". The installation identity includes file modes, so an install under any other umask (such as 0077) never matches. See CONTRIBUTING.md; never refresh qualification pins.";
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
@@ -49,7 +53,7 @@ export function nativeDiagramInputs(root:string,files:readonly string[],importer
   diagnostic.stage="source";const source=nativeDiagramSourceInventory(root);diagnostic.actual={source:source.sha256};diagnostic.sourceInputs=source.inputs.length;
   diagnostic.stage="installation";const installation=diagramInstallationIdentity(root);diagnostic.actual.installation=installation.sha256;diagnostic.installation={packages:installation.packages,files:installation.files,bytes:installation.bytes};
   diagnostic.stage="runtime";const runtime=diagramProducerRuntime();diagnostic.actual.runtime=runtime.sha256;
-  if(source.sha256!==qualified.source||installation.sha256!==qualified.installation){diagnostic.status=source.sha256!==qualified.source?"source-mismatch":"installation-mismatch";report();return;}
+  if(source.sha256!==qualified.source||installation.sha256!==qualified.installation){if(source.sha256!==qualified.source)diagnostic.status="source-mismatch";else{diagnostic.status="installation-mismatch";diagnostic.recovery=installationRecovery;}report();return;}
   const sites=new Map<string,Set<string>>([
    [owner,new Set([
     "readFileSync(resolve(prepared,\"producer.json\"),\"utf8\")",

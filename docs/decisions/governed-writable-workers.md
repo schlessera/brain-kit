@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:666-671`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:676-681`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1407,7 +1407,7 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:236`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:232-253`),
@@ -1522,7 +1522,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:939`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:940`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -3281,7 +3281,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:94`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:95`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3625,6 +3625,31 @@ that run after an asynchronous launch has returned.
 
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
+
+### A refused end-of-turn cleanup has a retry owner — 2026-10-25
+
+The maintainer selected [option 1 on #2871](https://github.com/schlessera/brain-kit/issues/2871):
+a bounded, server-owned reconciliation owner takes over a Claude turn's
+end-of-turn cleanup that the awaited close above could not confirm.
+
+- **The turn still fails.** The refusal is the turn's, as before; the
+  reconciler only takes ownership of the retryable close and the reservation.
+- **Finite retries, then observable failure.** It retries the close with
+  capped exponential backoff and a finite number of attempts. A close still
+  refused after the last attempt is logged with the runtime-state and
+  turn-temp allowance it keeps charged until the server restarts.
+- **Release once, only on confirmation.** The reservation is released exactly
+  once, after a retry resolves. An unconfirmed close never releases it.
+- **Shutdown releases nothing and waits for nothing.** It cancels pending
+  retries, does not wait for a close in flight, and reports what is still
+  held. The process's one reconciler stops when the process exits; its timers
+  never hold the process open.
+
+The owner is the reconciler
+(`export function createCleanupReconciler`, `packages/ui-backend-claude/src/cleanup-reconciler.ts:66-125`), and the turn
+hands its refusal over where it awaits the close
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi and a launch
+whose own cleanup is unconfirmed are outside this ruling.
 
 ### Turn completion includes worker teardown — 2026-10-25
 

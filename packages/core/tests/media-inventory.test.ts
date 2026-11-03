@@ -32,7 +32,7 @@ const VOYAGE = ["pi", "voyage-home"];
 const key = (backend: string, session: string) => JSON.stringify([backend, session]);
 
 function git(cwd: string, ...args: string[]): void {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args]);
+  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args]);
   if (r.exitCode !== 0) throw new Error(r.stderr.toString());
 }
 

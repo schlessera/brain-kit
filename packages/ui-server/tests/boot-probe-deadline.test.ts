@@ -367,7 +367,7 @@ describe("boot probe deadline", () => {
     });
     test(`${kind} calls the group killer at the deadline while the probe is alive`, async () => {
       const f = fixture(kind === "brain" ? MIN_BRAIN_CLI_VERSION : "2.0.0 (Claude Code)");
-      const killer = executable(join(f.dir, "killer"), `state=dead\nkill -0 "$1" 2>/dev/null && state=alive\necho "$1 $2 $state" > '${f.dir}/killer.log'\nkill -"$2" -"$1"`);
+      const killer = executable(join(f.dir, "killer"), `state=dead\nkill -0 "$1" 2>/dev/null && state=alive\necho "$1 $2 $state" > '${f.dir}/killer.log.tmp'\nmv '${f.dir}/killer.log.tmp' '${f.dir}/killer.log'\nkill -"$2" -"$1"`);
       const result = await probe(kind, f, killer);
       const pid = readFileSync(join(f.dir, "probe.pid"), "utf8").trim();
       const record = join(f.dir, "killer.log");

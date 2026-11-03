@@ -97,7 +97,7 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:570-582`;
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:571-583`;
 `// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:852-863`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
@@ -199,7 +199,7 @@ The host side is `createReferenceTools`
 start, the host records its principal and what those workers bind: the public
 view, the principal's private view and the turn's worker generation, if one
 opened
-(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:583-589`).
+(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:584-590`).
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses
@@ -400,7 +400,7 @@ selects undone copy.
 Markdown findings and the host's by core's ordinal rules (severity, known
 urgency, age, identity), and every operation that names a host finding goes to
 the host, never to the CLI
-(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:40-52`).
+(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:45-57`).
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
 afresh, after a failed removal too. Selection assesses its winner again before

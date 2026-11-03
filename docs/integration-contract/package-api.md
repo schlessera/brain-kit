@@ -273,6 +273,38 @@ and `onOpenChange` fires on every toggle with the value being moved to.
 not exported, and is no extension seam. No CLI, MCP, wire, storage or HTTP
 shape changes; a minor changeset covers the additions.
 
+## UI-kit compact operation status (additive, #3281)
+
+`@schlessera/brain-ui-kit` exports `StatusIndicator` and the types
+`StatusIndicatorProps`, `StatusIndicatorOperation`, `StatusIndicatorFact` and
+`StatusIndicatorState`. [D58](../decisions/design-kit/components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+records the state matrix and the interaction.
+
+- `StatusIndicatorProps`: `label` (what the status is about), `summary` (the
+  tooltip sentence, repeated at the top of details), `title` (the details
+  heading), `operations` and an optional `returnFocus` callback, used when
+  details close after the trigger has gone.
+- `StatusIndicatorOperation`: `id` (the consumer's stable identity), `state`,
+  `stateLabel` (the state in the consumer's words), and optional
+  `explanation`, `facts` (`StatusIndicatorFact`: `key`, `value`) and
+  `actions` (a `ReactNode` of consumer buttons, rendered in details only).
+- `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
+  `unknown`, `failed`, `refused` or `idle`.
+
+The component is presentational. It derives only the displayed state and the
+count. The display state is the worst operation's state, in the order refused,
+failed, unknown, attention, active, queued, success, idle. Two or more
+operations show a count. An empty list renders a reserved 44px slot without a
+control, and it is never success. The accessible name is
+`{label}: {lead stateLabel}[; {n} operations]. Details.`
+
+The consumer is responsible for authoritative evidence. Nothing in the
+component infers success from time, animation or response order, and opening
+details triggers no action. State, freshness, identity, persistence and every
+action's authority stay with the consumer. `StatusDot` is unchanged. No CLI,
+MCP, wire, storage or HTTP shape changes; a minor changeset covers the
+additions.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
@@ -1644,7 +1676,8 @@ refused. One scan of the brain's `*.md` notes outside hidden directories and
 reference definitions, wiki links and embeds, frontmatter values and HTML
 `src`/`href`/`poster`; code is never a reference. Its bounds are
 `BRAIN_MEDIA_REFERENCE_LIMITS` (`notes` 50,000, `noteBytes` 256 MiB, `perNote`
-4 MiB, `scanTime` 20 s, `refsPerFinding` 500). Replacing the earlier
+4 MiB, `scanTime` 20 s, `refsPerFinding` 500; and for an effect's plan,
+`rewrittenNotes` 200 and `preview` 1 MiB, #2781). Replacing the earlier
 `unscanned` value reopens every media disposition once.
 
 A fifth log state, `kept`, holds a media original whose permanent copy was
@@ -1682,6 +1715,89 @@ a new pass and clears the list), `deferred: [{ findingId, fingerprint }]`, a
 `kept` counter, `counts.kept`, and `media: { awaitingReview, setAside, kept }`
 from the last selection. A stored row without them reads as `0` or `[]`.
 Hygiene effects gain operation `defer`, and outcomes gain status `deferred`.
+
+<a id="media-review-effects-additive-2781"></a>
+
+## Media review effects (additive, #2781)
+
+A media finding's four governed effects are Delete, Move, Persist here and
+Keep a permanent copy. The CLI plans and writes them
+(`brain hygiene media`, [cli.md](cli.md)); the UI server owns capture,
+compensation, Undo and recovery, in the bounded change journal (Rollback A).
+
+- **Capture before mutation.** Under the exclusive writer gate, a user
+  journal turn covers every file the plan lists, and each pre-image (the
+  media bytes for Delete and Move, each rewritten note, the config) is
+  retained and verified by SHA-256 before the CLI is asked to write. A
+  capture the journal's 10 GiB shared cap, or its per-file copy bound, cannot
+  hold refuses as `capture-capacity`, with nothing written.
+- **Per-file compensation.** A file is put back only while it still holds
+  exactly what the effect wrote. Anything else is `conflict` (or
+  `left-changed` for a folder no longer empty) and is left alone; the outcome
+  is then `partial`. No all-file atomicity is claimed.
+- **Undo** first checks that every retained pre-image still exists and every
+  file still holds its post-image, and refuses before any write otherwise
+  (`rollback-evicted`, `changed-since` with the path). It then applies the
+  same per-file rule. Undo is not guaranteed for any period: the journal may
+  evict rollback data under pressure.
+- **Recovery** after a restart compensates an interrupted apply, or finishes
+  an interrupted Undo, from the durable operation row. It never re-applies.
+- **Keep a permanent copy** records its `kept` entry with
+  `brain hygiene keep-copy` only after the copy verified (step 6b). A refused
+  entry compensates: the copy is removed and the config restored. The
+  original's bytes, path and pins are never touched.
+- **Undo of Keep a permanent copy** removes its `kept` entry in the same
+  Undo, after the copy and config are restored, with
+  `brain hygiene unkeep <id> --journal <journalId>`. The original is pending
+  again, without an `invalidated: … copy-missing` receipt. An entry already
+  gone needs nothing; any other answer makes the Undo `partial` with reason
+  `kept-entry-unremoved` (or `kept-entry-unknown`). A compensated or
+  recovered copy removes an entry its lost step 6b receipt may have written
+  the same way.
+
+Additive shapes in `@schlessera/brain-ui-sdk`:
+
+| Surface | Change |
+| --- | --- |
+| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination` and `premiseDigest` |
+| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`) |
+| `HygieneAction.outcome.status` | gains `kept`, a confirmed Keep a permanent copy |
+| `HygieneReviewMediaUndoCommand`, `HygieneReviewRequest` | new (0.45.0): `{ operation: "undo-media", journalId }`, Undo of a confirmed media effect from review (below); `HygieneReviewRequest` is it or the unchanged `HygieneReviewCommand`, parsed by the new `hygieneReviewMediaUndoCommandSchema` and `hygieneReviewRequestSchema`; `hygieneReviewCommandSchema` is unchanged |
+| `HygieneReviewRead.mediaUndo` | `HygieneMediaReceipt`, on the `undo-media` response only (0.45.0) |
+| `HygieneAction.outcome.media` | `HygieneMediaReceipt`: `{ journalId, action, outcome: "pending"\|"applied"\|"kept"\|"compensated"\|"partial"\|"refused"\|"stale"\|"undone", reason?, refusals?, files: [{ path, state: "created"\|"changed"\|"removed"\|"restored"\|"unchanged"\|"left-changed"\|"conflict" }], copySha256?, undo: { available, reason?, path? } }` |
+
+A media finding's card offers Persist here, Move to a final location…, Keep a
+permanent copy… (scratch only) and Delete…, before Leave pending. Persist and
+Delete are planned when the card is prepared; Move and Keep a copy when a
+destination is previewed (`POST /hygiene/review/preview` with the path as
+`input`). A plan with refusals keeps them on the option and has no
+`premiseDigest`, so it cannot be confirmed. Confirming applies exactly the
+previewed plan: an applied effect resolves the card as `fixed`, a kept copy
+as `kept` (the review's `kept` counter); `stale` and `refused` leave it
+pending; `compensated` and `partial` are `check_failed` with that code. An
+old server that cannot parse `kept` fails closed as `check_failed`. Recovery
+confirms a kept copy only when the log's entry is `kept` with the same
+fingerprint and copy SHA-256; otherwise `receipt-unknown`. Routes and their
+error strings are unchanged.
+
+**Undo from review** (additive in 0.45.0, maintainer ruling 2026-11-03).
+`POST /api/hygiene/review` with strict
+`{ "operation": "undo-media", "journalId": "<HygieneMediaReceipt.journalId>" }`
+undoes the confirmed effect of a resolved media card, for the principal that
+applied it, under the same preflights as the CLI Undo: every retained
+pre-image still held and no file changed since. The response is the review
+read plus `mediaUndo`, the Undo's own receipt. A refusal is a 200 result,
+`mediaUndo.outcome: "refused"` with `reason` (`changed-since` with `path`,
+`rollback-evicted`, `already-undone`), and nothing is written. The resolved
+card keeps its status and gets the Undo's receipt by inbox replication:
+`outcome.status: "undone"` with `media` the Undo receipt; `check_failed` with
+code `partial` when some file could not be put back; or, after a refusal, its
+original outcome with `media.undo` re-read. An undone effect leaves the
+review's `fixed` or `kept` counter. The finding is pending again and an
+active review selects it in order, on a new card. Repeating the command
+returns the same receipt and changes nothing. A `journalId` that names no
+resolved media card of this principal is `review_failed` (500); malformed is
+400, as for every command.
 
 <a id="module-hygiene-context-breaking-699"></a>
 
@@ -3261,7 +3377,8 @@ transaction or server-level replay/authorization guarantee.
 ### Human-started hygiene review (additive, #1027)
 
 The authenticated host exposes `GET /api/hygiene/review` and
-`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" | "refresh" }`.
+`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" | "refresh" }`
+(and, additive in 0.45.0, `undo-media`: see [media review effects](#media-review-effects-additive-2781)).
 Both return `{ "review": HygieneReviewState, "action": InboxActionItem | null }`.
 The read is operational state; start/resume select through the supported
 `brain hygiene next --json` boundary without inference. Owner and ambient

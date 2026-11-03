@@ -13,6 +13,7 @@ import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter,
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { wrapCommand, type ExecWrapperConfig, type TurnFailure, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { restoreArchivedSession } from "./transcript-archive.js";
+import { processCleanupReconciler, type CleanupReconciler } from "./cleanup-reconciler.js";
 import { processStateLedger } from "./worker-state-budget.js";
 import { createClaudeWorkerState, validateSessionId, workerStateSaveFailure, workerStateSaveReason } from "./worker-state.js";
 
@@ -93,7 +94,8 @@ export const CLAUDE_INFERENCE_ENV: readonly string[] = Object.freeze(["CLAUDE_CO
 
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
-  stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
+  stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits">
+    & { /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler } = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
@@ -146,7 +148,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       preparation.throwIfAborted();
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
-        state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, limits: stateLimits, turnTempLimits,
+        state = prepareClaudeWorkerState(brainPath, env, args, { ledger: stateOptions.ledger, limits: stateLimits, turnTempLimits,
           ephemeral: Boolean(restricted), hostInference: Boolean(egress),
           // The host's actual masks: any provider folder hidden makes the turn provider-denied (#2726).
           omitMemory: Boolean(sandbox?.providerMasks?.folders.length) });
@@ -265,10 +267,20 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
           // Awaited: a separate-UID worker's last handle closes its broker off
           // the event loop, and the reservation is released only once that
-          // cleanup is confirmed. A refusal keeps it charged (#2854).
-          const closed = await Promise.allSettled([handle.closeAsync(), turnTemp?.closeAsync()]);
-          const refused = closed.find(result => result.status === "rejected");
-          if (refused) throw refused.reason;
+          // cleanup is confirmed. A refusal keeps it charged (#2854) and fails
+          // the turn; the reconciler retries the close and releases the
+          // reservation only once it is confirmed (#2871).
+          const close = async () => {
+            const closed = await Promise.allSettled([handle.closeAsync(), turnTemp?.closeAsync()]);
+            const refused = closed.find(result => result.status === "rejected");
+            if (refused) throw refused.reason;
+          };
+          try { await close(); }
+          catch (error) {
+            (stateOptions.cleanup ?? processCleanupReconciler()).retain({ bytes: state.bytes, turnTempBytes: state.turnTempBytes,
+              close, release: () => state.release() });
+            throw error;
+          }
           state.release();
         })
         // The exit is reported above, but the worker's stdio can still be open

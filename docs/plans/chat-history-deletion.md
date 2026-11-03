@@ -130,7 +130,7 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native Claude history.** Live JSONL, per-session subordinate files, titles,
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
-  (`createHistory`, `packages/ui-backend-claude/src/history.ts:44-102`;
+  (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
   `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:157-185`).
   The live/archive roots are resolved by the backend
   (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
@@ -254,7 +254,7 @@ restore, resend, draft autosave and answer-delivery callbacks. Activity/Inbox/
 journal APIs remain independent retained surfaces under the selected exclusion.
 Concrete entry points include `readSessionRecovery`
 (`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-222`),
-`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:63-89`),
+`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-93`),
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
@@ -298,7 +298,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1257-1307`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1268-1318`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline
