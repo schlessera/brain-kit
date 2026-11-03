@@ -3,7 +3,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import type { PhaseTimer } from "../activity/turn-lifecycle.js";
-import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { assertManagedTurnStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
@@ -27,7 +27,8 @@ export interface GovernedTurnHold {
   readonly startupView?: WorkerStartupView;
   /**
    * The configured native manager acquired this turn's startup view with its
-   * stage operations. Only such a turn runs on the turn egress proxy (#1665).
+   * stage operations, so the turn runs on the turn egress proxy (#1665).
+   * Always `true`: admission refuses any other turn (#3314).
    */
   readonly managedStorage: boolean;
   /** How the turn's private index was made: a clean build, or a reused or updated base (#2833). */
@@ -168,16 +169,22 @@ export function createGovernedTurns(options: {
       const watermark = options.indexBatch?.watermark();
       try {
         startupView = await step("startup_checkpoint", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
+        // Every governed and strict turn runs on the turn egress proxy and the
+        // host inference relay (#1665), which need a view the configured native
+        // manager acquired with its stage operations. Boot refuses a host
+        // without managed native storage (#1793); a turn whose view still lacks
+        // it is refused here, never run on its own network (#3314).
+        assertManagedTurnStartupView(startupView);
         signal.throwIfAborted();
         const availability = await step("boundary_prepare", () => options.execution.boundary.prepare(signal, startupView!));
         const policy = policyReader.load();
         // A provider rule masks its folders from every turn whose recipient it
         // does not allow (#1668). Only the exact origin of the host inference
-        // relay proves a recipient (#2695), and only on managed native storage,
-        // where that relay runs; any other turn is denied every folder. A masked
+        // relay proves a recipient (#2695); any other turn is denied every
+        // folder. A masked
         // turn indexes into its own directory from the masked view. A selector
         // that does not map exactly onto folders refuses admission (#2694).
-        const recipient = options.exposures && route?.inferenceOrigin && isManagedWorkerStartupView(startupView)
+        const recipient = options.exposures && route?.inferenceOrigin
           ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
         const refused = unsupportedProviderSelectors(policy.policy);
         const types = providerTypeSelectors(policy.policy);
@@ -313,8 +320,8 @@ export function createGovernedTurns(options: {
         await step("record_policy", async () => options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy));
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
         for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
-        const managedStorage = isManagedWorkerStartupView(startupView);
-        if (inferenceRecipient && !managedStorage) throw new Error("The turn's startup view is no longer on managed storage; its inference recipient cannot be proven. Retry admission.");
+        // The final checkpoint may have replaced the first; it must be managed too.
+        assertManagedTurnStartupView(startupView);
         if (governed) { if (dataTree) indexView = startupView; else await step("startup_view_cleanup", async () => { await startupView!.cleanup(); }); startupView = undefined; }
         signal.throwIfAborted();
         // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
@@ -328,7 +335,7 @@ export function createGovernedTurns(options: {
         });
         if (governed) await step("manifest_begin", () => manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel)));
         let ended = false;
-        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}),
+        return { sandbox, policy, managedStorage: true, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}),
           ...(dataTree ? { dataTree } : {}), async end() {
           if (ended) return null;
           ended = true;

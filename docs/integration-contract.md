@@ -20,6 +20,38 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Provider-relay requests and session taint (breaking before 1.0, #3246)
+
+Under the [maintainer's option C](https://github.com/schlessera/brain-kit/issues/3246),
+a validated request through the brain CLI's provider relay no longer taints a
+governed session (G6), and a tainted session no longer narrows it with
+`taint.egress.allow`. So `brain_context` reranking and WebFetch work in either
+order. Before, whichever came first tainted the session, and the other then
+failed with `taint_allowlist`. Reranking degraded with a `provider_unavailable`
+event.
+
+This changes documented taint-policy semantics. No configuration or wire
+shape changes. A relayed request still records its own `egress_connection`,
+never with `inference: true`. That record gains one additive field: the
+optional `provider: true` literal, mirroring `inference: true` and set only
+by a validated provider-relay operation
+([governance events](http-api.md#governance-events-additive-1651)). A later turn excludes
+those records when it rebuilds the session's contacted hosts, so a provider
+request never lets worker `CONNECT` reach the provider's host after taint, in
+the same turn or a later one. Records written before this field stay
+unmarked. The relayed request is still refused by the
+ordinary egress deny or allowlist rules, an unlisted origin, recipient or
+route, the byte ceilings, budget stops and cancellation. Worker HTTP and
+`CONNECT` traffic cannot claim the exemption, even to a provider's host, and
+the operation grants that traffic no contacted host.
+
+**Migration.** After untrusted input, taint alone no longer keeps content
+from a session's approved providers. To fence a provider, use `egress.deny`,
+an `allowlist` egress mode, or the exact origins in
+`BRAIN_UI_CLI_PROVIDER_ORIGINS`. There is no new opt-out field. See
+[the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
+[supported inputs](supported-inputs.md).
+
 ## Module state area (additive, 0.45.0, #3380)
 
 A module keeps durable state in `<brain>/.brain-ui/modules/<module-name>/`,

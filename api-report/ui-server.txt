@@ -665,6 +665,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 path: z.ZodOptional<z.ZodString>;
                 port: z.ZodNumber;
+                provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
             }, z.core.$strict>;
             version: number;

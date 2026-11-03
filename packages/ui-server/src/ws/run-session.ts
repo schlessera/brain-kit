@@ -731,12 +731,12 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel, profile: "strict",
           });
         }
-        // A governed or strict Claude or pi turn on managed native storage gets
-        // its own proxy and the host inference relay (#1665). Without that
-        // storage the turn keeps its current network; worker-host status says which.
-        if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
+        // A governed or strict Claude or pi turn gets its own proxy and the
+        // host inference relay (#1665). Admission already refused a turn whose
+        // startup view is not on managed native storage (#3314).
+        if (governedHold?.sandbox.inferenceRecipient && !relayed)
           throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
-        if (governedHold?.managedStorage && relayed) {
+        if (governedHold && relayed) {
           const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
           turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,

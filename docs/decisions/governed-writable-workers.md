@@ -164,7 +164,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:147-318`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:148-325`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -296,7 +296,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:77-310`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:78-317`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -656,6 +656,14 @@ reaches the host's key instead of failing authentication. The `jev` reranker
 is not relayed and keeps the named roadblock. Video was excluded from #1673's
 first slice; #2738 relays its Files lifecycle, admitting only upload URLs the
 host validated and the handles that turn's relay created.
+
+**Provider requests and taint — 2026-11-02
+([#3246](https://github.com/schlessera/brain-kit/issues/3246)).** As built,
+the relayed request was the turn's ordinary egress with "the turn's deny/allow
+and taint rules". That rule is superseded for taint only: a validated
+provider-relay request neither taints the session nor is narrowed by its taint.
+Every other rule of this section still applies. The full ruling is under
+"Untrusted input (G6)".
 
 **Why tier B is protected by default.** Allow rules in project settings would
 skip the server's approval prompts. Releasing one is a policy choice the user
@@ -2224,7 +2232,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-166`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:60-168`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -2849,7 +2857,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:212-221`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:219-228`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
@@ -3241,9 +3249,10 @@ The backend supplies the origin before admission through the optional
 `AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
 Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
-recipient only on managed native storage, where the relay runs, and only when
-it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:180-181`). The turn's relay is
+recipient only when it can record what the turn is shown (`const recipient = options.exposures`,
+`packages/ui-server/src/brain/governed-turn.ts:187-188`). A turn whose startup
+view is not on managed native storage, where the relay runs, is refused before
+this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -3850,7 +3859,9 @@ author:
 - files the user marks untrusted;
 - **any connection from inside the worker other than the inference relay**,
   recorded by the egress proxy. This covers `curl`, CLI scrapers, headless
-  Chromium and opaque scripts, whose provenance cannot be told apart.
+  Chromium and opaque scripts, whose provenance cannot be told apart. Since
+  2026-11-02 a validated provider-relay request is exempt as well (#3246,
+  below).
 
 Before the egress proxy lands, Bash commands classified as fetching (`curl`,
 `wget`, `git clone` and `fetch`, the `brain` scrape and import commands, and
@@ -3909,7 +3920,7 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-166`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:60-168`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -3975,10 +3986,66 @@ only check on a fetch (`RELAYED_TURN_SETTINGS`,
 sends only relayed inference, and WebSearch runs inside that inference. The
 taint rule is unchanged: any other worker connection still taints, including
 one a tool opens to the vendor's host. A relayed provider request (#1673) is
-the turn's own egress and taints as before. The host's own opt-out does not
+the turn's own egress and taints as before. #3246 superseded this the same day
+(below). The host's own opt-out does not
 count as the operator's, so title usage is still observed
 (`telemetryConfigured`,
 `packages/ui-backend-claude/src/relayed-turn-traffic.ts:26-30`).
+
+**Provider-relay requests neither taint nor narrow — 2026-11-02
+([#3246](https://github.com/schlessera/brain-kit/issues/3246)).** The brain
+CLI's paid providers reach their upstream through the metered provider relay
+(#1673), which shares the turn proxy's admission. As first built, an admitted
+relayed request tainted the session like any worker connection. Once a session
+was tainted, the relay was refused any provider host the session had not
+contacted. So tool order decided what worked: reranking first made a later
+WebFetch of a new host fail, and WebFetch first made later reranking degrade
+to `lifecycle_order`.
+
+The maintainer selected option C. An approved host-relayed provider request
+neither taints the session nor is narrowed by its taint. It still passes the
+ordinary deny and allowlist rules, the exact origin, recipient and route
+authorization, the byte ceilings, budget admission, cancellation and
+accounting. It keeps its own `egress_connection` record, which carries
+`provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
+hostname. Only the relay's validated routes reach the proxy's provider
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:252`), and
+worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:128`). Turn egress
+records neither a taint nor a contacted host for the operation
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:133-136`). So in a
+tainted session, the worker's own traffic stays narrowed away from the
+provider's host.
+
+A later turn rebuilds its contacted hosts from the session's earlier
+`egress_connection` records, and a provider record there would look like a
+worker's. So the maintainer added the optional `provider: true` tag, mirroring
+`inference: true`, on the record of every validated provider-relay operation
+(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:107-114`). The rebuild
+excludes those records (`contactedHosts`,
+`packages/ui-server/src/governance/session-taint.ts:45-51`), so a provider
+request never gives the worker's own `CONNECT` a contacted-host pass, in the
+same turn or a later one. Records written before the tag existed stay
+unmarked, so they can still count for a session that already has them. That is
+an additive event field, so it ships in a minor.
+
+The accepted tradeoff is explicit. After untrusted input enters a session,
+content the turn sends through the relay can still reach that session's
+already-approved providers. The ruling does not declare provider output
+trusted, add a recipient, clear or replace an existing taint, or relax any
+other untrusted-input or outward-action rule. Browsing and the other input
+sources still taint.
+
+Rejected: (A) keep both restrictions and document them, which leaves both
+tool-order failures; (B) stop the taint but keep the narrowing, which repairs
+only the provider-first order.
+
+This changes documented taint-policy semantics, with no configuration or wire
+change and one additive event field, so it is a pre-1.0 breaking minor
+([integration contract](../integration-contract.md#provider-relay-requests-and-session-taint-breaking-before-10-3246)).
+There is no opt-out field. A host that relied on taint to fence its approved
+providers after untrusted input has two levers left: the ordinary egress deny
+and allowlist rules, and the exact origins in `BRAIN_UI_CLI_PROVIDER_ORIGINS`.
 
 The capabilities note states the taint sources, these rules, whether this
 turn's egress is narrowed or explicitly not enforced, and the session's first
