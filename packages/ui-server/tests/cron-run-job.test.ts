@@ -12,6 +12,8 @@ import {
 import { createUiDb } from "../src/db/client";
 import type { HostBoundary } from "../src/brain/host-boundary";
 import { emitCrontab, TRUSTED_JOB_NAMES } from "../src/cron/emit";
+import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain } from "../../core/tests/cli-harness";
+import { git, initRepo } from "../../core/tests/git-fixture";
 
 function textSink() {
   let text = "";
@@ -336,6 +338,49 @@ describe("cron runJob", () => {
   });
 });
 
+
+/**
+ * The record keeps the last 2,000 stderr characters, and a maintenance run's
+ * steps write many unrelated lines there. A real `brain maintain` whose git
+ * step fails, behind more than a tail of noise, must still leave the failed
+ * step's name in `cron_runs.error_message`.
+ */
+describe("a failed brain maintain cron run", () => {
+  test("names the failed step in the recorded error, past a full tail of unrelated stderr", async () => {
+    const root = makeTempBrain();
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-maintain-"));
+    try {
+      initRepo(root);
+      git(root, "config", "core.bare", "maybe");
+      const noise = Array.from({ length: 60 }, (_, i) => `SKIP embed batch: provider unavailable (${i})`).join("\n");
+      expect(noise.length).toBeGreaterThan(WIRE_STDERR_TAIL_CHARS);
+      const dbPath = join(dir, "brain-ui.db");
+      const exitCode = await runJob(
+        {
+          jobName: "maintain",
+          command: ["/bin/sh", "-c", 'printf "%s\\n" "$NOISE" >&2; exec "$BUN" "$BRAIN_BIN" maintain --json'],
+          dbPath,
+          childEnv: { ...keylessEnv(root), NOISE: noise, BUN: Bun.which("bun")!, BRAIN_BIN },
+          exec: {},
+          brainPath: root,
+          stdout: textSink().sink,
+          stderr: textSink().sink,
+        },
+        { sinkPath: join(dir, "sink.jsonl") }
+      );
+      expect(exitCode).toBe(2);
+      const db = createUiDb(dbPath);
+      const row = db.query("SELECT error_message FROM cron_runs WHERE job_name = 'maintain'").get() as { error_message: string } | null;
+      db.close();
+      expect(row?.error_message.startsWith("exit code 2; stderr tail: ")).toBe(true);
+      expect(row?.error_message, "CRON_RECORD_DROPPED_NOISE_HEAD").not.toContain("provider unavailable (0)");
+      expect(row?.error_message, "CRON_RECORD_NAMES_FAILED_STEP").toContain("brain maintain: FAILED step(s): git (fatal: bad boolean config value");
+    } finally {
+      cleanup(root);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("cron lifecycle recovery", () => {
   test("a broken output sink does not finish before the real child exits", async () => {

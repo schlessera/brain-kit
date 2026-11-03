@@ -311,8 +311,10 @@ export function runBackendContract(
       for (const key of keys) {
         expect(typeof backend.capabilities[key]).toBe("boolean");
       }
-      const optional = (["autonomous", "restrictedAutonomous"] as const).filter((key) => Object.hasOwn(backend.capabilities, key));
+      const optional = (["autonomous", "restrictedAutonomous", "historyRemoval"] as const).filter((key) => Object.hasOwn(backend.capabilities, key));
       for (const key of optional) expect(typeof backend.capabilities[key]).toBe("boolean");
+      // Advertised history removal (#3229) is implemented; an unadvertised one is never called.
+      if (backend.capabilities.historyRemoval) expect(typeof backend.removeSessionHistory).toBe("function");
       // The restricted envelope is a kind of autonomous turn, never claimed alone.
       if (backend.capabilities.restrictedAutonomous) expect(backend.capabilities.autonomous).toBe(true);
       expect(Object.keys(backend.capabilities).sort()).toEqual([...keys, ...optional].sort());

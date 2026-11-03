@@ -86,6 +86,8 @@ export type InboxMutation =
       leaseUntil?: number;
       runId?: string;
       blockedByItemId?: string;
+      /** `false` claims without spending the autonomous retry budget: a user's interactive turn is not a retry. */
+      countAttempt?: false;
     }
   | {
       kind: "checkpoint";
@@ -706,14 +708,14 @@ export class InboxStore {
             next.blockedByItemId = blocker.id;
           }
           if (next.status === "claimed") {
-            if (next.attempts >= next.maxAttempts)
+            if (mutation.countAttempt !== false && next.attempts >= next.maxAttempts)
               throw new Error("Inbox attempt limit reached");
             if (mutation.leaseUntil === undefined || mutation.leaseUntil <= now)
               throw new Error("Claim requires a future lease");
             assertTime(mutation.leaseUntil);
             next.claimedAt = now;
             next.leaseUntil = mutation.leaseUntil;
-            next.attempts++;
+            if (mutation.countAttempt !== false) next.attempts++;
           } else {
             delete next.claimedAt;
             delete next.leaseUntil;
