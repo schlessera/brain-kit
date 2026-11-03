@@ -526,6 +526,13 @@ async function openFromSessions(run: Run, page: Page, sessionId: string) {
  * The reader scrolls the transcript up: Chromium's own scroll gesture, by
  * touch under a coarse pointer and by mouse wheel otherwise, through the
  * input pipeline rather than a scrollTop write.
+ *
+ * Each swipe's finger comes to rest before it lifts, so the gesture leaves
+ * no fling behind. The events carry their own times, so the rest does not
+ * depend on how fast they are dispatched. A fling still moving the
+ * transcript would decide the next press instead: a tap that lands on a
+ * fling only stops it, and Chromium swallows that tap as a phone does, so
+ * "Scroll to latest" would never be pressed (#3377).
  */
 async function scrollUp(run: Run, page: Page) {
   // The transcript's scroller, as it is drawn: the gesture starts at its middle.
@@ -539,16 +546,24 @@ async function scrollUp(run: Run, page: Page) {
       await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(box.x), y: Math.round(box.y), yDistance: 4000, speed: 6000, gestureSourceType: "mouse" });
       return;
     }
-    // A finger dragging the transcript down, a few times.
-    for (let swipe = 0; swipe < 3; swipe++) {
+    // A finger dragging the transcript down, a few times: a move every
+    // 16ms, then held still for 200ms before it lifts. The times end no
+    // later than now, so the next real tap is never older than this swipe.
+    const swipes = 3, steps = 12, moveMs = 16, restMs = 200;
+    let at = Date.now() - swipes * ((steps + 1) * moveMs + restMs);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", touchPoints: Array<{ x: number; y: number }>, afterMs: number) => {
+      at += afterMs;
+      return cdp.send("Input.dispatchTouchEvent", { type, touchPoints, timestamp: at / 1000 });
+    };
+    for (let swipe = 0; swipe < swipes; swipe++) {
       const x = Math.round(box.x);
       let y = Math.round(box.y - 120);
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-      for (let step = 0; step < 12; step++) {
+      await touch("touchStart", [{ x, y }], moveMs);
+      for (let step = 0; step < steps; step++) {
         y += 20;
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
+        await touch("touchMove", [{ x, y }], moveMs);
       }
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await touch("touchEnd", [], restMs);
     }
   } finally { await cdp.detach(); }
 }

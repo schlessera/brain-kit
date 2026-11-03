@@ -19,6 +19,7 @@ because the code has become the better answer to "what does this do".
 | [navigation-recovery.md](navigation-recovery.md) | Measured navigation reach, cold-session evidence and draft races informing the tracker design. |
 | [storage-accounting.md](storage-accounting.md) | Proposed local storage ownership, deduplicated capacity and bounded measurement model, with synthetic evidence. |
 | [voice-conversation.md](voice-conversation.md) | Proposed turn-taking, screen and interruption model; requirements for the later speech-architecture ruling. |
+| [eleven-realtime-evaluation.md](eleven-realtime-evaluation.md) | Documentation-stage evaluation of Eleven Realtime v1 Max as a third live-conversation engine, the API choice, the unresolved nonblocking-result question and the prepared live probe. |
 | [storage-growth.md](storage-growth.md) | Proposed bounded aggregate history, comparable growth and capacity-specific guidance, with explicit policy choices. |
 | [storage-lifecycle.md](storage-lifecycle.md) | Storage cleanup eligibility, recovery boundaries and synthetic byte-lifecycle evidence for the storage design. |
 | [host-owned-web-search.md](host-owned-web-search.md) | Pinned MCP/full-extension comparison, offline worker prototypes and authority boundaries for executor selection. |

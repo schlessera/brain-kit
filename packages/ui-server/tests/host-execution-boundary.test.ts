@@ -314,6 +314,50 @@ describe("cron jobs (#1648)", () => {
     } finally { db.close(); }
   }, 60_000);
 
+  test("a module job's state area survives from one cron run to the next, published from its worker (#3380)", async () => {
+    if (!supported) return;
+    const f = fixture();
+    // The Odysseus brain's local beacon module, through the real core CLI and its CommandContext.stateDir().
+    mkdirSync(join(f.brain, "modules/beacon"), { recursive: true });
+    writeFileSync(join(f.brain, "modules/beacon/module.ts"), `export default { name: "beacon", setup: () => ({
+  commands: { beacon: async () => ({ summary: "Light the watchtower beacon", async run(args, ctx) {
+    const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+    const file = ctx.stateDir!() + "/last-run.json";
+    const previous = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { runs: 0 };
+    writeFileSync(file, JSON.stringify({ runs: previous.runs + 1 }));
+    console.log("BEACON " + JSON.stringify(previous));
+  } }) },
+  cron: [{ name: "run", schedule: "*/30 * * * *", command: "beacon run" }],
+}) };\n`);
+    const config = join(f.brain, "brain.config.ts");
+    writeFileSync(config, readFileSync(config, "utf8").replace("defineConfig({", 'defineConfig({\n  modules: { "./modules/beacon": {} },'));
+    mkdirSync(join(f.brain, "node_modules/.bin"), { recursive: true });
+    const cli = join(f.brain, "node_modules/.bin/brain");
+    writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`);
+    chmodSync(cli, 0o755);
+    const dbPath = join(f.root, "db/brain-ui.db");
+    mkdirSync(join(f.root, "db"), { recursive: true });
+    const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
+    const db = createUiDb(dbPath);
+    try {
+      execution.attach(db);
+      expect(execution.boundary.isolated()).toBe(true);
+      const run = async () => {
+        const out: string[] = [], err: string[] = [];
+        const code = await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath, childEnv: { PATH: process.env.PATH }, exec: {},
+          brainPath: f.brain, boundary: execution.boundary, stdout: { write: text => out.push(text) }, stderr: { write: text => err.push(text) } });
+        expect(code, err.join("")).toBe(0);
+        return out.join("");
+      };
+      expect(await run(), "the first run finds no state").toContain('BEACON {"runs":0}');
+      const published = join(f.brain, ".brain-ui/modules/beacon/last-run.json");
+      expect(existsSync(published), "STATE_PUBLISHED: the worker's state write reached the brain").toBe(true);
+      expect(await run(), "CRON_STATE_PERSISTS: the second cron run reads what the first wrote").toContain('BEACON {"runs":1}');
+      expect(JSON.parse(readFileSync(published, "utf8"))).toEqual({ runs: 2 });
+      expect(existsSync(f.sentinel), "the module never ran on the host").toBe(false);
+    } finally { db.close(); }
+  }, 120_000);
+
   test("an abort kills the whole maintenance worker, and the call settles only once it is gone", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });

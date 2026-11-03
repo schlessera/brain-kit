@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { expect, waitFor } from "storybook/test";
 import { StreamingAnswer } from "../src/conversation/StreamingAnswer.js";
+import { FADE_MS, FRAMES_AFTER_FADE, watchHandoff } from "./_handoff-clock.js";
 
 const TOKENS = ["Circe named", " them in order,", " on the morning", " we sailed from Aeaea."];
 
@@ -30,18 +31,11 @@ export async function playStreamingHandoff({canvas, canvasElement, userEvent}: {
   const stopTop = (await canvas.findByText("~$0.03 so far")).getBoundingClientRect().top;
 
   const token = await canvas.findByRole("button", { name: "Token" });
-  // This story has one prose frame. Start its clock when the first text and
-  // outgoing ghost commit, and stop it at actual removal. Input orchestration
-  // and later assertion/polling work cannot consume the component's budget.
-  const frame = prose()!;
-  let arrived: number | undefined;
-  let removed: number | undefined;
-  const observer = new MutationObserver(() => {
-    const now = performance.now();
-    if (arrived === undefined && !frame.hasAttribute("aria-busy") && frame.querySelector(".bk-ghost-tail") && frame.querySelector(".bk-ghost-out")) arrived = now;
-    if (arrived !== undefined && removed === undefined && !frame.querySelector(".bk-ghost, .bk-ghost-out")) removed = now;
-  });
-  observer.observe(frame, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "aria-busy"] });
+  // This story has one prose frame. Its handoff is counted on the page's own
+  // clock, from the commit of the first text over the outgoing ghost to the
+  // ghost's removal (#3417): input orchestration, later polling and a stalled
+  // runner cannot consume the component's budget, but a held ghost still fails.
+  const handoff = watchHandoff(prose()!, frame => !frame.hasAttribute("aria-busy") && frame.querySelector(".bk-ghost-tail") !== null && frame.querySelector(".bk-ghost-out") !== null);
   try {
     await userEvent.click(token);
     // The first token is shorter than the ghost; nothing below it moves.
@@ -50,14 +44,14 @@ export async function playStreamingHandoff({canvas, canvasElement, userEvent}: {
     const firstChar = canvasElement.querySelector(".bk-ghost-tail")!.getBoundingClientRect();
     await expect(Math.abs(firstChar.top - ghostTop)).toBeLessThanOrEqual(6);
     await expect(prose()).toBeNull();
-    await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
-      timeout: 1000,
-      interval: 20,
-    });
+    await handoff.settled;
+    handoff.observe();
     // Missing transition observations must fail, rather than become a zero.
-    await expect(arrived).toBeDefined();
-    await expect(removed).toBeDefined();
-    await expect(removed! - arrived!).toBeLessThan(700);
+    await expect(handoff.arrived, "the first text committed over its outgoing ghost").toBe(true);
+    await expect(handoff.fadeMs, "the outgoing ghost's fade, in animation time").toBeLessThanOrEqual(FADE_MS);
+    await expect(handoff.framesAfterFade, "frames rendered with the ghost after its fade ended").toBeLessThanOrEqual(FRAMES_AFTER_FADE);
+    await expect(handoff.removed, "the outgoing ghost was removed").toBe(true);
+    await expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
 
     for (let i = 1; i < TOKENS.length; i++) await userEvent.click(token);
     const tail = [...canvasElement.querySelectorAll<HTMLElement>(".bk-ghost-tail")];
@@ -71,6 +65,6 @@ export async function playStreamingHandoff({canvas, canvasElement, userEvent}: {
       for (const t of tail) await expect(getComputedStyle(t).opacity).toBe("1");
     }, { timeout: 1000, interval: 20 });
   } finally {
-    observer.disconnect();
+    handoff.dispose();
   }
 }

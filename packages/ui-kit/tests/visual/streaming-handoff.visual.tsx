@@ -1,4 +1,4 @@
-/** The separate first-token story's real-browser clock controls (#1185). */
+/** The separate first-token story's real-browser clock controls (#1185, #3417). */
 import { expect, test, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -23,7 +23,15 @@ async function withStream(theme: string, run: (host: HTMLElement) => Promise<voi
   }
 }
 
-async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0) {
+/** Block the main thread, as a loaded runner does, without touching the component. */
+function stallAfter(delay: number, ms: number) {
+  setTimeout(() => {
+    const start = performance.now();
+    while (performance.now() - start < ms) { /* a long task */ }
+  }, delay);
+}
+
+async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?: { at: number; ms: number }) {
   const trace: { started: number; input?: number; arrived?: number; removed?: number } = { started: performance.now() };
   const observe = () => {
     const now = performance.now();
@@ -45,6 +53,7 @@ async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0) {
         if (first && beforeInput) await new Promise(resolve => setTimeout(resolve, beforeInput));
         if (first) trace.input = performance.now();
         (element as HTMLElement).click();
+        if (first && stall) stallAfter(stall.at, stall.ms);
         await new Promise(resolve => setTimeout(resolve, first ? afterInput : 0));
       } },
     });
@@ -55,7 +64,7 @@ async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0) {
     expect(host.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
   } finally {
     console.log("STREAM_HANDOFF_CONTROL", JSON.stringify({
-      beforeInput, afterInput,
+      beforeInput, afterInput, stall: stall ?? null,
       inputMs: trace.input === undefined ? null : trace.input - trace.started,
       arrivalMs: trace.arrived === undefined ? null : trace.arrived - trace.started,
       handoffMs: trace.arrived === undefined || trace.removed === undefined ? null : trace.removed - trace.arrived,
@@ -74,7 +83,14 @@ for (const theme of ["dark", "light"]) {
     await withStream(theme, host => drive(host, 0, 900));
   });
 
-  test(`${theme}: an 800ms first-token ghost still fails the 700ms cap`, async () => {
+  // #3417: a long task spanning the fade's end delays the removal timer, the
+  // fade's own end and every frame alike. Wall time grows by the stall; the
+  // frames rendered with a faded ghost do not.
+  test(`${theme}: a main-thread stall across the fade's end is outside the handoff budget`, async () => {
+    await withStream(theme, host => drive(host, 0, 0, { at: 590, ms: 150 }));
+  });
+
+  test(`${theme}: a first-token ghost held 200ms past its fade still fails`, async () => {
     await withStream(theme, async host => {
       const nativeTimeout = globalThis.setTimeout;
       let handoffTimers = 0;
@@ -83,10 +99,31 @@ for (const theme of ["dark", "light"]) {
         return Reflect.apply(nativeTimeout, globalThis, args);
       }) as typeof nativeTimeout);
       try {
-        await expect(drive(host)).rejects.toThrow(/less than 700/);
-        expect(handoffTimers, "a real first-token handoff was held beyond the cap").toBe(1);
+        await expect(drive(host)).rejects.toThrow(/frames rendered with the ghost after its fade ended/);
+        expect(handoffTimers, "a real first-token handoff was held past its fade").toBe(1);
       } finally {
         timer.mockRestore();
+      }
+    });
+  });
+
+  test(`${theme}: a fade slowed to 900ms still fails on its own animation clock`, async () => {
+    await withStream(theme, async host => {
+      const nativeTimeout = globalThis.setTimeout;
+      const slow = document.createElement("style");
+      slow.textContent = ".bk-ghost-out { animation-duration: 900ms !important; }";
+      document.head.append(slow);
+      let handoffTimers = 0;
+      const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: unknown[]) => {
+        if (args[1] === 600) { handoffTimers++; args[1] = 900; }
+        return Reflect.apply(nativeTimeout, globalThis, args);
+      }) as typeof nativeTimeout);
+      try {
+        await expect(drive(host)).rejects.toThrow(/the outgoing ghost's fade, in animation time/);
+        expect(handoffTimers, "the slowed handoff was the real first-token one").toBe(1);
+      } finally {
+        timer.mockRestore();
+        slow.remove();
       }
     });
   });

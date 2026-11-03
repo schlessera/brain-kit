@@ -131,7 +131,7 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.on.push).toEqual({ branches: ["main"] });
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
     expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "proof"]);
-    expect(ci.jobs.changeset!.outputs).toEqual({ ...Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "cadence", "unit_shards"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])),
+    expect(ci.jobs.changeset!.outputs).toEqual({ ...Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "cadence", "unit_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])),
       ...Object.fromEntries(["run_browser", "run_layout", "reuse"].map(name => [name, `\${{ steps.reuse.outputs.${name} }}`])) });
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
@@ -661,4 +661,19 @@ test("verify successful step requires final marker and zero unsignalled finishes
       expect(text).toContain(JSON.stringify(start));
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a main push whose metadata job fails still runs its selected proof (#2942)", () => {
+  const ci = Bun.YAML.parse(readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8")) as { jobs: Record<string, { if?: string; steps?: { name?: string; id?: string }[] }> };
+  for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
+    const condition = ci.jobs[name]!.if ?? "";
+    // No implicit success(): a status function plus an explicit push alternative.
+    expect(condition, `PUSH_PROOF_SURVIVES_METADATA_FAILURE:${name}`).toContain("!cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push')");
+  }
+  const steps = ci.jobs.changeset!.steps!.map(step => step.id ?? step.name ?? "");
+  const gate = steps.indexOf("Refuse doomed proof while main is red"), plan = steps.indexOf("plan"), reuse = steps.indexOf("reuse");
+  expect(gate, "RED_MAIN_GATE_RUNS_FIRST").toBeGreaterThan(-1); expect(gate).toBeLessThan(plan);
+  // Every output-producing step precedes every metadata gate that can fail.
+  for (const gateStep of ["Lint, leakage and contribution workflow guards", "Env documentation matches its descriptors", "Validate all pending changeset package names", "Require a changeset for shipped package changes"])
+    expect(steps.indexOf(gateStep), `OUTPUTS_BEFORE_${gateStep}`).toBeGreaterThan(reuse);
 });

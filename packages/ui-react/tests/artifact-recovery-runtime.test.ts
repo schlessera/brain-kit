@@ -407,7 +407,13 @@ for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
       await link.focus();
       await page.keyboard.press("Enter");
       await page.getByRole("status").filter({ hasText: "Loading file" }).waitFor();
-      expect(await page.locator(".bk-ghost").evaluateAll(nodes => nodes.length > 0 && nodes.every(el => getComputedStyle(el).animationName === "none")), "REDUCED_MOTION_STATIC_LOADING").toBe(true);
+      // Measure only the file's own named loading frame, which the held route
+      // above keeps mounted. A page-wide `.bk-ghost` also caught the tree's
+      // "Loading files" frame, which unmounts whenever its listing lands;
+      // `evaluateAll` resolves and then evaluates in separate tasks, so a
+      // detached ghost read as `""` (#3315, #3340). A failure names what it saw.
+      const ghostAnimations = await page.getByRole("group", { name: "Loading file", exact: true }).locator(".bk-ghost").evaluateAll(nodes => nodes.map(el => getComputedStyle(el).animationName));
+      expect(ghostAnimations.length > 0 && ghostAnimations.every(name => name === "none"), `REDUCED_MOTION_STATIC_LOADING ${JSON.stringify(ghostAnimations)}`).toBe(true);
       release!();
       await page.getByRole("heading", { name: "Couldn't open this file.", exact: true }).waitFor();
       for (const [next, title, retry] of [[-1, "Can't reach your brain right now.", true], [403, "This file isn't available with your current access.", false], [413, "Too large to preview here.", false], [200, "overview.pdf", false], [404, "This file has expired", false]] as const) {

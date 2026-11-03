@@ -12,8 +12,8 @@ const AT_BOTTOM_PX = 20;
  * the document is visible, the transcript ends on the message the host
  * linked to the latest turn, and that end is in the viewport by the
  * transcript's own bottom test, with no scroll disc drawn. Selecting the
- * session, being scrolled up, a hidden tab, a background buffer and a
- * replay without the linked turn do not count.
+ * session, being scrolled up, a hidden tab, a background buffer, a replay
+ * without the linked turn and an answer still being written do not count.
  */
 export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | null, scrollDisc: boolean): boolean {
   const chat = root.stores.chat.getState();
@@ -34,8 +34,13 @@ export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | 
   if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
   // And any open modal dialog (a zoom viewer, a one-time credential, a sheet).
   if (typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]')) return false;
+  // An answer still being written proves nothing: its turn is the one the
+  // live frames named before the reader left, which is correlation only,
+  // and history links a turn only once it has ended (#964). Its replay
+  // strips that turn; until the replay arrives the stale one must not
+  // count, or reopening a running session would read as seeing it (#3406).
   const last = chat.buffers[sessionId]?.messages.at(-1);
-  if (!last || last.turnId !== key.turnId) return false;
+  if (!last || last.isStreaming || last.turnId !== key.turnId) return false;
   if (transcript.clientHeight === 0) return false;
   if (transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight >= AT_BOTTOM_PX) return false;
   return trackers.observeSeen({ sessionId, ...key });

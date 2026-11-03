@@ -98,6 +98,9 @@ const checks: Record<string, Check> = {
   "GET /api/sessions/:sessionId/turns/:turnId/revert/plan": { path: "/api/sessions/fixture-session/turns/unknown/revert/plan", status: 409, body: { error: "No retained eligible history is available." } },
   "GET /api/sessions/:sessionId/turns/:turnId/revert": { path: "/api/sessions/fixture-session/turns/unknown/revert", status: 200, body: { receipt: null } },
   "GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId": { path: "/api/sessions/fixture-session/turns/unknown/revert/odysseus_unknown", status: 404, body: { error: "Original operation receipt unavailable; no effect was retried." } },
+  "POST /api/chat-deletions": { init: json("POST", { operationId: "fixture-deletion", target: { sessionId: "fixture-session" }, expected: { backendId: "fixture", generation: 1 } }),
+    status: 404, body: { error: "CHAT_DELETION_REFUSED", reason: "unavailable" }, verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
   "POST /api/sessions/:sessionId/turns/:turnId/revert": { path: "/api/sessions/fixture-session/turns/unknown/revert", status: 409, init: json("POST", { id: "odysseus_unknown" }), body: { error: "This turn is not available for a user history operation." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },

@@ -169,7 +169,7 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:444-464`;
 `status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
 "session_queue")`, `packages/ui-react/src/connection.ts:412-424`). Native protocol
@@ -553,10 +553,12 @@ interaction, ordering and loaded-state assertions stay in this file.
 
 Native proof remains unchanged and required: `playHandoff` in
 `packages/ui-kit/stories/_ghost.tsx` observes 300 ms mid-handoff opacity,
-320/720 px geometry and actual arrival/removal under 700 ms. LoadingToReady
+320/720 px geometry, a 600 ms fade in animation time and removal within three
+rendered frames of that fade's end (#3417). LoadingToReady
 stories run in both Storybook theme projects. Chromium's
 `packages/ui-kit/tests/visual/ghost-handoff.visual.tsx` retains both themes,
-input-orchestration exclusion and the 800 ms mutation that fails the cap.
+input-orchestration and main-thread-stall exclusion, and the mutation holding
+one width's ghost 200 ms past its fade that still fails.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { ASK_RECEIPTS_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
+import { ASK_RECEIPTS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
@@ -117,6 +117,8 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           // GET /api/sessions/:id/recovery answers, and replays carry
           // host-proven turn ids (#964).
           ...(supportsSessionRecovery(host) ? { [SESSION_RECOVERY_CAPABILITY]: true } : {}),
+          // POST /api/chat-deletions answers, and `chat_retired` reaches declaring clients (#3230).
+          ...(host.chatDeletion ? { [CHAT_DELETION_CAPABILITY]: true } : {}),
         },
         // Beside `capabilities`, whose values every shipped client parses
         // as booleans (#979).

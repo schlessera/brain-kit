@@ -13,7 +13,7 @@ const qualifiedSource="e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1
 const qualifiedInstallation="0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245";
 const ownedPaths=[...diagramSourceSetup,...diagramSourceDomains.map(name=>`packages/${name}`),owner,caller,"scripts/ci-proof.ts"];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
-function fixture(current=false){
+function fixture(current=false,install?:(modules:string)=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-native-inputs-"));roots.push(root);
  const tree=Bun.spawnSync(["git","ls-tree","-r","-z",current?"HEAD":frozen,"--",...ownedPaths],{cwd:repo,stdout:"pipe",stderr:"pipe"});
  expect(tree.exitCode,"FROZEN_SOURCE_OWNER_MUST_BE_AVAILABLE_OFFLINE").toBe(0);
@@ -32,7 +32,7 @@ function fixture(current=false){
  expect(offset).toBe(bytes.length);
  if(!current){const source=nativeDiagramSourceInventory(root);expect(source.inputs.length,"COMPLETE_FROZEN_SOURCE_INVENTORY").toBe(859);expect(source.sha256,"INDEPENDENT_FROZEN_SOURCE_IDENTITY").toBe(qualifiedSource);}
  mkdirSync(join(root,"node_modules"));
- for(const top of readdirSync(join(repo,"node_modules"))){if(top.startsWith("."))continue;const names=top.startsWith("@")?readdirSync(join(repo,"node_modules",top)).map(name=>`${top}/${name}`):[top];for(const name of names){if(name.startsWith("@schlessera/"))continue;const target=join(root,"node_modules",name);mkdirSync(dirname(target),{recursive:true});symlinkSync(realpathSync(join(repo,"node_modules",name)),target,"dir");}}
+ if(install)install(join(root,"node_modules"));else for(const top of readdirSync(join(repo,"node_modules"))){if(top.startsWith("."))continue;const names=top.startsWith("@")?readdirSync(join(repo,"node_modules",top)).map(name=>`${top}/${name}`):[top];for(const name of names){if(name.startsWith("@schlessera/"))continue;const target=join(root,"node_modules",name);mkdirSync(dirname(target),{recursive:true});symlinkSync(realpathSync(join(repo,"node_modules",name)),target,"dir");}}
  let diagnostic:NativeDiagramDiagnostic|undefined;
  const importers=new Map([[owner,new Set([caller])]]),bind=()=>nativeDiagramInputs(root,[owner,caller],importers,value=>{diagnostic=value;});
  return{root,importers,bind,diagnostic:()=>diagnostic};
@@ -51,7 +51,7 @@ test("fixed native qualification binds the independently frozen complete source 
  const control=fixture(),path=process.env.PATH,bin=join(control.root,"commands");mkdirSync(bin);symlinkSync(realpathSync(process.execPath),join(bin,"bun"));
  try{
   process.env.PATH=bin;const binding=control.bind();
-  expect(control.diagnostic(),"FROZEN_NATIVE_INSTALLATION_MUST_MATCH_QUALIFIED_BYTES: recover this owned install from a fresh private cache; never refresh qualification pins").toMatchObject({
+  expect(control.diagnostic(),"FROZEN_NATIVE_INSTALLATION_MUST_MATCH_QUALIFIED_BYTES: reinstall this owned checkout under umask 022 from a fresh private cache (CONTRIBUTING.md); never refresh qualification pins").toMatchObject({
    status:"qualified",stage:"complete",sourceInputs:859,
    actual:{source:qualifiedSource,installation:qualifiedInstallation},
    installation:{packages:843,files:59516,bytes:1833832361}
@@ -84,6 +84,31 @@ test("changed package content requires native requalification",()=>{
 test("changed package executable mode requires native requalification",()=>{
  const control=fixture(),target=join(control.root,"packages/core/src/cli/brain.ts");chmodSync(target,(lstatSync(target).mode&0o777)^0o111);
  sourceRefused(control,"NATIVE_SOURCE_MODE_REQUIRES_REQUALIFICATION");
+});
+// An installer's umask narrows the modes it writes, and the installation identity
+// includes modes. Simulate one package written under each umask.
+const syntheticInstall=(mask:number)=>(modules:string)=>{
+ const previous=process.umask(mask);
+ try{
+  const base=join(modules,"odysseus-ledger");mkdirSync(join(base,"bin"),{recursive:true,mode:0o755});
+  writeFileSync(join(base,"package.json"),JSON.stringify({name:"odysseus-ledger",version:"1.0.0"}),{mode:0o644});
+  writeFileSync(join(base,"bin/ledger.js"),"#!/usr/bin/env bun\nconsole.log(\"Ithaca\");\n",{mode:0o755});
+ }finally{process.umask(previous);}
+};
+test("an install under umask 0077 is refused with the umask 022 recovery, and that recovery restores its identity",()=>{
+ const restrictive=fixture(false,syntheticInstall(0o077)),reference=fixture(false,syntheticInstall(0o022));
+ expect(restrictive.bind(),"RESTRICTIVE_UMASK_INSTALL_IS_REFUSED").toBeUndefined();
+ const refused=restrictive.diagnostic();assert(refused,"RESTRICTIVE_UMASK_REFUSAL_MUST_REPORT_DIAGNOSTIC");
+ expect(refused.status).toBe("installation-mismatch");expect(refused.actual?.source).toBe(qualifiedSource);
+ expect(refused.recovery,"INSTALLATION_REFUSAL_NAMES_THE_REQUIRED_UMASK").toContain("umask 022");
+ expect(refused.recovery,"INSTALLATION_REFUSAL_NAMES_THE_INSTALL_COMMAND").toContain("bun install --force --frozen-lockfile --backend=copyfile --cache-dir");
+ expect(JSON.stringify(refused)).not.toContain(restrictive.root);
+ reference.bind();const expected=reference.diagnostic();assert(expected?.actual?.installation,"REFERENCE_INSTALL_MUST_REPORT_IDENTITY");
+ // Same packages, files and bytes: only the modes differ.
+ expect(refused.installation).toEqual(expected.installation);expect(refused.actual?.installation).not.toBe(expected.actual.installation);
+ // The documented recovery: replace the owned install under umask 022.
+ rmSync(join(restrictive.root,"node_modules/odysseus-ledger"),{recursive:true});syntheticInstall(0o022)(join(restrictive.root,"node_modules"));
+ restrictive.bind();expect(restrictive.diagnostic()?.actual?.installation,"UMASK_022_RECOVERY_RESTORES_THE_IDENTITY").toBe(expected.actual.installation);
 });
 test("relocated installed native dependency requires fresh proof",()=>{
  const control=fixture(),clone=join(control.root,"relocated/marked");mkdirSync(dirname(clone));cpSync(realpathSync(join(control.root,"node_modules/marked")),clone,{recursive:true});rmSync(join(control.root,"node_modules/marked"));symlinkSync(clone,join(control.root,"node_modules/marked"),"dir");

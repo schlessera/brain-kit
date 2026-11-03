@@ -33,6 +33,7 @@ import {
 import type { SqliteWriter } from "../db/write-worker.js";
 
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { isRetired } from "../ws/chat-lifecycle.js";
 
 /**
  * Per-session composer drafts stored on the host (#979, D52 §5–6).
@@ -288,6 +289,12 @@ export function createDraftStore(
     "SELECT attachment_id, mime, name, bytes, size_bytes, attached FROM session_draft_attachments WHERE draft_id = ?"
   );
 
+  /** A draft bound to a deleted chat (#3230) is never read, extended or rebound. */
+  const retired = (sessionId: string | null | undefined) => !!sessionId && isRetired(db, "session", sessionId);
+  function refuseRetired(sessionId: string | null | undefined): void {
+    if (retired(sessionId)) throw new DraftError(410, { error: "DRAFT_CHAT_RETIRED", message: "This draft's chat was deleted. Nothing was stored." });
+  }
+
   function readDraft(draftId: string): DraftRow | null {
     return selectDraft.get(draftId) as DraftRow | null;
   }
@@ -334,6 +341,8 @@ export function createDraftStore(
   }
 
   function conflict(row: DraftRow): DraftError {
+    // A conflict carries the current content: never for a deleted chat's draft.
+    if (retired(row.session_id)) return new DraftError(410, { error: "DRAFT_CHAT_RETIRED", message: "This draft's chat was deleted. Nothing was stored." });
     return new DraftError(409, {
       error: "DRAFT_CONFLICT",
       message: "This draft changed on another device.",
@@ -442,7 +451,8 @@ export function createDraftStore(
         authorize(principalId);
         const rows = db.query(
           `SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, updated_at, deleted_at FROM session_drafts
-           WHERE deleted_at IS NULL ORDER BY updated_at DESC, draft_id ASC LIMIT ?`
+           WHERE deleted_at IS NULL AND (session_id IS NULL OR session_id NOT IN (SELECT id FROM chat_retired_identities WHERE kind = 'session'))
+           ORDER BY updated_at DESC, draft_id ASC LIMIT ?`
         ).all(limits.maxDrafts) as DraftRow[];
         const drafts: DraftSummary[] = rows.map((row) => ({
           draftId: row.draft_id,
@@ -461,7 +471,7 @@ export function createDraftStore(
       return db.transaction(() => {
         authorize(principalId);
         const row = readDraft(draftId);
-        if (!row) throw notFound();
+        if (!row || retired(row.session_id)) throw notFound();
         if (row.deleted_at !== null) throw deleted(row);
         return toDraft(row);
       })();
@@ -472,6 +482,7 @@ export function createDraftStore(
         const at = now();
         authorize(principalId);
         sweepPending(at);
+        refuseRetired(input.sessionId);
         const fileIds = input.fileIds ?? [];
         // Older requests keep their exact fingerprint; file fields join it only when sent.
         const fingerprint = sha256("save", String(input.ifMatch), JSON.stringify(
@@ -582,6 +593,7 @@ export function createDraftStore(
         const at = now();
         authorize(principalId);
         sweepPending(at);
+        refuseRetired(readDraft(draftId)?.session_id);
         const fingerprint = sha256("attachment", input.mime, input.name ?? "", input.bytes);
         const replay = receipt(draftId, "attachment", input.idempotencyKey, fingerprint) as DraftAttachmentResponse | undefined;
         if (replay !== undefined) {
@@ -642,6 +654,7 @@ export function createDraftStore(
       return db.transaction((): DraftBindResponse => {
         const at = now();
         authorize(principalId);
+        refuseRetired(input.sessionId);
         const send = db
           .query("SELECT session_id FROM session_draft_sends WHERE draft_id = ? AND request_id = ?")
           .get(draftId, input.requestId) as { session_id: string } | null;
@@ -693,7 +706,7 @@ export function createDraftStore(
           ).run(draftId);
         }
         const row = readDraft(draftId);
-        if (!row || row.deleted_at !== null) return "kept";
+        if (!row || row.deleted_at !== null || retired(row.session_id) || retired(input.sessionId)) return "kept";
         const source = input.resumed ? input.sessionId : input.sourceSessionId ?? null;
         if (row.session_id !== source) return "kept";
         if (row.revision !== revision) {

@@ -190,6 +190,8 @@ signatures (every public export and the types it is made of)
         turnTempBytes: number;
         turnTempBudgetBytes: number;
     }
+  ApifyLimits (packages/common/src/governance-policy.ts)
+    export type ApifyLimits = z.output<typeof apifyLimits>;
   AppRenderer (packages/ui-server/src/routes/render.ts)
     export interface AppRenderer {
         renderPng(options: {
@@ -445,6 +447,23 @@ signatures (every public export and the types it is made of)
         attributes: FlatAttributes;
         timestamp: number;
     }
+  ChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
+    export type ChatDeletion = ReturnType<typeof createChatDeletion>;
+  ChatDeletionDeps (packages/ui-server/src/ws/chat-deletion.ts)
+    export interface ChatDeletionDeps {
+        catalog: Pick<SessionCatalog, "retireChat" | "chatRetirement" | "recordChatCleanup" | "cleanChatStore" | "unfinishedChatRetirements">;
+        backends(): Promise<AgentBackend[]>;
+        busy(identities: RetiredChatIdentities): boolean;
+        retired(principalId: string, retirement: Retired): void;
+    }
+  ChatDeletionResult (packages/ui-server/src/ws/chat-deletion.ts)
+    export type ChatDeletionResult = {
+        status: "refused";
+        reason: RetireRefusal;
+    } | {
+        status: "retired";
+        receipt: ChatDeletionReceipt;
+    };
   ChatRetirementStatus (packages/ui-server/src/ws/chat-lifecycle.ts)
     export type ChatRetirementStatus = "pending" | "partial" | "unknown" | "removed";
   ChatStore (packages/ui-server/src/ws/chat-lifecycle.ts)
@@ -646,6 +665,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 path: z.ZodOptional<z.ZodString>;
                 port: z.ZodNumber;
+                provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
             }, z.core.$strict>;
             version: number;
@@ -1012,6 +1032,7 @@ signatures (every public export and the types it is made of)
                 detail: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
                     chat_attachment: "chat_attachment";
+                    apify_result: "apify_result";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
                     mcp_document: "mcp_document";
@@ -1060,6 +1081,43 @@ signatures (every public export and the types it is made of)
     export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
     const GovernancePolicySchema: z.ZodObject<{
+        apify: z.ZodOptional<z.ZodObject<{
+            actor_grants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                account_id: z.ZodString;
+                actor_id: z.ZodString;
+                build_number: z.ZodString;
+                expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+                max_run_usd: z.ZodNumber;
+                origins: z.ZodArray<z.ZodString>;
+                pricing_sha256: z.ZodString;
+                profile_id: z.ZodString;
+                schema_sha256: z.ZodString;
+            }, z.core.$strict>>>;
+            actors: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            discovery: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            enabled: z.ZodOptional<z.ZodBoolean>;
+            limits: z.ZodOptional<z.ZodObject<{
+                day_usd: z.ZodNumber;
+                max_concurrent_runs: z.ZodNumber;
+                max_requests_per_turn: z.ZodNumber;
+                max_result_bytes: z.ZodNumber;
+                max_result_items: z.ZodNumber;
+                max_retention_seconds: z.ZodNumber;
+                max_runs_per_turn: z.ZodNumber;
+                max_runtime_seconds: z.ZodNumber;
+                run_usd: z.ZodNumber;
+                session_usd: z.ZodNumber;
+                turn_usd: z.ZodNumber;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         budgets: z.ZodOptional<z.ZodObject<{
             day: z.ZodOptional<z.ZodObject<{
                 block_tokens: z.ZodOptional<z.ZodNumber>;
@@ -1181,7 +1239,7 @@ signatures (every public export and the types it is made of)
     }
   GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurns {
-        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
+        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute, timing?: PhaseTimer): Promise<GovernedTurnHold>;
         bindSession(turnId: string, sessionId: string): Promise<void>;
         exposures(sessionIds: readonly string[]): Promise<ProviderExposure[]>;
         unprovenHistory(sessionId: string): Promise<boolean>;
@@ -1192,6 +1250,8 @@ signatures (every public export and the types it is made of)
         refresh(lock: KeyedLock): void;
         close(): Promise<void>;
     }
+  HostChatStore (packages/ui-server/src/ws/chat-store-cleanup.ts)
+    export type HostChatStore = Exclude<ChatStore, "native">;
   HostVersionRequirements (packages/ui-server/src/app.ts)
     export interface HostVersionRequirements {
         brainCli?: string;
@@ -1555,6 +1615,8 @@ signatures (every public export and the types it is made of)
     export interface OpenBrainDbOptions {
         minSchemaVersion?: number;
     }
+  PhaseTimer (packages/ui-server/src/activity/turn-lifecycle.ts)
+    export type PhaseTimer = (name: string) => () => void;
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;
@@ -1677,11 +1739,16 @@ signatures (every public export and the types it is made of)
         operationId: string;
         generation: number;
         identities: RetiredChatIdentities;
+        backendId: string | null;
         cleanup: ChatRetirementStatus;
         stores: Partial<Record<ChatStore, ChatStoreOutcome>>;
     };
   RetireRefusal (packages/ui-server/src/ws/chat-lifecycle.ts)
     export type RetireRefusal = "unauthorized" | "unavailable" | "stale" | "unsupported" | "busy";
+  Retired (packages/ui-server/src/ws/chat-deletion.ts)
+    type Retired = Extract<RetireChatResult, {
+        status: "retired";
+    }>;
   RetiredChatIdentities (packages/ui-server/src/ws/chat-lifecycle.ts)
     export interface RetiredChatIdentities {
         sessions: string[];
@@ -1804,6 +1871,8 @@ signatures (every public export and the types it is made of)
         retireChat?(input: RetireChatInput, busy: (identities: RetiredChatIdentities) => boolean): Promise<RetireChatResult>;
         chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
         recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+        cleanChatStore?(lifecycleId: string, store: HostChatStore): Promise<ChatRetirementStatus>;
+        unfinishedChatRetirements?(): Promise<ReturnType<typeof unfinishedChatRetirements>>;
         chatRetired?(target: ChatTarget | {
             conversationId: string;
         }): boolean;
@@ -1997,6 +2066,7 @@ signatures (every public export and the types it is made of)
         referencePool?: ReferenceWorktreeJournalPool;
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
+        idleObservationMs?: number;
     }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
@@ -2120,6 +2190,7 @@ signatures (every public export and the types it is made of)
     }
   WsHost (packages/ui-server/src/ws/host.ts)
     export class WsHost {
+        chatDeletion?: import("./chat-deletion.js").ChatDeletion;
         readonly journal?: import("../brain/turn-journal.js").TurnJournal;
         readonly brainPath?: string;
         readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
@@ -2158,6 +2229,32 @@ signatures (every public export and the types it is made of)
         isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
     }
+  apifyActorGrant (packages/common/src/governance-policy.ts)
+    const apifyActorGrant: z.ZodObject<{
+        account_id: z.ZodString;
+        actor_id: z.ZodString;
+        build_number: z.ZodString;
+        expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+        max_run_usd: z.ZodNumber;
+        origins: z.ZodArray<z.ZodString>;
+        pricing_sha256: z.ZodString;
+        profile_id: z.ZodString;
+        schema_sha256: z.ZodString;
+    }, z.core.$strict>;
+  apifyLimits (packages/common/src/governance-policy.ts)
+    const apifyLimits: z.ZodObject<{
+        day_usd: z.ZodNumber;
+        max_concurrent_runs: z.ZodNumber;
+        max_requests_per_turn: z.ZodNumber;
+        max_result_bytes: z.ZodNumber;
+        max_result_items: z.ZodNumber;
+        max_retention_seconds: z.ZodNumber;
+        max_runs_per_turn: z.ZodNumber;
+        max_runtime_seconds: z.ZodNumber;
+        run_usd: z.ZodNumber;
+        session_usd: z.ZodNumber;
+        turn_usd: z.ZodNumber;
+    }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
   attribution (packages/ui-server/src/governance/events.ts)
@@ -2185,6 +2282,11 @@ signatures (every public export and the types it is made of)
     export function createApp(options?: CreateAppOptions): Promise<BrainUiApp>;
   createBrainClient (packages/ui-server/src/brain/client.ts)
     export function createBrainClient(opts: BrainClientOptions): BrainClient;
+  createChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
+    export function createChatDeletion(deps: ChatDeletionDeps): {
+        delete(input: Omit<RetireChatInput, "at" | "removableBackends">): Promise<ChatDeletionResult>;
+        reconcile(): Promise<void>;
+    };
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
   createGeminiConversationProvider (packages/ui-server/src/voice/gemini-conversation.ts)
@@ -2285,7 +2387,7 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
-        }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
+        }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;
         claudeMemoryTarget(turnId: string, path: string): null | {
@@ -2303,6 +2405,7 @@ signatures (every public export and the types it is made of)
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
         isHeld(): boolean;
+        maintain: () => Promise<void>;
         observe(): Promise<void>;
         observeUserPolicy(turnId: string, approvedWrite: () => Promise<void> | void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
@@ -2348,12 +2451,21 @@ signatures (every public export and the types it is made of)
         worktrees(turnId: string): string[];
         writeOperation(statements: readonly JournalStatement[]): Promise<number[]>;
     };
+  maintain (packages/ui-server/src/brain/turn-journal.ts)
+    function maintain(): Promise<void>;
   normaliseLabel (packages/ui-server/src/labels/normalise.ts)
     export function normaliseLabel(raw: string): string | null;
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
+        apify: {
+            actor_grants: Array<z.output<typeof apifyActorGrant>>;
+            actors: "allow" | "ask" | "deny";
+            discovery: "allow" | "ask" | "deny";
+            enabled: boolean;
+            limits: ApifyLimits | null;
+        };
         budgets: {
             day: {
                 block_tokens: number;
@@ -2425,6 +2537,12 @@ signatures (every public export and the types it is made of)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
   summary (packages/ui-server/src/brain/turn-journal.ts)
     function summary(turnId: string): TurnJournalSummary;
+  unfinishedChatRetirements (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export function unfinishedChatRetirements(db: Database): Array<Extract<RetireChatResult, {
+        status: "retired";
+    }> & {
+        principalId: string;
+    }>;
   websocket re-exported from hono
   withBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function withBrainDb<T>(brainPath: string, options: OpenBrainDbOptions, fn: (db: Database, schemaVersion: number) => T): T;

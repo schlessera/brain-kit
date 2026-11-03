@@ -121,7 +121,7 @@ type Work = {
   edit(): Promise<void>; stage(): void; receipt(partition:string):Promise<void>; extra(partition:string): Promise<void>;
   assign(id:string):Promise<string>; move(from:string,to:string,keys:string[]):Promise<string>;
   refresh():void; quota():void; restore():void; clearFailure():void;
-  fullDiscard(id:string):Promise<string>; reopenUnassigned():Promise<void>;
+  fullDiscard(id:string):Promise<string>; discardBarrier():"idle"|"recovery"|"discarding"; reopenUnassigned():Promise<void>;
   authorize():Promise<void>; tryStale():boolean; authExpire():Promise<void>;
   compose():void; background():{settingsClosed:number;dictationCancelled:number;finalText:string;partial:string};
   live(kind:"final"|"partial"|"draining"):void;
@@ -837,5 +837,31 @@ for (const generation of ["initial", "reopened"] as const) runtimeTest(`a full o
   try {await signIn(page);if(generation==="reopened") await work(page,w=>w.reopenUnassigned());await work(page,w=>w.seed("unassigned","sirens"));
     expect(await work(page,w=>w.fullDiscard("sirens")),`full-origin discard uses the existing ${generation} admission without allocating a fence`).toBe("ok");
     expect(await work(page,w=>w.read("unassigned")),"full-origin discard deletes all of the recording metadata and audio").toEqual([]);
+  }finally{await context.close();}
+},30_000);
+
+runtimeTest("full-origin discard waits for this page's inventory recovery and still refuses another tab's recording lock",async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);await work(page,w=>w.seed("unassigned","sirens"));
+    // A real primary recovery holds the native recording lock, as the mounted tray's does after sign-in (#1266).
+    await work(page,w=>w.holdInventoryRecovery());
+    const discard=await page.evaluateHandle(()=>{const state={result:null as string|null};void window.__work.fullDiscard("sirens").then(result=>{state.result=result;});return state;});
+    await page.waitForFunction(state=>state.result!==null||(window.__work.discardBarrier()==="recovery"&&window.__work.recoveryEvents().some(event=>event.root==="primary"&&event.partition==="unassigned"&&event.state==="pending")),discard);
+    expect(await discard.evaluate(state=>state.result),"explicit discard waits for this page's pending recovery instead of refusing its own lock").toBeNull();
+    await work(page,w=>w.releaseInventoryRecovery());
+    await page.waitForFunction(state=>state.result!==null,discard);
+    expect(await discard.evaluate(state=>state.result),"the waiting discard succeeds once its own recovery releases the native lock").toBe("ok");
+    expect(await work(page,w=>w.read("unassigned")),"the waiting discard deletes all of the recording metadata and audio").toEqual([]);
+    await work(page,w=>w.seed("unassigned","aeolus"));
+    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);
+    await work(other,w=>w.holdRecordingLock());
+    const refused=await work(page,w=>w.fullDiscard("aeolus"));
+    expect(refused.startsWith("Error: Recording in another Brain tab "),`another tab's native recording lock still refuses discard: ${refused}`).toBe(true);
+    const kept=await work(page,w=>w.read("unassigned"));
+    expect(kept.some(r=>r.key==="recording:index:aeolus"),"a refused discard keeps the recording metadata").toBe(true);
+    expect(kept.filter(r=>r.key.startsWith("recording:chunk:aeolus:")).length,"a refused discard keeps the saved audio").toBe(1);
+    await work(other,w=>w.releaseRecordingLock());
+    expect(await work(page,w=>w.fullDiscard("aeolus")),"discard succeeds after the other tab releases its lock").toBe("ok");
+    expect(await work(page,w=>w.read("unassigned"))).toEqual([]);
   }finally{await context.close();}
 },30_000);

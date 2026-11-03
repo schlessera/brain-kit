@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:602`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:626`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:614`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:638`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
@@ -85,7 +85,7 @@ is historical. Preserve subscription billing and the selected runtime identity.
 Pi disables built-in tools but currently loads resources and extensions
 (`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-149`)
 and gates extension calls (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:96-125`). Removing four curated
+`packages/ui-backend-pi/src/permission-gate.ts:99-128`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
@@ -204,7 +204,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:364-457`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:372-465`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:746`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:756`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)
@@ -330,7 +330,7 @@ D37 binds the five destinations: reuse Actions (`needs you`, `running`, `done`)
 for durable decisions, and make Queue a secondary view with links to existing run
 detail. Do not add a second Actions/Activity destination. The current page's
 notification acknowledgement is not resolution (`ActionsLens`,
-`packages/ui-react/src/components/activity/activity-page.tsx:68-69`). Exact effects,
+`packages/ui-react/src/components/activity/activity-page.tsx:69-70`). Exact effects,
 reconnect convergence, accessible focus and visible failure are required; new
 cards need an interaction design that fits the current kit.
 
@@ -389,6 +389,14 @@ journals compensated cleanup after successful verification. This reconciliation
 does not enable dispatch or alter its production gates. The additive schemas,
 refusals and replay behavior are recorded in the
 [completion contract](../integration-contract/mcp.md#interactive-share-completion-additive-1764).
+
+Amended 2026-11-02 ([#3353](https://github.com/schlessera/brain-kit/issues/3353)):
+the finite attempt budget bounds autonomous retries, and a bound filing turn is
+the user's own retry. Interactive claims therefore spend no attempts and ignore
+retry backoff, and the bound session can reclaim a share that earlier
+attempt-counting turns left `failed`, retiring its exhausted-retries Action. A
+retained file's link counts when its Markdown destination resolves to the
+retained path from the filed document's folder, as a renderer would follow it.
 
 ## Alternatives rejected
 

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { hygienePreviewRequestSchema, hygieneReviewCommandSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { hygienePreviewRequestSchema, hygieneReviewRequestSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { AppEnv } from "../app-env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
@@ -26,9 +26,10 @@ export function createHygieneReviewRoutes(review: HygieneReview) {
     let body: unknown;
     try { body = await readJsonBody(c); } catch { return c.json({ error: "invalid_request" }, 400); }
     if (body instanceof Response) return body;
-    const parsed = hygieneReviewCommandSchema.safeParse(body);
+    const parsed = hygieneReviewRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_request" }, 400);
-    try { return c.json(review.readFor(principal.id, await review.command(principal.id, parsed.data.operation))); }
+    const command = parsed.data;
+    try { return c.json(review.readFor(principal.id, command.operation === "undo-media" ? await review.undoMedia(principal.id, command.journalId) : await review.command(principal.id, command.operation))); }
     catch (e) { return c.json({ error: e instanceof HygieneAuthorityError ? "Unauthorized" : "review_failed" }, e instanceof HygieneAuthorityError ? 403 : 500); }
   });
   app.post("/hygiene/review/preview", requireJson(), async c => {
