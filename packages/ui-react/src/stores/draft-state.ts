@@ -28,7 +28,7 @@ import { attachmentFromDraft, mintDraftId } from "../lib/drafts.js";
  * is the acknowledged one.
  */
 
-export type DraftSaveFailure =
+type DraftSaveFailure =
   /** Dirty and unreachable, or a transient refusal: retried with backoff. */
   | { kind: "unsaved" }
   /** 413: `limit` bytes (or images), named by `bound`. */
@@ -37,7 +37,7 @@ export type DraftSaveFailure =
   | { kind: "full"; limit: number; bound: string };
 
 /** What the host acknowledged for a draft: its revision, and the local edit it holds. */
-export interface DraftHostCopy {
+interface DraftHostCopy {
   revision: number;
   /** The `edit` generation this revision holds; -1 when it holds another device's. */
   edit: number;
@@ -80,7 +80,7 @@ export interface ComposerDraft {
   bind: { sessionId: string; requestId: string } | null;
 }
 
-export type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
+type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
 
 /** One send: an immutable snapshot of what left the composer (D52 §5). */
 export interface DraftSend {
@@ -250,7 +250,7 @@ export const hasContent = (d: Pick<ComposerDraft, "text" | "attachments"> | unde
   Boolean(d && (d.text.length > 0 || d.attachments.length > 0));
 
 /** The draft's content is the revision the host acknowledged. */
-export const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.edit === d.edit;
+const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.edit === d.edit;
 
 function blank(draftId: string, sessionId: string | null, now: number): ComposerDraft {
   return {

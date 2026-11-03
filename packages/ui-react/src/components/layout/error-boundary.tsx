@@ -9,7 +9,7 @@ export interface ErrorBoundaryFallback {
   reset: () => void;
 }
 
-export interface ErrorBoundaryProps {
+interface ErrorBoundaryProps {
   children: ReactNode;
   /** Any change (Object.is per element) clears the error and the failure count. */
   resetKeys?: readonly unknown[];

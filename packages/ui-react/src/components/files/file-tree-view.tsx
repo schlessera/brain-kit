@@ -27,7 +27,7 @@ export function fileKind(name: string, isDir: boolean, expanded: boolean): FileK
   return IMAGE_EXT.has(ext) ? "image" : "file";
 }
 
-export interface TreeRowProps {
+interface TreeRowProps {
   name: string;
   kind: FileKind;
   depth: number;
@@ -59,7 +59,7 @@ export interface TreeRowProps {
 }
 
 /** How long the reveal flash runs before the request is cleared. */
-export const HIGHLIGHT_MS = 1800;
+const HIGHLIGHT_MS = 1800;
 
 export function TreeRow(p: TreeRowProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -96,7 +96,7 @@ export function TreeRow(p: TreeRowProps) {
   );
 }
 
-export interface FileTreeViewProps {
+interface FileTreeViewProps {
   /** The root listing: `loading` before it arrives, `error` when it failed, `ready` with rows. */
   state: "loading" | "error" | "ready";
   error?: string;

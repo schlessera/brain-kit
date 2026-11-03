@@ -19,7 +19,7 @@ export const LOCAL_CAPTURE_MIME_TYPES = ["audio/webm;codecs=opus", "audio/mp4"] 
 export type LocalCaptureMimeType = (typeof LOCAL_CAPTURE_MIME_TYPES)[number];
 
 /** The chunk interval MediaRecorder is asked for. Tuning only; never shown. */
-export const LOCAL_CAPTURE_TIMESLICE_MS = 1000;
+const LOCAL_CAPTURE_TIMESLICE_MS = 1000;
 
 /**
  * Why a recording ended. `interrupted` is the browser ending it on its own:
@@ -82,7 +82,7 @@ export interface StartLocalCaptureOptions extends LocalCaptureEnvironment {
 }
 
 /** The first container this browser's MediaRecorder records, or null. */
-export function pickLocalCaptureMimeType(Recorder: typeof MediaRecorder | undefined = globalThis.MediaRecorder): LocalCaptureMimeType | null {
+function pickLocalCaptureMimeType(Recorder: typeof MediaRecorder | undefined = globalThis.MediaRecorder): LocalCaptureMimeType | null {
   if (typeof Recorder?.isTypeSupported !== "function") return null;
   return LOCAL_CAPTURE_MIME_TYPES.find((type) => Recorder.isTypeSupported(type)) ?? null;
 }
