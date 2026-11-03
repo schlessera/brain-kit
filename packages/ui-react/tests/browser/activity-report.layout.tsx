@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
+import { touchFloor } from "./hit-reach.js";
 
 // Send bug report (#598) in real Chromium with the published stylesheet: the
 // row sibling's measured targets, its visible label either side of 480px, the
@@ -148,7 +149,7 @@ for (const theme of ["dark", "light"] as const) {
       for (const control of dialog.querySelectorAll<HTMLElement>("[role=button]:not([aria-disabled=true])")) {
         const box = control.getBoundingClientRect();
         if (box.width === 0) continue;
-        expect(box.height, `${control.textContent} height`).toBeGreaterThanOrEqual(44);
+        expect(touchFloor(control), `${control.textContent} meets the touch floor (#3252)`).toBe("met");
       }
       const openGitHub = [...dialog.querySelectorAll<HTMLElement>("[role=button]")].find((b) => b.textContent?.startsWith("Open issue on GitHub"))!;
       await userEvent.click(openGitHub);

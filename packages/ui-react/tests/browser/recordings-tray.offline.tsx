@@ -20,6 +20,7 @@ import { failIndexedDbWrites, holdIndexedDbWrite } from "./offline/indexeddb-fau
 import { installFaultNetwork } from "./offline/fault-network.ts";
 import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
 import { generateWav, AUDIO_FIXTURES } from "./offline/audio-fixtures.ts";
+import { describeHit, touchFloor } from "./hit-reach.js";
 
 const TEXT = "Ask Penelope whether the loom order arrived.";
 const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
@@ -171,7 +172,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     const violations = (await axe.run(c.host.querySelector<HTMLElement>("[data-recordings-tray]")!, { rules: { region: { enabled: false } } })).violations;
     expect(violations.map(v => [v.id, v.nodes.map(n => n.failureSummary)]), "tray axe violations").toEqual([]);
     for (const el of c.host.querySelectorAll<HTMLElement>("[data-recordings-tray] button,[data-recordings-tray] [role=button]")) {
-      const rect = el.getBoundingClientRect(); expect(rect.height, "44px control height").toBeGreaterThanOrEqual(44); expect(rect.width).toBeGreaterThanOrEqual(44);
+      expect(touchFloor(el), `44px touch target: ${describeHit(el)}`).toBe("met");
     }
     await tap(button(c.host, "Keep"));
     await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "Keep restores row Discard focus" }).toContain("Discard recording");
@@ -274,8 +275,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
   expect(box.left, "sheet stays inside the viewport").toBeGreaterThanOrEqual(0);
   expect(box.right, "sheet stays inside the viewport").toBeLessThanOrEqual(width);
   for (const control of c.host.querySelectorAll<HTMLElement>("button,[role=button]")) {
-    expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    expect(control.getBoundingClientRect().width).toBeGreaterThanOrEqual(44);
+    expect(touchFloor(control), `44px touch target: ${describeHit(control)}`).toBe("met");
   }
   const status = c.host.querySelector("[role=status]")!.textContent;
   await wait(1100); expect(c.host.querySelector("[role=status]")!.textContent, "timer never changes live text").toBe(status);

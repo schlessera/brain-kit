@@ -34,6 +34,7 @@ import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { useServiceWorkerUpdates } from "../../src/hooks/use-service-worker-updates.js";
 import { trackView } from "../track-fixtures.js";
 import { handleShareTargetRequest } from "@schlessera/brain-ui-sdk/internal/client";
+import { touchFloor } from "./hit-reach.js";
 
 declare module "vitest" {
   interface ProvidedContext { railPointer: "fine" | "coarse" | "mixed"; }
@@ -347,8 +348,9 @@ for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme 
 
     // New chat: an empty composer, and nothing sent, cancelled or asked.
     const start = await must(s, newChatName(width));
-    // A 44px touch reach (the disc's box, the pane button's height) under a coarse pointer.
-    if (mode !== "fine") expect(rect(start).height, "New chat reaches 44px").toBeGreaterThanOrEqual(43.5);
+    // A 44px touch reach under a coarse pointer: the disc's box, or the pane
+    // button's reach past its paint (#3252).
+    if (mode !== "fine") expect(touchFloor(start), "New chat reaches 44px").toBe("met");
     await press(s, start, mode);
     await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "the new-chat view" }).toBeNull();
     expect(composer(s).value, "B starts empty").toBe("");
@@ -760,7 +762,7 @@ for (const theme of THEMES) test(`${theme}: share actions have names, pointer ta
   for (const name of ["Add to brain", "Dismiss", "Share as plain text"]) {
     expect(page.getByRole("button", { name, exact: true }).elements().length, `${name} accessible name`).toBe(1);
     const action = page.getByRole("button", { name, exact: true }).element() as HTMLElement;
-    expect(rect(action).height, `${name} target height`).toBeGreaterThanOrEqual(44);
+    expect(touchFloor(action), `${name} target meets the touch floor`).toBe("met");
     await userEvent.keyboard("{Tab}"); action.focus();
     const ring = getComputedStyle(action);
     expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], `${name} focus ring`).toEqual(["2px", "solid", "2px"]);
@@ -788,7 +790,7 @@ for (const theme of THEMES) test(`${theme}: earlier messages have a named target
   const name = "Show 5 earlier messages · 5 hidden";
   expect(page.getByRole("button", { name, exact: true }).elements().length, "earlier messages accessible name").toBe(1);
   const earlier = page.getByRole("button", { name, exact: true }).element() as HTMLElement;
-  expect(rect(earlier).height, "earlier messages target height").toBeGreaterThanOrEqual(44);
+  expect(touchFloor(earlier), "earlier messages target meets the touch floor").toBe("met");
   await userEvent.keyboard("{Tab}"); earlier.focus();
   const ring = getComputedStyle(earlier);
   expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "earlier messages focus ring").toEqual(["2px", "solid", "2px"]);
