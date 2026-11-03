@@ -18,7 +18,7 @@ export function ackGraceClock() {
   const schedule = ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
     // Select the importing owner, not the expected duration: a wrong interval
     // must still be controlled and fail the boundary/registration assertions.
-    if (!new Error().stack?.split("\n")[2]?.includes("/src/turn-runner.ts:")) return nativeSet(callback, delay, ...args);
+    if (!new Error().stack?.split("\n")[2]?.includes("/src/turn-stream.ts:")) return nativeSet(callback, delay, ...args);
     const registration = { delay: delay ?? 0, due: now + (delay ?? 0), fired: false, cleared: false, callback: () => callback(...args) };
     const handle = {} as Handle;
     registrations.push(registration);
