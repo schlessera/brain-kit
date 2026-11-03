@@ -1067,7 +1067,6 @@ export "./internal" (./src/internal.ts)
   type MaintenanceResult
   MaintenanceTempBusyError
   type MaintenanceTempKind
-  type MaintenanceWorker
   NATIVE_MANAGER_MAX_DELTA_BYTES
   NATIVE_MANAGER_OPERATION_TIMEOUT_MS
   type NativeBrainDeltaCandidate
@@ -1099,7 +1098,6 @@ export "./internal" (./src/internal.ts)
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
   type RemovalRun
-  type ReplayReceipt
   type Reservation
   SUBPROCESS_ENV
   type SessionPromptFacts
@@ -1110,8 +1108,6 @@ export "./internal" (./src/internal.ts)
   type TurnTempAccess
   type TurnTempPromotionRecord
   type TurnTempPurgeRecord
-  type TurnTempPurgeResult
-  type TurnTempSpace
   UNMANAGED_TURN_STORAGE
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
@@ -1201,7 +1197,6 @@ export "./internal" (./src/internal.ts)
   observeClassification
   observeOutwardPlan
   outputStagingLimit
-  outwardTarget
   ownedNames
   parseCliProviderOrigins
   parseNativeBrainDelta
