@@ -27,7 +27,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
   WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
-  runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
+  type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, type ProviderRelay, type ProviderRelayReceipt,
@@ -87,6 +87,8 @@ export interface BrainExecution {
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
   /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
   turnId?: string;
+  /** @internal What its maintenance reservation is for, named by a busy refusal (#3461). Default `sync` for a sync, else `command`. */
+  maintenanceKind?: MaintenanceTempKind;
 }
 
 export interface ExecutionResult {
@@ -456,6 +458,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
       tempLimits: maintenanceTemp,
+      tempKind: ("maintenanceKind" in execution && execution.maintenanceKind) || ("sync" in execution && execution.sync ? "sync" : "command"),
       ...("outputBytes" in execution && execution.outputBytes ? { outputBytes: execution.outputBytes } : {}),
       ...(tempDomain ? { tempDomain } : {}),
       // The operator's exec wrapper runs inside the worker, as it does for agent workers.

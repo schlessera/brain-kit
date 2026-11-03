@@ -243,6 +243,12 @@ export interface BackendBridge {
    * its parsed input. Refusals resolve as `{ ok: false }`.
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
+  /**
+   * One Apify operation (#3162). The host binds principal, session, turn,
+   * posture and approvals from the authenticated turn and holds the
+   * credential; the call carries the operation's parsed input only.
+   */
+  apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
 
 }
 

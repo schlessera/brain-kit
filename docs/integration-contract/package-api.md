@@ -213,6 +213,13 @@ omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
 
+## UI-kit enlarge icon (additive #3397)
+
+The semantic `IconName` gains `enlarge`: open content in its dedicated
+full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
+already uses for Open diagram. The framed diagram renderer's header uses it.
+No existing key, glyph or component changes.
+
 ## UI-kit Button reach (additive #3252)
 
 `ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's
@@ -266,6 +273,38 @@ and `onOpenChange` fires on every toggle with the value being moved to.
 not exported, and is no extension seam. No CLI, MCP, wire, storage or HTTP
 shape changes; a minor changeset covers the additions.
 
+## UI-kit compact operation status (additive, #3281)
+
+`@schlessera/brain-ui-kit` exports `StatusIndicator` and the types
+`StatusIndicatorProps`, `StatusIndicatorOperation`, `StatusIndicatorFact` and
+`StatusIndicatorState`. [D58](../decisions/design-kit/components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+records the state matrix and the interaction.
+
+- `StatusIndicatorProps`: `label` (what the status is about), `summary` (the
+  tooltip sentence, repeated at the top of details), `title` (the details
+  heading), `operations` and an optional `returnFocus` callback, used when
+  details close after the trigger has gone.
+- `StatusIndicatorOperation`: `id` (the consumer's stable identity), `state`,
+  `stateLabel` (the state in the consumer's words), and optional
+  `explanation`, `facts` (`StatusIndicatorFact`: `key`, `value`) and
+  `actions` (a `ReactNode` of consumer buttons, rendered in details only).
+- `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
+  `unknown`, `failed`, `refused` or `idle`.
+
+The component is presentational. It derives only the displayed state and the
+count. The display state is the worst operation's state, in the order refused,
+failed, unknown, attention, active, queued, success, idle. Two or more
+operations show a count. An empty list renders a reserved 44px slot without a
+control, and it is never success. The accessible name is
+`{label}: {lead stateLabel}[; {n} operations]. Details.`
+
+The consumer is responsible for authoritative evidence. Nothing in the
+component infers success from time, animation or response order, and opening
+details triggers no action. State, freshness, identity, persistence and every
+action's authority stay with the consumer. `StatusDot` is unchanged. No CLI,
+MCP, wire, storage or HTTP shape changes; a minor changeset covers the
+additions.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
@@ -303,6 +342,21 @@ for storage and supported-host requirements.
 
 <a id="package-entry-points"></a>
 
+## Apify bridge tools (additive, 0.45.0, #3162)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+`APIFY_TOOL_CONTRACTS`, the seven `brain_apify_*` contracts, with
+`APIFY_OPERATIONS`, `APIFY_TOOL_NAMES`, `APIFY_ERROR_CODES`, `APIFY_GUIDANCE`,
+`apifyOperationOf` and the `ApifyToolCall`, `ApifyToolResult`,
+`ApifyEnvelope`, `ApifyErrorCode`, `ApifyOperation` and `ApifyToolName`
+types. `@schlessera/brain-ui-sdk/server` adds `handleApifyTool(name, input,
+bridge)`, which validates the strict input and forwards `{ tool, input }` to
+the optional new `BackendBridge.apify(call)`; without it the tool refuses as
+`provider_disabled`. The host binds principal, session, turn, posture and
+approvals; a backend sends the parsed input only. Names, schemas and the
+envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
+Both first-party backends register the tools in every interactive session.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each
@@ -313,7 +367,8 @@ behavior. A member tagged `@internal` in its own JSDoc is excluded, as a
 private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
-`@schlessera/brain/internal/graph`,
+`@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
+`@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,
@@ -4363,3 +4418,15 @@ packet audio. Unsupported codec/container forms, including audio/mp4, retain
 conservative elapsed-wall timestamps for the rest of that recording. Old stored
 wall timestamps remain readable without migration. No field, stop reason or
 state is added. This semantic change ships in a minor before 1.0.
+
+<a id="composer-attach-label-additive-0450-3045"></a>
+
+## Composer attach label (additive, 0.45.0, #3045)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`attachLabel?: string`, the attach trigger's accessible name. Omitted or empty,
+it is "Attach — photo, camera, files" (previously the fixed
+"Attach — photo, camera, file"). An actionable trigger also paints that name as
+an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
+composer's, has neither. Existing props and defaults are otherwise unchanged,
+and no wire schema changes. `api-report/` records the added prop.

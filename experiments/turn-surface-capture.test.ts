@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { captureSurface } from "../scripts/capture-turn-surface";
 import { attributeTokenCounts, tokenGroupPayloads } from "../scripts/turn-surface-token-groups";
 import { countSurfaceTokens } from "../scripts/measure-turn-surface-tokens";
+import { STABLE_BRIDGE_ROSTER } from "../scripts/turn-surface-fixture";
 
 // The installed-CLI tool-surface assertions this test used to open with live
 // in tests/installed-turn-surface.test.ts (#1386); this file keeps the
@@ -17,7 +18,7 @@ test("token groups partition the captured request and reject missing classificat
   expect(JSON.stringify(payloads[1]!.body.messages)).not.toContain("mcp__brain__brain_read");
   expect(JSON.stringify(payloads[1]!.body.messages)).toContain("WebFetch");
   expect(JSON.stringify(payloads[2]!.body.messages)).toContain("mcp__brain__brain_read");
-  expect(payloads[3]!.body.tools.length - payloads[2]!.body.tools.length).toBe(13);
+  expect(payloads[3]!.body.tools.length - payloads[2]!.body.tools.length).toBe(STABLE_BRIDGE_ROSTER.length);
   expect(payloads[4]!.body.tools).toEqual(capture.request.tools);
   expect(payloads[4]!.body.messages).toEqual(capture.request.messages);
   // Missing classification/listing evidence must reject the measurement.

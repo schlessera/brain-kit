@@ -1032,8 +1032,10 @@ const turnRetrySchema = z.looseObject({
 
 export const turnBudgetReceiptSchema = z.looseObject({
   listPriceCostUsd: z.number().finite().nonnegative().nullable(), listPriceIsEstimate:z.boolean().nullable().optional(), tokens: z.number().int().nonnegative().nullable(),
-  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
-  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(),
+  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
+  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(), apifyUsd:z.number().finite().nonnegative().optional(),
     tokens:z.number().int().nonnegative().nullable(), unknownRuns:z.number().int().nonnegative(),
     warnUsd:z.number().finite().nonnegative(), blockUsd:z.number().finite().nonnegative(), blockTokens:z.number().int().nonnegative(),
     warnTokens:z.number().int().nonnegative().optional(), resetAt:z.number().int().nonnegative().optional(), warning:z.boolean(), blocked:z.boolean() })).max(3),
@@ -1070,6 +1072,11 @@ export const turnJournalSummarySchema = z.looseObject({
   budget: turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
 
+const runtimeNoticeSchema = z.looseObject({
+  cause: z.enum(["aborted", "unspecified"]),
+  message: z.string().max(4_000),
+}) satisfies z.ZodType<import("./protocol.js").RuntimeNotice>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -1094,6 +1101,7 @@ const historyMessageSchema = z.looseObject({
   effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
+  runtimeNotice: runtimeNoticeSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
   turnId: id.optional().catch(undefined),
   journal: turnJournalSummarySchema.optional().catch(undefined),

@@ -22,7 +22,7 @@ declared once by a module and implemented by two entry points:
 
 The client registry mirrors the tool-renderer one (`export function registerToolRenderers`,
 `packages/ui-sdk/src/client/renderers.ts:171`) and is fed the same way, by the
-build (`export function registerBuiltinRenderers`, `packages/ui-react/src/components/chat/renderers/index.ts:20-25`).
+build (`export function registerBuiltinRenderers`, `packages/ui-react/src/components/chat/renderers/index.ts:21-27`).
 Dispatch order: an exact fence language or extension match from a configured
 module, then the built-in code view.
 

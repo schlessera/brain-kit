@@ -22,7 +22,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d"
+        "source": "c92372d533f83154ec28a41e89504cab7d5486dd4e6d9ed632c0c05c49dd9130"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
