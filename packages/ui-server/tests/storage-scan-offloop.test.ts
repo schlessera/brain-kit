@@ -174,10 +174,11 @@ test("maintenance route waits for its receipt and cancellation waits for its dur
     const held = queue.call("slow", "Ithaca start", 300);
     let answered = false;
     const response = Promise.resolve(app.request("/api/storage/maintenance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, operation: "pack-git" }) })).then(value => { answered = true; return value; });
-    await Bun.sleep(20);
-    expect(answered, "STORAGE_MAINTENANCE_ROUTE_WAITS_FOR_RECEIPT").toBe(false);
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.db.query("SELECT id FROM storage_maintenance_operations").get()).toBeNull();
-    await held;
+    // The receipt is queued on the write worker behind the hold, whose replies
+    // arrive in order: the route has not answered when the hold answers.
+    expect(await held.then(() => answered), "STORAGE_MAINTENANCE_ROUTE_WAITS_FOR_RECEIPT").toBe(false);
     const answer = await response;
     expect(answer.status).toBe(202);
     expect(await answer.json(), "STORAGE_MAINTENANCE_ROUTE_COMMITTED_RECEIPT").toMatchObject({ id, state: "waiting" });
@@ -186,10 +187,11 @@ test("maintenance route waits for its receipt and cancellation waits for its dur
     expect(f.db.query("SELECT state FROM storage_maintenance_operations").get(), "STORAGE_MAINTENANCE_RUNNING_INTENT_BEFORE_OWNER").toEqual({ state: "running" });
     const slowCancel = queue.call("slow", "Ithaca cancel", 300);
     const cancelling = m.operations.cancel(f.owner.id, id);
-    await Bun.sleep(20);
-    expect(m.ownerCancelled(), "STORAGE_MAINTENANCE_NO_ABORT_BEFORE_CANCEL_COMMIT").toBe(false);
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.db.query("SELECT cancel_requested FROM storage_maintenance_operations").get()).toEqual({ cancel_requested: 0 });
-    await slowCancel; await cancelling; await m.cancelled.promise; await m.operations.idle();
+    // The cancel flag is queued behind the hold: the owner is not aborted when the hold answers.
+    expect(await slowCancel.then(() => m.ownerCancelled()), "STORAGE_MAINTENANCE_NO_ABORT_BEFORE_CANCEL_COMMIT").toBe(false);
+    await cancelling; await m.cancelled.promise; await m.operations.idle();
     expect(f.db.query("SELECT cancel_requested FROM storage_maintenance_operations").get()).toEqual({ cancel_requested: 1 });
     expect(await m.operations.receipt(f.owner.id, id)).toMatchObject({ state: "unknown", reason: "owner_outcome_unknown" });
     expect(await sites.log(), "STORAGE_MAINTENANCE_START_WRITE_CANCEL_WORKER_FULL").toEqual(Array(5).fill("storage_maintenance_operations"));
@@ -225,10 +227,13 @@ test("a held scan cancellation leaves authority intact until its commit", async 
     const scan = (await f.shared.acquire(f.owner.id, randomUUID(), scope, 1, true, at))!;
     await queue.ready;
     const held = queue.call("slow", "Ithaca cancel", 300);
-    const cancelling = f.shared.cancel(scan);
-    await Bun.sleep(20);
+    let cancelled = false;
+    const cancelling = Promise.resolve(f.shared.cancel(scan)).then(() => { cancelled = true; });
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.shared.check(scan).cancel_requested, "STORAGE_SCAN_AUTHORITY_UNTIL_CANCEL_COMMIT").toBe(0);
-    await held; await cancelling;
+    // The cancel commit is queued behind the hold: it has not settled when the hold answers.
+    expect(await held.then(() => cancelled), "STORAGE_SCAN_CANCEL_SETTLES_AFTER_ITS_COMMIT").toBe(false);
+    await cancelling;
     expect(() => f.shared.check(scan), "STORAGE_SCAN_AUTHORITY_REVOKED_AFTER_CANCEL_COMMIT").toThrow("storage-scan-authority-lost");
     await f.shared.finish(scan, false, true, at);
   } finally { await f.close(); }
