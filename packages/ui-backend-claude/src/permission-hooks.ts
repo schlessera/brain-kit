@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   checkEditedApproval,
@@ -184,7 +184,7 @@ export function createPermissionContext(options: PermissionWiringOptions, native
     options.denyNativeWrites && ["Write", "Edit", "NotebookEdit"].includes(name)
       ? "Native file writes are unavailable in this turn's profile or voice posture. Use the permitted server application tools instead."
       : undefined;
-  const commandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
+  const commandPolicy: CompiledWorkerCommandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
   const confirmPatterns = [...options.confirmPatterns, ...commandPolicy.confirm];
   const outward = (toolName: string, input: unknown) => prepareOutwardPlan({ toolName, shellToolName: "Bash", input,
     allow: req.workerSandbox?.commandPolicy?.outwardAllow, taint: req.workerSandbox?.commandPolicy?.taint, autonomous: Boolean(req.autonomous), voice: req.posture === "voice",
