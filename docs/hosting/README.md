@@ -47,7 +47,7 @@ provider such as Boat.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.44.0.**
 The floor is enforced at
-(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:111`) and covers
+(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:121`) and covers
 all commands and flags the server invokes, including 0.42.0’s scratch pin input.
 From 0.44.0 the search index lives in `.brain-index/` instead of a root-level
 `brain.db`: the server reads it there, deletes the old root-level copy at boot

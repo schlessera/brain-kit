@@ -6970,7 +6970,7 @@ signatures (every public export and the types it is made of)
         finding: Record<string, unknown>;
         outcome?: {
             version: 1;
-            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded";
+            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred";
             supersededBy?: string;
             reason?: string;
             code?: string;
@@ -6995,7 +6995,7 @@ signatures (every public export and the types it is made of)
   HygieneEffect (packages/ui-sdk/src/protocol.ts)
     export interface HygieneEffect {
         kind: "hygiene";
-        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze";
+        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer";
         findingId: string;
         fingerprint: string;
         handler?: string;
@@ -7045,8 +7045,20 @@ signatures (every public export and the types it is made of)
             snoozed: number;
             nextSnoozeDueAt: string | null;
             informationalNotShown: number;
+            kept?: number;
         };
         blocker?: Record<string, unknown>;
+        kept?: number;
+        pass?: number;
+        deferred?: {
+            findingId: string;
+            fingerprint: string;
+        }[];
+        media?: {
+            awaitingReview: number;
+            setAside: number;
+            kept: number;
+        };
     }
   HygieneWorktreeDetails (packages/ui-sdk/src/protocol.ts)
     export interface HygieneWorktreeDetails {
@@ -12806,6 +12818,7 @@ signatures (every public export and the types it is made of)
             status: z.ZodEnum<{
                 applying: "applying";
                 check_failed: "check_failed";
+                deferred: "deferred";
                 dismissed: "dismissed";
                 fixed: "fixed";
                 not_detected: "not_detected";
@@ -12841,6 +12854,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
             check: "check";
+            defer: "defer";
             dismiss: "dismiss";
             resolve: "resolve";
             snooze: "snooze";
@@ -12862,6 +12876,7 @@ signatures (every public export and the types it is made of)
         status: z.ZodEnum<{
             applying: "applying";
             check_failed: "check_failed";
+            deferred: "deferred";
             dismissed: "dismissed";
             fixed: "fixed";
             not_detected: "not_detected";
@@ -12912,6 +12927,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -12947,6 +12963,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -13037,11 +13054,23 @@ signatures (every public export and the types it is made of)
                 eligibleRemaining: z.ZodNumber;
                 fixed: z.ZodNumber;
                 informationalNotShown: z.ZodNumber;
+                kept: z.ZodDefault<z.ZodNumber>;
                 nextSnoozeDueAt: z.ZodNullable<z.ZodString>;
                 snoozed: z.ZodNumber;
             }, z.core.$strict>>;
+            deferred: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+            }, z.core.$strict>>>;
             dismissed: z.ZodNumber;
             fixed: z.ZodNumber;
+            kept: z.ZodDefault<z.ZodNumber>;
+            media: z.ZodOptional<z.ZodObject<{
+                awaitingReview: z.ZodNumber;
+                kept: z.ZodNumber;
+                setAside: z.ZodNumber;
+            }, z.core.$strict>>;
+            pass: z.ZodDefault<z.ZodNumber>;
             pauseReason: z.ZodOptional<z.ZodObject<{
                 kind: z.ZodLiteral<"actions-limit">;
                 retiredActionId: z.ZodString;
@@ -13068,11 +13097,23 @@ signatures (every public export and the types it is made of)
             eligibleRemaining: z.ZodNumber;
             fixed: z.ZodNumber;
             informationalNotShown: z.ZodNumber;
+            kept: z.ZodDefault<z.ZodNumber>;
             nextSnoozeDueAt: z.ZodNullable<z.ZodString>;
             snoozed: z.ZodNumber;
         }, z.core.$strict>>;
+        deferred: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            findingId: z.ZodString;
+            fingerprint: z.ZodString;
+        }, z.core.$strict>>>;
         dismissed: z.ZodNumber;
         fixed: z.ZodNumber;
+        kept: z.ZodDefault<z.ZodNumber>;
+        media: z.ZodOptional<z.ZodObject<{
+            awaitingReview: z.ZodNumber;
+            kept: z.ZodNumber;
+            setAside: z.ZodNumber;
+        }, z.core.$strict>>;
+        pass: z.ZodDefault<z.ZodNumber>;
         pauseReason: z.ZodOptional<z.ZodObject<{
             kind: z.ZodLiteral<"actions-limit">;
             retiredActionId: z.ZodString;
@@ -13133,6 +13174,7 @@ signatures (every public export and the types it is made of)
                 status: z.ZodEnum<{
                     applying: "applying";
                     check_failed: "check_failed";
+                    deferred: "deferred";
                     dismissed: "dismissed";
                     fixed: "fixed";
                     not_detected: "not_detected";
@@ -13168,6 +13210,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"hygiene">;
                 operation: z.ZodEnum<{
                     check: "check";
+                    defer: "defer";
                     dismiss: "dismiss";
                     resolve: "resolve";
                     snooze: "snooze";
@@ -13401,6 +13444,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -13436,6 +13480,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -13677,6 +13722,7 @@ signatures (every public export and the types it is made of)
                         status: z.ZodEnum<{
                             applying: "applying";
                             check_failed: "check_failed";
+                            deferred: "deferred";
                             dismissed: "dismissed";
                             fixed: "fixed";
                             not_detected: "not_detected";
@@ -13712,6 +13758,7 @@ signatures (every public export and the types it is made of)
                         kind: z.ZodLiteral<"hygiene">;
                         operation: z.ZodEnum<{
                             check: "check";
+                            defer: "defer";
                             dismiss: "dismiss";
                             resolve: "resolve";
                             snooze: "snooze";
@@ -13950,6 +13997,7 @@ signatures (every public export and the types it is made of)
                 status: z.ZodEnum<{
                     applying: "applying";
                     check_failed: "check_failed";
+                    deferred: "deferred";
                     dismissed: "dismissed";
                     fixed: "fixed";
                     not_detected: "not_detected";
@@ -13985,6 +14033,7 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"hygiene">;
                 operation: z.ZodEnum<{
                     check: "check";
+                    defer: "defer";
                     dismiss: "dismiss";
                     resolve: "resolve";
                     snooze: "snooze";
@@ -14081,6 +14130,7 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"hygiene">;
             operation: z.ZodEnum<{
                 check: "check";
+                defer: "defer";
                 dismiss: "dismiss";
                 resolve: "resolve";
                 snooze: "snooze";
@@ -14380,6 +14430,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -14415,6 +14466,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -15030,6 +15082,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
             check: "check";
+            defer: "defer";
             dismiss: "dismiss";
             resolve: "resolve";
             snooze: "snooze";
@@ -18409,6 +18462,7 @@ signatures (every public export and the types it is made of)
                     status: z.ZodEnum<{
                         applying: "applying";
                         check_failed: "check_failed";
+                        deferred: "deferred";
                         dismissed: "dismissed";
                         fixed: "fixed";
                         not_detected: "not_detected";
@@ -18444,6 +18498,7 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"hygiene">;
                     operation: z.ZodEnum<{
                         check: "check";
+                        defer: "defer";
                         dismiss: "dismiss";
                         resolve: "resolve";
                         snooze: "snooze";
@@ -18694,6 +18749,7 @@ signatures (every public export and the types it is made of)
                         status: z.ZodEnum<{
                             applying: "applying";
                             check_failed: "check_failed";
+                            deferred: "deferred";
                             dismissed: "dismissed";
                             fixed: "fixed";
                             not_detected: "not_detected";
@@ -18729,6 +18785,7 @@ signatures (every public export and the types it is made of)
                         kind: z.ZodLiteral<"hygiene">;
                         operation: z.ZodEnum<{
                             check: "check";
+                            defer: "defer";
                             dismiss: "dismiss";
                             resolve: "resolve";
                             snooze: "snooze";
@@ -20526,6 +20583,7 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"hygiene">;
         operation: z.ZodEnum<{
             check: "check";
+            defer: "defer";
             dismiss: "dismiss";
             resolve: "resolve";
             snooze: "snooze";

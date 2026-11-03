@@ -47,14 +47,15 @@ describe("hygiene next priority and eligibility", () => {
     expect(first.finding?.id).toBe(id(error));
     expect(first.finding?.sources).toEqual([{ source: "validation", name: "required-missing", severity: "error" }]);
     expect(first.counts).toEqual({ eligibleRemaining: 3, fixed: 0, dismissed: 0, snoozed: 1,
-      nextSnoozeDueAt: "2026-07-13T08:00:00Z", informationalNotShown: 1 });
+      nextSnoozeDueAt: "2026-07-13T08:00:00Z", informationalNotShown: 1, kept: 0 });
     dispose(r, candidates, error);
     expect(next(r, candidates).finding?.id).toBe(id(due));
     dispose(r, candidates, due);
     expect(next(r, candidates).finding?.id).toBe(id(warning));
     dispose(r, candidates, warning);
     expect(next(r, candidates)).toEqual({ finding: null, counts: { eligibleRemaining: 0, fixed: 0, dismissed: 3,
-      snoozed: 1, nextSnoozeDueAt: "2026-07-13T08:00:00Z", informationalNotShown: 1 } });
+      snoozed: 1, nextSnoozeDueAt: "2026-07-13T08:00:00Z", informationalNotShown: 1, kept: 0 },
+      media: { awaitingReview: 0, setAside: 0, kept: 0, links: { state: "unknown", observed: 0, limit: 5000, tooLarge: false, symlinks: 0 } } });
     expect(next(r, candidates, new Date("2026-07-13T08:00:01Z")).finding?.id).toBe(id(future));
     expect(next(r, candidates.filter((c) => c !== future)).counts.fixed).toBe(1);
   });
@@ -324,8 +325,16 @@ describe("hygiene next real CLI", () => {
     writeFileSync(join(r, "brain.config.json"), "{}");
     const result = await runCli(r, ["hygiene", "next", "--json"]);
     expect(result.code).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ finding: null, counts: { eligibleRemaining: 0, fixed: 0,
-      dismissed: 0, snoozed: 0, nextSnoozeDueAt: null, informationalNotShown: 0 } });
+    const legacy = { finding: null, counts: { eligibleRemaining: 0, fixed: 0, dismissed: 0, snoozed: 0, nextSnoozeDueAt: null, informationalNotShown: 0 } };
+    // G4 (#2780, rev 6.1): the complete envelope, byte for byte.
+    expect(result.stdout.trim()).toBe(JSON.stringify({ ...legacy, counts: { ...legacy.counts, kept: 0 },
+      media: { awaitingReview: 0, setAside: 0, kept: 0, links: { state: "unknown", observed: 0, limit: 5000, tooLarge: false, symlinks: 0 } } }, null, 2));
+    // G2: deleting exactly the always-emitted keys leaves the old envelope, in its old key order.
+    const parsed = JSON.parse(result.stdout);
+    delete parsed.counts.kept;
+    delete parsed.media;
+    expect(parsed).toEqual(legacy);
+    expect(Object.keys(parsed.counts)).toEqual(Object.keys(legacy.counts));
   });
 
   test("real validation join selects a missing title, retains two broken-link sources, then advances after dismiss", async () => {

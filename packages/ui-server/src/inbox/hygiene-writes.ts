@@ -14,8 +14,13 @@ const id = z.string().min(1).max(256), text = z.string();
 const handlerSchema = z.object({ name: id, kind: z.enum(["choice", "field", "manual", "blocker"]), input: z.object({ type: z.enum(["none", "string", "enum", "date", "strings", "path"]), values: z.array(text).optional(), example: text.optional() }), effect: text, explanation: text });
 export const findingSchema = z.looseObject({ id, fingerprint: id, path: text, title: text, handlers: z.array(handlerSchema).min(1) });
 const countsSchema = hygieneReviewStateSchema.shape.counts.unwrap();
-export const nextSchema = z.union([z.object({ blocker: z.record(z.string(), z.unknown()) }), z.object({ finding: findingSchema.nullable(), counts: countsSchema })]);
-export const resultSchema = z.looseObject({ status: z.enum(["preview", "fixed", "stale", "refused", "check_failed", "undone", "still_detected", "not_detected", "dismissed", "snoozed"]), id: text, reason: text.nullable().optional(), code: text.optional(), fieldError: z.object({ field: text, message: text }).optional(), diff: hygieneDiffSchema.optional(), previewToken: id.optional(), undoToken: z.string().regex(/^[0-9a-f]{32}$/).optional() });
+const mediaSchema = z.object({ awaitingReview: z.number().int().min(0), setAside: z.number().int().min(0), kept: z.number().int().min(0) });
+export const nextSchema = z.union([z.object({ blocker: z.record(z.string(), z.unknown()) }), z.object({ finding: findingSchema.nullable(), counts: countsSchema, media: mediaSchema.optional() })]);
+/** The media counts a `next` carried, as review state stores them (#2780). */
+export const mediaOf = (next: z.infer<typeof nextSchema>) => "media" in next && next.media ? { awaitingReview: next.media.awaitingReview, setAside: next.media.setAside, kept: next.media.kept } : undefined;
+/** A fresh review's state. */
+export const IDLE_REVIEW: HygieneReviewState = { version: 1, status: "idle", position: 0, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 0, deferred: [] };
+export const resultSchema = z.looseObject({ status: z.enum(["preview", "fixed", "stale", "refused", "check_failed", "undone", "still_detected", "not_detected", "dismissed", "snoozed", "deferred"]), id: text, reason: text.nullable().optional(), code: text.optional(), fieldError: z.object({ field: text, message: text }).optional(), diff: hygieneDiffSchema.optional(), previewToken: id.optional(), undoToken: z.string().regex(/^[0-9a-f]{32}$/).optional() });
 export type Result = z.infer<typeof resultSchema>;
 export interface Attempt { id: string; item_id: string; principal_id: string; request_json: string; effect_json: string; wait_until: number | null }
 export class HygieneAuthorityError extends Error {}
@@ -34,7 +39,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
-    return row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : { version: 1, status: "idle", position: 0, fixed: 0, dismissed: 0, snoozed: 0 };
+    return row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : IDLE_REVIEW;
   }
   function save(review: HygieneReviewState) {
     db.query("INSERT INTO hygiene_review (singleton, data_json) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET data_json = excluded.data_json").run(JSON.stringify(hygieneReviewStateSchema.parse(review)));
@@ -86,7 +91,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           payload: { title: finding.title, detail: finding.path }, options, hygiene: { findingId: finding.id, fingerprint: finding.fingerprint, finding } };
         // One pending decision replaces one: normal validation, without running cap retirement.
         insertInboxAction(db, item, [], undefined, now(), true);
-        save({ ...review, pendingActionId: itemId, counts: next.counts });
+        save({ ...review, pendingActionId: itemId, counts: next.counts, media: mediaOf(next) ?? review.media });
         return read();
       }).immediate();
     },
@@ -98,14 +103,15 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         if (review.pendingActionId || (review.status !== "active" && !(resumeRetired && paused && ["paused", "blocked"].includes(review.status)))) return;
         if (review.pauseReason && (!resumeRetired || !principalId || review.pauseReason.retiredActionId !== paused?.retiredActionId)) return;
         if ("blocker" in next) { save({ ...review, status: "blocked", blocker: next.blocker }); return; }
-        if (!finding) { save({ ...review, status: "complete", pauseReason: undefined, counts: next.counts }); return; }
+        // Every remaining finding left pending is a complete pass too: the counts stay truthful.
+        if (!finding) { save({ ...review, status: "complete", pauseReason: undefined, counts: next.counts, media: mediaOf(next) }); return; }
         const readmitting = paused && action(paused.retiredActionId).hygiene!.findingId === finding.id && action(paused.retiredActionId).hygiene!.fingerprint === finding.fingerprint;
         const itemId = readmitting ? inboxIdentity("hygiene-readmission", paused.retiredActionId) : inboxIdentity("hygiene", finding.id, finding.fingerprint);
         const existing = store.orderedItems().map(v => v.item).find(i => i.queue === "actions" && i.hygiene?.findingId === finding.id && i.hygiene.fingerprint === finding.fingerprint && ["pending", "snoozed"].includes(i.status)) ?? store.getItem(itemId);
         if (existing) {
           if (existing.queue === "actions" && ["pending", "snoozed"].includes(existing.status)) {
             if (existing.status === "snoozed") store.commit([{ kind: "transition", itemId: existing.id, expectedVersion: existing.version, to: "pending", waitUntil: null }]);
-            save({ ...review, status: "active", pauseReason: undefined, pendingActionId: existing.id, position: review.position + 1, counts: next.counts });
+            save({ ...review, status: "active", pauseReason: undefined, pendingActionId: existing.id, position: review.position + 1, counts: next.counts, media: mediaOf(next) });
             return;
           }
           throw new Error("Finding already has a terminal Action for this fingerprint");
@@ -116,7 +122,7 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           payload: { title: finding.title, detail: finding.path }, options, hygiene: { findingId: finding.id, fingerprint: finding.fingerprint, finding } };
         // Publish the pointer first, in this same transaction, so admission's cap
         // can pause even when the incoming card itself immediately loses.
-        save({ ...review, status: "active", pauseReason: undefined, pendingActionId: itemId, position: review.position + 1, counts: next.counts });
+        save({ ...review, status: "active", pauseReason: undefined, pendingActionId: itemId, position: review.position + 1, counts: next.counts, media: mediaOf(next) });
         if (!createInboxAction(db, item, [], { now: now(), hygiene: true })) throw new Error("Hygiene Action suppressed");
       }).immediate();
     },
@@ -126,6 +132,10 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
       return db.transaction(() => {
         const review = state();
         if (operation === "pause") save({ ...review, status: "paused" });
+        // Starting a finished or never-started review begins a new pass: what
+        // was left pending in the last one is selectable again.
+        else if (operation === "start" && (review.status === "idle" || review.status === "complete"))
+          save({ ...review, status: review.pauseReason ? "paused" : "active", blocker: undefined, pass: (review.pass ?? 0) + 1, deferred: [] });
         else save({ ...review, status: review.pauseReason ? "paused" : "active", blocker: undefined });
       }).immediate();
     },
@@ -159,6 +169,16 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         update(item, outcome(result), options);
         const current = action(item.id);
         const confirmed = (e.operation === "resolve" && result.status === "fixed") || (e.operation === "check" && result.status === "not_detected") || (e.operation === "dismiss" && result.status === "dismissed") || (e.operation === "snooze" && result.status === "snoozed");
+        if (e.operation === "defer" && result.status === "deferred") {
+          // Leave pending (#2780): nonterminal and untimed. The finding is
+          // skipped for the rest of this pass at this fingerprint; a new pass
+          // or a changed fingerprint selects it again. Nothing is written to
+          // the brain, and it still counts as awaiting review.
+          store.commit([{ kind: "transition", itemId: item.id, expectedVersion: current.version, to: "snoozed", waitUntil: null }]);
+          const review = state();
+          const deferred = [...(review.deferred ?? []).filter(d => d.findingId !== e.findingId), { findingId: e.findingId, fingerprint: e.fingerprint }];
+          save({ ...review, deferred, ...(review.pendingActionId === item.id ? { pendingActionId: undefined } : {}) });
+        }
         if (confirmed) {
           // Snooze is deliberately nonterminal, as in the shared lifecycle.
           if (e.operation !== "snooze") store.commit([{ kind: "resolution", id: inboxIdentity("resolution", item.id), itemId: item.id, optionId: request.optionId, principalId: attempt.principal_id, reason: request.reason }]);

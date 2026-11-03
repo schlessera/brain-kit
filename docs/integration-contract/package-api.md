@@ -1630,6 +1630,77 @@ CLI's missing-config write refusal. A check blocker lists unavailable checks;
 reconciliation still preserves unseen entries under its existing failure
 rules, and selection never claims completion from incomplete detection.
 
+<a id="media-awaiting-review-additive-2780"></a>
+
+## Media awaiting review (additive, #2780)
+
+One media inventory feeds `brain sync`'s count and hygiene review. It holds
+two populations: the working tree's uncommitted `MEDIA` and `LARGE` files as
+`brain sync assess` classes them (never Git-ignored or `media.ignore` files),
+and the regular `MEDIA`/`LARGE` files under `.brain/scratch/` that the scratch
+pin snapshot lists, even when `media.ignore` matches them. The scratch area is
+never walked. At most `BRAIN_MEDIA_PINNED_PATH_LIMIT` (5,000) distinct pinned
+paths are read per inventory. A missing, unreadable, redirected or malformed
+snapshot admits no scratch file (`links.state: "unknown"`). A valid snapshot
+whose scan is not finished (`ready: false`) admits its listed paths
+(`"incomplete"`). Neither state, nor `tooLarge`, ever claims that every
+conversation link was checked.
+
+Each file is one finding of category `media`, identified by its exact raw
+repo-relative path, with source `hygiene/media` (informational) and/or
+`hygiene/large` (warning). A file reached only through a pin has
+`hygiene/scratch-media`/`scratch-large` instead: it appears in review and never
+in the count. Its fingerprint fields are `sha256`, `bytes`, `classes`, `policy`
+(the matching `media.track`/`media.ignore` entries), `refs`, `pins` (the sorted
+session keys whose pin list holds that exact path, so an unrelated
+conversation never changes it), `severity` and `urgency`. `refs` is the
+reference-inventory digest (#2781): `none` when no note references the file, a
+16-hex digest of each reference's note, form and destination as written (line
+numbers left out), or `too-large`/`unscannable` when the bounded scan was
+refused. One scan of the brain's `*.md` notes outside hidden directories and
+`context/hygiene/` finds Markdown inline links and images, `<…>` destinations,
+reference definitions, wiki links and embeds, frontmatter values and HTML
+`src`/`href`/`poster`; code is never a reference. Its bounds are
+`BRAIN_MEDIA_REFERENCE_LIMITS` (`notes` 50,000, `noteBytes` 256 MiB, `perNote`
+4 MiB, `scanTime` 20 s, `refsPerFinding` 500). Replacing the earlier
+`unscanned` value reopens every media disposition once.
+
+A fifth log state, `kept`, holds a media original whose permanent copy was
+made, in `context/hygiene/kept.md` under `## Kept as a permanent copy`. Each
+entry records `kept-on:`, `copy:`, `copy-sha256:`, `journal:` and
+`disposition-fingerprint:`. It holds while the original's fingerprint is
+unchanged and the copy is a contained regular file outside `.brain/` and
+`workspaces/` that `media.track` keeps. Otherwise reconcile reopens the original
+with an `invalidated: … kept on <day> · changed: <fields>` receipt, naming
+`copy-missing`, `copy-untracked`, `kept-incomplete` or the fingerprint fields.
+Editing the copy keeps it kept. `brain hygiene keep-copy` writes the entry
+through reconcile's expected-fingerprint request, refusing a copy that would
+not hold at once. A pruned original moves the entry to
+`resolved.md` with `resolved-by: original-pruned`. `kept.md` is written only
+once it holds an entry, and `_index.md` adds `- Kept: N` only while it exists.
+An existing brain's hygiene files therefore stay byte-identical.
+
+The count is `mediaReviewCounts`, read-only and shared by both callers. It
+does not trust the file an entry sits in:
+
+| Counted media finding's log state | `awaitingReview` | Set aside / kept |
+| --- | --- | --- |
+| open, resolved, or no entry | yes | — |
+| dismissed, fingerprint unchanged (or none recorded) | no | `setAside` |
+| snoozed, fingerprint unchanged and `now < dueAt` | no | `setAside` |
+| snoozed and due, or fingerprint changed | yes | — |
+| kept and valid | no | `kept` |
+| kept and invalid | yes | — |
+
+Hygiene review's Leave pending is per-pass operational state on the server,
+not a log state. It skips a finding while its fingerprint is unchanged
+(`hygiene next --defer`), and the finding still counts in `awaitingReview`.
+The review state gains `pass` (a Start after a complete or idle review begins
+a new pass and clears the list), `deferred: [{ findingId, fingerprint }]`, a
+`kept` counter, `counts.kept`, and `media: { awaitingReview, setAside, kept }`
+from the last selection. A stored row without them reads as `0` or `[]`.
+Hygiene effects gain operation `defer`, and outcomes gain status `deferred`.
+
 <a id="module-hygiene-context-breaking-699"></a>
 
 ## Module hygiene context (breaking, #699)
