@@ -286,7 +286,7 @@ export function createPermissionContext(options: PermissionWiringOptions, native
 // hook's updatedInput intact, so the rewrites still reach the decision.
 // Allowlist escalation remains declaration-scoped. Interactive calls also
 // receive unconditional availability refusals, including auto-allowed tools.
-export function createEnforcementHook(ctx: PermissionContext): HookCallback {
+export function enforcementHookFor(ctx: PermissionContext): HookCallback {
   const { req, allowed, enforced } = ctx;
   return async (hookInput) => {
     if (hookInput.hook_event_name === "PreToolUse") {
@@ -330,7 +330,7 @@ export function createEnforcementHook(ctx: PermissionContext): HookCallback {
 }
 
 /** The SDK callback for a call nothing auto-allowed: the grantable card, then the write lock. */
-export function createCanUseTool(ctx: PermissionContext): NonNullable<Options["canUseTool"]> {
+export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canUseTool"]> {
   const { req, brainPath, turnLock, nativeAuthorityRefusal, nativeRefusal, commandPolicy, confirmPatterns, outward, observe,
     shownOutward, denyCommand, allowed, routed, enforced, permissionOptions, recheckEdit } = ctx;
   return async (
@@ -427,7 +427,7 @@ export function createCanUseTool(ctx: PermissionContext): NonNullable<Options["c
 // mutating tools. PreToolUse fires before every tool execution — auto-allowed
 // or approved — and the SDK awaits it, so acquiring here serializes writes
 // across turns no matter which permission path admitted the tool.
-export function createMutatingHook(ctx: PermissionContext): HookCallback {
+export function mutatingHookFor(ctx: PermissionContext): HookCallback {
   const { req, brainPath, turnLock, nativeAuthorityRefusal, nativeRefusal, commandPolicy, confirmPatterns, outward, observe,
     shownOutward, denyCommand, updateName, routed, permissionOptions, commandAllowed, recheckEdit } = ctx;
   return async (hookInput) => {
@@ -628,9 +628,9 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const { nativeRefusal, beginNativeRead, finishNativeFile } = createNativeFileGuards(options);
   const ctx = createPermissionContext(options, nativeRefusal);
   const { enforced } = ctx;
-  const enforcementHook = createEnforcementHook(ctx);
-  const canUseTool = createCanUseTool(ctx);
-  const mutatingHook = createMutatingHook(ctx);
+  const enforcementHook = enforcementHookFor(ctx);
+  const canUseTool = canUseToolFor(ctx);
+  const mutatingHook = mutatingHookFor(ctx);
   const { agentHook, rtkHook } = createRewriteHooks(ctx, options);
 
   return {

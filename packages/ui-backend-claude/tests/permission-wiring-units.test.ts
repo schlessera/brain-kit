@@ -9,9 +9,9 @@ import type { PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   carryPerUseEdit,
   commandGateTools,
-  createCanUseTool,
-  createEnforcementHook,
-  createMutatingHook,
+  canUseToolFor,
+  enforcementHookFor,
+  mutatingHookFor,
   createNativeFileGuards,
   createPermissionContext,
   outsideEnforcedAllowlist,
@@ -54,14 +54,14 @@ describe("the grant decision", () => {
   test("canUseTool tells the host a remembered grant cannot answer an off-list tool on an enforced turn", async () => {
     for (const [enforced, tool, expected] of [[true, "Glob", true], [true, "Read", false], [false, "Glob", false]] as const) {
       const { ctx, requests } = contextFor({ enforceAllowedTools: enforced });
-      await createCanUseTool(ctx)(tool, { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: new AbortController().signal } as never);
+      await canUseToolFor(ctx)(tool, { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: new AbortController().signal } as never);
       expect(requests.map(request => request.outsideEnforcedAllowlist ?? false), `REMEMBERED_GRANT_${enforced}_${tool}`).toEqual([expected]);
     }
   });
 
   test("the enforcement hook asks for an off-list tool and leaves an allowlisted one alone", async () => {
     const { ctx } = contextFor({ enforceAllowedTools: true });
-    const hook = createEnforcementHook(ctx);
+    const hook = enforcementHookFor(ctx);
     expect(await hook(...hookCall("Glob"))).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
     expect(await hook(...hookCall("Read"))).toEqual({ continue: true });
   });
@@ -93,7 +93,7 @@ describe("the allowlist decisions", () => {
 describe("the extracted callbacks", () => {
   test("the mutating hook raises a per-use card for a confirmed command before taking the lock", async () => {
     const { ctx, requests, locks } = contextFor({ allowedTools: ["Bash"], confirmPatterns: [/\brm\s+-rf\b/] });
-    const output = await createMutatingHook(ctx)(...hookCall("Bash", { command: "rm -rf loom" }));
+    const output = await mutatingHookFor(ctx)(...hookCall("Bash", { command: "rm -rf loom" }));
     expect(output).toEqual({ continue: true });
     expect(requests.map(request => request.kind)).toEqual(["command"]);
     expect(locks).toEqual(["oar-1"]);
@@ -101,14 +101,14 @@ describe("the extracted callbacks", () => {
 
   test("the mutating hook leaves an unconfirmed call to canUseTool and still serializes it", async () => {
     const { ctx, requests, locks } = contextFor({ allowedTools: ["Bash"], confirmPatterns: [/\brm\s+-rf\b/] });
-    expect(await createMutatingHook(ctx)(...hookCall("Bash", { command: "mkdir raft" }))).toEqual({ continue: true });
+    expect(await mutatingHookFor(ctx)(...hookCall("Bash", { command: "mkdir raft" }))).toEqual({ continue: true });
     expect(requests).toEqual([]);
     expect(locks).toEqual(["oar-1"]);
   });
 
   test("canUseTool takes the write lock only after the grant", async () => {
     const { ctx, requests, locks } = contextFor();
-    const result = await createCanUseTool(ctx)("Bash", { command: "mkdir raft" }, { toolUseID: "oar-1", signal: new AbortController().signal } as never);
+    const result = await canUseToolFor(ctx)("Bash", { command: "mkdir raft" }, { toolUseID: "oar-1", signal: new AbortController().signal } as never);
     expect(result).toEqual({ behavior: "allow" });
     expect(requests.map(request => request.kind)).toEqual(["tool"]);
     expect(locks).toEqual(["oar-1"]);

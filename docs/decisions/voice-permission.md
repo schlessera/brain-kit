@@ -645,7 +645,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   before the lookup, which is what this record asked for.
 
 **Closed, by #110.** The enforcement hook still answers `ask`, not `deny`
-(`createEnforcementHook`, `permission-hooks.ts:289-330`) — that is what beats the
+(`enforcementHookFor`, `permission-hooks.ts:289-330`) — that is what beats the
 runtime's own shortcuts
 below, and replacing it would reopen all three. What changed is the decision the
 `ask` forces. A turn declares `StartTurnRequest.noGrantSurface`, and both
