@@ -4,6 +4,7 @@
 "@schlessera/brain-ui-server": patch
 "@schlessera/brain-module-diagrams": patch
 "@schlessera/brain-module-travel": patch
+"@schlessera/brain-module-images": patch
 ---
 
 **Breaking: `safeResolve` and `resolveWritable` from `@schlessera/brain/module` now give the strictest containment answer in every row (#3422).** They return `null` for:
@@ -16,9 +17,9 @@
 
 A root whose realpath fails was already refused, and still is. The answer is still the canonical path.
 
-The CLI resolves its path arguments through the same helpers. A path given to `--out`, `--stamp`, `brain read`, `brain process`, `brain render`, `brain image` or `brain diagram export` is therefore refused when it is absolute, even inside the brain, as the integration contract's containment guarantee already says. Pass it relative to the brain root.
+The CLI still accepts an absolute path argument inside the brain. Before resolving one, it converts it to a brain-relative path with the new `brainRelativeArgument(root, arg)`, which `@schlessera/brain/module` also exports for module commands. This covers `--out`, document paths and the other CLI path flags. An absolute path outside the brain is still refused, and so is one that reaches the outside through a symlink inside the brain or has a `..` segment.
 
-Migration for module authors: pass paths relative to the brain root. To re-check an absolute path you already hold, such as an earlier answer from `safeResolve`, pass it relative to the root's realpath (`relative(safeResolve(root, ".")!, path)`). Normalise a link target before resolving it (`join(dirname(path), target)`) instead of sending its `..`. Do not rely on a dangling link to name a file you are about to create.
+Migration for module authors: pass paths relative to the brain root. A module command that takes a path argument from the user passes it through `brainRelativeArgument(ctx.root, arg)` first, as the first-party commands do. To re-check an absolute path you already hold, such as an earlier answer from `safeResolve`, pass it relative to the root's realpath (`relative(safeResolve(root, ".")!, path)`). Normalise a link target before resolving it (`join(dirname(path), target)`) instead of sending its `..`. Do not rely on a dangling link to name a file you are about to create.
 
 The ui-sdk's `resolveInRepo` and the server's file `safeResolve` give the same answers. The SDK newly refuses `..`, `:` and `\`, dangling links and out-and-back links. The server newly refuses a missing brain root instead of falling back to the lexical path.
 

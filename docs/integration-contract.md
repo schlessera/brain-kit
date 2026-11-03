@@ -31,10 +31,13 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 - a dangling symlink;
 - a path any existing component of which leaves the root.
 
-The CLI's path arguments resolve through them, so an absolute `--out` or
-document path is refused even inside the brain, as the containment guarantee
-already states. The [maintainer ruling](https://github.com/schlessera/brain-kit/issues/3422#issuecomment-6599244174)
-is recorded on the issue. See [the package API component](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422).
+The CLI is not affected for paths inside the brain. Before calling them, it
+converts an absolute path argument inside the brain (`--out`, document paths
+and the other CLI path flags) to a brain-relative path, through the additive
+`brainRelativeArgument` export. An absolute argument outside the brain is still
+refused, and so is one through a symlink that leaves it. The maintainer rulings
+are recorded [on the issue](https://github.com/schlessera/brain-kit/issues/3422#issuecomment-6599244174)
+and, for the CLI, [on the PR](https://github.com/schlessera/brain-kit/pull/3465#issuecomment-6602766385). See [the package API component](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422).
 This ships in the 0.45.0 minor with the `breaking` label and a changeset that
 names the break.
 
