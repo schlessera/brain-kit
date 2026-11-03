@@ -7,11 +7,13 @@ import { unregisterAnswerDeliveryDom } from "./answer-delivery-dom.js";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
-import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
+import { defaultRoot } from "../../src/default-root.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
 import type { AnswerDelivery, AnswerPayload, DeliveryState } from "../../src/lib/answer-delivery/types.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+
+const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 afterEach(cleanup);
 afterAll(unregisterAnswerDeliveryDom);
