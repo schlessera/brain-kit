@@ -5,6 +5,7 @@ import { BackendRequestError, type AgentBackend } from "@schlessera/brain-ui-sdk
 import { createStaticBackendRegistry, type BackendRegistry } from "../src/agent/backend";
 import { BudgetExceeded, BudgetUnavailable } from "../src/brain/turn-budgets";
 import { createRecordingObservability } from "../src/observability/index";
+import { resolveTurnTarget } from "../src/ws/routing";
 import type { WSContext } from "../src/ws/clients";
 import { WsHost } from "../src/ws/host";
 import type { SessionCatalog } from "../src/ws/session-catalog";
@@ -24,9 +25,11 @@ import {
   closeSessionSlot,
   dequeueRequest,
   dropHandedOver,
+  beginSlotStart,
   firstRequest,
-  openSessionSlot,
+  registerSessionSlot,
   releaseActive,
+  reportRoutingFailure,
   SLOT_ENDED_REASON,
 } from "../src/ws/session-run/slot";
 import { publishTurnStatus } from "../src/ws/session-run/teardown";
@@ -103,8 +106,16 @@ function spyOn<T extends object, K extends keyof T>(target: T, key: K, replaceme
 }
 afterEach(() => { while (restores.length) restores.pop()!(); });
 
-async function openSlot(host: WsHost, input: Partial<Parameters<typeof openSessionSlot>[1]> = {}): Promise<SessionSlot> {
-  const slot = await openSessionSlot(host, { authorization: AUTHORIZATION, text: "hello", attachments: [], ...input }, "turn-1", undefined);
+type SlotInput = Parameters<typeof registerSessionSlot>[1];
+
+/** Route and register a slot the way runRetainedSession does. */
+async function openSlot(host: WsHost, input: Partial<SlotInput> = {}): Promise<SessionSlot> {
+  const initial: SlotInput = { authorization: AUTHORIZATION, text: "hello", attachments: [], ...input };
+  const starting = beginSlotStart(host, initial);
+  let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
+  try { target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId); }
+  finally { host.coordinator.endStarting(initial.sessionId, starting); }
+  const slot = registerSessionSlot(host, initial, starting, target, "turn-1");
   if (!slot) throw new Error("the slot did not open");
   return slot;
 }
@@ -250,21 +261,38 @@ describe("turn budget accounting", () => {
 });
 
 describe("slot setup", () => {
-  test("a routing failure reports the error, settles the work and opens no slot", async () => {
-    const registry = { ...createStaticBackendRegistry([makeFakeBackend({ id: "fake" })], "fake"), getBackendForSession: async () => { throw new Error("no backend"); } } as unknown as BackendRegistry;
-    const { host, sent } = setupHost(undefined, { registry });
+  test("a routing failure reports the error, settles queued work and releases the start's queue", () => {
+    const { host, sent } = setupHost();
     const work = recordingWork();
-    const slot = await openSessionSlot(host, { authorization: AUTHORIZATION, text: "hi", attachments: [], requestId: "req-1", work, sessionId: "session-1" }, "turn-1", undefined);
-    expect(slot).toBeUndefined();
-    expect(sent.filter(frame => frame.type === "error")).toEqual([expect.objectContaining({ code: "BACKEND_ERROR", message: "no backend", sessionId: "session-1", requestId: "req-1" })] as never);
-    expect(work.settled[0]?.[0]).toBe("error");
+    const initial: SlotInput = { authorization: AUTHORIZATION, text: "hi", attachments: [], requestId: "req-1", work };
+    const starting = beginSlotStart(host, initial);
+    const waiting = queued("waiting", AUTHORIZATION, { work: recordingWork() });
+    starting.queue.push(waiting);
+    reportRoutingFailure(host, initial, starting, new Error("no backend"), undefined);
+    host.coordinator.endStarting(initial.sessionId, starting);
+    expect(sent.filter(frame => frame.type === "error")).toEqual([expect.objectContaining({ code: "BACKEND_ERROR", message: "no backend", requestId: "req-1" })] as never);
+    expect(work.settled).toEqual([["error", { reason: "no backend" }]]);
+    expect((waiting.work as ReturnType<typeof recordingWork>).settled).toEqual([["error", { reason: "no backend" }]]);
+    expect(waiting.released).toBe(1);
+    expect(starting.queue).toEqual([]);
     expect(host.coordinator.startingSessions).toBe(0);
   });
 
-  test("a revoked principal opens no slot", async () => {
+  test("a revoked principal or a cancelled start registers no turn and releases the queue", async () => {
     const { host } = setupHost();
-    const revoked = countedAuthorization(false);
-    expect(await openSessionSlot(host, { authorization: revoked, text: "hi", attachments: [] }, "turn-1", undefined)).toBeUndefined();
+    const target = await resolveTurnTarget(host.registry, host.catalog, undefined, undefined);
+    const revoked: SlotInput = { authorization: countedAuthorization(false), text: "hi", attachments: [] };
+    const revokedStart = beginSlotStart(host, revoked);
+    const waiting = queued("waiting");
+    revokedStart.queue.push(waiting);
+    host.coordinator.endStarting(undefined, revokedStart);
+    expect(registerSessionSlot(host, revoked, revokedStart, target, "turn-1")).toBeUndefined();
+    expect(waiting.released).toBe(1);
+    const cancelled: SlotInput = { authorization: AUTHORIZATION, text: "hi", attachments: [] };
+    const cancelledStart = beginSlotStart(host, cancelled);
+    cancelledStart.cancelled = true;
+    host.coordinator.endStarting(undefined, cancelledStart);
+    expect(registerSessionSlot(host, cancelled, cancelledStart, target, "turn-1")).toBeUndefined();
     expect(host.coordinator.running.size).toBe(0);
   });
 
@@ -393,17 +421,19 @@ describe("host admission", () => {
 });
 
 describe("one slot turn", () => {
-  test("a refused host check ends the slot with an error frame and settled work", async () => {
+  test("a refused host check is returned to the slot before anything is reported", async () => {
     const { host, sent } = setupHost(makeFakeBackend({ id: "pi" }));
     const slot = await openSlot(host, { requestId: "req-1" });
     const work = recordingWork("voice");
     const entry = queued("hi", AUTHORIZATION, { work });
     slot.releaseActive = entry.releaseAuthorization;
     bindRequest(slot, entry, undefined);
-    expect(await runSlotTurn(slot, entry, undefined)).toBe("stop");
-    expect(sent.some(frame => frame.type === "error")).toBe(true);
-    expect(work.settled[0]?.[0]).toBe("error");
-    // The slot's close releases the lease, not the refused turn.
+    const result = await runSlotTurn(slot, entry, undefined);
+    expect(result.kind).toBe("denied");
+    expect((result as { error: unknown }).error).toBeInstanceOf(BackendRequestError);
+    // The slot reports it, settles the work and releases the lease as it stops.
+    expect(sent.some(frame => frame.type === "error")).toBe(false);
+    expect(work.settled).toEqual([]);
     expect(entry.released).toBe(0);
   });
 
@@ -412,17 +442,38 @@ describe("one slot turn", () => {
     const { host } = setupHost(makeFakeBackend({ id: "fake", startTurn: async () => { started += 1; } }));
     const slot = await openSlot(host);
     const authorization = countedAuthorization(true);
-    const entry = queued("hi", authorization);
+    const entry = queued("hi", authorization, { revision: 2 });
     slot.releaseActive = entry.releaseAuthorization;
     bindRequest(slot, entry, undefined);
     spyOn(host, "expireAuthorizationContexts", (() => { (authorization as { valid: boolean }).valid = false; }) as never);
-    expect(await runSlotTurn(slot, entry, undefined)).toBe("revoked");
+    expect(await runSlotTurn(slot, entry, undefined)).toEqual({ kind: "revoked" });
     expect(started).toBe(0);
-    expect(entry.released).toBe(1);
-    expect(slot.releaseActive).toBeUndefined();
+    expect(slot.turn.revision).toBeUndefined();
+    // The slot releases the lease in the same step as its next dequeue.
+    expect(entry.released).toBe(0);
   });
 
-  test("a turn that ran settles its work, releases its lease and reports idle", async () => {
+  test("a principal revoked during governed admission is cancelled before start", async () => {
+    let started = 0;
+    const { host, sent } = setupHost(makeFakeBackend({ id: "fake", startTurn: async () => { started += 1; } }));
+    const slot = await openSlot(host, { sessionId: "session-1" });
+    const authorization = countedAuthorization(true);
+    const work = recordingWork();
+    const entry = queued("hi", authorization, { work });
+    slot.releaseActive = entry.releaseAuthorization;
+    bindRequest(slot, entry, undefined);
+    let checks = 0;
+    // Valid at the billing boundary, revoked by the time admission confirms.
+    spyOn(host, "expireAuthorizationContexts", (() => { checks += 1; if (checks === 2) (authorization as { valid: boolean }).valid = false; }) as never);
+    const result = await runSlotTurn(slot, entry, undefined);
+    expect(result).toEqual({ kind: "ran", outcome: expect.objectContaining({ delivery: "cancelled_before_start", work: "cancelled", reason: REVOKED_REASON }) });
+    expect(started).toBe(0);
+    expect(sent.some(frame => frame.type === "error")).toBe(false);
+    expect(work.settled).toEqual([["cancelled", { sessionId: "session-1", reason: REVOKED_REASON }]]);
+    expect(entry.released).toBe(1);
+  });
+
+  test("a turn that ran settles its work and releases its lease, leaving the status to the slot", async () => {
     const requests: unknown[] = [];
     const { host, sent } = setupHost(makeFakeBackend({ id: "fake", startTurn: async (request) => { requests.push(request); } }));
     const slot = await openSlot(host, { sessionId: "session-1" });
@@ -430,12 +481,13 @@ describe("one slot turn", () => {
     const entry = queued("hi", AUTHORIZATION, { work, requestId: "req-1" });
     slot.releaseActive = entry.releaseAuthorization;
     bindRequest(slot, entry, undefined);
-    expect(await runSlotTurn(slot, entry, undefined)).toBe("ran");
+    const result = await runSlotTurn(slot, entry, undefined);
+    expect(result).toEqual({ kind: "ran", outcome: expect.objectContaining({ lifecycle: "success", work: "completed", cancelledBeforeStart: false }) });
     expect(requests).toEqual([expect.objectContaining({ prompt: "hi", sessionId: "session-1", turnId: "turn-1", applicationAuthority: "server" })]);
     expect(work.settled).toEqual([["completed", { sessionId: "session-1" }]]);
     expect(entry.released).toBe(1);
     expect(slot.turn.retryRequest).toMatchObject({ type: "chat_message", text: "hi", requestId: "req-1" });
-    expect(sent.at(-1)).toMatchObject({ type: "status", status: "idle", sessionId: "session-1" });
+    expect(sent.some(frame => frame.type === "status" && frame.status === "idle")).toBe(false);
   });
 });
 
