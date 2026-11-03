@@ -174,3 +174,14 @@ test("a partial swapped for a link just before publication is not published", as
   expect(existsSync(join(f.staging, id)), "LINK_NOT_PUBLISHED").toBe(false);
   expect(tree(f.vault)).toEqual(before);
 });
+
+test("startup recovery logs a refused staging directory instead of stopping, and keeps the receipt", async () => {
+  const f = intakeFixture();
+  const id = crypto.randomUUID();
+  mkdirSync(join(f.vault, id));
+  symlinkSync("../vault", f.staging);
+  f.leave(id, "cleanup");
+  await expect(f.intake.recover(), "BOOT_NOT_STOPPED").resolves.toBeUndefined();
+  expect(existsSync(join(f.vault, id)), "LINK_TARGET_KEPT").toBe(true);
+  expect(f.receipt(id), "RECEIPT_KEPT").toEqual({ state: "cleanup" });
+});

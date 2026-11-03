@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ShareIntakeResult } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { removeStagedArrival } from "../share/staging-fs.js";
+import { removeStagedArrival, StagingTopologyError } from "../share/staging-fs.js";
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 
 import { shareContentHash, stageShareAt, type ShareInput } from "../share/staging.js";
@@ -140,6 +140,11 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
       return tracked(() => ingest("cli", input, principal, key, isCurrent, { conversationTurn: turnId }, guard));
     },
     reconcile,
+    /** Startup reconciliation: a refused staging directory keeps its receipts and does not stop the server (#2907). */
+    recover: () => reconcile().catch(error => {
+      if (!(error instanceof StagingTopologyError)) throw error;
+      log?.emit({ severityText: "ERROR", body: "inbox intake reconciliation refused the staging directory", attributes: { error: error.message } });
+    }),
     protectedIds: () => new Set((db.query("SELECT staging_id FROM inbox_intake_receipts WHERE state != 'cleanup'").all() as { staging_id: string }[]).map(row => row.staging_id)),
     close: async () => { closed = true; await Promise.allSettled([...pending]); },
   };
