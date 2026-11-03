@@ -89,6 +89,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@schlessera/brain-geo": "workspace:*",
     "@schlessera/brain-render-template": "workspace:*",
+    "@schlessera/brain-scrape": "workspace:*",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-components": "^1.5.4",

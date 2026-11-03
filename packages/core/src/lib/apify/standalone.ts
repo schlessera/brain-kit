@@ -16,6 +16,9 @@
  * - There is nobody to ask. A call that needs an approval refuses as
  *   `approval_required` without prompting; only an exact standing grant in
  *   the policy admits a run.
+ * - A robots-authorized profile's targets are checked against their sites'
+ *   robots.txt through the scrape package before the start request, by one
+ *   checker (and one robots cache) per process (#3330).
  *
  * Identity: the principal is the local operator (`local`), the session is a
  * name the caller chooses (default `default`), and the turn is that session's
@@ -28,8 +31,9 @@ import type { ApifyEnvelope, ApifyOperation } from "@schlessera/brain-common/int
 import {
   apifyBrainId, apifyRefusal, ApifyLedgerUnavailable, ApifyOperationRefusal, callApifyOperation, createApifyAuthority, createApifyConsent,
   createApifyRequestMeter, createApifyRuns, governanceApifyConsentPolicy, governanceApifyPolicy, governanceApifyRunPolicy, ledgerConsentState,
-  openApifyLedger, utcDay, type ApifyAuthority, type ApifyCallContext, type ApifyLedger, type ApifyRuns, type ApifyStatus,
+  openApifyLedger, utcDay, type ApifyAuthority, type ApifyCallContext, type ApifyLedger, type ApifyRuns, type ApifySitePermission, type ApifyStatus,
 } from "@schlessera/brain-common/internal/apify";
+import { createApifySitePermission } from "./site-permission.js";
 
 /** The environment variable naming the shared ledger file. */
 export const APIFY_LEDGER_ENV = "BRAIN_APIFY_LEDGER";
@@ -47,6 +51,8 @@ export interface StandaloneApifyOptions {
   mcpOrigin?: string;
   fetch?: typeof fetch;
   profiles?: Parameters<typeof createApifyConsent>[0]["profiles"];
+  /** Replaces the process's robots.txt checker (default {@link createApifySitePermission}). */
+  sitePermission?: ApifySitePermission;
   waitSeconds?: number;
   pollMs?: number;
   now?: () => number;
@@ -71,6 +77,7 @@ export function createStandaloneApify(options: StandaloneApifyOptions): Standalo
   const enablement = governanceApifyPolicy(options.root);
   let ledger: ApifyLedger | undefined;
   let built: { authority: ApifyAuthority; runs: ApifyRuns; consent: ReturnType<typeof createApifyConsent> } | undefined;
+  let sitePermission: ApifySitePermission | undefined;
 
   function openLedger(): ApifyLedger {
     if (ledger) return ledger;
@@ -94,7 +101,9 @@ export function createStandaloneApify(options: StandaloneApifyOptions): Standalo
     // No routing rules: a provider-folder policy refuses as unproven, since nothing here knows what a conversation was shown.
     const consent = createApifyConsent({ authority, policy: governanceApifyConsentPolicy(options.root), meter, state: ledgerConsentState(() => store),
       ...(options.profiles ? { profiles: options.profiles } : {}), now });
-    const runs = createApifyRuns({ authority, consent, ledger: () => store, policy: runPolicy, brain_id: brainId,
+    // One robots cache for the process, kept across close(), as the scrape clients keep theirs.
+    sitePermission ??= options.sitePermission ?? createApifySitePermission();
+    const runs = createApifyRuns({ authority, consent, ledger: () => store, policy: runPolicy, brain_id: brainId, sitePermission,
       ...(options.profiles ? { profiles: options.profiles } : {}),
       ...(options.waitSeconds !== undefined ? { waitSeconds: options.waitSeconds } : {}), ...(options.pollMs !== undefined ? { pollMs: options.pollMs } : {}), now });
     built = { authority, runs, consent };

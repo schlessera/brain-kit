@@ -5,3 +5,4 @@
  * lockstep version (docs/decisions/public-export-boundary.md).
  */
 export * from "./lib/apify/standalone.js";
+export * from "./lib/apify/site-permission.js";

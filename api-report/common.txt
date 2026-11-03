@@ -83,6 +83,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyScopeTotals
   type ApifyServices
   type ApifySitePermission
+  ApifySitePermissionUnavailable
   type ApifyState
   type ApifyStateReason
   type ApifyStatus

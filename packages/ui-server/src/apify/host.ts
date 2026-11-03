@@ -18,6 +18,11 @@
  * The contract forbids expanding either authority, and an exact standing
  * grant is a policy fact, not a reason to let an unattended turn spend.
  *
+ * A robots-authorized profile's targets are checked against their sites'
+ * robots.txt before the start request by the checker core builds on the
+ * scrape package (#3330), the one a standalone process uses; a host without
+ * core installed refuses such runs.
+ *
  * The ledger is one host-owned file, `BRAIN_APIFY_LEDGER` or
  * `DB_PATH.apify-ledger.sqlite`; a standalone CLI or MCP process pointed at
  * the same file shares the account's day limit and concurrency bound. An
@@ -29,10 +34,11 @@ import {
   apifyBrainId, callApifyOperation, createApifyConsent, createApifyRequestMeter, createApifyRuns, governanceApifyConsentPolicy,
   governanceApifyRunPolicy, openApifyLedger,
   type ApifyAbortView, type ApifyApprovalSurface, type ApifyAuthority, type ApifyCallContext, type ApifyConsent, type ApifyInferenceSpend,
-  type ApifyLedger, type ApifyQualifiedProfile, type ApifyRuns,
+  type ApifyLedger, type ApifyQualifiedProfile, type ApifyRuns, type ApifySitePermission,
 } from "@schlessera/brain-common/internal/apify";
 import type { ProviderExposure } from "../brain/governance-policy.js";
 import { APIFY_PROVIDER_ROUTING } from "./routing.js";
+import { coreSitePermission } from "./site-permission.js";
 
 export { APIFY_PROVIDER_ROUTING } from "./routing.js";
 
@@ -68,6 +74,11 @@ export interface ApifyHostOptions {
    */
   untrusted?: (turn: ApifyHostTurn, event: { operation: "discover" | "inspect" | "results"; detail: string }) => Promise<void>;
   report?: (message: string) => void;
+  /**
+   * The robots.txt check for robots-authorized profiles. Default: core's
+   * scrape-backed checker, loaded on first use; without core, such runs refuse.
+   */
+  sitePermission?: ApifySitePermission;
   /** @internal Test seams. */
   profiles?: readonly ApifyQualifiedProfile[];
   waitSeconds?: number;
@@ -102,6 +113,7 @@ export function createApifyHost(options: ApifyHostOptions): ApifyHost {
   const consent = createApifyConsent({ authority: options.authority, policy: governanceApifyConsentPolicy(options.brainPath), meter,
     routing: APIFY_PROVIDER_ROUTING, ...(options.profiles ? { profiles: options.profiles } : {}), ...(options.now ? { now: options.now } : {}) });
   const runs = createApifyRuns({ authority: options.authority, consent, ledger: openLedger, policy: runPolicy, brain_id: brainId,
+    sitePermission: options.sitePermission ?? coreSitePermission(),
     ...(options.inference ? { inference: options.inference } : {}), ...(options.profiles ? { profiles: options.profiles } : {}),
     ...(options.waitSeconds !== undefined ? { waitSeconds: options.waitSeconds } : {}), ...(options.pollMs !== undefined ? { pollMs: options.pollMs } : {}),
     ...(options.now ? { now: options.now } : {}) });

@@ -142,10 +142,14 @@ export "./internal" (./src/internal.ts)
 export "./internal/apify" (./src/internal-apify.ts)
   APIFY_LEDGER_ENV
   APIFY_LOCAL_PRINCIPAL
+  APIFY_ROBOTS_ADDRESS_POLICY
   APIFY_STANDALONE_AUTHORITY_SETTING
+  type ApifySitePermissionOptions
   type StandaloneApify
   type StandaloneApifyOptions
   apifyBrainId
+  apifyRobotsUserAgent
+  createApifySitePermission
   createStandaloneApify
 
 export "./internal/graph" (./src/internal-graph.ts)
