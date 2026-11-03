@@ -5,7 +5,7 @@ import type { TurnJournalDetails, TurnJournalSummary, TurnJournalChange } from "
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
 import { createBrainUiRoot } from "../../../ui-react/src/root.js";
 import { TurnJournal } from "../../../ui-react/src/components/chat/turn-journal.js";
-import { ConsumerDocument, consumerViewport, painted, bounds, accessible } from "./_consumer-parity.js";
+import { ConsumerDocument, consumerViewport, painted, bounds, accessible, target } from "./_consumer-parity.js";
 
 const turnId = "odysseus-journal";
 const skill = ".claude/skills/voyage-log/SKILL.md";
@@ -55,7 +55,7 @@ export const Phone = meta.story({
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
     await expect(disclosure).toHaveTextContent("1 steering");
     await expect(screen.queryByRole("heading", { name: "Steering" })).toBeNull();
-    await expect(disclosure.getBoundingClientRect().height, "journal disclosure target height").toBeGreaterThanOrEqual(44);
+    await target(disclosure, "journal disclosure");
     await bounds(disclosure, "journal disclosure");
     disclosure.focus(); await userEvent.keyboard("{Enter}");
     await screen.findByRole("button", { name: "Review notes/voyage.md" });
@@ -87,7 +87,7 @@ export const Phone = meta.story({
       if (path === "notes/crossing.md") {
         await expect(content.getByText(/Distinct versions were observed while turns overlapped/)).toBeVisible();
         const keep = content.getByRole("button", { name: "Keep both observations 3 and 4" });
-        await expect(keep.getBoundingClientRect().height, "journal conflict target height").toBeGreaterThanOrEqual(44);
+        await target(keep, "journal conflict");
         await userEvent.click(content.getByRole("button", { name: "Review observation 4" }));
         await content.findByRole("button", { name: "Keep both observations 4 and 3" });
         await expect(content.getByRole("combobox", { name: "Other observed version" })).toHaveValue("3");
@@ -95,7 +95,7 @@ export const Phone = meta.story({
         await waitFor(() => expect(args.onOperation).toHaveBeenLastCalledWith(expect.objectContaining({ action: "keep_both", path, version: observations[1], otherVersion: observations[0], expected: observations[1] })));
       } else {
         const revert = await content.findByRole("button", { name: `Revert ${path}` });
-        await expect(revert.getBoundingClientRect().height, "journal file revert target height").toBeGreaterThanOrEqual(44);
+        await target(revert, "journal file revert");
         await userEvent.click(revert);
         await waitFor(() => expect(args.onOperation).toHaveBeenLastCalledWith(expect.objectContaining({ action: "revert", path })));
       }
