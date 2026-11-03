@@ -31,11 +31,10 @@ function canonical(path: string, links = 0): string {
   return current;
 }
 /**
- * A deny check: a brain at `/` holds every path, so all state counts as
- * inside it. Every other root ends at `/` with nothing appended to a
- * trailing one, as `canonical` never yields one.
+ * A deny check, under the deny-direction rule (#3422): a brain at `/` holds
+ * every absolute path, so all state counts as inside it.
  */
-export const within = (root: string, path: string) => root === "/" || isWithin(root, path);
+export const within = (root: string, path: string) => isWithin(root, path, { trailingSeparator: "boundary" });
 
 /** An outside name does not move an inode out of the brain if another name or a bind mount remains there. */
 function hasBrainAlias(brain: string, path: string, descendants = false): boolean {

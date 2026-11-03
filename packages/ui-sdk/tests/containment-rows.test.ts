@@ -1,10 +1,11 @@
 /**
  * The ui-sdk's rows of the containment matrices (#2506). `resolveInRepo(root,
- * rel)` is core's resolver except that it refuses an absolute `rel`; the
- * predicates each keep their own argument order, equality, root `/` and
- * trailing-separator answers. Written against the copies the SDK carried
- * before the shared `@schlessera/brain-common/internal/safe-path`, and kept
- * unchanged across the move.
+ * rel)` gives the strictest answer in every row since #3422, as core's
+ * `safeResolve` does: it refuses an absolute request, any `..` segment, `:` or
+ * `\\` in a segment, a dangling link and a path that leaves through one link
+ * and comes back through another. The predicates each keep their own argument
+ * order, equality and trailing-separator answers; a deny-direction predicate
+ * takes a root `/` as holding every absolute path (#3422).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
@@ -16,7 +17,7 @@ import { resolveInRepo } from "../src/server/bridge-tools/resolve-in-repo";
 import { within as envMasksWithin } from "../src/server/maintenance-env-masks";
 import { inside as poolInside } from "../src/server/native-reference-pool";
 import { within as observerWithin } from "../src/server/worker-file-observer";
-import { within as launcherWithin } from "../src/server/worker-launcher";
+import { holds as launcherHolds, prepareWorkerSandbox, within as launcherWithin, workerCommand, type WorkerLaunch } from "../src/server/worker-launcher";
 import { within as rtkWithin } from "../src/server/worker-rtk";
 import { within as turnTempWithin } from "../src/server/worker-turn-temp";
 
@@ -57,28 +58,35 @@ describe("ui-sdk resolveInRepo(root, rel): its resolver row", () => {
     ["notes//a.md", "brain/notes/a.md"],
     ["notes/a.md/", "brain/notes/a.md"],
     ["file.md/x", "brain/file.md/x"],
-    // `..` is accepted while the result stays inside.
-    ["notes/../notes/a.md", "brain/notes/a.md"],
+    // `..` is refused even when the result stays inside (#3422).
+    ["notes/../notes/a.md", "refused"],
+    ["notes/sub/..", "refused"],
     ["notes/../../x", "refused"],
     // Sibling prefix: `brain-other` starts with `brain`.
     ["../brain-other/secret.md", "refused"],
-    // Absolute: refused even inside the root (core accepts it).
+    // Absolute: refused even inside the root.
     [join(root, "notes/a.md"), "refused"],
+    [root, "refused"],
     ["/etc/passwd", "refused"],
-    // Windows syntax is not checked.
-    ["a:b", "brain/a:b"],
-    ["a\\b", "brain/a\\b"],
+    // Windows syntax is refused in any segment (#3422).
+    ["a:b", "refused"],
+    ["notes/a:b.md", "refused"],
+    ["a\\b", "refused"],
+    ["\\notes", "refused"],
     ["a\0b", "refused"],
     ["link-in/a.md", "brain/notes/a.md"],
     ["link-in/new.md", "brain/notes/new.md"],
     ["link-out/secret.md", "refused"],
     ["link-out/new.md", "refused"],
-    ["dangling-in", "brain/notes/missing"],
-    ["dangling-in/x", "brain/notes/missing/x"],
+    // A dangling link is refused wherever it points (#3422).
+    ["dangling-in", "refused"],
+    ["dangling-in/x", "refused"],
     ["dangling-out", "refused"],
     ["cycle-a", "refused"],
     ["cycle-a/x", "refused"],
-    ["bounce/back/a.md", "brain/notes/a.md"],
+    // Every existing component must stay inside: out and back is refused (#3422).
+    ["bounce/back/a.md", "refused"],
+    ["bounce/back", "refused"],
     [".brain", "brain/.brain"],
     [".brain/scratch/s.txt", "brain/.brain/scratch/s.txt"],
     [".brain/scratch/link", "brain/notes"],
@@ -139,7 +147,9 @@ const TRAILING_TOLERATED = "T T - - T T - T - T T T T";
 
 const rows: [string, (root: string, path: string) => boolean, string][] = [
   ["worker-launcher within(dir, path)", launcherWithin, LITERAL_SLASH],
-  ["worker-rtk within(root, path)", rtkWithin, LITERAL_SLASH],
+  // Deny direction (#3422): root `/` holds every absolute path.
+  ["worker-launcher holds(dir, path)", launcherHolds, TRAILING_TOLERATED],
+  ["worker-rtk within(root, path)", rtkWithin, TRAILING_TOLERATED],
   ["worker-file-observer within(path, root)", (root, path) => observerWithin(path, root), LITERAL_SLASH],
   ["maintenance-env-masks within(dir, path)", envMasksWithin, LITERAL_SLASH],
   ["worker-turn-temp within(dir, path)", turnTempWithin, TRAILING_TOLERATED],
@@ -161,5 +171,54 @@ describe("ui-sdk containment predicates: their matrix rows", () => {
     expect(observerWithin("/a", "/a/b")).toBe(false);
     expect(poolInside("/a/b", "/a")).toBe(true);
     expect(poolInside("/a", "/a/b")).toBe(false);
+  });
+});
+
+/**
+ * Each deny site that refuses "the brain or its ancestors" refuses a `/`
+ * source (#3422). `/` is root-owned and 0755 on a Linux host, so it passes
+ * the ownership and mode checks before each containment refusal; under the
+ * old literal rule `/` held nothing below it and every one of these was
+ * accepted, binding the whole host, brain included, into the worker.
+ */
+describe("worker-launcher deny sites refuse a `/` source (#3422)", () => {
+  const linux = process.platform === "linux" && Boolean(Bun.which("bwrap"));
+  const brain = realpathSync(root);
+  const launch = (extra: Partial<WorkerLaunch>) => () => workerCommand({ brainPath: brain, command: [process.execPath], env: {}, ...extra });
+
+  // A `/` read path is refused first by the runtime placement check, the
+  // deny site that keeps runtime paths off the reserved private mounts: `/`
+  // holds `/proc`. That check shadows the transport bind check
+  // (`transportMounts`) and the restricted envelope's own list for `/`.
+  const placement = "owned runtime path / (/) collides with reserved private worker path /proc";
+  test.skipIf(!linux)("a transport read path of `/` (worker-launcher validateRuntimePlacement)", () => {
+    const mirror = join(base, "transport-mirror");
+    mkdirSync(mirror, { recursive: true });
+    expect(launch({ transport: { mirror, readPaths: ["/"] } })).toThrow(placement);
+  });
+
+  test.skipIf(!linux)("a restricted read path of `/` (worker-launcher validateRuntimePlacement)", () => {
+    expect(launch({ restricted: { readPaths: ["/"], inferenceDir: base } })).toThrow(placement);
+  });
+
+  test.skipIf(!linux)("a managed worktree generation at `/` (worker-launcher sandboxMounts)", () => {
+    const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
+    expect(launch({ sandbox: { ...sandbox, worktrees: { source: "/" } } }))
+      .toThrow("a managed worktree generation must be its pool's root-owned directory outside the brain");
+  });
+
+  test.skipIf(!linux)("a reference source view at `/` (worker-launcher sandboxMounts)", () => {
+    const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
+    expect(launch({ sandbox: { ...sandbox, references: { public: "/" } } }))
+      .toThrow("a reference source view must be its pool's root-owned directory outside the brain");
+  });
+
+  test.skipIf(!linux)("a maintenance worker's writable directory at `/` (worker-launcher maintenanceMounts)", () => {
+    expect(launch({ maintenance: { network: false, credentials: false, readPaths: [process.execPath], writeDirectories: ["/"] } }))
+      .toThrow("a maintenance worker's writable storage must be an unlinked directory outside the brain");
+  });
+
+  test.skipIf(!linux)("a scratch path of `/` (worker-launcher workerCommand)", () => {
+    expect(launch({ scratchPath: "/" })).toThrow("scratch must be a separate location outside the authoritative brain and its ancestors");
   });
 });

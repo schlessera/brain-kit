@@ -69,7 +69,7 @@ Source anchors, checked against the reviewed commit:
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
 - D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:303-339`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`), and
-  private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:114-120`).
+  private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:113-119`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
 - F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:10-30`).
 - G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)

@@ -600,7 +600,7 @@ first-party modules do not use it either.
 | Need | `@schlessera/brain/module` exports |
 | --- | --- |
 | Read configuration from a worker's frozen view | `configurationRoot(root)`; other roots pass through unchanged |
-| Keep a path inside the brain | `safeResolve`, `resolveWritable` |
+| Keep a path inside the brain | `safeResolve`, `resolveWritable`: a path relative to the root, never absolute and without `..`; dangling and out-and-back links are refused ([0.45.0](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422)). A path argument from the command line goes through `brainRelativeArgument(root, arg)` first, which makes an absolute path inside the brain brain-relative |
 | Write a document atomically | `writeFileSafely` (`replace: false` refuses an existing name with `WriteRefusedError`, `code: "EEXIST"`) |
 | Intermediate files that are never canonical | `SCRATCH_DIR`, `scratchName`, `writeScratchFile`, `assertScratchWritable`, `isInScratch`, `isWriteRefusal`, `pruneScratch` |
 | Rewrite a generated region, keeping the rest of the file | `splitFrontmatterBlock`, `rewriteGeneratedRegion`, `inertGeneratedText` |

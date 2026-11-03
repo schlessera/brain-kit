@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 
 import { archiveDocument } from "../../lib/archiver.js";
+import { brainRelativeArgument } from "../../lib/safe-path.js";
 import { indexAll } from "../../lib/indexer.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
@@ -14,7 +15,7 @@ export const archiveCommand: CoreCommand = {
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
-    const relPath = pos[0];
+    const relPath = pos[0] && brainRelativeArgument(cli.brain.root, pos[0]);
     if (!relPath) {
       throw new UsageError("Usage: brain archive <path> [--dry-run]");
     }

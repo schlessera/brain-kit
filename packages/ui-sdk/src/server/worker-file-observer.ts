@@ -27,7 +27,8 @@ export function createWorkerFileObserver(options: {
       const suffix = relative(source.worker, path);
       const canonical = resolve(options.brain, source.rel, suffix);
       // A null mask is a view of no bytes, not a host read of its secret source.
-      if (/^\.env(?:\.|$)/.test(relative(options.brain, canonical).split("/")[0] ?? "") || options.maskPaths?.some(mask => within(canonical, mask))) return { key, version: EMPTY };
+      // Deny direction (#3422): a mask at `/` would cover every path.
+      if (/^\.env(?:\.|$)/.test(relative(options.brain, canonical).split("/")[0] ?? "") || options.maskPaths?.some(mask => isWithin(mask, canonical, { trailingSeparator: "boundary" }))) return { key, version: EMPTY };
       const fds: number[] = [];
       try {
         let fd = openSync(source.host, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); fds.push(fd);
