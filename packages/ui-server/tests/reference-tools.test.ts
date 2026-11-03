@@ -244,8 +244,10 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     while (state.resolves === resolves) await Bun.sleep(1);
     const controller = new AbortController();
     const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", (error: Error) => error.message);
-    expect(await Promise.race([binding, Bun.sleep(20).then(() => "waiting")])).toBe("waiting");
+    // The pool and transport are in memory: one macrotask runs the bind up to the held acquisition.
+    expect(await Promise.race([binding, drain().then(() => "waiting")])).toBe("waiting");
     controller.abort(new Error("turn cancelled"));
+    // Failure maximum: on success the cancelled bind settles first and the 500 ms branch is never awaited.
     expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_RETURNS").toBe("turn cancelled");
     open();
     (await refreshing).release();
@@ -335,6 +337,7 @@ describe("admission (#2432 review)", () => {
     const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", (error: Error) => error.message);
     while (!paused) await Bun.sleep(1);
     controller.abort(new Error("turn cancelled"));
+    // Failure maximum: on success the cancelled bind settles first and the 500 ms branch is never awaited.
     expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_DURING_SUSPENSION").toBe("turn cancelled");
     open();
   });

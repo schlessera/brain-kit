@@ -79,10 +79,11 @@ test("a held worker keeps flush off the loop and coalesces requests after the in
     expect(history.status().pending, "STORAGE_PENDING_INCLUDES_IN_FLIGHT").toBe(true);
     let committed = false;
     void Promise.resolve(first).then(() => { committed = true; });
-    await Bun.sleep(20);
-    expect(committed, "STORAGE_HELD_FLUSH_DOES_NOT_BLOCK_LOOP").toBe(false);
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(history.read()!.metadata.state.lastObservedAt).toBe(0);
-    await held;
+    // The flush is queued on the write worker behind the hold, whose replies
+    // arrive in order: it has not settled when the hold answers.
+    expect(await held.then(() => committed), "STORAGE_HELD_FLUSH_DOES_NOT_BLOCK_LOOP").toBe(false);
     expect(await second, "STORAGE_COALESCED_FLUSH_RUNS_AFTER_FIRST").toBe(true);
     expect(history.read()!.metadata.state.lastObservedAt).toBe(start + 60_000);
     expect(f.db.query("SELECT revision FROM storage_history").get(), "STORAGE_EXACTLY_TWO_ORDERED_FLUSH_COMMITS").toEqual({ revision: 2 });
@@ -112,16 +113,18 @@ test("sampling ticks submit without waiting or overlapping and close awaits the 
     expect(result, "STORAGE_TICK_RETURNS_SYNCHRONOUSLY").toBeUndefined();
     expect(flush, "STORAGE_TICK_NEVER_OVERLAPS_FLUSH").toHaveBeenCalledTimes(1);
     expect(sweep, "STORAGE_TICK_NEVER_OVERLAPS_SWEEP").toHaveBeenCalledTimes(1);
-    let released = false; void held.then(() => { released = true; });
-    await Bun.sleep(20);
+    let released = false, closed = false;
+    // The tick's writes, and the close's final flush, are queued on the write
+    // worker behind the hold, whose replies arrive in order: none has committed
+    // when the hold answers.
+    const queued = held.then(() => { released = true; return closed; });
     expect(released, "STORAGE_TICK_DOES_NOT_WAIT_FOR_FLUSH_SWEEP").toBe(false);
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(history.read()!.metadata.state.lastObservedAt).toBe(start);
     // A final observation arrives while the tick's write is still queued.
     f.advance(start + 120_000); history.offer(observation(f.now()));
-    let closed = false;
     const closing = sampling.close().then(() => { closed = true; });
-    await Bun.sleep(20);
-    expect(closed, "STORAGE_CLOSE_WAITS_FOR_FINAL_FLUSH").toBe(false);
+    expect(await queued, "STORAGE_CLOSE_WAITS_FOR_FINAL_FLUSH").toBe(false);
     await closing;
     expect(history.read()!.metadata.state.lastObservedAt, "STORAGE_CLOSE_PRESERVES_LAST_OBSERVATION").toBe(start + 120_000);
     expect(history.status().pending).toBe(false);
