@@ -370,7 +370,7 @@ to `brain.db`, create a second operational authority, or reuse storage-maintenan
 removal as an arbitrary transcript-file eraser.
 
 Restore currently increments dialogue generations and closes native continuity
-(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:350-433`). That
+(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:427-482`). That
 invalidates cursors but does not know a deletion performed after the backup.
 A post-deletion export must carry its new ledger and scrubbed owned content;
 restoring it must preserve negative lookups and refuse old writes. An earlier
