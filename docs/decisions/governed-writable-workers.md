@@ -1359,8 +1359,8 @@ also preserves the previous observation: it supplied no new bytes
 `packages/ui-backend-claude/src/permission-hooks.ts:107`).
 
 Claude keeps these observations in its backend-owned session map
-(`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:105`). Pi keeps them in its
+(`fileVersionsBySession: new Map()`,
+`packages/ui-backend-claude/src/turn-runner.ts:94`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
