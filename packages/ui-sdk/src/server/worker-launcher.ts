@@ -1435,8 +1435,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     try { pid = identityReady?.worker.pid ?? (yield* status!.childPidSteps(child.pid, deadline)); }
     catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
     status?.closeWriter();
-    const statusChannel = status;
-    void child.exited.finally(() => statusChannel?.close());
+    const statusChannel = status, supervisor = child;
+    void child.exited.finally(() => statusChannel?.close(supervisor));
     const freezer = identityBroker ? {
       freeze: () => identityBroker!.request("signal", { signal: "STOP" }),
       resume: () => identityBroker!.request("signal", { signal: "CONT" }),
@@ -1563,8 +1563,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     let cleanupFailure: unknown;
     try { if (child) { if (identityBroker) yield* identityBroker.closeSteps(); } else identityBroker?.discard(); } catch (failure) { cleanupFailure = failure; }
     if (!cleanupFailure) for (const reader of identityReaders) reader.confirmCleanup();
+    // An unreleased start gate closes only after its sandbox is dead (#3387).
+    status?.close(child);
     child?.kill("SIGKILL");
-    status?.close();
     if (stateFd !== undefined) closeSync(stateFd);
     if (tempFd !== undefined) closeSync(tempFd);
     const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";

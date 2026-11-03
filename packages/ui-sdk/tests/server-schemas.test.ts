@@ -127,6 +127,7 @@ const SAMPLES: ServerMessage[] = [
   { type: "handoff_draft", handoffId: "h-ithaca-01-p1", state: "ready", text: "Odysseus is sailing home.", runId: "r1", costUsd: 0.03 },
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
   { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
+  { type: "chat_retired", sessionId: "s1", historyOwnerIds: ["ithaca"], generation: 2 },
   {
     type: "session_queue",
     sessionId: "s1",
