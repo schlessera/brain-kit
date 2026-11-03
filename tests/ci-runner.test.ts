@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommands, verificationCommands, type Command } from "../scripts/ci-runner";
 import { planChecks } from "../scripts/ci-plan";
+import { positivePid, readPositivePid } from "./helpers/atomic-file";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -171,14 +172,17 @@ test("SIGTERM cleans only owned children and never emits a successful finish rec
 test("hard-killed coordinator leaves missing end receipt rather than invented completion", async () => {
   const dir = fixture();
   const child = recordedRunner(dir, [{ name: "unfinished", argv: [process.execPath, "-e", `
-    await Bun.write("pid", String(process.pid)); setInterval(() => {}, 60000);`] }]);
+    const fs = require("node:fs"); fs.writeFileSync("pid.tmp", String(process.pid)); fs.renameSync("pid.tmp", "pid"); setInterval(() => {}, 60000);`] }]);
   try {
-    await waitForFile(join(dir, "pid")); child.kill("SIGKILL");
+    await waitForFile(join(dir, "pid")); readPositivePid(join(dir, "pid"), "OWNED_COMMAND_PID_PUBLISHED"); child.kill("SIGKILL");
     expect(await child.exited).not.toBe(0);
     expect(receipts(dir).map(r => r.event)).toEqual(["start"]);
   } finally {
     child.kill("SIGKILL");
-    if (existsSync(join(dir, "pid"))) { try { process.kill(-Number(readFileSync(join(dir, "pid"), "utf8")), "SIGKILL"); } catch {} }
+    // The command publishes its PID atomically. Even so, never signal group 0:
+    // process.kill(-0) is this test's own process group.
+    const owned = existsSync(join(dir, "pid")) ? positivePid(readFileSync(join(dir, "pid"), "utf8")) : undefined;
+    if (owned !== undefined) { try { process.kill(-owned, "SIGKILL"); } catch {} }
     await child.exited;
   }
 });

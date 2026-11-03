@@ -3,6 +3,7 @@ import { useFileStore } from "../../stores/file-store.js";
 import type { FileEntry } from "@schlessera/brain-ui-sdk/protocol";
 import { FileTreeView, TreeRow, fileKind } from "./file-tree-view.js";
 import { ageInDays, isStale } from "./staleness.js";
+import { useUntrustedMarks } from "./untrusted-marks.js";
 
 /**
  * The container (S7): every node subscribes to the file store for its own
@@ -47,6 +48,9 @@ function TreeNode({ entry, depth }: { entry: FileEntry; depth: number }) {
   const highlighted = useFileStore((s) => isDir && s.highlightedDir === entry.path);
   const setHighlightedDir = useFileStore((s) => s.setHighlightedDir);
   const clearHighlight = useCallback(() => setHighlightedDir(null), [setHighlightedDir]);
+  // Only the host's present records draw a cue; the tree never infers one.
+  const marks = useUntrustedMarks();
+  const untrusted = !isDir && (marks?.present.has(entry.path) ?? false);
 
   // Staleness is a fact about a FILE's content. A directory's mtime moves
   // when an entry is added or removed, not when a note inside it changes,
@@ -76,6 +80,7 @@ function TreeNode({ entry, depth }: { entry: FileEntry; depth: number }) {
       highlighted={highlighted}
       error={expanded ? childError : undefined}
       staleDays={staleDays}
+      untrusted={untrusted}
       onClick={() => void (isDir ? toggleDir(entry.path) : openFile(entry.path))}
       onRetry={() => void loadDir(entry.path)}
       onHighlightShown={clearHighlight}

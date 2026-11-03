@@ -39,6 +39,16 @@ export function isManagedWorkerStartupView(view: WorkerStartupView | undefined):
   const input = nativeInputs.get(view);
   return Boolean(input?.manager.prepareStage && input.manager.inspectStage && input.manager.releaseStage);
 }
+/** Why a governed or strict turn whose startup view is not on managed native storage is refused (#3314). */
+export const UNMANAGED_TURN_STORAGE = "Governed and strict turns need a startup view the native manager acquired on managed native storage, where the turn egress relay runs; this turn's view is not one, so it is refused.";
+/**
+ * Refuse a governed or strict turn's view unless it is managed: every such turn
+ * runs on the turn egress proxy and the host inference relay, and none runs
+ * without them (#1665, #3314).
+ */
+export function assertManagedTurnStartupView(view: WorkerStartupView | undefined): void {
+  if (!isManagedWorkerStartupView(view)) throw new Error(UNMANAGED_TURN_STORAGE);
+}
 const nativeRoots = new Set<string>();
 const nativeBrains = new Map<string, { dev: bigint; ino: bigint; fsid: string; sourceUuid: string }>();
 

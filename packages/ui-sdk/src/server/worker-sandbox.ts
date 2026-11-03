@@ -411,12 +411,12 @@ function* scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
   if (!own) {
     if (!git) return true;
-    const inRepo = yield* brainGitSteps(brain, ["rev-parse", "--git-dir"], maintenance);
+    const inRepo = yield* brainGitSteps(brain, ["rev-parse", "--git-dir"], { ...maintenance, tempKind: "scratch_query" });
     if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
     if (inRepo !== 0) return true;
   }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const exitCode = yield* brainGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], maintenance);
+  const exitCode = yield* brainGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], { ...maintenance, tempKind: "scratch_query" });
   if (exitCode === 0) return true;
   return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"

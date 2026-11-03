@@ -22,7 +22,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d"
+        "source": "c92372d533f83154ec28a41e89504cab7d5486dd4e6d9ed632c0c05c49dd9130"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
@@ -42,7 +42,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "6f326e9a67bafbda3f3939be28515aff5324d3cbe5e4a41949616a0fc73b202c"
+        "source": "b20f60edcd8c3438d3ecc38952d7b5a7850adf4549c2eb6495a79b22596cad1e"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

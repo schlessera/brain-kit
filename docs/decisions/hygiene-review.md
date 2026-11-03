@@ -43,11 +43,11 @@ or a snooze reset by an unrelated edit, makes the owner's decision temporary.
 
 Reuse the existing markdown log and deterministic CLI operations. A candidate
 already carries category, path and stable evidence (`HygieneCandidate`,
-`packages/core/src/lib/hygiene.ts:61-77`), and its ID derives from those fields
-(`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`). Those primitives do not
+`packages/core/src/lib/hygiene.ts:68-84`), and its ID derives from those fields
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:181-184`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:182-184`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:250-252`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -135,11 +135,11 @@ shapes are in [the integration contract](../integration-contract/package-api.md#
 
 **Equivalence map.** Each `brain validate` rule becomes a candidate with a
 category and ID evidence (`VALIDATION_JOIN`,
-`packages/core/src/lib/hygiene.ts:190-203`). Validation gives the join a
+`packages/core/src/lib/hygiene.ts:199-212`). Validation gives the join a
 structured detail, so the message is never read (`export interface ValidationDetail`,
 `packages/core/src/lib/validate.ts:43-51`). Candidates are one finding exactly
 when category, path and evidence agree, and the join does not depend on their
-order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:270-320`).
+order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:283-333`).
 
 | Validation rule | Category | ID evidence | Joins |
 | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ a source states it; otherwise it stays unknown.
 
 **Evidence fingerprints.** A fingerprint is 12 hex digits of SHA-1 over the
 category and a hash of each field below (`FINGERPRINT_FIELDS`,
-`packages/core/src/lib/hygiene.ts:237-246`). Line numbers, messages, other
+`packages/core/src/lib/hygiene.ts:246-259`). Line numbers, messages, other
 document content and age are never in it.
 
 | Category | Fingerprint fields |
@@ -169,6 +169,7 @@ document content and age are never in it.
 | `broken-link` | target as written; every link token naming that target, as written (`[[target\|label]]`); severity; urgency |
 | `required-field` | field; its raw value (`absent` when missing); the rule it breaks; severity; urgency |
 | `managed-worktree` | the kind of problem (retained, unknown, cleanup-failed); the worktree's native identity and owning principal; its source domain, repository, revision and starting commit; its holder and liveness; its work; any removal failure; its state and last explicit activity; severity; urgency. Host-only: see [managed worktrees](managed-worktrees.md#hygiene-and-cleanup) |
+| `media` | the file's SHA-256 and bytes; its MEDIA/LARGE classes; the matching `media.track`/`media.ignore` entries; the reference-inventory digest (`none`, a digest, or `too-large`/`unscannable` when the bounded scan was refused; #2781); for a scratch file, the sorted session keys whose pins list that exact path; severity; urgency. See [media awaiting review](#media-awaiting-review-2780) |
 | any other | ID evidence; the validation rules reporting it (empty otherwise); severity; urgency |
 
 Severity is `unknown` when no source gives one, and urgency is `unknown` when
@@ -179,7 +180,7 @@ an invalidation can name the fields that changed.
 entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
 records its time and the fingerprint it applied to. `until:` takes an ISO
 date-time or a date; a date is due at the start of that UTC day, as before
-(`function dueAt`, `packages/core/src/lib/hygiene.ts:840-850`). A recorded
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:863-873`). A recorded
 fingerprint that no longer matches reopens the finding at once, with an
 `invalidated:` receipt naming the changed fields and the disposition's date.
 A snooze that comes due reopens it with no receipt.
@@ -189,9 +190,70 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1363`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1538`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
+
+<a id="media-awaiting-review-2780"></a>
+
+**Media awaiting review (#2780, epic #1777).** Each file awaiting a media
+decision is one finding of category `media`, identified by its exact raw
+repo-relative path. MEDIA is informational and LARGE a warning (ruling B); a
+file with both is one finding with both sources. Media findings are always
+presented, informational or not, in the ordering above. A file reached only
+through a conversation pin under `.brain/scratch/` is a review-only finding:
+it never changes the routine count (the 2026-10-24 A/A/A/A ruling on #2780).
+
+A fifth state, `kept`, records a media original whose permanent copy was
+made (K1 A). It lives in `context/hygiene/kept.md`, which is never created
+empty. It holds only while the original's fingerprint is unchanged and its
+copy is a contained regular file outside `.brain/` and `workspaces/` that
+`media.track` keeps. Otherwise the original reopens with an `invalidated:`
+receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:998-1008`).
+
+Sync's count and review use one read-only function that applies these
+predicates to the log as it stands rather than trusting the file an entry sits
+in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1778-1793`).
+Leave pending is a per-pass deferral in review state, never a log state: it
+skips the finding while its fingerprint holds, and the finding still counts.
+
+**Declared references (#2781, rev 4 §3, rulings B and Q1 A).** One bounded
+scan of the brain's notes finds which notes point at each media file, in the
+declared forms only: Markdown inline links and images, `<…>` destinations,
+reference definitions and wiki links and embeds (rewritable), and frontmatter
+values and HTML `src`/`href`/`poster` (detected, never rewritten). Code is
+never a reference, and hidden directories and the hygiene log are not read.
+Each Q1 limit is checked before the work it bounds; past one, or on a note
+that is not UTF-8, the whole scan is refused and the `refs` field records
+`too-large` or `unscannable`, never a digest. The digest leaves line numbers
+out, so an unrelated edit does not reopen a decision
+(`referenceDigest`, `packages/core/src/lib/media-references.ts:441-447`).
+The contract is in
+[media awaiting review](../integration-contract/package-api.md#media-awaiting-review-additive-2780).
+
+**Media effects (#2781, rev 4 §5-§7, Rollback A).** Delete, Move, Persist here
+and Keep a permanent copy are planned by the CLI against the current files,
+with every file's expected bytes before and after in one premise, and applied
+only while that premise still holds. Capture comes first: the server retains
+every pre-image in the bounded change journal before the CLI writes, and
+refuses when the journal cannot hold it. Compensation, Undo and restart
+recovery share one per-file rule: a file is put back only while it still holds
+what the effect wrote, so a later edit is never overwritten and the outcome is
+`partial` instead (`restore`, `packages/ui-server/src/inbox/media-effects.ts:107-129`).
+No all-file atomicity is claimed. The contract is in
+[media review effects](../integration-contract/package-api.md#media-review-effects-additive-2781).
+
+**Undo from review (#2781, maintainer ruling 2026-11-03).** A confirmed media
+effect resolves its card, and a resolved card takes no option. So review
+reaches Undo through a review command, `{ operation: "undo-media", journalId }`,
+instead of keeping the card open ("applied · Undo available") until the next
+selection. That keeps the resolved lifecycle, and the Undo stays bound to the
+receipt's journal. It runs the CLI Undo's preflights. The card keeps its
+resolved status and gets the Undo's receipt, and the restored finding returns
+on a new card, never the old one. Undoing Keep a permanent copy also removes
+its `kept` entry after the copy and config are restored (rev 5 §5.7,
+`brain hygiene unkeep`), so the original is pending again rather than
+reopened as `copy-missing`.
 
 ## A disposition is not a repair or an authority grant
 
@@ -203,7 +265,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1337-1340`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1512-1515`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

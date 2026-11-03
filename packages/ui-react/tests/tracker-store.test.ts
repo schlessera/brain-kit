@@ -538,6 +538,35 @@ describe("the seen observer's conditions", () => {
   });
 });
 
+describe("reopening a running session (#3406)", () => {
+  test("the live frames' turn on an answer still being written is not seen until the turn ends", () => {
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible", querySelector: () => null });
+    (globalThis as { document?: unknown }).document = doc;
+    try {
+      const r = root();
+      hello(r, false);
+      // A streams in view, so its answer carries the frames' turn; then the
+      // reader leaves while it runs and comes back before any replay.
+      runningIn(r, A);
+      r.stores.chat.getState().setActiveSession(B);
+      r.stores.chat.getState().setActiveSession(A);
+      const last = r.stores.chat.getState().buffers[A]!.messages.at(-1)!;
+      expect({ isStreaming: last.isStreaming, turnId: last.turnId }).toEqual({ isStreaming: true, turnId: "turn-1" });
+      expect(views(r).map((v) => [v.sessionId, v.state, v.cleared])).toEqual([[A, "running", false]]);
+      const bottom = { clientHeight: 400, scrollHeight: 1000, scrollTop: 600 } as HTMLElement;
+      expect(observeTrackerSeen(r, bottom, false), "a running answer at the bottom").toBe(false);
+      expect(views(r)[0]!.cleared).toBe(false);
+      // The turn ends while the reader is at its end: that is seen.
+      frame(r, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+      r.connection.flushChatDeltas();
+      expect(observeTrackerSeen(r, bottom, false), "the ended turn at the bottom").toBe(true);
+      expect(views(r)[0]!.cleared).toBe(true);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+});
+
 describe("persistence", () => {
   function tracked(storage: Storage, storagePrefix: string, sessionId = A) {
     const r = root({ storage, storagePrefix });

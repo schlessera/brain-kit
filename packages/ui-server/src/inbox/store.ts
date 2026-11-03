@@ -73,6 +73,11 @@ export interface InboxReservation {
 }
 export type InboxMutation =
   | { kind: "hygiene_update"; itemId: string; expectedVersion: number; hygiene: HygieneAction; options: InboxOption[] }
+  /**
+   * A resolved media card's receipt after Undo from review (#2781): only its
+   * outcome changes, never its options or its terminal status.
+   */
+  | { kind: "hygiene_media_receipt"; itemId: string; expectedVersion: number; outcome: NonNullable<HygieneAction["outcome"]> }
   | { kind: "item"; item: InboxItem }
   | { kind: "retain_block"; itemId: string; expectedVersion: number; expiresAt: number }
   | {
@@ -86,6 +91,8 @@ export type InboxMutation =
       leaseUntil?: number;
       runId?: string;
       blockedByItemId?: string;
+      /** `false` claims without spending the autonomous retry budget: a user's interactive turn is not a retry. */
+      countAttempt?: false;
     }
   | {
       kind: "checkpoint";
@@ -645,6 +652,16 @@ export class InboxStore {
         this.change(next.threadId, { kind: "upsert_item", itemId: next.id, item: next });
         return;
       }
+      case "hygiene_media_receipt": {
+        const row = this.itemRow(mutation.itemId), item = wireItem(row);
+        if (row.deleted_at !== null || item.queue !== "actions" || !item.hygiene?.outcome?.media || !mutation.outcome.media || item.version !== mutation.expectedVersion || item.status !== "resolved")
+          throw new Error("Inbox version conflict");
+        const next: InboxActionItem = { ...item, hygiene: { ...item.hygiene, outcome: mutation.outcome }, version: item.version + 1, updatedAt: now };
+        validateItem(next);
+        this.db.query("UPDATE inbox_items SET version = ?, data_json = ? WHERE id = ?").run(next.version, JSON.stringify(next), next.id);
+        this.change(next.threadId, { kind: "upsert_item", itemId: next.id, item: next });
+        return;
+      }
       case "item":
         this.insertItem(mutation.item);
         return;
@@ -706,14 +723,14 @@ export class InboxStore {
             next.blockedByItemId = blocker.id;
           }
           if (next.status === "claimed") {
-            if (next.attempts >= next.maxAttempts)
+            if (mutation.countAttempt !== false && next.attempts >= next.maxAttempts)
               throw new Error("Inbox attempt limit reached");
             if (mutation.leaseUntil === undefined || mutation.leaseUntil <= now)
               throw new Error("Claim requires a future lease");
             assertTime(mutation.leaseUntil);
             next.claimedAt = now;
             next.leaseUntil = mutation.leaseUntil;
-            next.attempts++;
+            if (mutation.countAttempt !== false) next.attempts++;
           } else {
             delete next.claimedAt;
             delete next.leaseUntil;

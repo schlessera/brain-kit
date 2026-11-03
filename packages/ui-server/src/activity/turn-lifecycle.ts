@@ -2,6 +2,13 @@ import type { ActivityTurnLifecycle, ActivitySpanOutcome } from "@schlessera/bra
 import type { AwaitableActivityStore } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
 
+/**
+ * Starts one named step of an admission phase and returns its end (#3355).
+ * Steps ride on the record's next persisted milestone or terminal, so timing
+ * adds no write to the turn path.
+ */
+export type PhaseTimer = (name: string) => () => void;
+
 export type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
@@ -11,7 +18,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
     journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstFrameAt: null, failureObservedAt: null,
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
-    queueWaitMs: null, governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null, backendStartupMs: null,
+    queueWaitMs: null, governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null, backendStartupMs: null, subPhases: [],
   };
   // Observability, including fanout, must never fail the observed turn. Each
   // write carries the record as it is now and fans out once committed (#2814).
@@ -34,6 +41,14 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       if (record.endedAt !== null || record[milestone] !== null) return;
       record[milestone] = at;
       persist();
+    },
+    timer(phase: "governed" | "journal"): PhaseTimer {
+      return name => {
+        if (record.endedAt !== null) return () => {};
+        const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
+        (record.subPhases ??= []).push(step);
+        return () => { if (record.endedAt === null && step.endedAt === null) step.endedAt = clock(); };
+      };
     },
     bindSession(id: string) { if (record.endedAt === null) { record.sessionId = id; persist(); } },
     linkBackend(id: string) { if (record.endedAt === null) { record.backendRunId = id; persist(); } },
@@ -61,5 +76,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
     budgetAdmissionMs: phase(record.budgetStartedAt, record.budgetAdmittedAt),
     journalBeginMs: phase(record.journalStartedAt, record.journalBeganAt),
     backendStartupMs: phase(record.backendInvokedAt, record.firstFrameAt),
+    // A step follows its phase's rules: unfinished, it measures to the failure boundary.
+    ...(record.subPhases ? { subPhases: record.subPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
   };
 }
