@@ -166,7 +166,7 @@ as unpriced. The calls stay counted in the `brain.labeller.calls` metric, and a
 label run's cost is not added to the session's own total.
 
 A label run raises no failure or stuck notification (`const isPillLabel`,
-`packages/ui-server/src/activity/notify.ts:148`). A failed label only leaves a
+`packages/ui-server/src/activity/notify.ts:162`). A failed label only leaves a
 pill on its fallback, and its failure intent would carry the session's tag,
 `failure:<sessionId>`, so the session's next real turn failure would be
 deduplicated against it and never delivered.
@@ -228,12 +228,14 @@ feed the inference budgets, not Activity rollups: they never change a run's
 recorded or effective cost. Units are what the provider reported in the raw
 response, before an SDK converts it. Completion tokens are priced through the
 same `RollupPricing` as the agent's own inference, on the direct route
-(`priceProviderAttempt`, `packages/ui-server/src/pricing/provider-pricing.ts:34-68`).
+(`priceProviderAttempt`, `packages/ui-server/src/pricing/provider-pricing.ts:36-75`).
 Embeddings are in neither remote catalog, so the built-in model has one dated
 row per input modality, from Google's published list price, and it counts as
-an estimate (`GEMINI_EMBEDDING_PRICES`, `packages/ui-server/src/pricing/provider-pricing.ts:21-23`).
+an estimate (`GEMINI_EMBEDDING_PRICES`, `packages/ui-server/src/pricing/provider-pricing.ts:23-25`).
 A modality without a row, inline media without a modality split, and every
 image request stay unpriced. The CLI's own per-image estimate is not a provider
 receipt and is never booked. Unknown is never zero here either: an attempt
 without reported usage is unknown spend, and reported tokens without a price
-count toward the unpriced-token stops.
+count toward the unpriced-token stops. The one known zero is a Gemini Files
+lifecycle attempt (upload, poll, delete) behind a relayed video (#2738): the
+Files API is free, and the video's tokens are charged on its generation.

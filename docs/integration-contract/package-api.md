@@ -131,6 +131,61 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+## Explicit chat deletion (additive, #3230)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that re-export it) exports `CHAT_DELETION_CAPABILITY`
+(`"chatDeletion"`), `ChatDeletionRequest`, `ChatDeletionReceipt`,
+`ChatDeletionStore`, `ChatDeletionOutcome`, `ChatDeletionRetained`,
+`ChatDeletionRefusal` and `ServerChatRetired`, now a member of `ServerMessage`.
+`DraftErrorCode` and `DraftErrorResponse` gain `DRAFT_CHAT_RETIRED`.
+`@schlessera/brain-ui-sdk/schemas` exports `serverChatRetiredSchema`, and
+`parseServerMessage` accepts the frame. A client that switches exhaustively over
+`ServerMessage["type"]` needs a case for `chat_retired`; the host sends it only to
+connections that declared the capability. In `@schlessera/brain-ui-server`, `WsHost`
+gains optional `chatDeletion` and the session catalog optional `cleanChatStore` and
+`unfinishedChatRetirements`, host wiring reachable from its exports. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) and
+[wire](wire.md#explicit-chat-deletion-additive-3230) components.
+
+## Native history removal (additive, #3229)
+
+`BackendCapabilities` adds optional `historyRemoval?: boolean`, and
+`AgentBackend` adds optional `removeSessionHistory?(req:
+SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>`, exported
+from `@schlessera/brain-ui-sdk/server` with
+`SessionHistoryRemovalRequest` (`{ operationId: string; sessionId: string;
+signal?: AbortSignal }`), `SessionHistoryRemovalResult` (`{ outcome }`) and
+`SessionHistoryRemovalOutcome` (`"removed" | "partial" | "unknown"`).
+Removal is supported only when the capability is `true` and the method exists;
+the conformance suite in `@schlessera/brain-ui-sdk/testing` checks that they
+agree. A host refuses deletion of a chat on any other backend before it
+retires anything; older backends remain valid and simply do not support it.
+
+A host calls it only for a chat its owner explicitly retired, under that
+retirement's operation identity, as the
+[deletion policy](../decisions/chat-history-deletion.md) allows. Before its first
+await the backend fences the session durably and permanently: `listSessions`
+omits it, `getHistory` returns `[]`, and resume, follow-up, archive and
+restore refuse it, after a restart too. It then waits for the session's running
+turns and readers to drain and removes every native artifact it owns: live,
+archived, staged and conflict copies, subordinate and branch files, display and
+prompt metadata and file observations. Only names derived from the validated
+session identity are touched; a link, hard-linked file, redirected root or
+artifact whose own header names another session is left in place.
+
+The outcome is content-free and maps onto the host's per-store ledger:
+`removed` only when every owned artifact is confirmed absent and the installed
+runtime no longer lists the session; `partial` while owned content may remain,
+including when `signal` aborts the caller's wait first (the removal keeps its
+single owner and finishes after a genuine drain); `unknown` when an unexpected
+failure left the state unconfirmed. Every outcome but `removed` is retried under
+the same operation. A second operation for the same session, an invalid
+identity or a redirected tombstone root rejects with `BackendRequestError`.
+Previously sent provider bytes are never rewritten, and provider-held copies
+are outside it. The first-party Claude and Pi backends implement it.
+
 ## Inbox provenance (additive, #2741)
 
 The intake `createInboxIntake` returns adds `person(input, key, principal)`:
@@ -157,6 +212,13 @@ control. Both are plain inert text, wrapped anywhere and never parsed. An
 omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
+
+## UI-kit enlarge icon (additive #3397)
+
+The semantic `IconName` gains `enlarge`: open content in its dedicated
+full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
+already uses for Open diagram. The framed diagram renderer's header uses it.
+No existing key, glyph or component changes.
 
 ## UI-kit Button reach (additive #3252)
 
@@ -211,6 +273,38 @@ and `onOpenChange` fires on every toggle with the value being moved to.
 not exported, and is no extension seam. No CLI, MCP, wire, storage or HTTP
 shape changes; a minor changeset covers the additions.
 
+## UI-kit compact operation status (additive, #3281)
+
+`@schlessera/brain-ui-kit` exports `StatusIndicator` and the types
+`StatusIndicatorProps`, `StatusIndicatorOperation`, `StatusIndicatorFact` and
+`StatusIndicatorState`. [D58](../decisions/design-kit/components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+records the state matrix and the interaction.
+
+- `StatusIndicatorProps`: `label` (what the status is about), `summary` (the
+  tooltip sentence, repeated at the top of details), `title` (the details
+  heading), `operations` and an optional `returnFocus` callback, used when
+  details close after the trigger has gone.
+- `StatusIndicatorOperation`: `id` (the consumer's stable identity), `state`,
+  `stateLabel` (the state in the consumer's words), and optional
+  `explanation`, `facts` (`StatusIndicatorFact`: `key`, `value`) and
+  `actions` (a `ReactNode` of consumer buttons, rendered in details only).
+- `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
+  `unknown`, `failed`, `refused` or `idle`.
+
+The component is presentational. It derives only the displayed state and the
+count. The display state is the worst operation's state, in the order refused,
+failed, unknown, attention, active, queued, success, idle. Two or more
+operations show a count. An empty list renders a reserved 44px slot without a
+control, and it is never success. The accessible name is
+`{label}: {lead stateLabel}[; {n} operations]. Details.`
+
+The consumer is responsible for authoritative evidence. Nothing in the
+component infers success from time, animation or response order, and opening
+details triggers no action. State, freshness, identity, persistence and every
+action's authority stay with the consumer. `StatusDot` is unchanged. No CLI,
+MCP, wire, storage or HTTP shape changes; a minor changeset covers the
+additions.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
@@ -248,6 +342,21 @@ for storage and supported-host requirements.
 
 <a id="package-entry-points"></a>
 
+## Apify bridge tools (additive, 0.45.0, #3162)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+`APIFY_TOOL_CONTRACTS`, the seven `brain_apify_*` contracts, with
+`APIFY_OPERATIONS`, `APIFY_TOOL_NAMES`, `APIFY_ERROR_CODES`, `APIFY_GUIDANCE`,
+`apifyOperationOf` and the `ApifyToolCall`, `ApifyToolResult`,
+`ApifyEnvelope`, `ApifyErrorCode`, `ApifyOperation` and `ApifyToolName`
+types. `@schlessera/brain-ui-sdk/server` adds `handleApifyTool(name, input,
+bridge)`, which validates the strict input and forwards `{ tool, input }` to
+the optional new `BackendBridge.apify(call)`; without it the tool refuses as
+`provider_disabled`. The host binds principal, session, turn, posture and
+approvals; a backend sends the parsed input only. Names, schemas and the
+envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
+Both first-party backends register the tools in every interactive session.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each
@@ -258,7 +367,8 @@ behavior. A member tagged `@internal` in its own JSDoc is excluded, as a
 private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
-`@schlessera/brain/internal/graph`,
+`@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
+`@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,
@@ -1561,6 +1671,77 @@ and `list` retain their refusal. With no configuration file, `next` retains the
 CLI's missing-config write refusal. A check blocker lists unavailable checks;
 reconciliation still preserves unseen entries under its existing failure
 rules, and selection never claims completion from incomplete detection.
+
+<a id="media-awaiting-review-additive-2780"></a>
+
+## Media awaiting review (additive, #2780)
+
+One media inventory feeds `brain sync`'s count and hygiene review. It holds
+two populations: the working tree's uncommitted `MEDIA` and `LARGE` files as
+`brain sync assess` classes them (never Git-ignored or `media.ignore` files),
+and the regular `MEDIA`/`LARGE` files under `.brain/scratch/` that the scratch
+pin snapshot lists, even when `media.ignore` matches them. The scratch area is
+never walked. At most `BRAIN_MEDIA_PINNED_PATH_LIMIT` (5,000) distinct pinned
+paths are read per inventory. A missing, unreadable, redirected or malformed
+snapshot admits no scratch file (`links.state: "unknown"`). A valid snapshot
+whose scan is not finished (`ready: false`) admits its listed paths
+(`"incomplete"`). Neither state, nor `tooLarge`, ever claims that every
+conversation link was checked.
+
+Each file is one finding of category `media`, identified by its exact raw
+repo-relative path, with source `hygiene/media` (informational) and/or
+`hygiene/large` (warning). A file reached only through a pin has
+`hygiene/scratch-media`/`scratch-large` instead: it appears in review and never
+in the count. Its fingerprint fields are `sha256`, `bytes`, `classes`, `policy`
+(the matching `media.track`/`media.ignore` entries), `refs`, `pins` (the sorted
+session keys whose pin list holds that exact path, so an unrelated
+conversation never changes it), `severity` and `urgency`. `refs` is the
+reference-inventory digest (#2781): `none` when no note references the file, a
+16-hex digest of each reference's note, form and destination as written (line
+numbers left out), or `too-large`/`unscannable` when the bounded scan was
+refused. One scan of the brain's `*.md` notes outside hidden directories and
+`context/hygiene/` finds Markdown inline links and images, `<…>` destinations,
+reference definitions, wiki links and embeds, frontmatter values and HTML
+`src`/`href`/`poster`; code is never a reference. Its bounds are
+`BRAIN_MEDIA_REFERENCE_LIMITS` (`notes` 50,000, `noteBytes` 256 MiB, `perNote`
+4 MiB, `scanTime` 20 s, `refsPerFinding` 500). Replacing the earlier
+`unscanned` value reopens every media disposition once.
+
+A fifth log state, `kept`, holds a media original whose permanent copy was
+made, in `context/hygiene/kept.md` under `## Kept as a permanent copy`. Each
+entry records `kept-on:`, `copy:`, `copy-sha256:`, `journal:` and
+`disposition-fingerprint:`. It holds while the original's fingerprint is
+unchanged and the copy is a contained regular file outside `.brain/` and
+`workspaces/` that `media.track` keeps. Otherwise reconcile reopens the original
+with an `invalidated: … kept on <day> · changed: <fields>` receipt, naming
+`copy-missing`, `copy-untracked`, `kept-incomplete` or the fingerprint fields.
+Editing the copy keeps it kept. `brain hygiene keep-copy` writes the entry
+through reconcile's expected-fingerprint request, refusing a copy that would
+not hold at once. A pruned original moves the entry to
+`resolved.md` with `resolved-by: original-pruned`. `kept.md` is written only
+once it holds an entry, and `_index.md` adds `- Kept: N` only while it exists.
+An existing brain's hygiene files therefore stay byte-identical.
+
+The count is `mediaReviewCounts`, read-only and shared by both callers. It
+does not trust the file an entry sits in:
+
+| Counted media finding's log state | `awaitingReview` | Set aside / kept |
+| --- | --- | --- |
+| open, resolved, or no entry | yes | — |
+| dismissed, fingerprint unchanged (or none recorded) | no | `setAside` |
+| snoozed, fingerprint unchanged and `now < dueAt` | no | `setAside` |
+| snoozed and due, or fingerprint changed | yes | — |
+| kept and valid | no | `kept` |
+| kept and invalid | yes | — |
+
+Hygiene review's Leave pending is per-pass operational state on the server,
+not a log state. It skips a finding while its fingerprint is unchanged
+(`hygiene next --defer`), and the finding still counts in `awaitingReview`.
+The review state gains `pass` (a Start after a complete or idle review begins
+a new pass and clears the list), `deferred: [{ findingId, fingerprint }]`, a
+`kept` counter, `counts.kept`, and `media: { awaitingReview, setAside, kept }`
+from the last selection. A stored row without them reads as `0` or `[]`.
+Hygiene effects gain operation `defer`, and outcomes gain status `deferred`.
 
 <a id="module-hygiene-context-breaking-699"></a>
 
@@ -4265,3 +4446,15 @@ packet audio. Unsupported codec/container forms, including audio/mp4, retain
 conservative elapsed-wall timestamps for the rest of that recording. Old stored
 wall timestamps remain readable without migration. No field, stop reason or
 state is added. This semantic change ships in a minor before 1.0.
+
+<a id="composer-attach-label-additive-0450-3045"></a>
+
+## Composer attach label (additive, 0.45.0, #3045)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`attachLabel?: string`, the attach trigger's accessible name. Omitted or empty,
+it is "Attach — photo, camera, files" (previously the fixed
+"Attach — photo, camera, file"). An actionable trigger also paints that name as
+an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
+composer's, has neither. Existing props and defaults are otherwise unchanged,
+and no wire schema changes. `api-report/` records the added prop.

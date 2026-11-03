@@ -41,3 +41,5 @@ export type { ReferenceToolName } from "./reference.js";
 
 export { handleTurnTemp } from "./turn-temp.js";
 export type { TurnTempPurgeRecord } from "./turn-temp.js";
+
+export { handleApifyTool } from "./apify.js";

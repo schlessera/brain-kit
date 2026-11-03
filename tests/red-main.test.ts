@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
-import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures,
+import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures, recordExpedited,
   openRed, parseRedMain, type RedFailure, type RedMainRecord } from "../scripts/red-main";
 import { coordinate, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
 
@@ -223,6 +223,9 @@ function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<st
 }
 const mainRun = (sha: string, conclusion: string, id = 100): WorkflowRun => ({ id, name: "CI", event: "push", head_branch: "main", head_sha: sha, status: "completed", conclusion,
   run_attempt: 1, display_title: "squash", created_at: "2026-07-12T00:00:00Z" });
+/** A running PR proof run whose PR had `base` as its base when the run was created. */
+const prRun = (id: number, pr: number, base?: string, head = A): WorkflowRun => ({ ...mainRun(head, "", id), event: "pull_request", head_branch: `pr-${pr}`,
+  status: "in_progress", conclusion: null, created_at: "2026-07-12T00:00:01Z", pull_requests: [{ number: pr, ...(base ? { base: { sha: base } } : {}), head: { sha: head } }] });
 const junit = `<testsuites><testsuite name="packages/core/tests/raft.test.ts" file="packages/core/tests/raft.test.ts" failures="1"><testcase name="t"><failure>expect(received).toBe(expected)</failure></testcase></testsuite></testsuites>`;
 
 describe("coordinator", () => {
@@ -238,8 +241,7 @@ describe("coordinator", () => {
 
   test("two coordinator runs for the same bad SHA and test leave exactly one incident issue and cancel doomed PR proof", async () => {
     const gh = fakeGitHub({ jobs: [{ id: 1, name: "changeset", conclusion: "success" }, { id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], junit,
-      prRuns: [{ ...mainRun(A, "", 300), event: "pull_request", head_branch: "feat", status: "in_progress", pull_requests: [{ number: 7 }], created_at: "2026-07-12T00:00:01Z" },
-        { ...mainRun(A, "", 301), event: "pull_request", head_branch: "fix", status: "in_progress", pull_requests: [{ number: 8 }], created_at: "2026-07-12T00:00:01Z" }] });
+      prRuns: [prRun(300, 7, C), prRun(301, 8, C)] });
     await coordinate(gh.io, mainRun(B, "failure"));
     gh.set(declareFix(gh.record(), 8, NOW + 100_000));
     await coordinate(gh.io, mainRun(B, "failure"));
@@ -249,6 +251,20 @@ describe("coordinator", () => {
     expect(gh.record().open).toMatchObject({ firstBad: B, incident: 500, failures: [{ test: "packages/core/tests/raft.test.ts", reasons: ["in-affected-closure", "assertion-signature"] }] });
     // Before PR #8 is declared a fix both runs are doomed; afterwards only the non-fix run is cancelled.
     expect(gh.cancelled, "DOOMED_NON_FIX_RUN_CANCELLED_FIX_KEPT").toEqual([300, 301, 300]);
+  });
+
+  test("only proof whose merge ref contains the bad commit is cancelled, and declared fixes never are (#3321)", async () => {
+    // First bad is B. Base C descends from it; base A (an integration branch forked earlier) does not.
+    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], junit,
+      prRuns: [prRun(310, 7, A), prRun(311, 9, C), prRun(312, 8, C), prRun(313, 10), prRun(314, 11, A, C)] });
+    gh.set(declareFix(openRed(emptyRedMain(), { firstBad: B, run: 100, failures: [failure("packages/core/tests/raft.test.ts")] }, NOW), 8, NOW));
+    await coordinate(gh.io, mainRun(B, "failure"));
+    expect(gh.cancelled.includes(310), "BASE_WITHOUT_BAD_COMMIT_NOT_CANCELLED").toBe(false);
+    expect(gh.cancelled.includes(311), "BASE_CONTAINING_BAD_COMMIT_CANCELLED").toBe(true);
+    expect(gh.cancelled.includes(312), "DECLARED_FIX_NOT_CANCELLED").toBe(false);
+    expect(gh.cancelled.includes(313), "UNKNOWN_BASE_NOT_CANCELLED").toBe(false);
+    expect(gh.cancelled.includes(314), "HEAD_CONTAINING_BAD_COMMIT_CANCELLED").toBe(true);
+    expect(gh.cancelled).toEqual([311, 314]);
   });
 
   test("a suspected flake files its test issue and dispatches a probe without declaring main red", async () => {
@@ -293,5 +309,28 @@ describe("coordinator", () => {
     await coordinate(gh.io, mainRun(C, "success", 103));
     expect(gh.record().open).toBeNull();
     expect(existsSync(ROOT)).toBe(true);
+  });
+});
+
+describe("expedited fixes (#2940)", () => {
+  test("an expedited fix is recorded on the open record only for a declared fix, and parses back", () => {
+    const red = openRed(emptyRedMain(), { firstBad: B, run: 11, failures: [failure("tests/raft.test.ts")] }, NOW);
+    const fix = { pr: 8, head: C, base: B, squash: A, baseProbe: 301, headProbe: 302, feedbackRun: 91, actor: 101, at: NOW + 2 };
+    expect(() => recordExpedited(red, fix, NOW + 2)).toThrow("declared fix");
+    const recorded = recordExpedited(declareFix(red, 8, NOW + 1), fix, NOW + 2);
+    expect(recorded.open?.expedited).toEqual([fix]);
+    expect(recorded.last).toEqual({ action: "expedite", at: NOW + 2, run: 11 });
+    expect(parseRedMain(JSON.stringify(recorded))).toEqual(recorded);
+    expect(recordExpedited(recorded, fix, NOW + 3)).toBe(recorded);
+    expect(() => parseRedMain(JSON.stringify({ ...recorded, open: { ...recorded.open, expedited: [{ ...fix, actor: "odysseus" }] } }))).toThrow("Invalid red-main incident");
+  });
+
+  test("the coordinator ignores expedited fix probes", async () => {
+    const gh = fakeGitHub({ jobs: [] });
+    gh.set(openRed(emptyRedMain(), { firstBad: B, run: 100, failures: [failure("tests/raft.test.ts")] }, NOW));
+    const before = gh.record();
+    await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe fix 100 ${B}` });
+    expect(gh.record(), "FIX_PROBE_NEVER_CHANGES_THE_RECORD").toBe(before);
+    expect(gh.issues).toHaveLength(0); expect(gh.comments).toHaveLength(0); expect(gh.dispatched).toHaveLength(0);
   });
 });

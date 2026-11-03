@@ -5,7 +5,7 @@
  * A rerun is only a triage probe: it never turns proof green or makes anything mergeable.
  */
 import { scanText } from "./check-leakage";
-import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, junitFailures, openRed, refineFirstBad,
+import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, gateDecision, junitFailures, openRed, refineFirstBad,
   reportLanded, settleSuspect, type Category, type FailureEvidence, type IncludedRedSet, type RedFailure, type RedMainRecord, type Signature } from "./red-main";
 
 export const PROBE_WORKFLOW = "red-main-probe.yml";
@@ -17,7 +17,9 @@ const SETUP_STEP = /prerequisites|environment setup/i;
 
 export interface WorkflowRun {
   id: number; name: string; event: string; head_branch: string; head_sha: string; status: string; conclusion: string | null;
-  run_attempt: number; display_title: string; created_at: string; pull_requests?: { number: number }[];
+  run_attempt: number; display_title: string; created_at: string;
+  /** GitHub records each PR's base and head as they stood when the run was created. */
+  pull_requests?: { number: number; base?: { sha: string }; head?: { sha: string } }[];
 }
 export interface Job { id: number; name: string; conclusion: string | null; steps?: { name: string; conclusion: string | null }[]; }
 export interface Snapshot { oid: string | null; redMain: RedMainRecord; }
@@ -144,7 +146,11 @@ export async function noteFlake(io: CoordinatorIO, key: string, text: string, ex
   return issue.number as number;
 }
 
-/** Cancels in-progress PR proof created after the bad commit landed, except declared fixes. */
+/**
+ * Cancels queued and in-progress PR proof whose tested merge ref contains the bad
+ * commit, except declared fixes (#3321). The merge ref contains it when the PR's
+ * base or head at run creation descends from it; unknown ancestry leaves the run alone.
+ */
 export async function cancelDoomed(io: CoordinatorIO, record: RedMainRecord): Promise<number[]> {
   const open = record.open;
   if (!open) return [];
@@ -152,8 +158,19 @@ export async function cancelDoomed(io: CoordinatorIO, record: RedMainRecord): Pr
   for (const status of ["queued", "in_progress"]) {
     const runs = await io.json(`repos/${io.repository}/actions/workflows/ci.yml/runs?event=pull_request&status=${status}&per_page=100`);
     for (const run of (runs.workflow_runs ?? []) as WorkflowRun[]) {
-      const prs = (run.pull_requests ?? []).map(pr => pr.number);
-      if (!prs.length || prs.some(pr => open.fixes.includes(pr)) || Date.parse(run.created_at) < landed) continue;
+      const prs = run.pull_requests ?? [];
+      // A run created before the bad commit landed cannot test a merge ref containing it.
+      if (!prs.length || Date.parse(run.created_at) < landed) continue;
+      let doomed: boolean;
+      try {
+        // Without the recorded base the merge ref is unknown, so the run is not doomed.
+        doomed = prs.every(pr => gateDecision({ record, pr: pr.number,
+          contains: sha => pr.base?.sha !== undefined && (io.isAncestor(sha, pr.base.sha) || io.isAncestor(sha, run.head_sha)) }).refuse);
+      } catch (error) {
+        io.print(`left run ${run.id} alone: ancestry of ${short(open.firstBad)} unknown (${error instanceof Error ? error.message : String(error)})`);
+        continue;
+      }
+      if (!doomed) continue;
       await io.write("POST", `repos/${io.repository}/actions/runs/${run.id}/cancel`);
       cancelled.push(run.id);
     }
@@ -245,7 +262,10 @@ async function handleMainRun(io: CoordinatorIO, run: WorkflowRun) {
   io.print(`BRAIN_RED_MAIN ${JSON.stringify({ firstBad: withIncident.open?.firstBad, incident: withIncident.open?.incident, cancelled })}`);
 }
 
-/** Probe run names carry their purpose, source run and SHA; tests come from the record. */
+/**
+ * Probe run names carry their purpose, source run and SHA; tests come from the record.
+ * `fix` probes are expedited fix evidence for integrate.ts (#2940) and are ignored here.
+ */
 export function probeIdentity(title: string): { purpose: "flake" | "bisect"; source: number; sha: string } | null {
   const match = /^red-main probe (flake|bisect) ([1-9]\d*) ([a-f0-9]{40})$/.exec(title);
   return match ? { purpose: match[1] as "flake" | "bisect", source: Number(match[2]), sha: match[3]! } : null;

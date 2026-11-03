@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:171-190`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:174-193`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -115,6 +115,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
+| `POST /api/chat-deletions` | `mounted supported handler: POST /api/chat-deletions` | CD |
 | `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
@@ -442,7 +443,7 @@ poke method refusal and conditional static assets. HEAD dispatch suppresses
 the body; configured OPTIONS preflight is tested before authentication, with
 unconfigured and denied-origin controls.
 
-The `mounted internal router: GET PATH` tests reach pi-auth, web-search,
+The `mounted internal router: GET PATH` tests reach pi-auth, web-search, apify,
 tool-permissions, skills, graph and vpn-check through the real app and require
 successful JSON responses (`mounted internal router:`,
 `packages/ui-server/tests/http-internal-mounts.test.ts:8-17`). The inventory
@@ -518,3 +519,11 @@ exercise two processes, cancellation, cache failure and parent SIGKILL.
 [Delivery tests](../packages/ui-server/tests/storage-notify.test.ts) use the
 existing injected transport, including concurrent native senders and SIGKILL
 after dispatch entry; they never contact a push provider.
+
+CD: [Chat deletion on a real file-backed writer](../packages/ui-server/tests/chat-deletion.test.ts)
+covers per-store removal against a whole-database marker scan, unrelated chat and
+unbound draft controls, replay refusal, honest partial/unknown outcomes, restart
+reconciliation, and the endpoint's owner, agent, ambient, foreign, stale and revoked
+cases. [The WebSocket host test](../packages/ui-server/tests/ws-chat-deletion.test.ts)
+covers busy refusal, a resume held across retirement, admission and recovery refusal
+and targeted `chat_retired` delivery.

@@ -15,6 +15,7 @@ const SESSION = "odysseus-ithaca";
 const PROFILE: ServerConversationOpened = { type: "conversation_opened", conversationId: "ithaca-voice", epoch: 1, sessionId: SESSION, providerId: "gpt-live", capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" }, disclosure: { voiceService: "Odysseus voice fixture", destinations: ["Audio and transcripts: fictional fixture. Retention: unknown."] }, limits: { ...CONVERSATION_LIMITS }, resync: { work: 0, outputs: 0 } };
 const DISCLOSED_PROFILE = conversationProfileSchema.parse({providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure});
 const HELLO = serverHelloSchema.parse({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,toolResolution:true},conversationProfile:DISCLOSED_PROFILE});
+const LIVE_ATTACH = "Attach — live conversation, photo, camera, files";
 let styles: HTMLStyleElement;
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
@@ -124,7 +125,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
 
 for (const theme of ["light", "dark"] as const) test(`entry and connecting disclosure ${theme}`, async ctx => {
   const s = await scene(ctx, 1280, 720, theme);
-  await userEvent.click(page.getByRole("button", { name: "Attach — photo, camera, file", exact: true }));
+  await userEvent.click(page.getByRole("button", { name: LIVE_ATTACH, exact: true }));
   await s.capture("entry");
   await userEvent.click(page.getByRole("button", { name: /Live conversation/ }));
   await expect.poll(() => s.client.state.getState().disclosureOpen).toBe(true);
@@ -146,6 +147,95 @@ for (const theme of ["light", "dark"] as const) test(`entry and connecting discl
   flushSync(()=>s.ui.stores.connection.setState({wsStatus:"disconnected"}));
   expect(page.getByRole("button",{name:"Start",exact:true}).element().getAttribute("aria-disabled")).toBe("true");
   expect(s.network.socket()!.frames("conversation_start"),"PENDING_OPENING_DOES_NOT_REPEAT").toHaveLength(1);
+  await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
+  expect(s.client.state.getState().active).toBe(false);
+});
+
+// #3045: the paperclip names live conversation, and a pointer can read that
+// name as a tooltip; a touch screen reads it in the attach sheet instead.
+for (const theme of ["light", "dark"] as const) for (const [width, height] of [[1280, 720], [320, 568]] as const) test(`entry is named from the paperclip ${theme} ${width}x${height}`, async ctx => {
+  const s = await scene(ctx, width, height, theme);
+  const trigger = () => page.getByRole("button", { name: /^Attach — / }).element() as HTMLElement;
+  const tip = () => trigger().querySelector<HTMLElement>("[data-composer-tip]")!;
+  const shown = () => getComputedStyle(tip()).display !== "none" && getComputedStyle(tip()).visibility === "visible";
+  const field = () => trigger().closest<HTMLElement>(".bk-field")!;
+  const textarea = () => s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
+  await expect.poll(() => s.client.state.getState().available).toBe(true);
+
+  // Available: one string is the accessible name and the painted tooltip.
+  await expect.element(page.getByRole("button", { name: LIVE_ATTACH, exact: true })).toBeInTheDocument();
+  expect(tip().textContent).toBe(LIVE_ATTACH);
+  expect(tip().getAttribute("aria-hidden")).toBe("true");
+  expect(shown(), "no tooltip at rest").toBe(false);
+
+  // Keyboard: focus shows it at once, Escape hides it and keeps focus, Enter opens the menu.
+  textarea().focus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(document.activeElement).toBe(trigger());
+  expect(shown(), "keyboard focus shows the tooltip immediately").toBe(true);
+  expect(getComputedStyle(field()).outlineStyle, "the field keeps its ring").not.toBe("none");
+  const box = tip().getBoundingClientRect();
+  expect(box.left).toBeGreaterThanOrEqual(0);
+  expect(box.top).toBeGreaterThanOrEqual(0);
+  expect(box.right, "the tooltip stays inside the viewport").toBeLessThanOrEqual(width);
+  expect(box.bottom, "the tooltip clears the field").toBeLessThanOrEqual(field().getBoundingClientRect().top);
+  expect(tip().scrollWidth, "the whole name is painted").toBeLessThanOrEqual(tip().clientWidth + 1);
+  await s.capture("attach-focus-tooltip");
+  await userEvent.keyboard("{Escape}");
+  expect(shown(), "Escape dismisses the tooltip").toBe(false);
+  expect(document.activeElement, "Escape leaves focus on the trigger").toBe(trigger());
+  expect(s.client.state.getState().disclosureOpen).toBe(false);
+  await userEvent.keyboard("{Enter}");
+  if (width >= 900) await expect.element(page.getByRole("menu", { name: "Attach" })).toBeInTheDocument();
+  else {
+    // A phone's sheet names the option in its subtitle; its row is a full target.
+    await expect.poll(() => document.querySelector('[data-overlay-site="attach"]')).not.toBe(null);
+    expect(document.querySelector('[data-overlay-site="attach"]')!.textContent).toContain("Live conversation, photo, camera, track files, or paste.");
+    expect((page.getByRole("button", { name: /^Live conversation/ }).element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await s.capture("attach-sheet");
+  }
+  expect(shown(), "an opened menu hides the tooltip").toBe(false);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.querySelector('[data-overlay-site="attach"],[role="menu"]')).toBe(null);
+  // The sheet hands focus back to its trigger once it has closed.
+  if (width < 900) await expect.poll(() => document.activeElement).toBe(trigger());
+  textarea().focus();
+
+  // Pointer hover: hidden until the 400ms delay, then readable and hoverable.
+  // Park the real mouse on the field first: an earlier scene can leave it here.
+  await userEvent.hover(textarea());
+  expect(trigger().matches(":hover") || trigger().matches(":focus-visible")).toBe(false);
+  await expect.poll(shown).toBe(false);
+  await userEvent.hover(trigger());
+  expect(shown(), "hover waits before showing the tooltip").toBe(false);
+  await expect.poll(shown, { timeout: 2000 }).toBe(true);
+  await s.capture("attach-hover-tooltip");
+  await userEvent.hover(tip());
+  await new Promise(resolve => setTimeout(resolve, 300));
+  expect(shown(), "the pointer can rest on the tooltip").toBe(true);
+  await userEvent.keyboard("{Escape}");
+  expect(shown(), "Escape dismisses a hover tooltip without moving the pointer").toBe(false);
+  await userEvent.unhover(trigger());
+
+  // Not available: the name and the menu leave live conversation out.
+  flushSync(() => s.client.state.setState({ available: false }));
+  await expect.element(page.getByRole("button", { name: "Attach — photo, camera, files", exact: true })).toBeInTheDocument();
+  expect(tip().textContent).toBe("Attach — photo, camera, files");
+  await userEvent.click(trigger());
+  expect(document.body.textContent).not.toContain("Live conversation");
+  await s.capture("attach-inactive-menu");
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.querySelector('[data-overlay-site="attach"],[role="menu"]')).toBe(null);
+  flushSync(() => s.client.state.setState({ available: true }));
+  await expect.element(page.getByRole("button", { name: LIVE_ATTACH, exact: true })).toBeInTheDocument();
+
+  await userEvent.click(trigger());
+  await userEvent.click(page.getByRole("button", { name: /^Live conversation/ }));
+  // The entry still leads to the first-entry disclosure; nothing opens a provider or a microphone.
+  await expect.poll(() => s.client.state.getState().disclosureOpen).toBe(true);
+  expect(s.client.state.getState().micOn).toBe(false);
+  expect(s.network.socket()!.frames("conversation_start"), "ENTRY_DISCLOSES_WITHOUT_OPENING_PROVIDER").toHaveLength(0);
+  expect(s.network.socket()!.frames("conversation_audio")).toHaveLength(0);
   await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
   expect(s.client.state.getState().active).toBe(false);
 });

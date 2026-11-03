@@ -117,6 +117,22 @@ test("pricing: embedding modalities, inline media without a split, and completio
   expect(priceProviderAttempt(attempt({ usage: null }), pricing)).toEqual({ costUsd: null, estimate: null, tokens: null });
 });
 
+test("a Gemini Files lifecycle attempt is known to cost nothing, so a relayed video turn is not unknown spend (#2738)", async () => {
+  expect(priceProviderAttempt(attempt({ operation: "files", model: null, usage: null }), pricing), "FILES_LIFECYCLE_FREE")
+    .toEqual({ costUsd: 0, estimate: false, tokens: null });
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes[0]!;
+    for (const outcome of ["completed", "failed"] as const) {
+      await f.budgets.observeProvider("athena", attempt({ operation: "files", model: null, usage: null, outcome, status: outcome === "completed" ? 200 : 404 }));
+    }
+    const turn = f.budgets.receipt("athena").scopes[0]!;
+    expect(turn.unknownRuns, "FILES_LIFECYCLE_NOT_UNKNOWN_SPEND").toBe(before.unknownRuns);
+    expect(turn.costUsd, "FILES_LIFECYCLE_KNOWN_ZERO").toBe(0);
+  } finally { f.close(); }
+});
+
 test("a dispatched attempt is unknown spend until it settles, then counts once", async () => {
   const f = fixture();
   try {

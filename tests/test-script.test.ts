@@ -33,7 +33,7 @@ async function run(args: string[], env: Record<string, string> = {}) {
     if (existsSync(script)) {
       mkdirSync(join(dir, "scripts"));
       cpSync(script, join(dir, "scripts/test.ts"));
-      for (const helper of ["runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
+      for (const helper of ["runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
         cpSync(join(ROOT, "scripts", helper), join(dir, "scripts", helper));
       }
       // The actual preload also owns cleanup for the shared CLI harness.
@@ -116,6 +116,30 @@ describe("root test script, run for real", () => {
   test("a name pattern resembling the balanced option stays a Bun flag value", async () => {
     expect(await ran(["-t", "--balanced-shard=1/3", "other"])).toEqual(["other"]);
     expect(await ran(["--test-name-pattern", "--balanced-shard=1/3", "other"])).toEqual(["other"]);
+  });
+
+  test("the integrated suite waits for a host admission slot; a focused path does not (#2943)", async () => {
+    const ledger = mkdtempSync(join(tmpdir(), "odysseus-test-admission-"));
+    try {
+      // The caller's own slot, if any, must not admit these runs.
+      const env = { BRAIN_HOST_ADMISSION_DIR: ledger, BRAIN_HOST_ADMISSION_LIMIT: "1", BRAIN_HOST_ADMISSION: "" };
+      const holder = Bun.spawn([process.execPath, join(ROOT, "scripts/host-admission.mjs"), "run", "--poll-ms", "20", "--", "sh", "-c", `while [ ! -e ${ledger}/release ]; do sleep 0.02; done`],
+        { env: { ...process.env, ...env }, stdout: "ignore", stderr: "ignore" });
+      while (!(existsSync(join(ledger, "state.json")) && readFileSync(join(ledger, "state.json"), "utf8").includes('"holding"'))) await Bun.sleep(10);
+      const focused = await run(["other"], env);
+      expect(focused.ran).toEqual(["other"]);
+      expect(focused.output).not.toContain("Waiting for a host admission slot");
+      const pending = run([], env);
+      while (!readFileSync(join(ledger, "state.json"), "utf8").includes('"queued"')) await Bun.sleep(10);
+      writeFileSync(join(ledger, "release"), "");
+      const integrated = await pending;
+      expect(integrated.code).toBe(0);
+      expect(integrated.ran).toEqual(DEFAULT_SET);
+      expect(integrated.output).toContain("Waiting for a host admission slot (1 on this host): position 1 of 1");
+      expect(await holder.exited).toBe(0);
+    } finally {
+      rmSync(ledger, { recursive: true, force: true });
+    }
   });
 
   test("a failing test fails the command", async () => {

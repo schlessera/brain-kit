@@ -1,6 +1,9 @@
 # Triage probe for the red-main coordinator (#2942). Reruns only the named test
-# files at one SHA. A probe never counts as proof and never makes anything
-# mergeable; the coordinator reads its result to decide whether main is red.
+# files at one SHA. A flake or bisect probe never counts as proof and never makes
+# anything mergeable; the coordinator reads its result to decide whether main is
+# red. A fix probe is the expedited fix evidence `integrate.ts --fixes-main-run`
+# reads (#2940): red at the bad base, green at the fix head. The coordinator
+# ignores it.
 name: red-main-probe
 run-name: red-main probe ${{ inputs.purpose }} ${{ inputs.source_run }} ${{ inputs.sha }}
 
@@ -8,10 +11,10 @@ on:
   workflow_dispatch:
     inputs:
       purpose:
-        description: flake or bisect
+        description: flake, bisect, or fix (expedited red/green evidence for integrate.ts, #2940)
         required: true
         type: choice
-        options: [flake, bisect]
+        options: [flake, bisect, fix]
       source_run:
         description: The main CI run whose failure is triaged
         required: true
@@ -63,4 +66,5 @@ jobs:
         timeout-minutes: 30
         env:
           PROBE_TESTS: ${{ inputs.tests }}
+          PROBE_PURPOSE: ${{ inputs.purpose }}
         run: bun tooling/scripts/red-main-cli.ts probe --target target
