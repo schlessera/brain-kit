@@ -1335,7 +1335,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:405`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`export function bashTool`, `packages/ui-backend-pi/src/file-tools.ts:151`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1356,7 +1356,7 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:107`).
+`packages/ui-backend-claude/src/permission-hooks.ts:155`).
 
 Claude keeps these observations in its backend-owned session map
 (`fileVersionsBySession: new Map()`,
@@ -3877,7 +3877,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:372-389`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
