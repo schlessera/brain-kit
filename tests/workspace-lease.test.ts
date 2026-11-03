@@ -251,7 +251,7 @@ const spawn = (...args) => {
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {
   const root = fixture(helper, false, false, join(project, "tmp", "workspace-lease-container"));
   for (const path of ["scripts", "packages/ui-kit", "node_modules/vitest"]) mkdirSync(join(root, path), { recursive: true });
-  for (const name of ["visual.mjs", "workspace-lease.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  for (const name of ["visual.mjs", "workspace-lease.mjs", "host-admission.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync(new URL("../../vitest-entered",import.meta.url),"native container acquired ownership\\n");\n');
   const owner = start(root, "write", "hold", "host");
   await entered(root, "host");

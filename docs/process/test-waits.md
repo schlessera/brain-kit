@@ -169,7 +169,7 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:444-464`;
 `status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
 "session_queue")`, `packages/ui-react/src/connection.ts:412-424`). Native protocol
@@ -224,13 +224,13 @@ per-site `sites` counters distinguish attribution from helper-definition counts.
 change, upload abort/resume or host draft reconciliation can schedule a separate
 device-context write. That write reads native browser state and enters browser
 locks/IndexedDB before adopting retained draft records back into the mounted
-stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
-`flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
-`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
+stores (`context`, `packages/ui-react/src/lib/local-work.ts:305-319`;
+`flush`, `packages/ui-react/src/lib/local-work.ts:322-333`;
+`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:513-519`). The real
 scroll listener schedules that work (`handleScroll`,
 `packages/ui-react/src/components/chat/chat-page.tsx:318-328`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
-`packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
+`packages/ui-react/src/lib/local-work.ts:643-654`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
 late adoption can blur the field, change scroll/selection, replace an answer or
 restore a consumed pill. A disconnected upload can similarly be misclassified
@@ -242,7 +242,7 @@ acknowledgements remain separate positive conditions.
 **Duration and margin.** In the quiet scenes, `changed` registers the real
 250 ms device debounce (`LOCAL_WRITE_DELAY_MS`,
 `packages/ui-react/src/lib/local-work.ts:88-90`; `changed`,
-`packages/ui-react/src/lib/local-work.ts:518-531`). The five non-IME boundaries
+`packages/ui-react/src/lib/local-work.ts:529-542`). The five non-IME boundaries
 retain 500 ms: one 250 ms scheduled opportunity plus 250 ms (100%) headroom
 for native dispatch, storage/lock continuations and React work, followed by
 the original two native animation frames. This is a bounded opportunity to
@@ -553,10 +553,12 @@ interaction, ordering and loaded-state assertions stay in this file.
 
 Native proof remains unchanged and required: `playHandoff` in
 `packages/ui-kit/stories/_ghost.tsx` observes 300 ms mid-handoff opacity,
-320/720 px geometry and actual arrival/removal under 700 ms. LoadingToReady
+320/720 px geometry, a 600 ms fade in animation time and removal within three
+rendered frames of that fade's end (#3417). LoadingToReady
 stories run in both Storybook theme projects. Chromium's
 `packages/ui-kit/tests/visual/ghost-handoff.visual.tsx` retains both themes,
-input-orchestration exclusion and the 800 ms mutation that fails the cap.
+input-orchestration and main-thread-stall exclusion, and the mutation holding
+one width's ghost 200 ms past its fade that still fails.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 

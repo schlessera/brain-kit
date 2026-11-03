@@ -176,9 +176,10 @@ about any deployment's zone or timezone-data version.
 
 ## Integration evidence and verification boundary
 
-The existing notifier drops later same-tag activity intents instead of
-incrementing an Action count
-(`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`).
+The existing notifier drops later same-tag activity intents inside a quiet
+window, and supersedes the live one after it, instead of incrementing an
+Action count
+(`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:102-154`).
 The sender processes run-bound activity rows and settles one intent from a
 device pass; that is not the required per-episode/per-destination Action history
 (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:218-293`).

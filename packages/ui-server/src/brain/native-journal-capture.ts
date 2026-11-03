@@ -5,6 +5,7 @@ import { nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournal
 import { verifiedWorkerIdentity, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteeringOptions } from "./journal-steering.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
+import type { PhaseTimer } from "../activity/turn-lifecycle.js";
 
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
 export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>, steeringOptions: JournalSteeringOptions = {},
@@ -61,8 +62,9 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       signal?.throwIfAborted();
       return { ...result, hash };
     },
-    async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal) {
-      const observation = await observer.observe(signal);
+    async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal, timing?: PhaseTimer) {
+      const observation = await observer.observe(signal, timing);
+      const end = timing?.("observe_capture");
       try {
         const captured = new Map<string, string>();
         const unreadable = new Map<string, NativeJournalUnreadable>(observation.unreadable.map(item => [item.path, item]));
@@ -137,6 +139,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
             return before ? classified(before, changed.has(path) ? observation.beforeRoot : observation.afterRoot) : undefined;
           }, steeringOptions);
         for (const item of unreadable.values()) if (item.kind === "directory" || item.bytes === null) steering.unavailable.push(item.path);
+        end?.();
         // Without a change the inventory is not taken: an empty set then says
         // nothing about the brain's configuration (#3257).
         return { changes, steering: { ...steering, inventoried: snapshots.length > 0 }, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };

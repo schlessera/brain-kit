@@ -21,13 +21,14 @@
  * only ever written through the server's own routes, as before 0.42. That
  * legacy host path is refused while a provider folder policy is active (#2284).
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
   WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
-  runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
+  type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, type ProviderRelay, type ProviderRelayReceipt,
@@ -86,6 +87,8 @@ export interface BrainExecution {
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
   /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
   turnId?: string;
+  /** @internal What its maintenance reservation is for, named by a busy refusal (#3461). Default `sync` for a sync, else `command`. */
+  maintenanceKind?: MaintenanceTempKind;
 }
 
 export interface ExecutionResult {
@@ -166,11 +169,12 @@ export const hostExecution = {
 
 /** Worker-host status for turn egress (#1665); also stated in docs/hosting/agent-workers.md. */
 const TURN_EGRESS_ACTIVE = "Governed and strict Claude and pi turns run on their own turn egress proxy and the host inference relay. A pi turn whose credential runs a command, or whose provider and credential type the relay does not carry, is refused.";
-const TURN_EGRESS_INACTIVE = "This host has no managed native storage, so governed and strict turns keep their current network without the turn egress proxy, and their egress is unrecorded.";
+const TURN_EGRESS_INACTIVE = "This brain is not on managed native storage, which the server requires at boot, so the turn egress relay cannot run and every governed and strict turn is refused.";
 /** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
 const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
 const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
-const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+/** Deny direction (#3422): whether `path` is `dir` or below it; a `dir` of `/` holds every absolute path. */
+export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */
@@ -454,6 +458,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
       tempLimits: maintenanceTemp,
+      tempKind: ("maintenanceKind" in execution && execution.maintenanceKind) || ("sync" in execution && execution.sync ? "sync" : "command"),
       ...("outputBytes" in execution && execution.outputBytes ? { outputBytes: execution.outputBytes } : {}),
       ...(tempDomain ? { tempDomain } : {}),
       // The operator's exec wrapper runs inside the worker, as it does for agent workers.
@@ -574,7 +579,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
         ...identity, configurationView: profile === "governed" ? "live" : "startup",
         egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
-          : { active: false, detail: `${TURN_EGRESS_INACTIVE} ${PROVIDERS_NOT_RELAYED}` } };
+          : { active: false, detail: TURN_EGRESS_INACTIVE } };
     },
     withGate,
     async run(execution) {

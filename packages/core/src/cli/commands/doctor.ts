@@ -12,6 +12,8 @@ import {
   getMeta,
   embeddingIdentityMatches,
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
+  vecVersion,
+  vectorCount,
 } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { migrateSidecarCaches } from "../../lib/indexer/caches.js";
@@ -424,7 +426,7 @@ async function checkEmbeddings(cli: CliContext): Promise<Check> {
 
     let vecCount = 0;
     try {
-      vecCount = (db.prepare("SELECT COUNT(*) as n FROM vec_chunks").get() as { n: number }).n;
+      vecCount = vectorCount(db);
     } catch {
       /* vec table absent */
     }
@@ -620,7 +622,7 @@ async function checkSqliteVecMac(): Promise<Check> {
     const { load } = await import("sqlite-vec");
     const db = new Database(":memory:");
     load(db);
-    db.prepare("SELECT vec_version()").get();
+    vecVersion(db);
     db.close();
     return { id: "sqlite-vec-macos", status: "pass", detail: "sqlite-vec loads on this macOS SQLite" };
   } catch (e) {

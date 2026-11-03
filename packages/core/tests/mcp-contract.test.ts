@@ -44,7 +44,9 @@ function withoutDescriptions(schema: unknown): unknown {
 }
 
 const READ_TOOLS = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph"];
-const ALL_TOOLS = [...READ_TOOLS, "brain_add", "brain_update", "brain_archive"];
+/** The fixed Apify operations (#3162), shared with `brain apify` and both chat backends. */
+const APIFY_TOOLS = ["brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"];
+const ALL_TOOLS = [...READ_TOOLS, "brain_add", "brain_update", "brain_archive", ...APIFY_TOOLS];
 
 beforeAll(async () => {
   root = makeTempBrain();
@@ -65,7 +67,7 @@ afterAll(async () => {
   cleanup(root);
 });
 
-test("lists all 8 brain_* tools", async () => {
+test("lists all 15 brain_* tools", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   expect(names).toEqual([...ALL_TOOLS].sort());
@@ -158,6 +160,31 @@ test("read tools carry the readOnly annotation", async () => {
     expect(tool).toBeDefined();
     expect(tool!.annotations?.readOnlyHint).toBe(true);
   }
+});
+
+describe("Apify tools (#3162)", () => {
+  test("only run and abort are marked as changing anything, and every one reaches outside the brain", async () => {
+    const { tools } = await client.listTools();
+    for (const name of APIFY_TOOLS) {
+      const tool = tools.find((t) => t.name === name)!;
+      expect(tool.annotations?.openWorldHint, name).toBe(true);
+      expect(tool.annotations?.readOnlyHint, name).toBe(!["brain_apify_run", "brain_apify_abort"].includes(name));
+    }
+  });
+
+  test("the fixture brain leaves Apify off: every call is the provider_disabled envelope, nothing is sent", async () => {
+    const result = await client.callTool({ name: "brain_apify_discover", arguments: { query: "sea charts" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({ ok: false, operation: "discover",
+      error: { code: "provider_disabled", reason: "not_enabled", message: expect.stringContaining("apify.enabled: true") } });
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toEqual(result.structuredContent);
+  });
+
+  test("a field outside the strict schema is a schema violation without structured content", async () => {
+    const result = await client.callTool({ name: "brain_apify_status", arguments: { run: "raft", actor: "SeaCharts01" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+  });
 });
 
 test("write tools are marked non-destructive / idempotent", async () => {

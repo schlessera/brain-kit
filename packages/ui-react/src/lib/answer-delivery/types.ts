@@ -109,6 +109,11 @@ export interface AnswerDelivery {
   mirror?: boolean;
   /** This tab just submitted it: the card moves focus to its status. */
   focus?: boolean;
+  /**
+   * `Send as message` already sent this answer as a new chat message
+   * (#3356): it is offered once, so a repeated tap cannot send it twice.
+   */
+  sentAsMessage?: boolean;
 }
 
 /** States in which the card keeps its editable form, because nothing was admitted. */

@@ -3,24 +3,33 @@ import type { DialoguePage, DialogueRecord, SessionHistoryMessage } from "@schle
 import type { ConversationHistoryEnvelope, HistoricalItem, HistoryGapReason } from "@schlessera/brain-ui-sdk/server";
 import type { WsHost } from "./host.js";
 import type { DialogueTarget } from "./dialogue-storage.js";
+import { ChatRetiredError } from "./chat-lifecycle.js";
 
 /** No request replay, provider call or mutation of the native transcript. */
 export async function readLiveHistory(host: WsHost, principalId: string, target: DialogueTarget,
   authorized: () => boolean): Promise<ConversationHistoryEnvelope | undefined> {
-  if (!authorized()) return;
+  // A chat retired during any await is never frozen into a provider seed (#3230).
+  const live = () => {
+    if (!authorized()) return false;
+    const retired = host.catalog.chatRetired;
+    if (retired && (target.sessionId ? retired({ sessionId: target.sessionId }) : target.ownerId !== undefined && retired({ ownerId: target.ownerId })))
+      throw new ChatRetiredError();
+    return true;
+  };
+  if (!live()) return;
   // Drain observations already accepted before sampling the journal high-water.
   await host.historySettled();
-  if (!authorized()) return;
+  if (!live()) return;
   const page = await host.catalog.dialogueRead?.(principalId, target);
-  if (!authorized()) return;
+  if (!live()) return;
   let messages: SessionHistoryMessage[] = [];
   if (target.sessionId) {
     const backend = await host.registry.getBackendForSession(host.catalog.getStoredBackendId(target.sessionId));
-    if (!authorized()) return;
+    if (!live()) return;
     const native = await backend.getHistory(target.sessionId);
-    if (!authorized()) return;
+    if (!live()) return;
     await host.historySettled();
-    if (!authorized()) return;
+    if (!live()) return;
     // Fail closed on provenance read errors: a task wrapper must never default to typed.
     messages = host.prepareHistory(target.sessionId, native, true);
   }
@@ -29,7 +38,7 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
   const facts: Array<{ item: HistoricalItem; turnId: string; requestId: string }> = [];
   for (const id of conversations) {
     const stored = await host.catalog.loadConversation?.(id, principalId);
-    if (!authorized()) return;
+    if (!live()) return;
     if (!stored || stored.id !== id || stored.principalId !== principalId || stored.sessionId !== target.sessionId) continue;
     for (const receipt of stored.receipts) {
       // Retained receipts can expose contradictory positive provenance, never
@@ -55,7 +64,7 @@ export async function readLiveHistory(host: WsHost, principalId: string, target:
       } });
     }
   }
-  if (!authorized()) return;
+  if (!live()) return;
   // A replaced/adopted generation cannot be treated as the sampled owner.
   if (page) {
     const current = host.catalog.dialogueOwnerForId?.(page.ownerId, principalId);

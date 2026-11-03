@@ -36,6 +36,11 @@
       "types": "./dist/frontmatter-parse.d.ts",
       "default": "./dist/frontmatter-parse.js"
     },
+    "./internal/frontmatter-block": {
+      "bun": "./src/frontmatter-block.ts",
+      "types": "./dist/frontmatter-block.d.ts",
+      "default": "./dist/frontmatter-block.js"
+    },
     "./internal/worker-areas": {
       "bun": "./src/worker-areas.ts",
       "types": "./dist/worker-areas.d.ts",
@@ -70,6 +75,26 @@
       "bun": "./src/provider-relay.ts",
       "types": "./dist/provider-relay.d.ts",
       "default": "./dist/provider-relay.js"
+    },
+    "./internal/apify": {
+      "bun": "./src/internal-apify.ts",
+      "types": "./dist/internal-apify.d.ts",
+      "default": "./dist/internal-apify.js"
+    },
+    "./internal/apify-operations": {
+      "bun": "./src/apify-operations.ts",
+      "types": "./dist/apify-operations.d.ts",
+      "default": "./dist/apify-operations.js"
+    },
+    "./internal/claude-subscription": {
+      "bun": "./src/claude-subscription.ts",
+      "types": "./dist/claude-subscription.d.ts",
+      "default": "./dist/claude-subscription.js"
+    },
+    "./internal/safe-path": {
+      "bun": "./src/safe-path.ts",
+      "types": "./dist/safe-path.d.ts",
+      "default": "./dist/safe-path.js"
     }
   },
   "files": [

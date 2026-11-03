@@ -17,9 +17,10 @@ test("both turn_temp registrations report real private usage, keep linked bytes 
   mkdirSync(brain);
   const allowance = 8 * 1024 * 1024;
   const worker = launchAgentWorker({ brainPath: brain, env: {}, sandbox: prepareWorkerSandbox(brain, {}), turnTempBytes: allowance,
-    command: [process.execPath, "-e", `import {writeFileSync} from 'node:fs';
+    command: [process.execPath, "-e", `import {renameSync,writeFileSync} from 'node:fs';
       writeFileSync('/tmp/large.bin',new Uint8Array(${Math.ceil(allowance * .81)}));
-      writeFileSync('/tmp/report.md','Odysseus returns.');
+      // Published by rename: the test polls for report.md and then reads it.
+      writeFileSync('/tmp/report.md.tmp','Odysseus returns.');renameSync('/tmp/report.md.tmp','/tmp/report.md');
       await Bun.stdin.text();`] });
   const access: TurnTempAccess = { root: () => worker.turnTemp!.root, allowanceBytes: allowance,
     scratch: WORKER_SCRATCH, exclude: [], keep: [WORKER_SCRATCH], linkedText: () => "[Report](/tmp/report.md)" };

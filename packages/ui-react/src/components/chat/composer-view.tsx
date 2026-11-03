@@ -130,6 +130,12 @@ export function ComposerView(p: ComposerViewProps) {
   }
 
   const pointer = useMediaQuery("(min-width: 900px)");
+  // The trigger's name lists what its menu offers, in menu order (#3045):
+  // live conversation is reached through the paperclip, so the paperclip says
+  // so whenever the row is there. The kit paints the same string as the
+  // pointer tooltip; a phone's sheet names the actions in its subtitle.
+  const attachLabel = p.onConversation ? "Attach — live conversation, photo, camera, files" : undefined;
+  const attachSubtitle = `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
   const attachMenu = (
     <div className={pointer ? "bk-focus-clip flex flex-col rounded-[inherit]" : "flex flex-col"}>
       {p.onConversation && <ListRow variant="group" icon="mic" iconTone="teal" title="Live conversation" subtitle="Talk while your agent works" onClick={p.onConversation} />}
@@ -203,7 +209,7 @@ export function ComposerView(p: ComposerViewProps) {
         </div>
       )}
       <Overlay open={p.attachMenuOpen && !pointer} variant="sheet" title="Attach" data-overlay-site="attach"
-        subtitle={p.onPickTracks ? "Photo, camera, track files, or paste." : "Photo, camera, or paste."}
+        subtitle={attachSubtitle}
         onClose={p.onAttachToggle}>
         {attachMenu}
       </Overlay>
@@ -225,6 +231,7 @@ export function ComposerView(p: ComposerViewProps) {
         onSend={p.onSend}
         onStop={p.onStop}
         onAttach={p.onAttachToggle}
+        attachLabel={attachLabel}
         onMic={p.onMic}
         mic={p.mic}
         micLabel={p.micLabel}

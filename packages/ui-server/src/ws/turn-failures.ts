@@ -19,7 +19,11 @@ function assistantCount(messages: SessionHistoryMessage[]): number {
 
 /** Guard against an edited/truncated/rebranched transcript reusing an old position. */
 export function updatePrefix(hash: Bun.CryptoHasher, message: SessionHistoryMessage): void {
-  hash.update(JSON.stringify([message.role, message.content, message.thinking ?? null,
+  // A runtime notice was replayed as the message's closing text before #3356;
+  // hashing it there keeps positions recorded before then.
+  const notice = message.runtimeNotice?.message;
+  const content = notice ? (message.content ? `${message.content}\n\n${notice}` : notice) : message.content;
+  hash.update(JSON.stringify([message.role, content, message.thinking ?? null,
     message.toolCalls, message.attachmentCount ?? 0, message.failure?.message ?? null]));
   hash.update("\n");
 }

@@ -23,7 +23,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const renderRequests: Array<{ content: string; contentType: string; format: string }> = [];
   const network = installFaultNetwork({ routes: (url, init) => {

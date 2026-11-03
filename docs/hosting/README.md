@@ -44,7 +44,7 @@ the separately authorized cache measurement procedure.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.44.0.**
 The floor is enforced at
-(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:111`) and covers
+(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:132`) and covers
 all commands and flags the server invokes, including 0.42.0’s scratch pin input.
 From 0.44.0 the search index lives in `.brain-index/` instead of a root-level
 `brain.db`: the server reads it there, deletes the old root-level copy at boot
@@ -134,8 +134,10 @@ results are incomplete.
 Notification detection persists its cursor with inbox entries in the UI
 SQLite database. After restart it replays retained activity changes in batches,
 including failures recorded while the server was offline. Existing notifications
-are deduplicated, including acknowledged entries. Keep the UI database on its
-persisted volume to retain this progress.
+are deduplicated, including acknowledged entries. A job that keeps failing
+notifies again after a 12-hour quiet window, whether or not its last
+notification was acknowledged, and the repeat says how many runs in a row have
+failed. Keep the UI database on its persisted volume to retain this progress.
 
 Share cleanup refuses staging paths that traverse symlinks, including links to
 other directories inside the brain. Accessing the brain root itself through a

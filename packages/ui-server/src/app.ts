@@ -27,14 +27,19 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
+import { createApifyRoutes } from "./routes/apify.js";
+import { createApifyHost } from "./apify/host.js";
+import { createApifyPolicyEdits } from "./apify/settings.js";
+import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
@@ -46,6 +51,8 @@ import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
 import { createSessionProfileRoutes } from "./routes/session-profiles.js";
 import { createSessionRoutes } from "./routes/sessions.js";
+import { createChatDeletionRoutes } from "./routes/chat-deletions.js";
+import { createChatDeletion } from "./ws/chat-deletion.js";
 import { createDraftRoutes } from "./routes/drafts.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
@@ -102,6 +109,7 @@ import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
 import { registerInboxWrites } from "./inbox/write-runtime.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
+import { createMediaEffects } from "./inbox/media-effects.js";
 import { createHygieneReviewRoutes } from "./routes/hygiene-review.js";
 import { createInboxStream } from "./inbox/stream.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
@@ -111,6 +119,7 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getSetting,
   getThinkingOverrides,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
@@ -131,7 +140,7 @@ import {
   validateBackendVersionRequirements,
   type BackendRegistry,
 } from "./agent/backend.js";
-import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
+import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
 import { createIndexBatch } from "./brain/index-batch.js";
 import { INDEX_READ_ROUTES, indexReadBarrier } from "./routes/index-barrier.js";
@@ -524,7 +533,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   bootCleanup.push(() => intake.close());
-  await inbox.ready; await intake.reconcile();
+  await inbox.ready; await intake.recover();
   // Aborted when close() begins: cancels module metadata still waiting for
   // admission. Aborted when close()'s grace period ends: cancels in-flight
   // shared CLI runs, admitted metadata included.
@@ -534,9 +543,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // without provider keys (#1648). The credentialed reindex that fills in its
   // vectors waits for the writer gate; one at a time, and one more if more
   // changes arrived meanwhile.
-  // A refresh cancelled by close() is not a failure; every other error still reports.
-  const ignoreShutdown = (error: unknown) => { if (error !== shutdown.signal.reason) throw error; };
-  const keyedReindex = coalesced(() => brain.index().catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
+  // A refresh cancelled by close(), or still pending for maintenance
+  // admission when close() begins (#3461), is not a failure; every other
+  // error still reports.
+  const ignoreShutdown = (error: unknown) => { if (error !== shutdown.signal.reason && error !== closeBegun.signal.reason) throw error; };
+  const keyedReindex = coalesced(() => brain.index(requeueWhenBusy({})).catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
     body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
   bootCleanup.push(() => keyedReindex.idle());
   // A migrating brain rebuilds its index in the new directory once, at boot,
@@ -628,18 +639,27 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       recordPolicy: (turnId, origin, profile, policy) => governedRecords("recordPolicy", turnId, origin, profile, policy.hash, policy.source,
         JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
-      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
+      index: lock => brain.index(requeueWhenBusy({ lock })).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
       exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   // Budget writes commit on the write worker (#2850).
-  const budgets = createTurnBudgets(db, pricing, Date.now, writer);
+  // Apify (#3162, #3307): one ledger opener for the run service and the turn budgets. Until a run was ever
+  // recorded there is no file and no liability, and reading the budgets never creates one.
+  const apifyLedgerFile = apifyLedgerPath(config.dbPath);
+  let apifyLedger: ApifyLedger | undefined;
+  const openApifyLedgerOnce = (): ApifyLedger => apifyLedger ??= openApifyLedger(apifyLedgerFile);
+  const apifyLiability = apifyBudgetSource(openApifyLedgerOnce, apifyBrainId(config.brainPath));
+  const budgets = createTurnBudgets(db, pricing, Date.now, writer, (scope, now) =>
+    apifyLedger || existsSync(apifyLedgerFile) ? apifyLiability(scope, now) : { turn_usd: 0, session_usd: 0, day_usd: 0 });
   relayBudgets = budgets;
   // Catalog rows, and the profile rows and proposal binds that reference
   // them, commit on the write worker (#2850).
   const catalog = createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store, governance: activity.governanceWrites, writer,
     pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs } });
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer,
+  // Idle passes keep the observer initialized and current, and expire old
+  // turns, off the next admission's path (#3355).
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
@@ -657,6 +677,24 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const scope = createTurnScope(db, { brainPath: config.brainPath, journal, writer, governance: activity.governanceWrites, log: brainLog,
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
+  // Apify (#3159): off unless the governance policy enables it; the token never leaves the host.
+  const apify = createApifyAuthority({ policy: governanceApifyPolicy(config.brainPath), token: apifyTokenSource(),
+    store: { read: () => getSetting<unknown>(db, APIFY_AUTHORITY_SETTING, null), write: record => settingsWrites.setSetting(APIFY_AUTHORITY_SETTING, record) } });
+  // Apify operations (#3162): one ledger the CLI and MCP can share, inference
+  // spend from the turn budgets, G2 exposures from governed turns and the
+  // session's G6 taint recorded before any remote text reaches a turn.
+  const apifyHost = createApifyHost({ brainPath: config.brainPath, ledgerPath: apifyLedgerFile, ledger: openApifyLedgerOnce, authority: apify,
+    // Inference alone: Apify's own liability is counted from the ledger, so neither side counts it twice.
+    inference: budgets.inferenceSpend,
+    exposures: sessionIds => governedTurns.exposures(sessionIds),
+    untrusted: async (turn, event) => {
+      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "apify_result", tool: `brain_apify_${event.operation}`, detail: event.detail.slice(0, 200) },
+        sessionId: turn.sessionId(), turnId: turn.turnId, actor: "interactive", model: null, profile: null });
+    },
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+  // Settle, time out and clean up open runs now and periodically; a no-op until a ledger exists.
+  const stopApifyReconciler = apifyHost.startReconciler();
+  bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
   const host = new WsHost({
     identitySentinelDirectory,
     scope,
@@ -665,6 +703,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     governedTurns,
     ...(referenceWorktrees ? { referenceWorktrees, referenceWorktreeAccess: true } : {}),
     ...(referenceTools ? { referenceTools } : {}),
+    apify: apifyHost,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
@@ -963,7 +1002,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
-    settled: () => host.historySettled() }));
+    settled: () => host.historySettled(), retired: target => host.catalog.chatRetired?.(target) === true }));
+  // Explicit local chat deletion (#3230), on a catalog that can retire chats.
+  if (host.catalog.retireChat && host.catalog.cleanChatStore) {
+    const chatDeletion = host.chatDeletion = createChatDeletion({ catalog: host.catalog, backends: () => registry.getBackends(),
+      busy: identities => host.chatBusy(identities), retired: (principalId, retirement) => host.chatRetired(principalId, retirement) });
+    app.route("/api", createChatDeletionRoutes({ deletion: chatDeletion, principalValid: principal => host.isPrincipalValid(principal) }));
+    // A deletion an earlier process left unfinished resumes under its own operation.
+    void chatDeletion.reconcile().catch(err => brainLog.emit({ severityText: "WARN", body: "chat deletion reconciliation failed",
+      attributes: { error: err instanceof Error ? err.message : String(err) } }));
+  }
   app.route("/api", createJournalRoutes({ journal }));
   const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
@@ -1029,6 +1077,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
   bootCleanup.push(() => reverts.close());
   host.turnReverts = reverts;
+  // Media review effects (#2781) capture in this same journal under the same
+  // writer gate. Once attached, an effect a restart interrupted is compensated.
+  const mediaGate = hostExecution.gate();
+  if (mediaGate && brain.hygiene) {
+    const hygieneCli = brain.hygiene.bind(brain);
+    hygieneReview.attachMedia(createMediaEffects(db, { brainPath: config.brainPath, journal, gate: mediaGate, lock: host.workerLock,
+      cli: args => hygieneCli(args),
+      authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } }));
+    await hygieneReview.recover();
+  }
   app.route("/api", createTurnRevertRoutes(reverts));
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
@@ -1045,7 +1103,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",
-    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
+    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files"), marks: { db, writer } })
   );
   app.route("/api", createQueueRoutes(intake));
   app.route("/api", createScheduleRoutes(schedules));
@@ -1068,6 +1126,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
+  // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
+  const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });
+  bootCleanup.push(() => apifyEdits.close());
+  app.route("/api", createApifyRoutes({ authority: apify, authorized: apifyOwner, brainPath: config.brainPath, edits: apifyEdits,
+    spend: { ledgerPath: apifyLedgerFile, ledger: openApifyLedgerOnce, runs: apifyHost.runs, brain_id: apifyHost.brain_id },
+    reconcile: () => apifyHost.reconcile() }));
   app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));
   app.route("/api", createModuleRoutes(brain));
   app.route("/api", createGovernanceRoutes({ db }));
@@ -1239,6 +1304,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => journal.close());
       await attempt(async () => { await referenceWorktrees?.close(); });
       await attempt(async () => { await referenceSources?.close(); });
+      await attempt(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
       await attempt(() => nativeLeases.close());
       if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
       // Gate releases commit off the event loop (#2850): every one lands first.

@@ -284,6 +284,7 @@ export { TrackMap, type TrackMapProps } from "./blocks/TrackMap.js";
 export { RecordingRow, type RecordingRowProps, type RecordingRowState } from "./rows/RecordingRow.js";
 
 export { Overlay, type OverlayProps, type OverlayVariant, type OverlayCloseReason } from "./chrome/Overlay.js";
+export { StatusIndicator, type StatusIndicatorFact, type StatusIndicatorOperation, type StatusIndicatorProps, type StatusIndicatorState } from "./chrome/StatusIndicator.js";
 
 export { IconButton, type IconButtonProps } from "./primitives/IconButton.js";
 export { TextButton, type TextButtonProps } from "./primitives/TextButton.js";

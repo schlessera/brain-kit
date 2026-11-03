@@ -5,7 +5,7 @@
  * launcher, native manager, reference pool, journal and hygiene review are the
  * production ones. Only the model is scripted, offline.
  */
-import { appendFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { INTEGRATION_STEPS, stepKey, type IntegrationState, type IntegrationStep } from "./reference-integration-steps.js";
@@ -156,8 +156,10 @@ try {
   });
   const owner = createPrincipal(app.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
-  writeFileSync(join(dir, "ready.json"), JSON.stringify({ port: server.port, principalId: owner.id, secret: SECRET, pid: process.pid,
+  // Published by rename: the parent polls for ready.json and then parses it.
+  writeFileSync(join(dir, "ready.json.tmp"), JSON.stringify({ port: server.port, principalId: owner.id, secret: SECRET, pid: process.pid,
     dbBytes: statSync(join(dir, "ui.db")).size, referenceTools: Boolean(app.wsHost.referenceTools), status: app.activity?.runtime?.snapshot?.() }));
+  renameSync(join(dir, "ready.json.tmp"), join(dir, "ready.json"));
   event("ready", { port: server.port });
   let closing = false;
   process.on("SIGTERM", async () => {

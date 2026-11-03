@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectPullObservation, concurrency, summarizeThroughput, validateWorkEvent, type PullObservation, type WorkEvent } from "../scripts/ci-throughput";
+import { collectPullObservation, concurrency, summarizeThroughput, throughputMarkdown, validateWorkEvent, type PullObservation, type WorkEvent } from "../scripts/ci-throughput";
 import { attachTimingEvidence, type TimingSnapshot } from "../scripts/ci-timings";
+import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { collectReservationHistory, mergeLeaseObservations, reservationObservations, type LeaseObservation } from "../scripts/ci-coordination";
 import { emptyReservation, reservationTransition, GitReservationStore } from "../scripts/integration-reservation";
 
@@ -139,10 +140,15 @@ test("native reservation collection reads an explicitly local offline Git remote
     const store = new GitReservationStore(work);
     const state = reservationTransition(emptyReservation(), { kind: "acquire", candidate: { repository: `https://github.com/${repo}`, pr: 42, head, base }, id: "2".repeat(32) }, 1, Date.parse(at(0)));
     expect(store.publish({ oid: null, state: emptyReservation() }, state)).toBe(true);
+    // Red-main record writes share the ref and leave reservation.json unchanged (#2942).
+    const failure = { test: "tests/raft.test.ts", category: "unit" as const, verdict: "real" as const, reasons: ["in-affected-closure"], run: 7, sha: head };
+    expect(store.publishRedMain(store.read(), openRed(emptyRedMain(), { firstBad: head, run: 7, failures: [failure] }, Date.parse(at(0)) + 1))).toBe(true);
+    expect(store.publishRedMain(store.read(), declareFix(store.read().redMain, 43, Date.parse(at(0)) + 2))).toBe(true);
     // The production collector uses Git argv against this local remote only.
     process.chdir(work);
     const history = collectReservationHistory(repo, at(0));
     expect(history.leases.length).toBe(1); expect(history.leases[0]!.pr).toBe(42);
+    expect(history.leases[0]!.sources, "RED_MAIN_WRITES_ARE_NOT_LEASE_SOURCES").toHaveLength(1);
   } finally { process.chdir(cwd); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -171,4 +177,22 @@ test("native event recording is append-only and refuses arbitrary personal field
     expect(() => validateWorkEvent({ ...event, prompt: "forbidden" })).toThrow("Invalid coordination");
     expect(() => validateWorkEvent({ ...event, kind: "failure-classified", run: 1, attempt: 1, classification: "product" })).toThrow("evidence");
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the merge path is recorded per PR and expedited fixes are reported (#2940)", () => {
+  const lease = (pr: number, leaseHead: string): LeaseObservation => ({ id: "1".repeat(32), pr, head: leaseHead, base, acquired: Date.parse(at(5)), expires: Date.parse(at(10)),
+    cap: Date.parse(at(65)), endedAt: Date.parse(at(10)), ending: "release", sources: ["e".repeat(40)] });
+  const pre = run(1, "pull_request", 4, 8);
+  expect(summarizeThroughput([pre], [pull()], [], window, reference, scenario, [lease(42, head)]).prs[0]!.mergePath).toBe("recorded");
+  const bypass = summarizeThroughput([pre], [pull()], [], window, reference, scenario, [lease(42, "f".repeat(40))]);
+  expect(bypass.prs[0]!.mergePath, "MERGE_WITHOUT_EXACT_HEAD_LEASE_IS_UNRECORDED").toBe("unrecorded");
+  expect(bypass.reliability.mergePaths).toEqual({ recorded: 0, expedited: 0, unrecorded: 1, unknown: 0 });
+  expect(summarizeThroughput([pre], [pull()], [], window, reference, scenario).prs[0]!.mergePath).toBe("unknown");
+  const event: WorkEvent = { version: 1, id: "expedited-42", repository: repo, kind: "expedited-fix", at: at(10), pr: 42, run: 11,
+    evidence: `https://github.com/${repo}/actions/runs/302` };
+  const expedited = summarizeThroughput([pre], [pull()], [event], window, reference, scenario, [lease(42, head)]);
+  expect(expedited.prs[0]!.mergePath).toBe("expedited");
+  expect(expedited.reliability.expeditedFixRecords).toEqual([{ id: "expedited-42", pr: 42, run: 11, at: at(10), evidence: event.evidence }]);
+  expect(throughputMarkdown(expedited)).toContain("expedited red-main fixes: 1");
+  expect(() => validateWorkEvent({ ...event, run: undefined })).toThrow("Fix PR and failing main run required");
 });
