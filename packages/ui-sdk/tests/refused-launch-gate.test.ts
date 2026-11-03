@@ -10,6 +10,9 @@ import { createWorkerStatusPipe, type WorkerStatusSupervisor } from "../src/serv
 // (#3387). Each case delays every kill, of bubblewrap and, for longer, of any
 // process signalled by PID, standing in for processes the scheduler has not
 // yet let die. Only a gate that waits for their deaths keeps the payload out.
+// The live launch now gates in the sandbox and refuses EOF itself (#3392); the
+// fixtures below keep bubblewrap's EOF-opening --block-fd on purpose, so they
+// prove this ordering as a guard of its own.
 const SIGNAL_DELAY_MS = 200;
 const PID_SIGNAL_DELAY_MS = 2 * SIGNAL_DELAY_MS;
 

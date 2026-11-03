@@ -32,6 +32,17 @@ each run. A module command's `EROFS` outside the brain now exits 2 with a
 message naming the host execution boundary and the state area. See
 [the package API component](integration-contract/package-api.md#module-state-area).
 
+## Module discovery outcome at crontab emission (additive, 0.45.0, #3381)
+
+`brain-ui-cron crontab` retries a failed module discovery a bounded number of
+times, names each failed attempt's cause on stderr, and records the final
+outcome as a finished `modules` job: one `cron_runs` row, so authenticated
+`GET /api/status` lists it under `cronJobs`, and one `cron` root span in
+Activity. A skipped module cron is an `error` whose reason starts
+`module cron skipped:`; a successful discovery is a `success`. The crontab's
+bytes do not change. See [wire semantics](integration-contract/wire.md#module-discovery-outcome-additive-0450-3381).
+This ships in a minor; no breaking ruling is required.
+
 ## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)
 
 A turn the host's hard elapsed-time limit ended stays `outcome: "cancelled"`,

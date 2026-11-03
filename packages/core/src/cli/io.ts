@@ -80,7 +80,7 @@ export const VALUE_FLAGS = new Set([
   "prompt", "at", "cron", "time-zone", "client-time-zone", "end-at", "scope-file",
   "attempt-timeout-ms", "max-operations", "id", "cursor",
   "pins-file", "finding", "expect-fingerprint", "until", "reason", "handler", "input", "expect-preview", "defer",
-  "copy", "copy-sha256", "journal",
+  "copy", "copy-sha256", "journal", "to", "expect-premise",
   "session", "max-charge-usd",
 ]);
 

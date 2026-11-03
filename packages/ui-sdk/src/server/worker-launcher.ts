@@ -48,12 +48,21 @@ const TMPFS_MAGIC = 0x01021994;
  * reads one server-owned stdin line before becoming the worker command.
  * Closed stdin or any other line ends the worker unstarted. Only the
  * absolute shell and its builtins run here, never a PATH lookup. Reads are
- * byte-sized, so nothing past the gate line is consumed. Live launches use
- * bubblewrap's --block-fd instead: workerBootstrap reopens its trusted gate
- * after Bun execve and the inherited-descriptor filter, preserving payload
- * stdin and leaving no gate descriptor in the sandbox command.
+ * byte-sized, so nothing past the gate line is consumed. Live status launches
+ * use START_GATE on fd 4 instead, preserving payload stdin.
  */
 const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"', "brain-worker-state-gate"];
+/**
+ * The start gate of every status-gated live launch (#3392). workerBootstrap's
+ * fixed host shell opens the server-held gate FIFO as fd 4 after Bun execve
+ * and the inherited-descriptor filter; bubblewrap passes it into the sandbox
+ * without `--block-fd`, which would proceed on the writer's EOF. This trusted
+ * absolute shell, before any payload process exists, needs one complete `go`
+ * line: EOF (a dead server), a partial line or any other line exits 125. It
+ * closes fd 4 before the payload exec, so the payload holds no gate
+ * descriptor. Only the shell and its builtins run, never a PATH lookup.
+ */
+const START_GATE = ["/bin/sh", "-c", 'IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"', "brain-worker-start-gate"];
 /** What the server writes to open the gate. */
 const STATE_GATE_OPEN = "go\n";
 /** How long a launch waits for bubblewrap to report and mount, like the probe's bound. */
@@ -966,13 +975,18 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     if (![status.source, status.gateSource].every(source => new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(source))) throw new WorkerHostError("invalid trusted worker status source");
     const bwrap = argv.indexOf(Bun.which("bwrap")!);
     if (bwrap < 0) throw new WorkerHostError("worker status requires the trusted bubblewrap launch");
-    argv.splice(bwrap + 1, 0, "--json-status-fd", "3", "--block-fd", "4");
-    // Every status-qualified launch waits, including commands without state.
-    // The PID cannot exit/recycle before verification and freezer setup.
-    if (gated(input)) argv.splice(argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
+    argv.splice(bwrap + 1, 0, "--json-status-fd", "3");
+    // Every status-qualified launch waits on START_GATE, including commands
+    // without state, in place of the stdin gate. The PID cannot exit/recycle
+    // before verification and freezer setup: bubblewrap's reaper outlives
+    // its blocked gate shell.
+    const payloadStart = argv.length - payloadCommand(input).length;
+    if (gated(input)) argv.splice(payloadStart - STATE_GATE.length, STATE_GATE.length, ...START_GATE);
+    else argv.splice(payloadStart, 0, ...START_GATE);
     // Bun execve closes descriptors above stdio. Reopen only these host-owned
-    // FIFOs after the unchanged bootstrap filter. bubblewrap closes both
-    // descriptors in its sandbox child before any payload can run.
+    // FIFOs after the unchanged bootstrap filter. bubblewrap keeps the status
+    // writer out of its sandbox child; the gate reader reaches only
+    // START_GATE, which closes it before the payload exec.
     argv = ["/bin/sh", "-c", 'exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"', "brain-worker-status", status.source, status.gateSource, ...argv];
   }
   return { command: [process.execPath, entry], env: {

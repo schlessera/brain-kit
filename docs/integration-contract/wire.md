@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1054-1072`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1084-1102`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -104,8 +104,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3921-3927`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1906-1908`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3985-3991`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1936-1938`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -621,6 +621,22 @@ A run whose worker hit a host resource limit (additive, #1660) carries one
 since the last report, or null when it does not count). `fatal: true` means
 the limit ended the worker; the root then also carries `brain.failure_class`
 `worker_resource_limit`.
+<a id="module-discovery-outcome-additive-0450-3381"></a>
+A module discovery at crontab emission (additive in 0.45.0, #3381) is a `cron`
+root span with `jobName` `modules`, opened and ended at once by
+`brain-ui-cron crontab` once its bounded retries settle. `outcome` `error`
+means module cron was skipped and the crontab carries core jobs only; its
+reason is `module cron skipped: <cause>`, where the cause is the last
+attempt's: the `brain module list` exit code and stderr tail, unreadable
+output, a host not reconciled, or a missing native configuration. `success`
+means discovery yielded the module list. The root carries
+`brain.module_discovery.attempts` (a number) and
+`brain.module_discovery.skipped` (a boolean). The same outcome is the
+`modules` job's latest `cron_runs` row, which `GET /api/status` lists under
+`cronJobs`. It is written only to a UI database outside the brain that already
+exists or sits behind a qualified native host, so a host that never qualified
+and has no database reports on stderr alone. No module job can carry the
+name: theirs are always `<module>-<entry>`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
 written by the in-process scheduler or the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
