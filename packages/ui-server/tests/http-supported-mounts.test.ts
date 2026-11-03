@@ -278,6 +278,9 @@ test("a dirty failed mount discards its resources before the next independent ca
     // the failed and rebuilt shared environments have completely shut down.
     const fresh = await prepare("GET /api/auth/principals", t => { timers.own(t); });
     try {
+      // Settle the journal's startup idle pass (#3386) first: its native calls
+      // would otherwise hold a seventh socket while the six below connect.
+      await fresh.t.app.wsHost.journal?.maintain();
       const native = createNativeBrainManagerClient(fresh.t.app.config.nativeBrain!);
       await Promise.all(Array.from({ length: 6 }, () => native.ready()));
       const freshKey = httpMountAgentKey(fresh.t);
