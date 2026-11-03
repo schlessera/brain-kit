@@ -52,13 +52,18 @@ export async function mechanics(c: Case, day: string) {
     writeFileSync(join(root, c.derivative.path), edited);
     const after = await inspect();
     const changedPaths = Object.keys(originals).filter(path => readFileSync(join(root, path), "utf8") !== originals[path]);
-    const otherFieldsBefore = { ...parseFrontmatter(c.derivative.text).data }; delete otherFieldsBefore.updated;
-    const otherFieldsAfter = { ...parseFrontmatter(edited).data }; delete otherFieldsAfter.updated;
+    const readback = readFileSync(join(root, c.derivative.path), "utf8");
+    const fieldsBefore = parseFrontmatter(c.derivative.text).data;
+    const fieldsAfter = parseFrontmatter(readback).data;
+    const changedFields = [...new Set([...Object.keys(fieldsBefore), ...Object.keys(fieldsAfter)])]
+      .filter(key => JSON.stringify(fieldsBefore[key]) !== JSON.stringify(fieldsAfter[key]));
+    const otherFieldsBefore = { ...fieldsBefore }; delete otherFieldsBefore.updated;
+    const otherFieldsAfter = { ...fieldsAfter }; delete otherFieldsAfter.updated;
     return { id: c.id, propagationBefore: before.filter(i => i.category === "propagation").length,
       propagationAfter: after.filter(i => i.category === "propagation").length,
       otherFindingsBefore: before.filter(i => i.category !== "propagation").map(i => ({ category: i.category, path: i.path, message: i.message })),
       otherFindingsAfter: after.filter(i => i.category !== "propagation").map(i => ({ category: i.category, path: i.path, message: i.message })),
-      changedPaths, changedFields: ["updated"], bodyAndOtherBytesPreserved: preserved(c.derivative.text, edited, day),
+      changedPaths, changedFields, bodyAndOtherBytesPreserved: preserved(c.derivative.text, readback, day),
       otherFieldsPreserved: JSON.stringify(otherFieldsBefore) === JSON.stringify(otherFieldsAfter) };
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 }

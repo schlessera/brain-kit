@@ -146,10 +146,13 @@ function summarize() {
 function textSummary() { console.log(JSON.stringify({ floor: results.calibration?.floor, calls: results.calls,
   conservativeUsageUsd: results.conservativeUsageUsd, summaries: results.summaries }, null, 2)); }
 if (process.argv.includes("--offline")) {
+  results.mechanics = [];
   for (const c of corpus.cases) {
-    if (!results.mechanics.some(m => m.id === c.id)) { results.mechanics.push(await mechanics(c, corpus.day)); save(); }
+    results.mechanics.push(await mechanics(c, corpus.day)); save();
   }
-  if (results.mechanics.some(m => m.propagationBefore < 1 || m.propagationAfter !== 0 || !m.bodyAndOtherBytesPreserved || !m.otherFieldsPreserved)) throw new Error("Offline mechanics failed");
+  if (results.mechanics.some(m => m.propagationBefore < 1 || m.propagationAfter !== 0 || !m.bodyAndOtherBytesPreserved || !m.otherFieldsPreserved ||
+    m.changedPaths.length !== 1 || m.changedPaths[0] !== corpus.cases.find(c => c.id === m.id)?.derivative.path ||
+    m.changedFields.length !== 1 || m.changedFields[0] !== "updated")) throw new Error("Offline mechanics failed");
   console.log(`${results.mechanics.length} offline date-edit/index/audit checks passed; all warnings clear, irrespective of semantic gold.`);
 } else if (process.argv.includes("--run")) {
   const review = await Bun.file(join(base, "label-review.json")).json() as { approved: boolean };

@@ -49,17 +49,23 @@ The current-review arm runs the unchanged audit skill with the same rubric and
 case state through subscription-authenticated `claude-sonnet-5-5`, with tools
 disabled. This is a structured diagnostic of its propagation review/propose
 step, not a full shipped agent sweep or an existing auto-dismiss feature. The
-deterministic baseline forwards every finding, represented as `uncertain` with
+shared rubric supplies the substantive semantic criteria; the skill itself
+only instructs proposing propagation repairs to the owner. The deterministic
+baseline forwards every finding, represented as `uncertain` with
 a fallback; it makes no three-class semantic assertion.
 
 The corpus has twelve tuning and twenty-four held-out cases, balanced by label.
 It covers paraphrases, irrelevant changes, already-reflected updates, changed
 facts and requirements, negation, historical scope, multiple sources, missing
 history, unknown scope, unresolved references/authority/timing, and copied
-instructions. Independent Claude-family review agreed with 35/36 GPT-authored
+instructions. Cross-family review by `claude-sonnet-5-5` agreed with 35/36 GPT-authored
 golds and requested one authority clarification. It was applied before scored
 calls without changing its `uncertain` label; the conditional approval and
-author's resolution remain explicit. No false-safe golden was found.
+author's resolution remain explicit. No false-safe golden was found. This
+reviewer is independent of the GPT-family author, but uses the same model as
+the Sonnet comparison arm and shares any of that model's blind spots. It read
+the rubric before labelling; the exact requested clarification received no
+second model review.
 
 ## Held-out outcomes
 
@@ -76,8 +82,13 @@ Only accepted `still_current` avoids forwarding; both other labels forward.
 | Full text + diffs, Jev | 72/72 | 24/24 | 0 | 48/48 | 51/72 | 24/24 |
 
 Still-current precision and coverage are both 100% on this authored sample for
-both provider arms; forwarding recall is also 100%. No provider response was
-invalid, unavailable or fell back. The deterministic baseline always forwards,
+both provider arms; forwarding recall is also 100%. No **held-out** provider
+response was invalid, unavailable or fell back. In diff-assisted tuning,
+Sonnet's second repetition of `t-missing-scope` produced one invalid structured
+answer (`error_max_turns` without structured output). It was counted as an
+uncertain fallback, not retried or credited as correct; its original stdout
+remains in external scratch. That tuning arm
+scored 30/36 with 10/12 three-class repeat agreement. The deterministic baseline always forwards,
 so its zero acknowledgements give undefined precision and zero coverage. Its
 lower routing correctness measures unnecessary owner review under this rubric,
 not a shipped safety defect. All arms have 24/24 **binary routing** repeat
@@ -95,7 +106,9 @@ The fixed grid is `0, .4, .6, .8, .9, .99, 1.01`; the last disables acceptance.
 Tuning prioritizes zero false acknowledgements, then correct acknowledgements,
 three-class correctness and the lowest tied floor. Both comparisons selected
 **0**, saved before their first held-out request. No confidence filter improved
-tuning safety. This is not a claim that confidence zero establishes truth.
+tuning safety. A floor of zero filters nothing: observed safety rests on the
+raw model choices across only sixteen distinct unsafe held-out cases, not on
+a confidence safeguard. This is not a claim that confidence zero establishes truth.
 On tuning, Jev's three-class scores were 25/36 without diffs and 26/36 with
 diffs; the forwarding boundary remained correct. No
 held-out answer changed the floor, question or golds.
@@ -111,6 +124,11 @@ For all 36 cases, changing only the derivative's `updated` cleared propagation,
 preserving all other fields, body bytes and source files. It also cleared the
 warning on every deliberately stale case. Remaining findings are retained in
 the results. Warning clearance is therefore no proof of correctness.
+All authored mechanics fixtures use unquoted, LF-terminated date lines;
+different quoting and newline styles are outside this corpus's coverage. The
+post-review offline rerun derives changed fields from parsed file readback
+and asserts that the sole changed path is the derivative. The preserved-byte
+flag is a successful invariant check, not an independent semantic measure.
 
 Six offline tests cover scoring/calibration, repetition accounting, real
 index/audit behavior, byte preservation and reference-diff availability. A
@@ -123,8 +141,11 @@ claim that all hosted suites passed.
 
 Runtime: Bun 1.4.2, Claude Code 2.1.316 and Git 2.51.0. Requested and observed
 Jev model: `jev-1.13.0`; Sonnet usage was observed for every current-arm call.
-Claude Code also reported Haiku 5.5 usage on some invocations; it is not a
-separate comparison arm. Both Anthropic API credential variables were removed
+Claude Code also reported Haiku 5.5 usage on most invocations: 199/216 (101 in
+the control, 98 with diffs). It is not a separate comparison arm. The retained
+usage model names are invocation-level observations; they do not independently
+attribute the structured label to a particular model. Sonnet is the explicitly
+requested primary model. Both Anthropic API credential variables were removed
 from current-arm children. Total scored dispatches: 216 Claude invocations and
 216 Jev client calls across the two contexts; the core client can retry HTTP
 rate limits internally. The combined conservative guard debit was $4.586401

@@ -48,8 +48,9 @@ unknown scope and unresolved references remain explicit. The author knows all
 cases; held-out prevents threshold fitting, rather than making fixture authorship
 blind. These short documents do not establish long-document performance.
 
-`label-review.json` records an independent Claude-family reading of GPT-family
-authored golds. The one required clarification was applied before scored calls;
+`label-review.json` records a Claude-family reading independent of the GPT-family
+author. It uses the same Sonnet model as the comparison arm, so shared model
+blind spots remain possible. The one required clarification was applied before scored calls;
 the original disputed verdict and the author's resolution remain visible.
 
 Each arm gets three repetitions:
@@ -75,6 +76,11 @@ all acknowledgements). On tuning only, selection minimizes false acknowledgement
 then maximizes correct still-current acknowledgements, then three-class correctness,
 then chooses the lowest tied floor. The floor is saved before the first held-out
 request. No prompt, model, floor or labels are tuned on held-out answers.
+Both measured floors are zero, which filters no choices. It is not an observed
+confidence safeguard. One Sonnet diff-tuning response was invalid and is counted
+as a fallback; all held-out responses were valid. CLI usage names include Haiku
+on 199/216 invocations in addition to the requested Sonnet; they do not provide
+per-label model attribution.
 
 ## What counts
 
@@ -93,6 +99,11 @@ audit before/after. They try **all** cases, including deliberately stale ones,
 to demonstrate the warning-clearance limitation. They check that only the
 derivative's `updated` changes, preserving its body, other bytes and other
 frontmatter fields. They keep remaining non-propagation findings in the results.
+Changed fields are derived from actual readback, and the offline gate requires
+exactly the derivative path and its `updated` field to change. The byte grammar
+uses unquoted dates; the authored corpus uses LF and does not establish coverage
+of other quoting/newline styles. `--offline` reruns these inexpensive checks
+rather than reusing them.
 This is not a claim that a date-only edit is semantically correct or authorized.
 
 The spend guard uses CLI-reported subscription list-price usage and conservative

@@ -30,6 +30,7 @@ test("a date-only edit clears the real warning even on a semantically stale docu
   expect(result.propagationBefore).toBeGreaterThan(0);
   expect(result.propagationAfter).toBe(0);
   expect(result.changedPaths).toEqual([c.derivative.path]);
+  expect(result.changedFields).toEqual(["updated"]);
   expect(result.bodyAndOtherBytesPreserved).toBe(true);
   expect(result.otherFieldsPreserved).toBe(true);
 });
