@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
@@ -725,7 +726,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
 }
 
 /** Whether `path` is `dir` or lies below it. */
-const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+export const within = (dir: string, path: string) => isWithin(dir, path);
 
 /** Resolve aliases even when the final installed entry is not present yet. */
 function runtimeCanonicalName(requested: string): string {

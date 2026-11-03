@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { runMaintenanceWorker, prepareNativeWorkerStartupView, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
@@ -26,7 +27,7 @@ const MIRROR_CONFIG = `[core]
 \tfsckObjects = true
 `;
 const CREDENTIAL_HELPER = '!f() { printf "username=x-access-token\\npassword=%s\\n" "$BRAIN_SYNC_TOKEN"; }; f';
-const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
+export const within = (root: string, path: string) => isWithin(root, path);
 const mirrorLocks = createKeyedLock();
 
 /** One host-private mirror per brain/database; standalone clients get private temporary state. */
