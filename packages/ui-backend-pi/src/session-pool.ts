@@ -2,7 +2,7 @@ import { piToolAvailabilityRefusal } from "./permission-gate.js";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
 
-import { INTERACTIVE_SESSION_CAPS, capsOf, type PiSessionLike, type SessionEnv } from "./backend-options.js";
+import { INTERACTIVE_SESSION_CAPS, capsOf, type BackendLogFn, type PiSessionLike, type SessionEnv } from "./backend-options.js";
 import type { SessionRuntime } from "./session-runtime.js";
 import type { TurnContext } from "./turn-context.js";
 
@@ -31,7 +31,7 @@ export interface SessionPool {
   finish(entry: SessionEntry): void;
 }
 
-export function createSessionPool(runtime: SessionRuntime, retainSessions = true): SessionPool {
+export function createSessionPool(runtime: SessionRuntime, retainSessions = true, log?: BackendLogFn): SessionPool {
   // Resident sessions, keyed by pi sessionId. Insertion order is the LRU order:
   // reused sessions are re-inserted at the tail, eviction drops the head.
   const sessions = new Map<string, SessionEntry>();
@@ -88,10 +88,11 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       // A concurrent turn for the same id may have registered it while we opened.
       const raced = sessions.get(req.sessionId);
       if (raced) {
-        disposeSession(opened.session);
-        if (raced.running) throw new BackendBusyError(BACKEND_ID, req.sessionId);
-        raced.running = true;
-        touch(req.sessionId);
+        // Decide busy or reuse, and claim a reused entry, before any await (#3488).
+        const busy = raced.running;
+        if (!busy) { raced.running = true; touch(req.sessionId); }
+        await releaseLosingSession(opened.session, req.sessionId);
+        if (busy) throw new BackendBusyError(BACKEND_ID, req.sessionId);
         return { entry: raced, isNew: false };
       }
       const entry: SessionEntry = { ...opened, running: true };
@@ -138,6 +139,21 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       disposeSession(entry.session);
       sessions.delete(id);
     }
+  }
+
+  /**
+   * The losing duplicate still owns its worker until the shared inactive abort
+   * confirms or refuses exit, turn-temp close and stdio release (#3488). A
+   * refusal is reported and cannot replace the race's outcome; the worker's
+   * abort stays retryable.
+   */
+  async function releaseLosingSession(session: PiSessionLike, sessionId: string): Promise<void> {
+    try { await session.abort(); }
+    catch (error) {
+      try { log?.("warn", `Pi duplicate-resume worker cleanup was not confirmed after it lost the session race: ${String(error)}`, { sessionId }); }
+      catch { /* Reporting cannot replace the race's outcome. */ }
+    }
+    finally { disposeSession(session); }
   }
 
   return {

@@ -16,8 +16,10 @@ not signalled and finishes with its normal `success` result. At the moment the
 loser's refusal settles, though, its worker has not exited, its turn temp has
 not been closed and its stdio release has not been awaited. This is the gap
 the [#2863 lifecycle ruling](https://github.com/schlessera/brain-kit/issues/2863#issuecomment-6391630082)
-forbids. The repair is handed off as
-[#3488](https://github.com/schlessera/brain-kit/issues/3488).
+forbids. The repair was handed off as
+[#3488](https://github.com/schlessera/brain-kit/issues/3488), which now makes
+the refusal wait for that teardown. The sections below describe the code as
+it was measured.
 
 The new-session duplicate branch cannot be reached by production
 worker-backed sessions.
@@ -25,7 +27,7 @@ worker-backed sessions.
 ## Call paths
 
 **The pool.** A production backend has no `sessionFactory`, so it never
-retains a session (`createSessionPool(runtime, Boolean(options.sessionFactory))`,
+retains a session (`createSessionPool(runtime, Boolean(options.sessionFactory), options.log)`,
 `packages/ui-backend-pi/src/backend.ts:117-120`). `finish()` removes and
 disposes every interactive entry when its turn ends. That makes every resume
 non-resident, and every resume opens a worker. A resumed acquisition checks
@@ -33,7 +35,7 @@ the map, awaits `runtime.openSession` and then checks the map again. If
 another acquisition registered the session in the meantime, it calls
 synchronous `disposeSession(opened.session)` and then either refuses
 `BackendBusyError` or claims the idle entry (`if (req.sessionId)`,
-`packages/ui-backend-pi/src/session-pool.ts:77-100`). Without retention, an
+`packages/ui-backend-pi/src/session-pool.ts:77-101`). Without retention, an
 entry in the map is always running, so in production the loser always
 refuses busy. The runner re-throws that refusal to its caller unchanged
 (`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:63-84`).
@@ -41,9 +43,9 @@ refuses busy. The runner re-throws that refusal to its caller unchanged
 **The new-session branch.** A worker-backed session's identity is
 `resumeId ?? randomUUID()` (`const sessionId = resumeId`,
 `packages/ui-backend-pi/src/worker-session.ts:112`). Autonomous acquisitions
-return before the map is consulted (`runtime.newSession`, `packages/ui-backend-pi/src/session-pool.ts:102-104`).
+return before the map is consulted (`runtime.newSession`, `packages/ui-backend-pi/src/session-pool.ts:103-105`).
 So the duplicate check
-(`sessions.get(created.session.sessionId)`, `packages/ui-backend-pi/src/session-pool.ts:105-118`)
+(`sessions.get(created.session.sessionId)`, `packages/ui-backend-pi/src/session-pool.ts:106-119`)
 fires only for injected `sessionFactory` doubles, which reuse identities.
 
 **ui-server.** The interactive turn path admits one in-flight `startTurn` per
@@ -82,7 +84,7 @@ awaited owner already exists: the session's shared inactive `abort()` waits
 for exit and protocol consumption, then the turn-temp close, then the bounded
 stdio release (`abort()`, `packages/ui-backend-pi/src/worker-session.ts:758-774`).
 #2880 uses it for cancelled acquisitions (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:160-167`).
+`packages/ui-backend-pi/src/session-pool.ts:176-183`).
 
 ## Runtime receipt
 

@@ -3,6 +3,9 @@
  * `startTurn` each launch a real worker; the later return loses the pool race.
  * Pins reachability and the contracts a repair must keep: the winner's normal
  * result, a per-session busy refusal with no frames, and only the loser stopped.
+ * #3488: the refusal settles only after the loser's worker has exited, its turn
+ * temp is closed and its stdio release is awaited; a refused close is reported
+ * without replacing the refusal and stays retryable.
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -29,9 +32,12 @@ printf '{"type":"ready","sessionId":"%s","levels":[],"cost":0}\\n' "$id"
 IFS= read -r prompt
 printf '{"type":"done","cost":0}\\n'`;
 
-interface Launched { root: unknown; exited: Promise<number>; hasExited: boolean; kills: number; closes: number; releases: number; prompts: number; session?: PiSessionLike }
+interface Launched {
+  root: unknown; exited: Promise<number>; hasExited: boolean; kills: number; closes: number; releases: number; released: number; prompts: number;
+  refuseClose: boolean; session?: PiSessionLike;
+}
 
-test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with two real workers and refuses only the loser", async () => {
+for (const refused of [false, true]) test.skipIf(!native)(`a concurrent duplicate resume reaches the pool race with two real workers and refuses only the loser after its ${refused ? "refused" : "confirmed"} teardown`, async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-pi-duplicate-"));
   const brain = join(root, "ithaca"), sessionDir = join(root, "sessions");
   mkdirSync(brain); mkdirSync(sessionDir);
@@ -45,19 +51,23 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
   const options = { brainPath: brain, sessionDir, loadExtensions: false,
     profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" as const }], confirmBashPatterns: [] };
   const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "governed", areas: [] });
+  const warnings: string[] = [];
+  const log = (level: string, message: string) => { if (level === "warn") warnings.push(message); };
+  const cleanupRefusal = Object.assign(new Error("worker_identity_cleanup_unconfirmed: Odysseus fixture"), { cleanupUnconfirmed: true });
+  const baseline = worker.processStateLedger().turnTempHeld;
 
   const workers: Launched[] = [];
   const realLaunch = worker.launchAgentWorkerAsync;
   const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async input => {
     const child = await realLaunch({ ...input, command: ["/bin/sh", "-c", ANSWERING] });
-    const record: Launched = { root: child.turnTemp?.root, exited: child.exited, hasExited: false, kills: 0, closes: 0, releases: 0, prompts: 0 };
+    const record: Launched = { root: child.turnTemp?.root, exited: child.exited, hasExited: false, kills: 0, closes: 0, releases: 0, released: 0, prompts: 0, refuseClose: false };
     void child.exited.then(() => { record.hasExited = true; });
     workers.push(record);
     const kill = child.kill.bind(child), release = child.released.bind(child), turnTemp = child.turnTemp;
     child.kill = signal => { record.kills++; return kill(signal); };
-    child.released = () => { record.releases++; return release(); };
+    child.released = async () => { record.releases++; await release(); record.released++; };
     if (turnTemp) child.turnTemp = Object.assign(Object.create(Object.getPrototypeOf(turnTemp)), turnTemp,
-      { closeAsync: () => { record.closes++; return turnTemp.closeAsync(); } });
+      { closeAsync: async () => { record.closes++; if (record.refuseClose) throw cleanupRefusal; return turnTemp.closeAsync(); } });
     return child;
   });
   // Both acquisitions hold a ready worker before either returns to the pool;
@@ -81,7 +91,7 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
     await own.returns.promise;
     return result;
   });
-  const backend = createPiBackend(options);
+  const backend = createPiBackend({ ...options, log });
   const turn = (signal: AbortSignal, frames: ServerMessage[]) => startFixtureTurn(backend, brain, { prompt: "Return to Ithaca", profileId: "fixture",
     sessionId: ID, signal, workerSandbox: sandbox,
     bridge: { emit: frame => { frames.push(frame); }, requestPermission: async () => ({ behavior: "deny", message: "Odysseus fixture" }) } });
@@ -90,6 +100,7 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
   const losing = turn(signals.loser, loserFrames).then(() => undefined, error => error);
   cleanup.push(async () => {
     for (const own of gates.values()) own.returns.resolve();
+    for (const record of workers) record.refuseClose = false;
     finishWinner.resolve();
     await winning; await losing;
     // Release whatever a still-synchronous loser disposal left reserved.
@@ -104,6 +115,9 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
   expect(winner.session!.sessionId).toBe(ID);
   expect(loser.session!.sessionId).toBe(ID);
   expect(winner.session, "PI_DUPLICATE_RESUME_OWNS_DISTINCT_WORKERS").not.toBe(loser.session);
+  const bothHeld = worker.processStateLedger().turnTempHeld - baseline;
+  expect(bothHeld, "PI_DUPLICATE_RESUME_BOTH_RESERVED").toBeGreaterThan(0);
+  loser.refuseClose = refused;
 
   // The first acquisition to return wins the pool; the other loses the race.
   gates.get(signals.winner)!.returns.resolve();
@@ -116,6 +130,28 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
   expect(winner.kills, "PI_DUPLICATE_RESUME_WINNER_NOT_STOPPED_BY_LOSER").toBe(0);
   expect(winner.hasExited, "PI_DUPLICATE_RESUME_WINNER_STILL_RUNNING").toBe(false);
   expect(loser.kills, "PI_DUPLICATE_RESUME_LOSER_IS_STOPPED").toBeGreaterThan(0);
+  // #3488: the refusal settles only after the loser's own teardown has finished.
+  expect(loser.hasExited, "PI_DUPLICATE_RESUME_LOSER_EXITED_BEFORE_REFUSAL").toBe(true);
+  expect(loser.closes, "PI_DUPLICATE_RESUME_LOSER_CLOSED_BEFORE_REFUSAL").toBe(1);
+  expect(loser.releases, "PI_DUPLICATE_RESUME_LOSER_RELEASE_REQUESTED_BEFORE_REFUSAL").toBe(1);
+  expect(loser.released, "PI_DUPLICATE_RESUME_LOSER_RELEASE_AWAITED_BEFORE_REFUSAL").toBe(1);
+  const held = worker.processStateLedger().turnTempHeld - baseline;
+  if (refused) {
+    expect(held, "PI_DUPLICATE_RESUME_REFUSED_LOSER_KEEPS_RESERVATION").toBe(bothHeld);
+    expect(warnings.filter(message => message.includes(cleanupRefusal.message)), "PI_DUPLICATE_RESUME_REFUSED_LOSER_CLEANUP_REPORTED").toHaveLength(1);
+  } else {
+    expect(held, "PI_DUPLICATE_RESUME_LEDGER_CHARGES_ONLY_WINNER").toBe(bothHeld / 2);
+    expect(warnings, "PI_DUPLICATE_RESUME_CONFIRMED_LOSER_NO_WARNING").toEqual([]);
+  }
+  expect(winner.kills, "PI_DUPLICATE_RESUME_WINNER_NOT_STOPPED_BY_LOSER_TEARDOWN").toBe(0);
+  expect(winner.hasExited, "PI_DUPLICATE_RESUME_WINNER_RUNNING_AFTER_LOSER_TEARDOWN").toBe(false);
+  if (refused) {
+    // The shared abort can retry the refused close and release the reservation.
+    loser.refuseClose = false;
+    await loser.session!.abort();
+    expect(loser.closes, "PI_DUPLICATE_RESUME_REFUSED_LOSER_RETRIES_CLOSE").toBe(2);
+    expect(worker.processStateLedger().turnTempHeld - baseline, "PI_DUPLICATE_RESUME_RETRY_RELEASES_LOSER_RESERVATION").toBe(bothHeld / 2);
+  }
 
   finishWinner.resolve();
   expect(await winning, "PI_DUPLICATE_RESUME_WINNER_SETTLES_NORMALLY").toBeUndefined();
@@ -126,4 +162,6 @@ test.skipIf(!native)("a concurrent duplicate resume reaches the pool race with t
   expect(winner.releases, "PI_DUPLICATE_RESUME_WINNER_RELEASES_STDIO").toBeGreaterThan(0);
   await loser.exited;
   expect(loser.hasExited, "PI_DUPLICATE_RESUME_LOSER_EXITS").toBe(true);
+  expect(loser.closes, "PI_DUPLICATE_RESUME_LOSER_CLOSES_ONCE_PER_ATTEMPT").toBe(refused ? 2 : 1);
+  expect(worker.processStateLedger().turnTempHeld, "PI_DUPLICATE_RESUME_RELEASES_ALL_RESERVATIONS").toBe(baseline);
 });
