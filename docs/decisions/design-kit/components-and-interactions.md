@@ -1278,7 +1278,7 @@ Two sites still draw a visible pill 44px tall, and neither has a kit size to
 move to. The file viewer's Preview/Raw `FilterRow` pills cannot reach,
 because `FilterRow`'s strip clips them with `overflow: hidden`. The
 Actions dismissal-reason pills are raw pressed chips, and the kit `Chip` is
-not interactive. Each needs a design decision before it can change.
+not interactive. Each needs a design decision before it can change (#3531).
 
 ## 2026-11-02 — D57: collapsibles follow the job, not one Disclosure (#3253)
 
