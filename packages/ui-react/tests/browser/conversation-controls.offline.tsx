@@ -1,5 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
-import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
+import { afterAll, beforeAll, expect, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -227,6 +227,9 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   const bounds = targets.map(node => node.getBoundingClientRect());
   expect(targets[1].getAttribute("aria-disabled")).toBe("true");
   for (const box of bounds) { expect(box.height).toBeGreaterThanOrEqual(44); expect(box.width).toBeGreaterThanOrEqual(44); }
+  // The strip holds Speaking for 300 ms after playback stops. That timer runs
+  // on a fake clock, so each gap is exact rather than a real wait.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
   for (const gap of [10, 40, 100, 20]) {
     flushSync(() => s.client.state.setState({ playing: true, interaction: "Speaking" }));
     await expect.element(page.getByRole("button", { name: "Stop reply", exact: true })).not.toHaveAttribute("aria-disabled", "true");
@@ -234,7 +237,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     await userEvent.keyboard("{Tab}");
     expect(document.activeElement, "Tab reaches Stop reply in its stable slot").toBe(targets[1]);
     flushSync(() => s.client.state.setState({ playing: false, interaction: gap === 40 ? "Listening" : "Review before sending" }));
-    await new Promise(resolve => setTimeout(resolve, gap));
+    flushSync(() => vi.advanceTimersByTime(gap));
     expect(s.strip().children[1].textContent, "short PCM gaps retain Speaking feedback").toContain("Speaking");
     expect(s.client.state.getState().micOn, "display smoothing must not mute or resume capture").toBe(true);
     expect(s.client.state.getState().playing, "presentation must not alter sample-level state").toBe(false);
@@ -248,6 +251,8 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     expect(document.activeElement).toBe(targets[1]);
   }
   await s.capture("reply-gap");
+  flushSync(() => vi.runOnlyPendingTimers());
+  vi.useRealTimers();
   await expect.poll(() => targets[1].getAttribute("aria-disabled")).toBe("true");
   expect(s.strip().children[1].textContent).toContain("Review before sending");
   flushSync(() => s.client.state.setState({ playing: true, interaction: "Speaking" }));
