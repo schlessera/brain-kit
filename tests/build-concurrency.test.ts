@@ -48,6 +48,7 @@ const args=process.argv.slice(2), directory=dirname(args[args.indexOf("-p")+1]),
 writeFileSync(join(${JSON.stringify(root)},name+"-started"), String(process.pid));
 const compiler=Bun.spawn([process.execPath,${JSON.stringify(join(repo, "node_modules/typescript/bin/tsc"))},...args],{stdout:"inherit",stderr:"inherit"});
 const code=await compiler.exited;
+writeFileSync(join(${JSON.stringify(root)},name+"-exited"),String(code));
 if(name==="beta" && code===0){writeFileSync(join(${JSON.stringify(root)},"peer-ready"),"");while(!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);writeFileSync(join(${JSON.stringify(root)},"peer-drained"),"");}
 process.exitCode=code;
 `);
@@ -77,6 +78,14 @@ process.exitCode=code;
     expect(running[0].state, "LIVE_PEER_RECEIPT_REMAINS_PARTIAL").toBe("running");
     expect(running[0].packages.find((pkg: {name: string}) => pkg.name === "beta").children[0].code).toBeUndefined();
     }
+    // The window starts only once alpha's compiler has actually failed, so it
+    // always follows the error it is about.
+    while (!existsSync(join(root, "alpha-exited")) && !exited && Date.now() < deadline) await Bun.sleep(10);
+    expect(existsSync(join(root, "alpha-exited")) && readFileSync(join(root, "alpha-exited"), "utf8"), "FAILING_COMPILER_EXITED_BEFORE_WINDOW").toBe("2");
+    // Kept real time: a negative observation. A build that stopped waiting for
+    // its live peer would report alpha's failure and exit as a process. Correct
+    // code never exits here, so nothing marks the moment; 300 ms is the window
+    // in which that exit would be observed.
     await Bun.sleep(300);
     expect(exited, "PARALLEL_BUILD_WAITS_LIVE_COMPILER_PEER_AFTER_ERROR").toBe(false);
     writeFileSync(release, "");
