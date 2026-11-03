@@ -26,7 +26,9 @@ own model; the module model override applies to the built-in Gemini provider.
 Video calls never silently fall back to another provider.
 
 Set **GEMINI_API_KEY** in the calling environment (or the variable named by
-`completions.apiKeyEnv`). The command does not prompt for or print a key. See
+`completions.apiKeyEnv`). The command does not prompt for or print a key. In a
+governed or strict brain-ui worker that holds no key, the host's provider relay
+carries the upload, polling, generation and deletion with the host's key. See
 [core environment configuration](../../docs/configuration.md).
 
 ```bash

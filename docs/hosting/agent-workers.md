@@ -1335,7 +1335,8 @@ worker keeps its ordinary messages. The token's grammar is part of the
 **What #1673 changes.** On a turn with a turn proxy, the commands above that
 use a Gemini, Anthropic or OpenAI image provider work again, through the
 [metered relay](#metered-provider-relay-1673), with no key in the worker. The
-`jev` reranker and `brain video watch` still report `provider_unavailable`.
+`jev` reranker still reports `provider_unavailable`; `brain video watch` is
+relayed since #2738.
 A relayed Claude API-key turn holds the inference placeholder under
 `ANTHROPIC_API_KEY`; the launcher names that key in `BRAIN_WITHHELD_KEYS`, and
 the CLI's `anthropic-haiku` reaches the host's key through the relay instead of
@@ -1351,8 +1352,22 @@ own at `/run/brain-providers/relay.sock`. The launcher names it in
 `BRAIN_PROVIDER_RELAY_SOCKET`. A built-in provider whose key is withheld sends
 its native request there (the routes are in the
 [CLI contract](../integration-contract/cli.md#provider-relay-additive-0440-1673)):
-Gemini embeddings and non-video completions, Anthropic completions, and OpenAI
-and Gemini images. Video uploads and the `jev` reranker are not relayed.
+Gemini embeddings and completions, the Gemini Files lifecycle a local video
+needs (#2738), Anthropic completions, and OpenAI and Gemini images. The `jev`
+reranker is not relayed.
+
+**Video files (#2738).** A relayed `brain video watch` uploads, polls, uses and
+deletes its file through the relay. The relay keeps the upload URL the provider
+issued on the host and gives the worker a token URL instead; it accepts a
+provider URL only on the authorized origin's `/upload/` path. It polls,
+deletes or names in a generation only the Files handles its own uploads
+created, so a worker cannot reach another file on the host's account, and it
+has no other `GET` or `DELETE` route. The upload start and the bytes wait on the
+budget like any other request; polling and deletion do not, so cleanup always
+runs. Each step is its own attempt row (operation `files`), priced at zero
+because the Files API is free; the video's tokens are charged on the
+generation. Files a turn leaves behind, after a cancel or a killed worker, are
+deleted with the host's key when the turn's relay stops.
 
 **Who may receive a key.** The relay sends `GEMINI_API_KEY` only to
 `https://generativelanguage.googleapis.com`, `ANTHROPIC_API_KEY` only to
@@ -1610,7 +1625,8 @@ The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/
 qualifies existing first-party request shapes. The
 [metered provider relay](#metered-provider-relay-1673) built on it in
 [#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the rows
-below except video and JeV.
+below except video and JeV; [#2738](https://github.com/schlessera/brain-kit/issues/2738)
+added video.
 
 | CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
 | --- | --- | --- | --- |
