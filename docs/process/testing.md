@@ -139,6 +139,18 @@ This is a test prerequisite selected in
 for the real runtime monitor. The production floor and its Stop-only behavior
 remain enforced, including if free space falls during a turn.
 
+Hosted unit shards keep fixture brains on the runner's root filesystem, where
+the 5% term is about 3.8 GB. Their environment setup runs
+`bun scripts/ci-disk.ts reclaim` (`reclaim`, `scripts/ci-disk.ts`), which
+removes preinstalled toolchains that no job uses. It records the runner's disk
+in `tmp/runner-disk.json`. Setup fails as an infrastructure prerequisite unless
+the floor plus the unit proof's own reserve remains. During proof, every
+category samples the same filesystem into `tmp/proof-resources.json`. If it
+dips below the floor, an annotation attributes turn-dependent failures to
+runner disk exhaustion
+([#3256](https://github.com/schlessera/brain-kit/issues/3256)). The floor
+itself does not change.
+
 For the negative control, use the private tmpfs recipe above with `size=3g`
 and run `fallocate -l 1600M "$1/fill"` immediately after mounting. The affected
 fixtures must refuse with the named error before sending their first turn,

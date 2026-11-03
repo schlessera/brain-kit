@@ -13,6 +13,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
+import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { listArchivedSessions, restoreArchivedSession, transcriptPaths } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
 import { usageLimitText } from "./usage-limit.js";
@@ -31,6 +32,8 @@ export interface HistoryDeps {
   env?: Record<string, string | undefined>;
   listSessionsFn?: typeof sdkListSessions;
   getSessionMessagesFn?: typeof sdkGetSessionMessages;
+  /** Explicitly retired sessions (#3229): never listed, read or restored. */
+  retirement?: Pick<SessionRetirement, "filter" | "hold" | "isRetired">;
 }
 
 export interface History {
@@ -73,17 +76,26 @@ export function createHistory(deps: HistoryDeps): History {
     let archived: ReturnType<typeof listArchivedSessions> = [];
     try { archived = listArchivedSessions(deps); }
     catch (error) { console.warn("Claude transcript archive listing failed", error); }
-    return [...live, ...archived.filter(s => !ids.has(s.id)).map(s => ({
+    const listed = [...live, ...archived.filter(s => !ids.has(s.id)).map(s => ({
       ...s, totalCostUsd: 0, numTurns: 0,
     }))];
+    // After the awaits: a session retired while the SDK listed is not listed.
+    return deps.retirement ? deps.retirement.filter(listed) : listed;
   }
 
   async function getHistory(
     sessionId: string
   ): Promise<SessionHistoryMessage[]> {
-    if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
-    const root = dirname(dirname(transcriptPaths(dir, deps.env).live));
-    return buildSessionHistory(sessionId, getSessionMessagesFn, dir, deps.env, sessionReplay(root, dir, sessionId).texts());
+    // A retired chat reads as an unknown one, and its archive is never restored.
+    if (deps.retirement?.isRetired(sessionId)) return [];
+    // A removal waits for this read; the read never publishes what it found once retired.
+    const release = deps.retirement && isSessionId(sessionId) ? deps.retirement.hold(sessionId) : undefined;
+    try {
+      if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
+      const root = dirname(dirname(transcriptPaths(dir, deps.env).live));
+      const history = await buildSessionHistory(sessionId, getSessionMessagesFn, dir, deps.env, sessionReplay(root, dir, sessionId).texts());
+      return deps.retirement?.isRetired(sessionId) ? [] : history;
+    } finally { release?.(); }
   }
 
   return { listSessions, getHistory };
