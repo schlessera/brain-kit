@@ -17,7 +17,7 @@
 export { configurationRoot } from "./lib/config.js";
 
 // Path containment and atomic writes
-export { safeResolve, resolveWritable, writeFileSafely, WriteRefusedError } from "./lib/safe-path.js";
+export { safeResolve, resolveWritable, brainRelativeArgument, writeFileSafely, WriteRefusedError } from "./lib/safe-path.js";
 export type { WriteFileSafelyOptions } from "./lib/safe-path.js";
 
 // The scratch area (.brain/scratch)
@@ -31,6 +31,9 @@ export {
   writeScratchFile,
 } from "./lib/scratch.js";
 export type { ScratchReport, ScratchRemoval, ScratchFailure } from "./lib/scratch.js";
+
+// The per-module state area (.brain-ui/modules/<name>/, #3380)
+export { MODULE_STATE_DIR, ModuleStateError, moduleStateDir, moduleStatePath } from "./lib/module-state.js";
 
 // Frontmatter and generated regions
 export { splitFrontmatterBlock, rewriteGeneratedRegion, inertGeneratedText } from "./lib/generated-regions.js";

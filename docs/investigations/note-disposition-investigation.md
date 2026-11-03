@@ -38,7 +38,7 @@ proposals, show review requirements and delegate deterministic mutation to CLI
 code rather than describing a proposal as a completed move.
 
 `brain add` performs ingestion, with the smart branch handing off to an agent
-(`addCommand`, `packages/core/src/cli/commands/add.ts:15-65`).
+(`addCommand`, `packages/core/src/cli/commands/add.ts:15-68`).
 `brain archive` is a separate operation: it sets archived status, demotes
 primary/unset relevance, preserves other bytes, and moves only active projects
 to the archive directory (`archiveDocument`,

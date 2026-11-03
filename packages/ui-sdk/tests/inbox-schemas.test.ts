@@ -13,7 +13,10 @@ const parseClient = (value: unknown) => parseClientMessage(JSON.stringify(value)
 const parseServer = (value: unknown) => parseServerMessage(JSON.stringify(value));
 
 test("review reads retain an optional strict Actions-limit pause reason and accept existing states", () => {
-  const review: HygieneReviewState = { version: 1, status: "paused", position: 1, fixed: 0, dismissed: 0, snoozed: 0 };
+  // A row stored before #2780 parses with the media review defaults.
+  const stored = { version: 1 as const, status: "paused" as const, position: 1, fixed: 0, dismissed: 0, snoozed: 0 };
+  const review = { ...stored, kept: 0, pass: 0, deferred: [] as { findingId: string; fingerprint: string }[] };
+  expect(hygieneReviewReadSchema.parse({ review: stored, action: null })).toEqual({ review, action: null });
   expect(hygieneReviewReadSchema.parse({ review, action: null })).toEqual({ review, action: null });
   const pauseReason: NonNullable<HygieneReviewState["pauseReason"]> = { kind: "actions-limit", retiredActionId: "retired-card", retirementReceiptId: "retirement-fyi" };
   const read = { review: { ...review, pauseReason }, action: null };
@@ -215,6 +218,21 @@ test("human hygiene refresh and superseded receipts round-trip without accepting
   const { hygieneReviewCommandSchema, hygieneReviewReadSchema } = await import("../src/schemas.js");
   expect(hygieneReviewCommandSchema.parse({ operation: "refresh" })).toEqual({ operation: "refresh" });
   expect(hygieneReviewCommandSchema.safeParse({ operation: "refresh", principalId: "owner" }).success).toBe(false);
-  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "active", position: 1, fixed: 0, dismissed: 0, snoozed: 0 }, action: { ...actionItem, status: "dropped", hygiene: { findingId: "finding", fingerprint: "old", finding: { evidence: "Eumaeus hut" }, outcome: { version: 1, status: "superseded", supersededBy: "new-card" } } } };
+  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "active", position: 1, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 0, deferred: [] }, action: { ...actionItem, status: "dropped", hygiene: { findingId: "finding", fingerprint: "old", finding: { evidence: "Eumaeus hut" }, outcome: { version: 1, status: "superseded", supersededBy: "new-card" } } } };
+  expect(read).toEqual(hygieneReviewReadSchema.parse(read));
+});
+
+test("undo-media names a media receipt and nothing else; its response carries the Undo receipt (#2781)", async () => {
+  const { hygieneReviewCommandSchema, hygieneReviewRequestSchema, hygieneReviewReadSchema } = await import("../src/schemas.js");
+  const journalId = `media-${"0123456789abcdef".repeat(2)}01234567`;
+  expect(hygieneReviewRequestSchema.parse({ operation: "undo-media", journalId })).toEqual({ operation: "undo-media", journalId });
+  expect(hygieneReviewRequestSchema.parse({ operation: "refresh" })).toEqual({ operation: "refresh" });
+  // The lifecycle command schema is unchanged and never accepts it.
+  expect(hygieneReviewCommandSchema.safeParse({ operation: "undo-media", journalId }).success).toBe(false);
+  for (const bad of [{ operation: "undo-media" }, { operation: "undo-media", journalId: "short" }, { operation: "undo-media", journalId: "../../etc/passwd-0000000000" },
+    { operation: "undo-media", journalId, principalId: "owner" }, { operation: "refresh", journalId }])
+    expect(hygieneReviewRequestSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "complete", position: 1, fixed: 0, dismissed: 0, snoozed: 0, kept: 0, pass: 1, deferred: [] }, action: null,
+    mediaUndo: { journalId: `undo-${journalId}`, action: "delete", outcome: "undone", files: [{ path: "photos/penelope-loom.png", state: "restored" }], undo: { available: false, reason: "already-undone" } } };
   expect(read).toEqual(hygieneReviewReadSchema.parse(read));
 });

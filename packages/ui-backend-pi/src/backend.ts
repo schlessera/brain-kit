@@ -14,7 +14,9 @@
  * storage under the agent dir) — this backend does not manage keys.
  */
 import { join } from "path";
-import { piSessionDirectory } from "./session-storage.js";
+import { isPiSessionId, piRetiredDirectory, piSessionDirectory, removePiSession } from "./session-storage.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { createSessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { PI_PIPE_MAX_BYTES } from "./worker-protocol.js";
 import type {
   AgentBackend,
@@ -71,6 +73,7 @@ const CAPABILITIES: BackendCapabilities = {
   // injected into the running turn via followUp() (native pi queue-within-turn).
   concurrentSessions: true,
   followUp: true,
+  historyRemoval: true,
 };
 
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
@@ -111,8 +114,10 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     loadExtensions: options.loadExtensions ?? true,
   });
   const runtime = createSessionRuntime({ backend: options, sessionDir, resources });
-  const pool = createSessionPool(runtime, Boolean(options.sessionFactory));
-  const startTurn = createPiTurnRunner(pool, options);
+  const pool = createSessionPool(runtime, Boolean(options.sessionFactory), options.log);
+  // Explicit chat deletion (#3229): one durable fence for every native path.
+  const retirement = createSessionRetirement({ directory: () => piRetiredDirectory(sessionDir), validSessionId: isPiSessionId });
+  const startTurn = createPiTurnRunner(pool, options, retirement);
 
   return {
     id: PI_BACKEND_ID,
@@ -129,12 +134,13 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       return { autoAllowed, enforceAllowedTools: req.enforceAllowedTools, available: (req.noGrantSurface || req.autonomous) ? autoAllowed : Object.keys(names) as (keyof typeof names)[], lock: { withLock: (key, fn, admission) => lock.withKey(key, fn, admission) } };
     },
     // Only the worker path has a host inference relay to prove a recipient (#2695).
-    ...(!options.sessionFactory ? { inferenceOrigin: (req: { profileId?: string; sessionId?: string }) => piInferenceOrigin(options, sessionDir, req) } : {}),
+    ...(!options.sessionFactory ? { inferenceOrigin: async (req: { profileId?: string; sessionId?: string }) =>
+      req.sessionId !== undefined && retirement.isRetired(req.sessionId) ? undefined : piInferenceOrigin(options, sessionDir, req) } : {}),
     startTurn,
     async followUp(req: FollowUpRequest): Promise<void> {
       // Follow-up only lands in a RUNNING turn; the host queues it as the
       // session's next turn otherwise.
-      const entry = pool.sessions.get(req.sessionId);
+      const entry = retirement.isRetired(req.sessionId) ? undefined : pool.sessions.get(req.sessionId);
       if (!entry || !entry.running) {
         throw new BackendRequestError(
           `No running turn for session ${req.sessionId} to deliver a follow-up to.`
@@ -152,10 +158,23 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     },
     storageRoots() { return [{ kind: "transcripts", path: sessionDir }]; },
     listSessions(): Promise<ChatSession[]> {
-      return listPiSessions(brainPath, sessionDir);
+      return listPiSessions(brainPath, sessionDir, retirement);
     },
     getHistory(sessionId: string): Promise<SessionHistoryMessage[]> {
-      return getPiHistory(brainPath, sessionId, sessionDir);
+      return getPiHistory(brainPath, sessionId, sessionDir, retirement);
+    },
+    removeSessionHistory(req) {
+      return retirement.remove(req, {
+        // Every turn has drained: a resident session is idle, so its runtime copy goes too.
+        release(id) {
+          const entry = pool.sessions.get(id);
+          if (entry) { pool.sessions.delete(id); try { entry.session.dispose(); } catch { /* Best effort, as eviction. */ } }
+          runtime.forget?.(id);
+        },
+        remove: (id) => removePiSession(sessionDir, brainPath, id),
+        // The installed SessionManager's own listing is the last word.
+        stillListed: async (id) => (await SessionManager.list(brainPath, sessionDir)).some(info => info.id === id),
+      });
     },
   };
 }

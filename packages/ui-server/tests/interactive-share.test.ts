@@ -9,6 +9,7 @@ import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { createInboxCleanup } from "../src/inbox/cleanup.js";
 import { createInboxRuntime } from "../src/inbox/runtime.js";
+import { failInboxWork } from "../src/inbox/actions.js";
 import { createInteractiveShares } from "../src/inbox/interactive-share.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
@@ -56,9 +57,17 @@ async function fixture() {
   }
   async function send(share: ShareIntakeResult, script: (req: StartTurnRequest) => Promise<void>, sessionId?: string) {
     const finished = deferred<unknown>();
-    scripts.push(async req => { try { await script(req); finished.resolve(undefined); } catch (error) { finished.resolve(error); throw error; } });
+    let started = false;
+    scripts.push(async req => { started = true; try { await script(req); finished.resolve(undefined); } catch (error) { finished.resolve(error); throw error; } });
+    // A turn refused before its backend starts never runs the script; report
+    // that refusal instead of waiting for a script that will not run.
+    const refused = (event: MessageEvent) => {
+      const frame = JSON.parse(String(event.data));
+      if (frame.type === "error" && !started) { scripts.pop(); finished.resolve(new Error(`Turn refused before its backend started: ${frame.message}`)); }
+    };
+    ws.addEventListener("message", refused);
     ws.send(JSON.stringify({ type: "chat_message", text: "File the Odysseus share", shareId: share.id, ...(sessionId ? { sessionId } : {}) }));
-    const error = await finished.promise;
+    const error = await finished.promise.finally(() => ws.removeEventListener("message", refused));
     await Promise.all([...f.app.wsHost.turnTasks]);
     if (error) throw error;
     return frames.findLast(frame => frame.type === "session_info")?.sessionId as string;
@@ -71,7 +80,7 @@ async function fixture() {
 }
 function application(share: ShareIntakeResult, path = "notes/ithaca-share.md"): BrainApplicationInput {
   return { operation: "write", path, expectedBaseHash: null,
-    content: `# Odysseus returns\n[Original](assets/ithaca.pdf)\n<!-- share-source:${share.id} -->\n` };
+    content: `# Odysseus returns\n[Original](../assets/ithaca.pdf)\n<!-- share-source:${share.id} -->\n` };
 }
 
 test("real app/WS completion verifies filing and retained PDF, then a lost reply replays without content or Queue duplication", async () => {
@@ -126,7 +135,7 @@ test("partial filing and duplicate application delivery recover the same item/se
     expect(await req.bridge.applyBrain!(application(share))).toEqual(result);
     expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId], files: [] })).toMatchObject({ status: "done", replay: false });
   }, sid);
-  expect(f.item(share)).toMatchObject({ status: "done", attempts: 2 });
+  expect(f.item(share)).toMatchObject({ status: "done", attempts: 0 });
   expect(f.app.db.query("SELECT COUNT(*) AS n FROM inbox_share_applications").get()).toEqual({ n: 1 });
 });
 
@@ -273,7 +282,7 @@ test("a proven no-effect failure retries only in a fresh bounded claim with a co
     const corrected = { ...application(share), expectedBaseHash: base.expectedBaseHash } as BrainApplicationInput;
     expect(await req.bridge.applyBrain!(corrected), "SAME_CLAIM_CANNOT_RETRY_REFUSED_EFFECT").toEqual(refused);
   });
-  expect(f.item(share)).toMatchObject({ status: "ready", attempts: 1 });
+  expect(f.item(share)).toMatchObject({ status: "ready", attempts: 0 });
   expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
   await f.send(share, async req => {
     const base = await req.bridge.readBrainBase!("notes/ithaca-share.md");
@@ -281,7 +290,7 @@ test("a proven no-effect failure retries only in a fresh bounded claim with a co
     expect(result.ok, "FRESH_CLAIM_RECOVERS_KNOWN_NO_EFFECT_FAILURE").toBe(true);
     expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: [] })).toMatchObject({ status: "done" });
   }, sid);
-  expect(f.item(share)).toMatchObject({ status: "done", attempts: 2 });
+  expect(f.item(share)).toMatchObject({ status: "done", attempts: 0 });
   expect(f.app.db.query("SELECT COUNT(*) AS n FROM inbox_share_applications").get()).toEqual({ n: 1 });
 });
 
@@ -356,7 +365,7 @@ test("a lost admission reply recovers the persisted session without dispatching 
     expect(await receipt.promise).toMatchObject({ type: "session_info", sessionId: sid, isNew: false, requestId });
     await Promise.all([...f.app.wsHost.turnTasks]);
     expect(dispatched, "LOST_ADMISSION_NEVER_DISPATCHES_TWICE").toBe(false);
-    expect(f.item(share)).toMatchObject({ status: "ready", attempts: 1 });
+    expect(f.item(share)).toMatchObject({ status: "ready", attempts: 0 });
     expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
   } finally { f.ws.removeEventListener("message", listener); }
 });
@@ -391,7 +400,102 @@ test("a repeated intake during a live filing only acknowledges its bound session
       expect(repeated.filingSessionId).toBe("odysseus-share-1");
       f.ws.send(JSON.stringify({ type: "chat_message", shareId: share.id, text: "File the Odysseus share", requestId }));
       expect(await receipt.promise).toMatchObject({ type: "session_info", sessionId: "odysseus-share-1", isNew: false, requestId });
-      expect(f.item(share)).toMatchObject({ status: "claimed", attempts: 1 });
+      expect(f.item(share)).toMatchObject({ status: "claimed", attempts: 0 });
     } finally { f.ws.removeEventListener("message", listener); }
   });
+});
+
+function filed(share: ShareIntakeResult, path: string, body: string, expectedBaseHash: string | null = null): BrainApplicationInput {
+  return { operation: "write", path, expectedBaseHash, content: `# Odysseus returns\n${body}\n<!-- share-source:${share.id} -->\n` };
+}
+const retained = (share: ShareIntakeResult, path: string) => [{ sourcePath: share.files[0]!.path, disposition: "retained" as const, path }];
+
+test("a retained PDF linked document-relative from a nested note completes; links resolving elsewhere or quoted as code refuse with the expected target", async () => {
+  const f = await fixture(), share = await f.upload();
+  mkdirSync(join(f.brainPath, "assets/documents"), { recursive: true }); writeFileSync(join(f.brainPath, "assets/documents/ithaca.pdf"), pdf);
+  const note = "voyages/ithaca/harbor.md", files = retained(share, "assets/documents/ithaca.pdf");
+  mkdirSync(join(f.brainPath, "voyages/ithaca"), { recursive: true });
+  await f.send(share, async req => {
+    let base: string | null = null;
+    const apply = async (body: string) => {
+      const result = await req.bridge.applyBrain!(filed(share, note, body, base));
+      expect(result.ok).toBe(true);
+      base = result.changes[0]!.contentHash!;
+      return result.shareReceiptId!;
+    };
+    const elsewhere = await apply("[Confirmation](../assets/documents/ithaca.pdf)");
+    const expected = "resolves to assets/documents/ithaca.pdf from voyages/ithaca/harbor.md, such as [label](../../assets/documents/ithaca.pdf)";
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [elsewhere], files }), expected, "LINK_RESOLVING_ELSEWHERE_IS_REFUSED_NAMING_THE_TARGET");
+    const span = await apply("See `[Confirmation](../../assets/documents/ithaca.pdf)` and `assets/documents/ithaca.pdf`.");
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [span], files }), expected, "LINK_IN_CODE_SPAN_DOES_NOT_COUNT");
+    const fence = await apply("```markdown\n[Confirmation](../../assets/documents/ithaca.pdf)\n```");
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [fence], files }), expected, "LINK_IN_FENCED_BLOCK_DOES_NOT_COUNT");
+    const wiki = await apply("![[ithaca.pdf]] [[assets/documents/ithaca.pdf|Confirmation]]");
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [wiki], files }), expected, "WIKILINK_DOES_NOT_COUNT");
+    const linked = await apply("[Confirmation](../../assets/documents/ithaca.pdf)");
+    // Only the latest receipt for a path matches its content; alone, a
+    // superseded receipt is refused by name.
+    await expectRejection(req.bridge.completeShare!({ receiptIds: [elsewhere], files }), `no longer matches receipt ${elsewhere}`, "STALE_RECEIPT_IS_NAMED");
+    expect(await req.bridge.completeShare!({ receiptIds: [elsewhere, span, linked], files }), "SUPERSEDED_RECEIPTS_DEFER_TO_THE_LATEST_PER_PATH")
+      .toMatchObject({ status: "done", replay: false });
+  });
+  expect(f.item(share).status, "DOCUMENT_RELATIVE_RETAINED_LINK_COMPLETES").toBe("done");
+});
+
+test("brain-root-absolute and URL-encoded links, and root-relative links from a root-level note, complete a retained share", async () => {
+  const f = await fixture(), rooted = await f.upload(true, "Penelope weaves"), root = await f.upload(true, "Telemachus sails");
+  mkdirSync(join(f.brainPath, "assets/documents"), { recursive: true });
+  writeFileSync(join(f.brainPath, "assets/documents/ithaca harbor.pdf"), pdf); writeFileSync(join(f.brainPath, "assets/ithaca.pdf"), pdf);
+  await f.send(rooted, async req => {
+    const result = await req.bridge.applyBrain!(filed(rooted, "voyages/ithaca/loom.md", "[Shroud](</assets/documents/ithaca harbor.pdf>) [Again](/assets/documents/ithaca%20harbor.pdf \"Loom\")"));
+    expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: retained(rooted, "assets/documents/ithaca harbor.pdf") }), "BRAIN_ROOT_ABSOLUTE_LINK_COMPLETES")
+      .toMatchObject({ status: "done" });
+  });
+  await f.send(root, async req => {
+    const result = await req.bridge.applyBrain!(filed(root, "telemachus.md", "[Voyage](assets/ithaca.pdf)"));
+    expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: retained(root, "assets/ithaca.pdf") }), "ROOT_RELATIVE_LINK_FROM_ROOT_NOTE_COMPLETES")
+      .toMatchObject({ status: "done" });
+  });
+});
+
+test("three filing turns that end without completing do not exhaust the share; a fourth turn completes it", async () => {
+  const f = await fixture(), share = await f.upload();
+  mkdirSync(join(f.brainPath, "assets"), { recursive: true }); writeFileSync(join(f.brainPath, "assets/ithaca.pdf"), pdf);
+  const files = retained(share, "assets/ithaca.pdf");
+  mkdirSync(join(f.brainPath, "voyages"), { recursive: true });
+  let sid: string | undefined, base: string | null = null;
+  for (let turn = 0; turn < 3; turn++) {
+    sid = await f.send(share, async req => {
+      const result = await req.bridge.applyBrain!(filed(share, "voyages/ithaca.md", `[Broken ${turn}](voyages/assets/ithaca.pdf)`, base));
+      base = result.changes[0]!.contentHash!;
+      await expectRejection(req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files }), "Retained binary must be linked");
+    }, sid);
+  }
+  await f.send(share, async req => {
+    const result = await req.bridge.applyBrain!(filed(share, "voyages/ithaca.md", "[Fixed](../assets/ithaca.pdf)", base));
+    expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files }), "FOURTH_TURN_COMPLETES_AFTER_THREE_UNFINISHED").toMatchObject({ status: "done" });
+  }, sid);
+  expect(f.item(share)).toMatchObject({ status: "done", attempts: 0 });
+  expect(f.store.snapshot().items.filter(item => item.queue === "actions" && item.status === "pending"), "NO_EXHAUSTED_RETRY_ACTION").toEqual([]);
+});
+
+test("a share that earlier turns exhausted to failed is recovered by its filing session, retiring the exhausted-retries Action", async () => {
+  const f = await fixture(), share = await f.upload(false);
+  const sid = await f.send(share, async () => {});
+  // The state an attempt-counting server left behind: three spent claims,
+  // a failed item and a pending dead-letter Action.
+  f.app.db.query("UPDATE inbox_items SET attempts = max_attempts, data_json = json_set(data_json, '$.attempts', max_attempts) WHERE id = ?").run(f.item(share).id);
+  let item = f.item(share);
+  f.store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "claimed", runId: "exhausted-run", leaseUntil: Date.now() + 60_000, countAttempt: false }]);
+  item = f.item(share);
+  f.app.db.query("UPDATE inbox_interactive_shares SET run_id = ? WHERE item_id = ?").run("exhausted-run", item.id);
+  failInboxWork(f.app.db, item.id, item.version);
+  expect(f.item(share).status).toBe("failed");
+  const deadLetter = () => f.store.snapshot().items.find(i => i.queue === "actions" && i.payload.title === "Queued work exhausted its retries");
+  expect(deadLetter()?.status).toBe("pending");
+  await f.send(share, async req => {
+    const result = await req.bridge.applyBrain!(application(share));
+    expect(await req.bridge.completeShare!({ receiptIds: [result.shareReceiptId!], files: [] }), "FAILED_BOUND_SHARE_IS_RECOVERABLE").toMatchObject({ status: "done" });
+  }, sid);
+  expect(deadLetter()?.status, "EXHAUSTED_RETRIES_ACTION_IS_RETIRED").toBe("dropped");
 });

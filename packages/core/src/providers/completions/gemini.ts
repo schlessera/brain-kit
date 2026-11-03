@@ -10,8 +10,8 @@ import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { withVideoFiles } from "./video.js";
 import { GEMINI_FLASH_MODEL } from "../../lib/llm-defaults.js";
-import { missingKeyMessage, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
-import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, providerRelayFetch, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
+import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
+import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 
 export interface GeminiCompletionConfig {
   /** Generation model (default: gemini-3-flash-preview). */
@@ -101,12 +101,6 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
   }): Promise<string> {
     req.signal?.throwIfAborted();
     const hasVideo = req.parts?.some((part) => part.kind === "video") ?? false;
-    // The relay carries fixed POST routes only, never the Files upload, poll
-    // and delete lifecycle a video needs (#1673): refuse before any upload.
-    if (hasVideo && relayedKey(apiKeyEnv)) {
-      throw new Error(providerUnavailableNotice({ provider: "gemini", capability: "video", key: apiKeyEnv, degradedTo: null },
-        "the host's provider relay does not carry video uploads"));
-    }
     const signal = hasVideo ? (req.signal ?? AbortSignal.timeout(300_000)) : req.signal;
     const ai = await getClient(signal);
     const generate = async (media: ContentPart[]): Promise<string> => {
@@ -127,7 +121,9 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
       return response.text ?? "";
     };
     if (!hasVideo) return generate(req.parts ?? []);
-    return withVideoFiles(ai, req.parts ?? [], signal!, generate);
+    // In a worker without the key, the Files upload, poll and delete go
+    // through the host relay too, which admits only this turn's own files (#2738).
+    return withVideoFiles(ai, req.parts ?? [], signal!, generate, providerRelayFetch("gemini", apiKeyEnv));
   }
 
   return {

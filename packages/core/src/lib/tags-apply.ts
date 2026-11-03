@@ -16,7 +16,7 @@ import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-import { frontmatterLength } from "./document-parts.js";
+import { frontmatterBounds, readScalar, type ScalarToken as Token } from "./frontmatter-edit.js";
 import { getMarkdownFiles, indexAll } from "./indexer.js";
 import { inCanonicalDir, writeFileSafely } from "./safe-path.js";
 import type { Database } from "bun:sqlite";
@@ -147,60 +147,6 @@ export function isRedundant(doc: { path: string; type: string | null }, tag: str
 // ---------------------------------------------------------------------------
 // Raw frontmatter editing
 // ---------------------------------------------------------------------------
-
-/**
- * Where the frontmatter's inner text lies: between the opening `---` line and
- * the closing `---`, by the span `frontmatterLength` measures with
- * gray-matter's rule (a leading byte order mark included).
- */
-function frontmatterBounds(text: string): { start: number; end: number } | null {
-  const length = frontmatterLength(text);
-  if (length === 0) return null;
-  const close = text.lastIndexOf("\n---", length);
-  const start = text.indexOf("\n") + 1;
-  return close !== -1 && start > 0 && start <= close + 1 ? { start, end: close + 1 } : null;
-}
-
-interface Token {
-  /** Offsets of the scalar in the block text, quotes included. */
-  start: number;
-  end: number;
-  value: string;
-}
-
-/** Read one scalar at `i`: quoted, or plain up to a stop character or ` #`. */
-function readScalar(text: string, i: number, stops: string): Token | null {
-  const quote = text[i];
-  if (quote === '"' || quote === "'") {
-    let j = i + 1;
-    let value = "";
-    while (j < text.length) {
-      const c = text[j];
-      if (quote === "'" && c === "'" && text[j + 1] === "'") {
-        value += "'";
-        j += 2;
-      } else if (quote === '"' && c === "\\") {
-        const next = text[j + 1];
-        value += next === "n" ? "\n" : next === "t" ? "\t" : next;
-        j += 2;
-      } else if (c === quote) {
-        return { start: i, end: j + 1, value };
-      } else if (c === "\n" || c === "\r") {
-        return null;
-      } else {
-        value += c;
-        j++;
-      }
-    }
-    return null;
-  }
-  let j = i;
-  while (j < text.length && !stops.includes(text[j]) && !"\r\n".includes(text[j]) && !/^[ \t]#/.test(text.slice(j, j + 2))) {
-    j++;
-  }
-  const raw = text.slice(i, j).replace(/[ \t]+$/, "");
-  return raw ? { start: i, end: i + raw.length, value: raw } : null;
-}
 
 /** A tag as YAML: plain when that reads back as the same string, else double-quoted. */
 function yamlScalar(tag: string): string {

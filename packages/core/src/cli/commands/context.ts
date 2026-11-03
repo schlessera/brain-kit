@@ -2,6 +2,7 @@ import { rerankSetup } from "../../lib/registry.js";
 import { assembleContext } from "../../lib/context-assembler.js";
 import { loadVecSupport } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
+import { positiveIntegerFlag } from "../flags.js";
 import { openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain context <query> — assemble a token-limited context block
@@ -20,12 +21,12 @@ export const contextCommand: CoreCommand = {
       throw new UsageError("Usage: brain context <query> [--max-tokens N]");
     }
 
+    // Read before the database is opened: a malformed budget runs no query.
+    const maxTokens = positiveIntegerFlag(flags, "max-tokens");
+
     const db = openReadonlyDb(cli.brain);
     try {
       await loadVecSupport(db);
-      const maxTokens = flags["max-tokens"]
-        ? parseInt(flags["max-tokens"] as string, 10)
-        : undefined;
       const context = await assembleContext(db, cli.brain, {
         query,
         maxTokens,

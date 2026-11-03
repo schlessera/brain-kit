@@ -62,21 +62,21 @@ Source anchors, checked against the reviewed commit:
 - A: root and index resolution (`initContext`, `packages/core/src/lib/context.ts:36-50`);
   existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:164-215`),
   available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:219-230`).
-- B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:57-66`)
-  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:78-86`).
+- B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:68-77`)
+  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:115-121`).
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:301-337`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:310-346`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`), and
-  private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:108-114`).
-- E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:30-39`).
-- F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:8-28`).
-- G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:143-145`)
+  private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:113-119`).
+- E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
+- F: session location (`piSessionDirectory`, `packages/ui-backend-pi/src/session-storage.ts:10-30`).
+- G: staging location (`shareStagingRoot`, `packages/ui-server/src/share/staging.ts:149-151`)
   and settlement-aware cleanup (`function claim`, `packages/ui-server/src/inbox/lifecycle-writes.ts:42-61`).
   [#807](https://github.com/schlessera/brain-kit/issues/807) supplies live-work
   and settlement protection for staging cleanup.
-- H: scratch defaults (`SCRATCH_DIR`, `packages/core/src/lib/scratch.ts:52-61`),
+- H: scratch defaults (`SCRATCH_DIR`, `packages/core/src/lib/scratch.ts:56-65`),
   scheduled prune (`startScratchPrune`, `packages/ui-server/src/cron/scratch-prune.ts:41-49`),
   and the [writable-area decision](../decisions/worker-writable-areas.md).
   [#1656](https://github.com/schlessera/brain-kit/issues/1656) supplies retained
@@ -87,7 +87,7 @@ Source anchors, checked against the reviewed commit:
   measurements do not include the separate runtime-state tmpfs.
 - J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:35-50`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
-- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:292-309`)
+- K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:295-312`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its
   [generated-host counterpart](https://github.com/schlessera/brain-hosting-template/issues/9).
 

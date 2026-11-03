@@ -15,9 +15,13 @@
  * foreign writer's failure — the cron wrapper recording an error while
  * nobody watches — is noticed within one tick, not at the next app open.
  *
- * Storm safety: a run-scoped tag deduplicates (one active intent per tag),
- * per-job debounce collapses repeats, and a global creation rate cap stops
- * one bad API key from paging for every job at once.
+ * Storm safety: a tag deduplicates (one live intent per tag), repeats of the
+ * same tag inside a quiet window coalesce onto it, and a global creation rate
+ * cap stops one bad API key from paging for every job at once. The window is
+ * a debounce, not a mute: a tag's next failure after it raises a fresh intent
+ * that supersedes the unacknowledged one, so a job failing every night pages
+ * every night until it is fixed (#3354). Opening a push notification does not
+ * acknowledge it; acknowledgement stays an explicit inbox action.
  */
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -75,6 +79,10 @@ const MAX_SEND_ATTEMPTS = 3;
 /** Backoff between retry attempts, so a transient push-service outage longer
  *  than one tick still gets fresh attempts spread over ~15 minutes. */
 const SEND_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+/** Quiet window per tag: a repeat inside it coalesces onto the live intent;
+ *  a repeat after it supersedes that intent with a fresh deliverable one,
+ *  acknowledged or not. Short enough that a daily job pages every day. */
+const REPEAT_AFTER_MS = 12 * 60 * 60 * 1000;
 /** Watchdog default: a live root run older than this is flagged as stuck. */
 const DEFAULT_STUCK_THRESHOLD_MS = 45 * 60 * 1000;
 
@@ -99,18 +107,24 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
     title: string;
     body: string;
     suppressed?: boolean;
-  }): void {
-    const now = Date.now();
+  }, now: number): void {
     // Replay on first upgrade must not resurrect an acknowledged notification.
     if (db.query("SELECT id FROM notification_intents WHERE run_id = ? AND kind = ? LIMIT 1")
       .get(input.runId, input.kind)) return;
-    // Tag dedupe: one live (unacknowledged) intent per tag — repeats coalesce.
-    const existing = db
+    // Tag dedupe: one live (unacknowledged) intent per tag. A repeat inside
+    // the quiet window coalesces onto it; a later one supersedes it, so an
+    // intent nobody acknowledged never mutes the tag for good (#3354).
+    const live = db
       .query(
-        "SELECT id FROM notification_intents WHERE tag = ? AND acknowledged = 0 LIMIT 1"
+        "SELECT MAX(created_at) AS at FROM notification_intents WHERE tag = ? AND acknowledged = 0"
       )
-      .get(input.tag);
-    if (existing) return;
+      .get(input.tag) as { at: number | null };
+    if (live.at !== null && now - live.at < REPEAT_AFTER_MS) return;
+    if (live.at !== null) {
+      db.query(
+        "UPDATE notification_intents SET acknowledged = 1, updated_at = ? WHERE tag = ? AND acknowledged = 0"
+      ).run(now, input.tag);
+    }
     // Global creation rate cap.
     const recent = db
       .query("SELECT COUNT(*) AS n FROM notification_intents WHERE created_at > ?")
@@ -147,7 +161,29 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
    */
   const isPillLabel = (span: SpanRow) => span.name === LABEL_RUN_NAME && span.origin === "session";
 
-  function intentForSpan(span: SpanRow): void {
+  /**
+   * How long a job has been failing: its root runs since its last success, up
+   * to this one. Counts and age only — never output or error text, because
+   * lock screens render the body outside the app's auth.
+   */
+  function failureStreak(span: SpanRow & { jobName: string }): string | null {
+    const rows = db
+      .query(
+        `SELECT outcome, started_at FROM activity_spans
+         WHERE job_name = ? AND parent_span_id IS NULL AND outcome IS NOT NULL
+           AND started_at <= ?
+           AND started_at > COALESCE((SELECT MAX(started_at) FROM activity_spans
+             WHERE job_name = ? AND parent_span_id IS NULL AND outcome = 'success'
+               AND started_at <= ?), -1)`
+      )
+      .all(span.jobName, span.startedAt, span.jobName, span.startedAt) as Array<{ outcome: string; started_at: number }>;
+    const failures = rows.filter((r) => isFailureOutcome(r.outcome));
+    if (failures.length < 2) return null;
+    const first = Math.min(...failures.map((r) => r.started_at));
+    return `Failed ${failures.length} times in a row over ${ageLabel(span.startedAt - first)}.`;
+  }
+
+  function intentForSpan(span: SpanRow, now: number): void {
     if (span.parentSpanId || isPillLabel(span)) return;
     if (isFailureOutcome(span.outcome)) {
       const label = span.jobName ?? span.name;
@@ -158,17 +194,19 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
         runId: span.runId,
         ...(span.sessionId ? { sessionId: span.sessionId } : {}),
       });
-      // Payload minimization: name + outcome word only. Lock screens render
-      // this outside the app's auth; detail is behind the tap-through.
+      // Payload minimization: name + outcome word, plus the streak's count
+      // and age for a repeat. Lock screens render this outside the app's
+      // auth; detail is behind the tap-through.
+      const streak = span.jobName ? failureStreak(span as SpanRow & { jobName: string }) : null;
       createIntent({
         runId: span.runId,
         spanId: span.spanId,
         kind: "failure",
         tag: `failure:${span.jobName ?? span.sessionId ?? span.runId}`,
         title: `${label} ${span.outcome === "interrupted" ? "was interrupted" : "failed"}`,
-        body: "Open to see the run.",
+        body: streak ? `${streak} Open to see the run.` : "Open to see the run.",
         suppressed: watched,
-      });
+      }, now);
       return;
     }
     if (span.outcome === "success" && span.jobName) {
@@ -182,13 +220,14 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
           tag: `completion:${span.jobName}:${span.runId}`,
           title: `${span.jobName} completed`,
           body: "Open to see the run.",
-        });
+        }, now);
       }
     }
   }
 
   return {
-    tick(now) {
+    tick(tickAt) {
+      const now = tickAt ?? Date.now();
       try {
         // New committed changes since our own cursor: terminal root spans
         // among them become intents (SQL-side filter + join in the store).
@@ -200,7 +239,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
           const cursor = typeof saved === "number" && Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
           const head = latestCursor(db);
           const rows = store.terminalRootChangesSince(cursor, 500);
-          for (const { span } of rows) intentForSpan(span);
+          for (const { span } of rows) intentForSpan(span, now);
           const lastSeen = rows.length > 0 ? rows[rows.length - 1]!.changeId : cursor;
           // Commit intents and progress together. A crash retries the entire
           // batch; another notifier reads the committed cursor under this lock.
@@ -232,7 +271,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
         for (const span of store.findStuck(scanThreshold, now)) {
           if (stuckFlagged.has(span.runId) || isPillLabel(span)) continue;
           const threshold = span.jobName ? (overrides[span.jobName] ?? defaultThreshold) : defaultThreshold;
-          if ((now ?? Date.now()) - span.startedAt < threshold) continue;
+          if (now - span.startedAt < threshold) continue;
           stuckFlagged.add(span.runId);
           createIntent({
             runId: span.runId,
@@ -241,7 +280,7 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
             tag: `stuck:${span.runId}`,
             title: `${span.jobName ?? span.name} is taking unusually long`,
             body: "Still running. Open to check on it.",
-          });
+          }, now);
         }
       } catch (err) {
         log?.emit({
@@ -310,6 +349,14 @@ export function createActivityNotifier(deps: ActivityNotifierDeps): ActivityNoti
       return res.changes;
     },
   };
+}
+
+/** A streak's age in whole days, or whole hours under a day. */
+function ageLabel(ms: number): string {
+  const hours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
+  if (hours < 24) return hours === 1 ? "1 hour" : `${hours} hours`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "1 day" : `${days} days`;
 }
 
 function rowToIntent(r: any): NotificationIntent {
