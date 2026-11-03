@@ -1566,7 +1566,8 @@ refused. One scan of the brain's `*.md` notes outside hidden directories and
 reference definitions, wiki links and embeds, frontmatter values and HTML
 `src`/`href`/`poster`; code is never a reference. Its bounds are
 `BRAIN_MEDIA_REFERENCE_LIMITS` (`notes` 50,000, `noteBytes` 256 MiB, `perNote`
-4 MiB, `scanTime` 20 s, `refsPerFinding` 500). Replacing the earlier
+4 MiB, `scanTime` 20 s, `refsPerFinding` 500; and for an effect's plan,
+`rewrittenNotes` 200 and `preview` 1 MiB, #2781). Replacing the earlier
 `unscanned` value reopens every media disposition once.
 
 A fifth log state, `kept`, holds a media original whose permanent copy was
@@ -1604,6 +1605,60 @@ a new pass and clears the list), `deferred: [{ findingId, fingerprint }]`, a
 `kept` counter, `counts.kept`, and `media: { awaitingReview, setAside, kept }`
 from the last selection. A stored row without them reads as `0` or `[]`.
 Hygiene effects gain operation `defer`, and outcomes gain status `deferred`.
+
+<a id="media-review-effects-additive-2781"></a>
+
+## Media review effects (additive, #2781)
+
+A media finding's four governed effects are Delete, Move, Persist here and
+Keep a permanent copy. The CLI plans and writes them
+(`brain hygiene media`, [cli.md](cli.md)); the UI server owns capture,
+compensation, Undo and recovery, in the bounded change journal (Rollback A).
+
+- **Capture before mutation.** Under the exclusive writer gate, a user
+  journal turn covers every file the plan lists, and each pre-image (the
+  media bytes for Delete and Move, each rewritten note, the config) is
+  retained and verified by SHA-256 before the CLI is asked to write. A
+  capture the journal's 10 GiB shared cap, or its per-file copy bound, cannot
+  hold refuses as `capture-capacity`, with nothing written.
+- **Per-file compensation.** A file is put back only while it still holds
+  exactly what the effect wrote. Anything else is `conflict` (or
+  `left-changed` for a folder no longer empty) and is left alone; the outcome
+  is then `partial`. No all-file atomicity is claimed.
+- **Undo** first checks that every retained pre-image still exists and every
+  file still holds its post-image, and refuses before any write otherwise
+  (`rollback-evicted`, `changed-since` with the path). It then applies the
+  same per-file rule. Undo is not guaranteed for any period: the journal may
+  evict rollback data under pressure.
+- **Recovery** after a restart compensates an interrupted apply, or finishes
+  an interrupted Undo, from the durable operation row. It never re-applies.
+- **Keep a permanent copy** records its `kept` entry with
+  `brain hygiene keep-copy` only after the copy verified (step 6b). A refused
+  entry compensates: the copy is removed and the config restored. The
+  original's bytes, path and pins are never touched.
+
+Additive shapes in `@schlessera/brain-ui-sdk`:
+
+| Surface | Change |
+| --- | --- |
+| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination` and `premiseDigest` |
+| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`) |
+| `HygieneAction.outcome.status` | gains `kept`, a confirmed Keep a permanent copy |
+| `HygieneAction.outcome.media` | `HygieneMediaReceipt`: `{ journalId, action, outcome: "pending"\|"applied"\|"kept"\|"compensated"\|"partial"\|"refused"\|"stale"\|"undone", reason?, refusals?, files: [{ path, state: "created"\|"changed"\|"removed"\|"restored"\|"unchanged"\|"left-changed"\|"conflict" }], copySha256?, undo: { available, reason?, path? } }` |
+
+A media finding's card offers Persist here, Move to a final location…, Keep a
+permanent copy… (scratch only) and Delete…, before Leave pending. Persist and
+Delete are planned when the card is prepared; Move and Keep a copy when a
+destination is previewed (`POST /hygiene/review/preview` with the path as
+`input`). A plan with refusals keeps them on the option and has no
+`premiseDigest`, so it cannot be confirmed. Confirming applies exactly the
+previewed plan: an applied effect resolves the card as `fixed`, a kept copy
+as `kept` (the review's `kept` counter); `stale` and `refused` leave it
+pending; `compensated` and `partial` are `check_failed` with that code. An
+old server that cannot parse `kept` fails closed as `check_failed`. Recovery
+confirms a kept copy only when the log's entry is `kept` with the same
+fingerprint and copy SHA-256; otherwise `receipt-unknown`. Routes and their
+error strings are unchanged.
 
 <a id="module-hygiene-context-breaking-699"></a>
 

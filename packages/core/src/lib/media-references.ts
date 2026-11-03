@@ -44,15 +44,21 @@ export interface MediaReferenceLimits {
   scanTime: number;
   /** Reference entries kept for one finding. */
   refsPerFinding: number;
+  /** Distinct notes one Move rewrites (checked when the effect is planned, #2781). */
+  rewrittenNotes: number;
+  /** UTF-8 bytes of one serialized effect preview. */
+  preview: number;
 }
 
-/** Q1 A defaults: 50,000 notes, 256 MiB, 4 MiB per note, 20 s, 500 references per finding. */
+/** Q1 A defaults: 50,000 notes, 256 MiB, 4 MiB per note, 20 s, 500 references per finding, 200 rewritten notes, 1 MiB preview. */
 export const DEFAULT_MEDIA_REFERENCE_LIMITS: Readonly<MediaReferenceLimits> = Object.freeze({
   notes: 50_000,
   noteBytes: 256 * 1024 * 1024,
   perNote: 4 * 1024 * 1024,
   scanTime: 20_000,
   refsPerFinding: 500,
+  rewrittenNotes: 200,
+  preview: 1024 * 1024,
 });
 
 const LIMIT_KEYS = Object.keys(DEFAULT_MEDIA_REFERENCE_LIMITS) as Array<keyof MediaReferenceLimits>;
