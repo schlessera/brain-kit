@@ -21,7 +21,7 @@ import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWork
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
-import { COMPUTE_TOOL_CONTRACTS, visibleToolName } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
@@ -238,6 +238,9 @@ function assembleClaudeSdkTurn(
     // External compute (#3108): the host decides authority and shows its own
     // per-use approval card for a run, so a runtime card would ask twice.
     if (req.bridge.compute) allowed.push(...COMPUTE_TOOL_CONTRACTS.map(contract => visibleToolName(contract.name, "claude")));
+    // Apify (#3162): the host decides every call and asks per exact run; a
+    // tool-level card would add a rememberable grant that authorizes nothing.
+    if (req.bridge.apify && !req.noGrantSurface && req.posture !== "voice") allowed.push(...Object.values(APIFY_TOOL_NAMES).map(name => visibleToolName(name, "claude")));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -465,6 +468,8 @@ function assembleClaudeSdkTurn(
       ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
       // Never in an autonomous roster: its membership is exact server authority.
       ...(!req.autonomous ? { compute: req.bridge } : {}),
+      // Interactive sessions only: a restricted autonomous roster never lists Apify.
+      ...(!req.autonomous ? { apify: req.bridge } : {}),
       ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
         try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
       }) } : {}),

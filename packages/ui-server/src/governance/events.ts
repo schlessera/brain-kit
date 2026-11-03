@@ -66,7 +66,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     method: z.string().min(1).max(20), path: z.string().max(16384).optional(), bytes: count,
     accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
-    inference: z.literal(true).optional(), reason: z.string().max(200).optional(),
+    inference: z.literal(true).optional(), provider: z.literal(true).optional(), reason: z.string().max(200).optional(),
   })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),
@@ -211,7 +211,8 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     source: z.enum(["web_fetch", "web_search", "staged_share", "workspace_read", "mcp_document", "user_marked",
       "egress_connection", "fetching_command", "unclassified_command",
       // Additive (#3108): a collected external compute job's output, text from a remote machine.
-      "compute_output"]),
+      "compute_output",
+      "apify_result"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
   })),

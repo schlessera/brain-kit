@@ -48,7 +48,9 @@ describe("config/env descriptor", () => {
     expect(names.sort()).toEqual(
       [
         "ANTHROPIC_API_KEY",
+        "APIFY_TOKEN",
         "BRAIN_AGENT_RUNNER_UNAVAILABLE",
+        "BRAIN_APIFY_LEDGER",
         "BRAIN_CHROME_NO_SANDBOX",
         "BRAIN_COMPUTE_STATE_DIR",
         "BRAIN_MEDIA_PINNED_PATH_LIMIT",

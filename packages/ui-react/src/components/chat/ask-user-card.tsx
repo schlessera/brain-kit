@@ -104,6 +104,7 @@ export function AskUserCard({
   answered,
   cancelled,
   lapsedNote,
+  endedPrompt,
   typed,
   answeredAt,
   onSubmit,
@@ -117,6 +118,11 @@ export function AskUserCard({
   answered?: Record<string, string>;
   cancelled?: boolean;
   lapsedNote?: string;
+  /**
+   * The turn that asked has ended (#3356): the card stays editable under
+   * this prompt, and its Submit no longer answers the request.
+   */
+  endedPrompt?: string;
   /** The answer was typed into the composer rather than chosen. */
   typed?: boolean;
   /** When the answer was given; absent on resumed history. */
@@ -135,7 +141,7 @@ export function AskUserCard({
   onReask?: (text: string) => void;
 }) {
   const root = useBrainUiRoot();
-  const prompt = `${root.config.assistantName} needs your input`;
+  const prompt = endedPrompt ?? `${root.config.assistantName} needs your input`;
 
   const [state, setState] = useState<PerQuestionState[]>(() =>
     questions.map(() => defaultState())

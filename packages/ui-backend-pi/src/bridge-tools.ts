@@ -1,5 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { COMPUTE_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, REFERENCE_TOOL_CONTRACTS, handleComputeTool, handleInboxTool, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, REFERENCE_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -95,6 +95,8 @@ export interface PiBridgeToolOptions {
     reference?: boolean;
     /** External compute on the host (#3108). */
     compute?: boolean;
+    /** The fixed Apify operations (#3162). */
+    apify?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
   reverseGeocode?: LocationHandlerOptions["reverseGeocode"];
@@ -339,6 +341,15 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
     async execute(id: string, input: unknown) {
       const result = await handleComputeTool(contract.name, input, turn.bridge ?? {}, id);
+      if (result.isError) throw new Error(result.text);
+      return textResult(result.text);
+    },
+  });
+  // Apify (#3162): forwarded to the host, which binds the turn and holds the credential; a refusal is a tool error.
+  if (capabilities?.apify) for (const contract of APIFY_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(_id: string, input: unknown) {
+      const result = await handleApifyTool(contract.name, input, turn.bridge ?? {});
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },

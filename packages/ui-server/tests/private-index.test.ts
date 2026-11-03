@@ -7,13 +7,15 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { expectRejection } from "./helpers/expect-rejection.js";
-import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
+import { afterAll, afterEach, expect, spyOn, test, type Mock } from "bun:test";
+import { Database } from "bun:sqlite";
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createUiDb } from "../src/db/client";
+import { brainCliCommand, workerBrainCliCommand } from "../src/brain/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
@@ -552,6 +554,107 @@ test("the scripts/brain-cli.ts fallback refuses type translation unless it is pr
   setPolicy(configured.brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
   const hold = await configured.turns.begin("configured-protected", new AbortController().signal);
   try { expect(hold.sandbox.providerMasks?.folders, "PROTECTED_CLI_SCRIPT_TRANSLATES").toEqual(["me"]); } finally { await hold.end(); }
+});
+
+/**
+ * The legacy layout: a vendored `scripts/brain-cli.ts` that needs nothing
+ * outside the brain, as the strict worker hides the workspace. It runs a
+ * bundle of the workspace CLI, built once per file, and first leaves `marker`
+ * if it can write the host. The brain is configured by `brain.config.json`,
+ * whose taxonomy imports no package.
+ */
+let bundledCli: string | undefined;
+afterAll(() => { if (bundledCli) rmSync(dirname(bundledCli), { recursive: true, force: true }); });
+async function vendoredCli(): Promise<string> {
+  if (bundledCli) return bundledCli;
+  const out = mkdtempSync(join(REPO, "tmp", "odysseus-vendored-cli-"));
+  bundledCli = join(out, "brain.js");
+  const built = await Bun.build({ entrypoints: [join(REPO, "packages/core/src/cli/brain.ts")], target: "bun", outdir: out });
+  expect(built.success, `VENDORED_CLI_BUILT: ${built.logs.join("; ")}`).toBe(true);
+  return bundledCli;
+}
+function vendoredFallback(cli: string, marker: string) {
+  return (brain: string) => {
+    rmSync(join(brain, "brain.config.ts"));
+    writeFileSync(join(brain, "brain.config.json"), "{}\n");
+    mkdirSync(join(brain, "scripts/vendor"), { recursive: true });
+    cpSync(cli, join(brain, "scripts/vendor/brain.js"));
+    writeFileSync(join(brain, "scripts/brain-cli.ts"), `import { writeFileSync } from "node:fs";\n`
+      + `try { writeFileSync(${JSON.stringify(marker)}, "ran"); } catch { /* the worker cannot reach the host */ }\n`
+      + `await import("./vendor/brain.js");\n`);
+  };
+}
+
+test("a protected scripts/brain-cli.ts fallback reads the taxonomy and builds the private index in the masked worker (#2865)", async () => {
+  const marker = join(REPO, "tmp", `odysseus-fallback-host-run-${process.pid}`);
+  cleanup.push(() => rmSync(marker, { force: true }));
+  const cli = await vendoredCli();
+  // No packaged CLI and no configured command: the brain's own fallback script runs, protected.
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    vendoredFallback(cli, marker)(brain);
+    setPolicy(brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
+  }, null);
+  expect(existsSync(join(f.brain, "node_modules/.bin/brain")), "NO_PACKAGED_CLI").toBe(false);
+  const hold = await f.turns.begin("fallback-protected", new AbortController().signal).catch((error: Error) => error);
+  if (hold instanceof Error) throw new Error(`PROTECTED_FALLBACK_LAUNCHES: ${hold.message}`);
+  try {
+    expect(hold.sandbox.providerMasks?.folders, "PROTECTED_FALLBACK_TRANSLATES_IDENTITY").toEqual(["me"]);
+    expect(f.reports.filter(report => report.includes("private search index")), `FALLBACK_PRIVATE_INDEX_BUILT: ${f.reports.join("; ")}`).toEqual([]);
+    expect(existsSync(join(hold.sandbox.providerMasks!.index!, "brain.db")), "FALLBACK_PRIVATE_INDEX_WRITTEN").toBe(true);
+    const db = new Database(join(hold.sandbox.providerMasks!.index!, "brain.db"), { readonly: true });
+    let paths: string[];
+    try { paths = db.query<{ path: string }, []>("SELECT path FROM documents").all().map(row => row.path); } finally { db.close(); }
+    expect(paths.filter(path => path.startsWith("me/")), "FALLBACK_PRIVATE_INDEX_LACKS_MASKED_DOCUMENTS").toEqual([]);
+    expect(paths, "FALLBACK_PRIVATE_INDEX_KEEPS_PERMITTED_DOCUMENTS").toContain("notes/quick-note-eagle.md");
+  } finally { await hold.end(); }
+  expect(existsSync(marker), "FALLBACK_NEVER_RAN_ON_THE_HOST").toBe(false);
+});
+
+test("a protected fallback whose script is absent, or a relative executable other than bun, refuses by name without running on the host (#2865)", async () => {
+  // The fallback is selected by the missing packaged CLI alone; its script is not in the view.
+  const missing = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    mkdirSync(join(brain, "scripts")); writeFileSync(join(brain, "scripts/.keep"), "");
+    setPolicy(brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
+  }, null);
+  const absent = await refusalOf(missing.turns.begin("fallback-absent", new AbortController().signal));
+  expect(absent?.name, `ABSENT_FALLBACK_REFUSED: ${String(absent)}`).toBe("ProviderPolicyRefusedError");
+  expect(absent!.message, "ABSENT_FALLBACK_NAMES_THE_SCRIPT").toContain("scripts/brain-cli.ts");
+  expect(absent!.message, "ABSENT_FALLBACK_IS_NOT_A_BOUNDARY_FAILURE").not.toContain("worker boundary unavailable");
+  // A script present but whose vendored CLI is absent: Bun ends that error with its version banner.
+  const unvendored = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    mkdirSync(join(brain, "scripts")); writeFileSync(join(brain, "scripts/brain-cli.ts"), `await import("./vendor/brain.js");\n`);
+    setPolicy(brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
+  }, null);
+  const unloaded = await refusalOf(unvendored.turns.begin("fallback-unvendored", new AbortController().signal));
+  expect(unloaded?.name, `UNVENDORED_FALLBACK_REFUSED: ${String(unloaded)}`).toBe("ProviderPolicyRefusedError");
+  expect(unloaded!.message, "UNVENDORED_FALLBACK_NAMES_WHAT_IT_COULD_NOT_LOAD").toContain("vendor/brain.js");
+  const marker = join(REPO, "tmp", `odysseus-relative-host-run-${process.pid}`);
+  cleanup.push(() => rmSync(marker, { force: true }));
+  const cli = await vendoredCli();
+  const relative = fixture("[{ types: [identity], allow: [anthropic] }]", "governed", brain => {
+    vendoredFallback(cli, marker)(brain);
+    setPolicy(brain, "[{ types: [identity], allow: [anthropic] }]", "protect: [scripts]");
+  }, ["node", "scripts/brain-cli.ts"]);
+  const named = await refusalOf(relative.turns.begin("relative-runtime", new AbortController().signal));
+  expect(named?.name, `RELATIVE_RUNTIME_REFUSED: ${String(named)}`).toBe("ProviderPolicyRefusedError");
+  expect(named!.message, "RELATIVE_RUNTIME_NAMED").toContain("its executable, node, is not an absolute path");
+  expect(existsSync(marker), "RELATIVE_RUNTIME_NEVER_RAN_ON_THE_HOST").toBe(false);
+});
+
+test("the masked worker resolves only the fallback's bun to the server's runtime; packaged and host argv are unchanged (#2865)", () => {
+  const root = mkdtempSync(join(REPO, "tmp", "odysseus-cli-selection-"));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  expect(brainCliCommand(root), "HOST_FALLBACK_UNCHANGED").toEqual(["bun", "scripts/brain-cli.ts"]);
+  // The script stays relative: the worker starts in the immutable startup view, which resolves it.
+  expect(workerBrainCliCommand(brainCliCommand(root)), "WORKER_FALLBACK_RUNTIME_ABSOLUTE").toEqual({ ok: true, command: [process.execPath, "scripts/brain-cli.ts"] });
+  mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(root, "node_modules/.bin/brain"), "#!/usr/bin/env bun\n");
+  const packaged = join(root, "node_modules/.bin/brain");
+  expect(brainCliCommand(root), "PACKAGED_CLI_PREFERRED").toEqual([packaged]);
+  expect(workerBrainCliCommand(brainCliCommand(root)), "PACKAGED_CLI_UNCHANGED_IN_THE_WORKER").toEqual({ ok: true, command: [packaged] });
+  expect(workerBrainCliCommand(CLI), "CONFIGURED_ABSOLUTE_UNCHANGED").toEqual({ ok: true, command: CLI });
+  expect(workerBrainCliCommand(["./bun", "scripts/brain-cli.ts"]).ok, "ONLY_A_BARE_BUN_IS_RESOLVED").toBe(false);
+  expect(workerBrainCliCommand([]).ok, "EMPTY_COMMAND_REFUSED").toBe(false);
 });
 
 test("a protected name a governed turn created refuses type translation until that turn is reconciled (#2699)", async () => {

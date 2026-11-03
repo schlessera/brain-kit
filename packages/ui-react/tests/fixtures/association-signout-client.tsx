@@ -117,6 +117,7 @@ let staleWrite: (() => Promise<string>) | null = null;
 let lockHeld = false;
 let releaseLock: (() => void) | null = null;
 let pendingWrite: Promise<unknown> = Promise.resolve();
+let discardBarrier: "idle" | "recovery" | "discarding" = "idle";
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 const unassignedFenceKey = `brain-ui:account-write-fence:${encodeURIComponent("brain-ui-local")}:unassigned`;
@@ -309,7 +310,23 @@ Object.assign(window, { __work: {
   receipt: (partition: PartitionId) => raw(partition).put("recording:accepted:laertes", { accepted: true }),
   extra: (partition: PartitionId) => raw(partition).put("recording:orphan:ithaca", "orphan witness"),
   quota: () => { fault = failIndexedDbWrites({ next: true }); },
-  fullDiscard: async (id: string) => { const quota = failIndexedDbWrites({ afterBytes: 0 }); try { return await outcome(root.recordings!.discard("unassigned", id)); } finally { quota.restore(); } },
+  fullDiscard: async (id: string) => {
+    // The mounted tray recovers each readable partition under the same native
+    // recording lock after sign-in (#1266). Like the other fixture mutations,
+    // the explicit discard starts only after that actual recovery settles.
+    discardBarrier = "recovery";
+    try {
+      await accountEffectsApplied(); await inventoryRecovered();
+      discardBarrier = "discarding";
+      const quota = failIndexedDbWrites({ afterBytes: 0 });
+      try {
+        // A refusal keeps its message and the native lock owners it observed.
+        return await root.recordings!.discard("unassigned", id).then(() => "ok", async (error: Error) =>
+          `${error.name}: ${error.message} ${JSON.stringify({ recoveries: recoveryEvents, locks: await nativeLocks() })}`);
+      } finally { quota.restore(); }
+    } finally { discardBarrier = "idle"; }
+  },
+  discardBarrier: () => discardBarrier,
   reopenUnassigned: async () => { await root.partitions!.prepareSignOut("unassigned")(); await root.partitions!.allowUnassignedAction(); },
   restore: () => { fault?.restore(); fault = null; hold?.restore(); hold = null; },
   holdDraft: () => { hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).includes("/draft/")); },

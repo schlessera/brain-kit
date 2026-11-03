@@ -5,6 +5,8 @@ import type { Candidate } from "./integration-reservation";
 import type { API } from "./proof-reuse";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
 import { shardNumbers } from "./proof-shards";
+import { coveredCategories } from "./check-receipt";
+import type { Category } from "./red-main";
 
 export function checkoutFromJob(log: string): string {
   const lines = log.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
@@ -67,7 +69,7 @@ function inventoryDiagnostic(inventory: any, run: any, head: string): string {
 }
 
 export async function verifyIntegrationProof(root: string, repository: string, candidate: Candidate, api: API,
-  fetchCheckout: (sha: string) => void): Promise<{ run: number; checkout: Checkout }> {
+  fetchCheckout: (sha: string) => void): Promise<{ run: number; checkout: Checkout; covered: Set<Category> }> {
   const run = await latestIntegrationRun(api, "ci.yml", candidate);
   const contract = await latestIntegrationRun(api, "contract.yml", candidate);
   if (run?.status !== "completed" || run.conclusion !== "success" || contract?.status !== "completed" || contract.conclusion !== "success") throw new Error("Complete current-candidate CI and contract proof required");
@@ -110,5 +112,5 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   await validateCandidate(root, { action: receipt.event, pull_request: { number: candidate.pr, draft: false,
     head: { sha: candidate.head }, base: { ref: "main", sha: candidate.base } } },
   { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: receipt.checkout.sha, GITHUB_REPOSITORY: repository }, api, receipt.checkout);
-  return { run: run.id, checkout: receipt.checkout };
+  return { run: run.id, checkout: receipt.checkout, covered: coveredCategories(selected) };
 }

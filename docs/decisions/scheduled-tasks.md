@@ -23,7 +23,7 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:196-197`).
   The runtime ticks every minute (`INBOX_TICK_MS`, `packages/ui-server/src/inbox/runtime.ts:11-13`).
 - Production app wiring supplies recovery and budgets, without a dispatcher
-  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:526-542`).
+  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:515-531`).
   A scripted nonempty ready-item test still reports no claim, attempt or
   Activity root. That proves disabled wiring, not safe execution of a schedule.
 - Headless plumbing checks backend support, a usable principal, lifetime and
@@ -39,9 +39,9 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   [complete backup](../inbox-recovery.md) and [reservation accounting](../inbox-budget.md)
   are available precedents; their existing tests cannot prove new schedule relations.
 - Notification kinds are already failure/completion/stuck
-  (`IntentKind`, `packages/ui-server/src/activity/notify.ts:30`), with bounded
-  suppression/retry (`MAX_INTENTS_PER_HOUR`, `packages/ui-server/src/activity/notify.ts:71-77`).
-  Job-name success opt-in (`if (span.outcome === "success"`, `packages/ui-server/src/activity/notify.ts:174-187`)
+  (`IntentKind`, `packages/ui-server/src/activity/notify.ts:34`), with bounded
+  suppression/retry (`MAX_INTENTS_PER_HOUR`, `packages/ui-server/src/activity/notify.ts:75-81`).
+  Job-name success opt-in (`if (span.outcome === "success"`, `packages/ui-server/src/activity/notify.ts:212-225`)
   does not implement schedule/occurrence preferences or correlation.
 
 Production execution requires [#689](https://github.com/schlessera/brain-kit/issues/689)
@@ -139,7 +139,7 @@ No YAML tag, frontmatter actor or file permission constitutes approval. Files
 contain immutable definition fields only; creator, approval, enabled/cancelled
 control state, counters, next/last occurrences and outcomes come from the
 operational ledger. The example uses the existing read tool's actual path input
-(`"brain_read"`, `packages/core/src/mcp-server.ts:313-329`):
+(`"brain_read"`, `packages/core/src/mcp-server.ts:305-321`):
 
 ```yaml
 ---

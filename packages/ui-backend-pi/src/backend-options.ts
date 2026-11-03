@@ -189,6 +189,8 @@ export interface SessionCaps {
   reference?: boolean;
   /** External compute on the host (#3108); never in an autonomous turn. */
   compute?: boolean;
+  /** The fixed Apify operations (#3162); interactive sessions only. */
+  apify?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */
@@ -233,11 +235,12 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     mask: Boolean(bridge.requestMask),
     reference: Boolean(bridge.referenceAccess),
     compute: Boolean(bridge.compute),
+    apify: Boolean(bridge.apify),
   };
 }
 
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true,
+  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, apify: true,
 });

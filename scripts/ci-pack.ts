@@ -137,6 +137,8 @@ export const PACK_TABLE: Record<string, PackRow> = {
     files: ["dist/index.js"],
     bun: ["@schlessera/brain-scrape"],
     node: ["@schlessera/brain-scrape"],
+    // core depends on it (#3330), and the React 18 consumer installs core.
+    react18: true,
   },
   "compute-boat": {
     files: ["dist/index.js", "LICENSE"],

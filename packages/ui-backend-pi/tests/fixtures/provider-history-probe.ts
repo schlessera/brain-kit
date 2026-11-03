@@ -59,6 +59,9 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
 writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.stringify({ providers: { openai: { baseUrl: `${server.url.origin}/v1`, apiKey: "offline-odysseus" } } }));
+// The hosted turn runs on the host inference relay (#3314), which sends openai's
+// credential only to an origin the operator lists for it: here, the loopback stub.
+process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `openai=${server.url.origin}`;
 try {
   for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "datatree", "compute"]) {
     brain = fixtureBrain(scratch, scenario);

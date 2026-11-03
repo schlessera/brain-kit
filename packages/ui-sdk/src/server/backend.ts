@@ -100,6 +100,12 @@ export interface BackendCapabilities {
    * false → the host queues them as the session's next turn (status: queued).
    */
   followUp: boolean;
+  /**
+   * Implements `removeSessionHistory` for an explicitly retired chat (#3229).
+   * Absent or false: removal is unsupported, and a host refuses the deletion
+   * before it retires anything.
+   */
+  historyRemoval?: boolean;
 }
 
 export type PermissionDecision =
@@ -244,7 +250,12 @@ export interface BackendBridge {
    * model's call id. Refusals resolve as `{ ok: false, error }`.
    */
   compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
-
+  /**
+   * One Apify operation (#3162). The host binds principal, session, turn,
+   * posture and approvals from the authenticated turn and holds the
+   * credential; the call carries the operation's parsed input only.
+   */
+  apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
 }
 
 /** A read over the activity record, shaped for model consumption. */
@@ -700,6 +711,42 @@ export function isCompletedAutonomousToolCall(
   return mode?.completedToolCalls?.some((call) => call.toolName === toolName && JSON.stringify(canonical(call.input)) === key) ?? false;
 }
 
+/**
+ * Remove one retired chat's locally owned native history (#3229). The host
+ * calls it only after its own retirement committed, under that retirement's
+ * operation identity; it is never a client path or a storage-root operation.
+ *
+ * @experimental Part of the `AgentBackend` seam.
+ */
+export interface SessionHistoryRemovalRequest {
+  /** The host retirement's operation identity. A repeat joins or re-runs the same removal; another identity for the same session is refused. */
+  operationId: string;
+  /** The backend's own session identity, as `listSessions` reports it. */
+  sessionId: string;
+  /**
+   * Bounds the caller's wait only. When it aborts first the result is
+   * `partial`: the removal keeps its ownership, finishes after the session's
+   * holders genuinely drain, and admits no replacement writer meanwhile.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Content-free, matching the host lifecycle ledger's per-store outcomes:
+ * `removed` only when every owned artifact is confirmed absent and the
+ * installed runtime no longer lists the session; `partial` while owned
+ * content may remain (a holder still draining, or a link, alias, replaced or
+ * unattributable artifact left untouched); `unknown` when an unexpected
+ * failure left the store's state unconfirmed. Every outcome but `removed` is
+ * retryable under the same operation.
+ *
+ * @experimental Part of the `AgentBackend` seam.
+ */
+export type SessionHistoryRemovalOutcome = "removed" | "partial" | "unknown";
+
+/** @experimental Part of the `AgentBackend` seam. */
+export interface SessionHistoryRemovalResult { outcome: SessionHistoryRemovalOutcome }
+
 /** Mid-turn user message for a RUNNING session (capabilities.followUp). */
 export interface FollowUpRequest {
   sessionId: string;
@@ -755,6 +802,17 @@ export interface AgentBackend {
   listSessions(): Promise<ChatSession[]>;
   /** Normalized-at-read history; backends own raw transcripts. */
   getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
+  /**
+   * Only with `capabilities.historyRemoval` (#3229). Before its first await
+   * the session is fenced, durably and permanently: `listSessions` omits it,
+   * `getHistory` returns `[]`, and resume, follow-up, archive and restore
+   * refuse it. Its running turns and readers then drain, and every owned
+   * native artifact (live, archived, staged and conflict copies, subordinate
+   * files, display and prompt metadata, file observations) is removed after
+   * identity checks. Rejects with `BackendRequestError` for an invalid
+   * request or another operation's session; never deletes outside its own roots.
+   */
+  removeSessionHistory?(req: SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>;
 }
 
 /**

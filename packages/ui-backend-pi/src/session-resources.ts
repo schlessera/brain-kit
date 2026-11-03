@@ -71,6 +71,7 @@ export function createSessionResources(options: {
         turnTemp: caps.turnTemp,
         reference: caps.reference,
         compute: caps.compute,
+        apify: caps.apify,
       },
     });
     return { tools, turnContext };

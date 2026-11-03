@@ -233,6 +233,7 @@ jobs:
           path: |
             tmp/proof-checkout.json
             tmp/proof-resources.json
+            tmp/runner-disk.json
             tmp/unit-memory.jsonl
             tmp/unit-report.xml
             tmp/unit-report-summary.json

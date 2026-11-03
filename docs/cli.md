@@ -364,6 +364,30 @@ behind, and `brain compute abandon JOB --confirm` to accept an unresolved
 same steps. See the [JSON and exit-code contract](integration-contract/cli.md#external-compute-additive-0450-3107)
 and [writing a provider](extending/compute-providers.md).
 
+## Apify
+
+`brain apify` discovers, inspects and runs Apify Actors, the same seven
+operations the `brain_apify_*` MCP tools and the chat UI use. Apify is paid
+remote extraction, not web search, and it is off until
+`context/policies/governance.md` sets `apify.enabled: true`
+([policy fields](supported-inputs.md#governance-policy)).
+
+| Command | Does | Notes |
+|---|---|---|
+| `apify discover <words…>` | Search the Actor catalog | sends only the words; `--limit N` (1–10) |
+| `apify inspect <candidate>` | One Actor's exact build, input schema, price and whether it can run here | everything returned is untrusted remote text |
+| `apify prepare <candidate> --input <json> --max-charge-usd <usd>` | Prepare one run | starts and spends nothing |
+| `apify run <proposal>` | Run a proposal once | needs an exact standing grant: nothing is asked on the terminal |
+| `apify status <run>` / `results <run>` / `abort <run>` | Follow a run you started | `results` pages with `--cursor`, `--limit` (1–100) |
+| `apify account [confirm <account-id>]` | The bound account; confirm a changed one | never prints the token |
+
+The process needs `APIFY_TOKEN` and `BRAIN_APIFY_LEDGER`, the absolute path of
+the ledger the UI server uses, so both share the account's day limit. Without
+the ledger every operation refuses. `--session <name>` keeps your references
+apart from another session's (default `default`). Each operation prints one
+`{ ok, operation, data }` or `{ ok: false, operation, error }` envelope and
+exits `0` or `1` ([the contract](integration-contract/cli.md#apify-operations-additive-0450-3162)).
+
 ## Queue intake on a UI server
 
 `brain queue add --server https://example.org --key odysseus-route-1

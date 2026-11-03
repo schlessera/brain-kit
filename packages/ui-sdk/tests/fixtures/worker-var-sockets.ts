@@ -20,14 +20,19 @@ function within(path: string, top: string) {
 /**
  * Every socket in the visible tree outside `/proc` and `/sys`, entering only
  * the directories `descend` admits. Each entry's type comes from `readdir`;
- * only entries the filesystem left untyped are stat'ed. Up to 32 directories
- * are read at once, so a cold disk is not read one block at a time.
+ * only entries the filesystem left untyped, and the mount points in the
+ * walking process's `/proc/self/mountinfo`, are stat'ed. A mount does not
+ * change the type `readdir` reports for its mount point, so a socket
+ * bind-mounted onto a file path reads as that regular file (#2745). Up to 32
+ * directories are read at once, so a cold disk is not read one block at a time.
  * Workers receive the source of `within` and the three functions from here
  * on, so they refer to nothing else.
  */
 async function walkSockets(files: typeof fs, descend: (path: string) => boolean) {
   const sockets: string[] = [], queue = ["/"];
   let entries = 0, active = 0;
+  const points = new Set(files.readFileSync("/proc/self/mountinfo", "utf8").trim().split("\n")
+    .map(line => line.split(" ")[4]!.replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(parseInt(octal, 8)))));
   const typed = (entry: fs.Dirent) => entry.isFile() || entry.isDirectory() || entry.isSymbolicLink() || entry.isSocket()
     || entry.isFIFO() || entry.isCharacterDevice() || entry.isBlockDevice();
   const read = async (path: string) => {
@@ -40,7 +45,7 @@ async function walkSockets(files: typeof fs, descend: (path: string) => boolean)
       const child = path === "/" ? "/" + entry.name : path + "/" + entry.name;
       entries++;
       let kind: { isDirectory(): boolean; isSocket(): boolean } = entry;
-      if (!typed(entry)) {
+      if (!typed(entry) || points.has(child)) {
         try { kind = await files.promises.lstat(child); } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
           throw error;

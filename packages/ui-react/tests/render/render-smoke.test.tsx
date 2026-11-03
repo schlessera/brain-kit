@@ -5789,8 +5789,8 @@ describe("ComposerView", () => {
     fireEvent.keyDown(field, { key: "Escape" });
     expect(h.onEscape).toHaveBeenCalledTimes(1);
     // The paperclip is a menu trigger (D37): the menu carries the capture choices.
-    expect(view.getByRole("button", { name: "Attach — photo, camera, file" }).getAttribute("aria-haspopup")).toBe("menu");
-    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, file" }));
+    expect(view.getByRole("button", { name: "Attach — photo, camera, files" }).getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, files" }));
     expect(h.onAttachToggle).toHaveBeenCalledTimes(1);
     fireEvent.click(view.getByRole("button", { name: /^Photo library/ }));
     fireEvent.click(view.getByRole("button", { name: /^Camera/ }));
@@ -5817,6 +5817,29 @@ describe("ComposerView", () => {
     expect(streaming.queryByRole("button", { name: /Pinned model/ })).toBeNull();
     expect(streaming.getByText("Pinned model")).toBeTruthy();
     streaming.unmount();
+  });
+
+  test("the paperclip names live conversation whenever its menu offers it (#3045)", () => {
+    const h = handlers();
+    const live = "Attach — live conversation, photo, camera, files";
+    const view = render(<ComposerView {...base} value="" attachMenuOpen onConversation={mock(() => {})} onPickTracks={mock(() => {})} {...h} />);
+    const trigger = view.getByRole("button", { name: live });
+    // The tooltip paints the name itself, hidden from the accessibility tree so it is heard once.
+    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(live);
+    expect(trigger.querySelector("[data-composer-tip]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(view.getByRole("button", { name: /^Live conversation/ })).toBeTruthy();
+    view.unmount();
+
+    const without = render(<ComposerView {...base} value="" attachMenuOpen {...h} />);
+    expect(without.getByRole("button", { name: "Attach — photo, camera, files" })).toBeTruthy();
+    expect(without.queryByRole("button", { name: /live conversation/i })).toBeNull();
+    without.unmount();
+
+    // Dictating: the trigger is inert, with no name and no tooltip.
+    const dictating = render(<ComposerView {...base} value="" state="dictating" onConversation={mock(() => {})} {...h} />);
+    expect(dictating.queryByRole("button", { name: /^Attach/ })).toBeNull();
+    expect(dictating.container.querySelector("[data-composer-tip]")).toBeNull();
+    dictating.unmount();
   });
 
   test("attachments, their errors and a lost connection", () => {

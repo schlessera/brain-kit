@@ -28,6 +28,8 @@ import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
 import { SEARCH_SORTS } from "./lib/types.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
+import { APIFY_DESCRIPTIONS, APIFY_INPUT_SCHEMAS, APIFY_OPERATIONS, APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
+import { createStandaloneApify, type StandaloneApify } from "./lib/apify/standalone.js";
 import { indexStaleness } from "./lib/ops/staleness.js";
 import {
   contextBriefing,
@@ -96,7 +98,9 @@ export function serverInstructions(profileName?: string): string {
     `brain_context for a briefing on one within a token budget. Use brain_read to read one ` +
     `document and brain_graph to follow its wiki-links. Record new information with brain_add ` +
     `and change a document with brain_update. Never edit brain.db: it is a disposable index ` +
-    `rebuilt from the markdown files.`
+    `rebuilt from the markdown files. The brain_apify_* tools reach Apify's paid remote ` +
+    `extractors under the brain's governance policy; they are not web search, and discovering ` +
+    `or inspecting an Actor never runs it.`
   );
 }
 
@@ -601,6 +605,37 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
   );
 }
 
+/** Read-only Apify operations: they read the catalog or an owned run and spend nothing. */
+const APIFY_READ_ONLY = new Set(["discover", "inspect", "prepare", "status", "results"]);
+
+/**
+ * brain_apify_discover … brain_apify_abort (#3162): fixed names and strict
+ * schemas, shared with `brain apify` and both chat backends. Each calls the
+ * same standalone operation `brain apify` calls, under this process's own
+ * policy, token and shared ledger; nothing here can ask anyone, so a run
+ * needs an exact standing grant. Discovered Actor schemas are returned as
+ * data: choosing an Actor never adds or removes a tool.
+ */
+export function registerApifyTools(server: McpServer, apify: () => StandaloneApify): void {
+  for (const operation of APIFY_OPERATIONS) {
+    server.registerTool(APIFY_TOOL_NAMES[operation], {
+      description: APIFY_DESCRIPTIONS[operation],
+      inputSchema: APIFY_INPUT_SCHEMAS[operation],
+      annotations: APIFY_READ_ONLY.has(operation)
+        ? { readOnlyHint: true, openWorldHint: true }
+        : { readOnlyHint: false, destructiveHint: operation === "abort", idempotentHint: false, openWorldHint: true },
+    }, async (input: unknown, extra: { signal: AbortSignal }) => {
+      try {
+        const envelope = await apify().call(operation, input, { signal: extra.signal });
+        return { ...(envelope.ok ? {} : { isError: true }), content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
+          structuredContent: envelope as unknown as Record<string, unknown> };
+      } catch (e) {
+        return errorResult(e);
+      }
+    });
+  }
+}
+
 export async function startMcpServer(
   brainContext?: BrainContext,
   configError?: string
@@ -662,12 +697,15 @@ export async function startMcpServer(
   registerComputeTools(server, computeOps, computeDriver);
   // Jobs this server started are advanced while it lives; leases bound them after.
   server.server.onclose = () => computeDriver.stop();
+  let apify: StandaloneApify | undefined;
+  registerApifyTools(server, () => apify ??= createStandaloneApify({ root: brain.root }));
 
   // Core's names are registered first. Module tools are fixed for this
   // process and registered before connect, so no list-changed event is sent.
   const owners = new Map<string, string | null>([
     "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph",
     "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOL_NAMES,
+    ...APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]),
   ].map((name) => [name, null]));
   moduleWarnings.push(...await registerModuleTools(server, brain.modules, brain.root, brain.taxonomy, owners));
 

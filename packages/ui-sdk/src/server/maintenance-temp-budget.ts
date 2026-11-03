@@ -9,7 +9,16 @@ import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import { mib, resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 
 interface Identity { pid: number; start: string; boot: string; namespace: string }
-interface Entry { id: string; bytes: number; owner: string; worker: string | null; released: number }
+interface Entry { id: string; bytes: number; owner: string; worker: string | null; released: number; kind?: string | null }
+/**
+ * What a reservation is for, recorded with it so a busy refusal names its
+ * holders (#3461). A label only: no path, brain or process identity.
+ */
+export type MaintenanceTempKind = "index" | "scratch_query" | "git" | "sync" | "probe" | "command";
+const KIND_LABELS: Record<MaintenanceTempKind, string> = {
+  index: "index", scratch_query: "scratch query", git: "git", sync: "sync", probe: "probe", command: "command",
+};
+const kindLabel = (kind: string | null | undefined) => kind && Object.hasOwn(KIND_LABELS, kind) ? KIND_LABELS[kind as MaintenanceTempKind] : "unlabelled";
 /** Internal trusted operational-state identity, never repository-selected. */
 export interface MaintenanceTempDomain { statePath: string }
 export interface MaintenanceTempReservation {
@@ -121,6 +130,13 @@ function connect(file: string): Database {
   const db = new Database(file, { strict: true });
   try {
     db.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, bytes INTEGER NOT NULL, owner TEXT NOT NULL, worker TEXT, released INTEGER NOT NULL DEFAULT 0)");
+    // A ledger an earlier release created has no holder kind; its rows and
+    // an earlier writer's inserts stay valid with the column absent (#3461).
+    const columns = db.query("PRAGMA table_info(reservations)").all() as { name: string }[];
+    if (!columns.some(column => column.name === "kind")) {
+      try { db.exec("ALTER TABLE reservations ADD COLUMN kind TEXT"); }
+      catch (error) { if (!String(error).includes("duplicate column")) throw error; }
+    }
     return db;
   } catch (error) { db.close(); throw error; }
 }
@@ -159,8 +175,55 @@ function prune(db: Database): Entry[] {
   });
 }
 
+/**
+ * A maintenance-temp admission refusal: nothing ran. Its message and
+ * `holders` name what holds the budget by kind only (#3461), and `freed()`
+ * settles once this command's allowance would fit again, so an automatic
+ * caller can keep its work pending instead of failing it.
+ */
+export class MaintenanceTempBusyError extends WorkerStateError {
+  constructor(message: string, readonly holders: readonly string[], private readonly capacity: () => boolean) {
+    super(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, message);
+    this.name = "WorkerStateError";
+  }
+  /** Resolves when the budget can take this allowance again; rejects with the signal's reason. */
+  freed(signal?: AbortSignal): Promise<void> { return waitFor(this.capacity, signal); }
+}
+
+/** In-process releases wake waiters at once; another process's release is found by the bounded recheck. */
+const releaseWaiters = new Set<() => void>();
+const RECHECK_MIN_MS = 250, RECHECK_MAX_MS = 2_000;
+function waitFor(capacity: () => boolean, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = RECHECK_MIN_MS;
+    const finish = (error?: unknown) => {
+      releaseWaiters.delete(check); if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", aborted);
+      if (error === undefined) resolve(); else reject(error);
+    };
+    const aborted = () => finish(signal!.reason);
+    const check = () => {
+      if (timer) { clearTimeout(timer); timer = undefined; }
+      let fits: boolean;
+      try { fits = capacity(); } catch (error) { finish(error); return; }
+      if (fits) { finish(); return; }
+      timer = setTimeout(check, delay); delay = Math.min(delay * 2, RECHECK_MAX_MS);
+    };
+    if (signal?.aborted) { reject(signal.reason); return; }
+    signal?.addEventListener("abort", aborted, { once: true });
+    releaseWaiters.add(check);
+    check();
+  });
+}
+function holderSummary(entries: readonly Entry[]): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries) { const label = kindLabel(entry.kind); counts.set(label, (counts.get(label) ?? 0) + 1); }
+  return [...counts].map(([label, count]) => count === 1 ? label : `${label} ×${count}`);
+}
+
 /** Immediate atomic admission, shared by server, cron and recreated backends. */
-export function reserveMaintenanceTemp(configured: WorkerStateLimits, domain?: MaintenanceTempDomain): MaintenanceTempReservation {
+export function reserveMaintenanceTemp(configured: WorkerStateLimits, domain?: MaintenanceTempDomain, kind: MaintenanceTempKind = "command"): MaintenanceTempReservation {
   const limits = resolveMaintenanceTempLimits(configured);
   const shared = domain ? sharedState(domain) : undefined;
   const path = shared?.parent ?? directory();
@@ -171,12 +234,21 @@ export function reserveMaintenanceTemp(configured: WorkerStateLimits, domain?: M
       const entries = prune(db);
       const held = entries.reduce((total, entry) => total + BigInt(entry.bytes), 0n);
       if (held + BigInt(limits.allowanceBytes) > BigInt(limits.budgetBytes)) {
-        throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy,
+        const holders = holderSummary(entries);
+        throw new MaintenanceTempBusyError(
           `Maintenance temporary storage is busy: this command needs ${mib(limits.allowanceBytes)}, `
-          + `${entries.length} maintenance reservations hold ${mib(Number(held))} of the separate ${mib(limits.budgetBytes)} budget. `
-          + "Nothing ran. Retry after a maintenance command finishes; no agent runtime state was lost.");
+          + `${entries.length} maintenance reservations hold ${mib(Number(held))} of the separate ${mib(limits.budgetBytes)} budget`
+          + `${holders.length ? ` (held by: ${holders.join(", ")})` : ""}. `
+          + "Nothing ran. Retry after a maintenance command finishes; no agent runtime state was lost.",
+          holders, () => {
+            const db = ledger(path, selected);
+            return db.transaction(() => {
+              const current = prune(db).reduce((total, entry) => total + BigInt(entry.bytes), 0n);
+              return current + BigInt(limits.allowanceBytes) <= BigInt(limits.budgetBytes);
+            }).immediate();
+          });
       }
-      db.query("INSERT INTO reservations (id, bytes, owner) VALUES (?, ?, ?)").run(id, limits.allowanceBytes, JSON.stringify(identity()));
+      db.query("INSERT INTO reservations (id, bytes, owner, kind) VALUES (?, ?, ?, ?)").run(id, limits.allowanceBytes, JSON.stringify(identity()), kind);
   }).immediate();
   let released = false;
   return { id, directory: path, ...(selected ?? {}), release() {
@@ -187,6 +259,7 @@ export function reserveMaintenanceTemp(configured: WorkerStateLimits, domain?: M
       prune(db);
     }).immediate();
     released = true;
+    for (const wake of [...releaseWaiters]) wake();
   } };
 }
 
