@@ -4,7 +4,7 @@
  * the system prompt are what the provider caches; they must stay byte-identical
  * across a refactor of their assembly (docs/decisions/provider-history.md).
  *
- * Every input is fixed: an empty turn environment, so no host credential or
+ * Every input is fixed: pinned worker limits, an empty turn environment, so no host credential or
  * variable reaches the note, and the temporary brain path and generated
  * session id are replaced by placeholders before comparison.
  */
@@ -58,8 +58,27 @@ function hooksShape(hooks: Options["hooks"]): Record<string, { matcher: string |
     [event, (groups ?? []).map(group => ({ matcher: group.matcher ?? null, hooks: group.hooks.length }))]));
 }
 
+/**
+ * The worker limits' defaults are sized from the host: memory per process and
+ * for the whole worker are half the server's memory ceiling, which reaches the
+ * sandbox note in the system prompt. Pin them to the captured host's 4 GiB so
+ * the snapshot is the same on every host; the previous value is restored.
+ * Whether a host can apply its rlimits and cgroup limits at all stays a host
+ * fact, and the captured note records the hosted runners' answer.
+ */
+const PINNED_WORKER_LIMITS = "data=4GiB,memory=4GiB";
+
 /** The normalised snapshot for one mode; the worker is finished before it returns. */
 export async function sdkOptionsSnapshot(mode: SnapshotMode): Promise<Record<string, unknown>> {
+  const previous = process.env.BRAIN_UI_WORKER_LIMITS;
+  process.env.BRAIN_UI_WORKER_LIMITS = PINNED_WORKER_LIMITS;
+  try { return await snapshotOnce(mode); } finally {
+    if (previous === undefined) delete process.env.BRAIN_UI_WORKER_LIMITS;
+    else process.env.BRAIN_UI_WORKER_LIMITS = previous;
+  }
+}
+
+async function snapshotOnce(mode: SnapshotMode): Promise<Record<string, unknown>> {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-sdk-options-"));
   const restricted = mode === "restricted";
   const turn = createClaudeSdkTurn({
