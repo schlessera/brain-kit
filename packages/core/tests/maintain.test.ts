@@ -60,6 +60,42 @@ test("packs 20 loose blobs, leaves none loose, and loses no object, ref or reflo
   expect(reflogs(root)).toEqual(logsBefore);
 });
 
+// A brain with no pack yet (#3375): freshly committed, every object still
+// loose. Git's incremental-repack task refuses a repository without a pack,
+// and git 2.43 and 2.47 refuse even after the same run's loose-objects task
+// has written the first one.
+const packCount = (root: string) => Number(git(root, "count-objects", "-v").match(/^packs: (\d+)$/m)![1]);
+
+test("a repository with no pack yet gets its first pack and an ok step", async () => {
+  const root = tempBrain();
+  git(root, "init", "-q", "-b", "main");
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "Ithaca");
+  const blobs = writeLooseBlobs(root, 3);
+  const loose = looseCount(root);
+  expect(packCount(root), "FIXTURE_HAS_NO_PACK").toBe(0);
+  const before = refs(root);
+
+  const { code, git: step } = await maintain(root);
+  expect(step?.result, "MAINTAIN_PACKLESS_REPOSITORY_PACKS").toBe(`ok — packed ${loose} loose object(s)`);
+  expect(code).toBe(0);
+  expect(packCount(root)).toBeGreaterThan(0);
+  expect(looseCount(root)).toBe(0);
+  expectBlobsIntact(root, blobs);
+  expect(refs(root)).toEqual(before);
+});
+
+test("a repository with no objects at all is an ok step with nothing packed", async () => {
+  const root = tempBrain();
+  git(root, "init", "-q", "-b", "main");
+  expect(looseCount(root)).toBe(0);
+  expect(packCount(root), "FIXTURE_HAS_NO_PACK").toBe(0);
+
+  const { code, git: step } = await maintain(root);
+  expect(step?.result, "MAINTAIN_OBJECTLESS_REPOSITORY_OK").toBe("ok — packed 0 loose object(s)");
+  expect(code).toBe(0);
+});
+
 test("runs the git step between the tag report and the scratch prune", async () => {
   const root = tempBrain();
   const { steps } = await maintain(root);

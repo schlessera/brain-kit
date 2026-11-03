@@ -208,7 +208,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   /** The first untrusted input that tainted the session. */
   taint: kind(1, z.strictObject({
     source: z.enum(["web_fetch", "web_search", "staged_share", "workspace_read", "mcp_document", "user_marked",
-      "egress_connection", "fetching_command", "unclassified_command"]),
+      "egress_connection", "fetching_command", "unclassified_command", "apify_result"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
   })),

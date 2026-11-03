@@ -20,6 +20,140 @@
     ],
     "$schema": "http://json-schema.org/draft-07/schema#"
   },
+  "brain_apify_abort": {
+    "type": "object",
+    "properties": {
+      "run": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "run"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_discover": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_inspect": {
+    "type": "object",
+    "properties": {
+      "candidate": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "candidate"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_prepare": {
+    "type": "object",
+    "properties": {
+      "candidate": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "input": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      },
+      "max_charge_usd": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 1000000
+      }
+    },
+    "required": [
+      "candidate",
+      "input",
+      "max_charge_usd"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_results": {
+    "type": "object",
+    "properties": {
+      "run": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "cursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      }
+    },
+    "required": [
+      "run"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_run": {
+    "type": "object",
+    "properties": {
+      "proposal": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "proposal"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_status": {
+    "type": "object",
+    "properties": {
+      "run": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "run"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
   "brain_archive": {
     "type": "object",
     "properties": {

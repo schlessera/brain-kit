@@ -133,7 +133,11 @@ Recovery copies reserve the existing aggregate output-staging budget in
 addition to retained source storage. Closing a handle aborts its pending copy;
 the copy reservation remains until that work drains and owned cleanup is
 confirmed. An unconfirmed cleanup retains ownership and reservations for
-reconciliation rather than reporting successful reclamation.
+reconciliation rather than reporting successful reclamation. For a Claude
+turn's end-of-turn cleanup, the server retries the close a few times with
+growing delays and releases the reservation once a retry is confirmed. If
+every retry is refused, the server log names the allowance that stays charged
+until the server restarts.
 
 Files made private are read by fixed, uncredentialed worker-UID code through
 authorized retained roots: no repository imports/evaluation, path escapes,
@@ -486,6 +490,17 @@ repository code executes (#1708). `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and
 aggregate explicitly for parallel maintenance. Neither value derives from
 agent-session concurrency or uses agent turn temp, runtime state or the
 separately bounded startup/publication storage.
+
+Admission is immediate: a command that does not fit is refused with
+`worker_state_busy` before anything runs. The refusal names what holds the
+budget by kind only (`index`, `scratch query`, `git`, `sync`, `probe` or
+`command`), never a path or a process. At the defaults one allowance fills the
+budget, so the automatic index and a turn's scratch check cannot overlap
+(#3461). An automatic index that loses that race stays pending and runs as
+soon as the budget frees; it is not reported as a failure, and close
+discards it. A turn whose scratch check loses keeps `.brain/scratch/`
+read-only for that turn, as before. An index you request still reports busy
+at once.
 
 Each command's sized private `/tmp` contains scratch and fresh XDG config,
 cache, data and state directories. Credential-free HOME is also in that

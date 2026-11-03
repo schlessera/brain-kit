@@ -70,6 +70,7 @@ export function createSessionResources(options: {
         mask: caps.mask,
         turnTemp: caps.turnTemp,
         reference: caps.reference,
+        apify: caps.apify,
       },
     });
     return { tools, turnContext };

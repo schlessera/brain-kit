@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:666-671`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:676-681`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -283,8 +283,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:174-207`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:232-236`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:243-247`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -543,7 +543,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:420-427`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:422-429`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
@@ -1345,9 +1345,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:346`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:557`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1415,7 +1415,7 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:226`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:236`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:232-253`),
@@ -1530,7 +1530,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:934`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:940`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1948,7 +1948,7 @@ the Gemini Files lifecycle a local video needs, whose upload, poll and delete
 attempts are recorded at zero cost because the Files API is free.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
-(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 The receipt's coverage names the relayed providers. Pricing follows the
 [cost-tracking rules](cost-tracking.md#relayed-cli-provider-requests-1673):
 unpriced tokens count toward the token stops, and missing usage is unknown and
@@ -1956,7 +1956,7 @@ never blocks by itself. An attempt is recorded as unknown spend just before it
 leaves and completed when it settles, so a crash leaves it disclosed. Before
 each request, and again just before dispatch, the relay asks whether any scope
 is blocked and refuses with `budget_exceeded` if one is
-(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:326-330`).
+(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:379-384`).
 A request that crosses a block does not stop the turn by itself, under the
 ruling: each further relayed request is refused, and the agent's next
 completed response, which sees the same scopes, stops the turn as any usage
@@ -1996,7 +1996,7 @@ rows remain historical inputs with explicit legacy attribution. Completed
 responses contribute once to their server-observed UTC day; legacy history
 uses its recorded start day. A terminal rollup never adds the live ledger a
 second time. The concrete ledger is (`createTurnBudgets`,
-`packages/ui-server/src/brain/turn-budgets.ts:228-350`).
+`packages/ui-server/src/brain/turn-budgets.ts:262-419`).
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
@@ -2275,7 +2275,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:248-330`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:250-332`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -2283,7 +2283,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:97-115`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:99-117`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -3290,7 +3290,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:94`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:95`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -3635,6 +3635,31 @@ that run after an asynchronous launch has returned.
 Termination and the signal requests stay synchronous; this ruling does not
 cover them.
 
+### A refused end-of-turn cleanup has a retry owner — 2026-10-25
+
+The maintainer selected [option 1 on #2871](https://github.com/schlessera/brain-kit/issues/2871):
+a bounded, server-owned reconciliation owner takes over a Claude turn's
+end-of-turn cleanup that the awaited close above could not confirm.
+
+- **The turn still fails.** The refusal is the turn's, as before; the
+  reconciler only takes ownership of the retryable close and the reservation.
+- **Finite retries, then observable failure.** It retries the close with
+  capped exponential backoff and a finite number of attempts. A close still
+  refused after the last attempt is logged with the runtime-state and
+  turn-temp allowance it keeps charged until the server restarts.
+- **Release once, only on confirmation.** The reservation is released exactly
+  once, after a retry resolves. An unconfirmed close never releases it.
+- **Shutdown releases nothing and waits for nothing.** It cancels pending
+  retries, does not wait for a close in flight, and reports what is still
+  held. The process's one reconciler stops when the process exits; its timers
+  never hold the process open.
+
+The owner is the reconciler
+(`export function createCleanupReconciler`, `packages/ui-backend-claude/src/cleanup-reconciler.ts:66-125`), and the turn
+hands its refusal over where it awaits the close
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi and a launch
+whose own cleanup is unconfirmed are outside this ruling.
+
 ### Turn completion includes worker teardown — 2026-10-25
 
 The maintainer's [#2863 lifecycle ruling](https://github.com/schlessera/brain-kit/issues/2863#issuecomment-6391630082)
@@ -3650,7 +3675,7 @@ the path's existing cancellation or failure outcome.
 to pi cancellation before `prompt()`. The pool owns a late new or resumed
 acquisition until its awaited abort finishes, then disposes it and preserves
 the accepted cancellation (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:159-166`). After acquisition the
+`packages/ui-backend-pi/src/session-pool.ts:160-167`). After acquisition the
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
@@ -3985,7 +4010,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:511-522`).
+  `packages/ui-server/src/brain/host-boundary.ts:514-525`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -3994,7 +4019,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:313-330`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -4030,7 +4055,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:90-134`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely

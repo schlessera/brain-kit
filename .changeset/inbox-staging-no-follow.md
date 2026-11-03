@@ -1,0 +1,4 @@
+---
+"@schlessera/brain-ui-server": patch
+---
+Inbox staging no longer follows links. Intake reconciliation used to follow a linked `.brain-ui/inbox` and delete whatever directory the link named, together with its cleanup receipt. Inbox cleanup and the share TTL prune already refused a linked staging directory; reconciliation now refuses one too and keeps the receipt for a later retry. Staging writes, publication, compensation, cleanup and pruning now go through directory descriptors opened without following links, starting from the brain's canonical root. A link swapped in between a check and the change it guards can no longer redirect a write, rename or removal. The manifest is created exclusively. When startup reconciliation refuses the staging directory, the server logs the refusal and keeps starting.
