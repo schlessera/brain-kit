@@ -44,7 +44,6 @@ export function acceptRequest(
   backendId: string | null
 ): number | undefined {
   if (!host.catalog.acceptWork) return undefined;
-  const { unorderedSessions } = host.coordinator;
   const latest = latestAcceptance.get(host.coordinator) ?? new Map<string, number>();
   latestAcceptance.set(host.coordinator, latest);
   const mine = (latest.get(sessionId) ?? 0) + 1;
@@ -52,10 +51,10 @@ export function acceptRequest(
   const revision = host.catalog.acceptWork(sessionId, requestId ?? null, backendId, (stored) => {
     if (latest.get(sessionId) !== mine) return;
     latest.delete(sessionId);
-    if (stored) unorderedSessions.delete(sessionId); else unorderedSessions.add(sessionId);
+    host.coordinator.setSessionOrdered(sessionId, stored);
   });
   if (revision === null) {
-    unorderedSessions.add(sessionId);
+    host.coordinator.setSessionOrdered(sessionId, false);
     return undefined;
   }
   return revision;
@@ -151,14 +150,8 @@ function pendingOf(host: WsHost, sessionId: string): SessionRecoveryPending[] {
   for (const [toolUseId, p] of coordinator.pendingApprovals) {
     if (p.turn.sessionId === sessionId) pending.push({ kind: "approval", requestId: toolUseId, turnId: p.turnId });
   }
-  const asks = [
-    ["ask_user", coordinator.pendingAskUser],
-    ["ask_user_list", coordinator.pendingAskUserList],
-    ["ask_user_rank", coordinator.pendingAskUserRank],
-    ["ask_user_form", coordinator.pendingAskUserForm],
-  ] as const;
-  for (const [kind, map] of asks) {
-    for (const p of map.values()) {
+  for (const kind of ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"] as const) {
+    for (const p of coordinator.pendingAsks(kind).values()) {
       if (p.turn.sessionId === sessionId) pending.push({ kind, requestId: p.requestId, turnId: p.turnId });
     }
   }

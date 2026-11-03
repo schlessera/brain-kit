@@ -92,7 +92,6 @@ function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: nu
   cleanup = () => {
     for (const finish of finishers) finish();
     for (const release of held) release();
-    host.coordinator.reset();
     host.close();
     db.close();
   };

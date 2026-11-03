@@ -166,11 +166,25 @@ export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTur
   catch (error) { envelope?.relay.stop(); throw error; }
 }
 
-function assembleClaudeSdkTurn(
-  options: ClaudeSdkTurnOptions,
-  envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined
-): ClaudeSdkTurn {
-  const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
+/** The bridge handlers a turn binds and the tools it auto-allows (#2519). */
+export interface ClaudeToolRoster {
+  askUser: StartTurnRequest["bridge"]["askUser"];
+  askUserList: StartTurnRequest["bridge"]["askUserList"];
+  askUserRank: StartTurnRequest["bridge"]["askUserRank"];
+  askUserForm: StartTurnRequest["bridge"]["askUserForm"];
+  getLocation: StartTurnRequest["bridge"]["getLocation"];
+  requestMask: StartTurnRequest["bridge"]["requestMask"];
+  proposePolicyChange: StartTurnRequest["bridge"]["proposePolicyChange"];
+  queryActivity: StartTurnRequest["bridge"]["queryActivity"];
+  /** Whether the turn registers its own size-limited /tmp tool. */
+  turnTempTool: boolean;
+  /** Whether the server owns application, so legacy writers migrate to its tools. */
+  hosted: boolean;
+  /** The SDK `allowedTools`, in the order the provider sees them. */
+  allowed: string[];
+}
+
+export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly string[]): ClaudeToolRoster {
   // Bind current handlers; interactive schema presence never grants authority.
   const askUser = req.bridge.askUser;
   const getLocation = req.bridge.getLocation;
@@ -203,7 +217,7 @@ function assembleClaudeSdkTurn(
   // Native writers keep their auto-allow on governed typed turns; the hook
   // refuses them on strict/voice turns before any settings or remembered grant.
   // Keep server writers alongside the natives, with their existing authority.
-  const allowed = [...new Set(options.allowedTools.flatMap(name => {
+  const allowed = [...new Set(allowedTools.flatMap(name => {
     if (!hosted) return [name];
     const migrated = migrations[name] ?? name;
     return !req.autonomous && (name === "Write" || name === "Edit") ? [name, migrated] : [migrated];
@@ -246,7 +260,15 @@ function assembleClaudeSdkTurn(
     // permission to answer.
     allowed.push(SHOW_BLOCK_TOOL_NAME);
   }
+  return { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool, hosted, allowed };
+}
 
+/** The environment a turn's subprocesses run with, and the provider keys its worker keeps. */
+export function turnChildEnvironment(
+  options: Pick<ClaudeSdkTurnOptions, "turnEnvironment" | "hostInference" | "profile">,
+  envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined
+) {
+  const { profile } = options;
   const inheritedEnv = envelope?.env ?? options.turnEnvironment ?? turnEnv(profile);
   // Only the explicitly selected internal transport changes inference auth.
   // Other provider/command environment compatibility remains #1666 work.
@@ -268,6 +290,17 @@ function assembleClaudeSdkTurn(
   // withholds every other provider key, and the note names what stays.
   const credentialEnv = [...CLAUDE_INFERENCE_ENV, ...profile.requiredEnvKeys, ...operatorAdmittedEnvNames()];
   const providerKeys = workerProviderCredentials(childEnv, credentialEnv).kept.filter(name => !inferenceEnv || !(name in inferenceEnv));
+  return { inferenceEnv, childEnv, credentialEnv, providerKeys };
+}
+
+/** The worker's writable areas and limits, and the note the agent reads about them. */
+function prepareSandboxNote(
+  options: ClaudeSdkTurnOptions,
+  envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined,
+  providerKeys: string[],
+  turnTempTool: boolean
+) {
+  const { backend, req, confirmPatterns, log } = options;
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
@@ -284,6 +317,22 @@ function assembleClaudeSdkTurn(
   const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
+  return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote };
+}
+
+/**
+ * The system prompt append and, for an interactive turn, the prompt context
+ * its first user message carries (#2519). The append is snapshotted once per
+ * session; live facts travel only on the new user message.
+ */
+export function assemblePromptContext(
+  backend: ClaudeBackendOptions,
+  req: StartTurnRequest,
+  roster: ClaudeToolRoster,
+  sandbox: NonNullable<StartTurnRequest["workerSandbox"]>,
+  sandboxNote: string
+) {
+  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool } = roster;
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -325,6 +374,19 @@ function assembleClaudeSdkTurn(
     ...(req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}),
     ...(req.budgetContext ? { budget: req.budgetContext } : {}),
   });
+  return { contextId, context, append, owned };
+}
+
+function assembleClaudeSdkTurn(
+  options: ClaudeSdkTurnOptions,
+  envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined
+): ClaudeSdkTurn {
+  const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
+  const roster = computeToolRoster(req, options.allowedTools);
+  const { turnTempTool, hosted, allowed } = roster;
+  const { inferenceEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
+  const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
+  const { contextId, context, append, owned } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote);
   const subscriptionOnly = profile.billing !== "api";
   const sdkOptions: Options = {
     ...(req.autonomous ? { persistSession: false } : {}),
@@ -382,22 +444,7 @@ function assembleClaudeSdkTurn(
   if (profile.model !== undefined) sdkOptions.model = profile.model;
   const effort = claudeEffort(profile, req.thinkingLevel);
   if (effort !== undefined) sdkOptions.effort = effort;
-  if (req.thinkingLevel !== undefined) {
-    // Options are a request, not evidence: managed CLI settings can clamp them.
-    // Stop reports the main turn's active effort after that clamp. Preserve all
-    // permission hooks and never let this observation decide tool permission.
-    sdkOptions.hooks = {
-      ...sdkOptions.hooks,
-      Stop: [...(sdkOptions.hooks?.Stop ?? []), { hooks: [async (input) => {
-        const effective = input.effort?.level;
-        if (isThinkingLevel(effective)) {
-          req.bridge.emit({ type: "status", status: "thinking", sessionId: input.session_id,
-            thinkingLevel: req.thinkingLevel, effectiveThinkingLevel: effective });
-        }
-        return {};
-      }] }],
-    };
-  }
+  if (req.thinkingLevel !== undefined) observeEffectiveEffort(sdkOptions, req);
   if (backend.claudeCodePath !== undefined) {
     sdkOptions.pathToClaudeCodeExecutable = backend.claudeCodePath;
   }
@@ -417,17 +464,7 @@ function assembleClaudeSdkTurn(
       log: (level, message) => log(level, message),
     }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
-  if (!req.autonomous) sdkOptions.hooks = {
-    ...sdkOptions.hooks,
-    UserPromptSubmit: [...(sdkOptions.hooks?.UserPromptSubmit ?? []), { hooks: [async () => {
-      const observation = worker.stateRoom();
-      return observation && stateRoomWarning(observation) ? { hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit" as const,
-        additionalContext: `${stateRoomCopy(observation)} Continue in a new conversation before it is full. This one stays available.`
-          + (req.posture === "voice" ? " This is a visual host notice only: do not speak it or treat it as a spoken grant." : ""),
-      } } : {};
-    }] }],
-  };
+  if (!req.autonomous) addStateRoomWarning(sdkOptions, req, worker);
   /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
   let answerText = "";
   const turnTemp: TurnTempAccess = {
@@ -435,80 +472,17 @@ function assembleClaudeSdkTurn(
     exclude: [WORKER_STATE], keep: [WORKER_SCRATCH, ...Object.values(WORKER_XDG_DIRS)],
     linkedText: () => answerText,
   };
-  if (turnTempTool) {
-    // Once past 80% of the allowance and once when full, after the step that did it.
-    const pressure = createTurnTempPressureHook(turnTemp);
-    sdkOptions.hooks = {
-      ...sdkOptions.hooks,
-      PostToolUse: [...(sdkOptions.hooks?.PostToolUse ?? []), { hooks: [pressure] }],
-      PostToolUseFailure: [...(sdkOptions.hooks?.PostToolUseFailure ?? []), { hooks: [pressure] }],
-    };
-  }
+  if (turnTempTool) addTurnTempPressure(sdkOptions, turnTemp);
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   else if (context) sdkOptions.sessionId = contextId;
   // Interactive schema membership is deployment-stable, even without a live
   // handler. The mandatory hook refuses unavailable calls; fallback tool
   // bodies also return model-readable errors instead of acquiring authority.
   let assembledTools: unknown[] | undefined;
-  sdkOptions.mcpServers = {
-    "brain-ui": createBrainUiMcpServer({
-      observeTools: tools => { assembledTools = tools; },
-      stableRoster: !req.autonomous,
-      proposePolicyChange,
-      application: req.bridge,
-      askUser,
-      askUserList,
-      askUserRank,
-      askUserForm,
-      askUserFormLimits: req.bridge.askUserFormLimits,
-      getLocation,
-      requestMask,
-      queryActivity,
-      ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
-      ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
-      // Never in an autonomous roster: its membership is exact server authority.
-      ...(!req.autonomous ? { compute: req.bridge } : {}),
-      // Interactive sessions only: a restricted autonomous roster never lists Apify.
-      ...(!req.autonomous ? { apify: req.bridge } : {}),
-      ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
-        try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
-      }) } : {}),
-      brainPath: backend.brainPath,
-    }),
-  };
+  sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
   sdkOptions.env = childEnv;
-  if (envelope) {
-    // A restricted turn reads no settings, instructions, skills or hooks from
-    // the brain: its instructions are the server's immutable snapshot (R29).
-    sdkOptions.settingSources = [];
-    // Flag settings outrank every settings file: none can reroute inference.
-    sdkOptions.settings = { apiKeyHelper: "", env: { ...envelope.pinned } };
-  } else if (subscriptionOnly || inferenceEnv) {
-    // Flag settings outrank every settings file: none can reroute inference
-    // or put a credential back in front of the relay's placeholder.
-    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, ...(inferenceEnv ? RELAYED_TURN_SETTINGS : {}), env: { ...NEUTRALISED_SETTINGS.env,
-      ...(inferenceEnv ?? {}),
-    } };
-  }
-
-  if (!envelope) {
-    // A resumed preset must extend the same cached prefix even after Git
-    // changes. This also removes the CLI's commit/PR guidance; a brain can
-    // keep its own guidance in CLAUDE.md. Apply after both billing branches.
-    sdkOptions.settings = { ...sdkOptions.settings as object, includeGitInstructions: false };
-  }
-
-
-  if (!req.autonomous) {
-    try { req.bridge.activity?.({ kind: "prompt_prefix", resumed: req.sessionId !== undefined,
-      prefix: promptPrefixFingerprint({
-        // These are SDK assembly inputs. CLI built-ins/project MCP schemas are
-        // opaque here; this digest must never be called a complete wire roster.
-        tools: assembledTools === undefined ? undefined : { builtinSelection: sdkOptions.tools ?? "runtime_default", disallowed: sdkOptions.disallowedTools, bridge: assembledTools },
-        system: sdkOptions.systemPrompt, model: sdkOptions.model, thinking: sdkOptions.effort,
-        gitStatusIncluded: false,
-      }) }); } catch { /* Observability must not fail the observed turn. */ }
-  }
+  applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
+  if (!req.autonomous) reportPromptPrefix(req, sdkOptions, assembledTools);
 
   // The selected relay origin makes the CLI coalesce custom system blocks.
   // Keep all per-item context in the user message, after the marked prefix.
@@ -537,6 +511,125 @@ function assembleClaudeSdkTurn(
         ? buildAttachmentPrompt(prompt, req.attachments)
         : prompt,
   };
+}
+
+/**
+ * Options are a request, not evidence: managed CLI settings can clamp them.
+ * Stop reports the main turn's active effort after that clamp. Preserve all
+ * permission hooks and never let this observation decide tool permission.
+ */
+function observeEffectiveEffort(sdkOptions: Options, req: StartTurnRequest): void {
+  sdkOptions.hooks = {
+    ...sdkOptions.hooks,
+    Stop: [...(sdkOptions.hooks?.Stop ?? []), { hooks: [async (input) => {
+      const effective = input.effort?.level;
+      if (isThinkingLevel(effective)) {
+        req.bridge.emit({ type: "status", status: "thinking", sessionId: input.session_id,
+          thinkingLevel: req.thinkingLevel, effectiveThinkingLevel: effective });
+      }
+      return {};
+    }] }],
+  };
+}
+
+/** Warn the agent, once its runtime state is nearly full, to continue in a new conversation. */
+function addStateRoomWarning(sdkOptions: Options, req: StartTurnRequest, worker: ReturnType<typeof createWorkerSpawn>): void {
+  sdkOptions.hooks = {
+    ...sdkOptions.hooks,
+    UserPromptSubmit: [...(sdkOptions.hooks?.UserPromptSubmit ?? []), { hooks: [async () => {
+      const observation = worker.stateRoom();
+      return observation && stateRoomWarning(observation) ? { hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit" as const,
+        additionalContext: `${stateRoomCopy(observation)} Continue in a new conversation before it is full. This one stays available.`
+          + (req.posture === "voice" ? " This is a visual host notice only: do not speak it or treat it as a spoken grant." : ""),
+      } } : {};
+    }] }],
+  };
+}
+
+/** The in-process brain-ui MCP server, with the bridge handlers the roster bound. */
+function turnMcpServer(
+  backend: ClaudeBackendOptions,
+  req: StartTurnRequest,
+  roster: ClaudeToolRoster,
+  turnTemp: TurnTempAccess,
+  observeTools: (tools: unknown[]) => void
+) {
+  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool } = roster;
+  return createBrainUiMcpServer({
+    observeTools,
+    stableRoster: !req.autonomous,
+    proposePolicyChange,
+    application: req.bridge,
+    askUser,
+    askUserList,
+    askUserRank,
+    askUserForm,
+    askUserFormLimits: req.bridge.askUserFormLimits,
+    getLocation,
+    requestMask,
+    queryActivity,
+    ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
+    ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
+    // Never in an autonomous roster: its membership is exact server authority.
+    ...(!req.autonomous ? { compute: req.bridge } : {}),
+    // Interactive sessions only: a restricted autonomous roster never lists Apify.
+    ...(!req.autonomous ? { apify: req.bridge } : {}),
+    ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
+      try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
+    }) } : {}),
+    brainPath: backend.brainPath,
+  });
+}
+
+/** Once past 80% of the allowance and once when full, after the step that did it. */
+function addTurnTempPressure(sdkOptions: Options, turnTemp: TurnTempAccess): void {
+  const pressure = createTurnTempPressureHook(turnTemp);
+  sdkOptions.hooks = {
+    ...sdkOptions.hooks,
+    PostToolUse: [...(sdkOptions.hooks?.PostToolUse ?? []), { hooks: [pressure] }],
+    PostToolUseFailure: [...(sdkOptions.hooks?.PostToolUseFailure ?? []), { hooks: [pressure] }],
+  };
+}
+
+/** Flag settings outrank every settings file; a restricted turn reads none from the brain. */
+function applyTurnSettings(
+  sdkOptions: Options,
+  envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined,
+  subscriptionOnly: boolean,
+  inferenceEnv: Readonly<Record<string, string>> | undefined
+): void {
+  if (envelope) {
+    // A restricted turn reads no settings, instructions, skills or hooks from
+    // the brain: its instructions are the server's immutable snapshot (R29).
+    sdkOptions.settingSources = [];
+    // Flag settings outrank every settings file: none can reroute inference.
+    sdkOptions.settings = { apiKeyHelper: "", env: { ...envelope.pinned } };
+  } else if (subscriptionOnly || inferenceEnv) {
+    // Flag settings outrank every settings file: none can reroute inference
+    // or put a credential back in front of the relay's placeholder.
+    sdkOptions.settings = { ...NEUTRALISED_SETTINGS, ...(inferenceEnv ? RELAYED_TURN_SETTINGS : {}), env: { ...NEUTRALISED_SETTINGS.env,
+      ...(inferenceEnv ?? {}),
+    } };
+  }
+  if (!envelope) {
+    // A resumed preset must extend the same cached prefix even after Git
+    // changes. This also removes the CLI's commit/PR guidance; a brain can
+    // keep its own guidance in CLAUDE.md. Apply after both billing branches.
+    sdkOptions.settings = { ...sdkOptions.settings as object, includeGitInstructions: false };
+  }
+}
+
+/** The prompt-prefix fingerprint an interactive turn reports as activity. */
+function reportPromptPrefix(req: StartTurnRequest, sdkOptions: Options, assembledTools: unknown[] | undefined): void {
+  try { req.bridge.activity?.({ kind: "prompt_prefix", resumed: req.sessionId !== undefined,
+    prefix: promptPrefixFingerprint({
+      // These are SDK assembly inputs. CLI built-ins/project MCP schemas are
+      // opaque here; this digest must never be called a complete wire roster.
+      tools: assembledTools === undefined ? undefined : { builtinSelection: sdkOptions.tools ?? "runtime_default", disallowed: sdkOptions.disallowedTools, bridge: assembledTools },
+      system: sdkOptions.systemPrompt, model: sdkOptions.model, thinking: sdkOptions.effort,
+      gitStatusIncluded: false,
+    }) }); } catch { /* Observability must not fail the observed turn. */ }
 }
 
 function buildAppend(

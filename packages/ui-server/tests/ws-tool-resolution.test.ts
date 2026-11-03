@@ -51,7 +51,6 @@ function setup() {
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog: createSessionCatalog(() => db) });
   cleanup = () => {
     state.finish();
-    host.coordinator.reset();
     host.close();
     db.close();
   };
