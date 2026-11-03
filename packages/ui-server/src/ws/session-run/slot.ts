@@ -1,6 +1,6 @@
 import { createTurnLifecycle } from "../../activity/turn-lifecycle.js";
 import type { WsHost } from "../host.js";
-import { resolveTurnTarget } from "../routing.js";
+import type { resolveTurnTarget } from "../routing.js";
 import type { QueuedFollowUp, RunningTurn, StartingSession } from "../turns.js";
 import { REVOKED_REASON } from "../turns.js";
 import type { RunSessionInput, SessionSlot, TurnLifecycle } from "./types.js";
@@ -9,52 +9,62 @@ import type { RunSessionInput, SessionSlot, TurnLifecycle } from "./types.js";
 export const SLOT_ENDED_REASON = "The session stopped before it ran.";
 
 /**
- * Route a new slot and register its turn. Messages that arrive while routing
- * queue on the starting session and become the turn's queue. Resolves
- * undefined when the slot ends before any turn: routing failed (reported
- * here), the start was cancelled, the host is closing, or the principal was
- * revoked.
+ * Open a session start: messages that arrive while the slot routes queue on
+ * it, and become the turn's queue once the slot is registered.
  */
-export async function openSessionSlot(
-  host: WsHost,
-  initial: RunSessionInput,
-  initialTurnId: string,
-  initialLifecycle: TurnLifecycle | undefined
-): Promise<SessionSlot | undefined> {
-  const { coordinator } = host;
+export function beginSlotStart(host: WsHost, initial: RunSessionInput): StartingSession {
   const starting: StartingSession = {
     queue: [],
     cancelled: false,
     ...(initial.revision !== undefined ? { revision: initial.revision } : {}),
   };
-  coordinator.beginStarting(initial.sessionId, starting);
-  let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
-  try {
-    target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    initialLifecycle?.finish("error", message);
-    // No turn exists yet — routing failed before one was minted — so the
-    // report carries only the session identity the client asked for.
-    host.reportTurnFailed("BACKEND_ERROR", { sessionId: initial.sessionId }, message);
-    initial.work?.settle("error", { reason: message });
-    // Messages queued behind this start have no runner now: settle their
-    // work and release their leases instead of stranding them.
-    for (const entry of starting.queue) entry.work?.settle("error", { reason: message });
-    if (initial.sessionId) coordinator.dropStartingQueue(initial.sessionId, starting, message);
-    else for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
-    host.sendToClients({
-      type: "error",
-      code: "BACKEND_ERROR",
-      message,
-      ...(initial.sessionId ? { sessionId: initial.sessionId } : {}),
-      ...(initial.requestId ? { requestId: initial.requestId } : {}),
-    });
-    return undefined;
-  } finally {
-    coordinator.endStarting(initial.sessionId, starting);
-  }
+  host.coordinator.beginStarting(initial.sessionId, starting);
+  return starting;
+}
 
+/**
+ * Routing failed before a turn was minted: report it with only the session
+ * identity the client asked for, and settle everything queued behind it.
+ */
+export function reportRoutingFailure(
+  host: WsHost,
+  initial: RunSessionInput,
+  starting: StartingSession,
+  err: unknown,
+  initialLifecycle: TurnLifecycle | undefined
+): void {
+  const message = err instanceof Error ? err.message : String(err);
+  initialLifecycle?.finish("error", message);
+  host.reportTurnFailed("BACKEND_ERROR", { sessionId: initial.sessionId }, message);
+  initial.work?.settle("error", { reason: message });
+  // Messages queued behind this start have no runner now: settle their
+  // work and release their leases instead of stranding them.
+  for (const entry of starting.queue) entry.work?.settle("error", { reason: message });
+  if (initial.sessionId) host.coordinator.dropStartingQueue(initial.sessionId, starting, message);
+  else for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+  host.sendToClients({
+    type: "error",
+    code: "BACKEND_ERROR",
+    message,
+    ...(initial.sessionId ? { sessionId: initial.sessionId } : {}),
+    ...(initial.requestId ? { requestId: initial.requestId } : {}),
+  });
+}
+
+/**
+ * Register a routed slot's turn, synchronously after its start ended so no
+ * message can find the session neither starting nor running. Resolves
+ * undefined when the slot ends before any turn: the start was cancelled,
+ * the host is closing, or the principal was revoked.
+ */
+export function registerSessionSlot(
+  host: WsHost,
+  initial: RunSessionInput,
+  starting: StartingSession,
+  target: Awaited<ReturnType<typeof resolveTurnTarget>>,
+  initialTurnId: string
+): SessionSlot | undefined {
+  const { coordinator } = host;
   if (starting.cancelled || host.closing) {
     for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
     return undefined;

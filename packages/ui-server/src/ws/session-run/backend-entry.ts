@@ -51,7 +51,7 @@ function recordSource(run: TurnRun, sessionId: string): void {
  */
 export async function openTurnBridge(
   run: TurnRun,
-  admission: Extract<GovernedAdmission, { kind: "admitted" }>,
+  admission: GovernedAdmission,
   budget: TurnBudget | undefined
 ): Promise<{ prompt: string; bridge: BackendBridge }> {
   const { host, slot, turn, backend, current, recorder, failureRecording, billing, held, origin, profileId, resumeId } = run;

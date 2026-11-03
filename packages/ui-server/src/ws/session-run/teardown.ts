@@ -68,9 +68,9 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   turn.work = undefined;
   releaseActive(slot);
   // The recorder's writes, terminal included, commit off the event loop
-  // (#2814); recovery must see them before the final idle notification.
+  // (#2814); recovery must see them before the final idle notification,
+  // which the slot publishes with {@link publishTurnStatus}.
   await recorder?.settled();
-  publishTurnStatus(run, outcome);
 }
 
 /**

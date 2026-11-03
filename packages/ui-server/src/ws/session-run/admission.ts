@@ -126,21 +126,18 @@ export function heldProfile(run: Pick<TurnRun, "held">): "governed" | "strict" {
   return run.held.governedHold!.sandbox.profile === "governed" ? "governed" : "strict";
 }
 
-export type GovernedAdmission =
-  | {
-      readonly kind: "admitted";
-      /** The principal's profile preference for an interactive turn, which a draft's first send records. */
-      readonly preference: "governed" | "strict" | undefined;
-    }
-  | { readonly kind: "revoked" };
+export interface GovernedAdmission {
+  /** The principal's profile preference for an interactive turn, which a draft's first send records. */
+  readonly preference: "governed" | "strict" | undefined;
+}
 
 /**
  * Governed admission, in order: the governed hold, the budget and its
  * warnings, the journal, a managed worktree generation (#2430), reference
  * tools (#2432) and per-turn scope caps. What it acquires is recorded on
  * {@link TurnRun.held} as it goes, so teardown releases it whichever way the
- * turn ends. Throws a refusal or an abort; resolves `revoked` when the
- * principal lost authority during the native awaits.
+ * turn ends. Throws a refusal or an abort. The caller confirms the turn's
+ * authority with {@link confirmAdmission} once this resolves.
  */
 export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission> {
   const { host, slot, turn, backend, lifecycle, abortController, billing, recorder, held, stops, origin, profileId, resumeId } = run;
@@ -212,11 +209,20 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
       generation: held.worktreeGeneration ?? null, signal: abortController.signal });
   }
   if (governedHold && host.scope) await beginTurnScope(run);
-  abortController.signal.throwIfAborted();
-  // Native admission awaits can outlive principal revocation or expiry.
-  host.expireAuthorizationContexts();
-  if (!turn.authorization.valid) return { kind: "revoked" };
-  return { kind: "admitted", preference };
+  return { preference };
+}
+
+/**
+ * Confirm the turn may still start, after admission's last await. Native
+ * admission awaits can outlive principal revocation or expiry; a revoked
+ * request is refused without cancelling another principal's queue. The
+ * caller acts on the result in the same synchronous run, so nothing can
+ * revoke the turn between this check and its prompt being handed over.
+ */
+export function confirmAdmission(run: Pick<TurnRun, "host" | "turn" | "abortController">): "admitted" | "revoked" {
+  run.abortController.signal.throwIfAborted();
+  run.host.expireAuthorizationContexts();
+  return run.turn.authorization.valid ? "admitted" : "revoked";
 }
 
 /** Whether the backend's turn runs on the host inference relay. */

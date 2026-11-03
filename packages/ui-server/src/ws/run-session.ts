@@ -18,7 +18,21 @@ import type { AuthorizationContext, HostWork, QueuedFollowUp, RunningTurn } from
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import type { WsHost } from "./host.js";
 import { MAX_SESSION_QUEUE, QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "./limits.js";
-import { bindRequest, closeSessionSlot, dequeueRequest, dropHandedOver, firstRequest, openSessionSlot, requestLifecycle } from "./session-run/slot.js";
+import { emitTurnError } from "./bridge.js";
+import { resolveTurnTarget } from "./routing.js";
+import {
+  beginSlotStart,
+  bindRequest,
+  closeSessionSlot,
+  dequeueRequest,
+  dropHandedOver,
+  firstRequest,
+  registerSessionSlot,
+  releaseActive,
+  reportRoutingFailure,
+  requestLifecycle,
+} from "./session-run/slot.js";
+import { publishTurnStatus } from "./session-run/teardown.js";
 import { runSlotTurn } from "./session-run/turn.js";
 import type { HandoffHooks, RunSessionInput, TurnLifecycle } from "./session-run/types.js";
 import { REVOKED_REASON } from "./turns.js";
@@ -75,7 +89,9 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
  * The slot's lifecycle: setup, then each request in queue order, then
  * teardown. Each request is bound to the slot, run as one turn
  * (`session-run/turn.ts`), and the slot advances to the session and profile
- * that turn left behind.
+ * that turn left behind. Every state transition the slot makes between two
+ * awaits runs in one synchronous step here: routing's end and the turn's
+ * registration, and a turn's result and the next dequeue or the slot's close.
  */
 async function runRetainedSession(
   host: WsHost,
@@ -83,7 +99,17 @@ async function runRetainedSession(
   initialTurnId: string,
   initialLifecycle: TurnLifecycle | undefined
 ): Promise<void> {
-  const slot = await openSessionSlot(host, initial, initialTurnId, initialLifecycle);
+  const starting = beginSlotStart(host, initial);
+  let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
+  try {
+    target = await resolveTurnTarget(host.registry, host.catalog, initial.sessionId, initial.providerId);
+  } catch (err) {
+    reportRoutingFailure(host, initial, starting, err, initialLifecycle);
+    return;
+  } finally {
+    host.coordinator.endStarting(initial.sessionId, starting);
+  }
+  const slot = registerSessionSlot(host, initial, starting, target, initialTurnId);
   if (!slot) return;
   const { turn } = slot;
   let next: QueuedFollowUp | null = firstRequest(initial);
@@ -102,12 +128,21 @@ async function runRetainedSession(
       }
       next = null;
       const result = await runSlotTurn(slot, current, lifecycle);
-      if (result === "stop") break;
-      if (result === "revoked") {
+      if (result.kind === "denied") {
+        const { error } = result;
+        lifecycle?.finish("denied", error instanceof Error ? error.message : String(error));
+        emitTurnError(host, turn, error);
+        current.work?.settle("error", { reason: error instanceof Error ? error.message : String(error) });
+        break;
+      }
+      if (result.kind === "revoked") {
+        lifecycle?.finish("cancelled", REVOKED_REASON);
+        releaseActive(slot);
         dropHandedOver(slot, current, REVOKED_REASON);
         next = dequeueRequest(turn);
         continue;
       }
+      publishTurnStatus(slot, result.outcome);
 
       // Subsequent (queued) turns resume the now-known session and keep its
       // pin. turn.providerId is the resolved profile (set from initial routing

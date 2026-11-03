@@ -1,22 +1,24 @@
 import { emitTurnError } from "../bridge.js";
 import type { QueuedFollowUp } from "../turns.js";
-import { REVOKED_REASON } from "../turns.js";
 import { recordPendingCancellations } from "./cancellations.js";
-import { admitGovernedTurn, admitWorkerHost, announceTurnStart, armTurnTimeout, createRunRecorder } from "./admission.js";
+import { admitGovernedTurn, admitWorkerHost, announceTurnStart, armTurnTimeout, confirmAdmission, createRunRecorder } from "./admission.js";
 import { openTurnBridge, prepareRelayedEgress, turnRequest } from "./backend-entry.js";
 import { resolveRunBilling } from "./billing.js";
 import { budgetAttribution, budgetEvent, createTurnBudget, settleBudgetWrites } from "./budget.js";
 import { AdmissionRevoked, classifyCompletedTurn, classifyFailedTurn, UNCLASSIFIED_OUTCOME, type TurnOutcome } from "./outcome.js";
-import { releaseActive } from "./slot.js";
 import { teardownTurn } from "./teardown.js";
 import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
 
 /**
  * How one request of a slot ended: it `ran` (whatever its outcome), its
- * principal was `revoked` before it reached admission, or the host refused
- * it and the slot `stop`s.
+ * principal was `revoked` before it reached admission, or the host check
+ * `denied` it and the slot stops. The slot acts on each in the same
+ * synchronous run as its next dequeue or its close.
  */
-export type SlotTurnResult = "ran" | "revoked" | "stop";
+export type SlotTurnResult =
+  | { readonly kind: "ran"; readonly outcome: TurnOutcome }
+  | { readonly kind: "revoked" }
+  | { readonly kind: "denied"; readonly error: unknown };
 
 /** Run the request the slot is bound to as one turn, from host admission to teardown. */
 export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, lifecycle: TurnLifecycle | undefined): Promise<SlotTurnResult> {
@@ -28,13 +30,7 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   const abortController = new AbortController();
   turn.abortController = abortController;
   const workerHost = await admitWorkerHost(host, backend, work);
-  if (workerHost.kind === "denied") {
-    const { error } = workerHost;
-    lifecycle?.finish("denied", error instanceof Error ? error.message : String(error));
-    emitTurnError(host, turn, error);
-    work?.settle("error", { reason: error instanceof Error ? error.message : String(error) });
-    return "stop";
-  }
+  if (workerHost.kind === "denied") return { kind: "denied", error: workerHost.error };
   const timeoutHandle = armTurnTimeout(host, turn, abortController);
   const billing = await resolveRunBilling(host.registry, backend.id, slot.profileId);
   const failureRecording = await host.failureReplay.begin(backend, slot.resumeId, turn.turnId, abortController.signal);
@@ -58,9 +54,7 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
     // was revoked a moment later would erase the actor, not the turn. Drain
     // the buffer before leaving.
     recordPendingCancellations(host, turn, billing, lifecycle);
-    lifecycle?.finish("cancelled", REVOKED_REASON);
-    releaseActive(slot);
-    return "revoked";
+    return { kind: "revoked" };
   }
   const recorder = createRunRecorder(host, turn, lifecycle, billing, abortController, work);
   const mainModel = billing?.model ?? null;
@@ -86,18 +80,17 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
     stops: {}, budgetWrites: new Set(), held: { referenceViews: null, referenceTurn: false, enteredBackend: false },
   };
   announceTurnStart(slot, current, run.startedAt);
-  await executeTurn(run);
-  return "ran";
+  return { kind: "ran", outcome: await executeTurn(run) };
 }
 
 /** Admit, enter the backend, classify the outcome and tear the turn down. */
-async function executeTurn(run: TurnRun): Promise<void> {
+async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
   const { host, turn, backend, lifecycle, abortController, recorder, held, stops } = run;
   let outcome: TurnOutcome = UNCLASSIFIED_OUTCOME;
   turn.backendStarted = false;
   try {
     const admission = await admitGovernedTurn(run);
-    if (admission.kind === "revoked") throw new AdmissionRevoked();
+    if (confirmAdmission(run) === "revoked") throw new AdmissionRevoked();
     const budget = host.budgets && held.governedHold ? createTurnBudget(run) : undefined;
     const { prompt, bridge } = await openTurnBridge(run, admission, budget);
     await prepareRelayedEgress(run, bridge, budget);
@@ -148,4 +141,5 @@ async function executeTurn(run: TurnRun): Promise<void> {
   } finally {
     await teardownTurn(run, outcome);
   }
+  return outcome;
 }
