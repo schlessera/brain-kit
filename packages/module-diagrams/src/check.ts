@@ -8,7 +8,7 @@ import { checkDiagramLayouts } from "./layout.js";
 import { checkAxis } from "./axis-check.js";
 import { buildDiagram, DiagramGeometryError } from "./geometry.js";
 import { isMap, parseDocument } from "yaml";
-import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
+import { AXIS_TYPES, diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
 
 export interface DiagramFinding { path: string; code: string; message: string }
 export interface DiagramCheckResult { schema_version: 1; valid: boolean; type: DiagramSpec["type"] | null; errors: DiagramFinding[]; warnings: DiagramFinding[] }
@@ -137,6 +137,14 @@ export function checkDiagram(source: string): DiagramCheckResult {
   output.errors.push(...checkDiagramSkin(spec), ...checkDiagramLayouts(spec));
   const positional = checkPositional(spec); output.errors.push(...positional.errors); output.warnings.push(...positional.warnings);
   const axisFindings = checkAxis(spec); output.errors.push(...axisFindings.errors); output.warnings.push(...axisFindings.warnings);
+  // Valid means drawable: build the same default axis geometry the renderer builds.
+  if (!output.errors.length && (AXIS_TYPES as readonly string[]).includes(spec.type)) {
+    try { buildDiagram(spec); }
+    catch (failure) {
+      if (failure instanceof DiagramGeometryError) output.errors.push(...failure.findings);
+      else error("$", "layout", (failure as Error).message);
+    }
+  }
   if(!output.errors.length&&spec.callouts?.length){
     const tree=buildDiagram(spec);output.errors.push(...planCallouts(spec,tree,diagramLegend(spec,tree).footerHeight).errors);
   }
