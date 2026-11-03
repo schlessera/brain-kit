@@ -1,5 +1,5 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
-import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { sharedFileMetaSchema } from "./track-schemas.js";
 export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
@@ -696,10 +696,18 @@ export const hygieneEffectSchema = z.strictObject({
   findingId: id, fingerprint: id, handler: id.optional(), input: hygieneInputSchema.optional(),
   previewToken: id.optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(),
   destination: z.string().min(1).max(4096).optional(), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  approvedBy: id.optional(),
 }) satisfies z.ZodType<HygieneEffect>;
 const mediaPath = z.string().min(1).max(4096);
 const sha256OrNull = z.string().regex(/^([a-f0-9]{64}|directory)$/).nullable();
 export const hygieneMediaRefusalSchema = z.strictObject({ code: z.string().min(1).max(64), path: z.string().max(65_536).optional(), line: z.number().int().min(1).optional(), limit: z.string().max(64).optional(), effective: z.number().int().min(0).optional(), observed: z.number().int().min(0).optional() }) satisfies z.ZodType<HygieneMediaRefusal>;
+const listClass = z.enum(["TRACK", "ARTIFACT", "SENSITIVE"]).nullable();
+export const hygieneMediaMatchesSchema = z.strictObject({
+  pattern: z.string().min(1).max(4096), anyFolder: z.boolean(), count: z.number().int().min(0), bytes: z.number().int().min(0),
+  changed: z.number().int().min(0), ignoredStill: z.number().int().min(0), sensitive: z.number().int().min(0),
+  largest: z.array(z.strictObject({ path: mediaPath, bytes: z.number().int().min(0).nullable(), before: listClass, after: listClass })).max(5),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+}) satisfies z.ZodType<HygieneMediaMatches>;
 /** A media plan as the CLI previews it; unknown CLI keys are dropped, every kept one is bounded. */
 export const hygieneMediaPlanSchema = z.object({
   action: z.enum(["delete", "move", "persist", "keep-copy"]), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/), destination: mediaPath.nullable(),
@@ -710,6 +718,11 @@ export const hygieneMediaPlanSchema = z.object({
   rewrites: z.array(z.strictObject({ note: mediaPath, line: z.number().int().min(1), kind: z.string().max(32), before: z.string().max(4096), after: z.string().max(4096) })).max(10_000),
   blockers: z.array(z.strictObject({ note: mediaPath, line: z.number().int().min(1), kind: z.string().max(32), target: z.string().max(65_536) })).max(10_000),
   configDiff: z.strictObject({ path: mediaPath, track: z.strictObject({ before: z.array(z.string().max(4096)).max(10_000), after: z.array(z.string().max(4096)).max(10_000) }), ignore: z.strictObject({ before: z.array(z.string().max(4096)).max(10_000), after: z.array(z.string().max(4096)).max(10_000) }) }).nullable(),
+  // Additive (#2781): a broader config change and what its approval binds; a CLI before it omits them.
+  scope: z.enum(["exact", "pattern"]).nullable().optional(), pattern: z.string().min(1).max(4096).nullable().optional(),
+  ignoreAdjust: z.string().min(1).max(4096).nullable().optional(),
+  matches: z.strictObject({ track: hygieneMediaMatchesSchema, ignore: hygieneMediaMatchesSchema.nullable() }).nullable().optional(),
+  approvalDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
   copy: z.strictObject({ bytes: z.number().int().min(0), sha256: z.string().regex(/^[a-f0-9]{64}$/), diskFreeAdvisory: z.number().min(0).nullable() }).nullable(),
   resultClass: z.enum(["TRACK", "ARTIFACT"]).nullable(),
   refusals: z.array(hygieneMediaRefusalSchema).max(10_000),

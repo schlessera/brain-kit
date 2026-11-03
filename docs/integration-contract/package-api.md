@@ -1711,18 +1711,29 @@ Additive shapes in `@schlessera/brain-ui-sdk`:
 
 | Surface | Change |
 | --- | --- |
-| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination` and `premiseDigest` |
-| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`) |
+| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination`, `premiseDigest` and `approvedBy` (the principal who previewed a broader config change, below) |
+| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`), and optionally `scope` (`exact`\|`pattern`\|null), `pattern`, `ignoreAdjust`, `matches` (`{ track, ignore }` of `HygieneMediaMatches`) and `approvalDigest`, which a CLI before them omits |
+| `HygieneMediaMatches`, `hygieneMediaMatchesSchema` | new (0.45.0): `{ pattern, anyFolder, count, bytes, changed, ignoredStill, sensitive, largest: [{ path, bytes, before, after }] (at most 5), digest }`, a list pattern's current matches among the files sync sees, with the class (`TRACK`\|`ARTIFACT`\|`SENSITIVE`\|null) the lists give each before and after |
 | `HygieneAction.outcome.status` | gains `kept`, a confirmed Keep a permanent copy |
 | `HygieneReviewMediaUndoCommand`, `HygieneReviewRequest` | new (0.45.0): `{ operation: "undo-media", journalId }`, Undo of a confirmed media effect from review (below); `HygieneReviewRequest` is it or the unchanged `HygieneReviewCommand`, parsed by the new `hygieneReviewMediaUndoCommandSchema` and `hygieneReviewRequestSchema`; `hygieneReviewCommandSchema` is unchanged |
 | `HygieneReviewRead.mediaUndo` | `HygieneMediaReceipt`, on the `undo-media` response only (0.45.0) |
 | `HygieneAction.outcome.media` | `HygieneMediaReceipt`: `{ journalId, action, outcome: "pending"\|"applied"\|"kept"\|"compensated"\|"partial"\|"refused"\|"stale"\|"undone", reason?, refusals?, files: [{ path, state: "created"\|"changed"\|"removed"\|"restored"\|"unchanged"\|"left-changed"\|"conflict" }], copySha256?, undo: { available, reason?, path? } }` |
 
-A media finding's card offers Persist here, Move to a final location…, Keep a
+A media finding's card offers Persist here, Persist with a broader rule…
+(not for scratch or share-staged files), Move to a final location…, Keep a
 permanent copy… (scratch only) and Delete…, before Leave pending. Persist and
 Delete are planned when the card is prepared; Move and Keep a copy when a
 destination is previewed (`POST /hygiene/review/preview` with the path as
-`input`). A plan with refusals keeps them on the option and has no
+`input`), and the broader rule (option `media-persist-rule`, effect
+`media-persist`) when its `media.track` pattern is previewed as `input`.
+When a previewed track entry would still lose to exactly one broader
+`media.ignore` entry, the preview plans that ignore's removal too
+(`ignoreAdjust`), with the files it stops ignoring in `matches.ignore`;
+several such entries stay refused as `ignore-adjustment-required`. A plan
+with an `approvalDigest` (a broader rule or ignore adjustment) records the
+previewing principal as `effect.approvedBy`; confirming it as anyone else is
+`stale` with reason `stale-approval`, and the CLI refuses the same reason
+when the config, the diff or any match changed since. A plan with refusals keeps them on the option and has no
 `premiseDigest`, so it cannot be confirmed. Confirming applies exactly the
 previewed plan: an applied effect resolves the card as `fixed`, a kept copy
 as `kept` (the review's `kept` counter); `stale` and `refused` leave it

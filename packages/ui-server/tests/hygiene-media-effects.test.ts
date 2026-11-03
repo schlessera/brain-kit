@@ -239,7 +239,7 @@ test("review offers the media effects with their plans, applies one through the 
   // Notes without frontmatter would be selected first, as errors.
   rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md"));
   const card = (await f.review.command(f.reviewer.id, "start")).action!;
-  expect(card.options.map(o => o.id), "MEDIA_REVIEW_OPTIONS").toEqual(["media-persist", "media-move", "media-delete", "leave-pending", "check", "later", "dismiss"]);
+  expect(card.options.map(o => o.id), "MEDIA_REVIEW_OPTIONS").toEqual(["media-persist", "media-persist-rule", "media-move", "media-delete", "leave-pending", "check", "later", "dismiss"]);
   const del = card.options.find(o => o.id === "media-delete")!;
   expect(del.media?.files, "MEDIA_REVIEW_PLANNED").toEqual([{ path: LOOM, role: "source", before: sha("loom bytes"), after: null, bytes: 10 }]);
   // Move needs a previewed destination first.
@@ -330,6 +330,67 @@ test("undo-media of a kept copy from review removes the copy, its rule and its k
   expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_REVIEW_UNDO_UNKEPT").not.toContain("harbour-dawn");
   expect(read(f.root, SCRATCH)).toBe("dawn bytes");
   expect(result.review.kept, "MEDIA_REVIEW_UNDO_KEPT_COUNTER").toBe(0);
+});
+
+test("review previews a broader Persist rule with its current matches, applies it for the principal who approved it, and Undo restores the config", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  const rule = card.options.find(o => o.id === "media-persist-rule")!;
+  expect(rule, "MEDIA_RULE_OPTION").toMatchObject({ label: "Persist with a broader rule…", input: { type: "string", example: "photos/*" }, effect: { operation: "media-persist" } });
+  const previewed = await f.review.preview(f.reviewer.id, { itemId: card.id, optionId: "media-persist-rule", expectedVersion: card.version, input: "photos/*" });
+  const option = previewed.options.find(o => o.id === "media-persist-rule")!;
+  expect(option.media, "MEDIA_RULE_PLAN").toMatchObject({ scope: "pattern", pattern: "photos/*", refusals: [], configDiff: { track: { before: [], after: ["photos/*"] } } });
+  expect(option.media?.matches?.track, "MEDIA_RULE_MATCHES").toMatchObject({ count: 2, changed: 2, anyFolder: false });
+  expect(option.media?.approvalDigest).toMatch(/^[0-9a-f]{64}$/);
+  expect(option.effect, "MEDIA_RULE_APPROVED_BY").toMatchObject({ approvedBy: f.reviewer.id });
+  // The plain Persist here option is unchanged: the exact path, no approval.
+  expect(previewed.options.find(o => o.id === "media-persist")?.media, "MEDIA_RULE_EXACT_UNCHANGED").toMatchObject({ scope: "exact", approvalDigest: null });
+  expect(read(f.root, "brain.config.json")).toBe("{}\n");
+  await resolveWith(f, card.id, "media-persist-rule");
+  expect(createInboxStoreRead(f.db, card.id)!.hygiene?.outcome, "MEDIA_RULE_APPLIED").toMatchObject({ status: "fixed", media: { outcome: "applied", action: "persist" } });
+  expect(read(f.root, "brain.config.json"), "MEDIA_RULE_CONFIG").toBe('{ "media": { "track": ["photos/*"] } }\n');
+  // The rule also covers the other current match: nothing is left to review.
+  expect(f.review.read().action, "MEDIA_RULE_COVERS_MATCHES").toBeFalsy();
+  const result = await f.review.undoMedia(f.reviewer.id, createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId);
+  expect(result.mediaUndo.outcome).toBe("undone");
+  expect(read(f.root, "brain.config.json"), "MEDIA_RULE_UNDO_CONFIG").toBe("{}\n");
+});
+
+test("a broader rule another principal previewed is a stale approval, and a match that appears after the preview is too; nothing is written", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  const other = createPrincipal(f.db, { authMethod: "password", label: "Telemachus", ttlSeconds: 86400 });
+  await f.review.preview(other.id, { itemId: card.id, optionId: "media-persist-rule", expectedVersion: card.version, input: "photos/*" });
+  await resolveWith(f, card.id, "media-persist-rule");
+  expect(createInboxStoreRead(f.db, card.id)!.hygiene?.outcome, "MEDIA_RULE_OTHER_PRINCIPAL").toMatchObject({ status: "stale", reason: "stale-approval" });
+  expect(read(f.root, "brain.config.json")).toBe("{}\n");
+
+  const g = await setup();
+  const next = await reviewWithTwo(g);
+  await g.review.preview(g.reviewer.id, { itemId: next.id, optionId: "media-persist-rule", expectedVersion: next.version, input: "photos/*" });
+  put(g.root, "photos/suitors.png", "suitor bytes");
+  await resolveWith(g, next.id, "media-persist-rule");
+  expect(createInboxStoreRead(g.db, next.id)!.hygiene?.outcome, "MEDIA_RULE_STALE_MATCHES").toMatchObject({ status: "stale", media: { outcome: "stale", reason: "stale-approval" } });
+  expect(read(g.root, "brain.config.json")).toBe("{}\n");
+});
+
+test("a copy destination under a broader ignore is previewed with that ignore adjusted and what stops being ignored, then applied as approved", async () => {
+  const f = await setup();
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md")); rmSync(join(f.root, LOOM));
+  put(f.root, "brain.config.json", '{ "media": { "ignore": ["places/renders/*"] } }\n');
+  put(f.root, "places/renders/ithaca-sketch.png", "sketch bytes");
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  const card = (await f.review.command(f.reviewer.id, "start")).action!;
+  const previewed = await f.review.preview(f.reviewer.id, { itemId: card.id, optionId: "media-keep-copy", expectedVersion: card.version, input: "places/renders/harbour-dawn.jpg" });
+  const plan = previewed.options.find(o => o.id === "media-keep-copy")!.media!;
+  expect(plan, "MEDIA_ADJUST_PLAN").toMatchObject({ refusals: [], scope: "exact", ignoreAdjust: "places/renders/*", configDiff: { ignore: { before: ["places/renders/*"], after: [] } } });
+  expect(plan.matches?.ignore, "MEDIA_ADJUST_MATCHES").toMatchObject({ count: 1, changed: 1 });
+  await resolveWith(f, card.id, "media-keep-copy");
+  expect(createInboxStoreRead(f.db, card.id)!.hygiene?.outcome?.status, "MEDIA_ADJUST_KEPT").toBe("kept");
+  expect(read(f.root, "brain.config.json"), "MEDIA_ADJUST_CONFIG").toBe('{ "media": { "ignore": [], "track": ["places/renders/harbour-dawn.jpg"] } }\n');
+  expect(read(f.root, "places/renders/harbour-dawn.jpg")).toBe("dawn bytes");
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
 });
 
 test("POST /hygiene/review routes undo-media: a refusal is a 200 result, a malformed body 400, an unknown receipt 500", async () => {
