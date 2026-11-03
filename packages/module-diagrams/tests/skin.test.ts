@@ -91,3 +91,18 @@ test("group labels also retain the rendered text floor", () => {
  const spec = parse(fixture); spec.groups[0].label = "HOME ".repeat(100);
  expect(checkDiagram(JSON.stringify(spec)).errors.some(f => f.code === "text_floor" && f.path === "$.groups[0].label")).toBe(true);
 });
+
+test("width budgets follow the locked fonts, so a name that fits its box keeps its full size", async () => {
+  const { fitDiagramText, TYPE_WIDTH_HEADROOM } = await import("../src/skin.js");
+  const { DIAGRAM_ADVANCES } = await import("../src/font-metrics.generated.js");
+  // A 152px node leaves 136px after its 8px padding per side. Shaped in Chrome
+  // with Plus Jakarta Sans 600 at 12px, "Penelope + the suitors" measures 127.9px; its budget is 132.1px.
+  expect(fitDiagramText("Penelope + the suitors", "name", 136), "NAME_KEEPS_FULL_SIZE").toBe(12);
+  // The budget is the advance sum with headroom: never below the shaped width.
+  const sum = Array.from("Penelope + the suitors").reduce((n, c) => n + DIAGRAM_ADVANCES.name[c.codePointAt(0)! - 0x20]!, 0) * 12;
+  expect(typeWidthBudget("Penelope + the suitors", "name")).toBeCloseTo(sum * TYPE_WIDTH_HEADROOM, 6);
+  // Monospace roles are exactly 0.6em per glyph.
+  expect(DIAGRAM_ADVANCES.sub.every(advance => advance === 0.6)).toBe(true);
+  // Outside printable ASCII the conservative estimate stays.
+  expect(typeWidthBudget("Ιθάκη", "name")).toBeGreaterThan(typeWidthBudget("Ithaka", "name"));
+});
