@@ -179,7 +179,7 @@ an invalidation can name the fields that changed.
 entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
 records its time and the fingerprint it applied to. `until:` takes an ISO
 date-time or a date; a date is due at the start of that UTC day, as before
-(`function dueAt`, `packages/core/src/lib/hygiene.ts:840-850`). A recorded
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:876-886`). A recorded
 fingerprint that no longer matches reopens the finding at once, with an
 `invalidated:` receipt naming the changed fields and the disposition's date.
 A snooze that comes due reopens it with no receipt.
@@ -189,7 +189,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1363`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1399`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -203,7 +203,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1337-1340`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1373-1376`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

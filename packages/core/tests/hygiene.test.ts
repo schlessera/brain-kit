@@ -23,6 +23,9 @@ import {
   reconcile,
   replaceIfUnchanged,
   shortPath,
+  acceptMtimes,
+  silentEditCandidates,
+  silentEdits,
   type HygieneCandidate,
 } from "../src/lib/hygiene";
 import type { LoadedModule } from "../src/lib/module-types";
@@ -61,6 +64,62 @@ const stale: HygieneCandidate = {
 const STALE_ID = "staleness-context-current-focus-c515";
 
 const entry = (id: string, ...lines: string[]) => [`### ${id}`, ...lines].join("\n");
+
+describe("silent edits (#1353)", () => {
+  // One query serves briefing (newest first, limited) and hygiene (drifted
+  // more than seven days, in path order).
+  function index(): Database {
+    const database = openDatabase(":memory:");
+    const insert = database.prepare(
+      `INSERT INTO documents (path, title, type, status, created, updated, content, indexed_at, file_mtime)
+       VALUES (?, ?, 'note', ?, '2026-01-01', ?, '', '2026-07-01', ?)`
+    );
+    insert.run("b.md", "B", "active", "2026-01-01", "2026-03-01"); // 59 days of drift
+    insert.run("a.md", "A", "active", "2026-01-01", "2026-02-01"); // 31 days
+    insert.run("c.md", "C", "active", "2026-01-01", "2026-01-05"); // 4 days: briefing only
+    insert.run("archived.md", "Archived", "archived", "2026-01-01", "2026-05-01");
+    insert.run("current.md", "Current", "active", "2026-06-01", "2026-05-01");
+    insert.run("accepted.md", "Accepted", "active", "2026-01-01", "2026-04-01");
+    acceptMtimes(database, "accepted.md");
+    return database;
+  }
+
+  test("silentEdits lists newest first and honours its limit", () => {
+    const database = index();
+    try {
+      expect(silentEdits(database).map((r) => r.path)).toEqual(["b.md", "a.md", "c.md"]);
+      expect(silentEdits(database, { limit: 2 })).toEqual([
+        { file_mtime: "2026-03-01", updated: "2026-01-01", path: "b.md", title: "B" },
+        { file_mtime: "2026-02-01", updated: "2026-01-01", path: "a.md", title: "A" },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  test("silentEditCandidates keeps edits over seven days apart, in path order", () => {
+    const database = index();
+    try {
+      expect(silentEditCandidates(database)).toEqual([
+        { category: "silent-edit", path: "a.md", evidence: "a.md", message: "File changed 2026-02-01, frontmatter updated 2026-01-01 (31 days apart)" },
+        { category: "silent-edit", path: "b.md", evidence: "b.md", message: "File changed 2026-03-01, frontmatter updated 2026-01-01 (59 days apart)" },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  test("acceptMtimes baselines one path or every document, and counts them", () => {
+    const database = index();
+    try {
+      expect(acceptMtimes(database, "missing.md")).toBe(0);
+      expect(acceptMtimes(database)).toBe(6);
+      expect(silentEdits(database)).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+});
 
 describe("stable IDs", () => {
   // Each hash4 below was computed from the documented formula with
