@@ -975,6 +975,7 @@ export "./internal" (./src/internal.ts)
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  type CompiledWorkerCommandPolicy
   DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES
   DEFAULT_MAINTENANCE_TEMP_BYTES
   DEFAULT_OUTPUT_STAGING_BYTES
