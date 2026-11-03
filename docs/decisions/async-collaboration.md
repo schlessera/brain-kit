@@ -30,7 +30,7 @@ decision is meaningless: Queue items acquire leases; Actions stay pending or
 snoozed until a validated disposition. Every mutation emits its change row in
 the same transaction. Reuse the activity cursor algorithm and transactional
 snapshot discipline, rather than importing its activity-specific stream
-(`createActivityStream`, `packages/ui-server/src/activity/stream.ts:160-176`).
+(`createActivityStream`, `packages/ui-server/src/activity/stream.ts:169-185`).
 
 ## Authority and containment
 
@@ -75,7 +75,7 @@ optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/serve
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:110-499`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:201-209`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential

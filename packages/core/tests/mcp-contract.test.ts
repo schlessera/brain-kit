@@ -1,6 +1,6 @@
 /**
  * MCP contract tests. Spawns the real stdio server against a temp corpus and
- * asserts the tool surface (all 8 `brain_*` names, readOnly annotations, the
+ * asserts the tool surface (all 14 `brain_*` names, readOnly annotations, the
  * input schemas pinned in mcp-input-schemas.json) and the result shapes of the
  * five read tools.
  */
@@ -44,9 +44,12 @@ function withoutDescriptions(schema: unknown): unknown {
 }
 
 const READ_TOOLS = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph"];
+const COMPUTE_TOOLS = [
+  "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
+];
 /** The fixed Apify operations (#3162), shared with `brain apify` and both chat backends. */
 const APIFY_TOOLS = ["brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"];
-const ALL_TOOLS = [...READ_TOOLS, "brain_add", "brain_update", "brain_archive", ...APIFY_TOOLS];
+const ALL_TOOLS = [...READ_TOOLS, "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOLS, ...APIFY_TOOLS];
 
 beforeAll(async () => {
   root = makeTempBrain();
@@ -67,7 +70,7 @@ afterAll(async () => {
   cleanup(root);
 });
 
-test("lists all 15 brain_* tools", async () => {
+test("lists all 21 brain_* tools", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   expect(names).toEqual([...ALL_TOOLS].sort());

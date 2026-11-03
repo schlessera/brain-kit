@@ -24,26 +24,13 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
 import type { WsHost } from "./host.js";
-import type {
-  AskKind,
-  PendingAskUser,
-  PendingAskUserForm,
-  PendingAskUserList,
-  PendingAskUserRank,
-  TurnCoordinator,
-} from "./turns.js";
+import type { AskKind, PendingAsk, TurnCoordinator } from "./turns.js";
 
 type AskAnswer =
   | ClientAskUserResponse
   | ClientAskUserListResponse
   | ClientAskUserRankResponse
   | ClientAskUserFormResponse;
-
-type PendingAsk =
-  | { kind: "ask_user"; entry: PendingAskUser }
-  | { kind: "ask_user_list"; entry: PendingAskUserList }
-  | { kind: "ask_user_rank"; entry: PendingAskUserRank }
-  | { kind: "ask_user_form"; entry: PendingAskUserForm };
 
 const ANSWER_KIND: Record<AskAnswer["type"], AskKind> = {
   ask_user_response: "ask_user",
@@ -54,15 +41,7 @@ const ANSWER_KIND: Record<AskAnswer["type"], AskKind> = {
 
 /** The pending ask with this id, of whichever kind. The kinds share one id space. */
 function findPendingAsk(coordinator: TurnCoordinator, requestId: string): PendingAsk | undefined {
-  const ask = coordinator.pendingAskUser.get(requestId);
-  if (ask) return { kind: "ask_user", entry: ask };
-  const list = coordinator.pendingAskUserList.get(requestId);
-  if (list) return { kind: "ask_user_list", entry: list };
-  const rank = coordinator.pendingAskUserRank.get(requestId);
-  if (rank) return { kind: "ask_user_rank", entry: rank };
-  const form = coordinator.pendingAskUserForm.get(requestId);
-  if (form) return { kind: "ask_user_form", entry: form };
-  return undefined;
+  return coordinator.pendingAsk(requestId);
 }
 
 /** The receipt for a request that is no longer pending, from its recorded outcome. */
@@ -144,29 +123,7 @@ export function handleAskAnswer(
     return;
   }
 
-  switch (pending.kind) {
-    case "ask_user":
-      coordinator.pendingAskUser.delete(msg.requestId);
-      break;
-    case "ask_user_list":
-      coordinator.pendingAskUserList.delete(msg.requestId);
-      break;
-    case "ask_user_rank":
-      coordinator.pendingAskUserRank.delete(msg.requestId);
-      break;
-    case "ask_user_form":
-      coordinator.pendingAskUserForm.delete(msg.requestId);
-      break;
-  }
-  coordinator.recordAskOutcome({
-    requestId: msg.requestId,
-    sessionId: entry.turn.sessionId,
-    turnId: entry.turnId,
-    state: "accepted",
-    submissionId,
-    principalId,
-    at: Date.now(),
-  });
+  coordinator.acceptAsk(pending, { submissionId, principalId });
   entry.turn.recorder?.recordAskUserResponse(principalId);
   if (pending.kind === "ask_user" && msg.type === "ask_user_response") {
     pending.entry.resolve({ answers: msg.answers, annotations: msg.annotations });
