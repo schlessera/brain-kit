@@ -49,6 +49,21 @@ Object.assign(window, {
       return outcome(root.localWork!.snapshotNow());
     },
     restoring: () => root.localWork!.restoring(),
+    /** Whether the host keeps drafts (#951), and the view's draft id. */
+    draftsSupported: () => root.stores.drafts.getState().supported,
+    draftId: () => root.stores.drafts.getState().idFor(root.stores.chat.getState().activeSessionId),
+    /** One draft's reconciliation state, by id (#1214). */
+    draft: (draftId: string) => {
+      const d = root.stores.drafts.getState().drafts[draftId];
+      return d ? { text: d.text, sessionId: d.sessionId, revision: d.host?.revision ?? null, uncertain: d.uncertain, bind: d.bind } : null;
+    },
+    texts: () => Object.values(root.stores.drafts.getState().drafts).map((d) => d.text),
+    /** What the host keeps, read with this page's session cookie. */
+    hostDrafts: async () => ((await (await fetch("/api/drafts")).json()) as { drafts: Array<{ draftId: string; sessionId: string | null; revision: number; preview: string }> }).drafts,
+    clearHostDrafts: async () => {
+      const { drafts } = (await (await fetch("/api/drafts")).json()) as { drafts: Array<{ draftId: string; revision: number }> };
+      for (const d of drafts) await fetch(`/api/drafts/${encodeURIComponent(d.draftId)}`, { method: "DELETE", headers: { "if-match": String(d.revision) } });
+    },
     snapshotNow: () => outcome(root.localWork ? root.localWork.snapshotNow() : Promise.resolve()),
     /** The partition module itself, past any UI. */
     read: (accountKey: string, key: string) => outcome(root.partitions!.open(`account:${accountKey}`).get(key)),
