@@ -497,13 +497,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1339-1595`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1355-1613`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:1113-1137`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:1129-1153`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -513,7 +513,7 @@ host (`function* launchAgentWorkerSteps`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:54`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:57`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
@@ -692,7 +692,7 @@ as fd 4 after the bootstrap's descriptor filter. bubblewrap passes it into the
 sandbox, where the trusted absolute `/bin/sh` reads one line from it, requires
 exactly `go`, closes fd 4 and only then execs the payload. EOF, a partial line
 or any other line ends the sandbox with exit 125. `release()` writes `go\n`
-(`const START_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:65`).
+(`const START_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:68`).
 
 **Why.** bubblewrap proceeds past `--block-fd` on EOF: its sandbox child reads
 one byte and ignores the result. That child arms `PR_SET_PDEATHSIG` only after
@@ -750,5 +750,57 @@ with descriptors 0-2 only and stdin byte-identical.
 
 **Not covered.** The separate-UID identity helper gates with its own
 `--block-fd` pipe. Whether its death fails closed is tracked in
-[#3402](https://github.com/schlessera/brain-kit/issues/3402). Post-release
-server death is unchanged.
+[#3402](https://github.com/schlessera/brain-kit/issues/3402), and the next
+section rules on it. Post-release server death is unchanged.
+
+### The identity helper's start gate fails closed too — 2026-11-03
+
+Ruling on [#3402](https://github.com/schlessera/brain-kit/issues/3402), applying
+the decision above to the separate-UID launch.
+
+**The hole.** A separate-identity launch does not use the server's fd 4 gate.
+Its same-UID coordinator (`WORKER_IDENTITY_SUPERVISOR`) holds the only writer
+of its own gate pipe. The helper protocol puts that pipe on bubblewrap's
+`--block-fd` and the helper refuses a launch without it
+([the host protocol](../hosting/agent-workers.md#separate-worker-identity)).
+The launcher also removed `STATE_GATE` from these payloads. So the payload's
+only gate was `--block-fd`, which opens on end-of-file. Probed on a Linux host
+with bubblewrap 0.11.1, using the real launcher and coordinator against a
+same-UID stand-in helper: a coordinator SIGKILLed after spawn and before
+release started the payload, both during setup and after it, for synchronous
+and asynchronous launches. A server and coordinator killed together also
+started the payload. The helper's parent-death signal kills the outer
+bubblewrap but not its sandbox child, as above.
+
+**Decision.** Every separate-identity payload now runs behind `STATE_GATE`, the
+trusted absolute `/bin/sh` that reads one complete `go` line from stdin and
+refuses end-of-file or anything else with exit 125
+(`function identityStartGate`,
+`packages/ui-sdk/src/server/worker-launcher.ts:79`). That covers launches with
+and without runtime state. The server writes that line only after the
+coordinator has confirmed its release, and it holds stdin's only writer. So the
+payload starts only when both holders have authorised it. If either dies before
+release, the payload stays out. If only the coordinator dies, `--block-fd`
+opens, but the gate shell still waits on the server, which never writes the
+line. The synchronous host probe's identity path does the same.
+
+**Why stdin and not the fd 4 gate.** The fd 4 gate needs bubblewrap to run
+without `--block-fd` and a descriptor that survives into the sandbox. The
+helper protocol is a published contract: it requires `--block-fd`, and the
+helper closes every other descriptor before it execs bubblewrap. Changing that
+would break every installed helper. The protocol never constrains the command
+after `--`, so a stdin gate there needs no helper change. This is the original
+runtime-state gate (step 2 above), and it reads a byte at a time, so payload
+stdin after the gate line is unchanged.
+
+**Proof.** `packages/ui-sdk/tests/identity-gate-holder-crash.test.ts` runs the
+real launcher and coordinator in a separate server process, against
+`tests/fixtures/identity-gate-helper.py`. That fixture implements the launch,
+mount, signal and cleanup operations as the server's own UID. It SIGKILLs the
+coordinator during setup, after setup before release (synchronous,
+asynchronous and without runtime state), and together with the server. It also
+kills the server alone. Each case waits until every process of the launch is
+dead and requires no payload marker. The released control starts the payload
+once, with descriptors 0-2 only and stdin byte-identical. The stand-in drops no
+identity: the cross-UID behaviour stays proven by the disposable-container
+qualification.

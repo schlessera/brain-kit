@@ -60,6 +60,16 @@ fixed worker-UID raw reading and owned cleanup. SCM_RIGHTS transfers only explic
 descriptors; unexpected handles, substituted roots, wrong filesystem/size,
 malformed status, stale identities and unrelated targets refuse.
 
+The coordinator's gate pipe is not the payload's only gate. bubblewrap starts
+its sandbox when that pipe reads end-of-file, which happens when the
+coordinator dies. So every separate-identity payload also runs behind the
+trusted stdin gate: an absolute `/bin/sh` that needs one complete `go` line
+before it becomes the command. The server writes that line only after the
+coordinator confirms the release. A coordinator or server that dies before
+release never starts the payload. Helpers see no protocol change, because the
+gate is part of the command after `--`
+([the ruling](../decisions/policy-write-boundary.md#the-identity-helpers-start-gate-fails-closed-too--2026-11-03)).
+
 Before releasing bubblewrap's private start gate, the coordinator retains
 verified runtime-state and turn-temp directory handles. Their tmpfs
 superblocks must represent both outside UIDs: creating them in a user
@@ -91,7 +101,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:561-576`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:577-592`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
