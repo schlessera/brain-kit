@@ -9,6 +9,7 @@ import { GENERIC_RENDERER, registerBuiltinRenderers } from "./renderers/index.js
 import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { effectOf, getToolLabel } from "./tool-views.js";
 import { riskHints } from "./risk-hints.js";
+import { APIFY_APPROVAL_TOOLS, apifyApprovalTarget } from "./renderers/apify-tools.js";
 
 export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: forced }: {
   toolCall: ToolCall;
@@ -30,7 +31,9 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
   const label = typeof renderer.label === "function" ? renderer.label(toolCall) : renderer.label ?? getToolLabel(toolCall.name);
   const Input = renderer.Input;
   const input = toolCall.input ?? {};
-  const target = [input.command, input.cmd, input.file_path, input.notebook_path, input.path, input.url, input.target]
+  // An Apify card names its Actor or query; its review renders below, never as one JSON line (#3163).
+  const apifyRun = toolCall.name === APIFY_APPROVAL_TOOLS.run;
+  const target = apifyApprovalTarget(toolCall) ?? [input.command, input.cmd, input.file_path, input.notebook_path, input.path, input.url, input.target]
     .find((value): value is string => typeof value === "string" && value.length > 0)
     ?? JSON.stringify(input);
   function decide(approved: boolean, always?: boolean) {
@@ -51,11 +54,13 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
   }
   return <div ref={card} data-approval-card data-tool-use-id={toolCall.id} role="group" aria-label={`Approval: ${label}`} tabIndex={0}
     onKeyDown={onKeyDown} className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary/50" style={{overflowWrap:"anywhere"}}>
-    <ApprovalCard tool={toolCall.name} target={target} toolIcon="approval" badge={toolCall.restored ? "Approval needed · restored" : "Approval needed"}
+    <ApprovalCard tool={toolCall.name} target={target} toolIcon="approval"
+      badge={`Approval needed${apifyRun ? " · paid run" : ""}${toolCall.restored ? " · restored" : ""}`}
+      {...(apifyApprovalTarget(toolCall) !== null ? { allowLabel: "Allow once" } : {})}
       wrapHeader diff="" risk={riskHints(toolCall, renderer.semantics).join(" · ")}
       shortcuts={printKeys ? { allow: "a", deny: "d" } : undefined}
       onAllow={onApproval ? () => decide(true) : undefined} onDeny={onApproval ? () => decide(false) : undefined}
-      onAlwaysAllow={onApproval && offersAlwaysAllow(toolCall) ? () => decide(true, true) : undefined}>
+      onAlwaysAllow={onApproval && offersAlwaysAllow(toolCall) && apifyApprovalTarget(toolCall) === null ? () => decide(true, true) : undefined}>
       {Input ? <Input tool={toolCall} /> : null}
       {effectOf(toolCall) ? <p className="text-[11px] text-muted-foreground">{effectOf(toolCall)}</p> : null}
     </ApprovalCard>

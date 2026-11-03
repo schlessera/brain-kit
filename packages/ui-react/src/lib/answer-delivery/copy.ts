@@ -18,6 +18,9 @@ interface DeliveryCopy {
 /** The line under `Send as message` (ruling R1). */
 export const SEND_AS_MESSAGE_NOTE = "Sends a new chat message; it doesn't answer this question.";
 
+/** What replaces it once `Send as message` was used (#3356). */
+export const SENT_AS_MESSAGE_NOTE = "Sent as a new chat message; it didn't answer this question.";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pad = (n: number) => String(n).padStart(2, "0");
 

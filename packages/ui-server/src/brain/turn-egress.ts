@@ -116,8 +116,8 @@ export async function prepareTurnEgress(options: {
     } catch { fail(); }
   };
   /**
-   * Any admitted connection other than the inference relay taints the session
-   * (G6), recorded before its first byte. Sticky: once read, never re-read.
+   * Any admitted connection other than a host relay taints the session (G6),
+   * recorded before its first byte. Sticky: once read, never re-read.
    */
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
@@ -130,8 +130,10 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean }): Promise<void> => {
-    if (destination.inference) return;
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean }): Promise<void> => {
+    // A host relay's operation neither taints the session nor makes its host
+    // one the worker's own traffic may reach once tainted (G6, #3246).
+    if (destination.inference || destination.provider) return;
     contacted.add(destination.host);
     if (!writes || tainted) return;
     tainted = true;

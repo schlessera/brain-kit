@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:171-190`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:174-193`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -115,6 +115,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/plan` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
+| `POST /api/chat-deletions` | `mounted supported handler: POST /api/chat-deletions` | CD |
 | `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
@@ -172,10 +173,10 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:293-313`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
-- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:65-82`)
-- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:159-175`)
-- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:177-186`)
-- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:213-230`)
+- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:66-83`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:160-176`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:178-187`)
+- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:214-231`)
 
 **A — Password access and revocation.**
 
@@ -361,11 +362,11 @@ checks both nonempty priced and mixed-knownness fixtures
 
 **G — Geometry validation and degradation.**
 
-- `rejects a bad bbox before reaching the network` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`rejects a bad bbox before reaching the network`, `packages/ui-server/tests/geo-route.test.ts:141-147`)
-- `fetches once, then serves from disk` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`fetches once, then serves from disk`, `packages/ui-server/tests/geo-route.test.ts:149-164`)
-- `an outage is not cached, so it does not become permanent` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`an outage is not cached, so it does not become permanent`, `packages/ui-server/tests/geo-route.test.ts:188-203`)
-- `every response carries the attribution, including the empty ones` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`every response carries the attribution, including the empty ones`, `packages/ui-server/tests/geo-route.test.ts:228-236`)
-- `a view can force a finer tier than its size suggests` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`a view can force a finer tier than its size suggests`, `packages/ui-server/tests/geo-route.test.ts:263-270`)
+- `rejects a bad bbox before reaching the network` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`rejects a bad bbox before reaching the network`, `packages/ui-server/tests/geo-route.test.ts:142-148`)
+- `fetches once, then serves from disk` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`fetches once, then serves from disk`, `packages/ui-server/tests/geo-route.test.ts:150-165`)
+- `an outage is not cached, so it does not become permanent` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`an outage is not cached, so it does not become permanent`, `packages/ui-server/tests/geo-route.test.ts:218-233`)
+- `every response carries the attribution, including the empty ones` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`every response carries the attribution, including the empty ones`, `packages/ui-server/tests/geo-route.test.ts:258-266`)
+- `a view can force a finer tier than its size suggests` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`a view can force a finer tier than its size suggests`, `packages/ui-server/tests/geo-route.test.ts:293-300`)
 
 **Local roadblock report (internal #1672).**
 
@@ -442,7 +443,7 @@ poke method refusal and conditional static assets. HEAD dispatch suppresses
 the body; configured OPTIONS preflight is tested before authentication, with
 unconfigured and denied-origin controls.
 
-The `mounted internal router: GET PATH` tests reach pi-auth, web-search,
+The `mounted internal router: GET PATH` tests reach pi-auth, web-search, apify,
 tool-permissions, skills, graph and vpn-check through the real app and require
 successful JSON responses (`mounted internal router:`,
 `packages/ui-server/tests/http-internal-mounts.test.ts:8-17`). The inventory
@@ -518,3 +519,11 @@ exercise two processes, cancellation, cache failure and parent SIGKILL.
 [Delivery tests](../packages/ui-server/tests/storage-notify.test.ts) use the
 existing injected transport, including concurrent native senders and SIGKILL
 after dispatch entry; they never contact a push provider.
+
+CD: [Chat deletion on a real file-backed writer](../packages/ui-server/tests/chat-deletion.test.ts)
+covers per-store removal against a whole-database marker scan, unrelated chat and
+unbound draft controls, replay refusal, honest partial/unknown outcomes, restart
+reconciliation, and the endpoint's owner, agent, ambient, foreign, stale and revoked
+cases. [The WebSocket host test](../packages/ui-server/tests/ws-chat-deletion.test.ts)
+covers busy refusal, a resume held across retirement, admission and recovery refusal
+and targeted `chat_retired` delivery.

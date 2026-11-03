@@ -1357,3 +1357,90 @@ which is the case `.bk-hit` above exists for. An item's inline removal
 confirmation uses reaching Buttons in a row with
 `any-pointer-coarse:gap-y-4`, as that section requires. All three use the kit focus ring: inset on rows, +2 on `⋯`.
 Nothing animates, so reduced motion needs no extra rule.
+
+## 2026-11-03 — D58: compact operation status is one presentational control (#3281)
+
+Two consumers need to say what happened to work the user cannot see. One is the
+draft saving its text and files (#3155). The other is a chat deletion the host
+has not confirmed (#3231). A persistent status line costs composer space, and
+a bare `StatusDot` cannot explain an unknown outcome or offer recovery. The
+maintainer chose a compact, animated, colour-coded icon with hover and tap
+details. On 2026-11-02 they approved the specification on the issue
+(R1 A, R2 A, R3 A).
+
+### The state matrix
+
+Every state has its own existing `Icon` key and an existing semantic ink, so
+neither colour nor motion carries meaning alone
+(`STATES`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:46-55`).
+
+| State | Glyph key | Tone | Motion |
+| --- | --- | --- | --- |
+| `active` | `loading` | amber | `breathe`, 2s, while the consumer reports real work |
+| `queued` | `later` | neutral | static: waiting on a known prerequisite, not saved |
+| `success` | `finished` | teal | static: authoritative confirmation from the consumer |
+| `attention` | `attention` | gold | static: known recoverable limitation, such as offline |
+| `unknown` | `unproven` | gold | static: outcome unconfirmed, never success |
+| `failed` | `stopped` | red | static: known failure |
+| `refused` | `unreachable` | red | static: known refusal, never inferred from a lost reply |
+| `idle` | `withdrawn` | neutral | static: nothing pending |
+
+- **R1 A, queued is neutral.** Ordinary waiting stays calm, and caution is
+  kept for attention and unknown facts. Rejected: gold, which made pending
+  work look like a problem.
+- **R2 A, draft success persists.** The static teal check stays while the
+  exact acknowledged draft is nonempty and unchanged. An edit clears it at
+  once. Rejected: hiding it a few seconds after saving, which brings back the
+  "is it saved?" doubt and needs a timer that could keep a stale claim alive.
+  That mapping belongs to the #3155 consumer. The component has no timer.
+
+### Interaction
+
+The control
+(`StatusIndicator`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:121-223`)
+draws a 20px glyph inside a native 44px `<button>`. A square `::before` keeps
+the target's corners inside the rounded paint. The control has no native
+`title`, so it composes the `TranscriptQualifiers` pattern and does not use
+`IconButton`, which always emits one.
+
+- **Hover and focus show the same summary.** Hover waits 300ms. The tooltip
+  can be hovered, is clamped 16px inside the viewport, flips below when there
+  is no room above, and Escape hides it without moving focus.
+- **Click, tap, Enter and Space open persistent details** in
+  `Overlay variant="dialog"`, which is a sheet at phone widths and a dialog on
+  desktop. Initial focus goes to the heading. Escape, Close and the scrim follow
+  the topmost-overlay rules and return focus to the trigger, or to the
+  consumer's `returnFocus` once the trigger has gone. After a close, a resting
+  pointer must leave the trigger before hover shows the tooltip again.
+- **Opening details has no effect.** Check, Retry and every other effect are
+  separate consumer buttons inside the details.
+- **Updates happen in place.** The heading is not refocused, and an action the
+  user is on keeps focus.
+- **One polite live region** sits beside the trigger, or inside the modal while
+  it is open, because the rest of the page is inert then
+  (`useAnnouncement`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:81-118`).
+  It announces after a 1s coalescing window, and only when the derived state
+  changes or an operation newly enters attention, unknown, failed or refused.
+  Progress, summary and fact changes stay silent.
+
+### Several operations
+
+The display state is derived, worst first: refused, failed, unknown,
+attention, active, queued, success, idle
+(`statusIndicatorLead`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:63-69`).
+Two or more operations show a count. Details list every operation separately,
+keyed by the consumer's id, never by array index. An empty list renders a
+reserved 44px slot with no control. It is idle, never success, and it is how
+an empty draft hides the indicator without a layout shift.
+
+### What it is not
+
+It is not a state engine, an evidence timer or an operation service. The
+consumer owns state, freshness, identity, persistence, principal binding and
+the authority behind every action. `StatusDot` and its consumers are
+unchanged, and nothing else migrates. Stories show the draft and
+deletion-recovery placements and a generic sync example with fixture data;
+#3155 and #3231 own the runtime.
+
+The animation is a scoped amendment to D52's static row, recorded
+[there](sessions-and-drafts.md#3-the-shared-row-above-the-composer-amends-d22).

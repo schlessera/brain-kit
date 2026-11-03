@@ -3,15 +3,17 @@
  * never reapplied. All Action projections use the shared store/change stream. */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
-import { hygieneEffectSchema, hygieneInputSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { createHash } from "node:crypto";
+import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaPlan, HygieneMediaReceipt, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
+import { hygieneEffectSchema, hygieneInputSchema, hygieneMediaPlanSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { MediaEffects } from "./media-effects.js";
 import type { BrainClient } from "../brain/client.js";
 import type { ReferenceWorktreeHygiene } from "../brain/reference-worktree-hygiene.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxResolver } from "./resolve.js";
 import { createInboxStore } from "./store.js";
 
-import { findingSchema, nextSchema, resultSchema, hygieneWrites, HygieneAuthorityError, type Result, type Attempt } from "./hygiene-writes.js";
+import { findingSchema, IDLE_REVIEW, nextSchema, resultSchema, hygieneWrites, HygieneAuthorityError, type Result, type Attempt } from "./hygiene-writes.js";
 export { HygieneAuthorityError } from "./hygiene-writes.js";
 
 const id = z.string().min(1).max(256), text = z.string();
@@ -20,10 +22,13 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   /** Host-only managed worktree findings (#2431), joined into the same review queue. */
   worktrees?: ReferenceWorktreeHygiene;
   /** The gated dispatcher's current exact-operation envelope (#689); default empty. */
-  allowedOperations?: Parameters<typeof createInboxResolver>[1]["allowedOperations"] }) {
+  allowedOperations?: Parameters<typeof createInboxResolver>[1]["allowedOperations"];
+  /** The journal-backed media effects (#2781); without them no media effect is offered. */
+  media?: MediaEffects }) {
   const now = deps.now ?? Date.now, store = createInboxStore(db, { now });
   const write = hygieneWrites(db, deps.timeZone);
   const resolver = createInboxResolver(db, { now, timeZone: deps.timeZone, allowedOperations: deps.allowedOperations ?? (() => []), applyHygiene: apply });
+  let media = deps.media;
   let preparing: Promise<void> | null = null;
   let pauseGeneration = 0;
   const inFlight = new Set<string>();
@@ -52,7 +57,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
-    return row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : { version: 1, status: "idle", position: 0, fixed: 0, dismissed: 0, snoozed: 0 };
+    return row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : IDLE_REVIEW;
   }
   function action(itemId: string): InboxActionItem {
     const item = store.getItem(itemId);
@@ -95,6 +100,16 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   function effect(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"]): HygieneEffect {
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
+  /** A media effect's CLI plan, or null when the CLI could not plan it (not detected, stale). */
+  async function mediaPlan(f: { id: string; fingerprint: string }, operation: MediaOperation, destination?: string): Promise<HygieneMediaPlan | null> {
+    const parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...(destination !== undefined ? ["--to", destination] : []), "--dry-run"]));
+    return parsed.success ? parsed.data : null;
+  }
+  /** The options' media plan: only a plan without refusals carries the premise that lets it apply. */
+  function withPlan(option: InboxOption, plan: HygieneMediaPlan | null, destination?: string): InboxOption {
+    const e = option.effect as HygieneEffect;
+    return { ...option, effect: { ...e, destination, premiseDigest: plan && plan.refusals.length === 0 ? plan.premiseDigest : undefined }, media: plan ?? undefined };
+  }
   /** A repair that takes no input but has no confirmed preview cannot be applied. */
   const missingPreview = (options: InboxOption[]) => options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
   async function prepareOptions(finding: z.infer<typeof findingSchema> | null) {
@@ -112,6 +127,21 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         }
         options.push(inboxOptionSchema.parse(option));
       }
+      // Media effects (#2781, rev 4 §4.2), in the card's order. Persist and
+      // Delete take no input and are planned now; Move and Keep a copy are
+      // planned when a destination is previewed. A plan's refusals stay on
+      // the option, so an unavailable action shows why.
+      if (finding.category === "media" && media) {
+        const scratch = finding.path.startsWith(".brain/scratch/");
+        const rows: Array<[MediaOperation, string, boolean]> = [["media-persist", "Persist here", false], ["media-move", "Move to a final location…", true],
+          ...(scratch ? [["media-keep-copy", "Keep a permanent copy…", true] as [MediaOperation, string, boolean]] : []), ["media-delete", "Delete…", false]];
+        for (const [operation, label, needsPath] of rows) {
+          const option: InboxOption = { id: operation, label, effect: effect(finding, operation), ...(needsPath ? { input: { type: "path" as const } } : {}) };
+          options.push(inboxOptionSchema.parse(needsPath ? option : withPlan(option, await mediaPlan(finding, operation))));
+        }
+      }
+      // Media (#2780) can always be left pending for the rest of this pass.
+      if (finding.category === "media") options.push({ id: "leave-pending", label: "Leave pending", effect: effect(finding, "defer") });
       options.push({ id: "check", label: "Done, check again", effect: effect(finding, "check") },
         { id: "later", label: "Later", effect: effect(finding, "snooze") },
         { id: "dismiss", label: "Dismiss", effect: effect(finding, "dismiss") });
@@ -140,7 +170,10 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     // Recovery/next-item selection cannot authorize re-admission after retirement.
     if (paused && (!principalId || !resumeRetired)) return;
     // CLI selection/reconciliation and previews are outside write transactions.
-    let next = nextSchema.parse(await cli(["next"]));
+    // Findings left pending this pass are skipped while their fingerprint holds.
+    const deferred = state().deferred ?? [];
+    const nextArgs = deferred.length > 0 ? ["next", "--defer", deferred.map(d => `${d.findingId}=${d.fingerprint}`).join(",")] : ["next"];
+    let next = nextSchema.parse(await cli(nextArgs));
     if (principalId) authority(principalId);
     let finding = "finding" in next ? next.finding : null;
     if (paused && !("blocker" in next)) {
@@ -156,7 +189,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     // meanwhile is selected again, and a repair left without a preview is not offered.
     for (let attempt = 0; finding && deps.worktrees?.owns(finding.id) && missingPreview(options); attempt++) {
       if (attempt === 2) { options = options.filter(o => !(o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview)); break; }
-      next = nextSchema.parse(await cli(["next"]));
+      next = nextSchema.parse(await cli(nextArgs));
       finding = "finding" in next ? next.finding : null;
       options = await prepareOptions(finding);
     }
@@ -176,17 +209,53 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (operation !== "pause" && !state().pendingActionId) await ensureNext(principalId, !!state().pauseReason);
     return read();
   }
+  /**
+   * Undo a confirmed media effect from its resolved card (#2781, ruling
+   * 2026-11-03), under the same preflights as the CLI Undo: rollback data
+   * still retained and no file changed since. A refusal is a result, recorded
+   * on the card as its current Undo availability, never a write.
+   */
+  async function undoMedia(principalId: string, journalId: string): Promise<HygieneReviewRead & { mediaUndo: HygieneMediaReceipt }> {
+    authority(principalId);
+    if (!media) throw new Error("Media effects are unavailable");
+    const attempts = db.query("SELECT * FROM hygiene_effect_attempts WHERE status = 'finished' AND principal_id = ? ORDER BY rowid DESC").all(principalId) as Attempt[];
+    const attempt = attempts.find(a => mediaOperationId(a.id) === journalId);
+    if (!attempt) throw new Error("Media receipt unavailable");
+    const item = action(attempt.item_id), e = hygieneEffectSchema.parse(JSON.parse(attempt.effect_json));
+    if (!isMediaOperation(e.operation) || item.status !== "resolved" || busy(item.id)) throw new Error("Not an undoable media card");
+    const receipt = await media.undo({ id: `undo-${journalId}`, principalId, sourceId: journalId });
+    authority(principalId);
+    await write<void>("mediaUndo", now(), principalId, item.id, journalId, receipt, receipt.outcome === "refused" ? media.receipt(journalId, principalId) : null);
+    // The finding is pending again; an active review with no card selects it in order.
+    if (receipt.outcome === "undone" && state().status === "active" && !state().pendingActionId) await ensureNext(principalId);
+    return { ...read(), mediaUndo: receipt };
+  }
   async function preview(principalId: string, request: { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }) {
     authority(principalId); hygieneInputSchema.parse(request.input);
     const item = action(request.itemId), { option, effect: selected } = resolver.inspect(principalId, { type: "inbox_resolve", itemId: item.id, optionId: request.optionId });
     if (item.version !== request.expectedVersion || item.status !== "pending" || busy(item.id)) throw new Error("Inbox version conflict");
+    if (selected.kind === "hygiene" && isMediaOperation(selected.operation)) {
+      if (!media) throw new Error("Media effects are unavailable");
+      const destination = typeof request.input === "string" ? request.input : undefined;
+      const plan = await mediaPlan({ id: selected.findingId, fingerprint: selected.fingerprint }, selected.operation, destination);
+      authority(principalId);
+      await write<void>("mediaPreview", now(), principalId, item, request, option.id, withPlan(option, plan, destination));
+      return action(item.id);
+    }
     if (selected.kind !== "hygiene" || selected.operation !== "resolve" || !selected.handler) throw new Error("Not a repair option");
     const result = resultSchema.parse(await cli(["resolve", "--handler", selected.handler, "--input", JSON.stringify(request.input), "--expect-fingerprint", selected.fingerprint, "--dry-run", "--", selected.findingId]));
     authority(principalId);
     await write<void>("preview", now(), principalId, item, request, option, selected, result);
     return action(item.id);
   }
-  async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string): Promise<Result> {
+  async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string, attemptId: string): Promise<Result> {
+    // Leave pending is review state only: nothing is sent to the CLI.
+    if (e.operation === "defer") return { id: e.findingId, status: "deferred" };
+    if (isMediaOperation(e.operation)) {
+      const plan = action(request.itemId).options.find(o => o.id === request.optionId)?.media;
+      if (!media || !plan) return { id: e.findingId, status: "refused", reason: "media-effects-unavailable" };
+      return mediaResult(e.findingId, await media.apply({ id: mediaOperationId(attemptId), principalId, findingId: e.findingId, fingerprint: e.fingerprint, plan }));
+    }
     const args = e.operation === "resolve" ? ["resolve", "--handler", e.handler!, "--input", JSON.stringify(e.input), "--expect-fingerprint", e.fingerprint, "--expect-preview", e.previewToken!, "--", e.findingId]
       : e.operation === "undo" ? ["undo", "--", e.undoToken!]
       : e.operation === "check" ? ["check", "--", e.findingId]
@@ -216,7 +285,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (!admitted) return { replay: true, followUpId: undefined };
     inFlight.add(request.itemId);
     let result: Result;
-    try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until, principalId); }
+    try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until, principalId, admitted.id); }
     catch {
       // Unknown dispatch receipt stays journaled. Recovery checks; it never retries.
       await write("unknown", now(), request.itemId);
@@ -246,11 +315,44 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         const entry = listed.entries.find(v => v.id === e.findingId);
         const matches = entry?.fingerprint === e.fingerprint && entry.state === (e.operation === "dismiss" ? "dismissed" : "snoozed") && (e.operation !== "snooze" || Date.parse(entry.dueAt ?? "") === attempt.wait_until);
         result = { id: e.findingId, status: matches ? e.operation === "dismiss" ? "dismissed" : "snoozed" : "check_failed", code: matches ? undefined : "receipt-unknown" };
+      } else if (isMediaOperation(e.operation)) {
+        // Until the journal-backed effects attach, an interrupted media effect stays started.
+        if (!media) continue;
+        // Recovery compensates an interrupted effect from its journal row; it never re-applies one.
+        await media.recover();
+        const receipt = media.receipt(mediaOperationId(attempt.id), attempt.principal_id);
+        if (!receipt || receipt.outcome === "pending") result = { id: e.findingId, status: "check_failed", code: "receipt-unknown" };
+        else if (e.operation === "media-keep-copy" && receipt.outcome === "kept") {
+          // A copy is kept only when its entry, fingerprint and copy SHA-256 all match (rev 6 §1).
+          const listed = z.object({ entries: z.array(z.looseObject({ id, state: text, fingerprint: text.nullable(), copySha256: text.nullable().optional() })) }).parse(await cli(["list"]));
+          const entry = listed.entries.find(v => v.id === e.findingId);
+          result = entry?.state === "kept" && entry.fingerprint === e.fingerprint && entry.copySha256 === receipt.copySha256 ? mediaResult(e.findingId, receipt) : { id: e.findingId, status: "check_failed", code: "receipt-unknown", media: receipt };
+        } else result = mediaResult(e.findingId, receipt);
+      } else if (e.operation === "defer") {
+        // Host-only and idempotent: the deferral is recorded when this attempt finishes.
+        result = { id: e.findingId, status: "deferred" };
       } else result = { id: e.findingId, status: "check_failed", code: "undo-receipt-unknown" };
       await finish(attempt, result, true);
     }
     if (state().status === "active" && !state().pendingActionId) await ensureNext();
   }
-  return { read, readFor, details, command, preview, resolver, recover };
+  return { read, readFor, details, command, undoMedia, preview, resolver, recover,
+    /** The app attaches the journal-backed media effects once its journal is ready. */
+    attachMedia(effects: MediaEffects) { media = effects; } };
+}
+
+/** The four media review effects (#2781) and the `brain hygiene media` action each one runs. */
+const MEDIA_ACTIONS = { "media-delete": "delete", "media-move": "move", "media-persist": "persist", "media-keep-copy": "keep-copy" } as const;
+type MediaOperation = keyof typeof MEDIA_ACTIONS;
+/** Narrows an effect to a media one, so the generic disposition argv can never carry one. */
+const isMediaOperation = (operation: HygieneEffect["operation"]): operation is MediaOperation => Object.hasOwn(MEDIA_ACTIONS, operation);
+
+/** A media effect's operation identity, derived from the review attempt that admitted it. */
+export const mediaOperationId = (attemptId: string) => `media-${createHash("sha256").update(attemptId).digest("hex").slice(0, 40)}`;
+
+/** The review outcome for a media receipt: applied is `fixed`, a kept copy `kept`, anything undone by halves `check_failed`. */
+export function mediaResult(findingId: string, receipt: HygieneMediaReceipt): Result {
+  const status = receipt.outcome === "applied" ? "fixed" : receipt.outcome === "kept" ? "kept" : receipt.outcome === "stale" ? "stale" : receipt.outcome === "refused" ? "refused" : "check_failed";
+  return { id: findingId, status, ...(receipt.reason ? { reason: receipt.reason } : {}), ...(status === "check_failed" ? { code: receipt.outcome === "pending" ? "receipt-unknown" : receipt.outcome } : {}), media: receipt };
 }
 export type HygieneReview = ReturnType<typeof createHygieneReview>;

@@ -297,13 +297,16 @@ its watch implementation and CLI remain implementation details.
 
 An internal-only package (#1396): `@schlessera/brain-common` has no root
 entry. Its entries, `./internal/env`, `./internal/frontmatter` and
-`./internal/worker-areas`, `./internal/protected-paths` and
-`./internal/governance-policy`, follow the internal-entry rule above.
+`./internal/worker-areas`, `./internal/protected-paths`,
+`./internal/governance-policy` and `./internal/claude-subscription`, follow
+the internal-entry rule above.
 The policy helper (#1744) serves both core and the server without requiring
 the server’s optional core peer; it adds no supported extension interface. The first
 two replace byte-identical copies of `env-core.ts` and `frontmatter-parse.ts`
 that the packages carried; the third (#1693) holds the worker write-area rules
-that the ui-sdk's sandbox note and core's CLI refusal both state. A name a
+that the ui-sdk's sandbox note and core's CLI refusal both state. The
+subscription billing guard (#2493) replaces the copies core's CLI runner and
+the chat backend carried. A name a
 public entry re-exports from it, such as core's `DynamicEnvReadSpec` and
 `readEnvVar`, stays part of that package's supported surface and is recorded
 in that package's report.

@@ -209,10 +209,18 @@ Before merging a change to a file, look for what cites it:
 git grep -n 'permission-hooks.ts:' -- docs packages
 ```
 
-`tests/decision-citations.test.ts` fails when a citation anywhere under `docs/` no
-longer starts on its anchor, names no anchor, or names a file it cannot find.
-`bun scripts/check-citations.ts` prints the same report on its own, including
-where each drifted anchor now is. What it does **not** check:
+**Citations are checked at release, not at merge** (maintainer ruling,
+2026-11-03). Any PR that moves lines in a cited file drifts other PRs'
+citations, so failing every merge on drift turned main red for documentation
+alone. `experiments/decision-citations.test.ts` fails when a citation anywhere
+under `docs/` no longer starts on its anchor, names no anchor, or names a file
+it cannot find. It runs in the experiment tier, which `bun run release`
+requires on the exact tree it publishes, so no release ships a drifted record.
+`tests/decision-citations.test.ts` still runs on every merge, but only for the
+checker's own rules and the one tree-wide rule that cannot drift: no citation
+into a private repository. `bun scripts/check-citations.ts` prints the full
+report on its own, including where each drifted anchor now is; run it before
+versioning and fix what it reports. What it does **not** check:
 
 - **The end of a range.** A range that grows or shrinks around its first line
   still passes.

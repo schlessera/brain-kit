@@ -1,5 +1,6 @@
 import { withinStorageBudget } from "../db/settlement.js";
 import { readLiveHistory } from "./live-history.js";
+import { ChatRetiredError } from "./chat-lifecycle.js";
 import { requireKnownSession } from "./session-recovery.js";
 /**
  * Host orchestration for live conversations (#957).
@@ -292,6 +293,10 @@ export class ConversationHost {
       const history = await withinStorageBudget(readLiveHistory(this.host, principalId,
         conversation.sessionId ? { sessionId: conversation.sessionId } : { ownerId: conversation.historyOwnerId }, authorized), "Live history");
       if (!authorized()) return;
+      // Deletion may have retired this chat while its history was read (#3230): never open or seed a provider for it.
+      const retired = this.host.catalog.chatRetired;
+      if (retired && (retired({ conversationId: conversation.id }) || (conversation.sessionId && retired({ sessionId: conversation.sessionId }))
+        || (conversation.historyOwnerId && retired({ ownerId: conversation.historyOwnerId })))) throw new ChatRetiredError();
       if (!this.disclosed(msg)) {
         this.endEpoch(conversation,"refused",undefined,epoch); this.detach(conversation);
         this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return;
@@ -1205,6 +1210,31 @@ export class ConversationHost {
       for (const work of conversation.queue.splice(0)) {
         this.settle(conversation, work, "cancelled", { reason: "Cancelled by user" });
       }
+    }
+  }
+
+  private retiredTargets(identities: { sessions: readonly string[]; dialogueOwners: readonly string[]; conversations: readonly string[] }): Conversation[] {
+    return [...this.conversations.values()].filter(conversation => identities.conversations.includes(conversation.id)
+      || (conversation.sessionId !== undefined && identities.sessions.includes(conversation.sessionId))
+      || (conversation.historyOwnerId !== undefined && identities.dialogueOwners.includes(conversation.historyOwnerId)));
+  }
+
+  /** Effect-owning voice work on a chat: queued or unsettled host tasks refuse its deletion (#3230). */
+  busy(identities: { sessions: readonly string[]; dialogueOwners: readonly string[]; conversations: readonly string[] }): boolean {
+    return this.retiredTargets(identities).some(conversation => conversation.queue.length > 0 || conversation.receipts.some(work => !work.settled));
+  }
+
+  /**
+   * A retired chat (#3230): end its live epochs, stop capture and playback,
+   * close the provider session and forget the retained receipts and output.
+   * Nothing earlier sent to the provider is rewritten; a later conversation
+   * needs a new identity and an explicit Start.
+   */
+  retire(identities: { sessions: readonly string[]; dialogueOwners: readonly string[]; conversations: readonly string[] }): void {
+    for (const conversation of this.retiredTargets(identities)) {
+      this.endEpoch(conversation, "stopped", "This chat was deleted. Nothing more was sent to the voice service.");
+      this.detach(conversation);
+      this.conversations.delete(conversation.id);
     }
   }
 

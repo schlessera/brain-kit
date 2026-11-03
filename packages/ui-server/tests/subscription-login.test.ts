@@ -7,7 +7,7 @@
  * and no browser. The model is a loopback stub that answers 401 to every
  * bearer, as Anthropic answers a revoked or expired token. Every credential
  * is fake, and nothing leaves the machine: model discovery is off, and the
- * CLI's base URL is the stub.
+ * CLI's base URL is the stub, which the host relay may send the login to.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -87,6 +87,10 @@ function headlessHost(): { brainPath: string; dbPath: string } {
     BRAIN_UI_MODEL_DISCOVERY: "0",
     BRAIN_UI_PRICING_DISCOVERY: "0",
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`,
+    // Every strict or governed turn reaches the model through the host
+    // inference relay (#3314), which sends the host login only to an origin
+    // the operator lists: here, the stub standing in for Anthropic.
+    BRAIN_UI_CLAUDE_OAUTH_ORIGINS: `http://127.0.0.1:${server.port}`,
     // In the server's environment, where a fallback would find it.
     ANTHROPIC_API_KEY: API_KEY,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",

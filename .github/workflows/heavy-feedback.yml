@@ -53,6 +53,7 @@ jobs:
       pack: "${{ steps.plan.outputs.pack }}"
       run_browser: "${{ steps.reuse.outputs.run_browser }}"
       run_layout: "${{ steps.reuse.outputs.run_layout }}"
+      red_main_oid: "${{ steps.plan.outputs.red_main_oid }}"
       base_sha: "${{ steps.admit.outputs.base_sha }}"
     steps:
       - uses: actions/checkout@v7
@@ -76,6 +77,10 @@ jobs:
           fetch-depth: 0
           ref: "${{ inputs.head_sha }}"
       - run: bun install --frozen-lockfile
+      - name: Refuse doomed proof while main is red
+        env:
+          PR_NUMBER: "${{ inputs.pr }}"
+        run: bun scripts/red-main-cli.ts gate
       - name: "Plan the PR's affected selection with feedback-heavy cadence"
         id: plan
         env:
@@ -88,7 +93,7 @@ jobs:
         run: bun scripts/proof-reuse.ts
   verify:
     needs: changeset
-    if: "needs.changeset.outputs.verify == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.verify == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     steps:
@@ -127,7 +132,7 @@ jobs:
         run: bun scripts/ci-verify-summary.ts
   pack:
     needs: changeset
-    if: "needs.changeset.outputs.pack == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.pack == 'true' }}"
     timeout-minutes: 5
     runs-on: ubuntu-24.04
     env:
@@ -150,7 +155,7 @@ jobs:
         run: bun scripts/ci-pack.ts
   unit:
     needs: changeset
-    if: "needs.changeset.outputs.unit == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.unit == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -194,13 +199,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: "unit-proof-${{ matrix.shard }}"
-          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/unit-memory.jsonl\ntmp/unit-report.xml\ntmp/unit-report-summary.json\ntmp/unit-worker-*.xml\ntmp/unit-worker-*.json\ntmp/unit-worker-diagnostics/\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          path: "tmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/runner-disk.json\ntmp/unit-memory.jsonl\ntmp/unit-report.xml\ntmp/unit-report-summary.json\ntmp/unit-worker-*.xml\ntmp/unit-worker-*.json\ntmp/unit-worker-diagnostics/\ntmp/unit-timings.json\ntmp/measure-claude-*.json\ntmp/*-probe.json\ntmp/feature-capture-verification/\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/diagram-renderer-proof/\ntmp/mermaid-renderer-proof/\ntmp/diagram-export-proof/\ntmp/cold-capture/\ntmp/share-review/\ntmp/svg-proof/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
   runtime:
     needs: changeset
-    if: "needs.changeset.outputs.runtime == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.runtime == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -244,7 +249,7 @@ jobs:
           retention-days: 7
   runtime_host:
     needs: changeset
-    if: "needs.changeset.outputs.runtime_host == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.runtime_host == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -300,7 +305,7 @@ jobs:
           retention-days: 7
   browser:
     needs: changeset
-    if: "needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -339,7 +344,7 @@ jobs:
           retention-days: 7
   layout:
     needs: changeset
-    if: "needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -377,7 +382,7 @@ jobs:
           retention-days: 7
   captures:
     needs: changeset
-    if: "needs.changeset.outputs.captures == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.captures == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -409,7 +414,7 @@ jobs:
           retention-days: 7
   endurance:
     needs: changeset
-    if: "needs.changeset.outputs.endurance == 'true'"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.endurance == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

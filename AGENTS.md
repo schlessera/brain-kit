@@ -122,10 +122,12 @@ on, links to or describes them.
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`),
-  starting on the anchor's line. **A PR that moves lines under a citation owns
-  that citation**, wherever it is recorded; find them with
-  `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
-  enforces this throughout `docs/`; the rules are in
+  starting on the anchor's line. A PR that moves lines under a citation should
+  fix it when it can (`git grep -n '<file>.ts:' -- docs packages`), but drift
+  never blocks a merge or turns main red: it is a **release check**.
+  `experiments/decision-citations.test.ts` fails the experiment tier, and so
+  the publish, until every citation under `docs/` holds; repair drift with
+  `bun scripts/check-citations.ts`. The rules are in
   [docs/decisions/README.md](docs/decisions/README.md#citing-code).
 
 ## Testing expectations

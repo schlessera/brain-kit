@@ -14,6 +14,8 @@ export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_P
 export interface EgressRecord {
   /** Only the server's concrete inference-relay admission supplies this tag. */
   inference?: true;
+  /** Only a validated provider-relay operation supplies this tag (#3246); never with `inference`. */
+  provider?: true;
   method: string;
   host: string;
   port: number;
@@ -40,8 +42,9 @@ export interface EgressProxyOptions {
   observe(record: EgressRecord): void;
   /**
    * Untrusted-input narrowing (G6). While `tainted()` holds, a destination
-   * other than the inference relay must also match `allow` or be one
-   * `contacted()` reports; deny and the ordinary rules still apply first.
+   * other than a host relay (the inference relay or a validated provider-relay
+   * operation, #3246) must also match `allow` or be one `contacted()` reports;
+   * deny and the ordinary rules still apply first.
    */
   taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean };
   /**
@@ -49,7 +52,7 @@ export interface EgressProxyOptions {
    * A returned promise is awaited first, so a durable record it makes commits
    * before any byte flows; its rejection refuses the connection.
    */
-  admitted?(destination: { host: string; port: number; method: string; inference: boolean }): unknown;
+  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean }): unknown;
   signal?: AbortSignal;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
@@ -90,7 +93,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   server.requestTimeout = 30_000;
   server.on("connection", socket => { connections.add(socket); socket.on("error", () => {}); socket.once("close", () => connections.delete(socket)); });
   const track = (socket: Socket) => { connections.add(socket); socket.on("error", () => {}); socket.once("close", () => connections.delete(socket)); return socket; };
-  function operation(method: string, url: URL, inference = false) {
+  /**
+   * `relay` names the host relay that sent this operation; worker HTTP and
+   * CONNECT traffic has none and cannot claim one, whatever its destination.
+   */
+  function operation(method: string, url: URL, relay?: "inference" | "provider") {
+    const inference = relay === "inference", provider = relay === "provider";
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
@@ -100,7 +108,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finished) return;
       finished = true; finalOutcome = outcome; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ ...(inference ? { inference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
@@ -116,7 +124,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       // Checked again after an approval wait, during which another connection may taint the session.
-      const narrowed = () => !inference && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+      // Neither host relay is narrowed by taint (G6; #3246 for the provider relay).
+      const narrowed = () => !relay && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
       if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
@@ -135,7 +144,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference }); } catch { finish("failed", "proxy_error"); return false; }
+      try { await options.admitted?.({ host, port, method, inference, provider }); } catch { finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
@@ -232,16 +241,18 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   if (options.signal?.aborted) stop();
   return { dir, socketPath, stop, usedBytes: () => usedBytes,
     /** The existing inference relay shares this turn's admission, counter and audit. */
-    inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, true); },
+    inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },
     /**
-     * The CLI provider relay's requests (#1673): ordinary egress to the
-     * provider (G5), with the turn's deny/allow and taint rules, byte ceiling
-     * and connection record, sent by the host so the key stays there.
+     * The CLI provider relay's validated requests (#1673): egress to the
+     * provider (G5), with the turn's deny/allow rules, byte ceiling and
+     * connection record, sent by the host so the key stays there. Like the
+     * inference relay, it neither taints the session nor is narrowed by its
+     * taint (G6, #3246); only the relay's own validated routes reach this.
      */
-    relayed(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, false); },
+    relayed(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "provider"); },
   };
-  function relayedOperation(method: string, target: URL, signal: AbortSignal, inference: boolean) {
-    const op = operation(method, new URL(target), inference);
+  function relayedOperation(method: string, target: URL, signal: AbortSignal, relay: "inference" | "provider") {
+    const op = operation(method, new URL(target), relay);
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();

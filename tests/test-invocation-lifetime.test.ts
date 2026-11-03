@@ -10,6 +10,15 @@ async function until(check: () => boolean, label: string) {
   while (!check() && Date.now() < end) await Bun.sleep(10);
   expect(check(), label).toBe(true);
 }
+// A child publishes every file this suite polls for and then reads by writing a
+// temporary file and renaming it into place. writeFileSync creates the file
+// before it writes, so a poll could otherwise read it empty: Number("") is 0, and
+// /proc/0 never exists, so a stopped-process check on PID 0 proves nothing.
+function readPid(path: string, label: string) {
+  const text = readFileSync(path, "utf8");
+  expect(text, label).toMatch(/^[1-9][0-9]*$/);
+  return Number(text);
+}
 function stopOwnedGroup(pid: number) {
   try { process.kill(-pid, "SIGKILL"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
@@ -44,12 +53,12 @@ Bun.spawn([process.execPath,"hold.ts"],{stdout:"inherit",stderr:"inherit"});proc
 
 test("cancellation during actual preparation prevents tests and cleans the owned compiler", async () => {
   const { root, write } = fixture();
-  write("node_modules/.bin/tsc", `#!${process.execPath}\nimport {writeFileSync} from "node:fs";writeFileSync("tmp/compiler-pid",String(process.pid));await Bun.sleep(30000);process.exit(0);\n`);
+  write("node_modules/.bin/tsc", `#!${process.execPath}\nimport {renameSync,writeFileSync} from "node:fs";writeFileSync("tmp/compiler-pid.tmp",String(process.pid));renameSync("tmp/compiler-pid.tmp","tmp/compiler-pid");await Bun.sleep(30000);process.exit(0);\n`);
   write("sentinel.test.ts", 'import {test} from "bun:test";test("must not start",()=>console.log("TESTS_STARTED"));');
   const running = start(root, ["run", "test", "--internal-full-preparation", "sentinel.test.ts"]);
   try {
     await until(() => existsSync(join(root, "tmp/compiler-pid")), "COMPILER_STARTED");
-    const pid = Number(readFileSync(join(root, "tmp/compiler-pid"), "utf8"));
+    const pid = readPid(join(root, "tmp/compiler-pid"), "COMPILER_PID_PUBLISHED");
     running.child.kill("SIGTERM");
     const result = await running.done; expect(result.code, result.output).not.toBe(0);
     expect(result.output).not.toContain("TESTS_STARTED"); expect(result.output).not.toContain('"event":"build-attested"');
@@ -63,13 +72,13 @@ test("cancellation during actual preparation prevents tests and cleans the owned
 
 test("abrupt invocation owner death revokes receipt while an explicitly owned descendant survives", async () => {
   const { root, write } = fixture();
-  write("survivor.ts", consumerProbe + `const end=Date.now()+10000;while(!require("fs").existsSync("tmp/owner-died")&&Date.now()<end)await Bun.sleep(10);expect(invocationBuild(root,["ithaca"]),"DEAD_OWNER_REVOKES_AUTHORITY").toBeUndefined();source(2);await hook();expect(consume(),"DEAD_OWNER_FALLBACK_REACHES_CONSUMER").toBe(2);writeFileSync("tmp/survivor-done","done");`);
-  write("probe.ts", `import {spawn} from "node:child_process";import {writeFileSync,openSync} from "node:fs";
-const out=openSync("tmp/survivor.log","w");const child=spawn(process.execPath,["survivor.ts"],{detached:true,stdio:["ignore",out,out],env:process.env});child.unref();writeFileSync("tmp/survivor-pid",String(child.pid));process.kill(JSON.parse(process.env.BRAIN_TEST_BUILD_AUTHORITY).ownerPid,"SIGKILL");await Bun.sleep(30000);`);
+  write("survivor.ts", consumerProbe + `const end=Date.now()+10000;while(!require("fs").existsSync("tmp/owner-died")&&Date.now()<end)await Bun.sleep(10);expect(invocationBuild(root,["ithaca"]),"DEAD_OWNER_REVOKES_AUTHORITY").toBeUndefined();source(2);await hook();expect(consume(),"DEAD_OWNER_FALLBACK_REACHES_CONSUMER").toBe(2);writeFileSync("tmp/survivor-done.tmp","done");require("fs").renameSync("tmp/survivor-done.tmp","tmp/survivor-done");`);
+  write("probe.ts", `import {spawn} from "node:child_process";import {renameSync,writeFileSync,openSync} from "node:fs";
+const out=openSync("tmp/survivor.log","w");const child=spawn(process.execPath,["survivor.ts"],{detached:true,stdio:["ignore",out,out],env:process.env});child.unref();writeFileSync("tmp/survivor-pid.tmp",String(child.pid));renameSync("tmp/survivor-pid.tmp","tmp/survivor-pid");process.kill(JSON.parse(process.env.BRAIN_TEST_BUILD_AUTHORITY).ownerPid,"SIGKILL");await Bun.sleep(30000);`);
   const running = start(root); let survivor: number | undefined;
   try {
     await until(() => existsSync(join(root, "tmp/survivor-pid")), "SURVIVOR_STARTED");
-    survivor = Number(readFileSync(join(root, "tmp/survivor-pid"), "utf8"));
+    survivor = readPid(join(root, "tmp/survivor-pid"), "SURVIVOR_PID_PUBLISHED");
     const result = await running.done; expect(result.code).not.toBe(0);
     writeFileSync(join(root, "tmp/owner-died"), "release");
     await until(() => existsSync(join(root, "tmp/survivor-done")), "SURVIVOR_ACTUAL_FALLBACK: " + (existsSync(join(root, "tmp/survivor.log")) ? readFileSync(join(root, "tmp/survivor.log"), "utf8") : ""));
@@ -144,11 +153,11 @@ test("cancelling a nested preparation stops its compiler while the outer invocat
   const { root, write } = fixture();
   write("nested.test.ts", 'import {test} from "bun:test";test("must not start",()=>console.log("NESTED_TESTS_STARTED"));');
   write("probe.ts", consumerProbe + `
-writeFileSync("node_modules/.bin/tsc",'#!'+process.execPath+'\\nimport {writeFileSync} from "node:fs";writeFileSync("tmp/nested-compiler",String(process.pid));await Bun.sleep(30000);');
+writeFileSync("node_modules/.bin/tsc",'#!'+process.execPath+'\\nimport {renameSync,writeFileSync} from "node:fs";writeFileSync("tmp/nested-compiler.tmp",String(process.pid));renameSync("tmp/nested-compiler.tmp","tmp/nested-compiler");await Bun.sleep(30000);');
 const child=Bun.spawn([process.execPath,"run","test","--internal-full-preparation","nested.test.ts"],{stdout:"pipe",stderr:"pipe"});
 const output=Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text()]);
 const end=Date.now()+10000;while(!require("fs").existsSync("tmp/nested-compiler")&&Date.now()<end)await Bun.sleep(10);
-const compiler=Number(readFileSync("tmp/nested-compiler","utf8"));child.kill("SIGTERM");
+const published=readFileSync("tmp/nested-compiler","utf8");expect(published,"NESTED_COMPILER_PID_PUBLISHED").toMatch(/^[1-9][0-9]*$/);const compiler=Number(published);child.kill("SIGTERM");
 const stopped=Date.now()+2000;const live=()=>{try{return !/\\) [ZX] /.test(readFileSync('/proc/'+compiler+'/stat','utf8'))}catch{return false}};while(live()&&Date.now()<stopped)await Bun.sleep(10);
 expect(live(),"NESTED_CANCEL_STOPS_COMPILER_BEFORE_OUTER_EXIT").toBe(false);expect(await child.exited).not.toBe(0);
 expect((await output).join('')).not.toContain("NESTED_TESTS_STARTED");`);
@@ -181,8 +190,8 @@ test(`nested ${phase} ${cancellation} stops an exited leader's EOF holder while 
   const { root, write } = fixture();
   // Node unref deliberately lets the producer exit while its descendant retains
   // both inherited output descriptors. This is the actual wrapper, not stop alone.
-  write("late.cjs", `const fs=require("node:fs");fs.writeFileSync("tmp/late",JSON.stringify({pid:process.pid,start:fs.readFileSync("/proc/self/stat","utf8").split(") ")[1].split(" ")[19]}));process.on("SIGTERM",()=>{});setInterval(()=>{},1000);`);
-  write("hold.cjs", `const fs=require("node:fs");fs.writeFileSync("tmp/orphan",JSON.stringify({pid:process.pid,start:fs.readFileSync("/proc/self/stat","utf8").split(") ")[1].split(" ")[19]}));${cancellation === "late-fork" ? 'process.on("SIGTERM",()=>{require("node:child_process").spawn("node",["late.cjs"],{stdio:["ignore",1,2]}).unref()});' : ""}setInterval(()=>{},1000);`);
+  write("late.cjs", `const fs=require("node:fs");process.on("SIGTERM",()=>{});fs.writeFileSync("tmp/late.tmp",JSON.stringify({pid:process.pid,start:fs.readFileSync("/proc/self/stat","utf8").split(") ")[1].split(" ")[19]}));fs.renameSync("tmp/late.tmp","tmp/late");setInterval(()=>{},1000);`);
+  write("hold.cjs", `const fs=require("node:fs");fs.writeFileSync("tmp/orphan.tmp",JSON.stringify({pid:process.pid,start:fs.readFileSync("/proc/self/stat","utf8").split(") ")[1].split(" ")[19]}));fs.renameSync("tmp/orphan.tmp","tmp/orphan");${cancellation === "late-fork" ? 'process.on("SIGTERM",()=>{require("node:child_process").spawn("node",["late.cjs"],{stdio:["ignore",1,2]}).unref()});' : ""}setInterval(()=>{},1000);`);
   const spawnHolder = `const {spawn}=require("node:child_process");const c=spawn("node",["hold.cjs"],{stdio:["ignore",1,2]});c.unref();`;
   write("produce.cjs", 'const fs=require("node:fs");if(!fs.existsSync("tmp/producer-started")){fs.writeFileSync("tmp/producer-started","once");' + spawnHolder + "}");
   write("nested.test.ts", phase === "build" ? 'import {test} from "bun:test";test("must not start",()=>console.log("NESTED_TESTS_STARTED"));' :

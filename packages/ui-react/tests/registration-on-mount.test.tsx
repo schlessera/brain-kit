@@ -192,15 +192,19 @@ if (!childMode) {
     // The contract-bound pack registers first and is deliberately unscoped:
     // the same tool carries a different name on each backend, so it matches by
     // name rather than by which backend owns the session.
+    // The Apify pack (#3163) is global too: its approval cards carry fixed
+    // names, and its results arrive under either backend's tool spelling.
     expect(distinct.map((pack) => pack.backend ?? "global")).toEqual([
+      "global",
       "global",
       "claude",
       "pi",
       "global",
     ]);
     expect(distinct[0]).toBe(harness.brainUiToolPack);
-    expect(distinct[1]).toBe(harness.claudeToolPack);
-    expect(distinct[2]).toBe(harness.piToolPack);
+    expect(distinct[1]).toBe(harness.apifyToolPack);
+    expect(distinct[2]).toBe(harness.claudeToolPack);
+    expect(distinct[3]).toBe(harness.piToolPack);
     // Every repeat passed one of those same three objects; a pack rebuilt per
     // call would show up as a fourth distinct object above.
     expect(packs.every((pack) => distinct.includes(pack))).toBe(true);
