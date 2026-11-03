@@ -303,3 +303,123 @@ test("live startup history held across retirement never seeds a provider", async
     expect(JSON.stringify(outcome).includes(MARKER)).toBe(false);
   } finally { await f.host.close(); }
 });
+
+// ---- GET /api/chat-deletions/:operationId (#3455): a read that adds no authority ----
+
+const read = (app: Hono<AppEnv>, principalId: string | undefined, operationId: string) => app.request(`/api/chat-deletions/${encodeURIComponent(operationId)}`,
+  { headers: principalId ? { "x-odysseus-principal": principalId } : {} });
+const NOT_ADMITTED = { error: "CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted",
+  message: "Nothing is deleted under this operation. A request still on its way can be admitted later." };
+
+/** The catalog with every mutating deletion method counted; reads pass through. */
+function counting(catalog: SessionCatalog) {
+  const calls = { retireChat: 0, cleanChatStore: 0, recordChatCleanup: 0, chatRetirement: 0 };
+  const counted = new Proxy(catalog, { get(target, key, receiver) {
+    const value = Reflect.get(target, key, receiver);
+    if (typeof key !== "string" || !(key in calls) || typeof value !== "function") return value;
+    return (...args: unknown[]) => { calls[key as keyof typeof calls]++; return Reflect.apply(value, target, args); };
+  } });
+  return { counted, calls };
+}
+const validIn = (db: Database) => (p: { id: string }) => { const current = resolvePrincipal(db, p.id); return !!current && isUsablePrincipal(current, Date.now()); };
+const storeRows = (db: Database) => db.query("SELECT lifecycle_id,store,outcome,updated_at FROM chat_retirement_stores ORDER BY lifecycle_id,store").all();
+
+test("the read answers the caller's receipt, and one byte-identical not_admitted for unknown, foreign, refused and non-owner callers", async () => {
+  const f = await fixture();
+  try {
+    const { db } = f.host;
+    const { counted, calls } = counting(f.host.catalog);
+    const removals: SessionHistoryRemovalRequest[] = [];
+    const { deletion } = deletionFor(counted, backend(["removed"], removals));
+    const app = routesApp(db, createChatDeletionRoutes({ deletion, principalValid: validIn(db) }));
+    const ambient = resolveAmbientPrincipal(db, "tailscale", "odysseus@ithaca.example", "Ithaca tailnet").id;
+    expect((await read(app, undefined, "delete-voyage")).status, "READ_UNAUTHENTICATED").toBe(401);
+    expect((await read(app, f.owner, "x".repeat(2049))).status, "READ_ID_BOUNDED").toBe(400);
+
+    // Unknown first: nothing is admitted, cleaned or written by asking.
+    const unknown = await read(app, f.owner, "delete-voyage");
+    const missBytes = await unknown.text();
+    expect([unknown.status, unknown.headers.get("cache-control")], "UNKNOWN_IS_NOT_ADMITTED").toEqual([404, "no-store"]);
+    expect(JSON.parse(missBytes)).toEqual(NOT_ADMITTED);
+    expect({ ...calls, lifecycles: db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get(), removals: removals.length }, "READ_ADMITS_NOTHING")
+      .toEqual({ retireChat: 0, cleanChatStore: 0, recordChatCleanup: 0, chatRetirement: 1, lifecycles: { n: 0 }, removals: 0 });
+
+    // The same operation then POSTs exactly like a first POST.
+    const posted = await post(app, f.owner, requestBody());
+    const receipt = { operationId: "delete-voyage", generation: 2, status: "removed",
+      stores: { dialogue: "removed", drafts: "removed", native: "removed", projections: "removed", tasks: "removed" }, retained: RETAINED };
+    expect([posted.status, await posted.json()], "POST_AFTER_READ_IS_A_FIRST_POST").toEqual([200, receipt]);
+    expect(removals, "POST_AFTER_READ_REMOVES_ONCE").toEqual([{ operationId: "delete-voyage", sessionId: "voyage" }]);
+
+    const own = await read(app, f.owner, "delete-voyage");
+    const ownText = await own.text();
+    expect([own.status, own.headers.get("cache-control"), JSON.parse(ownText)], "OWNER_READS_ITS_RECEIPT").toEqual([200, "no-store", receipt]);
+    expect([MARKER, '"voyage"', "ithaca", "claude", "sessionId"].filter(s => ownText.includes(s)), "RECEIPT_READ_IS_CONTENT_FREE").toEqual([]);
+
+    // A refused attempt records nothing to read.
+    expect((await post(app, f.other, requestBody("penelope-attempt"))).status).toBe(404);
+    const answers: Record<string, string> = {};
+    for (const [label, principal, operation] of [["foreign", f.other, "delete-voyage"], ["agent", f.agent, "delete-voyage"],
+      ["ambient", ambient, "delete-voyage"], ["refused", f.other, "penelope-attempt"], ["unknown", f.owner, "never-sent"]] as const) {
+      const response = await read(app, principal, operation);
+      answers[label] = `${response.status} ${response.headers.get("cache-control")} ${await response.text()}`;
+    }
+    const miss = `404 no-store ${missBytes}`;
+    expect(answers, "EVERY_MISS_IS_BYTE_IDENTICAL").toEqual({ foreign: miss, agent: miss, ambient: miss, refused: miss, unknown: miss });
+    expect({ retireChat: calls.retireChat, cleanChatStore: calls.cleanChatStore, removals: removals.length }, "READS_STARTED_NO_CLEANUP")
+      .toEqual({ retireChat: 2, cleanChatStore: 4, removals: 1 });
+  } finally { await f.host.close(); }
+});
+
+test("the read reports unfinished cleanup, never resumes it, survives a restart and shows a retry's progress", async () => {
+  const f = await fixture();
+  let reopened: ReturnType<typeof open> | undefined;
+  try {
+    const { db } = f.host;
+    db.exec("CREATE TRIGGER hold_dialogue BEFORE DELETE ON dialogue_records BEGIN SELECT RAISE(ABORT,'Ithaca dialogue cleanup interrupted'); END");
+    const removals: SessionHistoryRemovalRequest[] = [];
+    const { counted, calls } = counting(f.host.catalog);
+    const app = routesApp(db, createChatDeletionRoutes({ deletion: deletionFor(counted, backend([new Error("Scylla took the transcript")], removals)).deletion, principalValid: validIn(db) }));
+    const first = await (await post(app, f.owner, requestBody())).json();
+    expect([first.status, first.stores.dialogue, first.stores.native]).toEqual(["unknown", "partial", "unknown"]);
+    db.exec("DROP TRIGGER hold_dialogue");
+    const before = { calls: { ...calls }, removals: removals.length, stores: storeRows(db) };
+    for (let i = 0; i < 3; i++) expect(await (await read(app, f.owner, "delete-voyage")).json(), "READ_SHOWS_UNFINISHED_CLEANUP").toEqual(first);
+    expect({ calls: { ...calls, chatRetirement: before.calls.chatRetirement }, removals: removals.length, stores: storeRows(db) }, "READ_NEVER_RESUMES_CLEANUP").toEqual(before);
+    expect(holding(db, MARKER), "UNFINISHED_STORE_STILL_HOLDS_TEXT").toEqual(["dialogue_records.payload"]);
+    await f.host.close();
+
+    // A new process, before any reconciliation: the ledger is durable and reading it resumes nothing.
+    reopened = open(f.path);
+    const later = deletionFor(reopened.catalog, backend(["removed"], removals));
+    const restarted = routesApp(reopened.db, createChatDeletionRoutes({ deletion: later.deletion, principalValid: validIn(reopened.db) }));
+    expect(await (await read(restarted, f.owner, "delete-voyage")).json(), "READ_AFTER_RESTART").toEqual(first);
+    expect({ removals: removals.length, retired: later.retired.length, stores: storeRows(reopened.db) }, "RESTART_READ_RESUMES_NOTHING")
+      .toEqual({ removals: 1, retired: 0, stores: before.stores });
+
+    // Retry (the same operation POSTed again) makes progress the read then shows.
+    const retried = await (await post(restarted, f.owner, requestBody())).json();
+    expect(retried.status, "RETRY_COMPLETES").toBe("removed");
+    expect(await (await read(restarted, f.owner, "delete-voyage")).json(), "READ_SHOWS_RETRY_PROGRESS").toEqual(retried);
+    expect(holding(reopened.db, MARKER)).toEqual([]);
+  } finally { await (reopened ?? f.host).close(); }
+});
+
+test("a principal revoked during the read gets 401, never the receipt", async () => {
+  const f = await fixture();
+  try {
+    const { db } = f.host;
+    const { deletion } = deletionFor(f.host.catalog, backend(["removed"]));
+    await deletion.delete(voyage(f.owner));
+    const revoking = { ...deletion, async read(operationId: string, principalId: string) {
+      const receipt = await deletion.read(operationId, principalId);
+      revokePrincipal(db, f.owner, Date.now());
+      return receipt;
+    } };
+    const app = routesApp(db, createChatDeletionRoutes({ deletion: revoking, principalValid: validIn(db) }));
+    const response = await read(app, f.owner, "delete-voyage");
+    const text = await response.text();
+    expect([response.status, JSON.parse(text)], "REVOKED_MID_READ").toEqual([401, { error: "Authentication required", authRequired: true }]);
+    expect(text.includes("delete-voyage") || text.includes("removed"), "REVOKED_LEARNS_NOTHING").toBe(false);
+  } finally { await f.host.close(); }
+});

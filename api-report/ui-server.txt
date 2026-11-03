@@ -2208,6 +2208,7 @@ signatures (every public export and the types it is made of)
   createChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
     export function createChatDeletion(deps: ChatDeletionDeps): {
         delete(input: Omit<RetireChatInput, "at" | "removableBackends">): Promise<ChatDeletionResult>;
+        read(operationId: string, principalId: string): Promise<ChatDeletionReceipt | null>;
         reconcile(): Promise<void>;
     };
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
