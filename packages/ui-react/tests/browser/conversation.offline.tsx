@@ -204,15 +204,27 @@ test("barge-in flush: Stop reply discards every queued PCM chunk without revokin
   await expect.poll(() => s.host.textContent).toContain("spoken portion unknown");
 });
 
-test("terminal: an unanswered card becomes inert without tool_result", async (ctx) => {
+// #3356 ruling A (docs/decisions/answer-delivery.md, "A question whose turn
+// ended"): an unanswered card whose turn ends stays the editable question
+// under an ended prompt, so a draft survives; the "no longer waiting" note
+// appears only once the user dismisses it. Voice must still stop treating it
+// as the question being answered.
+test("terminal: an unanswered card ends without tool_result and voice stops answering it", async (ctx) => {
   const s = await scene(ctx); await s.start(); s.client.mute();
   s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-turn", text: "Checking the route" });
   s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-turn", requestId: "ithaca-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [{ label: "Tomorrow", description: "Before departure" }] }] });
   await expect.poll(() => s.host.querySelector('[data-ask-waiting]')).not.toBe(null);
+  await expect.poll(() => s.client.state.getState().interaction).toBe("Answering question");
   s.deliver({ type: "result", sessionId: SESSION, turnId: "ithaca-turn", isError: false, durationMs: 100, numTurns: 1 });
   await expect.poll(() => s.host.querySelector('[data-ask-waiting]')).toBe(null);
-  await expect.poll(() => s.host.textContent).toContain("no longer waiting");
-  expect(s.ui.stores.chat.getState().buffers[SESSION]?.askUser?.terminal).toBe(true);
+  await expect.poll(() => s.host.querySelector('[data-ask-ended]')?.textContent ?? "").toContain("The turn ended before you answered");
+  await expect.poll(() => s.client.state.getState().interaction).not.toBe("Answering question");
+  expect(s.ui.stores.chat.getState().buffers[SESSION]?.askUser).toMatchObject({ terminal: true, cancelled: true });
+  await userEvent.click(s.button("Dismiss"));
+  await expect.poll(() => s.host.textContent).toContain("no longer waiting · the turn ended");
+  expect(s.host.querySelector('[data-ask-ended]')).toBe(null);
+  expect(s.socket.frames("ask_user_response")).toHaveLength(0);
+  expect(s.socket.frames("ask_user_cancel")).toHaveLength(0);
 });
 
 test("epoch guard: stale transcript and an old Send callback cannot consume a new epoch's review candidate", async (ctx) => {
