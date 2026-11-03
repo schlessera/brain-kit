@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { ambientExecConfig, subprocessEnv } from "../config/env.js";
 import { MaintenanceTempBusyError, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
@@ -148,6 +148,23 @@ export function brainCliCommand(brainPath: string): string[] {
   const packaged = join(brainPath, "node_modules", ".bin", "brain");
   if (existsSync(packaged)) return [packaged];
   return ["bun", "scripts/brain-cli.ts"];
+}
+
+/**
+ * The CLI argv a masked worker runs (#2865). The worker launcher admits only
+ * an absolute executable, so the `scripts/brain-cli.ts` fallback's bare `bun`
+ * becomes the server's own Bun, the runtime every worker envelope already
+ * admits. The script stays relative: the worker starts in the brain's
+ * immutable startup view, so it resolves there, never against the live brain,
+ * and adds no mount. Any other relative executable has no admitted path and
+ * refuses by name. {@link brainCliCommand} and host calls are unchanged.
+ */
+export function workerBrainCliCommand(command: readonly string[]): { ok: true; command: string[] } | { ok: false; detail: string } {
+  const [executable, ...rest] = command;
+  if (!executable) return { ok: false, detail: "no CLI command was given" };
+  if (isAbsolute(executable)) return { ok: true, command: [...command] };
+  if (executable === "bun") return { ok: true, command: [process.execPath, ...rest] };
+  return { ok: false, detail: `its executable, ${executable}, is not an absolute path, and only the brain-cli fallback's bun is resolved, to the server's own runtime` };
 }
 
 /** The keyword index pass that builds a provider-restricted turn's private index (#1668). */
