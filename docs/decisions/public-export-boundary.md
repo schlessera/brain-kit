@@ -281,6 +281,14 @@ Moved to an internal entry by #1053:
 - `@schlessera/brain-ui-sdk/internal`: `ImageMaskHandlerOptions`, `LocationHandlerOptions`, `canonicalModelId`, `describeRetry`, `execWrapperSpawnOptions`, `handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, `resolveThinkingLevel`, `wrapCommand` (from `/server`, and the three helpers from `.`, `/client` and `/protocol` too).
 - `@schlessera/brain-ui-sdk/internal/client`: `ShareTargetError`, `canonicalModelId`, `createToolRendererRegistry`, `describeRetry`, `handleShareTargetRequest`, `isShareTargetRequest`, `pruneStoredShares`, `resolveThinkingLevel`.
 
+Later dropped from an internal entry because no other package imported them
+or reached them through an emitted declaration (#2534): 64 names from
+`@schlessera/brain-ui-sdk/internal`, among them `ARCHIVING_UPDATE_REASON`, and
+`ShareTargetError` and `isShareTargetRequest` from
+`@schlessera/brain-ui-sdk/internal/client`. The declarations stay in their
+source modules. A removed internal name was never supported, so the third
+migration path applies.
+
 First-party additions for the video module (#1205):
 `@schlessera/brain/internal` shares `getContext`, `resolveCompletionProvider`,
 `geminiCompletions` and `GEMINI_FLASH_MODEL`. They do not expand the supported
