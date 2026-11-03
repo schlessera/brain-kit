@@ -102,7 +102,9 @@ Normal 12px names and 9.5px labels are preserved at 320px with at least a 64px
 participant pitch; long names, labels, self-messages and notes can refuse the
 narrow presentation. The app then shows its caption/summary and Open diagram,
 with readable native-scale content in the dedicated viewer. Other axis types
-also fall back when their full readable canvas cannot fit inline.
+also fall back when their full readable canvas cannot fit inline. A swimlane's
+full canvas widens to fit its ordered steps, so only its 320px narrow frame
+refuses.
 
 ## Semantic checks and budgets
 
@@ -157,7 +159,8 @@ normal machine-output selection applies; `--human` selects readable findings.
 free-layout `DiagramSpec` and returns a `DiagramTree`, without DOM access,
 rendering, I/O or source mutation. It parses the structural schema itself;
 call `checkDiagram` for reference, grid, overlap and editorial validation.
-Axis and fixed-family types dispatch to their deterministic family builders. Repeated identical inputs and options produce
+Axis and fixed-family types dispatch to their deterministic family builders. The checker builds the same default axis geometry: an axis refusal is an
+error (`layout` at `$`, or the thrown geometry findings), so a valid spec always draws. Repeated identical inputs and options produce
 byte-identical serialized trees.
 
 The tree contains `schema_version: 1`, `type`, `title`, `desc`, `viewBox`
