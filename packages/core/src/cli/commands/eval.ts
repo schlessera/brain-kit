@@ -5,7 +5,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 import type { BrainContext } from "../../lib/context.js";
-import { loadVecSupport } from "../../lib/db.js";
+import { documentCount, isIndexedDocument, loadVecSupport, markdownContentHashes } from "../../lib/db.js";
 import { getMarkdownFiles } from "../../lib/indexer.js";
 import { rerankSetup, type RerankSetup } from "../../lib/registry.js";
 import { envRerankMode } from "../../lib/reranker.js";
@@ -204,7 +204,6 @@ function resolveQueries(brain: BrainContext, queries: EvalQuery[], now: Date): R
  * points out of it is outside.
  */
 function checkExpectedPaths(root: string, db: Database, queries: ResolvedQuery[]): void {
-  const indexed = db.prepare("SELECT 1 FROM documents WHERE path = ?");
   const outside: string[] = [];
   const missing: string[] = [];
   const notFiles: string[] = [];
@@ -216,7 +215,7 @@ function checkExpectedPaths(root: string, db: Database, queries: ResolvedQuery[]
       else if (!existsSync(full)) missing.push(`${query.id}: ${path}`);
       // `full` is canonical, so a symlink has already been followed here.
       else if (!statSync(full).isFile()) notFiles.push(`${query.id}: ${path}`);
-      else if (!indexed.get(path)) unindexed.push(`${query.id}: ${path}`);
+      else if (!isIndexedDocument(db, path)) unindexed.push(`${query.id}: ${path}`);
     }
   }
   if (outside.length > 0) {
@@ -246,10 +245,7 @@ function checkExpectedPaths(root: string, db: Database, queries: ResolvedQuery[]
  * skips as well.
  */
 function checkIndexFresh(brain: BrainContext, db: Database, scanner: ContaminationScanner): void {
-  const rows = db
-    .prepare("SELECT path, content_hash FROM documents WHERE asset_type = 'markdown'")
-    .all() as { path: string; content_hash: string | null }[];
-  const hashes = new Map(rows.map((r) => [r.path, r.content_hash]));
+  const hashes = markdownContentHashes(db);
   const stale: string[] = [];
 
   const onDisk = getMarkdownFiles(brain.root, brain.taxonomy);
@@ -690,7 +686,7 @@ async function runEval(args: string[], cli: CliContext): Promise<number> {
       rows.push(...aggregate(mode, outcomes, ks));
     }
 
-    const documents = (db.prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n;
+    const documents = documentCount(db);
     const meta = {
       version: packageVersion(),
       source: checkoutSource(),

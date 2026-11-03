@@ -5,7 +5,7 @@
  */
 
 import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { generateBriefing, type BriefingOptions } from "../src/cli/commands/briefing";
@@ -100,6 +100,41 @@ describe("Upkeep", () => {
     const root = await makeBrain({}, true);
     const golden = readFileSync(join(import.meta.dir, "fixtures/briefing-corpus.golden.txt"), "utf-8");
     expect((await brief(root)) + "\n").toBe(golden);
+  });
+});
+
+describe("Silently Modified", () => {
+  // Briefing reads the one silent-edit query (`silentEdits`, #1353): the ten
+  // most recently changed files, archived and baselined ones left out.
+  test("lists the ten newest silent edits, newest first, without archived or accepted files", async () => {
+    const doc = (title: string, updated: string, status = "active") =>
+      `---\ntype: note\ntitle: "${title}"\nstatus: ${status}\ncreated: 2026-01-01\nupdated: ${updated}\ntags: [t]\n---\n\nBody.\n`;
+    const day = (month: number, date: number) => `2026-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+    // Twelve silent edits, written in an order that is not the answer.
+    const edits = [7, 2, 11, 5, 12, 1, 9, 4, 10, 3, 8, 6];
+    const files: Record<string, string> = Object.fromEntries(edits.map((n) => [`notes/e${n}.md`, doc(`Edit ${n}`, "2026-01-01")]));
+    files["notes/archived.md"] = doc("Archived", "2026-01-01", "archived");
+    files["notes/accepted.md"] = doc("Accepted", "2026-01-01");
+    files["notes/current.md"] = doc("Current", "2026-06-30");
+    // Not makeBrain: its accept-mtime would baseline every file at today's mtime.
+    const root = makeTempBrain({ empty: true });
+    brains.push(root);
+    writeFileSync(join(root, "brain.config.json"), "{}");
+    const mtimes: Record<string, string> = Object.fromEntries(edits.map((n) => [`notes/e${n}.md`, day(2, n)]));
+    mtimes["notes/archived.md"] = day(6, 1);
+    mtimes["notes/accepted.md"] = day(5, 1);
+    mtimes["notes/current.md"] = day(3, 1);
+    mkdirSync(join(root, "notes"), { recursive: true });
+    for (const [rel, text] of Object.entries(files)) {
+      writeFileSync(join(root, rel), text);
+      const at = new Date(`${mtimes[rel]}T12:00:00Z`);
+      utimesSync(join(root, rel), at, at);
+    }
+    expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    expect((await runCli(root, ["accept-mtime", "notes/accepted.md", "--json"])).code).toBe(0);
+    expect(section(await brief(root), "Silently Modified")).toEqual(
+      [12, 11, 10, 9, 8, 7, 6, 5, 4, 3].map((n) => `- file: ${day(2, n)} | frontmatter: 2026-01-01 | notes/e${n}.md | Edit ${n}`)
+    );
   });
 });
 
