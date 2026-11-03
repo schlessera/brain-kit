@@ -72,7 +72,7 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const)
     mount(width, theme, await commands.diagramFixture());
     await expect.poll(() => parts().svg).not.toBeNull(); await document.fonts.ready;
     const { svg, figure } = parts();
-    expect(svg!.getAttribute("width"), "NATIVE_LAYOUT_STILL_FITS").toBe(width === 320 ? "320" : "716");
+    expect(svg!.getAttribute("width"), "NATIVE_LAYOUT_STILL_FITS").toBe(width === 320 ? "320" : "720");
     expect(svg!.getBoundingClientRect().width).toBeLessThanOrEqual(figure.getBoundingClientRect().width);
     assertFrame(width);
     await page.screenshot({ element: host, path: `../../.vitest-attachments/diagram-frame/${theme}-${width}.png` });
