@@ -63,7 +63,7 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   for (const [x,y] of [[box.left + 2,box.top + box.height/2],[box.right-2,box.top+box.height/2],[box.left+box.width/2,box.top+2],[box.left+box.width/2,box.bottom-2]]) expect(document.elementFromPoint(x,y)?.closest("button")).toBe(trigger);
   // The qualifier's 300 ms show delay and 150 ms hide grace run on a fake
   // clock, so "every pending timer has run" is a step, not a window.
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => vi.useRealTimers());
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
   trigger.focus();
   flushSync(() => vi.advanceTimersByTime(300));
   await expect.poll(() => document.querySelector('[role="tooltip"]')?.textContent).toContain("Words may be uncertain; speaker unverified.");
@@ -110,7 +110,7 @@ test("pointer can read tooltip then tap details; playback and restoration are in
   s.render(<><TranscriptSymbols /><ConversationOutput output={{ conversationId: "odysseus-voice", epoch: 1, sessionId: SESSION, providerId: "gpt-live", outputId: "restored-raft", generated: "The water skins belong beside the mast.", playback: "discarded" }} restored /></>);
   const trigger = qualifier(s.host, "generated");
   // As above: the show delay and hide grace run on a fake clock.
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => vi.useRealTimers());
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
   await userEvent.hover(trigger);
   flushSync(() => vi.advanceTimersByTime(300));
   await expect.poll(() => document.querySelector('[role="tooltip"]')?.textContent).toContain("Remaining reply not spoken locally. Earlier spoken portion unknown.");
