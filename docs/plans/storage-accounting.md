@@ -63,7 +63,7 @@ Source anchors, checked against the reviewed commit:
   existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:164-215`),
   available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:219-230`).
 - B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:68-77`)
-  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:89-102`).
+  and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:115-121`).
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
