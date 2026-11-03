@@ -15,7 +15,7 @@ export type ToolExecutionPath = Parameters<NonNullable<StartTurnRequest["toolExe
  * - `unproven`: anything else. It is observed after its result, and its turn
  *   may still be writing in the background until it ends.
  */
-export type ToolObservation = "read" | "write" | "unproven";
+type ToolObservation = "read" | "write" | "unproven";
 
 /**
  * Host bridge handlers that read only host-private state (the UI database,

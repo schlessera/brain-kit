@@ -39,7 +39,7 @@ The prototype reuses table detection (`indexTableLag`,
 `packages/core/src/lib/hygiene.ts:577-619`), scalar table rendering
 (`renderRegistry`, `packages/core/src/lib/index-registry.ts:117-185`) and
 the surgical frontmatter editor (`editFrontmatter`,
-`packages/core/src/lib/frontmatter-edit.ts:216-224`). It intentionally refuses
+`packages/core/src/lib/frontmatter-edit.ts:232-240`). It intentionally refuses
 wiki links and an entire index containing an unsafe row.
 
 ## Held-out quality and reliability

@@ -28,12 +28,12 @@ import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/pr
  * Paste-to-attach is caught here too: the kit's textarea has no paste
  * handler of its own, and the event bubbles to this frame with its files.
  */
-export interface ComposerAttachment {
+interface ComposerAttachment {
   previewUrl: string;
   name: string;
 }
 
-export interface ComposerProvider {
+interface ComposerProvider {
   label: string;
   /** The model is fixed for this conversation; effort remains editable. */
   locked: boolean;

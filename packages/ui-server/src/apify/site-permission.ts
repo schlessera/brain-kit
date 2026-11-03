@@ -18,7 +18,7 @@ interface CoreApify {
   createApifySitePermission(options?: { addressPolicy?: "any" | "public-only" }): ApifySitePermission;
 }
 
-export interface CoreSitePermissionOptions {
+interface CoreSitePermissionOptions {
   /** @internal Test seam: how core is loaded. Default: the optional peer. */
   load?: () => Promise<CoreApify>;
   /** @internal Test seam: passed to core's checker so an offline test can reach its loopback robots.txt server. */

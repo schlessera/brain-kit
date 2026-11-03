@@ -505,11 +505,11 @@ before application-lock admission, acquires its own complete native checkpoint
 asynchronously and runs a credential-free, read-only Git query. It releases
 that input after the worker drains, without creating or publishing a writable
 stage (`createScratchIgnoreQuery`,
-`packages/ui-server/src/brain/scratch-mask-query.ts:7-43`). Exit 1 means the
+`packages/ui-server/src/brain/scratch-mask-query.ts:8-44`). Exit 1 means the
 directory is not ignored. Launch failure, another exit or timeout means the
 rule could not be verified; the mask remains refused without forwarding worker
 stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
-`packages/ui-sdk/src/server/bridge-tools/mask.ts:224-235`).
+`packages/ui-sdk/src/server/bridge-tools/mask.ts:228-239`).
 
 **Credentials never reach a process that evaluates repository inputs.** A
 read-only host does not stop sandboxed code from stealing a credential it was
@@ -1074,14 +1074,14 @@ is gone as well, and never enters another mount, so runtime state below
 against its own budget, and a turn that cannot reserve it is refused as
 `worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
 reports usage and purges paths through the same descriptor
-(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-458`).
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:451-459`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
 After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:124-135`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:125-136`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -1104,10 +1104,10 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:645`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
-(`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
+(`SCRATCH_MAX_BYTES`, `scratch.ts:62`) after unpinned files are pruned, the
 overage is reported. Pinned files are never deleted. A writer that prunes
 after writing into scratch also passes the paths it just produced, protected
 for that one call (`pinnedPaths`), so retained pins over the cap cannot make it
@@ -1409,7 +1409,7 @@ external editor throughout a native tool's execution.
 The parent observes the worker's resolved mount sources, including strict
 startup copies and writable area aliases; it does not substitute newer
 canonical bytes for a frozen view (`createWorkerFileObserver`,
-`packages/ui-sdk/src/server/worker-file-observer.ts:13`). A failed or changing
+`packages/ui-sdk/src/server/worker-file-observer.ts:15`). A failed or changing
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,

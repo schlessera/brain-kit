@@ -1,82 +1,92 @@
 import { randomBytes } from "crypto";
-import { closeSync, fchmodSync, linkSync, lstatSync, mkdirSync, openSync, realpathSync, readlinkSync, renameSync, rmSync, writeSync } from "fs";
+import { resolveContainedSync, type ContainmentPolicy } from "@schlessera/brain-common/internal/safe-path";
+import { closeSync, fchmodSync, linkSync, lstatSync, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "fs";
 import type { Stats } from "fs";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
+
+const CORE_CONTAINMENT: ContainmentPolicy = { missingRoot: "refuse", danglingLinks: "refuse", components: "every" };
 
 /**
- * Resolve a relative path and verify it stays inside `root`, following
+ * Whether a request is refused before it is resolved: anything but a string,
+ * an absolute path, and a segment that is `..` or holds `:` or `\\` (#3422).
+ * A NUL is refused by the shared resolver.
+ */
+function refusedRequest(relPath: string): boolean {
+  if (typeof relPath !== "string") return true;
+  if (relPath.startsWith("/") || relPath.startsWith("\\")) return true;
+  return relPath.split("/").some((segment) => segment === ".." || segment.includes(":") || segment.includes("\\"));
+}
+
+/**
+ * Resolve a repo-relative path and verify it stays inside `root`, following
  * symlinks (realpath) so a symlink inside the repo can't escape it.
- * The trailing-slash comparison rejects sibling-prefix paths like
- * `../brain-other/x.md` that a bare startsWith(root) would accept.
- * Returns the canonical absolute path, or null if the path escapes (or the
- * root itself does not exist).
+ * Returns the canonical absolute path, or null if the path is refused,
+ * escapes, or the root itself does not exist.
+ *
+ * core's row of the shared resolver (`@schlessera/brain-common/internal/safe-path`,
+ * #2506), with the strictest answer in every row since #3422: synchronous,
+ * `null` for every refusal; an absolute request is refused even inside the
+ * root, and so is any `..` segment, even one whose result would stay inside,
+ * and `:` or `\\` in a segment; a dangling link is refused wherever it points;
+ * and every existing component on the way must stay inside, not only the
+ * final path. A caller holding an absolute path passes it relative to the
+ * root (`relative(root, abs)`), which a path outside the root turns into a
+ * refused `..`.
  */
 export function safeResolve(root: string, relPath: string): string | null {
-  // A NUL byte would make the later fs call throw ERR_INVALID_ARG_VALUE —
-  // reject it as a containment failure, not a deferred TypeError.
-  if (relPath.includes("\0")) return null;
+  if (refusedRequest(relPath)) return null;
+  const contained = resolveContainedSync(root, relPath, CORE_CONTAINMENT);
+  return contained.ok ? contained.canonical : null;
+}
 
-  let rootReal: string;
+/**
+ * Re-check a path the caller already holds as absolute: a canonical answer
+ * `safeResolve` gave earlier, or a file core located itself (the brain's
+ * config). It is `safeResolve` of the same path taken relative to the root's
+ * realpath, or to the root as given, whichever holds it lexically; a path
+ * under neither is refused. Not for requests: a request is relative, and
+ * `safeResolve` refuses an absolute one (#3422).
+ */
+export function safeResolveHeld(root: string, path: string): string | null {
+  if (typeof path !== "string" || !isAbsolute(path)) return null;
+  const canonicalRoot = safeResolve(root, ".");
+  if (!canonicalRoot) return null;
+  for (const base of [canonicalRoot, resolve(root)]) {
+    const rel = relative(base, path);
+    if (rel === "" || (!isAbsolute(rel) && rel.split(sep)[0] !== "..")) return safeResolve(root, rel || ".");
+  }
+  return null;
+}
+
+/**
+ * A CLI path argument as the request `safeResolve` takes (#3422). An absolute
+ * argument lexically inside the brain (under the root as given or under its
+ * realpath) becomes brain-relative, `.` for the root itself. Anything else is
+ * returned unchanged, so the resolver gives its own answer: a relative
+ * argument is resolved as before, and an absolute one outside the brain, or
+ * one with a `..` segment, stays absolute and is refused. Only the spelling
+ * changes here: the relative result still goes through `safeResolve`, so a
+ * symlink on the way that leaves the brain is refused there.
+ *
+ * Every CLI argument that names a brain path goes through this before it
+ * reaches `safeResolve` or `resolveWritable`. Requests from anywhere else (MCP
+ * tools, settings, files) do not: they are repo-relative by contract.
+ */
+export function brainRelativeArgument(root: string, arg: string): string {
+  if (typeof arg !== "string" || !isAbsolute(arg)) return arg;
+  if (arg.split(/[\\/]/).includes("..")) return arg;
+  const bases = [resolve(root)];
   try {
-    rootReal = realpathSync(resolve(root));
+    bases.push(realpathSync(root));
   } catch {
-    return null;
+    // A root that does not resolve is refused by the resolver anyway.
   }
-  // Separator-aware containment check (backslash paths on Windows).
-  const contains = (p: string) => p === rootReal || p.startsWith(rootReal + sep);
-  const fullPath = resolve(rootReal, relPath);
-  if (!contains(fullPath)) return null;
-  // Canonicalize through symlinks. When the target (or a stretch of its
-  // parents) doesn't exist yet, canonicalize the nearest EXISTING ancestor and
-  // re-append the missing tail — a purely lexical fallback would let a
-  // symlinked parent directory smuggle a to-be-created file outside the root.
-  let existing = fullPath;
-  const tail: string[] = [];
-  // Symlink-hop budget: a dangling-link CYCLE (a→b, b→a) throws in realpath
-  // but resolves link-by-link here — bound it like the kernel does.
-  let hops = 0;
-  for (;;) {
-    let real: string;
-    try {
-      real = realpathSync(existing);
-    } catch {
-      // realpath failed: either the entry is genuinely absent, or it is a
-      // DANGLING symlink (exists, target missing). The two are different
-      // security cases — a write through a dangling link is created AT THE
-      // LINK TARGET, so it must be resolved and re-checked, never treated as
-      // "doesn't exist yet".
-      let linkTarget: string | null = null;
-      try {
-        if (lstatSync(existing).isSymbolicLink()) {
-          linkTarget = readlinkSync(existing);
-        }
-      } catch {
-        // lstat failed too → the entry really doesn't exist.
-      }
-      if (linkTarget !== null) {
-        if (++hops > 40) return null;
-        const resolvedTarget = isAbsolute(linkTarget)
-          ? resolve(linkTarget)
-          : resolve(dirname(existing), linkTarget);
-        // Re-enter containment checking with the link's target substituted in.
-        const rejoined = tail.length > 0 ? join(resolvedTarget, ...tail) : resolvedTarget;
-        if (!contains(rejoined)) return null;
-        existing = rejoined;
-        tail.length = 0;
-        continue;
-      }
-      tail.unshift(basename(existing));
-      const parent = dirname(existing);
-      // The loop always terminates at rootReal (it exists), but guard the
-      // filesystem root anyway.
-      if (parent === existing) return null;
-      existing = parent;
-      continue;
-    }
-    const candidate = tail.length > 0 ? join(real, ...tail) : real;
-    if (!contains(candidate)) return null;
-    return candidate;
+  for (const base of bases) {
+    const rel = relative(base, arg);
+    if (rel === "") return ".";
+    if (!isAbsolute(rel) && rel.split(sep)[0] !== "..") return rel.split(sep).join("/");
   }
+  return arg;
 }
 
 /**
@@ -89,8 +99,8 @@ export function safeResolve(root: string, relPath: string): string | null {
  * what lands there, and gitignored and pruned, so it is never canonical. A
  * write into it goes through `ensureScratch`.
  */
-export function resolveWritable(root: string, relOrAbs: string): string | null {
-  return safeResolve(root, relOrAbs);
+export function resolveWritable(root: string, relPath: string): string | null {
+  return safeResolve(root, relPath);
 }
 
 /**

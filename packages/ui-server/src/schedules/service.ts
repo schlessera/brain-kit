@@ -16,7 +16,7 @@ import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/princ
 import { encodeError, type SqliteWriter } from "../db/write-worker.js";
 import { scheduleWrites } from "./service-writes.js";
 import { ScheduleError } from "./errors.js";
-export { ScheduleError, type ScheduleErrorCode } from "./errors.js";
+export { ScheduleError } from "./errors.js";
 import { canonicalJson, scheduleFingerprint, sha256Hex } from "./canonical.js";
 import {
   DEFINITIONS_DIR,
@@ -38,9 +38,9 @@ import { createHostBoundary, type HostBoundary } from "../brain/host-boundary.js
 import { WorkerStateError } from "@schlessera/brain-ui-sdk/internal";
 import { subprocessEnv } from "../config/env.js";
 
-export const PROPOSAL_TTL_MS = 15 * 60_000;
-export const CURSOR_TTL_MS = 15 * 60_000;
-export const MAX_RESPONSE_BYTES = 512 * 1024;
+const PROPOSAL_TTL_MS = 15 * 60_000;
+const CURSOR_TTL_MS = 15 * 60_000;
+const MAX_RESPONSE_BYTES = 512 * 1024;
 const MAX_CURSOR_BYTES = 1024;
 /** Envelope fields plus the largest signed cursor, budgeted before any row. */
 const ENVELOPE_RESERVE = 256 + MAX_CURSOR_BYTES;
@@ -53,29 +53,29 @@ export interface ExecutionPolicy {
   profileId: string | null;
   inferenceOrigins: string[];
 }
-export type TaskState = "publishing" | "active" | "paused" | "cancelled" | "completed" | "failed" | "expired";
-export type OccurrenceState = "queued" | "running" | "unwinding" | "waiting_for_action" | "retrying"
+type TaskState = "publishing" | "active" | "paused" | "cancelled" | "completed" | "failed" | "expired";
+type OccurrenceState = "queued" | "running" | "unwinding" | "waiting_for_action" | "retrying"
   | "completed" | "failed" | "cancelled" | "expired" | "unknown";
-export type BlockedReason = "dispatch_disabled" | "budget_disabled" | "capacity" | "authority_unusable"
+type BlockedReason = "dispatch_disabled" | "budget_disabled" | "capacity" | "authority_unusable"
   | "definition_drift" | "backend_unavailable" | "unknown_effect" | "occurrence_limit" | "restore_pending";
-export const TASK_STATES: readonly TaskState[] = ["publishing", "active", "paused", "cancelled", "completed", "failed", "expired"];
+const TASK_STATES: readonly TaskState[] = ["publishing", "active", "paused", "cancelled", "completed", "failed", "expired"];
 export const OUTSTANDING_STATES: readonly OccurrenceState[] = ["queued", "running", "unwinding", "waiting_for_action", "retrying"];
 
-export interface ScheduleOccurrence {
+interface ScheduleOccurrence {
   id: string; taskId: string; dueAt: string; expiresAt: string; state: OccurrenceState;
   operationsUsed: number; maxOperations: number; runIds: string[];
   result: { state: "available" | "pruned" | "unavailable"; text: string | null };
 }
-export interface ScheduleTask {
+interface ScheduleTask {
   id: string; definition: ScheduleDefinition; creatorPrincipalId: string; createdAt: string;
   zoneSource: ZoneSource; state: TaskState; executionAvailable: boolean; blockedReason: BlockedReason | null;
   nextDueAt: string | null; lastOccurrence: ScheduleOccurrence | null; compensationPending: boolean;
 }
-export interface ScheduleProposal {
+interface ScheduleProposal {
   id: string; taskId: string; key: string; definition: ScheduleDefinition; zoneSource: ZoneSource;
   executionPolicy: ExecutionPolicy; fingerprint: string; expiresAt: string; approvalState: "pending" | "approved";
 }
-export interface DueCandidate {
+interface DueCandidate {
   taskId: string; occurrenceId: string; dueAt: string; expiresAt: string;
   admittable: boolean; blockedReason: BlockedReason | null;
 }

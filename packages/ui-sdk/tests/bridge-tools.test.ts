@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
-import { isAbsolute, join } from "path";
+import { basename, isAbsolute, join } from "path";
 
 import { BRIDGE_TOOL_POSTURE } from "../src/tool-contracts/bridge.js";
 import { piMaskFilename } from "../src/server/bridge-tools/mask.js";
@@ -68,6 +68,20 @@ describe("resolveInRepo", () => {
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a sibling directory that shares the root's name as a prefix", () => {
+    const root = mkdtempSync(join(tmpdir(), "bridge-path-root-"));
+    const sibling = `${root}-other`;
+    mkdirSync(sibling);
+    try {
+      symlinkSync(sibling, join(root, "sibling"));
+      expect(resolveInRepo(root, `../${basename(sibling)}/mask.png`)).toBeNull();
+      expect(resolveInRepo(root, "sibling/mask.png")).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(sibling, { recursive: true, force: true });
     }
   });
 

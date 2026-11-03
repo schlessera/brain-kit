@@ -116,17 +116,17 @@ export interface AskUserListCardProps {
 }
 
 /** Above this many items the answered record collapses its groups. */
-export const ASK_LIST_COLLAPSE_AT = 12;
+const ASK_LIST_COLLAPSE_AT = 12;
 
 /** How many chips sit in one grid row at a narrow card, for `n` options. */
-export function narrowColumns(n: number): number {
+function narrowColumns(n: number): number {
   if (n <= 4) return n;
   if (n <= 6) return 3;
   return 4;
 }
 
 /** The Submit label for the state the card is in. */
-export function submitLabel(answered: number, total: number, allowSkip: boolean): string {
+function submitLabel(answered: number, total: number, allowSkip: boolean): string {
   const open = total - answered;
   if (open === 0) return `Submit ${total}`;
   if (!allowSkip) return `${open} left to answer`;
@@ -138,7 +138,7 @@ export function submitLabel(answered: number, total: number, allowSkip: boolean)
  * the one rule that matters — never overwrite a choice — is testable without
  * a DOM.
  */
-export function fillOpen(
+function fillOpen(
   items: readonly Pick<AskUserListItem, "id">[],
   answers: Readonly<Record<string, string>>,
   label: string
@@ -150,7 +150,7 @@ export function fillOpen(
 
 /** The answered record's groups: one per option that got answers, in scale
  * order, then the skipped items. */
-export function groupAnswers(
+function groupAnswers(
   scale: readonly AskUserListOption[],
   items: readonly AskUserListItem[],
   answers: Readonly<Record<string, string>>

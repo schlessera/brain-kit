@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 
 import { readDocumentPart, SectionNotFoundError } from "../../lib/document-parts.js";
-import { safeResolve } from "../../lib/safe-path.js";
+import { brainRelativeArgument, safeResolve } from "../../lib/safe-path.js";
 import type { CoreCommand } from "../types.js";
 import { stringFlag } from "../flags.js";
 import { parseArgs, UsageError } from "../io.js";
@@ -24,7 +24,7 @@ export const readCommand: CoreCommand = {
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
-    const relPath = pos[0];
+    const relPath = pos[0] && brainRelativeArgument(cli.brain.root, pos[0]);
     if (!relPath) {
       throw new UsageError("Usage: brain read <path>");
     }

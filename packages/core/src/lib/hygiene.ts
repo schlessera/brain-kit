@@ -17,6 +17,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync } from "fs";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
@@ -748,7 +749,6 @@ export class HygieneLogError extends Error {}
 
 /** An entry heading: `### ` and one token ending in the ID's `-hash4`. */
 const ENTRY_HEADING = /^### +(\S+-[0-9a-f]{4})[ \t]*\r?$/;
-const FRONTMATTER = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
 
 /** A `## ` section of a log file, or (heading null) the text before the first one. */
 interface Segment {
@@ -771,14 +771,23 @@ interface LogFile {
 }
 
 /**
- * The frontmatter and body of a log file. A file that opens a frontmatter
- * block it does not close, or whose block is not a YAML mapping, is refused:
- * rewriting it would mean guessing where the frontmatter ends.
+ * The frontmatter and body of a log file, by the fences the indexer reads
+ * (`frontmatterBlock`, #2507): a byte order mark before the opening fence
+ * still opens a block. A file that opens a block it does not close with a
+ * `---` line, or whose block is not a YAML mapping, is refused: rewriting it
+ * would mean guessing where the frontmatter ends. That is stricter than the
+ * indexer on purpose, because this rewrites the body. A closing fence with
+ * more than whitespace after its dashes (`----`, `---x`) is refused too: the
+ * indexer ends the block there, an author probably did not. The frontmatter
+ * keeps the closing line's trailing whitespace and line ending.
  */
 function splitFrontmatter(text: string, rel: string): { frontmatter: string; body: string } {
-  if (!/^---[ \t]*\r?\n/.test(text)) return { frontmatter: "", body: text };
-  const frontmatter = FRONTMATTER.exec(text)?.[0];
-  if (!frontmatter) throw new HygieneLogError(`${rel}: the frontmatter is never closed with ---; fix it by hand, brain hygiene will not rewrite it`);
+  const block = frontmatterBlock(text);
+  if (!block) return { frontmatter: "", body: text };
+  // After the closing dashes: optional whitespace, then a line ending or the end of the file.
+  const rest = block.closed ? /^[ \t]*(?:\r?\n|$)/.exec(text.slice(block.innerEnd + 3)) : null;
+  if (!rest) throw new HygieneLogError(`${rel}: the frontmatter is never closed with a --- line; fix it by hand, brain hygiene will not rewrite it`);
+  const frontmatter = text.slice(0, block.innerEnd + 3 + rest[0].length);
   let data: unknown;
   try {
     data = parseFrontmatter(frontmatter, { dataOnly: true }).data;

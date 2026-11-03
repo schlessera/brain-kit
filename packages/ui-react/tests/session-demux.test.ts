@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../src/stores/chat-store";
-import { runStateForFrame, handleServerMessage, flushChatDeltas } from "../src/hooks/use-websocket";
+import { runStateForFrame } from "../src/hooks/use-websocket";
+import { defaultRoot } from "../src/default-root";
+
+const { handleServerMessage, flushChatDeltas } = defaultRoot.connection;
 
 function reset() {
   // Text deltas are coalesced into the next animation frame when one exists;

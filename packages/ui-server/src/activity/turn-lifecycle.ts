@@ -9,7 +9,7 @@ import { orderedWrites } from "./store-writes.js";
  */
 export type PhaseTimer = (name: string) => () => void;
 
-export type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
+type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
   acceptedAt: number, onWrite: () => void, clock: () => number = Date.now) {

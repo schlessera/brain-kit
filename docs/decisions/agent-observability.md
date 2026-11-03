@@ -139,7 +139,7 @@ interpretation layer added by this proposal.
 
 The existing generator reads per-run rollups, computes counts and costs, and
 selects notable failures (`generateInTx`,
-`packages/ui-server/src/activity/digest.ts:41-102`). Those counts and the failure
+`packages/ui-server/src/activity/digest.ts:40-101`). Those counts and the failure
 list do not justify the model cost and latency of an additional prose pass.
 It would also need factual validation to keep the summary faithful to the
 rollups, plus a fallback when the model is unavailable or returns unusable

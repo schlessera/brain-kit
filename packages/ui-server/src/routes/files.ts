@@ -168,7 +168,7 @@ function markView(mark: UntrustedMark, principal: Principal | undefined, missing
   };
 }
 
-export interface FilesRouteDeps {
+interface FilesRouteDeps {
   brainRoot: string;
   log?: Logger;
   /** The untrusted-mark records (#2673) and the hosted write worker they commit on. Absent: the mark routes are not mounted. */

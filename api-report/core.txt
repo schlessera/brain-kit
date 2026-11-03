@@ -252,6 +252,7 @@ export "./module" (./src/module.ts)
   type WriteFileSafelyOptions
   WriteRefusedError
   assertScratchWritable
+  brainRelativeArgument
   buildTaxonomy
   configurationRoot
   geminiCompletions
@@ -1784,6 +1785,8 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
+  brainRelativeArgument (packages/core/src/lib/safe-path.ts)
+    export function brainRelativeArgument(root: string, arg: string): string;
   buildPathMatcher (packages/core/src/lib/reranker.ts)
     export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined;
   buildTaxonomy (packages/core/src/lib/taxonomy.ts)
@@ -1943,7 +1946,7 @@ signatures (every public export and the types it is made of)
   resolveReranker (packages/core/src/lib/registry.ts)
     export function resolveReranker(config?: RerankerSettings): Reranker | undefined;
   resolveWritable (packages/core/src/lib/safe-path.ts)
-    export function resolveWritable(root: string, relOrAbs: string): string | null;
+    export function resolveWritable(root: string, relPath: string): string | null;
   restoreStorageAttachment (packages/core/src/lib/storage-attachments.ts)
     export function restoreStorageAttachment(root: string, path: string, expected: StorageAttachmentVersion, copy: (fd: number) => void, assertCurrent?: () => void): void;
   rewriteGeneratedRegion (packages/core/src/lib/generated-regions.ts)

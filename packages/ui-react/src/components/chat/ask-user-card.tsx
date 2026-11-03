@@ -45,7 +45,7 @@ function defaultState(): PerQuestionState {
 /** The preview to show for a question: the focused option's, else the single
  * chosen one's. `preview` is "content rendered when an option is focused"
  * in the ask_user contract; selection is the fallback once focus has moved on. */
-export function previewFor(
+function previewFor(
   question: AskUserQuestion,
   state: Pick<PerQuestionState, "focused" | "selected">
 ): string | undefined {
@@ -58,7 +58,7 @@ export function previewFor(
 }
 
 /** The answer the exchange recorded for one question, as the card shows it. */
-export function recordedAnswer(
+function recordedAnswer(
   question: AskUserQuestion,
   answers: Record<string, string> | undefined
 ): string {
@@ -90,7 +90,7 @@ export function answeredMeta(answeredAt: number | undefined, count = 1): string 
 export const TYPED_META = "taken from your next message";
 
 /** The typed answer is the user's own words, so the card quotes them. */
-export function quoted(text: string): string {
+function quoted(text: string): string {
   return text ? `\u201C${text}\u201D` : "";
 }
 

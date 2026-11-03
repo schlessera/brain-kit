@@ -37,7 +37,7 @@ const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
 /** Errors the host sends for a frame it could not tie to a request, when they name none. */
 const UNCORRELATED = ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"];
 
-export interface DraftClientOptions {
+interface DraftClientOptions {
   send: (msg: ClientMessage) => boolean;
   api?: DraftApi;
 }
@@ -567,4 +567,3 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   };
 }
 
-export type DraftClient = ReturnType<typeof createDraftClient>;

@@ -61,7 +61,7 @@ export function parseApifyPolicyChange(raw: unknown): ApifyPolicyChange | null {
 
 const MODE_LABEL: Record<ApifyPolicyMode, string> = { deny: "Deny", ask: "Ask", allow: "Allow" };
 /** The one-line rationale the review shows. Fixed words plus validated identifiers only. */
-export function apifyChangeRationale(change: ApifyPolicyChange): string {
+function apifyChangeRationale(change: ApifyPolicyChange): string {
   if ("enabled" in change) return change.enabled ? "Settings: turn Apify on. This approves no search and no run." : "Settings: turn Apify off.";
   if ("discovery" in change) return `Settings: set Apify catalog search to ${MODE_LABEL[change.discovery]}.`;
   if ("actors" in change) return `Settings: set running Apify Actors to ${MODE_LABEL[change.actors]}.`;
@@ -237,7 +237,7 @@ export interface ApifySettingsJournal {
   finish(turnId: string): Promise<void>;
 }
 
-export interface ApifyPolicyEditsOptions {
+interface ApifyPolicyEditsOptions {
   root: string;
   proposals: PolicyProposals;
   journal: ApifySettingsJournal;
