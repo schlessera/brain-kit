@@ -23,7 +23,6 @@ import {
   at, listDirectory, makeDirectory, openStagingRoot, publishDirectory, removeEntry, verifyEntry, writeExclusive,
   type StagingDirectory, type StagingRoot,
 } from "./staging-fs.js";
-export { StagingTopologyError } from "./staging-fs.js";
 
 /**
  * Staging for an incoming system share.
