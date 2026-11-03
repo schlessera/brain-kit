@@ -18,7 +18,7 @@ import { readRemovalFacts } from "./removal-facts.js";
 import { storageObservation } from "./maintenance.js";
 import { coreReader } from "./process.js";
 
-export const STORAGE_REMOVAL_LIMITS = Object.freeze({ items: 32, fileBytes: 64 * 1024 * 1024, totalBytes: 128 * 1024 * 1024, milliseconds: 300_000, reviewMilliseconds: 60_000, receiptBytes: 262_144, receipts: 128 });
+const STORAGE_REMOVAL_LIMITS = Object.freeze({ items: 32, fileBytes: 64 * 1024 * 1024, totalBytes: 128 * 1024 * 1024, milliseconds: 300_000, reviewMilliseconds: 60_000, receiptBytes: 262_144, receipts: 128 });
 const REVIEW_TTL = 10 * 60_000, runningHere = new Set<string>();
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const prefix = (path: string, root: string) => root === "." || path === root || path.startsWith(`${root}/`);

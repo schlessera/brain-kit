@@ -47,7 +47,7 @@ import { resolveWebSearchEnv } from "../config/env.js";
 import { loadBackendDescriptor, loadBackendModule } from "../agent/backend.js";
 
 /** One toggleable provider, as the Settings UI renders it. */
-export interface WebSearchProviderView {
+interface WebSearchProviderView {
   id: string;
   label: string;
   /** In the active chain. */
@@ -66,7 +66,7 @@ export interface WebSearchProviderView {
   blurb: string;
 }
 
-export interface WebSearchConfigView {
+interface WebSearchConfigView {
   /** False when the pi backend is not configured — the client hides the card. */
   configured: boolean;
   /** The active chain, in the order it is tried. Empty = the extension picks. */
@@ -86,7 +86,7 @@ export interface WebSearchConfigView {
   providers: WebSearchProviderView[];
 }
 
-export interface WebSearchRoutesDeps {
+interface WebSearchRoutesDeps {
   agent: AgentConfig;
   /** Test seam — overrides the config file location. */
   configPath?: string;

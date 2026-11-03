@@ -2,6 +2,7 @@ import type { SearchOptions } from "../../lib/types.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import { DEFAULT_LIST_LIMIT, listLimitSchema, MAX_LIST_LIMIT } from "../../lib/ops/read.js";
 import type { CoreCommand } from "../types.js";
+import { stringFlag } from "../flags.js";
 import { emit, type Flags, openReadonlyDb, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain list — list/browse documents
@@ -34,18 +35,20 @@ export const listCommand: CoreCommand = {
   helpBlock: HELP,
   async run(args, cli) {
     const { flags } = parseArgs(args);
-    // Validated before the database is opened: a bad limit runs no query.
+    // Validated before the database is opened: a bad limit or a filter flag
+    // without a value runs no query.
     const limit = parseListLimit(flags.limit);
+    const status = stringFlag(flags, "status");
+    const opts: SearchOptions = {
+      type: stringFlag(flags, "type"),
+      tag: stringFlag(flags, "tag"),
+      status,
+      relevance: stringFlag(flags, "relevance"),
+      includeArchived: status === "archived" || flags["include-archived"] === true,
+      limit,
+    };
     const db = openReadonlyDb(cli.brain);
     try {
-      const opts: SearchOptions = {
-        type: flags.type as string | undefined,
-        tag: flags.tag as string | undefined,
-        status: flags.status as string | undefined,
-        relevance: flags.relevance as string | undefined,
-        includeArchived: flags.status === "archived" || flags["include-archived"] === true,
-        limit,
-      };
 
       const results = filterSearch(db, opts);
 

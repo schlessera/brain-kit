@@ -3,6 +3,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import { frontmatterLength } from "@schlessera/brain-common/internal/frontmatter-block";
+
 import { caseFold } from "./case-fold.js";
 import { estimateTokens } from "./chunker.js";
 
@@ -65,22 +67,10 @@ const parser = unified().use(remarkParse).use(remarkGfm);
 
 /**
  * Length of the frontmatter block, by the rule gray-matter applies when core
- * reads a document: after a byte order mark, which gray-matter strips, the
- * file opens with `---` not followed by a fourth `-`, and the block runs to
- * the first `\n---` (to the end of the file if there is none), plus one line
- * ending after it. The length counts the mark, so it is an offset into the
- * original text.
+ * reads a document. It lives with `frontmatterBlock` next to `parseFrontmatter`
+ * in brain-common, so every site that finds the fences agrees (#2507).
  */
-export function frontmatterLength(text: string): number {
-  const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
-  if (!text.startsWith("---", bom) || text.charAt(bom + 3) === "-") return 0;
-  const close = text.indexOf("\n---", bom + 3);
-  if (close === -1) return text.length;
-  let end = close + 4;
-  if (text[end] === "\r") end++;
-  if (text[end] === "\n") end++;
-  return end;
-}
+export { frontmatterLength } from "@schlessera/brain-common/internal/frontmatter-block";
 
 interface LocatedHeading {
   level: number;

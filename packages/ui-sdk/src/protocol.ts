@@ -566,7 +566,8 @@ export type DraftErrorCode =
   | "DRAFT_INVALID"
   | "DRAFT_PRECONDITION_REQUIRED"
   | "DRAFT_KEY_REUSED"
-  | "DRAFT_NOT_ACCEPTED";
+  | "DRAFT_NOT_ACCEPTED"
+  | "DRAFT_CHAT_RETIRED";
 
 /** A draft route's failure body, discriminated by `error`. */
 export type DraftErrorResponse =
@@ -585,7 +586,9 @@ export type DraftErrorResponse =
   /** 409: this `Idempotency-Key` already named a different request. */
   | { error: "DRAFT_KEY_REUSED"; message: string }
   /** 409: no accepted message of that session carried this draft and request. */
-  | { error: "DRAFT_NOT_ACCEPTED"; message: string };
+  | { error: "DRAFT_NOT_ACCEPTED"; message: string }
+  /** 410 (additive, #3230): the draft's chat was deleted. Nothing was stored; save the local content as a new, unbound draft. */
+  | { error: "DRAFT_CHAT_RETIRED"; message: string };
 
 // ============================================================
 // Session recovery (additive; #964, design D52 §4 and §6)
@@ -833,7 +836,8 @@ export type ServerMessage =
   | ServerConversationOutput
   | ServerConversationPermission
   | ServerTurnJournal
-  | ServerUsage;
+  | ServerUsage
+  | ServerChatRetired;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -949,6 +953,13 @@ export interface SessionHistoryMessage {
    * whatever the turn answered before it failed.
    */
   failure?: TurnFailure;
+  /**
+   * On an `assistant` message: a notice the agent runtime wrote into the
+   * transcript itself when a turn stopped, rather than anything the model
+   * said (additive; #3356). Its text is not repeated in `content`, which
+   * holds whatever the turn answered before it.
+   */
+  runtimeNotice?: RuntimeNotice;
   /** Host-held exact original request, present only on an eligible latest failure. */
   retryOfTurnId?: string;
   /**
@@ -960,6 +971,18 @@ export interface SessionHistoryMessage {
   turnId?: string;
   /** Host-retained facts for this proven turn, never inferred from backend text. */
   journal?: import("./turn-journal.js").TurnJournalSummary;
+}
+
+/**
+ * A runtime-authored notice on a replayed assistant message (additive;
+ * #3356). `cause` is only what the runtime's own record establishes:
+ * `aborted` when it recorded an aborted request, otherwise `unspecified`.
+ * Neither says who stopped the turn or whether earlier tool calls took
+ * effect. `message` is the runtime's text, as written.
+ */
+export interface RuntimeNotice {
+  cause: "aborted" | "unspecified";
+  message: string;
 }
 
 /** A replayed local exchange's answer, as `SessionHistoryMessage.localAnswer` carries it. */
@@ -1142,6 +1165,11 @@ export interface ServerResultMessage {
    * "timeout" for a max-turns/max-budget stop. A new VALUE here never breaks
    * an old client because the field is free-form and advisory; the precise
    * taxonomy lives in the server's activity record.
+   *
+   * Under `outcome: "cancelled"` (additive; #3356), `"host_timeout"` says the
+   * host's hard elapsed-time turn limit ended the turn, rather than a cancel
+   * someone asked for. Absent on a cancelled turn means the host does not say
+   * why it was cancelled.
    */
   outcomeDetail?: string;
   /**
@@ -1155,6 +1183,12 @@ export interface ServerResultMessage {
   /** This turn's actual admitted resumed-state observation; absent means unknown. */
   stateRoom?: StateRoomObservation;
 }
+
+/**
+ * `result.outcomeDetail` on an `outcome: "cancelled"` turn that the host's
+ * hard elapsed-time turn limit ended (additive; #3356).
+ */
+export const HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout";
 
 /**
  * A provider or API failure that ended a turn (additive; #575), normalised
@@ -2319,6 +2353,70 @@ export interface ServerSessionQueue {
 }
 
 // ============================================================
+// Explicit local chat deletion (additive, #3230)
+// ============================================================
+
+/**
+ * `server_hello`/`client_hello` capability (additive, #3230). A host that
+ * advertises it answers `POST /api/chat-deletions`, and sends `chat_retired`
+ * to the deleting owner's connections that declared the same flag. Old
+ * clients are refused server-side: a retired chat is absent from every list,
+ * read, resume and recovery path whether or not a client understood the frame.
+ */
+export const CHAT_DELETION_CAPABILITY = "chatDeletion";
+
+/** The local stores one deletion selects. `native` exists only for a backend session. */
+export type ChatDeletionStore = "native" | "dialogue" | "tasks" | "projections" | "drafts";
+/**
+ * One store's cleanup, or the whole operation's: `removed` only when the store
+ * confirmed it; the whole operation is `removed` only when every selected store did.
+ * `unknown` dominates `partial`, which dominates `pending`.
+ */
+export type ChatDeletionOutcome = "pending" | "partial" | "unknown" | "removed";
+/** What local deletion never removes. Every receipt lists all of them. */
+export type ChatDeletionRetained = "independent_content" | "effects_and_audit" | "provider_copies" | "backups" | "offline_devices";
+/** Why a deletion was refused before anything was retired. */
+export type ChatDeletionRefusal = "unauthorized" | "unavailable" | "stale" | "unsupported" | "busy";
+
+/** `POST /api/chat-deletions` body. */
+export interface ChatDeletionRequest {
+  /** Client-minted idempotency key. Repeating it returns the same operation and retries its unfinished stores. */
+  operationId: string;
+  /** A backend session, or a host-only history owner never bound to one. */
+  target: { sessionId: string } | { historyOwnerId: string };
+  /**
+   * What the caller reviewed: the chat's backend (null for a host-only
+   * history) and its history generation (a dialogue page's `generation`, or 1
+   * for a chat with no host-retained dialogue). Any difference refuses as stale.
+   */
+  expected: { backendId: string | null; generation: number };
+}
+
+/** `POST /api/chat-deletions` success: the chat is retired; `status` says how far cleanup got. */
+export interface ChatDeletionReceipt {
+  operationId: string;
+  /** The retired chat's terminal history generation. */
+  generation: number;
+  status: ChatDeletionOutcome;
+  stores: Partial<Record<ChatDeletionStore, ChatDeletionOutcome>>;
+  retained: ChatDeletionRetained[];
+}
+
+/**
+ * Server → Client (additive, #3230). The owner retired this chat. Clear every
+ * local projection of it and stop resending, autosaving or retrying for it; a
+ * later history response for it is stale. Sent only to the owner's
+ * connections that declared {@link CHAT_DELETION_CAPABILITY}.
+ */
+export interface ServerChatRetired {
+  type: "chat_retired";
+  sessionId?: string;
+  /** Every host history owner and alias the chat had; empty for a native-only chat. */
+  historyOwnerIds: string[];
+  generation: number;
+}
+
+// ============================================================
 // File Manager
 // ============================================================
 
@@ -3128,6 +3226,19 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
   return v === "openrouter" || v === "direct";
 }
 
+/**
+ * One timed step inside the governed-admission or journal-begin phase (#3355).
+ * `name` is open vocabulary: consumers tolerate names they do not know.
+ */
+export interface ActivityTurnSubPhase {
+  phase: "governed" | "journal";
+  name: string;
+  startedAt: number;
+  /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
+  endedAt: number | null;
+  elapsedMs: number | null;
+}
+
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
@@ -3157,6 +3268,8 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
+  /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
+  subPhases?: ActivityTurnSubPhase[];
 }
 
 export interface ActivityRunSummary {
@@ -3558,20 +3671,69 @@ export interface HygieneDiff {
 }
 export interface HygieneEffect {
   kind: "hygiene";
-  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze";
+  /**
+   * `defer` is Leave pending (#2780): host-only, skipped for the rest of this
+   * review pass. The `media-*` operations (#2781) are a media finding's
+   * governed effects, applied only with a current previewed plan.
+   */
+  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze" | "defer" | "media-delete" | "media-move" | "media-persist" | "media-keep-copy";
   findingId: string;
   fingerprint: string;
   handler?: string;
   input?: HygieneInput;
   previewToken?: string;
   undoToken?: string;
+  /** A Move's or copy's destination, as previewed (#2781). */
+  destination?: string;
+  /** The previewed media plan's premise; apply refuses `stale` when the brain no longer matches it. */
+  premiseDigest?: string;
+}
+/** A media finding's four effects (#2781). */
+export type HygieneMediaAction = "delete" | "move" | "persist" | "keep-copy";
+/** A named refusal: a result the domain expects, never an error (rev 5 §11). */
+export interface HygieneMediaRefusal { code: string; path?: string; line?: number; limit?: string; effective?: number; observed?: number }
+/** What a media effect will do, from `brain hygiene media … --dry-run` (#2781, rev 4 §9). */
+export interface HygieneMediaPlan {
+  action: HygieneMediaAction;
+  premiseDigest: string;
+  destination: string | null;
+  /** Every file or directory the effect writes, in apply order; `before`/`after` are SHA-256, `directory`, or null for absent. */
+  files: Array<{ path: string; role: "source" | "destination" | "note" | "config" | "directory"; before: string | null; after: string | null; bytes: number }>;
+  /** Bytes the journal retains before any write. */
+  captureBytes: number;
+  links: { state: "linked" | "unlinked" | "unknown"; conversations: number };
+  references: { complete: boolean; count: number };
+  rewrites: Array<{ note: string; line: number; kind: string; before: string; after: string }>;
+  blockers: Array<{ note: string; line: number; kind: string; target: string }>;
+  configDiff: { path: string; track: { before: string[]; after: string[] }; ignore: { before: string[]; after: string[] } } | null;
+  copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  resultClass: "TRACK" | "ARTIFACT" | null;
+  refusals: HygieneMediaRefusal[];
+}
+export type HygieneMediaFileState = "created" | "changed" | "removed" | "restored" | "unchanged" | "left-changed" | "conflict";
+/**
+ * A media effect's receipt (#2781, rev 4 §9). `compensated`: nothing remains
+ * of it. `partial`: some file could not be put back and is listed as
+ * `conflict` or `left-changed`. Undo availability is read when asked, from
+ * the journal's retained data and the files' current bytes.
+ */
+export interface HygieneMediaReceipt {
+  journalId: string;
+  action: HygieneMediaAction;
+  outcome: "pending" | "applied" | "kept" | "compensated" | "partial" | "refused" | "stale" | "undone";
+  reason?: string;
+  refusals?: HygieneMediaRefusal[];
+  files: Array<{ path: string; state: HygieneMediaFileState }>;
+  copySha256?: string;
+  undo: { available: boolean; reason?: string; path?: string };
 }
 export interface HygieneAction {
   findingId: string;
   fingerprint: string;
   /** Supported CLI projection, retained as display data. */
   finding: Record<string, unknown>;
-  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
+  /** `kept` (#2781) is a confirmed Keep a permanent copy; `media` is a media effect's receipt. */
+  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded" | "deferred" | "kept"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string }; media?: HygieneMediaReceipt };
 }
 export interface HygieneReviewState {
   version: 1;
@@ -3581,10 +3743,31 @@ export interface HygieneReviewState {
   pendingActionId?: string;
   /** Shared cap retirement pauses review without disposing its finding. */
   pauseReason?: { kind: "actions-limit"; retiredActionId: string; retirementReceiptId: string };
-  counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number };
+  /** `kept` (#2780) counts entries kept as a permanent copy; read as 0 from a row stored before it. */
+  counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number; kept?: number };
   blocker?: Record<string, unknown>;
+  /** Media originals kept as a permanent copy during review; 0 for a row stored before it. */
+  kept?: number;
+  /** The review pass: a Start after a complete or idle review begins a new one. 0 for a row stored before it. */
+  pass?: number;
+  /**
+   * Findings left pending (Leave pending, #2780) in this pass, at the
+   * fingerprint they were left at. They are skipped until the pass ends or
+   * their fingerprint changes, and they still count as awaiting review.
+   */
+  deferred?: { findingId: string; fingerprint: string }[];
+  /** The media counts `brain sync` reports, from the last selection. */
+  media?: { awaitingReview: number; setAside: number; kept: number };
 }
 export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" | "refresh" }
+/**
+ * Undo from review (#2781): undoes a confirmed media effect from its
+ * resolved card, by the receipt's `journalId`, under the same preflights as
+ * the CLI Undo. Undoing Keep a permanent copy also removes its kept entry.
+ */
+export interface HygieneReviewMediaUndoCommand { operation: "undo-media"; journalId: string }
+/** Every body `POST /hygiene/review` accepts. */
+export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
 export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
 export interface HygieneReviewRead {
   review: HygieneReviewState;
@@ -3595,6 +3778,12 @@ export interface HygieneReviewRead {
    * never part of the replicated Action.
    */
   privateDetailAccess?: { itemId: string };
+  /**
+   * The Undo's own receipt, on the response to an `undo-media` command only
+   * (#2781): `undone`, `partial`, or `refused` with the reason (for example
+   * `changed-since` or `rollback-evicted`) and nothing written.
+   */
+  mediaUndo?: HygieneMediaReceipt;
 }
 /**
  * The recorded facts of a private managed-worktree finding, read by the owner
@@ -3637,6 +3826,8 @@ export interface InboxOption {
   /** CLI-owned input descriptor; no client-selected effect. */
   input?: { type: "none" | "string" | "enum" | "date" | "strings" | "path"; values?: string[]; example?: string };
   preview?: HygieneDiff;
+  /** A media effect's previewed plan (#2781); the option applies only with it. */
+  media?: HygieneMediaPlan;
 }
 
 export interface InboxItemBase {
@@ -3803,6 +3994,7 @@ export interface AgentPolicyRead {
 }
 
 export type { BudgetScope, BudgetObservation, TurnBudgetCoverage, TurnBudgetReceipt } from "./turn-budgets.js";
+export type { ApifyProviderState, ApifyProviderReason, ApifyAccountRead, ApifyPolicyMode, ApifyGrantRead, ApifyLimitsRead, ApifyPolicyRead, ApifySpendScopeRead, ApifyUnresolvedRunRead, ApifySpendRead, ApifySettingsRead, ApifyPolicyChange, ApifyPolicyProposalRead } from "./apify-settings.js";
 
 /** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
 export interface ServerUsage extends SessionScoped {

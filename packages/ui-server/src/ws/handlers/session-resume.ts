@@ -2,6 +2,7 @@ import { FOLLOW_UP_QUEUE_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { sendSessionHistory } from "../history.js";
 import { resendPendingApprovals, resendPendingAsks } from "../resend.js";
 import { requireKnownSession } from "../session-recovery.js";
+import { ChatRetiredError } from "../chat-lifecycle.js";
 import type { ClientMessageHandler } from "./context.js";
 
 export const handleSessionResume: ClientMessageHandler<"session_resume"> = async ({ host, ws, connection }, msg) => {
@@ -56,6 +57,13 @@ export const handleSessionResume: ClientMessageHandler<"session_resume"> = async
   } catch (err) {
     if (!connection.authorization.valid) {
       host.reportSessionResume(msg.sessionId, "unauthorized");
+      return;
+    }
+    // Retired while its history was read (#3230): absent, not a load failure.
+    if (err instanceof ChatRetiredError) {
+      host.reportSessionResume(msg.sessionId, "error", { error: "retired" });
+      host.sendMessage(ws, { type: "error", code: "SESSION_NOT_FOUND", sessionId: msg.sessionId,
+        message: "This conversation is not available on this host. Start a New conversation; your draft is kept." });
       return;
     }
     const message = err instanceof Error ? err.message : "Failed to load session";

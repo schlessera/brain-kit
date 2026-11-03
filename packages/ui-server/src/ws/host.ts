@@ -2,7 +2,8 @@ import { StorageSettlementIndeterminate, withinStorageBudget } from "../db/settl
 import { DialogueJournal } from "./dialogue.js";
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
-import { FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
+import { CHAT_DELETION_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
+import { ChatRetiredError, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
 import { ClientSet, sendTo, type WSContext } from "./clients.js";
@@ -91,6 +92,8 @@ export interface WsHostOptions {
   referenceWorktreeAccess?: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432); used only with `referenceWorktreeAccess`. */
   referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal The Apify operations (#3162): interactive turns of both backends call them through the bridge. */
+  apify?: import("../apify/host.js").ApifyHost;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -223,6 +226,8 @@ export interface ToolPermissions {
 export class WsHost {
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   readonly turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  /** Explicit local chat deletion (#3230); present when the host answers `POST /api/chat-deletions`. */
+  chatDeletion?: import("./chat-deletion.js").ChatDeletion;
   /** @internal Concrete host-owned scope observation and process control. */
   readonly scope?: import("../brain/turn-scope.js").TurnScope;
   readonly journal?: import("../brain/turn-journal.js").TurnJournal;
@@ -244,6 +249,8 @@ export class WsHost {
   readonly referenceWorktreeAccess: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432), present only with `referenceWorktreeAccess`. */
   readonly referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal The Apify operations (#3162). */
+  readonly apify?: import("../apify/host.js").ApifyHost;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -346,6 +353,7 @@ export class WsHost {
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
     if (this.referenceWorktreeAccess) this.referenceTools = options.referenceTools;
+    this.apify = options.apify;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;
@@ -612,6 +620,9 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[], strictSources = false): SessionHistoryMessage[] {
+    // The last synchronous step before any history is published (#3230):
+    // a chat retired while its native history was read publishes nothing.
+    if (this.catalog.chatRetired?.({ sessionId })) throw new ChatRetiredError();
     // Turn ids first: boundaries were observed on the backend's own messages.
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
     if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
@@ -623,6 +634,33 @@ export class WsHost {
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped, strictSources) ?? stripped;
     const joined = spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
     return this.catalog.attachRetryRequest?.(sessionId, joined) ?? joined;
+  }
+
+  /**
+   * Effect-owning work on a chat refuses its deletion (#3230): a running or
+   * starting turn, queued follow-ups, or unsettled live-conversation tasks.
+   * The owner stops or reconciles them first; deletion never cancels them.
+   * @internal Host wiring.
+   */
+  chatBusy(identities: RetiredChatIdentities): boolean {
+    for (const sessionId of identities.sessions) {
+      if (this.coordinator.bySession.has(sessionId) || this.coordinator.startingBySession.has(sessionId)
+        || this.coordinator.pendingFollowUps(sessionId).length > 0) return true;
+    }
+    return this.conversations?.busy(identities) ?? false;
+  }
+
+  /**
+   * A chat was retired (#3230): end its live conversation epochs and tell the
+   * owner's capable clients to drop their projections of it. Readers already
+   * refuse it, so a client that never learns this still cannot read it.
+   * @internal Host wiring.
+   */
+  chatRetired(principalId: string, retirement: { identities: RetiredChatIdentities; generation: number }): void {
+    this.conversations?.retire(retirement.identities);
+    const sessionId = retirement.identities.sessions[0];
+    this.clients.broadcast({ type: "chat_retired", ...(sessionId ? { sessionId } : {}), historyOwnerIds: [...retirement.identities.dialogueOwners],
+      generation: retirement.generation }, undefined, CHAT_DELETION_CAPABILITY, principalId);
   }
 
   /**

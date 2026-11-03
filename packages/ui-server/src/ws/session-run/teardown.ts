@@ -25,6 +25,12 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   await held.turnEgress?.settled();
   host.dialogue.retireTurn(turn.turnId);
   if (held.referenceTurn) host.referenceTools?.end(turn.turnId);
+  // Apify (#3162): a cancelled, timed-out or budget-stopped turn aborts the
+  // runs it started, off the turn's path; a finished turn leaves them for
+  // later status reads in its conversation.
+  const budgetFailure = run.stops.budget;
+  if (host.apify && (turn.cancelled || run.abortController.signal.aborted || budgetFailure))
+    void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
   // No grant after this point: the final observation covers everything granted.
   if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
   try {

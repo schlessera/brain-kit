@@ -37,7 +37,7 @@ export function createHealthRoutes(deps: { db: Database }): Hono {
   });
 }
 
-export interface StatusDeps {
+interface StatusDeps {
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */

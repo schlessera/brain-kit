@@ -88,22 +88,22 @@ export interface LabellerOptions {
 /** The Activity run name of one label call. */
 export const LABEL_RUN_NAME = "pill label";
 
-export const LABEL_TIMEOUT_MS = 10_000;
+const LABEL_TIMEOUT_MS = 10_000;
 /** Calls in flight at once; the rest wait their turn. */
-export const LABEL_CONCURRENCY = 2;
+const LABEL_CONCURRENCY = 2;
 /** Texts waiting for a call; past this a new one keeps its fallback. */
-export const LABEL_MAX_WAITING = 100;
+const LABEL_MAX_WAITING = 100;
 /** Distinct texts whose answer is kept in memory. */
-export const LABEL_CACHE_ENTRIES = 500;
+const LABEL_CACHE_ENTRIES = 500;
 /** The most of a prompt the model is shown. */
-export const LABEL_PROMPT_CHARS = 2_000;
+const LABEL_PROMPT_CHARS = 2_000;
 
-export const LABEL_SYSTEM_PROMPT =
+const LABEL_SYSTEM_PROMPT =
   "You label chat messages for a small pill in a user interface. " +
   "Reply with two to four plain words saying what the message is about. " +
   "No quotes, no trailing punctuation, no preamble, nothing else.";
 
-export type LabelOutcome = "labelled" | "empty" | "timeout" | "error" | "skipped_busy";
+type LabelOutcome = "labelled" | "empty" | "timeout" | "error" | "skipped_busy";
 
 export interface Labeller {
   /** False without a provider: every call answers null without work. */

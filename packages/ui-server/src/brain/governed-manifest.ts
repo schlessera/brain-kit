@@ -29,7 +29,7 @@ import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { url as GOVERNED_TURN_WRITES, setup as governedTurnWriteSetup } from "./governed-turn-writes.js";
 
 /** One protected path as it stood. `blocked`: an ancestor was not a real directory, named here. */
-export interface ManifestEntry {
+interface ManifestEntry {
   path: string;
   exists: boolean;
   type?: "file" | "directory" | "symlink" | "other";
@@ -40,7 +40,7 @@ export interface ManifestEntry {
   blocked?: string;
 }
 
-export interface TurnManifest {
+interface TurnManifest {
   /** The protected list this turn ran under. */
   protected: string[];
   entries: ManifestEntry[];

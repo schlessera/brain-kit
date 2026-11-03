@@ -31,7 +31,7 @@ export interface AskUserRankCardProps {
   onAskAgain?: () => void;
 }
 
-export function moveRankItem(order: readonly string[], id: string, position: number): string[] {
+function moveRankItem(order: readonly string[], id: string, position: number): string[] {
   const next = order.filter((item) => item !== id);
   next.splice(Math.max(0, Math.min(position, next.length)), 0, id);
   return next;

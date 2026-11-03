@@ -9,6 +9,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { assertTurnPosture, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { WorkerResourceLimitError } from "@schlessera/brain-ui-sdk/internal";
+import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/server";
 import type { CreatePiBackendOptions } from "./backend-options.js";
@@ -34,9 +35,19 @@ const BACKEND_ID = "pi";
 
 export function createPiTurnRunner(
   pool: SessionPool,
-  options: CreatePiBackendOptions
+  options: CreatePiBackendOptions,
+  retirement?: Pick<SessionRetirement, "hold">
 ): (req: StartTurnRequest) => Promise<void> {
+  // Explicit chat deletion (#3229): a retired chat refuses resume as an unknown
+  // one, and a removal waits until this turn's last native write has landed.
   return async function startTurn(req: StartTurnRequest): Promise<void> {
+    const holds: Array<() => void> = [];
+    if (req.sessionId !== undefined && retirement) holds.push(retirement.hold(req.sessionId));
+    try { await runTurn(req, (sessionId) => { if (retirement && sessionId !== req.sessionId) holds.push(retirement.hold(sessionId)); }); }
+    finally { for (const release of holds.splice(0)) release(); }
+  };
+
+  async function runTurn(req: StartTurnRequest, holdSession: (sessionId: string) => void): Promise<void> {
     const startedAt = Date.now();
     // pi has none of the runtime shortcuts the pairing guards against, but the
     // declaration is refused here too so it means the same on both backends.
@@ -55,6 +66,8 @@ export function createPiTurnRunner(
     const { entry, isNew } = acquired;
     const { session, turnContext } = entry;
     const sessionId = session.sessionId;
+    try { holdSession(sessionId); }
+    catch (error) { pool.finish(entry); throw error; }
     // Scope every frame this turn emits to its session so a multiplexed client
     // can demux concurrent sessions. Follow-up frames flow through this same
     // emit (the subscription below stays live for the whole turn).
@@ -194,7 +207,7 @@ export function createPiTurnRunner(
     }
 
     emitTurnTerminal(emit, { sessionId, startedAt, cancelled, failed, thrown, failures, usage, costBefore, session });
-  };
+  }
 }
 
 /**

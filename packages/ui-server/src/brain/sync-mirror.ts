@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { runMaintenanceWorker, prepareNativeWorkerStartupView, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
@@ -26,7 +27,8 @@ const MIRROR_CONFIG = `[core]
 \tfsckObjects = true
 `;
 const CREDENTIAL_HELPER = '!f() { printf "username=x-access-token\\npassword=%s\\n" "$BRAIN_SYNC_TOKEN"; }; f';
-const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
+/** Deny direction (#3422): whether `path` is `root` or below it; a `root` of `/` holds every absolute path. */
+export const within = (root: string, path: string) => isWithin(root, path, { trailingSeparator: "boundary" });
 const mirrorLocks = createKeyedLock();
 
 /** One host-private mirror per brain/database; standalone clients get private temporary state. */
@@ -74,7 +76,7 @@ function prepareMirror(mirror: string, brain: string): void {
 async function origin(command: MaintenanceCommand): Promise<string | null> {
   const git = Bun.which("git", { PATH: "/usr/bin:/bin" });
   if (!git) throw new Error("host sync needs system git");
-  const result = await runMaintenanceWorker({ ...command, command: [git, "config", "--local", "--no-includes", "--get", "remote.origin.url"],
+  const result = await runMaintenanceWorker({ ...command, tempKind: "sync", command: [git, "config", "--local", "--no-includes", "--get", "remote.origin.url"],
     credentials: false, timeoutMs: 10_000 });
   if (result.killed) throw new Error("reading the host sync remote timed out");
   // No configured remote means there is no credentialed transport. Run the
@@ -117,7 +119,7 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
       if (token) env.BRAIN_SYNC_TOKEN = token;
     }
   }
-  return { brainPath: input.brain, credentials: true, env,
+  return { brainPath: input.brain, credentials: true, tempKind: "sync", env,
     ...(input.tempLimits ? { tempLimits: input.tempLimits } : {}),
     ...(input.tempDomain ? { tempDomain: input.tempDomain } : {}),
     command: [git, "--git-dir", input.mirror, "-c", "credential.helper=", "-c", `credential.helper=${CREDENTIAL_HELPER}`,
@@ -134,7 +136,7 @@ async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal
     command.signal?.throwIfAborted();
     outputs = await prepareMaintenanceOutput(command.brainPath, { startupView: view, folderPaths, signal: command.signal });
     const git = await prepareMaintenanceGit(command, outputs, command.signal, log);
-    const result = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
+    const result = await runMaintenanceWorker({ ...command, tempKind: "sync", startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
     if (!result.killed) await outputs.publish();
     return result;
   } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }

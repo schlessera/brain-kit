@@ -8,7 +8,7 @@
 import type { Database } from "bun:sqlite";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 
-export type RetiredKind = "session" | "dialogue_owner" | "conversation" | "task" | "request" | "native_task";
+type RetiredKind = "session" | "dialogue_owner" | "conversation" | "task" | "request" | "native_task";
 export const CHAT_STORES = ["native", "dialogue", "tasks", "projections", "drafts"] as const;
 export type ChatStore = (typeof CHAT_STORES)[number];
 export type ChatStoreOutcome = "pending" | "partial" | "unknown" | "removed";
@@ -46,6 +46,8 @@ export type ChatRetirementStatus = "pending" | "partial" | "unknown" | "removed"
 export type RetireChatResult =
   | { status: "refused"; reason: RetireRefusal }
   | { status: "retired"; lifecycleId: string; operationId: string; generation: number; identities: RetiredChatIdentities;
+      /** The backend whose native store was selected, or null for a provisional chat. */
+      backendId: string | null;
       cleanup: ChatRetirementStatus; stores: Partial<Record<ChatStore, ChatStoreOutcome>> };
 
 const MAX_ID = 2048;
@@ -124,21 +126,22 @@ function stored(db: Database, lifecycleId: string): Partial<Record<ChatStore, Ch
     .map(row => [row.store, row.outcome]));
 }
 /** Completed only when every selected store confirmed removal; unknown dominates partial, partial dominates pending. */
-export function cleanupStatus(stores: Partial<Record<ChatStore, ChatStoreOutcome>>): ChatRetirementStatus {
+function cleanupStatus(stores: Partial<Record<ChatStore, ChatStoreOutcome>>): ChatRetirementStatus {
   const outcomes = Object.values(stores);
   if (!outcomes.length) return "pending";
   if (outcomes.includes("unknown")) return "unknown";
   if (outcomes.includes("partial")) return "partial";
   return outcomes.every(outcome => outcome === "removed") ? "removed" : "pending";
 }
-function identitiesOf(db: Database, lifecycleId: string): RetiredChatIdentities {
+export function identitiesOf(db: Database, lifecycleId: string): RetiredChatIdentities {
   const rows = db.query("SELECT kind,id FROM chat_retired_identities WHERE lifecycle_id=? ORDER BY kind,id").all(lifecycleId) as { kind: RetiredKind; id: string }[];
   const of = (kind: RetiredKind) => rows.filter(row => row.kind === kind).map(row => row.id);
   return { sessions: of("session"), dialogueOwners: of("dialogue_owner"), conversations: of("conversation"), tasks: of("task"), requests: of("request"), nativeTasks: of("native_task") };
 }
-function receipt(db: Database, row: { id: string; operation_id: string; generation: number }): RetireChatResult {
+function receipt(db: Database, row: { id: string; operation_id: string; generation: number; backend_id: string | null }): RetireChatResult {
   const stores = stored(db, row.id);
-  return { status: "retired", lifecycleId: row.id, operationId: row.operation_id, generation: row.generation, identities: identitiesOf(db, row.id), cleanup: cleanupStatus(stores), stores };
+  return { status: "retired", lifecycleId: row.id, operationId: row.operation_id, generation: row.generation, identities: identitiesOf(db, row.id),
+    backendId: row.backend_id, cleanup: cleanupStatus(stores), stores };
 }
 const targetId = (target: ChatTarget) => "sessionId" in target ? target.sessionId : target.ownerId;
 
@@ -154,8 +157,8 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
   if (!input.operationId || input.operationId.length > MAX_ID) return { status: "refused", reason: "unavailable" };
   return db.transaction((): RetireChatResult => {
     if (!authorizedOwner(db, input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
-    const previous = db.query("SELECT id,principal_id,operation_id,generation FROM chat_lifecycles WHERE operation_id=?")
-      .get(input.operationId) as { id: string; principal_id: string; operation_id: string; generation: number } | null;
+    const previous = db.query("SELECT id,principal_id,operation_id,generation,backend_id FROM chat_lifecycles WHERE operation_id=?")
+      .get(input.operationId) as { id: string; principal_id: string; operation_id: string; generation: number; backend_id: string | null } | null;
     if (previous) {
       // The same key for the same owner and target is the same operation.
       return previous.principal_id === input.principalId && previous.id === targetId(input.target)
@@ -181,7 +184,7 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
     // Old cursors and live epochs lose authority; content stays for its owners to remove.
     for (const owner of chat.identities.dialogueOwners) db.prepare("UPDATE dialogue_owners SET generation=? WHERE id=?").run(generation, owner);
     for (const conversation of chat.identities.conversations) db.prepare("UPDATE dialogue_conversations SET closed=1 WHERE id=?").run(conversation);
-    return receipt(db, { id: chat.id, operation_id: input.operationId, generation });
+    return receipt(db, { id: chat.id, operation_id: input.operationId, generation, backend_id: chat.backendId });
   }).immediate();
 }
 /** Whether a stale provisional target is the caller's own; otherwise staleness would reveal it. */
@@ -194,9 +197,20 @@ function ownsAlias(db: Database, input: RetireChatInput): boolean {
 
 /** The retirement's current non-content outcome for its owner, or null. */
 export function chatRetirement(db: Database, operationId: string, principalId: string): RetireChatResult | null {
-  const row = db.query("SELECT id,principal_id,operation_id,generation FROM chat_lifecycles WHERE operation_id=?")
-    .get(operationId) as { id: string; principal_id: string; operation_id: string; generation: number } | null;
+  const row = db.query("SELECT id,principal_id,operation_id,generation,backend_id FROM chat_lifecycles WHERE operation_id=?")
+    .get(operationId) as { id: string; principal_id: string; operation_id: string; generation: number; backend_id: string | null } | null;
   return row && row.principal_id === principalId ? receipt(db, row) : null;
+}
+
+/**
+ * Every retirement whose cleanup is not yet confirmed by each selected store,
+ * oldest first: the restart reconciliation's work list (#3230). Content-free.
+ */
+export function unfinishedChatRetirements(db: Database): Array<Extract<RetireChatResult, { status: "retired" }> & { principalId: string }> {
+  const rows = db.query(`SELECT id,principal_id,operation_id,generation,backend_id FROM chat_lifecycles
+    WHERE id IN (SELECT lifecycle_id FROM chat_retirement_stores WHERE outcome!='removed') ORDER BY retired_at,id`)
+    .all() as { id: string; principal_id: string; operation_id: string; generation: number; backend_id: string | null }[];
+  return rows.map(row => ({ ...receipt(db, row) as Extract<RetireChatResult, { status: "retired" }>, principalId: row.principal_id }));
 }
 
 /**

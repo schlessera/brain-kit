@@ -16,7 +16,7 @@ import { INCLUDED_TEXT_CAP, providerMessageInclusion, redactProviderMessage } fr
  * Built-in tool names safe to print; any other tool is `other tool`. Claude's
  * built-ins, and the file and shell tools the pi backend registers.
  */
-export const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
+const BUILT_IN_TOOLS: ReadonlySet<string> = new Set([
   "Read", "Write", "Edit", "Bash", "Grep", "Glob", "WebFetch", "WebSearch", "Agent",
   "read_file", "write_file", "edit_file", "grep", "bash",
 ]);
@@ -37,7 +37,7 @@ export type ReportRecord =
   /** The read failed for a reason other than 404. */
   | { state: "unloaded"; offline: boolean };
 
-export interface ReportContext {
+interface ReportContext {
   /** The ui-react release bundled in this client. */
   client: string | null;
   /** `/api/status`'s software identity, only when it was loaded and authorized. */

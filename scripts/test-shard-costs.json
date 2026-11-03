@@ -1083,7 +1083,6 @@
   "tests/frontmatter-parse-gate.test.ts": 4.853,
   "tests/generated-audio-input.test.ts": 0.103,
   "tests/generated-build-inputs.test.ts": 0.552,
-  "tests/generated-inputs.test.ts": 0.196,
   "tests/generated-theme-inputs.test.ts": 1.463,
   "tests/geo-render.test.ts": 2.895,
   "tests/haiku-model-selection.test.ts": 0.1,

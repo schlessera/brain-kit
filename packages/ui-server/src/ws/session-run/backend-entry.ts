@@ -123,9 +123,9 @@ export async function openTurnBridge(
 }
 
 /**
- * A governed or strict Claude or pi turn on managed native storage gets its
- * own proxy and the host inference relay (#1665). Without that storage the
- * turn keeps its current network; worker-host status says which. The CLI's
+ * A governed or strict Claude or pi turn gets its own proxy and the host
+ * inference relay (#1665). Admission already refused a turn whose startup
+ * view is not on managed native storage (#3314). The CLI's
  * paid providers reach the network only through this relay, which holds
  * their keys, shares the turn's egress admission and meters each request on
  * the turn (#1673).
@@ -134,9 +134,9 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   const { host, turn, backend, abortController, held, stops, origin } = run;
   const governedHold = held.governedHold;
   const relayed = isRelayed(backend);
-  if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
+  if (governedHold?.sandbox.inferenceRecipient && !relayed)
     throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
-  if (!governedHold?.managedStorage || !relayed) return;
+  if (!governedHold || !relayed) return;
   const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,

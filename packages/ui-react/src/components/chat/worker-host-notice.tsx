@@ -11,7 +11,7 @@ export const WORKER_HOST_DOCS_URL =
 export const ROOT_SERVER_DOCS_URL =
   "https://github.com/schlessera/brain-kit/blob/main/docs/hosting/agent-workers.md#running-the-server-as-root";
 
-export interface WorkerHostNoticeViewProps {
+interface WorkerHostNoticeViewProps {
   /** The probe's named requirement, as a refused turn names it. */
   requirement: string;
   checking: boolean;
@@ -24,7 +24,7 @@ export interface WorkerHostNoticeViewProps {
  * a re-check. The composer stays usable: a turn sent anyway is refused by the
  * server with the same requirement.
  */
-export function WorkerHostNoticeView({ requirement, checking, onCheck }: WorkerHostNoticeViewProps) {
+function WorkerHostNoticeView({ requirement, checking, onCheck }: WorkerHostNoticeViewProps) {
   return (
     <div className="mb-2 flex items-start gap-2" role="status" data-worker-host-notice="">
       <div className="min-w-0 flex-1">
@@ -45,7 +45,7 @@ export function WorkerHostNoticeView({ requirement, checking, onCheck }: WorkerH
  * so it only says what an agent turn can reach and links the fix. There is
  * nothing to re-check: only restarting the server as another user clears it.
  */
-export function RootServerNoticeView() {
+function RootServerNoticeView() {
   return (
     <div className="mb-2" role="status" data-root-server-notice="">
       <Callout tone="amber" variant="boxed" icon="attention">

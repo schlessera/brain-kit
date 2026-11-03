@@ -209,10 +209,14 @@ export function createAskUserSlice(ctx: ChatSliceContext): AskUserSliceSlice {
 
     clearAskUser: (key) => mutateBuffer(key, () => ({ askUser: null })),
 
-    endTurnQuestions: (key, turnId) => mutateBuffer(key, (chat) => {
+    endTurnQuestions: (key, turnId, endedBy) => mutateBuffer(key, (chat) => {
       const end = (exchange: AskUserExchange): AskUserExchange => {
-        if ((turnId && exchange.turnId !== turnId) || exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled) return exchange;
-        return { ...exchange, cancelled: true, terminal: true };
+        if (turnId && exchange.turnId !== turnId) return exchange;
+        // A question this turn's earlier terminal frame already ended
+        // learns why, when the host says so (#3356).
+        if (exchange.terminal) return endedBy && exchange.endedBy !== endedBy ? { ...exchange, endedBy } : exchange;
+        if (exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled) return exchange;
+        return { ...exchange, cancelled: true, terminal: true, ...(endedBy ? { endedBy } : {}) };
       };
       return {
         messages: chat.messages.map((message) => message.askUserExchanges ? { ...message, askUserExchanges: message.askUserExchanges.map(end) } : message),

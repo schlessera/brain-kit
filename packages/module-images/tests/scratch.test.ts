@@ -216,6 +216,20 @@ describe("brain image --scratch", () => {
     expect(readFileSync(join(root, "assets", "draft.png"), "utf8")).toBe(PNG_BYTES);
   });
 
+  test("an absolute --out outside the brain, or through a link out of it, is refused and nothing lands outside (#3422)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    mkdirSync(join(root, "assets"), { recursive: true });
+    symlinkSync(outside, join(root, "assets", "link-out"));
+    stubProvider();
+    for (const target of [join(outside, "draft.png"), join(root, "assets", "link-out", "draft.png")]) {
+      out.length = 0;
+      expect(await run(["a lighthouse", "--draft", "--out", target])).toBe(1);
+      expect(out.join("\n")).toContain("Output path is not inside the brain");
+    }
+    expect(readdirSync(outside)).toEqual([]);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
   test("the ignore rule is checked again after the provider call, so a rule lost in flight refuses the write", async () => {
     ignoreScratch(root);
     // The rule disappears while the request is out: the pre-flight check

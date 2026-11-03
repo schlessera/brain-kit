@@ -1,5 +1,5 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
-import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { sharedFileMetaSchema } from "./track-schemas.js";
 export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
@@ -82,6 +82,7 @@ import type {
   ServerLocationRequest,
   ServerMaskRequest,
   ServerMessage,
+  ServerChatRetired,
   DialogueEvidence, DialogueRecord, DialoguePage, ClientDialogueRead, ServerDialogueHistory,
   ServerResultMessage,
   MessageBlock,
@@ -691,14 +692,47 @@ export const inboxWorkPayloadSchema = z.strictObject({
 export const hygieneInputSchema = z.union([z.string().max(4096), z.array(z.string().max(256)).max(128), z.null()]);
 export const hygieneDiffSchema = z.strictObject({ path: inboxTargetPath, before: z.string().max(MAX_PROMPT_CHARS), after: z.string().max(MAX_PROMPT_CHARS), changes: z.array(z.strictObject({ before: z.string().max(MAX_PROMPT_CHARS), after: z.string().max(MAX_PROMPT_CHARS), line: z.number().int().min(1) })).max(1024) }) satisfies z.ZodType<HygieneDiff>;
 export const hygieneEffectSchema = z.strictObject({
-  kind: z.literal("hygiene"), operation: z.enum(["resolve", "check", "undo", "dismiss", "snooze"]),
+  kind: z.literal("hygiene"), operation: z.enum(["resolve", "check", "undo", "dismiss", "snooze", "defer", "media-delete", "media-move", "media-persist", "media-keep-copy"]),
   findingId: id, fingerprint: id, handler: id.optional(), input: hygieneInputSchema.optional(),
   previewToken: id.optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+  destination: z.string().min(1).max(4096).optional(), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }) satisfies z.ZodType<HygieneEffect>;
-export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed", "superseded"]), supersededBy: id.optional(), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional() });
+const mediaPath = z.string().min(1).max(4096);
+const sha256OrNull = z.string().regex(/^([a-f0-9]{64}|directory)$/).nullable();
+export const hygieneMediaRefusalSchema = z.strictObject({ code: z.string().min(1).max(64), path: z.string().max(65_536).optional(), line: z.number().int().min(1).optional(), limit: z.string().max(64).optional(), effective: z.number().int().min(0).optional(), observed: z.number().int().min(0).optional() }) satisfies z.ZodType<HygieneMediaRefusal>;
+/** A media plan as the CLI previews it; unknown CLI keys are dropped, every kept one is bounded. */
+export const hygieneMediaPlanSchema = z.object({
+  action: z.enum(["delete", "move", "persist", "keep-copy"]), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/), destination: mediaPath.nullable(),
+  files: z.array(z.strictObject({ path: mediaPath, role: z.enum(["source", "destination", "note", "config", "directory"]), before: sha256OrNull, after: sha256OrNull, bytes: z.number().int().min(0) })).max(10_000),
+  captureBytes: z.number().int().min(0),
+  links: z.strictObject({ state: z.enum(["linked", "unlinked", "unknown"]), conversations: z.number().int().min(0) }),
+  references: z.strictObject({ complete: z.boolean(), count: z.number().int().min(0) }),
+  rewrites: z.array(z.strictObject({ note: mediaPath, line: z.number().int().min(1), kind: z.string().max(32), before: z.string().max(4096), after: z.string().max(4096) })).max(10_000),
+  blockers: z.array(z.strictObject({ note: mediaPath, line: z.number().int().min(1), kind: z.string().max(32), target: z.string().max(65_536) })).max(10_000),
+  configDiff: z.strictObject({ path: mediaPath, track: z.strictObject({ before: z.array(z.string().max(4096)).max(10_000), after: z.array(z.string().max(4096)).max(10_000) }), ignore: z.strictObject({ before: z.array(z.string().max(4096)).max(10_000), after: z.array(z.string().max(4096)).max(10_000) }) }).nullable(),
+  copy: z.strictObject({ bytes: z.number().int().min(0), sha256: z.string().regex(/^[a-f0-9]{64}$/), diskFreeAdvisory: z.number().min(0).nullable() }).nullable(),
+  resultClass: z.enum(["TRACK", "ARTIFACT"]).nullable(),
+  refusals: z.array(hygieneMediaRefusalSchema).max(10_000),
+}) satisfies z.ZodType<HygieneMediaPlan>;
+export const hygieneMediaReceiptSchema = z.strictObject({
+  journalId: z.string().regex(/^[A-Za-z0-9._-]{16,96}$/), action: z.enum(["delete", "move", "persist", "keep-copy"]),
+  outcome: z.enum(["pending", "applied", "kept", "compensated", "partial", "refused", "stale", "undone"]), reason: z.string().max(4096).optional(),
+  refusals: z.array(hygieneMediaRefusalSchema).max(10_000).optional(),
+  files: z.array(z.strictObject({ path: mediaPath, state: z.enum(["created", "changed", "removed", "restored", "unchanged", "left-changed", "conflict"]) })).max(10_000),
+  copySha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  undo: z.strictObject({ available: z.boolean(), reason: z.string().max(4096).optional(), path: mediaPath.optional() }),
+}) satisfies z.ZodType<HygieneMediaReceipt>;
+export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed", "superseded", "deferred", "kept"]), supersededBy: id.optional(), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional(), media: hygieneMediaReceiptSchema.optional() });
 export const hygieneActionSchema = z.strictObject({ findingId: id, fingerprint: id, finding: z.record(z.string(), z.unknown()), outcome: hygieneOutcomeSchema.optional() }) satisfies z.ZodType<HygieneAction>;
-export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), status: z.enum(["idle", "active", "paused", "complete", "blocked"]), position: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, pendingActionId: id.optional(), pauseReason: z.strictObject({ kind: z.literal("actions-limit"), retiredActionId: id, retirementReceiptId: id }).optional(), counts: z.strictObject({ eligibleRemaining: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, nextSnoozeDueAt: z.string().nullable(), informationalNotShown: inboxSeq }).optional(), blocker: z.record(z.string(), z.unknown()).optional() }) satisfies z.ZodType<HygieneReviewState>;
+export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), status: z.enum(["idle", "active", "paused", "complete", "blocked"]), position: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, pendingActionId: id.optional(), pauseReason: z.strictObject({ kind: z.literal("actions-limit"), retiredActionId: id, retirementReceiptId: id }).optional(), counts: z.strictObject({ eligibleRemaining: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, nextSnoozeDueAt: z.string().nullable(), informationalNotShown: inboxSeq, kept: inboxSeq.default(0) }).optional(), blocker: z.record(z.string(), z.unknown()).optional(),
+  // Additive in #2780: a row stored before these fields parses with their defaults.
+  kept: inboxSeq.default(0), pass: inboxSeq.default(0), deferred: z.array(z.strictObject({ findingId: id, fingerprint: id })).max(10_000).default([]),
+  media: z.strictObject({ awaitingReview: inboxSeq, setAside: inboxSeq, kept: inboxSeq }).optional() }) satisfies z.ZodType<HygieneReviewState>;
 export const hygieneReviewCommandSchema = z.strictObject({ operation: z.enum(["start", "pause", "resume", "refresh"]) }) satisfies z.ZodType<HygieneReviewCommand>;
+/** Undo from review (#2781): the media receipt's journal ID, as `createMediaEffects` issues it. */
+export const hygieneReviewMediaUndoCommandSchema = z.strictObject({ operation: z.literal("undo-media"), journalId: z.string().regex(/^[A-Za-z0-9._-]{16,96}$/) }) satisfies z.ZodType<HygieneReviewMediaUndoCommand>;
+/** Every body `POST /hygiene/review` accepts. */
+export const hygieneReviewRequestSchema = z.union([hygieneReviewCommandSchema, hygieneReviewMediaUndoCommandSchema]) satisfies z.ZodType<HygieneReviewRequest>;
 export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema }) satisfies z.ZodType<HygienePreviewRequest>;
 const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
 const cancelBlockedEffectSchema = z.strictObject({ kind: z.literal("cancel_blocked") });
@@ -720,7 +754,7 @@ export const resolutionEffectSchema = z.discriminatedUnion("kind", [
 export const v1ResolutionEffectSchema = z.discriminatedUnion("kind", [
   hygieneEffectSchema, enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
 ]) satisfies z.ZodType<V1ResolutionEffect>;
-export const inboxOptionSchema = z.strictObject({ id, label: inboxText, effect: resolutionEffectSchema, input: z.strictObject({ type: z.enum(["none", "string", "enum", "date", "strings", "path"]), values: z.array(z.string()).optional(), example: z.string().optional() }).optional(), preview: hygieneDiffSchema.optional() }) satisfies z.ZodType<InboxOption>;
+export const inboxOptionSchema = z.strictObject({ id, label: inboxText, effect: resolutionEffectSchema, input: z.strictObject({ type: z.enum(["none", "string", "enum", "date", "strings", "path"]), values: z.array(z.string()).optional(), example: z.string().optional() }).optional(), preview: hygieneDiffSchema.optional(), media: hygieneMediaPlanSchema.optional() }) satisfies z.ZodType<InboxOption>;
 
 // Compare exact JSON values, independent of object key order. An approved
 // operation binds the entire input and target, rather than just a tool name.
@@ -1028,8 +1062,10 @@ const turnRetrySchema = z.looseObject({
 
 export const turnBudgetReceiptSchema = z.looseObject({
   listPriceCostUsd: z.number().finite().nonnegative().nullable(), listPriceIsEstimate:z.boolean().nullable().optional(), tokens: z.number().int().nonnegative().nullable(),
-  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
-  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(),
+  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; Apify accounting is unavailable, so Apify spend is not counted; other provider and tool spend is not metered",
+    "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
+  scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(), apifyUsd:z.number().finite().nonnegative().optional(),
     tokens:z.number().int().nonnegative().nullable(), unknownRuns:z.number().int().nonnegative(),
     warnUsd:z.number().finite().nonnegative(), blockUsd:z.number().finite().nonnegative(), blockTokens:z.number().int().nonnegative(),
     warnTokens:z.number().int().nonnegative().optional(), resetAt:z.number().int().nonnegative().optional(), warning:z.boolean(), blocked:z.boolean() })).max(3),
@@ -1066,6 +1102,11 @@ export const turnJournalSummarySchema = z.looseObject({
   budget: turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").TurnJournalSummary>;
 
+const runtimeNoticeSchema = z.looseObject({
+  cause: z.enum(["aborted", "unspecified"]),
+  message: z.string().max(4_000),
+}) satisfies z.ZodType<import("./protocol.js").RuntimeNotice>;
+
 const historyMessageSchema = z.looseObject({
   role: z.enum(["user", "assistant"]),
   content: z.string(),
@@ -1090,6 +1131,7 @@ const historyMessageSchema = z.looseObject({
   effectiveThinkingLevel: thinkingLevelSchema.optional().catch(undefined),
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
+  runtimeNotice: runtimeNoticeSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
   turnId: id.optional().catch(undefined),
   journal: turnJournalSummarySchema.optional().catch(undefined),
@@ -1488,6 +1530,8 @@ const activityTurnLifecycleSchema = z.looseObject({
   budgetAdmissionMs: z.number().nullable(),
   journalBeginMs: z.number().nullable(),
   backendStartupMs: z.number().nullable(),
+  subPhases: z.array(z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
+    endedAt: z.number().nullable(), elapsedMs: z.number().nullable() })).optional(),
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
 });
 
@@ -1607,7 +1651,7 @@ export const inboxActionItemSchema = inboxItemBaseSchema.extend({
   queue: z.literal("actions"), type: z.enum(["approve", "choose", "fyi"]), status: inboxActionStatusSchema,
   payload: z.looseObject({ title: inboxText, detail: z.string().max(MAX_PROMPT_CHARS) }), options: z.array(wireOptionSchema), hygiene: hygieneActionSchema.optional(),
 }).refine((item) => item.type !== "fyi" || item.options.length === 0, "FYIs cannot offer resolution options") satisfies z.ZodType<InboxActionItem>;
-export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable(), privateDetailAccess: z.strictObject({ itemId: id }).optional() }) satisfies z.ZodType<HygieneReviewRead>;
+export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable(), privateDetailAccess: z.strictObject({ itemId: id }).optional(), mediaUndo: hygieneMediaReceiptSchema.optional() }) satisfies z.ZodType<HygieneReviewRead>;
 const detailCount = z.number().int().min(0).nullable();
 export const hygieneWorktreeDetailsReadSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("details"), details: z.strictObject({
@@ -1884,6 +1928,13 @@ export const serverSessionQueueSchema = z.looseObject({
     .optional(),
 }) satisfies z.ZodType<ServerSessionQueue>;
 
+export const serverChatRetiredSchema = z.looseObject({
+  type: z.literal("chat_retired"),
+  sessionId: id.optional(),
+  historyOwnerIds: z.array(id).max(256),
+  generation: z.number().int().min(1),
+}) satisfies z.ZodType<ServerChatRetired>;
+
 export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),sessionId:id.optional(),turnId:id,
   usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
@@ -1898,6 +1949,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverScopeDecisionReceiptSchema,
   serverTurnJournalSchema,
   serverUsageSchema,
+  serverChatRetiredSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,

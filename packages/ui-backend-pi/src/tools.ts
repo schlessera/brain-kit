@@ -1,4 +1,4 @@
-import { ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
 /**
  * The curated brain tool surface for the pi backend.
  *
@@ -110,6 +110,7 @@ export interface BrainToolDeps {
     policyChange?: boolean;
     turnTemp?: boolean;
     reference?: boolean;
+    apify?: boolean;
   };
 }
 
@@ -133,6 +134,10 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
   // Shared source is read-only; a worktree request, access, renewal or release changes host state (#2432).
   reference_source: "read", reference_worktree: "mutate",
+  // Apify (#3162): reads of the catalog and of owned runs; prepare spends
+  // nothing; run and abort change remote and ledger state.
+  brain_apify_discover: "read", brain_apify_inspect: "read", brain_apify_prepare: "read",
+  brain_apify_run: "mutate", brain_apify_status: "read", brain_apify_results: "read", brain_apify_abort: "mutate",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
@@ -176,6 +181,9 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   "edit_file",
   "bash",
   ...BRIDGE_TOOL_POSTURE.allowedTools("pi"),
+  // Apify (#3162): the host decides every call and asks per exact run; a tool
+  // card would add a rememberable grant that authorizes nothing.
+  ...Object.values(APIFY_TOOL_NAMES),
   // pi-web-access (recommended web extension) — parity with Claude's
   // auto-allowed WebSearch/WebFetch.
   "web_search",

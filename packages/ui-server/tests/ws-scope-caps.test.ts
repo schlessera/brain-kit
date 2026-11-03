@@ -8,6 +8,7 @@ import * as journalCaptures from "../src/brain/native-journal-capture.js";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
 import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
+import { standInFixtureRouteInputs } from "../../ui-backend-claude/tests/helpers/fixture-route-inputs.js";
 import { resolveServerConfig } from "../src/config/env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
@@ -25,6 +26,11 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
   const root = mkdtempSync(join(tmpdir(), "odysseus-scope-adapter-")), brain = join(root, "brain"), config = join(root, "agent"), home = join(root, "home");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain); mkdirSync(config); mkdirSync(home);
   writeFileSync(join(config, "settings.json"), "{}"); mkdirSync(join(brain, "context/policies"), { recursive: true });
+  // Every turn runs on the host inference relay (#3314): pi's needs a declared
+  // model and a host credential, and a strict Claude turn's copied view stands
+  // in for its attested route inputs. Neither worker here calls a provider.
+  writeFileSync(join(config, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-athena-fixture" } }), { mode: 0o600 });
+  const restoreRouteInputs = standInFixtureRouteInputs();
   writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nscope: { max_tool_calls: 2 }\n---\nAthena bounds the voyage.\n");
   let spawn: ReturnType<typeof spyOn> | undefined;
   let heartbeatPath: string | undefined;
@@ -42,7 +48,7 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
     return worker;
   };
   spawn = spyOn(workers, "launchAgentWorkerAsync").mockImplementation(async input => launch(input));
-  const backend = adapter === "pi" ? createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), loadExtensions: false })
+  const backend = adapter === "pi" ? createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), model: "anthropic/claude-sonnet-4-5", loadExtensions: false })
     : createClaudeBackend({ brainPath: brain, queryFn: ((params: any) => {
       const child = params.options.spawnClaudeCodeProcess({ command: "/bin/sh", args: ["-c", 'while :; do printf x >> "$BRAIN_WORKER_SCRATCH/adapter-heartbeat"; sleep 0.02; done'],
         env: { PATH: "/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: config }, signal: params.options.abortController.signal });
@@ -198,7 +204,7 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
     try { await app?.close(); }
     finally {
       try { if (piProgress) { await piProgress.worker.exited; piProgress.close(); } }
-      finally { captureSpy?.mockRestore(); spawn?.mockRestore(); if (priorPi === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = priorPi; rmSync(root, { recursive: true, force: true }); }
+      finally { captureSpy?.mockRestore(); spawn?.mockRestore(); restoreRouteInputs(); if (priorPi === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = priorPi; rmSync(root, { recursive: true, force: true }); }
     }
   }
 }, 30_000);

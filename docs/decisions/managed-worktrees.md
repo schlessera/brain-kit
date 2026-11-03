@@ -125,8 +125,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:506-518`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:351-365`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:562-574`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:392-406`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -212,7 +212,7 @@ nothing.
 **Shared source is read through views.** Each such turn's workers bind the
 public view and their principal's private view whole and read-only at
 `/tmp/brain-reference/public` and `/tmp/brain-reference/private`
-(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:864-875`).
+(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:873-884`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
 (`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:741-753`).
@@ -322,7 +322,7 @@ lost host database loses these dispositions together with the worktrees'
 ownership records; no brain content is lost.
 
 **Detection.** A worktree is one finding at most
-(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:80-87`):
+(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:84-91`):
 
 - `retained`: released or expired, held by no generation, with unpreserved work;
 - `unknown`: its holder's liveness, its owner or its work cannot be established,
@@ -339,7 +339,7 @@ liveness, the work (state, counts and a digest of every changed path's type,
 mode, size, link target and file bytes, or its absence; times are left out
 because a worker can set them), any removal failure, and the state and last
 explicit activity
-(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:97-113`).
+(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:101-117`).
 The time of an assessment is not in it, so a fresh assessment of unchanged work
 is the same evidence. One assessment hashes at most 64 MiB of changed files,
 read without blocking the server; a larger or sparse file is named instead by its
@@ -358,7 +358,7 @@ consent to remove anything, and nothing reads it as such.
 **Privacy and authority.** Inbox Actions replicate to every usable principal,
 so the card of a private worktree carries only its opaque identity, state and
 counts: no repository, revision, commit, changed path or principal
-(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:161-179`).
+(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:165-183`).
 A public worktree's card names its source and up to 16 changed paths. The owner
 principal is an authorized reader and reviewer of a delegated agent's worktree
 findings, as of any other finding; review authority stays with owner and ambient
@@ -400,7 +400,7 @@ selects undone copy.
 Markdown findings and the host's by core's ordinal rules (severity, known
 urgency, age, identity), and every operation that names a host finding goes to
 the host, never to the CLI
-(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:40-52`).
+(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:45-57`).
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
 afresh, after a failed removal too. Selection assesses its winner again before

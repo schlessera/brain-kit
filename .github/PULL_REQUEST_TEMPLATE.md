@@ -38,6 +38,14 @@ bun run check:pr --base origin/main
      tested parent/head/checkout and selected proof; see
      docs/process/github.md#stacked-pull-requests. -->
 
+<!-- check:pr prints its receipt block at the end of every run. Replace the
+     two markers below with that block, keeping one receipt only. The merge
+     path refuses a PR with no receipt, and refuses one whose skipped,
+     timed-out or preempted checks map to a hosted category its exact-head
+     proof did not run (docs/decisions/ci-utility.md#local-check-receipts). -->
+<!-- brain-check-pr-receipt:start -->
+<!-- brain-check-pr-receipt:end -->
+
 ## Checklist
 
 - [ ] Focused local preflight/behavioral receipts and complete selected hosted proof passed; actual head/base/job checkout evidence is in Proof.

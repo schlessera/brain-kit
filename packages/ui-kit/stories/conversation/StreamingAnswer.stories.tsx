@@ -110,9 +110,10 @@ export const StopWithoutAHandler = meta.story({
 
 /**
  * Loading → ready (#1116), for a stream. The ghost sits BEHIND the text: the
- * first token lands where the ghost was and the ghost fades out under it, gone
- * within 700ms. The newest characters settle from 0.2 to full opacity and are
- * all the way there within 250ms of the last token.
+ * first token lands where the ghost was and the ghost fades out under it over
+ * 600ms, gone within three frames of its fade's end (#3417). The newest
+ * characters settle from 0.2 to full opacity and are all the way there within
+ * 250ms of the last token.
  */
 export const LoadingToReady = meta.story({
   render: () => <StreamingHandoff />,

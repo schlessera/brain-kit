@@ -21,6 +21,7 @@ const LINTS = [
   "check-raw-buttons.ts", // raw <button> in ui-react needs a kit control or a raw-button marker (#1379)
   "check-root-stores.ts", // internal imperative store access must use an explicit root
   "check-layer-direction.ts", // ui-react stores/, lib/ and connection.ts never import components/ (#1380)
+  "check-unused-exports.ts", // ui-server, ui-kit and ui-react exports no other file imports (#2536)
   "check-oxlint.ts", // oxlint correctness pass (ruleset in .oxlintrc.json)
   "check-ci-workflows.ts", // Single GitHub provider, safe fork execution and no active Depot definitions (#1320)
 ];
