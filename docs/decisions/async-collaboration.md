@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:602`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:626`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:608`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:632`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
@@ -389,6 +389,14 @@ journals compensated cleanup after successful verification. This reconciliation
 does not enable dispatch or alter its production gates. The additive schemas,
 refusals and replay behavior are recorded in the
 [completion contract](../integration-contract/mcp.md#interactive-share-completion-additive-1764).
+
+Amended 2026-11-02 ([#3353](https://github.com/schlessera/brain-kit/issues/3353)):
+the finite attempt budget bounds autonomous retries, and a bound filing turn is
+the user's own retry. Interactive claims therefore spend no attempts and ignore
+retry backoff, and the bound session can reclaim a share that earlier
+attempt-counting turns left `failed`, retiring its exhausted-retries Action. A
+retained file's link counts when its Markdown destination resolves to the
+retained path from the filed document's folder, as a renderer would follow it.
 
 ## Alternatives rejected
 

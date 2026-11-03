@@ -5,7 +5,7 @@ type ConnectionFrame =
   | "dialogue_history" | "scope_decision_receipt"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
   | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
-  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission";
+  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired";
 
 export const connectionFrameHandlers = {
   dialogue_history: () => {},
@@ -44,6 +44,9 @@ export const connectionFrameHandlers = {
   tool_resolution: () => {},
   // Pending follow-ups (#1002) are consumed by the connection before demux.
   session_queue: () => {},
+  // Browser invalidation is #3231's: this client does not declare
+  // `chatDeletion`, so the host never sends it this frame.
+  chat_retired: () => {},
   conversation_opened: () => {},
   conversation_closed: () => {},
   conversation_event: () => {},
