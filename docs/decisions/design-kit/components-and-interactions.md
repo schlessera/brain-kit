@@ -1245,6 +1245,41 @@ as proof, because Chromium's touch adjustment snaps a tap near a control onto
 it whether or not the control reaches. Consumer sites are probed the same way
 through `ui-react/tests/browser/hit-reach.ts`.
 
+**A link that wraps is probed on its first line box.** A wrapped inline link
+has one box per line, and the union of those boxes covers the prose around
+it. Probing the union's edges therefore lands on that prose. The first line
+box is a target in its own right, so the probe uses it.
+
+### 2026-11-03 — The rest of `ui-react` reaches instead of inflating
+
+The remaining app screens now follow the same rule: chat, voice, activity,
+files, graph, connectivity, the page-failure screen, the diagnostic review and
+search. Kit Buttons drop `minHeight: 44` and take `reach`. Rows of reaching
+Buttons that can wrap or stack 8px apart add `any-pointer-coarse:gap-y-4`.
+`TextButton` drops the `minHeight: 44` it was given, because a standalone
+`TextButton` already has a 44px minimum box. A small `IconButton` forced to
+44px under a fine pointer drops the override, because D55 already grows it
+under a coarse one. The bordered binary-file download link takes `.bk-hit`.
+`hit-reach.app.pointer.tsx` probes these scenes in all three pointer lanes.
+
+A 44px box stays where it is the design, or where it draws no visible box:
+
+| Kept at 44px | Why |
+| --- | --- |
+| Text inputs, selects and search fields | 44px is the field's own box, and a replaced element cannot carry a pseudo-element. |
+| Rows: `bk-row` list rows, `ListRow`, the mobile sheet rows, the untrusted-marks entry and list rows, trace rows in run detail, label rows around a `Toggle`, and the storage indicator strip | The row is the target, as for kit rows. |
+| Borderless links and `Disclosure` triggers given 44px through a host rule | They paint no box, so nothing visible is inflated. D57 records the `Disclosure` case. |
+| Icon controls the size of an `md` `IconButton`: the mask editor's tools, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
+| `ApprovalCard`'s Deny mount (96 × 44) and `Send bug report` | Approved designs specify 44px. |
+| The live conversation strip and the dictation sheet's primary button | Their bars are laid out around 44px controls (the strip's 44/52px rows). They are touch-first surfaces, not inflated `sm` or `md` Buttons. |
+| The crash fallback (`app-error-boundary`) | It renders without the kit and uses system colours. |
+
+Two sites still draw a visible pill 44px tall, and neither has a kit size to
+move to. The file viewer's Preview/Raw `FilterRow` pills cannot reach,
+because `FilterRow`'s strip clips them with `overflow: hidden`. The
+Actions dismissal-reason pills are raw pressed chips, and the kit `Chip` is
+not interactive. Each needs a design decision before it can change.
+
 ## 2026-11-02 — D57: collapsibles follow the job, not one Disclosure (#3253)
 
 App screens drew raw `<details>` and ad-hoc `aria-expanded` toggles for four

@@ -155,7 +155,7 @@ export function ComposerView(p: ComposerViewProps) {
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
           <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
-          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissDictationNotice} />
+          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissDictationNotice} />
         </div>
       )}
       {p.captureNotice && p.captureNotice !== p.dictationNotice && (
@@ -164,7 +164,7 @@ export function ComposerView(p: ComposerViewProps) {
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
           <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
-          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissCaptureNotice} />}
+          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissCaptureNotice} />}
         </div>
       )}
       {p.attachErrors.length > 0 && (

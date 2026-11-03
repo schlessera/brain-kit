@@ -99,9 +99,9 @@ function ShareCard({
       </div>
 
       <div className="mt-3 flex items-center gap-2">
-        <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }}
+        <Button tone="primary" size="sm" block={false} reach
           label={busy ? "Adding…" : "Add to brain"} disabled={busy} onClick={onConfirm} />
-        <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Dismiss" onClick={onDismiss} />
+        <Button tone="ghost" size="sm" block={false} reach label="Dismiss" onClick={onDismiss} />
       </div>
     </div>
   );
