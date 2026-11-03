@@ -2,6 +2,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { journalDatabasePath } from "../db/journal-database.js";
@@ -29,7 +30,11 @@ function canonical(path: string, links = 0): string {
   }
   return current;
 }
-const within = (root: string, path: string) => root === "/" || path === root || path.startsWith(`${root}/`);
+/**
+ * A deny check, under the deny-direction rule (#3422): a brain at `/` holds
+ * every absolute path, so all state counts as inside it.
+ */
+export const within = (root: string, path: string) => isWithin(root, path, { trailingSeparator: "boundary" });
 
 /** An outside name does not move an inode out of the brain if another name or a bind mount remains there. */
 function hasBrainAlias(brain: string, path: string, descendants = false): boolean {

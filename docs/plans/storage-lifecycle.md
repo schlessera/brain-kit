@@ -76,9 +76,9 @@ Source foundations for the matrix:
 - Staging eligibility, removal and acknowledgment are separate
   (`export function createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:15-72`).
 - Scratch pin loading and per-entry revalidation sit inside pruning
-  (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641-722`);
+  (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:645-726`);
   explicit clean is different
-  (`export function cleanScratch`, `packages/core/src/lib/scratch.ts:725-743`).
+  (`export function cleanScratch`, `packages/core/src/lib/scratch.ts:729-747`).
   Server refresh refuses incomplete enumeration and confirms missing histories
   before releasing links (`function openScratchPins`, `packages/ui-server/src/cron/scratch-pins.ts:72-195`).
 - Claude publishes and verifies cold copies before deleting the live source
@@ -90,7 +90,7 @@ Source foundations for the matrix:
   Object copies reserve temporary bytes before writing
   (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:95-150`).
 - Turn-temp purge has its own scope and measured result
-  (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-533`),
+  (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:451-534`),
   and tool validation/recording
   (`export function handleTurnTemp`, `packages/ui-sdk/src/server/bridge-tools/turn-temp.ts:19-41`).
   [Operational recovery](../inbox-recovery.md) specifies backup consistency and

@@ -710,9 +710,27 @@ describe("writing the log", () => {
     expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}\n${seen}\n\nAsked about this on Monday.\n- resolved-by: auto-disappeared`);
   });
 
+  test("a log file whose frontmatter follows a byte order mark keeps it as frontmatter (#2507)", () => {
+    const root = tempRoot();
+    const seen = "- **First seen**: 2026-06-01 · **Last seen**: 2026-06-01";
+    const frontmatter = '\uFEFF---\ntype: context\ntitle: "Open"\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n';
+    mkdirSync(join(root, "context/hygiene"), { recursive: true });
+    writeFileSync(log(root, "open.md"), `${frontmatter}\n## TODO markers\n\n${entry(idOf(goes), seen)}\n`);
+    expect(reconcile(root, [], docs, { now: NOW })).toMatchObject({ resolved: 1 });
+    // The block is read where the indexer reads it: kept, mark included, with only `updated` set.
+    expect(read(root, "open.md")).toStartWith(frontmatter.replace("updated: 2026-01-01", `updated: ${TODAY}`));
+    expect(read(root, "open.md")).not.toContain(`### ${idOf(goes)}`);
+    expect(read(root, "resolved.md")).toContain(`### ${idOf(goes)}`);
+  });
+
   test.each([
     ["frontmatter that is not valid YAML", '---\ntitle: "unclosed\nupdated: 2026-01-01\n---\n\n## Resolved\n', "not valid YAML"],
     ["frontmatter that is never closed", "---\ntitle: Resolved\n\n## Resolved\n", "never closed"],
+    // The indexer ends these blocks at the dashes; an author probably did not (#2507).
+    ["a closing fence with text after its dashes", "---\ntitle: Resolved\n---x\n\n## Resolved\n---\n", "never closed"],
+    ["a four-dash closing line", "---\ntitle: Resolved\n----\n\n## Resolved\n---\n", "never closed"],
+    ["a ... closing line", "---\ntitle: Resolved\n...\n\n## Resolved\n", "never closed"],
+    ["a byte order mark before a block that is never closed", "\uFEFF---\ntitle: Resolved\n\n## Resolved\n", "never closed"],
     ["frontmatter that is a list, not a mapping", "---\n- one\n- two\n---\n\n## Resolved\n", "not a YAML mapping"],
     ["a section holding entries and other text", "## Parked\n\nA note.\n\n### todo-notes-goes-abcd\n- resolved-by: manual\n", 'section "## Parked"'],
   ])("a log file with %s is refused, and nothing is written", (_, text, message) => {

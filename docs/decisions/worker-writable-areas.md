@@ -267,17 +267,17 @@ The `read_only_brain` code and its
 
 **Serving.** The file routes refuse any symlink at or below `.brain` for a
 scratch path, and a scratch listing omits links
-(`const scratchRequest`, `packages/ui-server/src/files/walker.ts:115`).
+(`const policy: ContainmentPolicy = isScratchPath(rel)`, `packages/ui-server/src/files/walker.ts:96-98`).
 Elsewhere in the brain an in-brain link resolves as before. Those checks
 run before the open, so a file whose requested or resolved path lies in
 `.brain/scratch/` or `workspaces/` is then read once, from its resolved
 path, through descriptors that never follow a link (each directory from the brain root opened with
 `O_NOFOLLOW | O_DIRECTORY` through the previous one, the file with
 `O_NOFOLLOW`), and the route serves that snapshot; the size cap bounds it
-(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:157-193`).
+(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:115-151`).
 Core's prune reads every entry with `lstat`, and on Linux removes each file
 and emptied directory through its parent's descriptor in the same way
-(`function anchored`, `packages/core/src/lib/scratch.ts:513-543`), because a
+(`function anchored`, `packages/core/src/lib/scratch.ts:517-547`), because a
 hosted agent can swap a scratch directory for a link while the host prunes.
 
 ## Measurements

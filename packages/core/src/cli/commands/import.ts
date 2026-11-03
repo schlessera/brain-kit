@@ -2,8 +2,10 @@ import { readFileSync, statSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
 
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
+
 import { stringifyDocument } from "../../lib/frontmatter.js";
-import { safeResolve, writeFileSafely } from "../../lib/safe-path.js";
+import { brainRelativeArgument, safeResolve, writeFileSafely } from "../../lib/safe-path.js";
 import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
@@ -33,7 +35,7 @@ export const importCommand: CoreCommand = {
       throw new UsageError("Usage: brain import --stamp <dir>");
     }
 
-    const base = safeResolve(cli.brain.root, dir);
+    const base = safeResolve(cli.brain.root, brainRelativeArgument(cli.brain.root, dir));
     if (base === null) {
       throw new UsageError(`--stamp directory escapes the brain root: ${dir}`);
     }
@@ -48,7 +50,9 @@ export const importCommand: CoreCommand = {
       const full = resolve(base, rel);
       try {
         const raw = readFileSync(full, "utf-8");
-        if (raw.startsWith("---")) {
+        // Frontmatter as the indexer finds it (#2507): a byte order mark
+        // before the fence still counts, so that block is never stamped over.
+        if (frontmatterBlock(raw)) {
           skipped.push(rel);
           continue;
         }

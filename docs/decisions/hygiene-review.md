@@ -43,8 +43,8 @@ or a snooze reset by an unrelated edit, makes the owner's decision temporary.
 
 Reuse the existing markdown log and deterministic CLI operations. A candidate
 already carries category, path and stable evidence (`HygieneCandidate`,
-`packages/core/src/lib/hygiene.ts:68-84`), and its ID derives from those fields
-(`hygieneId`, `packages/core/src/lib/hygiene.ts:181-184`). Those primitives do not
+`packages/core/src/lib/hygiene.ts:69-85`), and its ID derives from those fields
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:182-185`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
 (`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:250-252`).
@@ -135,11 +135,11 @@ shapes are in [the integration contract](../integration-contract/package-api.md#
 
 **Equivalence map.** Each `brain validate` rule becomes a candidate with a
 category and ID evidence (`VALIDATION_JOIN`,
-`packages/core/src/lib/hygiene.ts:199-212`). Validation gives the join a
+`packages/core/src/lib/hygiene.ts:200-213`). Validation gives the join a
 structured detail, so the message is never read (`export interface ValidationDetail`,
-`packages/core/src/lib/validate.ts:43-51`). Candidates are one finding exactly
+`packages/core/src/lib/validate.ts:44-52`). Candidates are one finding exactly
 when category, path and evidence agree, and the join does not depend on their
-order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:283-333`).
+order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:284-334`).
 
 | Validation rule | Category | ID evidence | Joins |
 | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ a source states it; otherwise it stays unknown.
 
 **Evidence fingerprints.** A fingerprint is 12 hex digits of SHA-1 over the
 category and a hash of each field below (`FINGERPRINT_FIELDS`,
-`packages/core/src/lib/hygiene.ts:246-259`). Line numbers, messages, other
+`packages/core/src/lib/hygiene.ts:247-260`). Line numbers, messages, other
 document content and age are never in it.
 
 | Category | Fingerprint fields |

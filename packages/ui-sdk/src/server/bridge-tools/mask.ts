@@ -8,6 +8,8 @@ import type {
   RequestImageMaskInput,
 } from "../../tool-contracts/index.js";
 import type { BackendBridge } from "../backend.js";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { resolveInRepo } from "./resolve-in-repo.js";
 import { brainGitSteps } from "../maintenance-worker.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, type WorkerSteps } from "../worker-steps.js";
@@ -117,13 +119,15 @@ export async function handleRequestImageMask(
  * excluded by git. The write itself goes to a temporary sibling and is
  * renamed onto its name, and the host's prune runs after it.
  *
- * Kept in lockstep with `packages/core/src/lib/scratch.ts` (`SCRATCH_DIR`,
- * `scratchIgnored`, `scratchDir`, `writeScratchFile`): the SDK ports the rule,
- * as it does for `resolveInRepo`, instead of depending on `@schlessera/brain`.
+ * The directory is the shared `BRAIN_SCRATCH_DIR` (#2506). The rules are
+ * core's (`packages/core/src/lib/scratch.ts`: `scratchIgnored`, `scratchDir`,
+ * `writeScratchFile`), applied here through descriptors and the maintenance
+ * worker, since the SDK does not depend on `@schlessera/brain`.
  */
-const SCRATCH_DIR = ".brain/scratch";
+const SCRATCH_DIR = BRAIN_SCRATCH_DIR;
 
-const under = (dir: string, path: string) => path === dir || path.startsWith(dir + sep);
+/** Whether `path` is `dir` or below it, by the platform separator. */
+export const under = (dir: string, path: string) => isWithin(dir, path, { separator: sep });
 
 function isSymlink(path: string): boolean {
   try {
