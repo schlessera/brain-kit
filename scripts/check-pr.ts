@@ -4,6 +4,35 @@ import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan";
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
+import { discoverTests } from "./test-shards";
+import { DEFAULT_ROOTS } from "./test";
+import { localUnitWorkerCount } from "./unit-workers";
+
+const ROOT = resolve(import.meta.dir, "..");
+
+/** The complete unit tier's files, exactly as `bun run test` received them:
+ * the selected root consumers, and with none named, what it discovers under its
+ * default roots (`testArgv`, scripts/test.ts). */
+export function localUnitInventory(plan: CheckPlan, root = ROOT): string[] {
+  return plan.unitTests?.length ? [...plan.unitTests] : discoverTests(root, DEFAULT_ROOTS);
+}
+
+/** The commands after setup, in order: strict types beside the unit tier (both
+ * memory-bounded, neither using Docker, Chrome pins or native storage), then
+ * every other stage alone. The workspace build writes the dist the type check
+ * resolves; browser, capture and native stages share Docker, Chrome or the
+ * native loop and storage fixtures. */
+export const CONCURRENT_LOCAL_CHECKS: ReadonlySet<string> = new Set(["strict typecheck", "complete unit and integration suite"]);
+
+export function localStages(commands: readonly Command[]): Command[][] {
+  const concurrent = commands.filter(command => CONCURRENT_LOCAL_CHECKS.has(command.name));
+  return [...(concurrent.length ? [concurrent] : []), ...commands.filter(command => !CONCURRENT_LOCAL_CHECKS.has(command.name)).map(command => [command])];
+}
+
+/** Each stage starts only after the previous one passed; the first failure stops its stage and the run. */
+export async function runLocalStages(stages: readonly (readonly Command[])[], root: string, cleanupGraceMs?: number): Promise<void> {
+  for (const stage of stages) await runCommands(stage, root, Math.max(1, stage.length), cleanupGraceMs);
+}
 
 export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false, importGraphWorkers?: number): Command[] {
   const bun = process.execPath;
@@ -22,7 +51,11 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
     env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
-  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
+  // Concurrent serial Bun processes over the same inventory, each in its own
+  // private worktree, build and maintenance ledger; the merged report must
+  // account for every file exactly once (`runUnitWorkers`, scripts/unit-workers.ts).
+  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite",
+    argv: [bun, "scripts/unit-workers.ts", `--workers=${localUnitWorkerCount()}`, ...localUnitInventory(plan)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
   if (plan.local.browser || plan.local.layout || plan.local.endurance) checks.push({ name: "workspace build for real browser checks", argv: [bun, "run", "build"] });
@@ -133,7 +166,7 @@ if (import.meta.main) {
       }
       else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N]");
     }
-    const root = resolve(import.meta.dir, "..");
+    const root = ROOT;
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root), root);
     let mergeBase: string | undefined;
@@ -152,20 +185,18 @@ if (import.meta.main) {
     if (print) process.exit(0);
     requireLocalSandbox();
     const chrome = full ? requireRuntimeTools(plan) : undefined;
-    // Setup/metadata are ordered. Full Bun tests and strict types are the only
+    // Setup/metadata are ordered. Full unit workers and strict types are the only
     // independent memory-bounded pair; browser jobs stay sequential to retain
     // the measured scheduling/isolation behavior and diagnostic artifacts.
     const env: Record<string, string> = chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {};
     const withEnv = (command: Command) => ({ ...command, env: { ...env, ...command.env } });
-    const parallel = commands.filter(command => command.name === "strict typecheck" || command.name === "complete unit and integration suite");
     for (const command of commands.slice(0, 3)) await runCommands([withEnv(command)], root);
     await runCommands([contributionChangeset], root);
     if (full && plan.local.captures) await runCommands([{ name: "pinned capture fonts and original notices",
       argv: [process.execPath, "run", "capture:fonts"] }], root);
     if (chrome) await runCommands([{ name: "first real Chrome launch and render",
       argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome], env }], root);
-    await runCommands(parallel.map(withEnv), root);
-    for (const command of commands.slice(3).filter(command => !parallel.includes(command))) await runCommands([withEnv(command)], root);
+    await runLocalStages(localStages(commands.slice(3)).map(stage => stage.map(withEnv)), root);
     if (full && plan.pack) await checkPackages(root);
     console.log("Local preflight passed. Record focused receipts; selected hosted proof must pass before merge.");
   } catch (error) { console.error(error); process.exit(1); }
