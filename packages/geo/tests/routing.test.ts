@@ -26,7 +26,12 @@ const footDemo="https://routing.openstreetmap.de/routed-foot/route/v1";
 const footUrls=[dataset("foot").url,footDemo].map(endpoint=>endpoint+
   "/driving/20.71,38.36;20.72,38.37?geometries=geojson&overview=full&steps=false&alternatives=false");
 
-/** Instance-local latency observation; retain the real fsync/rename writer. */
+/**
+ * Instance-local latency observation; retain the real fsync/rename writer.
+ * Kept real time (#3332): the second admission write runs after dispatch, while
+ * the transport's real deadline timer is armed, so the latency itself is the
+ * stimulus. A barrier would order the steps but spend none of that deadline.
+ */
 function delayAdmissionWrites(geo: GeoClient, delayMs: number, admissionDir: string) {
   const instrumented = (geo as unknown as {transport: {writeAtomic(path: string, value: unknown): Promise<void>}}).transport;
   const original = instrumented.writeAtomic;

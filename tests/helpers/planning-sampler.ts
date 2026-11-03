@@ -51,6 +51,8 @@ const sample = () => {
 };
 sample();
 const timer = setInterval(sample, intervalMs);
+// The first reading is taken: the observer may now block its thread.
+parentPort!.postMessage("ready");
 
 parentPort!.once("message", () => {
   clearInterval(timer);

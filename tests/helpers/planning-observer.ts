@@ -71,9 +71,16 @@ export async function observePlanning<T>(root: string, label: string, call: () =
   let sampler: Worker | undefined;
   try {
     sampler = new Worker(new URL("./planning-sampler.ts", import.meta.url), { workerData: { mainTid: process.pid, ...PLANNING_OBSERVER_LIMITS } });
-    // Let the sampler take its first reading before the call blocks this thread.
-    await new Promise(resolve => setTimeout(resolve, PLANNING_OBSERVER_LIMITS.intervalMs));
-  } catch (error) { incomplete.push(`sampler did not start: ${String(error)}`); sampler = undefined; }
+    // The sampler reports its first reading before the call blocks this thread.
+    const started = sampler;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        started.once("message", () => resolve()); started.once("error", reject);
+        timer = setTimeout(() => reject(new Error(`no first reading within ${PLANNING_OBSERVER_LIMITS.stopMs} ms`)), PLANNING_OBSERVER_LIMITS.stopMs);
+      });
+    } finally { clearTimeout(timer); }
+  } catch (error) { incomplete.push(`sampler did not start: ${String(error)}`); void sampler?.terminate(); sampler = undefined; }
   const before = { at: performance.now(), cpu: process.cpuUsage(), children: childrenCpuMs(), main: mainSchedstat(), pressure: pressureUs(), load: loadAverage() };
   let outcome: PlanningRecord["outcome"] = "returned";
   let result: T | undefined;
