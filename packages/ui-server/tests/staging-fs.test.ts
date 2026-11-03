@@ -4,12 +4,12 @@
  * before the system call, cannot redirect a write, a publication or a removal.
  */
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import {
-  makeDirectory, openStagingRoot, publishDirectory, removeEntry, removeStagedArrival, StagingTopologyError, writeExclusive,
+  makeDirectory, openEntry, openStagingRoot, publishDirectory, removeEntry, removeStagedArrival, StagingTopologyError, writeExclusive,
 } from "../src/share/staging-fs.js";
 
 const cleanup: (() => void)[] = [];
@@ -124,4 +124,16 @@ test("removing a staged arrival from an absent staging directory is already done
   rmSync(join(f.brain, ".brain-ui"), { recursive: true });
   expect(() => removeStagedArrival(f.brain, crypto.randomUUID())).not.toThrow();
   expect(existsSync(join(f.brain, ".brain-ui")), "NOTHING_CREATED").toBe(false);
+});
+
+test("an existing arrival opens only as a real directory", () => {
+  const f = fixture();
+  const root = openStagingRoot(f.brain, false)!;
+  cleanup.push(() => root.close());
+  mkdirSync(join(f.staging, "arrival"));
+  symlinkSync("../../vault", join(f.staging, "linked"));
+  const arrival = openEntry(root.dir, "arrival");
+  cleanup.push(() => closeSync(arrival.fd));
+  expect(arrival.path).toBe(join(root.dir.path, "arrival"));
+  expect(() => openEntry(root.dir, "linked"), "LINKED_ARRIVAL_REFUSED").toThrow(StagingTopologyError);
 });
