@@ -6,7 +6,7 @@ export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerH
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";
 export { ARCHIVING_UPDATE_REASON, archivesDocument, bashCommand } from "./server/confirm-patterns.js";
-export { SUBPROCESS_ENV, HOST_GIT_CREDENTIAL_ENV, AGENT_INFERENCE_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./server/subprocess-env.js";
+export { SUBPROCESS_ENV, HOST_ONLY_SECRET_ENV, HOST_GIT_CREDENTIAL_ENV, AGENT_INFERENCE_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./server/subprocess-env.js";
 export { loadedSdkIdentity } from "./server/loaded-sdk.js";
 export { applyClassification, observeClassification, planClassification } from "./classification/index.js";
 export type { ClassificationAnswers, ClassificationPlan, ClassificationRequest, QuestionObservation } from "./classification/index.js";

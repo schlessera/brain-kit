@@ -16,11 +16,18 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
   expect(capture.cliVersion).toBe(capture.runtime.claudeCode);
   expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain__"))).toHaveLength(0);
   expect(deferredToolNames(capture.request).filter(name => name.startsWith("mcp__brain__")).sort()).toEqual([
-    "mcp__brain__brain_add", "mcp__brain__brain_archive", "mcp__brain__brain_context", "mcp__brain__brain_graph",
+    "mcp__brain__brain_add",
+    // The core server's fixed Apify tools (#3162): deferred like every core tool, and refused in a worker,
+    // which holds neither the token nor the ledger; the turn's own Apify tools are the eager bridge ones.
+    "mcp__brain__brain_apify_abort", "mcp__brain__brain_apify_discover", "mcp__brain__brain_apify_inspect", "mcp__brain__brain_apify_prepare",
+    "mcp__brain__brain_apify_results", "mcp__brain__brain_apify_run", "mcp__brain__brain_apify_status",
+    "mcp__brain__brain_archive", "mcp__brain__brain_context", "mcp__brain__brain_graph",
     "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_search", "mcp__brain__brain_update",
   ]);
-  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(24);
-  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "complete_share", "turn_temp", "reference_source", "reference_worktree"]) {
+  // 24 before the seven fixed Apify bridge tools (#3162).
+  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(31);
+  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "complete_share", "turn_temp", "reference_source", "reference_worktree",
+    "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"]) {
     const tool = capture.request.tools.find(tool => tool.name === `mcp__brain-ui__${name}`);
     expect(tool?.input_schema).toBeDefined();
     expect(tool?.defer_loading).not.toBe(true);
