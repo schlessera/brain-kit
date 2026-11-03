@@ -284,6 +284,15 @@ the summary's count drops, or the summary goes. A dropped follow-up
 popovers appear without a transition. D22's one ambient animation stays the
 filament.
 
+> **2026-11-03 — scoped amendment (#3281, maintainer ruling of 2026-11-02).**
+> The compact operation-status control,
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281),
+> may breathe in its `active` state only. The amendment covers that component
+> and its two selected consumers: the draft's indicator (#3155) and
+> deletion recovery in the Sessions header (#3231). It uses the shared
+> `breathe` keyframe, so reduced motion makes it static. No other tracker, row
+> or pane gains motion, and the rule above holds for everything else.
+
 <a id="4-trackers-under-recovery-a"></a>
 
 ### 4. Trackers under Recovery A
@@ -341,7 +350,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1580-1610`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1610-1640`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**

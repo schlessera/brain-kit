@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 function git(cwd: string, ...args: string[]): void {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args]);
+  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args]);
   if (r.exitCode !== 0) throw new Error(r.stderr.toString());
 }
 function put(root: string, path: string, text: string): void {

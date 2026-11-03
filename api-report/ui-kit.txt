@@ -237,6 +237,11 @@ export "." (./src/index.ts)
   type StatTilesProps
   StatusDot
   type StatusDotProps
+  StatusIndicator
+  type StatusIndicatorFact
+  type StatusIndicatorOperation
+  type StatusIndicatorProps
+  type StatusIndicatorState
   type Step
   StepList
   type StepListProps
@@ -2110,6 +2115,32 @@ signatures (every public export and the types it is made of)
         pulse?: boolean;
         size?: number;
     }
+  StatusIndicator (packages/ui-kit/src/chrome/StatusIndicator.tsx)
+    export function StatusIndicator(p: StatusIndicatorProps): import("react").JSX.Element;
+  StatusIndicatorFact (packages/ui-kit/src/chrome/StatusIndicator.tsx)
+    export interface StatusIndicatorFact {
+        key: string;
+        value: string;
+    }
+  StatusIndicatorOperation (packages/ui-kit/src/chrome/StatusIndicator.tsx)
+    export interface StatusIndicatorOperation {
+        id: string;
+        state: StatusIndicatorState;
+        stateLabel: string;
+        explanation?: string;
+        facts?: StatusIndicatorFact[];
+        actions?: ReactNode;
+    }
+  StatusIndicatorProps (packages/ui-kit/src/chrome/StatusIndicator.tsx)
+    export interface StatusIndicatorProps {
+        label: string;
+        summary: string;
+        title: string;
+        operations: StatusIndicatorOperation[];
+        returnFocus?: () => HTMLElement | null;
+    }
+  StatusIndicatorState (packages/ui-kit/src/chrome/StatusIndicator.tsx)
+    export type StatusIndicatorState = "active" | "queued" | "success" | "attention" | "unknown" | "failed" | "refused" | "idle";
   Step (packages/ui-kit/src/blocks/StepList.tsx)
     export interface Step {
         title: string;
