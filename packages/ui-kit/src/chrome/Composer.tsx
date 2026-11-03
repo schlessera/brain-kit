@@ -126,8 +126,15 @@ export interface ComposerProps {
   onSend?: (value: string) => void;
   /** The stop disc while `streaming`, and `esc` inside the field. */
   onStop?: () => void;
-  /** Opens the app's own capture menu (photo, camera, file). */
+  /** Opens the app's own capture menu (photo, camera, files). */
   onAttach?: () => void;
+  /**
+   * The attach trigger's accessible name, and the pointer tooltip that shows
+   * it: the actions the app's menu currently offers, in menu order. Starts
+   * with "Attach" so an instruction naming the control still matches it.
+   * Defaults to "Attach — photo, camera, files".
+   */
+  attachLabel?: string;
   /** Opens capture, or stops it while `dictating`. */
   onMic?: () => void;
   /**
@@ -140,6 +147,9 @@ export interface ComposerProps {
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
+
+/** The attach trigger's default name: the capture menu with no live conversation in it. */
+const ATTACH_LABEL = "Attach — photo, camera, files";
 
 export type ComposerState = "ready" | "streaming" | "reconnecting" | "offline" | "dictating";
 
@@ -218,6 +228,8 @@ export function Composer(p: ComposerProps) {
   }
 
   const field: CSSProperties = {
+    // The attach tooltip anchors to the field, so it clears a grown field.
+    position: "relative",
     flex: 1,
     minWidth: 0,
     display: "flex",
@@ -302,7 +314,7 @@ export function Composer(p: ComposerProps) {
       <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
         <div style={field} className="bk-field">
           {showAttach ? (
-            <IconButton icon="attach" label="Attach — photo, camera, file" haspopup="menu" onClick={dictating ? undefined : p.onAttach} />
+            <IconButton icon="attach" label={p.attachLabel || ATTACH_LABEL} haspopup="menu" tip onClick={dictating ? undefined : p.onAttach} />
           ) : null}
           <textarea
             data-composer=""
@@ -416,15 +428,70 @@ function pressable(act: () => void) {
 }
 
 /**
+ * The attach tooltip's dismissal (#3045), on the trigger's own attribute. While
+ * the pointer is over it, Escape anywhere hides it — WCAG 1.4.13 asks for that
+ * without moving the pointer, even while focus is in the field — and Escape
+ * keeps every other meaning it has there (stopping a run); nothing is
+ * prevented. Leaving or blurring clears the dismissal for the next visit.
+ */
+const tipListeners = new WeakMap<HTMLElement, AbortController>();
+
+function dismissTip(trigger: HTMLElement) {
+  trigger.setAttribute("data-tip-dismissed", "");
+}
+
+function armTip(trigger: HTMLElement) {
+  tipListeners.get(trigger)?.abort();
+  const controller = new AbortController();
+  tipListeners.set(trigger, controller);
+  trigger.ownerDocument.addEventListener("keydown", (event) => {
+    if (!trigger.isConnected) { controller.abort(); return; }
+    if (event.key === "Escape") dismissTip(trigger);
+  }, { signal: controller.signal });
+}
+
+function resetTip(trigger: HTMLElement, left: boolean) {
+  if (left) {
+    tipListeners.get(trigger)?.abort();
+    tipListeners.delete(trigger);
+  } else if (trigger.matches(":hover")) {
+    // Focus moving into the menu this trigger just opened is not a new visit:
+    // under a still-hovering pointer the tooltip would paint over the menu.
+    return;
+  }
+  trigger.removeAttribute("data-tip-dismissed");
+}
+
+/**
  * The paperclip and the microphone inside the field: a 28px round target
  * with a hover veil. During dictation the mic expands to a 44px stop target.
  *
  * Each gains an optional callback and D20's gating rule does the rest: with no
  * handler this renders exactly the icon the source renders, with no role, no
  * ring and no tab stop. The paperclip is a menu trigger, so it also says so.
+ *
+ * ## The paperclip's tooltip is its name, shown (#3045)
+ *
+ * A glyph with no text is only discoverable if its name can be seen, so an
+ * actionable `tip` trigger also paints its `label` above the field — the same
+ * string, so the visible label is the accessible name (WCAG 2.5.3) and a
+ * screen reader hears it once; the painted copy is `aria-hidden`. `theme.css`'s
+ * `.bk-tip` owns the timing: shown after 400ms of hover, at once on keyboard
+ * focus, and never under `(hover: none)`, where the app's sheet names the
+ * actions instead. It is a descendant of the trigger, so the pointer can move
+ * onto it without losing it (WCAG 1.4.13). Dismissal is the only state, and it
+ * is kept on the trigger itself (`data-tip-dismissed`, which React never
+ * renders) rather than in a hook, so the composer still costs one render per
+ * keystroke: Escape, or opening the menu, hides it until the pointer leaves or
+ * focus moves away. An inert trigger — a dictating composer — has no tooltip.
  */
-function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; targetSize?: number; onClick?: () => void }) {
+function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; tip?: boolean; targetSize?: number; onClick?: () => void }) {
   const act = Boolean(props.onClick);
+  const tip = act && props.tip === true;
+  const activate = (target: HTMLElement) => {
+    if (tip) dismissTip(target);
+    props.onClick?.();
+  };
   return (
     <span
       style={
@@ -440,15 +507,23 @@ function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "
           "--hv-bg": token("hover-veil-strong"),
         } as CSSProperties
       }
-      className={act ? "bk-control" : undefined}
+      className={act ? (tip ? "bk-control bk-tip-host" : "bk-control") : undefined}
       role={act ? "button" : undefined}
       aria-label={act ? props.label : undefined}
       aria-haspopup={act ? props.haspopup : undefined}
       tabIndex={act ? 0 : undefined}
-      onClick={props.onClick}
-      onKeyDown={act ? pressable(() => props.onClick?.()) : undefined}
+      onClick={act ? (event) => activate(event.currentTarget) : undefined}
+      onKeyDown={act ? (event) => {
+        if (tip && event.key === "Escape") { dismissTip(event.currentTarget); return; }
+        const target = event.currentTarget;
+        pressable(() => activate(target))(event);
+      } : undefined}
+      onPointerEnter={tip ? (event) => armTip(event.currentTarget) : undefined}
+      onPointerLeave={tip ? (event) => resetTip(event.currentTarget, true) : undefined}
+      onBlur={tip ? (event) => resetTip(event.currentTarget, false) : undefined}
     >
       <Icon icon={props.icon} size={17} color={color.inkMute} />
+      {tip ? <span className="bk-tip" data-composer-tip="" aria-hidden="true">{props.label}</span> : null}
     </span>
   );
 }

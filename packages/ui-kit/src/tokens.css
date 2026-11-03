@@ -1939,6 +1939,68 @@
   outline-offset: -2px;
 }
 
+/* The composer's attach tooltip (#3045): the trigger's accessible name,
+ * painted above the field so a paperclip with no text can still be read.
+ *
+ * Anchored to the field (`position: relative` on its inline style), not the
+ * 28px glyph, so it clears a field that has grown to five rows. It is a DOM
+ * child of the trigger, so moving the pointer onto it keeps the trigger's
+ * `:hover` (WCAG 1.4.13, hoverable); the field's top padding sits between the
+ * two, so hiding waits 150ms — long enough to cross it — and showing again
+ * mid-hide is no transition at all, because both ends are visible.
+ *
+ * Hover shows it after 400ms; keyboard focus shows it at once. Touch never
+ * does: under `(hover: none)` it is not displayed, and the app's attach sheet
+ * names the actions instead. `data-tip-dismissed` is Escape or an opened menu,
+ * and `:active` hides it so a press never drags it with the 1px nudge.
+ * Visibility is the only thing that changes, so nothing moves under reduced
+ * motion either. */
+.bk-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: var(--bk-z-popover);
+  box-sizing: border-box;
+  width: max-content;
+  /* The field starts ~28px in on a phone; keep the same margin on the right. */
+  max-width: min(22rem, calc(100vw - 56px));
+  padding: 5px 9px;
+  border: 1px solid var(--bk-color-edge);
+  border-radius: 8px;
+  background: var(--bk-color-raised);
+  color: var(--bk-color-ink);
+  box-shadow: 0 4px 14px var(--bk-palette-shadow);
+  font: 500 12px/1.4 "Plus Jakarta Sans", sans-serif;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  cursor: default;
+  visibility: hidden;
+  pointer-events: none;
+  transition: visibility 0s linear 150ms;
+}
+@media (hover: hover) {
+  .bk-tip-host:hover > .bk-tip {
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 400ms;
+  }
+}
+.bk-tip-host:focus-visible > .bk-tip {
+  visibility: visible;
+  pointer-events: auto;
+  transition: none;
+}
+.bk-tip-host[data-tip-dismissed] > .bk-tip,
+.bk-tip-host:active > .bk-tip {
+  visibility: hidden;
+  pointer-events: none;
+  transition: none;
+}
+@media (hover: none) {
+  .bk-tip { display: none; }
+}
+
 /* The real inputs inside a `.bk-field`: the composer's textarea, the
  * palette's query and AskUserCard's "Other" answer. Each suppresses its own
  * ring, because the field shows it, and paints its placeholder in mute ink at
