@@ -8,7 +8,7 @@ Approval supplies no automatic expiry, routine live cutoff or implementation
 release commitment.
 
 **Built (#3228):** the internal, content-free retirement ledger and gate
-(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:156-189`;
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:161-194`;
 migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
 serialized writer, resolves the exact identity set from recorded dialogue
 owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy
@@ -16,7 +16,8 @@ targets before retiring, and makes later dialogue/task writers and readers
 refuse the retired identities. It removes no content and reports every store
 pending until that store's owner confirms removal. A typed native-only chat
 with no recorded owner refuses as unknown ownership; no ownership is backfilled.
-Host-copy cleanup, the endpoint and UI are not built.
+Host-copy cleanup, the endpoint and UI are not built. (#3337, below, records an
+owner for typed chats created after it.)
 
 **Built (#3229):** first-party native removal behind the optional
 `historyRemoval` backend capability
@@ -48,6 +49,39 @@ and masking lineage, Activity, Inbox, governance, journals and usage accounting 
 retained as independent records and disclosed. HTTP and WebSocket list, read,
 resume, recovery and live-startup paths refuse a retired chat after every await,
 and draft routes refuse drafts bound to it. Browser invalidation (#3231) is not built.
+
+**Built (#3337):** typed chats created from now on name their owner. Under the
+[2026-11-02 ruling](https://github.com/schlessera/brain-kit/issues/3337#issuecomment-6586465475),
+when an authenticated typed request creates a backend session, the host records a
+content-free `(session, principal)` binding (migration `075_chat_session_owners.sql`).
+The bridge offers the creator only on a new, non-host-work turn whose
+authorization is current
+(`const creator`, `packages/ui-server/src/ws/bridge.ts:245`). The write worker
+binds the creator only in the transaction that creates the session's row
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
+`resolveChat` counts the binding as one more ownership record beside dialogue
+owners and voice epochs, so a disagreement among them still refuses as ambiguous
+(`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). A typed
+chat's owner can now delete it through `POST /api/chat-deletions`. A chat whose
+session existed before the binding still refuses as `unavailable`, and so does a
+native-only session the host first sees on a resume. A foreign principal gets
+the same refusal as for a chat that does not exist.
+
+The binding is deliberately not a dialogue owner:
+
+- It has no generation, alias, conversation or record. It never opens or pages
+  dialogue, and no catalog read, list or retention pass joins it. A typed chat
+  is therefore reviewed at generation 1, as before, and undeleted chats page and
+  age exactly as they did.
+- It is written once, by session creation, and never by a resume, an adoption, a
+  later turn or host work. It is never reassigned or backfilled. A dialogue owner
+  instead begins with a live conversation or the adoption of a host-only history,
+  and it binds or merges into a session later.
+- It names the creating principal, not authority. Deletion still re-reads that
+  principal at commit: an agent, an ambient caller with no owner mapping, or a
+  revoked principal is refused as before, even if it created the session.
+- Like the retirement fences, it is content-free identity data and stays after the
+  chat's stores are cleaned.
 
 ## Selected local lifecycle
 
@@ -220,8 +254,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:248-261`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:290-293`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:254-267`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:297-300`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,

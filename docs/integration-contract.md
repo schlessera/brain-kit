@@ -36,6 +36,18 @@ No existing field, frame or route changes meaning for an undeleted chat. This
 ships in a minor; the [approved policy](decisions/chat-history-deletion.md) is the
 explicit retention exception, and no breaking ruling is required.
 
+## Typed chat owner bindings (additive, #3337)
+
+A typed chat whose backend session an authenticated request created now records
+that principal as its owner, so `POST /api/chat-deletions` accepts it from that
+owner ([HTTP](http-api.md#explicit-chat-deletion-additive-3230)). Chats created
+before the binding still refuse as `unavailable`. Foreign callers get the same
+answer as for a chat that does not exist. The session catalog's
+`persistSessionStub` gains an optional `ownerPrincipalId`
+([package API](integration-contract/package-api.md#typed-chat-owner-bindings-additive-3337)).
+No request, receipt, frame or field shape changes, and paging and retention of
+undeleted chats are unchanged. This ships in a minor.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities.historyRemoval?` and the optional

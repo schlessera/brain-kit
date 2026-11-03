@@ -129,7 +129,13 @@ export interface SessionCatalog {
     sessionId: string,
     promptText: string,
     providerId: string | null,
-    backendId: string
+    backendId: string,
+    /**
+     * The authenticated principal whose typed request created the session
+     * (#3337). Recorded as its content-free owner binding only when this call
+     * creates the session's row; omitted for resumes and host work.
+     */
+    ownerPrincipalId?: string
   ): void;
   /** Persist session accounting on the terminal `result` frame. */
   persistSession(
@@ -274,8 +280,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
   const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
   const hasRow = (sessionId: string) => pendingRow(sessionId) || db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
-  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number) => {
-    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId };
+  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string) => {
+    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId,
+      ...(ownerPrincipalId ? { ownerPrincipalId } : {}) };
     return track(rowEffects, sessionId, { upsert: { providerId, backendId } }, submit<void>("upsertSession", row));
   };
   /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
@@ -483,8 +490,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     getStoredBackendId: storedBackendId,
 
-    persistSessionStub(sessionId, promptText, providerId, backendId) {
-      upsert(sessionId, promptText, providerId, backendId, 0, 0).catch(err => reportWriteFailure(sessionId, err));
+    persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId) {
+      upsert(sessionId, promptText, providerId, backendId, 0, 0, ownerPrincipalId).catch(err => reportWriteFailure(sessionId, err));
     },
 
     persistSession(msg, promptText, providerId, backendId) {

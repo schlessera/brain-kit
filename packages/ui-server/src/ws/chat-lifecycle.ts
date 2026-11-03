@@ -71,8 +71,9 @@ interface Resolved {
 /**
  * The exact current identity set of a chat, from verified ownership records
  * only: canonical dialogue owners (with every alias an earlier adoption
- * joined) and recorded voice conversation epochs. A chat with no such record,
- * or with records naming different principals, has unknown ownership.
+ * joined), recorded voice conversation epochs and the typed session-creation
+ * binding (#3337). A chat with no such record, or with records naming
+ * different principals, has unknown ownership.
  */
 export function resolveChat(db: Database, target: ChatTarget): Resolved | { refused: "unavailable" | "stale" } {
   const owners = new Set<string>(), conversations = new Set<string>(), principals = new Set<string>();
@@ -85,6 +86,10 @@ export function resolveChat(db: Database, target: ChatTarget): Resolved | { refu
     for (const row of db.query("SELECT id,principal_id FROM conversation_epochs WHERE session_id=?").all(sessionId) as { id: string; principal_id: string }[]) {
       conversations.add(row.id); principals.add(row.principal_id);
     }
+    // The principal whose typed request created the session (#3337). It joins
+    // the other records: a disagreement is still ambiguous ownership.
+    const creator = db.query("SELECT principal_id FROM chat_session_owners WHERE session_id=?").get(sessionId) as { principal_id: string } | null;
+    if (creator) principals.add(creator.principal_id);
   } else {
     if (!target.ownerId || target.ownerId.length > MAX_ID) return { refused: "unavailable" };
     const owner = db.query("SELECT id,principal_id,session_id,generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)")

@@ -1860,7 +1860,7 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;

@@ -387,7 +387,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:649-720`).
 
-- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId) {`, `packages/ui-server/src/ws/session-catalog.ts:486-493`).
+- Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId) {`, `packages/ui-server/src/ws/session-catalog.ts:493-500`).
 
 - Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1580-1596`).
 
