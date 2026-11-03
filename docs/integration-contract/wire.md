@@ -621,6 +621,22 @@ A run whose worker hit a host resource limit (additive, #1660) carries one
 since the last report, or null when it does not count). `fatal: true` means
 the limit ended the worker; the root then also carries `brain.failure_class`
 `worker_resource_limit`.
+<a id="module-discovery-outcome-additive-0450-3381"></a>
+A module discovery at crontab emission (additive in 0.45.0, #3381) is a `cron`
+root span with `jobName` `modules`, opened and ended at once by
+`brain-ui-cron crontab` once its bounded retries settle. `outcome` `error`
+means module cron was skipped and the crontab carries core jobs only; its
+reason is `module cron skipped: <cause>`, where the cause is the last
+attempt's: the `brain module list` exit code and stderr tail, unreadable
+output, a host not reconciled, or a missing native configuration. `success`
+means discovery yielded the module list. The root carries
+`brain.module_discovery.attempts` (a number) and
+`brain.module_discovery.skipped` (a boolean). The same outcome is the
+`modules` job's latest `cron_runs` row, which `GET /api/status` lists under
+`cronJobs`. It is written only to a UI database outside the brain that already
+exists or sits behind a qualified native host, so a host that never qualified
+and has no database reports on stderr alone. No module job can carry the
+name: theirs are always `<module>-<entry>`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
 written by the in-process scheduler or the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
