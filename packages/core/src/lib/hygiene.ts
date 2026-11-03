@@ -394,21 +394,57 @@ const MS_PER_DAY = 86_400_000;
 /** Silent edits count once the file is this many days newer than its `updated`. */
 const SILENT_EDIT_DAYS = 7;
 
+/** A document whose file changed after its frontmatter `updated`, as the index holds it. */
+export interface SilentEdit {
+  path: string;
+  title: string;
+  /** The file's modification time when it was indexed. */
+  file_mtime: string;
+  /** The frontmatter `updated` value. */
+  updated: string;
+}
+
 /**
- * Silently edited files: the same query `brain briefing` runs, without its
- * row limit, kept when the file is more than SILENT_EDIT_DAYS newer than its
- * frontmatter `updated`.
+ * The one silent-edit query: every non-archived document whose file is newer
+ * than its frontmatter `updated`, unless `brain accept-mtime` baselined that
+ * mtime. Most recently changed file first; `limit` keeps only the first that
+ * many. `brain briefing` lists these rows; hygiene keeps the ones that drifted
+ * far enough (`silentEditCandidates`).
  */
-export function silentEdits(db: Database): HygieneCandidate[] {
-  const rows = db
-    .prepare(
-      `SELECT file_mtime, updated, path FROM documents
+export function silentEdits(db: Database, opts: { limit?: number } = {}): SilentEdit[] {
+  // A negative LIMIT is no limit in SQLite, so one statement serves both.
+  return db
+    .query(
+      `SELECT file_mtime, updated, path, title FROM documents
        WHERE file_mtime > updated
          AND (accepted_mtime IS NULL OR file_mtime > accepted_mtime)
          AND status != 'archived'
-       ORDER BY path`
+       ORDER BY file_mtime DESC LIMIT ?`
     )
-    .all() as { file_mtime: string; updated: string; path: string }[];
+    .all(opts.limit ?? -1) as SilentEdit[];
+}
+
+/**
+ * Baseline the current file mtimes as non-suspicious, so `silentEdits` stops
+ * reporting them: one indexed document's, or (no path) every document's.
+ * Returns how many documents changed.
+ */
+export function acceptMtimes(db: Database, path?: string): number {
+  return path === undefined
+    ? db.run("UPDATE documents SET accepted_mtime = file_mtime WHERE file_mtime IS NOT NULL").changes
+    : db.run("UPDATE documents SET accepted_mtime = file_mtime WHERE path = ? AND file_mtime IS NOT NULL", [path]).changes;
+}
+
+/** SQLite's BINARY collation: byte order of the UTF-8 encodings. */
+const byUtf8 = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
+
+/**
+ * Silently edited files as hygiene candidates, in path order: the
+ * `silentEdits` rows whose file is more than SILENT_EDIT_DAYS newer than its
+ * frontmatter `updated`.
+ */
+export function silentEditCandidates(db: Database): HygieneCandidate[] {
+  const rows = silentEdits(db).sort((a, b) => byUtf8(a.path, b.path));
   const out: HygieneCandidate[] = [];
   for (const row of rows) {
     const drift = Math.floor((Date.parse(row.file_mtime) - Date.parse(row.updated)) / MS_PER_DAY);
@@ -652,7 +688,7 @@ export async function detectCandidates(
   } catch {
     failed.add("validation");
   }
-  const silent = silentEdits(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
+  const silent = silentEditCandidates(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
   // Media awaiting a decision (#2780): the same inventory `brain sync` counts.
   let media: MediaInventory | null = null;
   try {
@@ -1156,6 +1192,14 @@ export interface ReconcileOptions {
   /** Dismissals and snoozes to record this run (`brain hygiene dismiss` / `snooze`). */
   dispositions?: HygieneDispositionRequest[];
   /**
+   * Remove the `kept` entry for `id` that Keep a permanent copy recorded
+   * under journal `journal` (#2781, rev 5 §5.7): Undo of the copy, after the
+   * copy and config are restored. The original returns to open without an
+   * invalidation receipt, since nothing about it changed. No such entry
+   * refuses `not-kept` before anything is written.
+   */
+  unkeep?: { id: string; journal: string };
+  /**
    * The brain's media policy, which decides whether a kept copy is still
    * tracked (`keptInvalidity`). Callers pass the loaded configuration's.
    */
@@ -1179,7 +1223,7 @@ export type HygieneDispositionRequest =
   | { kind: "kept"; id: string; expectFingerprint: string; copy: string; copySha256: string; journal: string; reason?: string };
 
 /** Why a disposition was refused. The `copy-…` and `not-media` reasons are a `kept` request's. */
-export type HygieneRefusalReason = "not-detected" | "stale-fingerprint" | "not-media" | "copy-missing" | "copy-untracked" | "copy-changed";
+export type HygieneRefusalReason = "not-detected" | "stale-fingerprint" | "not-media" | "copy-missing" | "copy-untracked" | "copy-changed" | "not-kept";
 
 /**
  * A disposition reconcile would not record: the finding is not detected now,
@@ -1196,6 +1240,8 @@ export class HygieneRefusal extends Error {
     super(
       reason === "not-detected"
         ? `${id} is not detected now; nothing was written`
+        : reason === "not-kept"
+          ? `${id} has no kept entry recorded by journal ${expectedFingerprint}; nothing was written`
         : reason === "stale-fingerprint"
           ? `${id} has fingerprint ${currentFingerprint}, not ${expectedFingerprint}: its evidence changed; nothing was written`
           : reason === "not-media"
@@ -1355,6 +1401,12 @@ export function reconcile(
   for (const state of ["snoozed", "dismissed", "kept", "resolved", "open"] as const) {
     for (const entry of parsed[state].entries) if (!known.has(entry.id)) known.set(entry.id, entry);
   }
+  // Unkeep removes exactly the kept entry its journal recorded, or nothing at all.
+  const unkeep = opts.unkeep;
+  if (unkeep) {
+    const entry = known.get(unkeep.id);
+    if (!entry || entry.state !== "kept" || field(entry, "journal") !== unkeep.journal) throw new HygieneRefusal("not-kept", unkeep.id, unkeep.journal, null);
+  }
 
   // While any check failed, "not detected" may only mean "not looked for":
   // an entry that was not detected again is left as it is.
@@ -1472,7 +1524,16 @@ export function reconcile(
           }
         }
       } else if (state === "kept") {
-        if (finding) {
+        if (unkeep && unkeep.id === entry.id && field(entry, "journal") === unkeep.journal) {
+          // Undo of the copy: the original is pending again, as it was before Keep a permanent copy.
+          if (finding) {
+            next.open.push(openFrom(finding, entry.id, withoutFields(entry.lines, DISPOSITION_FIELDS), firstSeenOf(entry) ?? today));
+            counts.reopened++;
+          } else {
+            next.resolved.push(resolve_(entry, "original-pruned"));
+            counts.resolved++;
+          }
+        } else if (finding) {
           const why = keptInvalidity(root, policy, keptRecord(entry), finding, recorded?.fingerprint?.fields ?? {});
           if (why) invalidate(finding, recorded!, entry.lines, firstSeenOf(entry) ?? today, null, why);
           else next.kept.push(entry);

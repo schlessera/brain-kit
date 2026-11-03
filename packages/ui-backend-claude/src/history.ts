@@ -7,12 +7,14 @@ import {
   getSessionMessages as sdkGetSessionMessages,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  RuntimeNotice,
   ChatSession,
   MessagePart,
   SessionHistoryMessage,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
+import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { listArchivedSessions, restoreArchivedSession, transcriptPaths } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
 import { usageLimitText } from "./usage-limit.js";
@@ -31,6 +33,8 @@ export interface HistoryDeps {
   env?: Record<string, string | undefined>;
   listSessionsFn?: typeof sdkListSessions;
   getSessionMessagesFn?: typeof sdkGetSessionMessages;
+  /** Explicitly retired sessions (#3229): never listed, read or restored. */
+  retirement?: Pick<SessionRetirement, "filter" | "hold" | "isRetired">;
 }
 
 export interface History {
@@ -73,17 +77,26 @@ export function createHistory(deps: HistoryDeps): History {
     let archived: ReturnType<typeof listArchivedSessions> = [];
     try { archived = listArchivedSessions(deps); }
     catch (error) { console.warn("Claude transcript archive listing failed", error); }
-    return [...live, ...archived.filter(s => !ids.has(s.id)).map(s => ({
+    const listed = [...live, ...archived.filter(s => !ids.has(s.id)).map(s => ({
       ...s, totalCostUsd: 0, numTurns: 0,
     }))];
+    // After the awaits: a session retired while the SDK listed is not listed.
+    return deps.retirement ? deps.retirement.filter(listed) : listed;
   }
 
   async function getHistory(
     sessionId: string
   ): Promise<SessionHistoryMessage[]> {
-    if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
-    const root = dirname(dirname(transcriptPaths(dir, deps.env).live));
-    return buildSessionHistory(sessionId, getSessionMessagesFn, dir, deps.env, sessionReplay(root, dir, sessionId).texts());
+    // A retired chat reads as an unknown one, and its archive is never restored.
+    if (deps.retirement?.isRetired(sessionId)) return [];
+    // A removal waits for this read; the read never publishes what it found once retired.
+    const release = deps.retirement && isSessionId(sessionId) ? deps.retirement.hold(sessionId) : undefined;
+    try {
+      if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
+      const root = dirname(dirname(transcriptPaths(dir, deps.env).live));
+      const history = await buildSessionHistory(sessionId, getSessionMessagesFn, dir, deps.env, sessionReplay(root, dir, sessionId).texts());
+      return deps.retirement?.isRetired(sessionId) ? [] : history;
+    } finally { release?.(); }
   }
 
   return { listSessions, getHistory };
@@ -187,6 +200,22 @@ export async function buildSessionHistory(
         }
         continue;
       }
+      // The runtime's own note that a turn stopped: a status for that turn,
+      // not something the model said (#3356). Like a failure, it lands on the
+      // assistant message it ended, after any partial answer, and the same
+      // notice observed again there is shown once.
+      const notice = runtimeNotice((entry as any).message, content);
+      if (notice) {
+        const last = messages[messages.length - 1];
+        if (last?.role === "assistant") {
+          // A failure is the fuller account of the same stop, and an aborted
+          // request says more than an unspecified notice.
+          if (!last.failure && last.runtimeNotice?.cause !== "aborted") last.runtimeNotice = notice;
+        } else {
+          messages.push({ role: "assistant", content: "", toolCalls: [], parts: [], runtimeNotice: notice });
+        }
+        continue;
+      }
       let text = "";
       let thinking = "";
       const toolCalls: Array<{
@@ -273,8 +302,9 @@ const SYNTHETIC_MODEL = "<synthetic>";
  * How Claude Code words the API errors it writes into a transcript: its
  * "API Error" prefix (also mid-text, after "Failed to authenticate."), and the
  * login and billing texts it writes without one. A synthetic message that
- * matches none of them — "No response requested.", a fallback notice — is
- * not a failure and replays as text.
+ * matches none of them is not a failure: "No response requested." and an
+ * aborted request replay as a runtime notice (`runtimeNotice`), and any other
+ * fallback notice replays as text.
  */
 const API_ERROR_TEXTS: ReadonlyArray<{ pattern: RegExp; errorClass: string }> = [
   { pattern: /^Not logged in\b/, errorClass: FIRST_PARTY_FAILURE_CLASSES.authentication_failed },
@@ -286,6 +316,38 @@ const API_ERROR_TEXTS: ReadonlyArray<{ pattern: RegExp; errorClass: string }> = 
 
 /** What Claude Code writes when a request is aborted: a cancellation. */
 const ABORTED_TEXT = /^API Error: Request was aborted\.?$/;
+
+/**
+ * What Claude Code writes into a transcript, under its own synthetic model,
+ * when a turn stops without an answer the model gave. Both strings are the
+ * installed CLI's own constants: "No response requested." is the reply it
+ * synthesises for an interrupted conversation it resumes, and "API Error:
+ * Request was aborted." is what it records for an aborted request. Only the
+ * second establishes anything about the cause, and neither says who stopped
+ * the turn.
+ */
+const RUNTIME_NOTICES: ReadonlyArray<{ text: string; cause: RuntimeNotice["cause"] }> = [
+  { text: "No response requested.", cause: "unspecified" },
+  { text: "API Error: Request was aborted.", cause: "aborted" },
+];
+
+/**
+ * The runtime notice a replayed synthetic message records, or null for any
+ * other message. Provenance first: the same words from the model, or from
+ * the user, are theirs and replay as text.
+ */
+export function runtimeNotice(message: unknown, content: unknown[]): RuntimeNotice | null {
+  if ((message as { model?: unknown } | null)?.model !== SYNTHETIC_MODEL) return null;
+  const blocks = content as Array<{ type?: unknown; text?: unknown }>;
+  if (blocks.length === 0 || !blocks.every((block) => block.type === "text")) return null;
+  const text = blocks
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .join("")
+    .trim();
+  const bare = text.replace(/\.$/, "");
+  const known = RUNTIME_NOTICES.find((notice) => notice.text.replace(/\.$/, "") === bare);
+  return known ? { cause: known.cause, message: text } : null;
+}
 
 /**
  * The failure a replayed synthetic API-error message records, or null for

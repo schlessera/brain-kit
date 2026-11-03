@@ -17,6 +17,18 @@ test("storage pack uses existing non-destructive maintenance and preserves histo
   } finally { cleanup(root); }
 });
 
+test("storage pack on a repository with no objects yet is complete, not unavailable maintenance (#3375)", async () => {
+  const root = makeTempBrain();
+  const git = (...args: string[]) => { const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } }); expect(p.exitCode, p.stderr.toString()).toBe(0); return p.stdout.toString(); };
+  try {
+    git("init");
+    expect(git("count-objects", "-v")).toContain("packs: 0\n");
+    const result = await runCli(root, ["storage", "pack", "--json"]);
+    expect(JSON.parse(result.stdout), "STORAGE_PACK_OBJECTLESS_COMPLETE").toMatchObject({ state: "complete", packed: 0, reason: null });
+    expect(result.code).toBe(0);
+  } finally { cleanup(root); }
+});
+
 test("packing on a genuinely full private tmpfs refuses before maintenance and preserves recovery bytes", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs"), { tmpdir } = await import("node:os");
   const root = mkdtempSync(join(tmpdir(), "odysseus-packing-full-"));

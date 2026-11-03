@@ -163,7 +163,11 @@ bun run check:pr --all
 ## The experiment tier
 
 Tests that exercise only measurement and eval harnesses live under
-`experiments/`, outside `bun run test`, `check:pr` and hosted CI. Release
+`experiments/`, outside `bun run test`, `check:pr` and hosted CI. So does the
+release check that every code citation under `docs/` still starts on its
+anchor (`experiments/decision-citations.test.ts`): merges do not fail on
+citation drift, so run `bun scripts/check-citations.ts` before versioning and
+fix everything it reports in the release PR. Release
 preparation runs every one of them, on the post-version candidate:
 
 ```sh

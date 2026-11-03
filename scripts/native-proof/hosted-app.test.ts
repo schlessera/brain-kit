@@ -380,23 +380,68 @@ print(json.dumps(result))`;
         const ack = await turn(`Odysseus requests the Ithaca harbour record ${i} on 2026-07-12.`, `odysseus-ithaca-harbour-${i}`, harbourSession, 60000);
         harbourSession = ack.sessionId; harbour.push(ack.turnId);
       }
+      // #3355: every lifecycle phase and its steps, for three cold scenarios and five warm turns.
+      const lifecycles = () => {
+        const ui = new Database(join(dir, "ui.db"), { readonly: true });
+        try { return (ui.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at").all() as { record: string }[]).map(row => JSON.parse(row.record)); }
+        finally { ui.close(); }
+      };
+      const phases = (record: any) => {
+        if (!record) return null;
+        const span = (start: number | null, end: number | null) => start === null ? null : (end ?? record.failureObservedAt ?? record.endedAt) === null ? null
+          : Math.max(0, (end ?? record.failureObservedAt ?? record.endedAt) - start);
+        const steps: Record<string, number | null> = {};
+        for (const step of record.subPhases ?? []) {
+          const key = `${step.phase}.${step.name}`, ms = span(step.startedAt, step.endedAt);
+          steps[key] = ms === null ? steps[key] ?? null : (steps[key] ?? 0) + ms;
+        }
+        return { turnId: record.turnId, queueWaitMs: span(record.acceptedAt, record.dequeuedAt), governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
+          budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),
+          backendStartupMs: span(record.backendInvokedAt, record.firstFrameAt), timeToFirstFrameMs: span(record.acceptedAt, record.firstFrameAt), steps };
+      };
+      const lifecycleOf = (turnId: string) => phases(lifecycles().find(record => record.turnId === turnId));
+      // (a) The process's first governed, journaled turn: the qualification's first admission.
+      const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
+      const warm = harbour.slice(-5).map(lifecycleOf);
+      // Past the hosted app's one-minute idle observation interval.
+      const IDLE_WAIT_MS = 65_000;
+      // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
+      const IDLE_CHANGES = 300;
+      for (let i = 0; i < IDLE_CHANGES; i++) writeFileSync(join(brain, "notes", `ithaca-idle-${String(i).padStart(3, "0")}.md`), `---\ntype: note\ntitle: Ithaca idle ${i}\nupdated: 2026-07-12\n---\nPenelope unweaves ${i}.\n`);
+      await sleep(IDLE_WAIT_MS);
+      const idleChanges = lifecycleOf((await turn("Odysseus requests the Ithaca harbour record after the idle changes on 2026-07-12.", "odysseus-ithaca-idle-changes", undefined, 60000)).turnId);
+      // (c) Turns recorded while the journal's clock reads 31 days ago end past retention once it is current again.
+      const BACKLOG = 30, backdated = join(dir, "journal-backdated");
+      writeFileSync(backdated, "");
+      let backlogSession: string | undefined;
+      try {
+        for (let i = 0; i < BACKLOG; i++) backlogSession = (await turn(`Odysseus requests the Ithaca harbour backlog record ${i} on 2026-07-12.`, `odysseus-ithaca-backlog-${i}`, backlogSession, 60000)).sessionId;
+      } finally { rmSync(backdated, { force: true }); }
+      await sleep(IDLE_WAIT_MS);
+      const retentionBacklog = lifecycleOf((await turn("Odysseus requests the Ithaca harbour record after the backlog on 2026-07-12.", "odysseus-ithaca-after-backlog", undefined, 60000)).turnId);
+      const warmMedian = (field: "governedAdmissionMs" | "journalBeginMs") => median(warm.map(row => row?.[field]).filter((value): value is number => typeof value === "number"));
+      const admission = { idleWaitMs: IDLE_WAIT_MS, idleChanges: IDLE_CHANGES, backlogTurns: BACKLOG,
+        warmMedian: { governedAdmissionMs: warmMedian("governedAdmissionMs"), journalBeginMs: warmMedian("journalBeginMs") },
+        scenarios: { firstAfterStart, idleChanges, retentionBacklog }, warm };
       const journalRows = eventLog.read("observation-timing-journal");
       const elapsed = (kind: string, turnId: string) => journalRows.find(row => row.kind === kind && row.turnId === turnId)?.elapsedMs as number | undefined;
       const beginFinish = harbour.map(turnId => ({ turnId, beginMs: elapsed("journal_begin_end", turnId) ?? null, finishMs: elapsed("journal_finish_end", turnId) ?? null }))
         .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
       const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
-        tools: timeline?.tools ?? null, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
+        tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
       console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));
       expect(total("totalMs"), "OBSERVATION_TIMING_10_HARBOUR_TURNS").toHaveLength(10);
+      for (const [name, row] of Object.entries({ ...admission.scenarios, ...Object.fromEntries(warm.map((row, i) => [`warm-${i}`, row])) }))
+        expect(row?.journalBeginMs !== null && row?.governedAdmissionMs !== null && Object.keys(row?.steps ?? {}).length > 0, `OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`).toBe(true);
       if (timeline) {
         for (const [tool, cell] of Object.entries(timeline.tools)) {
           expect([tool, cell.calls, cell.errors], "OBSERVATION_TIMING_20_SUCCESSFUL_CALLS_PER_TOOL").toEqual([tool, 20, 0]);
         }
       }
-      expectedProviderAttempts = attemptBefore + (BACKEND === "pi" ? 11 : 0) + 10;
+      expectedProviderAttempts = attemptBefore + (BACKEND === "pi" ? 11 : 0) + 10 + 1 + BACKLOG + 1;
     }
     // Drain the real queued refresh before shutdown intentionally discards pending work.
     await until(() => {
@@ -525,7 +570,7 @@ print(json.dumps(result))`;
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
   // The #2848 timing turn first waits for the earlier turns' index refresh.
-}, OBSERVATION_TIMING ? 1_200_000 : APPLY_TIMING ? 240000 : 120000);
+}, OBSERVATION_TIMING ? 1_500_000 : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {

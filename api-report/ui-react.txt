@@ -116,6 +116,7 @@ signatures (every public export and the types it is made of)
         editable?: boolean;
         mirror?: boolean;
         focus?: boolean;
+        sentAsMessage?: boolean;
     }
   AnswerPayload (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type AnswerPayload = {
@@ -160,6 +161,7 @@ signatures (every public export and the types it is made of)
     export interface AskUserExchange {
         requestId: string;
         terminal?: true;
+        endedBy?: "timeout";
         turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;
@@ -292,6 +294,8 @@ signatures (every public export and the types it is made of)
         failure?: TurnFailure;
         retryOfTurnId?: string;
         failureLive?: boolean;
+        runtimeNotice?: TurnNotice;
+        runtimeNoticeLive?: boolean;
         retry?: TurnRetry;
     }
   ChatPage (packages/ui-react/src/components/chat/chat-page.tsx)
@@ -889,6 +893,10 @@ signatures (every public export and the types it is made of)
         view: TrackFileView;
         props: TrackMapProps;
     }
+  TurnNotice (packages/ui-react/src/stores/chat-state.ts)
+    export interface TurnNotice {
+        cause: "timeout" | "aborted" | "unspecified";
+    }
   UIShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface UIShellState {
         readonly activeView: ActiveView;
@@ -1038,6 +1046,29 @@ signatures (every public export and the types it is made of)
         }>;
         activityStats: (days?: number) => Promise<ActivityRuntimeStats>;
         agentPolicy: (signal?: AbortSignal) => Promise<AgentPolicyRead>;
+        apify: (options?: {
+            refresh?: boolean;
+            session?: string;
+            signal?: AbortSignal;
+            turn?: string;
+        }) => Promise<ApifySettingsRead>;
+        apifyConfirmAccount: (accountId: string) => Promise<unknown>;
+        apifyPolicyDecide: (turnId: string, requestId: string, approve: boolean) => Promise<{
+            baseHash: null | string;
+            bodyChanged: boolean;
+            bodyDiff: string;
+            frontmatterDiff: string;
+            message: string;
+            path: "context/policies/governance.md";
+            proposedHash: string;
+            rationale: string;
+            requestId: string;
+            sections: string[];
+            state: "declined" | "invalid" | "pending" | "refused" | "stale" | "unknown" | "updated" | "writing";
+            turnId: string;
+            warnings: string[];
+        }>;
+        apifyPolicyPropose: (change: ApifyPolicyChange, baseHash: null | string) => Promise<ApifyPolicyProposalRead>;
         authMethods: () => Promise<{
             passkey: boolean;
             password: boolean;
@@ -1509,6 +1540,29 @@ signatures (every public export and the types it is made of)
         }>;
         activityStats: (days?: number) => Promise<import("@schlessera/brain-ui-sdk").ActivityRuntimeStats>;
         agentPolicy: (signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").AgentPolicyRead>;
+        apify: (options?: {
+            refresh?: boolean;
+            session?: string;
+            signal?: AbortSignal;
+            turn?: string;
+        }) => Promise<import("@schlessera/brain-ui-sdk").ApifySettingsRead>;
+        apifyConfirmAccount: (accountId: string) => Promise<unknown>;
+        apifyPolicyDecide: (turnId: string, requestId: string, approve: boolean) => Promise<{
+            baseHash: null | string;
+            bodyChanged: boolean;
+            bodyDiff: string;
+            frontmatterDiff: string;
+            message: string;
+            path: "context/policies/governance.md";
+            proposedHash: string;
+            rationale: string;
+            requestId: string;
+            sections: string[];
+            state: "declined" | "invalid" | "pending" | "refused" | "stale" | "unknown" | "updated" | "writing";
+            turnId: string;
+            warnings: string[];
+        }>;
+        apifyPolicyPropose: (change: import("@schlessera/brain-ui-sdk").ApifyPolicyChange, baseHash: null | string) => Promise<import("@schlessera/brain-ui-sdk").ApifyPolicyProposalRead>;
         authMethods: () => Promise<{
             passkey: boolean;
             password: boolean;

@@ -3,6 +3,72 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Apify operations (additive, 0.45.0, #3162)
+
+`brain apify` runs the seven fixed Apify operations the core MCP server's
+`brain_apify_*` tools and both chat backends also call
+([index](../integration-contract.md#apify-operations-through-the-cli-mcp-and-both-chat-backends-additive-0450-3162),
+[the contract](../decisions/apify-capability.md#selected-stable-machine-operations)).
+Like `brain policy`, it reads the governance policy as data and never loads
+brain configuration or executes repository code.
+
+| Command | Operation input |
+|---|---|
+| `brain apify discover <words…> [--limit N]` | `{ query, limit? }`: the words joined by single spaces, at most 6 words and 80 characters, no addresses, links or long numbers; `limit` 1–10, default 5 |
+| `brain apify inspect <candidate>` | `{ candidate }` |
+| `brain apify prepare <candidate> --input <json> --max-charge-usd <usd>` | `{ candidate, input, max_charge_usd }`: `input` a JSON object, the cap positive and at most 1,000,000 |
+| `brain apify run <proposal>` | `{ proposal }` |
+| `brain apify status <run>` | `{ run }` |
+| `brain apify results <run> [--cursor C] [--limit N]` | `{ run, cursor?, limit? }`: `limit` 1–100, default 25 |
+| `brain apify abort <run>` | `{ run }` |
+
+References are 1–64 characters and opaque. Every operation prints one
+envelope and a newline, and exits `0` when `ok` is true and `1` when it is not:
+
+```ts
+type ApifyOperation = "discover" | "inspect" | "prepare" | "run" | "status" | "results" | "abort";
+type ApifyEnvelope =
+  | { ok: true; operation: ApifyOperation; data: unknown }
+  | { ok: false; operation: ApifyOperation; error: { code: ApifyErrorCode; reason: string | null; message: string } };
+type ApifyErrorCode =
+  | "provider_disabled" | "authentication_required" | "policy_denied" | "approval_required" | "proposal_stale"
+  | "actor_unsupported" | "budget_exceeded" | "accounting_unavailable" | "result_expired"
+  | "remote_outcome_unknown" | "upstream_incompatible"
+  | "provider_unavailable" | "invalid_input";
+```
+
+`data` per operation:
+
+- `discover`: `{ candidates: [{ candidate, actor, title, description, developer, pricing_model, deprecated }], untrusted: true }`.
+- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+- `prepare`: `{ proposal, review, admission: "grant" | "ask", expires_at }`; `review` is what an approval shows.
+- `run` and `status`: `{ run, state, results: { available, partial, expires_at }, abort, remote_outcome_unknown, warnings }`.
+- `results`: `{ run, items, next_cursor, truncated, partial, warnings, untrusted: true }`.
+- `abort`: the run view plus `outcome`: `requested`, `confirmed`, `unresolved` or `not_needed`. No outcome means nothing was charged.
+
+The last two codes are additive to the contract's list. `provider_unavailable`
+means the Apify API could not be reached or verified, so nothing was admitted.
+`invalid_input` means the operation's own checks refused the input before
+anything was sent. `reason` is a short machine string (`not_enabled`,
+`discovery_denied`, `no_grant_surface`, `day_usd` and the like) that may grow;
+`message` is fixed prose that never carries a token or upstream text.
+
+The process is a standalone operator: it uses its own `APIFY_TOKEN`, and the
+shared ledger at `BRAIN_APIFY_LEDGER` (an absolute path; the server opens the
+same file, by default `DB_PATH.apify-ledger.sqlite`). Without the ledger every
+operation refuses as `accounting_unavailable` before anything is sent. The
+principal is `local`. `--session <name>` (1–64 letters, digits, `.`, `-`, `_`;
+default `default`) names the conversation the references belong to, and its
+UTC day is the turn that turn-scoped limits count. Candidates and proposals
+live in the ledger, so a later invocation of the same session can use them;
+another session cannot. Nothing is ever asked on stdin: a run is admitted only
+by an exact standing grant in the policy, else it refuses as
+`approval_required`. `brain apify account [confirm <account-id>]` prints the
+bound account's status and lets the operator confirm a changed account; it
+never prints a token. A usage error exits `1` with a message on stderr and
+nothing on stdout. Inside a chat worker neither variable is present, so a
+shell-issued `brain apify` refuses.
+
 ## Maintenance worker output allowance (additive, 0.45.0, #3357)
 
 A maintenance worker's launcher may set `BRAIN_WORKER_OUTPUT_ALLOWANCE` to
@@ -280,6 +346,14 @@ a newline:
 ```
 
 `effective` is the complete resolved [supported policy input](../supported-inputs.md#governance-policy).
+Since #3159 (additive) it includes `apify: { enabled: boolean }`, `false` unless
+the file enables it. Since #3160 (additive) `apify` also carries
+`discovery` and `actors` (each `"deny" | "ask" | "allow"`, default `"ask"`) and
+`actor_grants` (default `[]`), each grant in the
+[supported input's](../supported-inputs.md#governance-policy) exact shape with
+`expires_at` normalized to an ISO 8601 UTC instant. Since #3161 (additive)
+`apify` also carries `limits`, `null` unless the file sets the complete
+[limits object](../supported-inputs.md#governance-policy).
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes
@@ -399,6 +473,12 @@ resumption. The host must retain a successful complete export at least every
   `--baseline` gate; `3` is runs that are not comparable, the report still
   printed).
 - Boolean flags never consume the following argument.
+- A value flag given without a value (last, or followed by another `--flag`)
+  is a usage error in `brain search`, `list`, `add`, `read`, `context` and
+  `briefing` (`--type needs a value`). A repeated flag keeps its last
+  value. **Breaking in 0.45.0 (#1352):** such a flag used to flow on as `true`
+  (`brain search --type`, `brain list --tag --status active`), and a bare
+  `brain add --tags` failed with exit `2`.
 - End-of-options: a bare `--` stops flag parsing, and every later argument is
   positional verbatim. Output-mode and help flags after it are positional too
   (additive in 0.33.0).
@@ -409,11 +489,11 @@ resumption. The host must retain a successful complete export at least every
 
 | Command | Shape |
 |---------|-------|
-| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run, a [withheld provider key](#withheld-provider-keys-additive-0440-1666)). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
+| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run, a [withheld provider key](#withheld-provider-keys-additive-0440-1666)). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`). `--limit` is a whole number of `1` or more, default `20`, with no upper bound; the whole argument must be an integer literal. `--mode` is `fts`, `vector` or `hybrid`. Anything else (`--limit abc`, `0`, `-5`, `1.5`, `10abc`, an empty value, `--mode bogus`, or either flag, or a filter flag, without a value) is a usage error (exit `1`, a message on stderr, nothing on stdout) in human and JSON modes, and no query runs. **Breaking in 0.45.0 (#1352):** `--limit` used to be read with `parseInt`, so `10abc` searched with 10 and `1.5` with 1, `abc` came back as an empty result with an `FTS search failed: datatype mismatch` warning, and `0` or a negative was passed on to the query; an unknown `--mode` ran neither lane and returned nothing, without a warning |
 | `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. **Additive in 0.41.0:** `brain audit --fix --json` returns `AuditFixResult[]`, one result per finding in finding order: `{ path, issue, suggestion, canAutoFix, fix?, repair? }`. `path` is the finding path, `issue` its message, and `suggestion` its own advice (or "Manual review needed."); an unavailable `index-stale` instead names the failed repair premise, or says no registry content change is required. `canAutoFix` is true only for an actually available deterministic registry repair: safe contained path, valid opted-in registry with a content change, configured child types and no validation errors under the index directory. Available results also carry `repair: { capability: "registry", path: <index path> }`; all other categories and failed premises are manual with no `repair`. `repair` describes availability, grants no permission, and applies nothing. Optional `fix` means exact replacement text; this command never emits it. No completion provider is called, even if configured |
-| `brain context "q" --max-tokens N` | assembled markdown context (text) |
+| `brain context "q" --max-tokens N` | assembled markdown context (text). `--max-tokens` is a whole number of `1` or more, default `4000`; anything else (`abc`, `0`, `1.5`, or no value) is a usage error (exit `1`) and no query runs. **Breaking in 0.45.0 (#1352):** it used to be read with `parseInt`, so `10abc` meant 10 and `abc` reached the assembler as `NaN` |
 | `brain read <path> [--section <heading>] [--max-tokens N]` | the document text; the flags behave as `brain_read`'s `section` and `max_tokens`, and an unknown section exits `1` (flags additive in 0.38.0) |
-| `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
+| `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM). `--limit` (recently active documents) is a whole number of `1` or more, default `15`; anything else (`abc`, `0`, `1.5`, or no value) is a usage error (exit `1`). **Breaking in 0.45.0 (#1352):** a malformed `--limit` used to fall back to 15 silently, and `10abc` meant 10 |
 | `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain index --forget-cache <path> --json` | `{ "path", "forgotten" }` — `forgotten` is the number of sidecar lines removed for that document or asset (for an asset, every line for its bytes, whatever the title). Runs no index pass; the next `--embeddings` run regenerates what was forgotten. A path not in the index is a usage error (additive in 0.38.0) |
 | `brain index --compact --json` | `{ "compacted", "before": { "live", "allocated" }, "after": { "live", "allocated" } }` — rebuilds `vec_chunks` from its live rows and runs `VACUUM`, reclaiming the slots deleted vectors leave behind; `before`/`after` have the shape of `brain stats` `size.db.vectorSlots`. `compacted` is `false` only when there is no vector table. Makes no provider call and runs no index pass (additive in 0.38.0) |
@@ -445,6 +525,8 @@ resumption. The host must retain a successful complete export at least every
 | `brain hygiene dismiss <id> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>] --json` | `{ "status": "dismissed", "id", "fingerprint", "until": null, "reason", "changedFiles" }`. Reconciles, then moves the finding to `context/hygiene/dismissed.md` with the date and the fingerprint it applies to; it stays out of review until its evidence fingerprint changes. Refused with exit `1` and nothing written when the finding is not detected now or its fingerprint is not `<fp>`: `{ "status": "refused", "reason": "not-detected"\|"stale-fingerprint", "id", "expectedFingerprint", "currentFingerprint" }`. A finding reported through `reconcile --extra` is detected only when the same `--extra` file is given. A malformed argument exits `1` as a usage error (additive in 0.41.0) |
 | `brain hygiene snooze <id> --until <date\|date-time> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>] --json` | As `dismiss`, with `"status": "snoozed"` and `"until"` as given, into `context/hygiene/snoozed.md`. `--until` is an ISO date (due at the start of that UTC day) or a date-time with `Z` or an offset (due at that instant), and must be in the future. The finding returns when due, or before then as soon as its fingerprint changes (additive in 0.41.0) |
 | `brain hygiene keep-copy <id> --expect-fingerprint <fp> --copy <path> --copy-sha256 <sha256> --journal <id> [--reason <text>] --json` | Additive in 0.45.0 (#2780). As `dismiss`, with `"status": "kept"` and `"copy"`, `"copySha256"` and `"journal"` appended, into `context/hygiene/kept.md` (created by its first entry) with `kept-on:`, `copy:`, `copy-sha256:`, `journal:` and `disposition-fingerprint:`. Keep a permanent copy runs it after making and verifying the copy. Refused with exit `1` and nothing written, besides `dismiss`'s reasons, as `"not-media"` (not a `media` finding), `"copy-missing"` (not a contained regular file outside `.brain/` and `workspaces/`), `"copy-untracked"` (`media.track` does not keep it) or `"copy-changed"` (its bytes are not `<sha256>`) |
+| `brain hygiene unkeep <id> --journal <id> --json` | Additive in 0.45.0 (#2781). Reconcile, then remove the `kept` entry that `keep-copy` recorded for `<id>` under that journal ID: Undo of Keep a permanent copy runs it after the copy and config are restored. The original returns to `open.md` without its disposition fields and without an `invalidated:` receipt (or to `resolved.md` as `original-pruned` when it is no longer detected). `{ "status": "unkept", "id", "journal", "changedFiles" }`. Refused with exit `1` and nothing written as `{ "status": "refused", "reason": "not-kept", "id", "journal" }` when no kept entry for `<id>` carries that journal |
+| `brain hygiene media <delete\|move\|persist\|keep-copy> <id> --expect-fingerprint <fp> [--to <path>] (--dry-run \| --expect-premise <digest> --journal <id>) --json` | Additive in 0.45.0 (#2781). A media finding's effect. `--dry-run` plans it and writes nothing: `{ "status": "preview", "id", "action", "fingerprint", "source": { "path", "sha256", "bytes", "kind": "content"\|"scratch"\|"share-staged" }, "destination", "links": { "state": "linked"\|"unlinked"\|"unknown", "conversations" }, "references": { "complete", "count" }, "rewrites": [{ "note", "line", "kind", "before", "after" }], "blockers": [{ "note", "line", "kind", "target" }], "configDiff": { "path", "track": { "before", "after" }, "ignore": { "before", "after" } }\|null, "captureBytes", "copy": { "bytes", "sha256", "diskFreeAdvisory" }\|null, "resultClass": "TRACK"\|"ARTIFACT"\|null, "files": [{ "path", "role": "source"\|"destination"\|"note"\|"config"\|"directory", "before", "after", "bytes" }], "premiseDigest", "refusals": [{ "code", "path"?, "line"?, "limit"?, "effective"?, "observed"? }] }`. `files` is every file the effect writes, in apply order, with its expected SHA-256 before and after (`null` absent, `"directory"` for a created folder); it is empty when anything refuses. `move` and `keep-copy` need `--to`. A named refusal is a result, never an error: `share-staged`, `not-final-location` (scratch for `persist`, or a destination under `.brain/`, `workspaces/`, `.git/` or `context/hygiene/`), `pinned-scratch`, `pins-unknown`, `not-linked-scratch`, `destination-required`, `not-contained`, `exists`, `name-collision` (a sibling equal under NFC and case folding), `secret-name`, `ref-unsupported` (a frontmatter or HTML reference a Move cannot rewrite), `not-expressible` (no exact `media.track` form: a root-level name or a `*`), `ignore-adjustment-required` (an ignore entry other than this exact path matches), `config-not-literal`, `config-invalid`, `inventory-too-large` (with `limit` `rewrittenNotes` or `preview`, or the scan's own) and `inventory-unscannable`. A finding not detected now exits `1` with `{ "status": "refused", "reason": "not-detected" }`, one whose fingerprint is not `<fp>` with `"status": "stale"`. Apply recomputes the plan and writes only when its `premiseDigest` equals `<digest>`, otherwise `"status": "stale"` with nothing written; it returns `{ "status": "applied"\|"stale"\|"refused"\|"interrupted", "id", "action", "journal", "reason"?, "refusals"?, "files": [{ ...file, "state": "created"\|"changed"\|"removed"\|"unchanged" }], "copySha256"? }`. The caller (`--journal`) must retain every listed pre-image first and compensates from it: this command never compensates, and `interrupted` names what it wrote before a step failed. Move is `link` then `unlink` and never overwrites; across file systems it refuses `exdev`. A copy streams into a private `.part` beside the destination and publishes it with `link`. `persist` and `keep-copy` splice the exact `media.track` entry (removing an exact `media.ignore` of the same path) into a literal `brain.config`, parsed as syntax and never evaluated, then verify the written lists and that the file classes `TRACK`. `keep-copy` does not record the kept entry; `brain hygiene keep-copy` does, after the caller verifies the copy. Linux only for apply (`platform-unsupported`) |
 | `brain travel validate --json` | `{ "validation": { "valid": boolean, "files": number, "issues": [{ "file", "level": "error", "message" }] } }` — read-only canonical format, reference and asset checks. `files` counts successfully parsed travel/trip/place documents. Exit `0` when valid, `1` on domain errors. File paths are root-relative; messages are prose |
 | `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
 | `brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null, "date_source": "exif" \| "flag" \| "none" }], "errors": [{ "source", "message" }] } }` — [photo and naming contract](frontmatter.md#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |

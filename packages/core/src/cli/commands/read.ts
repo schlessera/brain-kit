@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { readDocumentPart, SectionNotFoundError } from "../../lib/document-parts.js";
 import { safeResolve } from "../../lib/safe-path.js";
 import type { CoreCommand } from "../types.js";
+import { stringFlag } from "../flags.js";
 import { parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain read <path> — print a document (frontmatter included)
@@ -47,7 +48,7 @@ export const readCommand: CoreCommand = {
     try {
       console.log(
         readDocumentPart(readFileSync(fullPath, "utf-8"), {
-          section: flags.section as string | undefined,
+          section: stringFlag(flags, "section"),
           maxTokens,
           sectionHint: '--section "<heading>"',
         })

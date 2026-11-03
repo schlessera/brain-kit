@@ -284,6 +284,15 @@ the summary's count drops, or the summary goes. A dropped follow-up
 popovers appear without a transition. D22's one ambient animation stays the
 filament.
 
+> **2026-11-03 — scoped amendment (#3281, maintainer ruling of 2026-11-02).**
+> The compact operation-status control,
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281),
+> may breathe in its `active` state only. The amendment covers that component
+> and its two selected consumers: the draft's indicator (#3155) and
+> deletion recovery in the Sessions header (#3231). It uses the shared
+> `breathe` keyframe, so reduced motion makes it static. No other tracker, row
+> or pane gains motion, and the rule above holds for everything else.
+
 <a id="4-trackers-under-recovery-a"></a>
 
 ### 4. Trackers under Recovery A
@@ -341,7 +350,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1576-1606`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1610-1640`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -417,6 +426,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   announcements until it is.
 > - `Mark as seen` with no latest turn identity to store deletes the record,
 >   since there is nothing to acknowledge against.
+> - *(2026-11-03, #3406.)* An answer still being written is not the linked
+>   turn, even when it carries the turn its live frames named. History links
+>   a turn only once it has ended, so a replay strips that turn from a
+>   running answer. Before #3406, reopening a running session could beat its
+>   replay and record proof from the stale frame turn, and the tracker
+>   cleared before the turn ended.
 
 > **2026-10-06 — R3's read-only card and the shell's time, implemented by
 > #1072.** The rules are `packages/ui-react/src/lib/restored-approvals.ts`,

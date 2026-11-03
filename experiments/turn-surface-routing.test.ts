@@ -1,19 +1,70 @@
 import { expect, test } from "bun:test";
-import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { ClassificationRequest } from "@schlessera/brain-ui-sdk/internal";
+import type { ClaudeSdkTurn } from "../packages/ui-backend-claude/src/sdk-options.js";
 import { createJevClient } from "../packages/ui-server/src/classification/jev-client.js";
 import { connectSurface, routePreparedTurn, routingRequest, scoreCalls, serializedTurn, type Arm } from "../scripts/turn-surface-routing.js";
-import { connectBrainSurface, createFixture, fixtureTurn, scriptedAnswers } from "../scripts/turn-surface-fixture.js";
+import { connectBrainSurface, createFixture, fixtureTurn, scriptedAnswers, STABLE_BRIDGE_ROSTER } from "../scripts/turn-surface-fixture.js";
 import { measureKeyless } from "../scripts/measure-turn-surface-keyless.js";
 
 const BLOCK = "mcp__brain-ui__show_block";
 const quote = { block: { kind: "quote", quote: "Inspect the mast before sailing." } };
+
+/**
+ * Pass the production prompt stream through a recorder, so a test knows
+ * exactly which message objects production yielded once the router has read
+ * them. The recorder adds nothing: it yields each production message as is.
+ */
+function recorded(turn: ClaudeSdkTurn) {
+  const yielded: SDKUserMessage[] = [];
+  if (typeof turn.prompt === "string") throw new Error("expected a streamed production prompt");
+  const source = turn.prompt;
+  const prompt = (async function* () { for await (const message of source) { yielded.push(message); yield message; } })();
+  return { turn: { ...turn, prompt }, yielded };
+}
+
+async function consume(prompt: ClaudeSdkTurn["prompt"]): Promise<SDKUserMessage[]> {
+  if (typeof prompt === "string") throw new Error("expected a streamed prompt");
+  const messages: SDKUserMessage[] = [];
+  for await (const message of prompt) messages.push(message);
+  return messages;
+}
+
+/**
+ * A turn whose stream the router has read: every other field is the prepared
+ * turn's own, and the stream yields exactly the production messages, the same
+ * objects in the same order, once each.
+ */
+async function expectEquivalentTurn(actual: ClaudeSdkTurn, prepared: ClaudeSdkTurn, yielded: SDKUserMessage[]) {
+  expect(actual).not.toBe(prepared);
+  expect(Object.keys(actual).sort()).toEqual(Object.keys(prepared).sort());
+  for (const key of Object.keys(prepared) as (keyof ClaudeSdkTurn)[]) if (key !== "prompt") expect(actual[key]).toBe(prepared[key]);
+  const pulledByRouter = yielded.length;
+  const delivered = await consume(actual.prompt);
+  // The router pulled the whole production stream; the consumer receives it
+  // once, with nothing lost, duplicated, reordered or rebuilt.
+  expect(yielded.length).toBe(pulledByRouter);
+  expect(delivered).toHaveLength(yielded.length);
+  delivered.forEach((message, index) => expect(message).toBe(yielded[index]!));
+  expect(JSON.stringify(delivered)).toBe(JSON.stringify(yielded));
+  return delivered;
+}
+
+const messageText = (message: SDKUserMessage) => {
+  const content = message.message.content;
+  if (typeof content !== "string") throw new Error("expected a text-only message");
+  return content;
+};
+
+async function* messages(...items: SDKUserMessage[]) { for (const item of items) yield item; }
+const userText = (text: string): SDKUserMessage => ({ type: "user", parent_tool_use_id: null, message: { role: "user", content: text }, session_id: "" });
 
 test("inventory uses actual core stdio tools, project skill files and production bridge assembly", async () => {
   const fixture = createFixture();
   const prepared = await fixtureTurn(fixture.root, "Inventory Odysseus's notebook.");
   const core = await connectBrainSurface(fixture.root);
   try {
-    expect(prepared.peer.tools.map(tool => tool.name).sort()).toEqual([...BRIDGE_TOOL_POSTURE.names].sort());
+    expect(prepared.peer.tools.map(tool => tool.name).sort()).toEqual([...STABLE_BRIDGE_ROSTER]);
     expect(prepared.peer.tools.every(tool => tool._meta?.["anthropic/alwaysLoad"] === true)).toBe(true);
     expect(prepared.peer.tools.every(tool => Object.keys(tool.inputSchema.properties ?? {}).length > 0)).toBe(true);
     expect(core.tools.map(tool => tool.name).sort()).toEqual(["brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list", "brain_read", "brain_search", "brain_update"]);
@@ -31,7 +82,10 @@ for (const posture of ["normal", "no-grant", "autonomous"] as const) {
     test(`${failure} preserves the real ${posture} turn, schemas, permissions and skill bytes`, async () => {
       const fixture = createFixture();
       const prepared = await fixtureTurn(fixture.root, "Show a quote card.", posture);
-      const before = serializedTurn(prepared.turn);
+      // Autonomous turns carry a string prompt; interactive ones stream it.
+      const streamed = typeof prepared.turn.prompt !== "string";
+      const input = streamed ? recorded(prepared.turn) : { turn: prepared.turn, yielded: [] };
+      const before = serializedTurn(input.turn);
       const skillBytes = fixture.skillFiles();
       let calls = 0;
       const client = createJevClient({ apiKey: failure === "no_key" ? null : "fixture", timeoutMs: 8, fetch: async (_url, init) => {
@@ -57,11 +111,20 @@ for (const posture of ["normal", "no-grant", "autonomous"] as const) {
           expect(client.breaker().open).toBe(true);
         }
         const requestsBefore = calls;
-        const result = await routePreparedTurn(prepared.turn, { enabled: failure !== "off", arm: "hard-prune", client,
+        const result = await routePreparedTurn(input.turn, { enabled: failure !== "off", arm: "hard-prune", client,
           peers: { "brain-ui": prepared.peer }, skills: fixture.skills, budgetMs: 30 });
         expect(result.outcome).toBe(failure === "unknown_choice" ? "low_confidence" : failure);
+        // Outcomes decided before the prompt is read return the turn itself;
+        // after a streamed prompt was read, an equivalent turn.
+        const unread = !streamed || ["off", "no_key", "circuit_open"].includes(failure);
+        if (unread) {
+          expect(result.turn).toBe(input.turn);
+          expect(input.yielded).toHaveLength(0);
+        } else {
+          expect(input.yielded).toHaveLength(1);
+          await expectEquivalentTurn(result.turn, input.turn, input.yielded);
+        }
         expect(serializedTurn(result.turn)).toBe(before);
-        expect(result.turn).toBe(prepared.turn);
         expect(result.turn.options.canUseTool).toBe(prepared.turn.options.canUseTool);
         expect(result.turn.options.hooks).toBe(prepared.turn.options.hooks);
         expect(result.turn.options.env).toBe(prepared.turn.options.env);
@@ -77,6 +140,7 @@ for (const posture of ["normal", "no-grant", "autonomous"] as const) {
         try {
           expect(observed.tools.length).toBeGreaterThan(0);
           expect(JSON.stringify(observed.tools)).toBe(JSON.stringify(prepared.peer.tools));
+          if (posture !== "autonomous") expect(observed.tools.map(tool => tool.name).sort()).toEqual([...STABLE_BRIDGE_ROSTER]);
         } finally { await observed.client.close(); }
         if (["off", "no_key", "circuit_open"].includes(failure)) expect(calls).toBe(requestsBefore);
         if (failure === "timeout") expect(result.durationMs).toBeLessThan(250);
@@ -92,8 +156,11 @@ for (const arm of ["hint", "load-set", "hard-prune"] as Arm[]) {
     let routed: Awaited<ReturnType<typeof connectSurface>> | undefined;
     const client = createJevClient({ apiKey: "fixture", fetch: async (_url, init) => Response.json({ answers: scriptedAnswers(JSON.parse(String(init.body)), BLOCK, "voyage-plan") }) });
     try {
-      const result = await routePreparedTurn(prepared.turn, { enabled: true, arm, client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+      const input = recorded(prepared.turn);
+      const result = await routePreparedTurn(input.turn, { enabled: true, arm, client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
       expect(result.outcome).toBe("answered");
+      expect(result.turn.options).not.toBe(input.turn.options);
+      await expectEquivalentTurn({ ...result.turn, options: input.turn.options }, input.turn, input.yielded);
       expect(result.tools).toEqual([BLOCK]);
       expect(result.skills).toEqual(["voyage-plan"]);
       expect(result.turn.options.allowedTools).toBe(prepared.turn.options.allowedTools);
@@ -110,7 +177,7 @@ for (const arm of ["hint", "load-set", "hard-prune"] as Arm[]) {
         if (!original || typeof original === "string" || Array.isArray(original) || original.type !== "preset" || !altered || typeof altered === "string" || Array.isArray(altered) || altered.type !== "preset") throw new Error("preset missing");
         expect(altered.append!.startsWith(original.append!)).toBe(true);
       }
-      expect(peer.tools.length).toBe(arm === "hard-prune" ? 1 : 13);
+      expect(peer.tools.length).toBe(arm === "hard-prune" ? 1 : STABLE_BRIDGE_ROSTER.length);
       expect(peer.tools.find(tool => tool.id === BLOCK)?.inputSchema).toEqual(prepared.peer.tools.find(tool => tool.id === BLOCK)!.inputSchema);
       const response = await peer.client.callTool({ name: "show_block", arguments: quote });
       expect(response.isError).not.toBe(true);
@@ -137,11 +204,12 @@ test("assembly budget bounds even a transport ignoring cancellation", async () =
   const prepared = await fixtureTurn(fixture.root, "Show a quote card.");
   const client = createJevClient({ apiKey: "fixture", fetch: () => new Promise(() => {}), timeoutMs: 1000 });
   try {
-    const result = await routePreparedTurn(prepared.turn, { enabled: true, arm: "load-set", client, budgetMs: 8,
+    const input = recorded(prepared.turn);
+    const result = await routePreparedTurn(input.turn, { enabled: true, arm: "load-set", client, budgetMs: 8,
       peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
     expect(result.outcome).toBe("timeout");
-    expect(result.turn).toBe(prepared.turn);
     expect(result.durationMs).toBeLessThan(250);
+    await expectEquivalentTurn(result.turn, input.turn, input.yielded);
   } finally { await prepared.close(); fixture.close(); }
 });
 
@@ -155,8 +223,11 @@ for (const posture of ["no-grant", "autonomous"] as const) test(`successful sele
     const server = result.turn.options.mcpServers!["brain-ui"];
     if (server.type !== "sdk") throw new Error("missing SDK server");
     routed = await connectSurface("brain-ui", server);
-    expect(routed.tools.map(tool => tool.name).sort()).toEqual(["ask_user", "get_current_location", "inbox_add", "inbox_get", "inbox_list", "query_activity", "resolve_action", "show_block",
-      ...(posture === "autonomous" ? [] : ["turn_temp"])]);
+    // No-grant turns register the full stable roster and withhold at the
+    // permission hook; autonomous turns keep their exact handler membership.
+    expect(routed.tools.map(tool => tool.name).sort()).toEqual(posture === "autonomous"
+      ? ["ask_user", "complete_share", "get_current_location", "inbox_add", "inbox_get", "inbox_list", "query_activity", "resolve_action", "show_block"]
+      : [...STABLE_BRIDGE_ROSTER]);
     expect(result.turn.options.allowedTools).toEqual(prepared.turn.options.allowedTools);
     if (posture === "autonomous") expect(result.turn.options.allowedTools).toEqual(["Read"]);
     expect(result.turn.options.canUseTool).toBe(prepared.turn.options.canUseTool);
@@ -169,12 +240,12 @@ test("request uses bounded real descriptions, separate absolute gates and only t
   try {
     const request = routingRequest("Use voyage planning.", "obsolete context" + "x".repeat(1000), prepared.peer.tools, fixture.skills);
     expect(request.state).toEqual({ request: "Use voyage planning.", previous_assistant_tail: "x".repeat(1000) });
-    expect(Object.keys(request.questions)).toHaveLength(20);
+    expect(Object.keys(request.questions)).toHaveLength(4 + STABLE_BRIDGE_ROSTER.length + fixture.skills.length);
     expect(request.questions.needs_tool.type).toBe("noul");
     expect(request.questions.needs_skill.type).toBe("noul");
     const choices = request.questions.tool;
     if (choices.type !== "choice") throw new Error("missing tool choice");
-    expect(Object.keys(choices.criteria)).toHaveLength(13);
+    expect(Object.keys(choices.criteria)).toHaveLength(STABLE_BRIDGE_ROSTER.length);
     expect(Object.values(choices.criteria).every(description => description.length > 0 && description.length <= 300)).toBe(true);
     expect(request.questions[`fits_tool:${BLOCK}`].instructions).toContain(prepared.peer.tools.find(tool => tool.id === BLOCK)!.description!);
     expect(() => routingRequest("request", "", [], fixture.skills)).toThrow("nonempty");
@@ -194,11 +265,90 @@ test("a production attachment stream preserves the turn instead of classifying a
   let calls = 0;
   const client = createJevClient({ apiKey: "fixture", fetch: async () => { calls++; return Response.json({ answers: {} }); } });
   try {
-    expect(typeof prepared.turn.prompt).not.toBe("string");
-    const result = await routePreparedTurn(prepared.turn, { enabled: true, arm: "hard-prune", client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+    const input = recorded(prepared.turn);
+    const result = await routePreparedTurn(input.turn, { enabled: true, arm: "hard-prune", client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
     expect(calls).toBe(0);
     expect(result.outcome).toBe("unsupported_input");
-    expect(result.turn).toBe(prepared.turn);
+    const [message] = await expectEquivalentTurn(result.turn, input.turn, input.yielded);
+    const content = message!.message.content;
+    if (!Array.isArray(content)) throw new Error("expected attachment content blocks");
+    expect(content.map(block => block.type)).toEqual(["text", "image"]);
+  } finally { await prepared.close(); fixture.close(); }
+});
+
+test("a single text-only streamed message is classified as sent and reaches the provider unchanged", async () => {
+  const fixture = createFixture();
+  const prepared = await fixtureTurn(fixture.root, "Show the mast reminder as a quote.");
+  const requests: ClassificationRequest[] = [];
+  const client = createJevClient({ apiKey: "fixture", fetch: async (_url, init) => {
+    const request = JSON.parse(String(init.body)) as ClassificationRequest;
+    requests.push(request);
+    return Response.json({ answers: scriptedAnswers(request, BLOCK, null) });
+  } });
+  try {
+    // Production streams one owned user message (createClaudeSdkTurn).
+    expect(typeof prepared.turn.prompt).not.toBe("string");
+    const input = recorded(prepared.turn);
+    const result = await routePreparedTurn(input.turn, { enabled: true, arm: "hard-prune", client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+    expect(result.outcome).toBe("answered");
+    expect(input.yielded).toHaveLength(1);
+    const sent = messageText(input.yielded[0]!);
+    expect(sent.startsWith("Show the mast reminder as a quote.")).toBe(true);
+    // The classifier read the message text the provider receives, once.
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.state.request).toBe(sent);
+    const delivered = await expectEquivalentTurn({ ...result.turn, options: input.turn.options }, input.turn, input.yielded);
+    expect(delivered.map(messageText)).toEqual([sent]);
+  } finally { await prepared.close(); fixture.close(); }
+});
+
+test("a multi-message stream is refused unread by the classifier and replayed whole", async () => {
+  const fixture = createFixture();
+  const prepared = await fixtureTurn(fixture.root, "Show a quote card.");
+  let calls = 0;
+  const client = createJevClient({ apiKey: "fixture", fetch: async () => { calls++; return Response.json({ answers: {} }); } });
+  const first = userText("Show a quote card."), second = userText("And the mast reminder.");
+  const turn = { ...prepared.turn, prompt: messages(first, second) };
+  try {
+    const result = await routePreparedTurn(turn, { enabled: true, arm: "hard-prune", client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+    expect(result.outcome).toBe("unsupported_input");
+    expect(calls).toBe(0);
+    await expectEquivalentTurn(result.turn, turn, [first, second]);
+  } finally { await prepared.close(); fixture.close(); }
+});
+
+test("a stream still open at the budget times out and still delivers its late message", async () => {
+  const fixture = createFixture();
+  const prepared = await fixtureTurn(fixture.root, "Show a quote card.");
+  let calls = 0;
+  const client = createJevClient({ apiKey: "fixture", fetch: async () => { calls++; return Response.json({ answers: {} }); } });
+  const first = userText("Show a quote card."), late = userText("Also the mast reminder.");
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const turn = { ...prepared.turn, prompt: (async function* () { yield first; await gate; yield late; })() };
+  try {
+    const result = await routePreparedTurn(turn, { enabled: true, arm: "hard-prune", client, budgetMs: 8, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+    expect(result.outcome).toBe("timeout");
+    expect(result.durationMs).toBeLessThan(250);
+    expect(calls).toBe(0);
+    release();
+    await expectEquivalentTurn(result.turn, turn, [first, late]);
+  } finally { await prepared.close(); fixture.close(); }
+});
+
+test("a stream that fails after its first message is refused and the failure reaches the consumer", async () => {
+  const fixture = createFixture();
+  const prepared = await fixtureTurn(fixture.root, "Show a quote card.");
+  const client = createJevClient({ apiKey: "fixture", fetch: async () => Response.json({ answers: {} }) });
+  const first = userText("Show a quote card.");
+  const turn = { ...prepared.turn, prompt: (async function* () { yield first; throw new Error("fixture stream failure"); })() };
+  try {
+    const result = await routePreparedTurn(turn, { enabled: true, arm: "hard-prune", client, peers: { "brain-ui": prepared.peer }, skills: fixture.skills });
+    expect(result.outcome).toBe("unsupported_input");
+    if (typeof result.turn.prompt === "string") throw new Error("expected a stream");
+    const iterator = result.turn.prompt[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toBe(first);
+    await expect(iterator.next()).rejects.toThrow("fixture stream failure");
   } finally { await prepared.close(); fixture.close(); }
 });
 

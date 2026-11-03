@@ -64,6 +64,7 @@ export function AskUserListExchangeCard({
   notes,
   cancelled,
   lapsedNote,
+  endedPrompt,
   answeredAt,
   onSubmit,
   onCancel,
@@ -77,6 +78,11 @@ export function AskUserListExchangeCard({
   notes?: Record<string, string>;
   cancelled?: boolean;
   lapsedNote?: string;
+  /**
+   * The turn that asked has ended (#3356): the card stays editable under
+   * this prompt, and its Submit no longer answers the request.
+   */
+  endedPrompt?: string;
   answeredAt?: number;
   onSubmit: (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
   onCancel: (requestId: string) => void;
@@ -127,7 +133,7 @@ export function AskUserListExchangeCard({
         key={reopened ? "reopened" : "live"}
         {...base}
         state="pending"
-        prompt={`${root.config.assistantName} needs your input`}
+        prompt={endedPrompt ?? `${root.config.assistantName} needs your input`}
         singleKeys={singleKeys}
         onSubmit={({ answers, notes: kept }) => {
           if (reopened) {

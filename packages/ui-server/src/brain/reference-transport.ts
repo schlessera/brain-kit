@@ -108,7 +108,7 @@ export function createReferenceTransport(options: {
     // The credential value exists only in this network transport's environment.
     if (input.token) env.BRAIN_REFERENCE_TOKEN = input.token;
     const readPaths = input.repository?.scheme === "file" ? [input.repository.url.slice("file://".length)] : [];
-    return { brainPath: options.brainPath, credentials: input.network, env, command: [...UMASK, ...input.argv],
+    return { brainPath: options.brainPath, credentials: input.network, env, command: [...UMASK, ...input.argv], tempKind: "git",
       ...(options.tempLimits ? { tempLimits: options.tempLimits } : {}), ...(options.tempDomain ? { tempDomain: options.tempDomain } : {}),
       transport: { mirror: input.mirror, readPaths, network: input.network }, ...(input.signal ? { signal: input.signal } : {}), timeoutMs };
   }

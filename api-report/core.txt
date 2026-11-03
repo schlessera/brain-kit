@@ -139,6 +139,19 @@ export "./internal" (./src/internal.ts)
   writeFileSafely
   writeScratchFile
 
+export "./internal/apify" (./src/internal-apify.ts)
+  APIFY_LEDGER_ENV
+  APIFY_LOCAL_PRINCIPAL
+  APIFY_ROBOTS_ADDRESS_POLICY
+  APIFY_STANDALONE_AUTHORITY_SETTING
+  type ApifySitePermissionOptions
+  type StandaloneApify
+  type StandaloneApifyOptions
+  apifyBrainId
+  apifyRobotsUserAgent
+  createApifySitePermission
+  createStandaloneApify
+
 export "./internal/graph" (./src/internal-graph.ts)
   type TermIndex
   communityTopTerms
@@ -148,7 +161,9 @@ export "./internal/graph" (./src/internal-graph.ts)
 export "./module" (./src/module.ts)
   GEMINI_FLASH_MODEL
   type GeminiCompletionConfig
+  MODULE_STATE_DIR
   type MarkdownFence
+  ModuleStateError
   type RegistryProblem
   type RegistryRun
   SCRATCH_DIR
@@ -167,6 +182,8 @@ export "./module" (./src/module.ts)
   isInScratch
   isWriteRefusal
   markdownFences
+  moduleStateDir
+  moduleStatePath
   pruneScratch
   renderHtmlArtifact
   resolveCompletionProvider
@@ -348,6 +365,7 @@ signatures (every public export and the types it is made of)
         config: C;
         taxonomy: import("./taxonomy.js").Taxonomy;
         completions?: BrainConfig["completions"];
+        stateDir?(): string;
     }
   CommandModule (packages/core/src/lib/module-types.ts)
     export interface CommandModule<C = unknown> {
@@ -556,6 +574,8 @@ signatures (every public export and the types it is made of)
         declaration?: ModuleManifest<C>;
         configInput?: unknown;
     }
+  MODULE_STATE_DIR (packages/core/src/lib/module-state.ts)
+    const MODULE_STATE_DIR: ".brain-ui/modules";
   Maintenance (packages/core/src/queries/types.ts)
     export interface Maintenance {
         orphans: Node[];
@@ -705,6 +725,10 @@ signatures (every public export and the types it is made of)
         label: string;
         disabled?: boolean;
         help?: string;
+    }
+  ModuleStateError (packages/core/src/lib/module-state.ts)
+    export class ModuleStateError extends Error {
+        constructor(message: string);
     }
   ModuleTool (packages/core/src/lib/module-types.ts)
     export interface ModuleTool<C = unknown, I = unknown, O = unknown> {
@@ -1497,6 +1521,10 @@ signatures (every public export and the types it is made of)
     export function markdownFences(text: string): MarkdownFence[];
   mergeWithheld (packages/core/src/lib/reranker.ts)
     export function mergeWithheld<T>(ranked: readonly T[], withheld: Map<number, T>, total: number): T[];
+  moduleStateDir (packages/core/src/lib/module-state.ts)
+    export function moduleStateDir(root: string, moduleName: string): string;
+  moduleStatePath (packages/core/src/lib/module-state.ts)
+    export function moduleStatePath(moduleName: string): string;
   partitionForRerank (packages/core/src/lib/reranker.ts)
     export function partitionForRerank<T>(candidates: readonly T[], isExcluded: ((candidate: T) => boolean) | undefined): RerankPartition<T>;
   propagationRuleSchema (packages/core/src/lib/config.ts)

@@ -3,15 +3,12 @@ import { captureSurface } from "../scripts/capture-turn-surface";
 import type { SurfaceDecision } from "../scripts/turn-surface-overlap";
 import { observedSkills } from "../scripts/turn-surface-skills";
 import { deferredToolNames } from "../scripts/turn-surface-token-groups";
+import { STABLE_BRIDGE_ROSTER } from "../scripts/turn-surface-fixture";
 
-// Independent inventories from core registrations and the fixture's configured
-// bridge handlers. The installed CLI sends bridge schemas in the first request
-// and keeps the core tools discoverable through deferred tool search.
-const completeBridgeNames = [
-  "ask_user", "ask_user_form", "ask_user_list", "ask_user_rank", "get_current_location",
-  "inbox_add", "inbox_get", "inbox_list", "query_activity", "request_image_mask",
-  "resolve_action", "show_block", "turn_temp",
-].map(name => `mcp__brain-ui__${name}`).sort();
+// Independent inventories from core registrations and the stable bridge roster
+// production assembly registers. The installed CLI sends bridge schemas in the
+// first request and keeps the core tools discoverable through deferred tool search.
+const completeBridgeNames = STABLE_BRIDGE_ROSTER.map(name => `mcp__brain-ui__${name}`).sort();
 const completeCoreNames = [
   "brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list",
   "brain_read", "brain_search", "brain_update",
