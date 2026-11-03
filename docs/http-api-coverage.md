@@ -361,11 +361,11 @@ checks both nonempty priced and mixed-knownness fixtures
 
 **G — Geometry validation and degradation.**
 
-- `rejects a bad bbox before reaching the network` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`rejects a bad bbox before reaching the network`, `packages/ui-server/tests/geo-route.test.ts:141-147`)
-- `fetches once, then serves from disk` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`fetches once, then serves from disk`, `packages/ui-server/tests/geo-route.test.ts:149-164`)
-- `an outage is not cached, so it does not become permanent` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`an outage is not cached, so it does not become permanent`, `packages/ui-server/tests/geo-route.test.ts:188-203`)
-- `every response carries the attribution, including the empty ones` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`every response carries the attribution, including the empty ones`, `packages/ui-server/tests/geo-route.test.ts:228-236`)
-- `a view can force a finer tier than its size suggests` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`a view can force a finer tier than its size suggests`, `packages/ui-server/tests/geo-route.test.ts:263-270`)
+- `rejects a bad bbox before reaching the network` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`rejects a bad bbox before reaching the network`, `packages/ui-server/tests/geo-route.test.ts:142-148`)
+- `fetches once, then serves from disk` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`fetches once, then serves from disk`, `packages/ui-server/tests/geo-route.test.ts:150-165`)
+- `an outage is not cached, so it does not become permanent` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`an outage is not cached, so it does not become permanent`, `packages/ui-server/tests/geo-route.test.ts:218-233`)
+- `every response carries the attribution, including the empty ones` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`every response carries the attribution, including the empty ones`, `packages/ui-server/tests/geo-route.test.ts:258-266`)
+- `a view can force a finer tier than its size suggests` ([source](../packages/ui-server/tests/geo-route.test.ts)), (`a view can force a finer tier than its size suggests`, `packages/ui-server/tests/geo-route.test.ts:293-300`)
 
 **Local roadblock report (internal #1672).**
 

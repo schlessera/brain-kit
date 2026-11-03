@@ -879,6 +879,30 @@ bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
 
+Maintenance Git packing is bounded by the same allowance. Hosted `brain
+maintain` runs git's incremental `loose-objects`, `incremental-repack` and
+`pack-refs` tasks inside its maintenance worker, so each new pack is written into
+that worker's output stage, never directly into the brain's `.git`. The
+launcher declares the stage's size and setting to the worker in
+`BRAIN_WORKER_OUTPUT_ALLOWANCE`. A pack larger than the space left fails the `git`
+step with a named refusal instead of git's bare `Out of diskspace`:
+
+```text
+FAILED — no space: git packing ran out of space in the maintenance worker's output stage (allowance 268435456 bytes, set by BRAIN_UI_OUTPUT_STAGING_BYTES; 264241152 bytes available when the step started). git: fatal: sha1 file '.git/objects/pack/tmp_pack_…' write error. Out of diskspace
+```
+
+The available figure is the stage's free space when the step started, measured
+the way `brain storage pack --json` reports `headroom`. To let the pack through,
+raise `BRAIN_UI_OUTPUT_STAGING_BYTES` above the largest pack the step writes (a
+multiple of 4096) and restart the server. Unset, the budget follows it as
+allowance × `MAX_CONCURRENT_SESSIONS`; an explicit
+`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` must be raised to at least the new
+allowance too. The cost: every consumer, each agent turn as well as each
+maintenance run, then reserves the larger allowance, so the admitted total grows
+with it, or fewer consumers fit at once under an explicit budget. A
+`brain maintain` run outside a hosted worker reports the same shortfall against
+the filesystem holding `.git`, without a hosted setting.
+
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work
 on the size-limited tmpfs. This is the separate private publication workspace,

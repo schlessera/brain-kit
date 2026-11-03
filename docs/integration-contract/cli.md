@@ -69,6 +69,19 @@ never prints a token. A usage error exits `1` with a message on stderr and
 nothing on stdout. Inside a chat worker neither variable is present, so a
 shell-issued `brain apify` refuses.
 
+## Maintenance worker output allowance (additive, 0.45.0, #3357)
+
+A maintenance worker's launcher may set `BRAIN_WORKER_OUTPUT_ALLOWANCE` to
+JSON `{"bytes":N,"setting":"NAME"}`: the size of the worker's private writable
+output stage and the host setting that controls it. A malformed value is
+ignored. When `brain maintain`'s git packing runs out of space, its `git` step
+`result` begins `FAILED — no space:` and names the starting headroom of the
+filesystem holding `.git`; with the variable it names the output stage, the
+allowance in bytes and the setting instead. `brain storage pack --json` now
+reports `reason: "no_space"` for git's own `Out of diskspace` wording too. No
+JSON shape changes; the exit code stays `2`. It is a launcher input, not an
+operator setting.
+
 ## Agent runner unavailable in a maintenance worker (additive, 0.45.0, #3243)
 
 A credential-free maintenance worker, such as the one hosted `brain sync`

@@ -1077,7 +1077,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",
-    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })
+    createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files"), marks: { db, writer } })
   );
   app.route("/api", createQueueRoutes(intake));
   app.route("/api", createScheduleRoutes(schedules));

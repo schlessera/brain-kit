@@ -887,7 +887,16 @@ receipts, destructive effects, changed documents and incomplete intake refuse.
 Each original requires exactly one strict disposition object. Retention uses
 `{ sourcePath, disposition: "retained", path }`: `path` must be an ordinary
 `assets/` file with the original intake hash and a Markdown link in a filed
-document. Discard uses `{ sourcePath, disposition: "discarded", reason }`, with
+document that resolves to `path` from that document's folder: document-relative
+(`../../assets/x.pdf` from `a/b/note.md`), brain-root-absolute (`/assets/x.pdf`)
+or root-relative from a root-level note (`assets/x.pdf`), percent-encoded or in
+`<…>` when the path has spaces. Inline links, images and reference definitions
+count; links inside code spans or fenced blocks and wiki-links do not, since
+wiki-links resolve only to Markdown documents. A refusal names the expected
+target and an example link (accepting these link forms is additive in 0.45.0).
+When several receipts cover one path, the one matching its current content
+proves it; a path no passed receipt matches refuses, naming those receipts.
+Discard uses `{ sourcePath, disposition: "discarded", reason }`, with
 a nonempty reason capped at 1000 characters, and requires the existing exact
 interactive approval. Missing files, aliases, changed originals and unsupported
 retention refuse. The operation promotes no binary and grants no new writer.

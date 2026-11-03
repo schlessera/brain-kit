@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy and retained-journal/user-revert routes mounted by `createApp`: 163 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert and untrusted-mark routes mounted by `createApp`: 167 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -92,6 +92,10 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
+| GET | `/api/files/untrusted` | I | Read one path's untrusted mark as this principal may see it | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| PUT | `/api/files/untrusted` | I | Mark a readable file untrusted | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| DELETE | `/api/files/untrusted` | I | Clear a present or retained mark (owner only) | React Files toolbar and `Marked untrusted` list (#2673); paired UI transport. Its authority rules are specified below. |
+| GET | `/api/files/untrusted/list` | I | List the marks this principal may see | React `Marked untrusted` list (#2673); paired UI transport. Its disclosure rules are specified below. |
 | GET | `/api/geo/coastline` | S | Read attributed map geometry for a bounding box | Independent map clients; preserve show_block map HTTP promise and graceful geometry degradation. |
 | GET | `/api/governance/roadblocks` | I | Retained roadblock rankings for the paired activity bridge | #1672; authenticated and local-only. The additive `query_activity` scope is the supported agent contract. |
 | GET | `/api/governance/events` | S | Read the governance events kept with session history | Independent diagnostics and the roadblock report; additive #1651 ([contract](integration-contract/http.md#governance-events-additive-1651)). Versioned per kind; never renders to the user. |
@@ -196,7 +200,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 163 declared endpoints are mounted regardless of backend, renderer or
+All 167 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1076,6 +1080,35 @@ real-Chrome test `packages/ui-react/tests/html-preview-runtime.test.ts`
 asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
+
+## Untrusted file marks (internal, #2673)
+
+The four `/api/files/untrusted` operations are protected, internal UI
+transport: their payloads carry no independent-client guarantee, but their
+authority and disclosure rules are security properties and are pinned by
+`packages/ui-server/tests/untrusted-marks.test.ts`.
+
+- A mark is a host record in the UI database keyed by the normalized
+  brain-relative path, never a `brain.db` row or frontmatter key, so it
+  survives a restart and `brain index --force`. A moved or deleted file keeps
+  its old-path record; nothing follows a rename.
+- `PUT` with JSON `{ path }` needs the read access `GET /api/files/content`
+  already grants and a regular file at the path: a missing path or directory
+  is 404 `not_found`, invalid path syntax 400 `invalid_path`. It answers
+  `{ status: "marked" | "already_marked", mark }`. Marking grants nothing else.
+- `DELETE ?path=` is the human owner's alone (an `owner` or `ambient`
+  principal, the storage routes' rule); any other principal gets 403
+  `owner_required`. It clears present and retained missing records and answers
+  `{ status: "cleared" | "already_cleared" }`. It never removes a session's
+  recorded taint.
+- `GET ?path=` answers `{ path, marked: false, canClear }` or
+  `{ path, marked: true, markedAt, missing, markedBy?, canClear }`. A reader
+  asking about a path with no readable file gets 404 `not_found`, whether or
+  not a record is retained there.
+- `GET /list` answers `{ marks, canClear }`, missing records first and then
+  newest first. The owner sees every record; any other principal sees only
+  records whose file it can currently read. Only the owner's rows and details
+  carry `markedBy: { label, you }`; other principals' responses omit the field.
 
 ## Saved-audio transcription
 
