@@ -70,7 +70,7 @@ by this spike.
 Source foundations for the matrix:
 
 - Packing runs two passes and deletes only loose duplicates already held in
-  packs (`export function packRepository`, `packages/core/src/lib/git-storage.ts:89-102`).
+  packs (`export function packRepository`, `packages/core/src/lib/git-storage.ts:115-121`).
   The upstream [maintenance manual](https://git-scm.com/docs/git-maintenance)
   explains these tasks; broad `gc` has different expiry behavior.
 - Staging eligibility, removal and acknowledgment are separate
