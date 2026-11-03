@@ -59,6 +59,7 @@ describe("config/env descriptor", () => {
         "BRAIN_WITHHELD_KEYS",
         "BRAIN_WORKER_CONFIG_ROOT",
         "BRAIN_WORKER_DATA_ROOT",
+        "BRAIN_WORKER_OUTPUT_ALLOWANCE",
         "CLAUDE_CODE_PATH",
         "GEMINI_API_KEY",
         "NO_COLOR",

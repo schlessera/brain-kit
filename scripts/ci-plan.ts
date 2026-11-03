@@ -4,6 +4,8 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consumers";
+import { coordinationFiles, RESERVATION_REF } from "./integration-reservation";
+import { includeRedSet, type IncludedRedSet, type RedMainRecord } from "./red-main";
 
 export interface Workspace {
   dir: string;
@@ -145,6 +147,8 @@ export interface CheckPlan {
   unitTests?: string[];
   // Complete proof categories, shared by hosted CI and opt-in full local checks.
   local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean; endurance: boolean };
+  /** Main pushes also prove the open red-main record's failures (#2942). */
+  redMain?: IncludedRedSet;
 }
 
 export function workspaces(root: string): Workspace[] {
@@ -444,20 +448,40 @@ export function changedFiles(root: string, base: string, head = "HEAD", mergeBas
   return [...new Set(paths)].sort();
 }
 
-export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): CheckPlan {
+export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv, redMain: RedMainRecord | null = null): CheckPlan {
   // Draft heavy feedback plans its PR's affected selection against the PR base (#3272).
   const feedback = env.GITHUB_EVENT_NAME === "workflow_dispatch" && Boolean(env.FEEDBACK_PR);
   if (!feedback && ["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
   const pr = feedback || env.GITHUB_EVENT_NAME === "pull_request";
   const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
-  return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root), root, pr);
+  const packages = workspaces(root), plan = planChecks(changedFiles(root, base, env.HEAD_SHA, pr), packages, root, pr);
+  return env.GITHUB_EVENT_NAME === "push" ? includeRedSet(plan, redMain, changed => planChecks(changed, packages, root, false)) : plan;
+}
+
+/**
+ * Every job of one main run reads the same coordination snapshot: the
+ * metadata job resolves it once and later jobs receive its object ID.
+ */
+export function redMainSnapshot(root: string, requested: string | undefined): { oid: string; record: RedMainRecord | null } {
+  const attempt = (args: string[]) => {
+    for (let index = 0; ; index++) {
+      try { return git(root, args).trim(); } catch (error) { if (index === 2) throw error; Bun.sleepSync(1000 * 2 ** index); }
+    }
+  };
+  let oid = requested;
+  if (!oid) oid = attempt(["ls-remote", "--refs", "origin", RESERVATION_REF]).split(/\s+/)[0] || "none";
+  if (oid === "none") return { oid, record: null };
+  if (!/^[a-f0-9]{40}$/.test(oid)) throw new Error("Invalid red-main coordination snapshot");
+  attempt(["fetch", "--no-tags", "origin", oid]);
+  return { oid, record: coordinationFiles(git(root, ["ls-tree", oid]), name => git(root, ["show", `${oid}:${name}`])).redMain };
 }
 
 if (import.meta.main) {
   try {
     const root = resolve(import.meta.dir, "..");
-    const plan = planFromEnvironment(root, process.env);
+    const red = process.env.GITHUB_EVENT_NAME === "push" ? redMainSnapshot(root, process.env.RED_MAIN_OID) : null;
+    const plan = planFromEnvironment(root, process.env, red?.record ?? null);
     if (process.env.GITHUB_ACTIONS === "true" && !process.env.GITHUB_EVENT_PATH) throw new Error("Hosted proof requires GITHUB_EVENT_PATH");
     // Standalone planner diagnostics preserve complete selection; only an actual
     // event requests hosted confirmation, enforced again by the final gate.
@@ -469,12 +493,14 @@ if (import.meta.main) {
     const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
       `unit_shards=${JSON.stringify(unitShards(plan))}\n` +
-      `cadence=${plan.cadence ?? "diagnostic"}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
+      `cadence=${plan.cadence ?? "diagnostic"}\n` + `red_main_oid=${red?.oid ?? ""}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
     console.log(JSON.stringify({ ...plan, draft, event: event && {
       name: process.env.GITHUB_EVENT_NAME, action: event.action,
       head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA,
       base: event.pull_request?.base?.sha ?? event.before,
     } }, null, 2));
+    // The coordinator clears a record only from a green run that printed it here.
+    if (plan.redMain) console.log(`BRAIN_RED_MAIN_INCLUDED ${JSON.stringify(plan.redMain)}`);
     if (event) console.log(`BRAIN_TIMING_CONTEXT ${JSON.stringify({ cadence: plan.cadence, global: plan.global,
       head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA })}`);
   } catch (error) { console.error(error); process.exit(1); }

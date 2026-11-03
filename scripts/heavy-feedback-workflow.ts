@@ -45,6 +45,9 @@ export function renderHeavyFeedbackWorkflow(ciText: string): string {
   const checkout = pinned(metadata, "actions/checkout"), bun = pinned(metadata, "oven-sh/setup-bun");
   const install = metadata.steps.find(s => s.run === "bun install --frozen-lockfile");
   if (!install) throw new Error("ci.yml changeset job lost its frozen install");
+  // Feedback on a head that contains main's recorded bad commit is doomed too (#2942).
+  const redMain = metadata.steps.find(s => s.run === "bun scripts/red-main-cli.ts gate");
+  if (!redMain) throw new Error("ci.yml changeset job lost its red-main gate");
   const request = { FEEDBACK_PR: "${{ inputs.pr }}", FEEDBACK_HEAD_SHA: HEAD, GH_TOKEN: "${{ github.token }}" };
   const outputs = { ...clone(metadata.outputs), base_sha: "${{ steps.admit.outputs.base_sha }}" };
   delete outputs.reuse; // Feedback never retains or records proof.
@@ -79,6 +82,7 @@ export function renderHeavyFeedbackWorkflow(ciText: string): string {
           { name: "Refuse a stale, ready, closed or foreign head; yield to ready confirmation", id: "admit", env: request, run: "bun scripts/heavy-feedback.ts admit" },
           { ...clone(checkout), with: { ...checkout.with, "fetch-depth": 0, ref: HEAD } },
           clone(install),
+          { name: redMain.name, env: { PR_NUMBER: "${{ inputs.pr }}" }, run: redMain.run },
           { name: "Plan the PR's affected selection with feedback-heavy cadence", id: "plan",
             env: { BASE_SHA: "${{ steps.admit.outputs.base_sha }}", HEAD_SHA: HEAD, FEEDBACK_PR: "${{ inputs.pr }}" }, run: "bun scripts/ci-plan.ts" },
           { name: "Select fresh browser and layout execution", id: "reuse", run: "bun scripts/proof-reuse.ts" },

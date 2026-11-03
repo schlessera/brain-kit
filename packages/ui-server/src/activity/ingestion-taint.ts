@@ -4,7 +4,10 @@ import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
 export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "workspace_read" | "mcp_document"
-  | "fetching_command" | "unclassified_command" | "compute_output";
+  | "user_marked" | "fetching_command" | "unclassified_command" | "compute_output";
+
+/** Whether a brain-relative path carries the user's untrusted mark (#2673). */
+export type MarkedLookup = (path: string) => boolean;
 
 /** Claude's and pi-web-access's web tools. */
 const WEB_TOOLS: Record<string, IngestionSource> = { WebFetch: "web_fetch", WebSearch: "web_search", fetch_content: "web_fetch", web_search: "web_search" };
@@ -49,8 +52,36 @@ function pathSource(path: string, brainPath: string | undefined): IngestionSourc
   return anyArea(absolute);
 }
 
+/**
+ * The brain-relative record key a file-tool path names, or null when it names
+ * nothing inside the brain. A relative path resolves against the brain (the
+ * worker's cwd); an absolute one only counts below the brain's host path, so
+ * a view the host cannot name is not matched against marks.
+ */
+function brainRelative(path: string, brainPath: string | undefined): string | null {
+  if (!path) return null;
+  let relative: string;
+  if (!path.startsWith("/")) relative = posix.normalize(path);
+  else {
+    const root = brainPath && posix.normalize(brainPath).replace(/\/$/, "");
+    const absolute = posix.normalize(path);
+    if (!root || !absolute.startsWith(root + "/")) return null;
+    relative = absolute.slice(root.length + 1);
+  }
+  relative = relative.replace(/\/$/, "");
+  return relative && relative !== "." && relative !== ".." && !relative.startsWith("../") ? relative : null;
+}
+
+/** The area a path reads, else whether it names a file the user marked untrusted. */
+function fileSource(path: string, brainPath: string | undefined, marked: MarkedLookup | undefined): IngestionSource | null {
+  const area = pathSource(path, brainPath);
+  if (area || !marked) return area;
+  const relative = brainRelative(path, brainPath);
+  return relative !== null && marked(relative) ? "user_marked" : null;
+}
+
 /** The source a call's input already establishes, before its result arrives. */
-export function inputTaintSource(tool: string, input: unknown, brainPath?: string): IngestionSource | null {
+export function inputTaintSource(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
   const command = commandTaintSource(tool, input);
   if (command) return command;
   if (WEB_TOOLS[tool]) return WEB_TOOLS[tool];
@@ -61,14 +92,14 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
   // brain-kit's own document readers can still name a file in an untrusted area.
   const key = FILE_TOOLS[tool.replace(/^mcp__brain(?:-ui)?__/, "")];
   const path = key && input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
-  return typeof path === "string" ? pathSource(path, brainPath) : null;
+  return typeof path === "string" ? fileSource(path, brainPath, marked) : null;
 }
 
-/** A search from an ancestor directory taints when its output names a file in an untrusted area. */
-export function outputTaintSource(tool: string, output: string, brainPath?: string): IngestionSource | null {
+/** A search from an ancestor directory taints when its output names a file in an untrusted area or a marked file. */
+export function outputTaintSource(tool: string, output: string, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
   if (!SEARCH_TOOLS.has(tool)) return null;
   for (const line of output.split("\n")) {
-    const source = pathSource(line.trim().split(":")[0]!, brainPath);
+    const source = fileSource(line.trim().split(":")[0]!, brainPath, marked);
     if (source) return source;
   }
   return null;
