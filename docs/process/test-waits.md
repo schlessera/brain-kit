@@ -224,13 +224,13 @@ per-site `sites` counters distinguish attribution from helper-definition counts.
 change, upload abort/resume or host draft reconciliation can schedule a separate
 device-context write. That write reads native browser state and enters browser
 locks/IndexedDB before adopting retained draft records back into the mounted
-stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
-`flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
-`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
+stores (`context`, `packages/ui-react/src/lib/local-work.ts:305-319`;
+`flush`, `packages/ui-react/src/lib/local-work.ts:322-333`;
+`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:513-519`). The real
 scroll listener schedules that work (`handleScroll`,
 `packages/ui-react/src/components/chat/chat-page.tsx:318-328`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
-`packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
+`packages/ui-react/src/lib/local-work.ts:643-654`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
 late adoption can blur the field, change scroll/selection, replace an answer or
 restore a consumed pill. A disconnected upload can similarly be misclassified
@@ -242,7 +242,7 @@ acknowledgements remain separate positive conditions.
 **Duration and margin.** In the quiet scenes, `changed` registers the real
 250 ms device debounce (`LOCAL_WRITE_DELAY_MS`,
 `packages/ui-react/src/lib/local-work.ts:88-90`; `changed`,
-`packages/ui-react/src/lib/local-work.ts:518-531`). The five non-IME boundaries
+`packages/ui-react/src/lib/local-work.ts:529-542`). The five non-IME boundaries
 retain 500 ms: one 250 ms scheduled opportunity plus 250 ms (100%) headroom
 for native dispatch, storage/lock continuations and React work, followed by
 the original two native animation frames. This is a bounded opportunity to
