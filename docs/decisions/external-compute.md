@@ -30,7 +30,7 @@ Brain-kit source was read at `a62db8f27a22fd2df744308e9b1ee12bc50f3da2`.
   path-to-recipient restrictions (`export const GovernancePolicySchema`,
   `packages/common/src/governance-policy.ts:35-49`). Turn budgets refuse
   admission once any scope is blocked, but reserve nothing in advance
-  (`async providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:326-331`).
+  (`async providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:377-382`).
   The Queue budget is the existing reserve-then-settle ledger
   (`export function createInboxBudget`, `packages/ui-server/src/inbox/budget.ts:149-154`).
 - Host operational state lives beside the server database and is masked from
@@ -591,3 +591,140 @@ choices "Still open" assigned to it, within the bounds above:
   operator's choice bounds what an agent can keep at the provider. A retained
   job counts toward `maxConcurrent` until its `retainedUntil` passes, since
   the provider still holds its data. This refines "Per-job retention" above.
+
+## Settled by #3108
+
+[#3108](https://github.com/schlessera/brain-kit/issues/3108) settled the
+choice "Still open" assigned to it, within the bounds above, after the
+maintainer ruled on four more questions on 2026-11-02.
+
+### Rulings of 2026-11-02 on hosted admission
+
+5. **One pool per compute state directory.** Slots and budgets are shared by
+   every caller of one state directory. Hosted, it defaults to
+   `<DB_PATH>.compute` (`BRAIN_UI_COMPUTE_STATE_DIR`), host operational state
+   masked from workers. An operator who also runs `brain compute` from a shell
+   points `BRAIN_COMPUTE_STATE_DIR` at the same directory to share one pool;
+   otherwise the pools are separate.
+6. **Built-in providers and operator-bound credentials only.** A hosted run
+   accepts only built-in providers: an instance whose provider is a value is
+   `provider_unavailable`, because the host never runs brain code. Its
+   credential comes only from a variable the operator binds on the host,
+   `BRAIN_UI_COMPUTE_KEYS="boat=BOAT_CI_KEY,BOAT_HEAVY_KEY"`, a built-in's own
+   default variable being bound implicitly; an instance naming an unbound
+   `apiKeyEnv` is `provider_unavailable`. Boat's `options.environment` is
+   allowed on hosted runs: the operator accepts that the variables and secrets
+   of that Boat environment reach its sandboxes. The CLI and a standalone MCP
+   server are unchanged.
+7. **Jobs outlive a normal turn end.** The host drives them until they settle,
+   bounded by their leases, and a later turn of the same conversation may
+   collect them. A cancelled, timed-out or budget-stopped turn, or one whose
+   authority was revoked, cancels its jobs. Host shutdown cancels the jobs
+   whose provider has no remote expiry.
+8. **Each job is its own Activity root run** with a new additive `compute`
+   origin, linked to its turn by attributes. An `uncertain` job stays open,
+   flagged stuck.
+
+### What the code settled
+
+- **Tool paths.** Both first-party backends attach the six
+  `brain_compute_*` tools to their host bridge (Claude
+  `mcp__brain-ui__brain_compute_*`, pi plain names) in every interactive
+  session's fixed roster; autonomous rosters never include them. Their inputs
+  are core's strict operation inputs, so no caller, session, profile or
+  credential field exists. The in-worker `mcp__brain__brain_compute_*` tools
+  are disallowed in every Claude session, whatever the configuration, so the
+  tool list never depends on it ([provider-history.md](provider-history.md)).
+- **Configuration as data.** The host reads `brain config check --json`'s new
+  `compute` summary in a credential-free strict worker that sees only the
+  policy's protected paths, once per turn, as it reads the taxonomy
+  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:977-989`). A
+  provider value is reported by id only. A job keeps the instance
+  configuration it was admitted under, so its driver never reaches another
+  account however the brain changes later.
+- **Order of checks.** Core's capability, lease, secret-free, source and
+  data-to-provider checks run first, with the turn's frozen policy and the
+  instance id as recipient. The host then refuses a provider value, an
+  unbound credential, a `.env*` or Tier A source and any source or `cwd` the
+  turn's provider masks hide. Then the approval: a run on an interactive
+  typed turn shows a `command` card (instance, provider, lease, estimate or
+  unknown, retention, source paths and hash, argv, environment names,
+  artifacts and a taint notice), never remembered; an edited card is a
+  refusal. Voice, a turn without a grant surface and a turn with no client
+  connected refuse `approval_required` without a card. Each decision is a
+  governance `outward_action` with action `compute_run` and the instance as
+  target. Last, under core's admission lock, the host rechecks the turn's
+  authority, core counts slots and the host ledger reserves.
+- **Budget.** A reservation is one immediate SQLite transaction against the
+  turn's frozen admission: refused when a scope is already blocked or a known
+  reservation would reach a block, admitted with its cost unknown when the
+  instance has no ceiling. It counts in every scope at its reserved amount
+  until settled, then at its actual cost, or at its reservation when that
+  stays unknown; a job with neither is an unknown run, never zero. A turn
+  without a frozen admission, a failed ledger write or no ledger refuses
+  `accounting_unavailable`. The receipt's coverage text is a closed enum on
+  the wire, so it is unchanged.
+- **Credentials.** Core gets an environment holding only the bound names.
+  Values reach the provider call only and are redacted from every result. A
+  bound name that `BRAIN_UI_SUBPROCESS_ENV_EXTRA`, the subprocess allowlist or
+  an agent credential would forward to a child disables hosted compute and
+  readiness names it; the launcher already drops every name it does not
+  allow. Boat documents a per-sandbox port token that stays even without an
+  environment; a command could print it into its output.
+- **Output.** A collect returns artifacts by path and hash, never a host
+  path, and its output is untrusted: the collect tool is a G6 taint source,
+  `compute_output`.
+- **Recovery.** At boot, before any turn, every unsettled hosted job is
+  visited once and driven on. A job that settled while the host was down
+  settles its reservation then, exactly once, whichever process reaches it.
+- **Readiness.** `/api/status` `runtime.compute` reports the state directory
+  and its mask, each binding with its presence and whether it would reach a
+  worker, the built-in package and its remote expiry, and the instances the
+  last turn read, without calling a vendor.
+
+Running hosted compute is not a claim that a sandbox is a governed worker.
+The operator page is [hosting/external-compute.md](../hosting/external-compute.md).
+
+### Corrections from the #3108 review
+
+These refine the notes above; where they differ, these hold.
+
+- **Ruling 6: an implicit default needs a listed provider.** A built-in's own
+  default variable is bound only for a provider the operator lists in
+  `BRAIN_UI_COMPUTE_KEYS`; listing it alone (`boat` or `boat=`) binds just
+  the default. Unset, the host binds no credential at all, so readiness is the
+  same from boot and does not change after the first turn loads a built-in.
+- **One credential per call.** Core no longer gets every bound name. Each
+  provider call, health included, gets only its own instance's bound
+  variable, and the host refuses an instance before calling its provider, so a
+  key bound for one provider never reaches another.
+- **Ruling 7: a job belongs to its conversation.** A later turn of the same
+  session may check, cancel or collect a job whichever principal the host
+  authorized for that session, so a re-login keeps its jobs; the change of
+  principal is recorded on the job's Activity run as a `compute_principal`
+  event. Another session still gets `job_unknown`. Core's caller match for
+  hosted callers is the session; CLI and MCP still match kind and principal.
+- **Ruling 7: cancellation covers a run still being admitted.** The host
+  records a turn as cancelled before it looks for the turn's jobs, and a run
+  whose record appears after that, or whose turn lost its authority while
+  core reserved, is cancelled before anything is allocated (core's run hook
+  may answer `cancel`). `cancelTurn` also waits for the turn's compute calls
+  in flight and sweeps again.
+- **Settled means the reservation too.** Every compute job envelope gains
+  `settled`: terminal, cleanup final and its cost settled against the
+  caller's budget. The host treats a job as settled only then, and only once
+  its own ledger write has committed; a failed write leaves the job open and
+  tracked, and is retried. A job the host abandons settles its reservation as
+  unknown, and at boot a reservation left without a job record settles as
+  unknown; both keep counting at the reserved amount, never zero. A job the
+  driver stops advancing after repeated failures keeps its reservation active
+  and its run flagged stuck until the next restart reattaches it.
+- **Activity over HTTP.** `GET /api/activity/runs` and
+  `GET /api/activity/runs/:runId` return `compute` runs only to a request that
+  declares the capability, as the live stream does.
+- **An unconfigured host is unchanged.** The host creates and masks the
+  compute state directory only when a credential is bound in
+  `BRAIN_UI_COMPUTE_KEYS` or the directory already holds earlier state, and
+  imports core at boot only then or when a hosted job is unsettled. A host
+  without compute boots exactly as it did before hosted compute existed;
+  readiness says no credential is bound.

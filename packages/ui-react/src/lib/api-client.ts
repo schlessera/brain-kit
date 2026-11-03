@@ -765,6 +765,8 @@ export function createBrainApi(
       fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[]; lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[] }>(
         "/activity/runs?" +
           [
+            // This client parses compute-origin runs (#3108), as its WebSocket hello declares.
+            "activityCompute=1",
             opts?.origin && `origin=${opts.origin}`,
             opts?.job && `job=${encodeURIComponent(opts.job)}`,
             opts?.session && `session=${encodeURIComponent(opts.session)}`,
@@ -783,8 +785,8 @@ export function createBrainApi(
      */
     activityRun: (runId: string, opts?: { includePayloads?: boolean }) =>
       fetchJson<ActivityRunDetail>(
-        `/activity/runs/${encodeURIComponent(runId)}` +
-          (opts?.includePayloads ? "?include=payloads" : "")
+        `/activity/runs/${encodeURIComponent(runId)}?activityCompute=1` +
+          (opts?.includePayloads ? "&include=payloads" : "")
       ),
 
     /** The runtime half of /stats; `days` is clamped to 1-90 server-side, default 30. */

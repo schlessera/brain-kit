@@ -7,6 +7,8 @@ const handlers: Record<string, string> = {
   inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
   complete_share: "completeShare", brain_read_base: "readBrainBase",
   reference_source: "referenceAccess", reference_worktree: "referenceAccess",
+  brain_compute_health: "compute", brain_compute_plan: "compute", brain_compute_run: "compute",
+  brain_compute_status: "compute", brain_compute_cancel: "compute", brain_compute_collect: "compute",
   brain_add: "applyBrain", brain_update: "applyBrain", brain_archive: "applyBrain",
   write_file: "applyBrain", edit_file: "applyBrain", apply_staged_changes: "applyBrain",
 };

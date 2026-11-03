@@ -135,6 +135,12 @@ export interface ComputeJobView {
    * reconfigured since the job started. Not stored; `null` otherwise.
    */
   blocked: string | null;
+  /**
+   * Nothing will change the job any more (#3108): it is terminal, its
+   * cleanup is final and its cost has settled against the caller's budget.
+   * A job that ended but whose reservation has not settled is not settled.
+   */
+  settled: boolean;
 }
 
 export interface ComputeRefusal {
@@ -209,6 +215,13 @@ export interface ComputeServiceOptions {
   sourcePolicy?: { providers: EffectiveGovernancePolicy["providers"] };
   /** Host approval; absent means none is required. */
   approve?: (plan: ComputePlan, caller: ComputeCaller) => Promise<ComputeApproval> | ComputeApproval;
+  /**
+   * The host's last word on its caller, asked under the admission lock just
+   * before the slot count and budget reservation: false (or a throw) refuses
+   * with `policy_denied` and nothing is reserved or recorded. A hosted turn
+   * revoked or cancelled while its approval card was open is refused here.
+   */
+  recheck?: (caller: ComputeCaller) => Promise<boolean> | boolean;
   /** Time after the lease deadline allowed for release. Default 300. */
   releaseAllowanceSeconds?: number;
   /** Ceiling for one provider call. Default 120 000. */

@@ -22,8 +22,9 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_context", "mcp__brain__brain_graph",
     "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_search", "mcp__brain__brain_update",
   ]);
-  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(24);
-  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "complete_share", "turn_temp", "reference_source", "reference_worktree"]) {
+  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(30);
+  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "complete_share", "turn_temp", "reference_source", "reference_worktree",
+    "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect"]) {
     const tool = capture.request.tools.find(tool => tool.name === `mcp__brain-ui__${name}`);
     expect(tool?.input_schema).toBeDefined();
     expect(tool?.defer_loading).not.toBe(true);

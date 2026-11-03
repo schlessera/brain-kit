@@ -237,6 +237,13 @@ export interface BackendBridge {
    * its parsed input. Refusals resolve as `{ ok: false }`.
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
+  /**
+   * External compute (#3108). The host binds the caller (principal, session
+   * and turn), the turn's frozen policy, posture, approval surface and
+   * credentials; the call carries only the tool, its parsed input and the
+   * model's call id. Refusals resolve as `{ ok: false, error }`.
+   */
+  compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
 
 }
 

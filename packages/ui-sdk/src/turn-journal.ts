@@ -104,7 +104,8 @@ export interface JournalOutwardAction {
   id: number;
   at: number;
   tool: string;
-  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect";
+  /** `compute_run` (additive, #3108): an approved or refused external compute job start. */
+  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run";
   target: string | null;
   decision: "policy_allowed" | "approved" | "declined" | "refused";
   historyRewrite: boolean;

@@ -1181,6 +1181,45 @@ reference.
 
 <a id="boat-compute-provider-additive-3106"></a>
 
+### Hosted external compute (additive, 0.45.0, #3108)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) gains
+`COMPUTE_TOOL_CONTRACTS`, one contract per tool (`COMPUTE_HEALTH_CONTRACT`
+through `COMPUTE_COLLECT_CONTRACT`), their names, the strict input schemas
+`COMPUTE_HEALTH_INPUT_SCHEMA`, `COMPUTE_REQUEST_INPUT_SCHEMA` and
+`COMPUTE_JOB_INPUT_SCHEMA` (identical to core's), `COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES`
+and the types `ComputeToolCall`, `ComputeToolResult`, `ComputeToolRefusalCode`,
+`ComputeToolName` and the three input types. The contracts join
+`BRIDGE_TOOL_CONTRACTS` after the reference tools, so
+`BRIDGE_TOOL_POSTURE.names` and `allowedTools(adapter)` end with them, and
+`SurfaceTools` gains `computeHealth` through `computeCollect`. `/server` gains
+`handleComputeTool(name, input, bridge, toolUseId?)`, which validates the
+input and returns `{ text, isError }`, and `BackendBridge.compute?(call)`,
+through which a backend hands the host only the tool, its parsed input and the
+model's call id. `/protocol` gains `ACTIVITY_COMPUTE_CAPABILITY`, and
+`ActivitySpanOrigin` gains `compute`; the shipped `BrainWsClient` declares the
+capability. `JournalOutwardAction.action` gains `compute_run`. `/internal`
+gains `hostComputeCredential(name)`, the env chokepoint for a bound compute
+credential. Pi's internal `TOOL_RISK` classifies `brain_compute_run` and
+`brain_compute_cancel` as `mutate` and the other four as `read`; its session
+capabilities gain `compute`. The Claude backend disallows the six
+`mcp__brain__brain_compute_*` names in every session.
+
+Core's `/internal` (first-party, not a supported entry point) gains the
+operation set and driver: `createComputeOps`, `createComputeDriver`,
+`jobOutput`, `jobSettled`, `COMPUTE_TOOL_NAMES`, the three input schemas and
+their envelope types, and `ComputeApproval`. `ComputeOpsOptions.hosted?:
+{ sourcePolicy, approve, budget, recheck? }` lets a host admit with its turn's
+frozen data-to-provider rules and its own ledger, without the
+inside-a-worker refusal or a policy re-read, and `ComputeServiceOptions.recheck?(caller)`
+is asked under the admission lock before the slot count and reservation; false
+refuses `policy_denied` with nothing reserved. `ComputeRunHooks.onCreated`
+may answer `"cancel"`, which records a cancel request before the job's first
+drive, so nothing is allocated. `@schlessera/brain-ui-server`
+gains the server settings `BRAIN_UI_COMPUTE_KEYS` and
+`BRAIN_UI_COMPUTE_STATE_DIR`, and `ServerConfig.compute`. The tools are
+specified in the [MCP contract](mcp.md#external-compute-bridge-tools-additive-0450-3108).
+
 ### Boat compute provider (additive, #3106)
 
 `@schlessera/brain-compute-boat` is a new lockstep package and core's optional

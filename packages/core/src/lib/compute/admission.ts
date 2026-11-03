@@ -37,10 +37,15 @@ export function checkCaller(caller: ComputeCaller | undefined): ComputeRefusal |
   return refuse("policy_denied", "unknown caller kind");
 }
 
-/** The same caller: kind and principal, and for hosted callers the session. */
+/**
+ * The same caller. CLI and MCP: kind and principal. Hosted: the conversation
+ * (#3108, ruling R7): a later turn of the same session may follow its jobs
+ * whichever principal the host authorized for that session, so a re-login
+ * keeps them; another session never reaches them.
+ */
 export function sameCaller(a: ComputeCaller, b: ComputeCaller): boolean {
-  if (a.kind !== b.kind || a.principal !== b.principal) return false;
-  return a.kind !== "hosted" || (b.kind === "hosted" && a.session === b.session);
+  if (a.kind === "hosted" || b.kind === "hosted") return a.kind === "hosted" && b.kind === "hosted" && a.session === b.session;
+  return a.kind === b.kind && a.principal === b.principal;
 }
 
 /** A normalised repository-relative path, or undefined when it is not one. */

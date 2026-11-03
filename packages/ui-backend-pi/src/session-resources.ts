@@ -70,6 +70,7 @@ export function createSessionResources(options: {
         mask: caps.mask,
         turnTemp: caps.turnTemp,
         reference: caps.reference,
+        compute: caps.compute,
       },
     });
     return { tools, turnContext };
@@ -116,7 +117,7 @@ export function createSessionResources(options: {
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
+        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true,
       } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
@@ -202,6 +203,9 @@ function buildAppend(
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         referenceSource: env.caps.reference === true && "reference_source",
         referenceWorktree: env.caps.reference === true && "reference_worktree",
+        computeHealth: env.caps.compute === true && "brain_compute_health", computePlan: env.caps.compute === true && "brain_compute_plan",
+        computeRun: env.caps.compute === true && "brain_compute_run", computeStatus: env.caps.compute === true && "brain_compute_status",
+        computeCancel: env.caps.compute === true && "brain_compute_cancel", computeCollect: env.caps.compute === true && "brain_compute_collect",
         // Always registered: it needs nothing from the bridge.
         block: "show_block",
       },

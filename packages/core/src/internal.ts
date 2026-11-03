@@ -58,6 +58,7 @@ export type {
   ComputeHealthReport,
   ComputeCollection,
   ComputeReconcileReport,
+  ComputeApproval,
   ComputeBudget,
   ComputeCaller,
   ComputeClock,
@@ -69,4 +70,31 @@ export type {
   ComputeServiceOptions,
 } from "./lib/compute/index.js";
 export { COMPUTE_PROVIDERS, loadComputePackage, resolveComputeInstance } from "./lib/registry.js";
+// The operation set and driver a host admits hosted jobs through (#3108).
+export {
+  COMPUTE_TOOL_NAMES,
+  computeHealthInput,
+  computeRequestInput,
+  computeJobInput,
+  createComputeOps,
+  createComputeDriver,
+  jobOutput,
+  jobSettled,
+} from "./lib/ops/compute.js";
+export type {
+  ComputeOps,
+  ComputeOpsOptions,
+  ComputeDriver,
+  ComputeDriverOptions,
+  ComputeEnvelope,
+  ComputeErrorEnvelope,
+  ComputeJobOutput,
+  ComputeJobEnvelope,
+  ComputeCollectEnvelope,
+  ComputePlanEnvelope,
+  ComputeHealthEnvelope,
+  ComputeHealthInput,
+  ComputeRequestInput,
+  ComputeJobInput,
+} from "./lib/ops/compute.js";
 export type { ComputeBuiltin, ResolvedComputeInstance } from "./lib/registry.js";
