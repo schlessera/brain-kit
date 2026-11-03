@@ -154,6 +154,7 @@ import * as probe from ${JSON.stringify(join(import.meta.dir, "fixtures/write-wo
 const db = createUiDb(${JSON.stringify(join(root, "ui.db"))}), voyage = openSqliteWriter(db).channel(probe, { table: "odysseus_log" });
 await voyage.call("log", "Ithaca"); console.log("committed");\n`);
     const child = Bun.spawn([process.execPath, script], { stdout: "pipe", stderr: "pipe" });
+    // Failure maximum: an idle worker lets the child exit at once; the 10 s branch only names a held process.
     const exited = await Promise.race([child.exited, Bun.sleep(10_000).then(() => "running")]);
     if (exited === "running") child.kill();
     expect(exited, "WRITE_WORKER_IDLE_DOES_NOT_HOLD_PROCESS").toBe(0);

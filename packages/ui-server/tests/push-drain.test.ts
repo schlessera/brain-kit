@@ -33,7 +33,9 @@ test("failed bookkeeping still joins a sibling write before delivery and close s
   try {
     await started;
     const closing = f.sender.close().then(() => { closed = true; }, error => { closed = true; return error; });
-    await new Promise(resolve => setTimeout(resolve, 20));
+    // Everything but the held sibling write is in memory: one macrotask runs
+    // every continuation that does not wait for it.
+    await new Promise(resolve => setImmediate(resolve));
     expect(settled, "FAILED_BOOKKEEPING_JOINS_SIBLING_WRITE").toBe(false);
     expect(closed, "DRAIN_JOINS_SIBLING_OF_FAILED_WRITE").toBe(false);
     release();
@@ -120,8 +122,10 @@ test("settling a delivery cannot remove a reentrant same-kind delivery from the 
     // The first promise has settled; its removal must leave the new owner intact.
     let settled = false;
     const closing = f.sender.close().then(() => { settled = true; });
-    await Promise.race([started, new Promise(resolve => setTimeout(resolve, 20))]);
-    await new Promise(resolve => setTimeout(resolve, 20));
+    // Once the reentrant delivery holds its bookkeeping, everything else is in
+    // memory: one macrotask runs every continuation that does not wait for it.
+    await Promise.race([started, closing]);
+    await new Promise(resolve => setImmediate(resolve));
     expect(settled, "SETTLED_CALL_CANNOT_DELETE_REENTRANT_OWNER").toBe(false);
     release();
     expect(await reentrant).toBe(1);

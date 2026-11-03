@@ -315,6 +315,7 @@ describe("admission, cancellation and eviction", () => {
     const waiting = sources.request({ principalId: penelope.id, repository: "https://github.com/odysseus/argo", revision: "main" });
     await until(() => state.fetches.length === 1 && sources.activity().waiting === 1);
     const third = sources.request({ principalId: penelope.id, repository: "https://github.com/odysseus/scylla", revision: "main" });
+    // Failure maximum: the refusal settles first on success; the 50 ms branch names a queue that grew.
     const early = await Promise.race([third.then(() => "admitted", (error: { code?: string }) => error.code ?? "error"), Bun.sleep(50).then(() => "waiting")]);
     state.gate.resolve();
     await Promise.allSettled([running, waiting, third]);
@@ -350,6 +351,7 @@ describe("admission, cancellation and eviction", () => {
     await until(() => state.fetches.some(call => call.repository === PRIVATE));
     revokeReferenceGrant(db, { brain: BRAIN, principalId: telemachus.id, id: record.id, now: Date.now() });
     await sources.revoke({ grantIds: [record.id], principalIds: [] });
+    // Failure maximum: on success the refusal settles first and the 2 s branch is never awaited.
     const outcome = await Promise.race([request.then(() => "published", () => "refused"), Bun.sleep(2_000).then(() => "running")]);
     state.gate.resolve();
     expect(outcome, "REFERENCE_SOURCE_REVOCATION_CANCELS_REFRESH").toBe("refused");
@@ -543,7 +545,8 @@ describe("review regressions", () => {
     try {
       const controller = new AbortController(); controller.abort();
       await expect(sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main", signal: controller.signal })).rejects.toMatchObject({ code: "cancelled" });
-      await Bun.sleep(20);
+      // Bun reports an unhandled rejection once the microtask queue drains, so a macrotask comes after it.
+      await drain();
       expect(unobserved, "REFERENCE_SOURCE_ABORTED_REQUEST_OBSERVED").toEqual([]);
       expect(sources.activity()).toEqual({ active: 0, waiting: 0 });
     } finally { process.off("unhandledRejection", track); }
