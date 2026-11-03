@@ -59,6 +59,7 @@ export { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
 export type { CompiledWorkerCommandPolicy, WorkerCommandPolicy } from "./server/command-policy.js";
 
 export { prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";
+export type { OutwardPlan } from "./server/outward-policy.js";
 export { NativeFileVersions, nativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
 export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
