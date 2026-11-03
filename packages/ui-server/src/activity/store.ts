@@ -58,7 +58,7 @@ export const SPAN_OUTCOMES = [
 export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
 
 export type SpanKind = "turn" | "tool" | "subagent" | "cron";
-export type SpanOrigin = "session" | "cron" | "autonomous";
+export type SpanOrigin = "session" | "cron" | "autonomous" | "compute";
 
 function isPrincipalKind(value: unknown): value is PrincipalKind {
   return (

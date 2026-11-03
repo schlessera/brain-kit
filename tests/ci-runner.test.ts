@@ -110,7 +110,7 @@ test("intermediate feedback executes the affected fast subset even when final un
 test("verification adds compiler diagnostics while preserving strict invocation and heap", () => {
   const command = verificationCommands(planChecks(["tsconfig.json"], []), join(import.meta.dir, ".."))[0]!;
   expect(command?.argv).toEqual([process.execPath, "run", "typecheck", "--extendedDiagnostics"]);
-  expect(command.env).toEqual({ NODE_OPTIONS: "--max-old-space-size=4096" });
+  expect(command.env).toEqual({ NODE_OPTIONS: "--max-old-space-size=6144" });
   expect(command.compilerRuntime).toBe(true);
 });
 
@@ -198,7 +198,7 @@ test("Bun forwards extendedDiagnostics to the unchanged strict script with uncha
   await runCommands([command], dir);
   const result = JSON.parse(readFileSync(join(dir, "compiler.json"), "utf8"));
   expect(result.argv).toEqual(["--noEmit", "--extendedDiagnostics"]);
-  expect(result.options).toBe("--max-old-space-size=4096");
+  expect(result.options).toBe("--max-old-space-size=6144");
   expect(result.executable).toBeTruthy(); expect(result.version).toMatch(/^v[0-9]+\./);
 });
 
@@ -281,9 +281,9 @@ test("typecheck runtime diagnostic uses the compiler Node PATH and heap environm
     expect(runtime.typescript).toBe("0.0.0");
     expect(runtime.capacity.scope).toBe("OS-visible memory; cgroup limit may be lower");
     expect(runtime.capacity.totalBytes).toBeGreaterThan(0);
-    expect(actual.options).toBe("--max-old-space-size=4096");
+    expect(actual.options).toBe("--max-old-space-size=6144");
     expect(readFileSync(join(dir, "node-options.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)),
-      "COMPILER_NODE_OPTIONS_FORWARDING").toEqual(["--max-old-space-size=4096", "--max-old-space-size=4096"]);
+      "COMPILER_NODE_OPTIONS_FORWARDING").toEqual(["--max-old-space-size=6144", "--max-old-space-size=6144"]);
     expect(actual.argv).toEqual(["--noEmit", "--extendedDiagnostics"]);
     expect(runtime).not.toHaveProperty("env");
     expect(runtime.executable).not.toContain("/");

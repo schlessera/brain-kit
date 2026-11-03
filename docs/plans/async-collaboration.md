@@ -141,7 +141,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:201-209`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:110-499`). Restricted execution needs
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-152`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:99-128`). Built-ins are disabled,
@@ -937,7 +937,7 @@ produces exactly one executable item
 - Reuse the **algorithm** from `activity/stream.ts`, not the module — it is bound to
   activity store methods and frames (R2)
 
-**Patterns to follow:** (`export function createActivityStream(`, `packages/ui-server/src/activity/stream.ts:160-320`) poll/pump structure and chunking caps
+**Patterns to follow:** (`export function createActivityStream(`, `packages/ui-server/src/activity/stream.ts:169-329`) poll/pump structure and chunking caps
 
 **Test scenarios:**
 - Happy path: snapshot then deltas equals a fresh snapshot
@@ -1318,7 +1318,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:110-499`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, deterministic package-owned trusted instructions,

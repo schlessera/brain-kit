@@ -48,6 +48,14 @@ const POLL_INTERVAL_MS = 1500;
 
 const TOOL_NAME_PREFIX = SPAN_TOOL_NAME_PREFIX;
 
+/**
+ * An external compute job's run id prefix (#3108). Its spans carry origin
+ * `compute`, which only clients declaring the activity compute capability
+ * parse; every other connection never sees the run at all.
+ */
+export const COMPUTE_RUN_PREFIX = "compute:";
+const isComputeRun = (runId: string) => runId.startsWith(COMPUTE_RUN_PREFIX);
+
 interface Subscription {
   view: "index" | "session" | "run";
   sessionId?: string;
@@ -140,7 +148,8 @@ export function toWireRollup(r: RunRollupRow): ActivityRunRollup {
 }
 
 export interface ActivityStream {
-  handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string): void;
+  /** `compute`: the connection declared it parses compute-origin spans (#3108). */
+  handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string, compute?: boolean): void;
   handleUnsubscribe(ws: WSContext, msg: ClientActivityUnsubscribe): void;
   /** Forget a closed socket. */
   dropConnection(ws: WSContext): void;
@@ -160,7 +169,7 @@ export interface ActivityStream {
 export function createActivityStream(store: AwaitableActivityStore, log?: Logger): ActivityStream {
   const subscriptions = new Map<
     unknown,
-    { ws: WSContext; principalId: string; subscriptions: Subscription[] }
+    { ws: WSContext; principalId: string; subscriptions: Subscription[]; compute: boolean }
   >();
   let cursor = store.latestChangeCursor();
   let pumping = false;
@@ -236,6 +245,7 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
           if (span) noteSpan(span);
           const frame = deltaFrame(change);
           for (const entry of subscriptions.values()) {
+            if (change.kind !== "lifecycle" && !entry.compute && isComputeRun(change.runId)) continue;
             if (entry.subscriptions.some((s) => change.kind === "lifecycle"
               ? s.view === "index" || (s.view === "run" ? s.runId === change.lifecycle.turnId || s.runId === change.lifecycle.lifecycleId : s.sessionId === change.lifecycle.sessionId)
               : matches(s, change.runId, span))) {
@@ -256,12 +266,13 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
     }
   }
 
-  function sendSnapshot(ws: WSContext, sub: Subscription): void {
+  function sendSnapshot(ws: WSContext, sub: Subscription, compute: boolean): void {
     let spans: SpanRow[] = [];
     let events: SpanEventRow[] = [];
     const highWater: Record<string, number> = {};
+    const shown = (runId: string) => compute || !isComputeRun(runId);
 
-    if (sub.view === "run" && sub.runId) {
+    if (sub.view === "run" && sub.runId && shown(sub.runId)) {
       const snap = store.snapshotRun(sub.runId);
       if (snap) {
         spans = snap.spans;
@@ -274,7 +285,7 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       }
     } else if (sub.view === "session" && sub.sessionId) {
       for (const root of store.openRootSpans()) {
-        if (root.sessionId !== sub.sessionId) continue;
+        if (root.sessionId !== sub.sessionId || !shown(root.runId)) continue;
         const snap = store.snapshotRun(root.runId);
         if (!snap) continue;
         spans = spans.concat(snap.spans);
@@ -284,6 +295,7 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
     } else {
       // Index view: open roots only — history is the REST activity API's job.
       for (const root of store.openRootSpans()) {
+        if (!shown(root.runId)) continue;
         spans.push(root);
         highWater[root.runId] = store.runHighWaterSeq(root.runId);
       }
@@ -330,7 +342,7 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
   }
 
   return {
-    handleSubscribe(ws, msg, principalId) {
+    handleSubscribe(ws, msg, principalId, compute = false) {
       // A scoped view without its scope id can never match anything and
       // would only leak an all-runs snapshot shape — ignore it up front.
       if ((msg.view === "session" && !msg.sessionId) || (msg.view === "run" && !msg.runId)) {
@@ -345,10 +357,10 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       const existing = subscriptions.get(identity);
       const list = existing?.subscriptions ?? [];
       if (!list.some((s) => subKey(s) === subKey(sub))) list.push(sub);
-      subscriptions.set(identity, { ws, principalId, subscriptions: list });
+      subscriptions.set(identity, { ws, principalId, subscriptions: list, compute });
       ensurePolling();
       try {
-        sendSnapshot(ws, sub);
+        sendSnapshot(ws, sub, compute);
       } catch (err) {
         log?.emit({
           severityText: "WARN",

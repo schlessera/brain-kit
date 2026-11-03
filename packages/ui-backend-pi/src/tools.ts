@@ -219,6 +219,7 @@ export interface BrainToolDeps {
     policyChange?: boolean;
     turnTemp?: boolean;
     reference?: boolean;
+    compute?: boolean;
     apify?: boolean;
   };
 }
@@ -243,6 +244,10 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
   // Shared source is read-only; a worktree request, access, renewal or release changes host state (#2432).
   reference_source: "read", reference_worktree: "mutate",
+  // External compute (#3108): a run starts paid remote work and a cancel
+  // releases it; health, plan, status and collect change nothing the agent owns.
+  brain_compute_health: "read", brain_compute_plan: "read", brain_compute_run: "mutate",
+  brain_compute_status: "read", brain_compute_cancel: "mutate", brain_compute_collect: "read",
   // Apify (#3162): reads of the catalog and of owned runs; prepare spends
   // nothing; run and abort change remote and ledger state.
   brain_apify_discover: "read", brain_apify_inspect: "read", brain_apify_prepare: "read",

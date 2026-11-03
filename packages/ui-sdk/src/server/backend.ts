@@ -244,12 +244,18 @@ export interface BackendBridge {
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
   /**
+   * External compute (#3108). The host binds the caller (principal, session
+   * and turn), the turn's frozen policy, posture, approval surface and
+   * credentials; the call carries only the tool, its parsed input and the
+   * model's call id. Refusals resolve as `{ ok: false, error }`.
+   */
+  compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
+  /**
    * One Apify operation (#3162). The host binds principal, session, turn,
    * posture and approvals from the authenticated turn and holds the
    * credential; the call carries the operation's parsed input only.
    */
   apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
-
 }
 
 /** A read over the activity record, shaped for model consumption. */

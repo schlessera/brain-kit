@@ -7,8 +7,8 @@ on purpose — see [the not-pluggable list](#explicitly-not-pluggable) below.
 
 ## The meta-mechanism
 
-The core embedding, completion, agent-runner and reranker providers use this
-convention:
+The core embedding, completion, agent-runner, reranker and compute providers
+use this convention:
 
 > **A typed interface in a core package → config accepts a built-in name
 > (string) OR a passed-in implementation (value) → optionally shared as an npm
@@ -42,7 +42,8 @@ export default defineConfig({
 ### The contributor story (≤3 steps)
 
 1. **Implement the interface** via its typed helper — `defineEmbeddingProvider`,
-   `defineCompletionProvider`, `defineAgentRunner`, `defineReranker`, or `defineSkillEmitter` from
+   `defineCompletionProvider`, `defineAgentRunner`, `defineReranker`, `defineComputeProvider`
+   or `defineSkillEmitter` from
    `@schlessera/brain` (identity functions that give you inference and
    excess-property checking) — or as a plain object typed as the interface.
 2. **Wire it through the seam's entry point.** Core providers accept config
@@ -101,8 +102,8 @@ its SDK, configuration and wire surface. It does not replace dictation's
 `SpeechProvider` / `AsrClient` or introduce a standalone TTS provider; no
 adapter ships yet.
 
-There are twelve. This table is the list; the integration contract's
-"Extension interfaces" table names the same twelve, and `tests/seam-list.test.ts`
+There are thirteen. This table is the list; the integration contract's
+"Extension interfaces" table names the same thirteen, and `tests/seam-list.test.ts`
 fails when the two or the `@experimental` tags in the source disagree.
 
 | Seam                                | Interface            | Imported from                     | What it swaps                            |
@@ -112,6 +113,7 @@ fails when the two or the `@experimental` tags in the source disagree.
 | [Agent runners](agent-runners.md)   | `AgentRunner`        | `@schlessera/brain`               | The coding-agent CLI skills shell out to |
 | [Skill emitters](skill-emitters.md) | `SkillEmitter`       | `@schlessera/brain`               | The agent format skills are emitted for  |
 | [Rerankers](rerankers.md)           | `Reranker`           | `@schlessera/brain`               | The relevance judgment that orders results |
+| [Compute providers](compute-providers.md) | `ComputeProvider` | `@schlessera/brain`             | Where a bounded command job runs: a disposable sandbox |
 | [Agent backends](agent-backends.md) | `AgentBackend`       | `@schlessera/brain-ui-sdk/server` | The runtime that drives a chat session   |
 | Speech                              | `SpeechProvider`     | `@schlessera/brain-ui-sdk/server` | Who mints a dictation session            |
 | Speech                              | `AsrClient`          | `@schlessera/brain-ui-sdk/client` | The browser end of that session          |
@@ -120,7 +122,7 @@ fails when the two or the `@experimental` tags in the source disagree.
 | [Content renderers](content-renderers.md) | `ContentRenderer` | `@schlessera/brain-ui-sdk/client` | How a fence language or file type is drawn |
 | Site adapters                       | `SiteAdapter`        | `@schlessera/brain-scrape`        | The site a module fetches from           |
 
-The first five live in core. The self-hosted chat UI adds six in
+The first six live in core. The self-hosted chat UI adds six in
 `@schlessera/brain-ui-sdk` (`packages/ui-sdk` in this monorepo).
 
 - **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
@@ -186,8 +188,10 @@ It is not all the maintainer takes on, which is why the bar is written down
 here, before there is a candidate, rather than negotiated with one.
 
 Nothing has been promoted. Every name a seam resolves today resolves to
-first-party code: `EMBEDDING_PROVIDERS`, `COMPLETION_PROVIDERS` and
-`AGENT_RUNNERS` and `RERANKERS` in `packages/core/src/lib/registry.ts`, `BUILTIN_EMITTERS` in
+first-party code: `EMBEDDING_PROVIDERS`, `COMPLETION_PROVIDERS`,
+`AGENT_RUNNERS`, `RERANKERS` and `COMPUTE_PROVIDERS` in `packages/core/src/lib/registry.ts`
+(the `boat` compute name is reserved for the separate first-party
+`@schlessera/brain-compute-boat` package and is unavailable until it ships), `BUILTIN_EMITTERS` in
 `packages/core/src/lib/skills/index.ts`, the `FIRST_PARTY_BACKENDS` table in
 `packages/ui-server/src/agent/backend.ts`, and — the same thing written by hand
 rather than as a registry — the two `VOICE_PROVIDER` names `pickSpeechProvider`
@@ -262,7 +266,8 @@ there is no vote and no score.
    run. For a core seam it means the seam's suite from
    `@schlessera/brain/testing` (`runEmbeddingProviderContract`,
    `runCompletionProviderContract`, `runAgentRunnerContract`,
-   `runRerankerContract` or `runSkillEmitterContract`), run against the real provider code driven
+   `runRerankerContract`, `runComputeProviderContract` with
+   `runComputeLifecycleContract`, or `runSkillEmitterContract`), run against the real provider code driven
    through an isolated `fetch` or a fake binary, as
    `packages/core/tests/seam-contracts.test.ts` and
    `agent-runner-contracts.test.ts` beside it run every built-in. The suite

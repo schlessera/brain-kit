@@ -390,7 +390,7 @@ until re-measured.
 | `That third vector is stated here`, `docs/decisions/voice-permission.md:675-701` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
 | `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:302-315` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
 
-| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `every bridge tool ships ALWAYS LOADED`, `tests/bridge-tools.test.ts:766-781` and `the same tool registered without the flag`, `tests/bridge-tools.test.ts:783-798`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `every bridge tool ships ALWAYS LOADED`, `tests/bridge-tools.test.ts:782-797` and `the same tool registered without the flag`, `tests/bridge-tools.test.ts:799-814`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
 > The [old harness](https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304-L369)
@@ -454,7 +454,7 @@ into them.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:74-80`,
+  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:86-92`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:201-209`), handed to the SDK
   whole (`sdkOptions.env = childEnv`, `sdk-options.ts:461`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
@@ -1403,7 +1403,7 @@ this concrete delivered prerequisite.
 
 The existing SDK turn builder accepts the same concrete host-prepared proxy
 directory as the ordinary spawn adapter (`hostInference?:`,
-`packages/ui-backend-claude/src/sdk-options.ts:97`). The explicit selection pins
+`packages/ui-backend-claude/src/sdk-options.ts:109`). The explicit selection pins
 the inference OAuth placeholder and Unix socket in both the child environment
 and native flag settings, using the existing subscription credential-clearing
 policy. It does not remove other providers' CLI command environment. Only an

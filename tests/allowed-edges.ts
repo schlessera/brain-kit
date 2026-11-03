@@ -39,10 +39,19 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // its own: it reaches the checker through its optional core peer and, with
   // core absent, keeps refusing robots-authorized runs. Scrape still never
   // depends on core (below), so the edge stays one way.
+  // #3106: the `boat` compute built-in is an optional peer, imported lazily
+  // through a non-literal specifier only when an instance names it, so Boat
+  // transport never ships to an install that does not ask for it.
   "@schlessera/brain": {
     dependencies: ["@schlessera/brain-common", "@schlessera/brain-render-template", "@schlessera/brain-geo", "@schlessera/brain-scrape"],
-    optionalPeers: ["@schlessera/brain-render-puppeteer"],
+    optionalPeers: ["@schlessera/brain-render-puppeteer", "@schlessera/brain-compute-boat"],
   },
+  // #3106 (ruling 3 of docs/decisions/external-compute.md): Boat transport
+  // and mapping only. It implements core's ComputeProvider seam with
+  // type-only imports, so core is an optional peer (and a dev dependency for
+  // the conformance suites), never a runtime import, and the two optional
+  // peers form no runtime cycle.
+  "@schlessera/brain-compute-boat": { dependencies: [], optionalPeers: ["@schlessera/brain"] },
   // #2094 approved client/static pack uses the public renderer seam and concrete UI helpers as optional peers.
   "@schlessera/brain-module-diagrams": { dependencies: ["@schlessera/brain"], optionalPeers: ["@schlessera/brain-ui-sdk", "@schlessera/brain-ui-react", "@schlessera/brain-ui-kit"] },
   // Content modules extend core; concrete web imports also share scrape below.
