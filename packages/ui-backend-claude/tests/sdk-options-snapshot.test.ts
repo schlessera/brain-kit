@@ -7,7 +7,9 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * #2519 splits `assembleClaudeSdkTurn` and `createPermissionWiring`. Neither
  * may change what the provider is sent: the fixture was captured from the tree
  * BEFORE that split (at epic/1342-turn-path-split 2efaf6c23), never computed by
- * the code under test. Regenerate it only for a reviewed, intended change to
+ * the code under test. It was re-recorded once from the unsplit main tree
+ * (418b037ae, after #3103 added the compute tools) when that landed, and the
+ * split tree still matches it byte for byte. Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */
 for (const mode of SNAPSHOT_MODES) test(`the SDK options for a fixed ${mode} request are byte-identical to the captured tree`, async () => {
