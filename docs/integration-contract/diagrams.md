@@ -184,7 +184,8 @@ important edge: transit, then async, then default/link, then primary; ties put
 the hop on the later edge. Bridge metadata and actual path commands agree.
 
 Labels have opaque masks separated by 8px from their segment, beside vertical
-runs. Masks remain clear of nodes and other masks, and preserve at least 8px
+runs. Masks remain clear of nodes, group headings (an admin scope's 24px
+header band or a group's border-heading mask) and other masks, and preserve at least 8px
 clearance from route polylines and conservative curve bounds. Optional
 `labelFontSize` and `labelLineHeight` default to 9.5px and 12px. Both must be
 finite, from 9px through 256px, with line height at least font size. Width is
