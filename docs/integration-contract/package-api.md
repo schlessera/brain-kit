@@ -273,6 +273,38 @@ and `onOpenChange` fires on every toggle with the value being moved to.
 not exported, and is no extension seam. No CLI, MCP, wire, storage or HTTP
 shape changes; a minor changeset covers the additions.
 
+## UI-kit compact operation status (additive, #3281)
+
+`@schlessera/brain-ui-kit` exports `StatusIndicator` and the types
+`StatusIndicatorProps`, `StatusIndicatorOperation`, `StatusIndicatorFact` and
+`StatusIndicatorState`. [D58](../decisions/design-kit/components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+records the state matrix and the interaction.
+
+- `StatusIndicatorProps`: `label` (what the status is about), `summary` (the
+  tooltip sentence, repeated at the top of details), `title` (the details
+  heading), `operations` and an optional `returnFocus` callback, used when
+  details close after the trigger has gone.
+- `StatusIndicatorOperation`: `id` (the consumer's stable identity), `state`,
+  `stateLabel` (the state in the consumer's words), and optional
+  `explanation`, `facts` (`StatusIndicatorFact`: `key`, `value`) and
+  `actions` (a `ReactNode` of consumer buttons, rendered in details only).
+- `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
+  `unknown`, `failed`, `refused` or `idle`.
+
+The component is presentational. It derives only the displayed state and the
+count. The display state is the worst operation's state, in the order refused,
+failed, unknown, attention, active, queued, success, idle. Two or more
+operations show a count. An empty list renders a reserved 44px slot without a
+control, and it is never success. The accessible name is
+`{label}: {lead stateLabel}[; {n} operations]. Details.`
+
+The consumer is responsible for authoritative evidence. Nothing in the
+component infers success from time, animation or response order, and opening
+details triggers no action. State, freshness, identity, persistence and every
+action's authority stay with the consumer. `StatusDot` is unchanged. No CLI,
+MCP, wire, storage or HTTP shape changes; a minor changeset covers the
+additions.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
