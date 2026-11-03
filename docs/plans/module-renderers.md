@@ -181,7 +181,7 @@ reach the app through `![](x.svg)`:
 
 - **An `.svg` file must open as an image.** Today it opens as source, because
   the byte sniff in `export function classifyKind`,
-  `packages/ui-server/src/files/walker.ts:347` classifies UTF-8 SVG as text.
+  `packages/ui-server/src/files/walker.ts:303` classifies UTF-8 SVG as text.
 - **SVG images must print light.** Measured: a host
   `@media print { :root { color-scheme: light } }` makes an `<img>` SVG take its
   light palette.

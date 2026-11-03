@@ -1,6 +1,7 @@
 /** One read-only Git query; no stage publication or repository execution on the host. */
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { prepareNativeWorkerStartupView, runMaintenanceWorker, type MaintenanceHost } from "@schlessera/brain-ui-sdk/internal";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
@@ -27,7 +28,7 @@ export function createScratchIgnoreQuery(input: {
       if (dir === "/") break;
     }
     const safe = ["-c", `safe.directory=${brain}`, ...(parent ? ["-c", `safe.directory=${parent}`] : [])];
-    const args = [...safe, "check-ignore", "-q", "--no-index", "--", ".brain/scratch"];
+    const args = [...safe, "check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR];
     const command = existsSync(join(brain, ".git")) || parent ? [git, ...args]
       : ["/bin/sh", "-c", 'r=/tmp/brain-mask-empty-repository; "$0" init -q --bare "$r" >/dev/null 2>&1 && exec "$0" --git-dir="$r" --work-tree=. "$@"', git, ...args];
     const view = await prepareNativeWorkerStartupView(brain, input.nativeManager, signal);

@@ -1,4 +1,5 @@
 /** Read the actual host-owned mount sources; never evaluates repository code. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readlinkSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -6,7 +7,8 @@ import { nativeFileVersionFromFd, type NativeFileVersion } from "./native-file-v
 
 export interface ObservedWorkerFile { key: string; version: NativeFileVersion }
 interface Source { worker: string; host: string; rel: string }
-const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
+/** Path first: it reads as "this path is within that root" at each call site. */
+export const within = (path: string, root: string) => isWithin(root, path);
 const EMPTY: NativeFileVersion = { status: "known", hash: createHash("sha256").update("").digest("hex") };
 
 /** Sources come only from the launcher's resolved mounts, and live only until worker exit. */

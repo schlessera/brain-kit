@@ -92,6 +92,15 @@ export "./internal/provider-unavailable" (./src/provider-unavailable.ts)
   providerUnavailableNotice
   withheldKeys
 
+export "./internal/safe-path" (./src/safe-path.ts)
+  type ContainedPath
+  type ContainmentPolicy
+  type ContainmentRefusal
+  type WithinRule
+  isWithin
+  resolveContained
+  resolveContainedSync
+
 export "./internal/worker-areas" (./src/worker-areas.ts)
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR

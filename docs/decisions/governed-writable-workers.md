@@ -505,11 +505,11 @@ before application-lock admission, acquires its own complete native checkpoint
 asynchronously and runs a credential-free, read-only Git query. It releases
 that input after the worker drains, without creating or publishing a writable
 stage (`createScratchIgnoreQuery`,
-`packages/ui-server/src/brain/scratch-mask-query.ts:7-43`). Exit 1 means the
+`packages/ui-server/src/brain/scratch-mask-query.ts:8-44`). Exit 1 means the
 directory is not ignored. Launch failure, another exit or timeout means the
 rule could not be verified; the mask remains refused without forwarding worker
 stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
-`packages/ui-sdk/src/server/bridge-tools/mask.ts:224-235`).
+`packages/ui-sdk/src/server/bridge-tools/mask.ts:228-239`).
 
 **Credentials never reach a process that evaluates repository inputs.** A
 read-only host does not stop sandboxed code from stealing a credential it was
@@ -543,7 +543,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:420-427`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:421-428`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
@@ -596,7 +596,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:680-690`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:681-691`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -1027,7 +1027,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1136-1164`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1137-1165`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1035,14 +1035,14 @@ is gone as well, and never enters another mount, so runtime state below
 against its own budget, and a turn that cannot reserve it is refused as
 `worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
 reports usage and purges paths through the same descriptor
-(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-458`).
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:451-459`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
 After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:124-135`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:125-136`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -1065,10 +1065,10 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:645`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
-(`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
+(`SCRATCH_MAX_BYTES`, `scratch.ts:62`) after unpinned files are pruned, the
 overage is reported. Pinned files are never deleted. A writer that prunes
 after writing into scratch also passes the paths it just produced, protected
 for that one call (`pinnedPaths`), so retained pins over the cap cannot make it
@@ -1352,7 +1352,7 @@ external editor throughout a native tool's execution.
 The parent observes the worker's resolved mount sources, including strict
 startup copies and writable area aliases; it does not substitute newer
 canonical bytes for a frozen view (`createWorkerFileObserver`,
-`packages/ui-sdk/src/server/worker-file-observer.ts:13`). A failed or changing
+`packages/ui-sdk/src/server/worker-file-observer.ts:15`). A failed or changing
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
@@ -2186,7 +2186,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:226`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:227`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2204,7 +2204,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1910`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1911`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2228,7 +2228,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:385-444`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:386-445`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2304,9 +2304,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:609-615`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:636-675`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:791-809`).
+`packages/ui-sdk/src/server/worker-launcher.ts:610-616`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:637-676`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:792-810`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3337,7 +3337,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:250-284`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:251-285`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -3475,11 +3475,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1099-1127`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1100-1128`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1136-1162`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1137-1163`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1325-1413`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1326-1414`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -3914,7 +3914,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:511-522`).
+  `packages/ui-server/src/brain/host-boundary.ts:512-523`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
