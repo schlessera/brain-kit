@@ -30,7 +30,7 @@ The existing module mechanism builds contributions from validated config
 (`ModuleContribution`, `packages/core/src/lib/module-types.ts:136-164`). The
 generated-region helper replaces a whole named block and preserves bytes
 outside it (`replaceGeneratedRegion`,
-`packages/core/src/lib/generated-regions.ts:99-120`). Neither a shared block
+`packages/core/src/lib/generated-regions.ts:100-121`). Neither a shared block
 nor its heading establishes which module owns each paragraph. The CLI needs
 an authoritative source and explicit ownership to remove, regenerate and
 measure module instructions deterministically.

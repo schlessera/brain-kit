@@ -34,6 +34,11 @@ export "./internal/frontmatter" (./src/frontmatter-parse.ts)
   type ParsedFrontmatter
   parseFrontmatter
 
+export "./internal/frontmatter-block" (./src/frontmatter-block.ts)
+  type FrontmatterBlock
+  frontmatterBlock
+  frontmatterLength
+
 export "./internal/governance-policy" (./src/governance-policy.ts)
   type AnchoredGovernancePolicy
   BUILTIN_GOVERNANCE_POLICY

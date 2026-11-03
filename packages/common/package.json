@@ -36,6 +36,11 @@
       "types": "./dist/frontmatter-parse.d.ts",
       "default": "./dist/frontmatter-parse.js"
     },
+    "./internal/frontmatter-block": {
+      "bun": "./src/frontmatter-block.ts",
+      "types": "./dist/frontmatter-block.d.ts",
+      "default": "./dist/frontmatter-block.js"
+    },
     "./internal/worker-areas": {
       "bun": "./src/worker-areas.ts",
       "types": "./dist/worker-areas.d.ts",
