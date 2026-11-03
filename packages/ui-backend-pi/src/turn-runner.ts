@@ -62,26 +62,7 @@ export function createPiTurnRunner(
     // the same classified terminal failure as an overflow during the turn.
     let acquired: Awaited<ReturnType<SessionPool["acquire"]>>;
     try { acquired = await pool.acquire(req); }
-    catch (error) {
-      // Acquisition now observes cancellation while preparing native inputs.
-      // Keep the existing terminal contract when no session was acquired.
-      if (req.signal.aborted && (error === req.signal.reason || error instanceof DOMException && error.name === "AbortError")) {
-        if (req.sessionId) req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "cancelled", isError: false,
-          durationMs: Date.now() - startedAt, numTurns: 0 });
-        else req.bridge.emit({ type: "error", code: "agent_error", message: "The turn was cancelled before a session was acquired." });
-        return;
-      }
-      // A busy turn-temp budget (#1703) refuses the same way, with Retry.
-      // By class: the process ledger may come from another copy of the SDK.
-      const busy = (error as { errorClass?: unknown } | null)?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy;
-      if (!(error instanceof SessionTooLargeError || busy)) throw error;
-      const failure = { errorClass: (error as { errorClass: string }).errorClass, message: (error as Error).message };
-      if (req.sessionId) {
-        req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "error", isError: true,
-          durationMs: Date.now() - startedAt, numTurns: 0, failure });
-      } else req.bridge.emit({ type: "error", code: "agent_error", message: failure.message, failure });
-      return;
-    }
+    catch (error) { refuseAcquisition(req, startedAt, error); return; }
     const { entry, isNew } = acquired;
     const { session, turnContext } = entry;
     const sessionId = session.sessionId;
@@ -133,7 +114,6 @@ export function createPiTurnRunner(
     const completedUsage = createUsageAccumulator();
     const failures = createTurnFailureTracker();
     let failed = false;
-    let firstMainRequest = false;
     let thrown: TurnFailure | null = null;
 
     try {
@@ -149,29 +129,7 @@ export function createPiTurnRunner(
       if (!req.signal.aborted) {
         req.signal.addEventListener("abort", onAbort, { once: true });
       }
-      unsubscribe = session.subscribe(makeEventHandler(emit, usage, failures, (event) => {
-        if (event.type !== "message_start" && event.type !== "message_end") return;
-        const message = event.message;
-        if (message.role !== "assistant") return;
-        const completed = event.type === "message_end" && message.stopReason !== "aborted" && message.stopReason !== "error";
-
-        if (completed && !req.autonomous && !firstMainRequest) {
-          firstMainRequest = true;
-          const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
-          try { req.bridge.activity?.({ kind: "first_request_cache", usage: {
-            inputTokens: token(message.usage?.input), cacheReadTokens: token(message.usage?.cacheRead),
-            cacheCreationTokens: token(message.usage?.cacheWrite), source: "pi_main_message", coverage: "runtime_normalized",
-          } }); } catch { /* Observability must not fail the observed turn. */ }
-        }
-        if (completed) completedUsage.observe(event);
-        const receipt = completedUsage.toWire();
-        if (receipt) {
-          if (!req.autonomous && !completed) return;
-          try { req.bridge.activity?.({ kind: req.autonomous?.containment === "restricted" ? "autonomous_usage" : "usage", usage: receipt,
-            atToolBoundary: completed && message.stopReason === "toolUse" }); }
-          catch { /* Observability must not fail the observed turn. */ }
-        }
-      }));
+      unsubscribe = session.subscribe(makeEventHandler(emit, usage, failures, observeAssistantAnswers(req, completedUsage)));
       // Runtime session identity is authoritative, including resumed sessions.
       if (!req.autonomous && session.model?.id) {
         try { req.bridge.activity?.({ kind: "main_model", model: session.model.id, sessionId }); }
@@ -248,42 +206,106 @@ export function createPiTurnRunner(
       pool.finish(entry);
     }
 
-    const costUsd = turnCost(costBefore, snapshotCost(session));
-    const wireUsage = usage.toWire();
-    if (cancelled) {
-      emit({ type: "status", status: "cancelled" });
-      emit({
-        type: "result",
-        sessionId,
-        outcome: "cancelled",
-        ...(costUsd !== undefined ? { costUsd } : {}),
-        ...(wireUsage ? { usage: wireUsage } : {}),
-        durationMs: Date.now() - startedAt,
-        numTurns: 1,
-        isError: false,
-      });
-      return;
+    emitTurnTerminal(emit, { sessionId, startedAt, cancelled, failed, thrown, failures, usage, costBefore, session });
+  }
+}
+
+/**
+ * Settles a failed acquisition: a cancellation or a classified size or
+ * turn-temp refusal emits its terminal frame; anything else is rethrown.
+ */
+function refuseAcquisition(req: StartTurnRequest, startedAt: number, error: unknown): void {
+  // Acquisition now observes cancellation while preparing native inputs.
+  // Keep the existing terminal contract when no session was acquired.
+  if (req.signal.aborted && (error === req.signal.reason || error instanceof DOMException && error.name === "AbortError")) {
+    if (req.sessionId) req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "cancelled", isError: false,
+      durationMs: Date.now() - startedAt, numTurns: 0 });
+    else req.bridge.emit({ type: "error", code: "agent_error", message: "The turn was cancelled before a session was acquired." });
+    return;
+  }
+  // A busy turn-temp budget (#1703) refuses the same way, with Retry.
+  // By class: the process ledger may come from another copy of the SDK.
+  const busy = (error as { errorClass?: unknown } | null)?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_busy;
+  if (!(error instanceof SessionTooLargeError || busy)) throw error;
+  const failure = { errorClass: (error as { errorClass: string }).errorClass, message: (error as Error).message };
+  if (req.sessionId) {
+    req.bridge.emit({ type: "result", sessionId: req.sessionId, outcome: "error", isError: true,
+      durationMs: Date.now() - startedAt, numTurns: 0, failure });
+  } else req.bridge.emit({ type: "error", code: "agent_error", message: failure.message, failure });
+}
+
+/**
+ * Observes each assistant answer: the first completed main request reports
+ * its cache usage once, and completed answers accumulate the usage receipt.
+ */
+function observeAssistantAnswers(req: StartTurnRequest, completedUsage: TurnUsageAccumulator): (event: AgentSessionEvent) => void {
+  let firstMainRequest = false;
+  return (event) => {
+    if (event.type !== "message_start" && event.type !== "message_end") return;
+    const message = event.message;
+    if (message.role !== "assistant") return;
+    const completed = event.type === "message_end" && message.stopReason !== "aborted" && message.stopReason !== "error";
+
+    if (completed && !req.autonomous && !firstMainRequest) {
+      firstMainRequest = true;
+      const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+      try { req.bridge.activity?.({ kind: "first_request_cache", usage: {
+        inputTokens: token(message.usage?.input), cacheReadTokens: token(message.usage?.cacheRead),
+        cacheCreationTokens: token(message.usage?.cacheWrite), source: "pi_main_message", coverage: "runtime_normalized",
+      } }); } catch { /* Observability must not fail the observed turn. */ }
     }
-    // A provider failure does not throw: prompt() resolves, and the turn's
-    // last answer is the error (#575). Its usage is already in `wireUsage`,
-    // counted once from its message_end like any other answer.
-    const failure = failures.failure(thrown ?? undefined);
-    if (failure) failed = true;
-    // Parity with the claude backend, which emits idle before its terminal
-    // result — the two backends must produce interchangeable frame streams.
-    emit({ type: "status", status: "idle" });
+    if (completed) completedUsage.observe(event);
+    const receipt = completedUsage.toWire();
+    if (receipt) {
+      if (!req.autonomous && !completed) return;
+      try { req.bridge.activity?.({ kind: req.autonomous?.containment === "restricted" ? "autonomous_usage" : "usage", usage: receipt,
+        atToolBoundary: completed && message.stopReason === "toolUse" }); }
+      catch { /* Observability must not fail the observed turn. */ }
+    }
+  };
+}
+
+/** The turn's closing frames: a cancelled result, or idle and its success or error result. */
+function emitTurnTerminal(emit: (msg: ServerMessage) => void, turn: {
+  sessionId: string; startedAt: number; cancelled: boolean; failed: boolean; thrown: TurnFailure | null;
+  failures: TurnFailureTracker; usage: TurnUsageAccumulator; costBefore: ReturnType<typeof snapshotCost>; session: Parameters<typeof snapshotCost>[0];
+}): void {
+  const { sessionId, startedAt, cancelled, failed, thrown, failures, usage, costBefore, session } = turn;
+  const costUsd = turnCost(costBefore, snapshotCost(session));
+  const wireUsage = usage.toWire();
+  if (cancelled) {
+    emit({ type: "status", status: "cancelled" });
     emit({
       type: "result",
       sessionId,
-      outcome: failed ? "error" : "success",
+      outcome: "cancelled",
       ...(costUsd !== undefined ? { costUsd } : {}),
       ...(wireUsage ? { usage: wireUsage } : {}),
       durationMs: Date.now() - startedAt,
       numTurns: 1,
-      isError: failed,
-      ...(failure ? { failure } : {}),
+      isError: false,
     });
+    return;
   }
+  // A provider failure does not throw: prompt() resolves, and the turn's
+  // last answer is the error (#575). Its usage is already in `wireUsage`,
+  // counted once from its message_end like any other answer.
+  const failure = failures.failure(thrown ?? undefined);
+  const errored = failed || Boolean(failure);
+  // Parity with the claude backend, which emits idle before its terminal
+  // result — the two backends must produce interchangeable frame streams.
+  emit({ type: "status", status: "idle" });
+  emit({
+    type: "result",
+    sessionId,
+    outcome: errored ? "error" : "success",
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(wireUsage ? { usage: wireUsage } : {}),
+    durationMs: Date.now() - startedAt,
+    numTurns: 1,
+    isError: errored,
+    ...(failure ? { failure } : {}),
+  });
 }
 
 /**

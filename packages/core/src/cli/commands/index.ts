@@ -41,6 +41,7 @@ import { queueCommand } from "./queue.js";
 import { scheduleCommand } from "./schedule.js";
 import { hygieneCommand } from "./hygiene.js";
 import { policyCommand } from "./policy.js";
+import { computeCommand } from "./compute.js";
 import { apifyCommand } from "./apify.js";
 
 import { storageCommand } from "./storage.js";
@@ -82,6 +83,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   queue: queueCommand,
   schedule: scheduleCommand,
   policy: policyCommand,
+  compute: computeCommand,
   apify: apifyCommand,
 };
 

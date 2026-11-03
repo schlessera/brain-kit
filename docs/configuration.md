@@ -594,6 +594,75 @@ modes remain available. The approved behavior change is recorded in
 [decisions/reranker-activation.md](decisions/reranker-activation.md). See [extending/rerankers.md](extending/rerankers.md) for the
 interface, the measurements and how to add your own.
 
+## `compute`
+
+External compute: named provider instances that can allocate a disposable
+sandbox, run a command in it, return its results and release it. Absent by
+default. With no `compute` key there is no provider and no network access, and
+every compute operation except health refuses with `compute_disabled`. Nothing
+runs remotely unless a caller names an instance; no instance is a default.
+[decisions/external-compute.md](decisions/external-compute.md) is the contract.
+
+```ts
+compute: {
+  providers: {
+    "boat-small": {
+      provider: "boat",              // a built-in name, or a ComputeProvider value
+      apiKeyEnv: "BOAT_CI_KEY",      // the variable holding this instance's key
+      options: { machine: "small" }, // validated by the provider's own schema
+      lease: { maxSeconds: 3600 },   // required, finite
+      maxConcurrent: 2,
+      hourlyCeilingUsd: 0.1,
+    },
+    "ithaca-host": {
+      provider: sshCompute({ host: "ithaca.example", workRoot: "/srv/jobs" }), // hypothetical package
+      lease: { maxSeconds: 1800 },
+    },
+  },
+},
+```
+
+| Key | Meaning |
+| --- | --- |
+| `providers.<id>` | One instance. The id is lowercase letters, digits and hyphens, at most 63 characters, and is what a caller names. Two instances of one implementation keep separate options and keys. |
+| `provider` | `"boat"` (the separate `@schlessera/brain-compute-boat` package, an optional peer loaded only when an instance names it; see [Boat](#boat)) or a `ComputeProvider` value. An unknown name is `provider_unknown`; a missing package, an unset key or options the provider rejects make the instance `provider_unavailable`. |
+| `apiKeyEnv` | The environment variable name holding the instance's key. The key never appears in config, job records, receipts, tool arguments, results or the sandbox environment. Without it a built-in reads its own default variable. |
+| `options` | Opaque to core; validated by the implementation's `configSchema`. |
+| `lease.maxSeconds` | Required. The longest lease a job on this instance may hold, at most seven days and never more than the provider's own ceiling. A job asks for this lease unless it names a shorter one. |
+| `maxConcurrent` | Jobs at once on this instance, counting finished jobs whose cleanup has not been confirmed and retained jobs until their retention ends. Default 1. |
+| `hourlyCeilingUsd` | Optional. When set, admission reserves `ceiling × lease` against the host's budgets. When absent the job runs with its cost recorded as unknown, bounded by the lease and the concurrency cap. |
+| `retainOnRelease` | Release keeps the sandbox's data for the provider's retention limit instead of discarding it. Refused when the provider cannot retain. A job may opt out (`retain: false`) but may only ask to retain (`--retain`, `retain: true`) on an instance that sets this. |
+
+### Boat
+
+`provider: "boat"` needs `@schlessera/brain-compute-boat` installed beside
+`@schlessera/brain`. Without `apiKeyEnv` the instance reads
+`BRAIN_COMPUTE_BOAT_API_KEY`, never the variable Boat's own CLI uses; give it a
+scoped key with the actions the
+[package README](../packages/compute-boat/README.md#the-key) lists (Boat's
+`ci` preset), never an account administration key. Its `options`, all
+optional and validated strictly:
+
+| Option | Meaning |
+| --- | --- |
+| `machine` | `small`, `default`, `large` or `xlarge`. |
+| `from` | A saved snapshot name or share code to start from. |
+| `environment` | A Boat environment to attach. Without it the sandbox gets none of the account's secrets or logins (`noEnv`). |
+| `org` | The organization wallet to bill. |
+
+A retained release keeps the sandbox's data for at most 14 days. Actual cost
+is Boat's own usage report at list price, and unknown without one.
+
+Job records, leases, reservations and collected artifacts live in a compute
+state directory outside the brain checkout and outside `brain.db`: by default
+`$XDG_STATE_HOME/brain/compute/<brain key>/` (`~/.local/state` when unset), or
+`BRAIN_COMPUTE_STATE_DIR`. It is deliberately not a config key: the brain is
+agent-editable. A state directory inside the brain is refused. `brain index
+--force` neither reads nor rebuilds it. See
+[extending/compute-providers.md](extending/compute-providers.md) for the job
+lifecycle and how to write a provider, and [`brain compute`](cli.md#external-compute)
+and the [`brain_compute_*` MCP tools](mcp.md#tools) for running jobs.
+
 ## `graph`
 
 `graph.root` is a repository-relative document path from which the knowledge
@@ -905,6 +974,9 @@ the capability you need and read its command's requirements.
 | `BRAIN_RERANK_MODE` | search | Selects `jev`, `heuristic` or `none`. An explicit `--rerank` still wins; neither can enable model judgment while `reranker.enabled` is false. |
 | `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Model search also requires `reranker.enabled: true`; absent key → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
+| `BRAIN_COMPUTE_STATE_DIR` | external compute | Absolute directory for compute job records and artifacts, outside the brain checkout. Default `$XDG_STATE_HOME/brain/compute/<brain key>`. |
+| `XDG_STATE_HOME` | external compute | Base of the default compute state directory. Default `~/.local/state`. |
+| `BRAIN_COMPUTE_BOAT_API_KEY` | external compute | Default key variable of a `boat` instance without `apiKeyEnv`. Read on the trusted host only; never forwarded into a sandbox. |
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
 | `CHROME_CDP_URL` | jobs scraping | Retained alias for `SCRAPE_CHROME_URL`; the latter wins when both are set. Without an endpoint the shared scraper can launch its own browser. |

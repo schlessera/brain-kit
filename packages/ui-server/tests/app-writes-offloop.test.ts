@@ -18,6 +18,7 @@ import { watchWriteSites } from "./helpers/write-sites.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { createPrincipal } from "../src/db/principals.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
+import { TurnCoordinator } from "../src/ws/turns.js";
 import { createSessionProfiles, SessionProfileError } from "../src/ws/session-profiles.js";
 import { expectRejection } from "./helpers/expect-rejection.js";
 import { createPolicyProposals } from "../src/brain/policy-proposal.js";
@@ -238,7 +239,7 @@ test("history readers wait for pending catalog writes; a failed acceptance's rev
   try {
     db.exec("CREATE TRIGGER refuse_odysseus BEFORE INSERT ON session_work WHEN NEW.request_id = 'refused' BEGIN SELECT RAISE(ABORT, 'Scylla'); END");
     const catalog = createSessionCatalog(() => db, quietLog);
-    const host = { catalog, coordinator: { unorderedSessions: new Set<string>() } } as never as Parameters<typeof acceptRequest>[0];
+    const host = { catalog, coordinator: new TurnCoordinator() } as never as Parameters<typeof acceptRequest>[0];
     expect(acceptRequest(host, "troy", "refused", null), "WORK_FAILED_ACCEPTANCE_HAS_A_REVISION").toBe(1);
     await catalog.settled!();
     expect(host.coordinator.unorderedSessions.has("troy"), "WORK_FAILED_ACCEPTANCE_UNORDERS").toBe(true);
@@ -291,7 +292,7 @@ test("only a session's newest acceptance orders or unorders it", () => {
   const settle: Array<(stored: boolean) => void> = [];
   let next: number | null = 1;
   const host = { catalog: { acceptWork: (_s: string, _r: string | null, _b: string | null, settled?: (stored: boolean) => void) => { settle.push(settled!); return next; } },
-    coordinator: { unorderedSessions: new Set<string>() } } as never as Parameters<typeof acceptRequest>[0];
+    coordinator: new TurnCoordinator() } as never as Parameters<typeof acceptRequest>[0];
   expect(acceptRequest(host, "troy", "req-1", null)).toBe(1);
   next = null;
   expect(acceptRequest(host, "troy", "req-2", null), "WORK_UNASSIGNED_ACCEPTANCE").toBeUndefined();

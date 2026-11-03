@@ -27,6 +27,12 @@ export interface DispatchContext {
    */
   restoreIfNeeded: (frameSessionId: string | null) => void;
   markHistoryReplaced: (key: ChatKey) => void;
+  /** A failed turn's retry was received, refused or is unknown. */
+  retryReceipt: (msg: Extract<ServerMessage, { type: "retry_receipt" }>) => void;
+  /** The host's receipt for a queued answer (D52 §2). */
+  answerReceipt: (msg: Extract<ServerMessage, { type: "ask_answer_receipt" }>) => void;
+  /** A session's pending follow-ups, as the host holds them (#1002). */
+  queueReport: (msg: Extract<ServerMessage, { type: "session_queue" }>) => void;
 }
 
 export type ServerMessageHandlerMap<T extends ServerMessageType> = {

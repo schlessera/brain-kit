@@ -59,8 +59,8 @@ test("actual hosted admission supplies only real journal/revert capabilities, in
   await parity(app.wsHost,true,true);
   // A restoration service without a journal cannot promise recovery either.
   for(const [withJournal,withRevert] of [[true,false],[false,true],[false,false]] as const) {
-   const host=new WsHost({brainPath:brain,registry,catalog:app.wsHost.catalog,governedTurns:app.wsHost.governedTurns,conversationProvider:live.provider,...(withJournal?{journal:app.wsHost.journal}: {})});
-   host.turnReverts=withRevert?app.wsHost.turnReverts:undefined;extraHosts.push(host);
+   const host=new WsHost({brainPath:brain,registry,catalog:app.wsHost.catalog,governedTurns:app.wsHost.governedTurns,conversationProvider:live.provider,...(withJournal?{journal:app.wsHost.journal}: {}),...(withRevert?{turnReverts:app.wsHost.turnReverts}:{})});
+   extraHosts.push(host);
    await parity(host,withJournal,false);
   }
  }finally{for(const host of extraHosts)await host.close();await app.close();await rm(root,{recursive:true,force:true});}
