@@ -11,7 +11,7 @@ import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxResolver } from "./resolve.js";
 import { createInboxStore } from "./store.js";
 
-import { findingSchema, nextSchema, resultSchema, hygieneWrites, HygieneAuthorityError, type Result, type Attempt } from "./hygiene-writes.js";
+import { findingSchema, IDLE_REVIEW, nextSchema, resultSchema, hygieneWrites, HygieneAuthorityError, type Result, type Attempt } from "./hygiene-writes.js";
 export { HygieneAuthorityError } from "./hygiene-writes.js";
 
 const id = z.string().min(1).max(256), text = z.string();
@@ -52,7 +52,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
-    return row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : { version: 1, status: "idle", position: 0, fixed: 0, dismissed: 0, snoozed: 0 };
+    return row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : IDLE_REVIEW;
   }
   function action(itemId: string): InboxActionItem {
     const item = store.getItem(itemId);
@@ -112,6 +112,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         }
         options.push(inboxOptionSchema.parse(option));
       }
+      // Media (#2780) can always be left pending for the rest of this pass.
+      if (finding.category === "media") options.push({ id: "leave-pending", label: "Leave pending", effect: effect(finding, "defer") });
       options.push({ id: "check", label: "Done, check again", effect: effect(finding, "check") },
         { id: "later", label: "Later", effect: effect(finding, "snooze") },
         { id: "dismiss", label: "Dismiss", effect: effect(finding, "dismiss") });
@@ -140,7 +142,10 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     // Recovery/next-item selection cannot authorize re-admission after retirement.
     if (paused && (!principalId || !resumeRetired)) return;
     // CLI selection/reconciliation and previews are outside write transactions.
-    let next = nextSchema.parse(await cli(["next"]));
+    // Findings left pending this pass are skipped while their fingerprint holds.
+    const deferred = state().deferred ?? [];
+    const nextArgs = deferred.length > 0 ? ["next", "--defer", deferred.map(d => `${d.findingId}=${d.fingerprint}`).join(",")] : ["next"];
+    let next = nextSchema.parse(await cli(nextArgs));
     if (principalId) authority(principalId);
     let finding = "finding" in next ? next.finding : null;
     if (paused && !("blocker" in next)) {
@@ -156,7 +161,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     // meanwhile is selected again, and a repair left without a preview is not offered.
     for (let attempt = 0; finding && deps.worktrees?.owns(finding.id) && missingPreview(options); attempt++) {
       if (attempt === 2) { options = options.filter(o => !(o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview)); break; }
-      next = nextSchema.parse(await cli(["next"]));
+      next = nextSchema.parse(await cli(nextArgs));
       finding = "finding" in next ? next.finding : null;
       options = await prepareOptions(finding);
     }
@@ -187,6 +192,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     return action(item.id);
   }
   async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string): Promise<Result> {
+    // Leave pending is review state only: nothing is sent to the CLI.
+    if (e.operation === "defer") return { id: e.findingId, status: "deferred" };
     const args = e.operation === "resolve" ? ["resolve", "--handler", e.handler!, "--input", JSON.stringify(e.input), "--expect-fingerprint", e.fingerprint, "--expect-preview", e.previewToken!, "--", e.findingId]
       : e.operation === "undo" ? ["undo", "--", e.undoToken!]
       : e.operation === "check" ? ["check", "--", e.findingId]
@@ -246,6 +253,9 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         const entry = listed.entries.find(v => v.id === e.findingId);
         const matches = entry?.fingerprint === e.fingerprint && entry.state === (e.operation === "dismiss" ? "dismissed" : "snoozed") && (e.operation !== "snooze" || Date.parse(entry.dueAt ?? "") === attempt.wait_until);
         result = { id: e.findingId, status: matches ? e.operation === "dismiss" ? "dismissed" : "snoozed" : "check_failed", code: matches ? undefined : "receipt-unknown" };
+      } else if (e.operation === "defer") {
+        // Host-only and idempotent: the deferral is recorded when this attempt finishes.
+        result = { id: e.findingId, status: "deferred" };
       } else result = { id: e.findingId, status: "check_failed", code: "undo-receipt-unknown" };
       await finish(attempt, result, true);
     }

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { makeTempBrain, cleanup, runCli } from "./cli-harness";
+import { makeTempBrain, cleanup, keylessEnv, runCli } from "./cli-harness";
 test("storage pack uses existing non-destructive maintenance and preserves history and refs", async () => {
   const root = makeTempBrain();
   const git = (...args: string[]) => { const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } }); expect(p.exitCode, p.stderr.toString()).toBe(0); return p.stdout.toString(); };
@@ -38,4 +38,26 @@ console.log(JSON.stringify({code:p.exitCode,out:p.stdout.toString(),err:p.stderr
     expect(JSON.parse(result.out), "STORAGE_PACK_ZERO_SPACE_REFUSAL").toMatchObject({ state: "refused", reason: "no_space", packed: null, headroom: { availableBytes: 0 } });
     expect(result.sameRefs).toBe(true); expect(result.retained).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// Git words its own pack-write refusal "Out of diskspace", not ENOSPC (#3357).
+test("a git pack write that runs out of space is no_space, not unavailable maintenance", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs"), { tmpdir } = await import("node:os");
+  const root = makeTempBrain(), bin = mkdtempSync(join(tmpdir(), "odysseus-git-enospc-"));
+  try {
+    const init = Bun.spawnSync(["git", "-C", root, "init", "-q"], { stdout: "pipe", stderr: "pipe" });
+    expect(init.exitCode, init.stderr.toString()).toBe(0);
+    writeFileSync(join(bin, "git"), `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = maintenance ]; then
+    echo "fatal: sha1 file '.git/objects/pack/tmp_pack_Ithaca' write error. Out of diskspace" >&2
+    exit 128
+  fi
+done
+exec '${Bun.which("git")}' "$@"
+`, { mode: 0o755 });
+    const result = await runCli(root, ["storage", "pack", "--json"], { PATH: `${bin}:${keylessEnv(root).PATH}` });
+    expect(result.code, result.stderr).toBe(2);
+    expect(JSON.parse(result.stdout), "STORAGE_PACK_GIT_OUT_OF_DISKSPACE").toMatchObject({ state: "partial", reason: "no_space" });
+  } finally { cleanup(root); rmSync(bin, { recursive: true, force: true }); }
 });
