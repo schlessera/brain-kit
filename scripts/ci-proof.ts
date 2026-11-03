@@ -2,7 +2,7 @@ import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
 import { requireCandidate, validateSelections } from "./candidate-proof";
 import { cpus, freemem, totalmem } from "node:os";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
@@ -12,6 +12,7 @@ import { resolveBrowserPin } from "./captures/provenance";
 import { diagramInstallationIdentity } from "./diagram-export-installation.mjs";
 import { diagramProducerRuntime } from "./diagram-export-producer.mjs";
 import { startUnitMemorySampler } from "./unit-memory";
+import { diskSampler, floorProblem } from "./ci-disk";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable, type Inputs } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
@@ -141,7 +142,9 @@ if (import.meta.main) {
         if (!Number.isFinite(available)) return;
         samples++; peakUsedBytes = Math.max(peakUsedBytes, totalmem() - available);
       };
-      sample(); const sampler = setInterval(sample, 1000);
+      // Turn fixtures keep their brains under the proof's TMPDIR (#3256).
+      const disk = diskSampler();
+      sample(); const sampler = setInterval(() => { sample(); disk.sample(); }, 1000);
       const unitMemory = category === "unit" ? await startUnitMemorySampler(join(root, "tmp/unit-memory.jsonl"), 10_000, true) : undefined;
       const phases: { name: string; elapsedSeconds: number; success: boolean }[] = [];
       try {
@@ -151,14 +154,20 @@ if (import.meta.main) {
           finally { phases.push({ name: command.name, elapsedSeconds: (performance.now() - start) / 1000, success }); }
         }
       } finally {
-        clearInterval(sampler); sample();
+        clearInterval(sampler); sample(); disk.sample();
         const resources = { category, shard, checkout: { sha, tree, parents },
           elapsedSeconds: (performance.now() - started) / 1000, phases,
           machine: { logicalCpus: cpus().length, totalBytes: totalmem(), sampledPeakUsedBytes: peakUsedBytes,
             activeCpuSeconds: cpu() - cpuStart, samples, samplingSeconds: 1 },
+          disk: disk.summary(),
           scope: "VM-wide during proof commands, including container work; setup/install and queue are measured separately by job steps. Sampling is not an exact process peak." };
         await Bun.write(join(root, "tmp/proof-resources.json"), JSON.stringify(resources, null, 2));
         console.log(`BRAIN_RESOURCE_RECEIPT ${JSON.stringify(resources)}`);
+        const lowDisk = floorProblem(resources.disk.path, resources.disk.minimumAvailableBytes, resources.disk.floorBytes);
+        if (lowDisk) {
+          console.error(`::error title=Runner disk below the turn-fixture floor::${lowDisk}`);
+          if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Infrastructure: ${lowDisk}\n`);
+        }
         await unitMemory?.stop();
       }
       if (category === "unit") {

@@ -304,6 +304,7 @@ describe("createClaudeBackend identity + profiles", () => {
       costReporting: true,
       concurrentSessions: true,
       followUp: true,
+      historyRemoval: true,
     });
   });
 
