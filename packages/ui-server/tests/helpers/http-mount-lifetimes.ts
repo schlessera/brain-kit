@@ -81,6 +81,7 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "GET /api/sessions/:sessionId/turns/:turnId/revert/plan": { shared: true, effects: "Missing journal returns before filesystem selection or work admission." },
   "GET /api/sessions/:sessionId/turns/:turnId/revert": { shared: true, effects: "No receipt rows; returns before interrupted-operation reconciliation." },
   "GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId": { shared: true, effects: "Missing receipt returns before interrupted-operation reconciliation." },
+  "POST /api/chat-deletions": { shared: false, effects: "Chat retirement admission and store cleanup; fresh host/catalog and retirement ledger." },
   "POST /api/sessions/:sessionId/turns/:turnId/revert": { shared: false, effects: "History/list/recovery reconciliation, pending listings, or revert admission; fresh host/catalog and task state." },
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { shared: true, effects: "Missing journal row returns before retained-object access." },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { shared: true, effects: "Missing journal returns before object reads or leases." },

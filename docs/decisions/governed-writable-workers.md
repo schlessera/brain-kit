@@ -1362,10 +1362,10 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:105`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:110`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
-`packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
+`packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
 or authority. Both also retain observations in host-private records and restore them before
 resumed native tools run. Claude keeps these records beside its transcript
@@ -1375,7 +1375,7 @@ the canonical brain root and native session identity; filenames contain only a
 SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
 regular-file validation and a 16 MiB per-session metadata bound protect the
 record (`saveNativeObservations`,
-`packages/ui-sdk/src/server/native-observation-storage.ts:66-79`).
+`packages/ui-sdk/src/server/native-observation-storage.ts:70-83`).
 Saves wait on the file system off the hosted server's event loop, land in call
 order, and complete before the tool they guard proceeds (#2416).
 
@@ -1901,7 +1901,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:485`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:492`)
   must not feed any budget.
 
 **Enforcement:**

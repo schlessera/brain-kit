@@ -27,7 +27,8 @@ import {
 } from "./local-exchanges.js";
 
 import { loadConversation } from "./conversation-storage.js";
-import { authorizedOwner, chatRetirement, isRetired, resolveChat, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
+import type { HostChatStore } from "./chat-store-cleanup.js";
+import { authorizedOwner, chatRetirement, isRetired, resolveChat, unfinishedChatRetirements, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
@@ -64,6 +65,10 @@ export interface SessionCatalog {
   chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
   /** A selected store owner's cleanup report under the retirement's intent. */
   recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+  /** A host store removes its copies of a retired chat and records the read-back outcome (#3230). */
+  cleanChatStore?(lifecycleId: string, store: HostChatStore): Promise<ChatRetirementStatus>;
+  /** Retirements some selected store has not confirmed yet, for restart reconciliation (#3230). */
+  unfinishedChatRetirements?(): Promise<ReturnType<typeof unfinishedChatRetirements>>;
   /** Whether a chat identity is retired. Readers treat a retired chat as absent. */
   chatRetired?(target: ChatTarget | { conversationId: string }): boolean;
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
@@ -316,6 +321,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
     async chatRetirement(operationId, principalId) { await tail; return chatRetirement(db(), operationId, principalId); },
     recordChatCleanup: (lifecycleId, store, outcome) => submit("chatCleanup", lifecycleId, store, outcome, Date.now()),
+    cleanChatStore: (lifecycleId, store) => submit("chatStoreCleanup", lifecycleId, store, Date.now()),
+    async unfinishedChatRetirements() { await tail; return unfinishedChatRetirements(db()); },
     chatRetired: target => "conversationId" in target ? isRetired(db(), "conversation", target.conversationId)
       : "sessionId" in target ? isRetired(db(), "session", target.sessionId) : isRetired(db(), "dialogue_owner", target.ownerId),
     dialogueClose: (conversationId,principalId,epoch,partial) => {

@@ -3,7 +3,8 @@ import type { AppEnv } from "../app-env.js";
 import type { Database } from "bun:sqlite";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
-import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { SESSION_NOT_FOUND, type SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { ChatRetiredError } from "../ws/chat-lifecycle.js";
 
 export function createSessionRoutes(deps: {
   registry: BackendRegistry;
@@ -19,6 +20,8 @@ export function createSessionRoutes(deps: {
    * earlier run are not listed: nothing would refresh them.
    */
   labels?: boolean;
+  /** Whether a chat identity is retired (#3230). A retired chat is absent from every list and read. */
+  retired?: (target: { sessionId: string } | { ownerId: string }) => boolean;
 }): Hono<AppEnv> {
   const { registry, db } = deps;
   const pending = new Map<AgentBackend, ReturnType<AgentBackend["listSessions"]>>();
@@ -88,7 +91,8 @@ export function createSessionRoutes(deps: {
           })
         )
       );
-      const listed = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      const listed = results.flatMap((result) => result.status === "fulfilled" ? result.value : [])
+        .filter((session) => !deps.retired?.({ sessionId: session.id }));
       // A handoff destination names its source (#61). The title is the one
       // the source's own backend lists, else the catalog's first prompt.
       const titles = new Map(listed.map((session) => [session.id, session.title]));
@@ -118,7 +122,7 @@ export function createSessionRoutes(deps: {
       const retainedRows = c.req.query("includeRetainedConversations") === "true" && principal
         ? db.query("SELECT id,created_at FROM dialogue_owners WHERE principal_id=? AND session_id IS NULL AND id>? ORDER BY id LIMIT 201").all(principal.id,after ?? "") as {id:string;created_at:number}[]
         : undefined;
-      const retainedConversations = retainedRows?.slice(0,200);
+      const retainedConversations = retainedRows?.slice(0,200).filter(row => !deps.retired?.({ ownerId: row.id }));
       const retainedAfter = retainedRows && retainedRows.length > 200 ? retainedConversations!.at(-1)!.id : undefined;
       return c.json({ sessions, ...(retainedConversations ? {retainedConversations} : {}), ...(retainedAfter ? {retainedAfter} : {}), ...(unavailableBackends.length ? { unavailableBackends } : {}) });
     } catch (err) {
@@ -131,13 +135,19 @@ export function createSessionRoutes(deps: {
 
   .get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
+    // Rechecked after every await: a chat retired mid-read publishes nothing (#3230).
+    const gone = () => deps.retired?.({ sessionId: id }) === true;
+    const absent = () => c.json({ error: SESSION_NOT_FOUND, message: "This host has no such session." }, 404);
     try {
       await deps.settled?.();
+      if (gone()) return absent();
       const backend = await registry.getBackendForSession(getStoredBackendId(id));
       const messages = await backend.getHistory(id);
       await deps.settled?.();
+      if (gone()) return absent();
       return c.json({ id, messages: deps.prepareHistory?.(id, messages) ?? messages });
     } catch (err) {
+      if (err instanceof ChatRetiredError || gone()) return absent();
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to get session" },
         500
