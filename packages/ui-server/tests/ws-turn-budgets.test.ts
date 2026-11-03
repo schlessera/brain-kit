@@ -25,6 +25,11 @@ for (const adapter of ["claude", "pi"] as const)
   for (const mode of adapter === "claude" ? ["token", "usd", "sdk", "unavailable", "late"] : ["token", "usd"])
     test(`actual ${adapter} completed response crosses the host ${mode === "unavailable" ? "unavailable accounting" : mode === "sdk" ? "SDK backstop" : mode === "usd" ? "USD budget" : mode === "late" ? "USD budget in a commit that lands after the response" : "token fallback"} and stops with ${mode === "unavailable" ? "budget_unavailable" : "budget_exceeded"}, preserving partial work`, async () => {
       const priced = mode !== "token", backstop = mode === "sdk", unavailable = mode === "unavailable", late = mode === "late";
+      // The block follows the report's commit on the write worker (#2850), queued
+      // behind the turn's earlier writes, so the fake waits for the host's abort
+      // instead of a fixed 200 ms a loaded runner can exceed. Only "late" returns
+      // early on purpose: before its commit lands, 400 ms after the response.
+      const abortWindowMs = late ? 200 : 2500;
       let failAccounting: () => void = () => { };
       const root = await mkdtemp(resolve(tmpdir(), "odysseus-budget-host-")), brain = resolve(root, "brain");
       await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
@@ -55,7 +60,7 @@ for (const adapter of ["claude", "pi"] as const)
                   req.bridge.emit(frame);
               }
             if (!req.signal.aborted)
-              await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(200)]);
+              await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(abortWindowMs)]);
           }
           else {
             let listener: (event: AgentSessionEvent) => void = () => { };
@@ -63,7 +68,7 @@ for (const adapter of ["claude", "pi"] as const)
               async prompt() {
                 listener({ type: "message_end", message: { role: "assistant", model: "unknown-model", stopReason: "toolUse", content: [], usage: { input: 5, output: 1, cacheRead: 3, cacheWrite: 1, cost: { total: 0 } } } } as unknown as AgentSessionEvent);
                 if (!req.signal.aborted)
-                  await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(200)]);
+                  await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(abortWindowMs)]);
               } };
             const pool = createSessionPool({ newSession: async () => ({ session, turnContext: createTurnContext() }), openSession: async () => { throw Error("No fixture resume"); } });
             await createPiTurnRunner(pool, { brainPath: brain })({ ...req, profileId: undefined });

@@ -18,11 +18,11 @@ test("an additional importer cannot mutate a handler map before the private disp
   expect(sourceBrowserDispatch(root,[...files,"extra.ts"],browserImporters(root,[...files,"extra.ts"])).has(owner)).toBe(false);
 });
 test("audited imports of a different chat helper cannot gain the handler map through drift",()=>{
-  const {root,write}=fixture(),consumers=["packages/ui-react/src/connection.ts","packages/ui-react/src/hooks/use-websocket.ts"],selected=[...files,...consumers];
+  const {root,write}=fixture(),consumers=["packages/ui-react/src/ws-client/inbound.ts","packages/ui-react/src/hooks/use-websocket.ts"],selected=[...files,...consumers];
   for(const file of consumers)write(file,readFileSync(join(repo,file),"utf8"));
   expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner)).toBe(true);
   for(const consumer of consumers){
-    const specifier=consumer.includes("/hooks/")?"./websocket-handlers/chat.js":"./hooks/websocket-handlers/chat.js";
+    const specifier=consumer.includes("/hooks/")?"./websocket-handlers/chat.js":"../hooks/websocket-handlers/chat.js";
     write(consumer,readFileSync(join(repo,consumer),"utf8")+`\nimport {chatFrameHandlers} from "${specifier}"; chatFrameHandlers.text_delta=external;\n`);
     expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner),`UNREVIEWED_HELPER_CONSUMER_REFUSED: ${consumer}`).toBe(false);
     write(consumer,readFileSync(join(repo,consumer),"utf8"));

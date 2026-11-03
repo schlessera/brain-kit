@@ -28,6 +28,7 @@ import type { AgentBackend, LiveConversationProvider } from "@schlessera/brain-u
 import { createKeyedLock, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { ConversationHost } from "./conversation.js";
+import { turnLogAttributes, type TurnLogContext } from "./limits.js";
 import type { Labeller } from "../labels/labeller.js";
 import { createPillLabels, type PillLabels } from "../labels/pill-labels.js";
 import type { ApplicationPlanner } from "../brain/application.js";
@@ -59,32 +60,19 @@ const AUTHORIZATION_EXPIRY_SWEEP_MS = 1_000;
 const SESSION_EXPIRED_CLOSE_CODE = 1008;
 const SESSION_EXPIRED_CLOSE_REASON = "Session expired";
 
-/**
- * Budget for the host-side follow-up queue of ONE session (backends without a
- * native `followUp`; with one, messages go into the running turn and none of
- * this applies).
- *
- * Bytes rather than a message count, because that is what the cost actually
- * tracks: a queued entry is retained in this process until its turn runs, and
- * an entry carrying four images outweighs a hundred carrying text. Counting
- * messages made a text-only queue and a 50 MB image queue look identical.
- *
- * Past the warn mark the message is still accepted — the sender is told the
- * queue is getting heavy, in `detail` on the `queued` status and in the server
- * log. Past the hard cap it is refused with SESSION_QUEUE_FULL, which is an
- * explicit error frame, never a silent drop.
- */
-export const QUEUE_WARN_BYTES = 20 * 1024 * 1024;
-export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
-
-/**
- * Backstop on depth. Bytes do not bound COUNT, and every queued entry becomes
- * its own turn: without this, ~500k one-line messages fit inside the byte cap
- * and would run the session for days. Not the limit anyone should hit.
- */
-export const MAX_SESSION_QUEUE = 50;
+export {
+  MAX_SESSION_QUEUE,
+  QUEUE_MAX_BYTES,
+  QUEUE_WARN_BYTES,
+  turnLogAttributes,
+  type TurnLogContext,
+} from "./limits.js";
 
 export interface WsHostOptions {
+  /** @internal Concrete user history service mounted by this host, not agent authority. */
+  turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  /** @internal The brain/git lock the host shares, when the app built a service that needs it first. */
+  workerLock?: KeyedLock;
   /** @internal Trusted server-state placement for the existing identity probe. */
   identitySentinelDirectory?: string;
   /** @internal Host-owned observed changes; absent histories remain unrecorded. */
@@ -224,25 +212,6 @@ export interface ToolPermissions {
   add(toolName: string): void | Promise<void>;
 }
 
-/** Identity of one turn, as it appears on a log record. */
-export interface TurnLogContext {
-  sessionId?: string | null;
-  turnId?: string | null;
-  providerId?: string | null;
-}
-
-/**
- * Log attributes for one turn. Null fields are omitted rather than stringified
- * — a new session has no sessionId until `session_info` names it.
- */
-export function turnLogAttributes(turn: TurnLogContext): Record<string, string> {
-  return {
-    ...(turn.sessionId ? { "session.id": turn.sessionId } : {}),
-    ...(turn.turnId ? { "turn.id": turn.turnId } : {}),
-    ...(turn.providerId ? { profile: turn.providerId } : {}),
-  };
-}
-
 /**
  * Everything one WebSocket coordinator instance owns: turn state, the session
  * catalog, the backend registry, the attached client sockets, branding copy,
@@ -258,14 +227,14 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  */
 export class WsHost {
   /** @internal Concrete user history service mounted by this host, not agent authority. */
-  turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  readonly turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   /** Explicit local chat deletion (#3230); present when the host answers `POST /api/chat-deletions`. */
   chatDeletion?: import("./chat-deletion.js").ChatDeletion;
   /** @internal Concrete host-owned scope observation and process control. */
   readonly scope?: import("../brain/turn-scope.js").TurnScope;
   readonly journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Shared across adapters, native tools, curated applications and index refresh. */
-  readonly workerLock: KeyedLock = createKeyedLock();
+  readonly workerLock: KeyedLock;
   /** @internal Trusted server-state placement, revalidated at each turn. */
   readonly identitySentinelDirectory?: string;
   readonly brainPath?: string;
@@ -298,11 +267,14 @@ export class WsHost {
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
   /** @internal Turn bookkeeping shared with the package's own connection and dispatch modules. */
-  readonly coordinator: TurnCoordinator = new TurnCoordinator();
+  readonly coordinator: TurnCoordinator;
   /** @internal Keep native leases/state open until cancelled runners settle. */
   readonly turnTasks = new Set<Promise<void>>();
-  /** @internal Application shutdown refuses new runners. */
-  closing = false;
+  #closing = false;
+  /** @internal Application shutdown refuses new runners; set once by `beginClosing`. */
+  get closing(): boolean {
+    return this.#closing;
+  }
   /** @internal Receipt order is compared only within this host's session queues. */
   nextSendOrder = 0;
   /** @internal Host wiring (#1053). */
@@ -372,6 +344,8 @@ export class WsHost {
   private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
+    this.turnReverts = options.turnReverts;
+    this.workerLock = options.workerLock ?? createKeyedLock();
     this.journal = options.journal;
     this.policyProposals = options.policyProposals;
     this.scope = options.scope;
@@ -400,6 +374,28 @@ export class WsHost {
     this.maxConcurrentSessions =
       options.maxConcurrentSessions ?? (() => DEFAULT_MAX_CONCURRENT_SESSIONS);
     this.observability = options.observability ?? createSilentObservability();
+    this.log = this.observability.logger("ws");
+    this.coordinator = new TurnCoordinator({
+      log: this.log,
+      // Every settled permission request, by any path, reaches the connections
+      // that asked for host outcomes (#957).
+      onApprovalSettled: (toolUseId, record) => {
+        this.sendToCapable("toolResolution", {
+          type: "tool_resolution",
+          toolUseId,
+          outcome: record.outcome,
+          ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+          turnId: record.turnId,
+          ...(record.channel ? { channel: record.channel } : {}),
+          ...(record.reason ? { reason: record.reason } : {}),
+        });
+      },
+      // Every change to a session's pending follow-ups reaches the connections
+      // that asked for the queue (#1002).
+      onQueueChanged: (sessionId, change) => {
+        this.sendToCapable(FOLLOW_UP_QUEUE_CAPABILITY, this.followUpQueueFrame(sessionId, change));
+      },
+    });
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
@@ -434,7 +430,6 @@ export class WsHost {
       ? createPillLabels({ labeller: options.labeller, catalog: this.catalog, coordinator: this.coordinator })
       : null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
-    this.log = this.observability.logger("ws");
     this.failureReplay = new FailureReplay(this.catalog, this.log);
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {
@@ -455,25 +450,6 @@ export class WsHost {
     this.connectionsRefused = meter.createCounter("ws.connections.refused", {
       description: "WebSocket connections refused before admission",
     });
-    this.coordinator.log = this.log;
-    // Every settled permission request, by any path, reaches the connections
-    // that asked for host outcomes (#957).
-    this.coordinator.onApprovalSettled = (toolUseId, record) => {
-      this.sendToCapable("toolResolution", {
-        type: "tool_resolution",
-        toolUseId,
-        outcome: record.outcome,
-        ...(record.sessionId ? { sessionId: record.sessionId } : {}),
-        turnId: record.turnId,
-        ...(record.channel ? { channel: record.channel } : {}),
-        ...(record.reason ? { reason: record.reason } : {}),
-      });
-    };
-    // Every change to a session's pending follow-ups reaches the connections
-    // that asked for the queue (#1002).
-    this.coordinator.onQueueChanged = (sessionId, change) => {
-      this.sendToCapable(FOLLOW_UP_QUEUE_CAPABILITY, this.followUpQueueFrame(sessionId, change));
-    };
     this.authorizationExpiryTimer = setInterval(
       () => this.expireAuthorizationContexts(),
       AUTHORIZATION_EXPIRY_SWEEP_MS
@@ -843,9 +819,18 @@ export class WsHost {
       body: "expired principal push unbind failed", attributes: { error: error instanceof Error ? error.message : String(error) } }));
   }
 
+  /**
+   * Refuse new runners from now on. Application shutdown calls it first, so
+   * nothing starts while the rest of the app drains.
+   * @internal Host wiring (#2515).
+   */
+  beginClosing(): void {
+    this.#closing = true;
+  }
+
   /** Stop host-owned timers during application/test teardown. */
   close(): Promise<void> {
-    this.closing = true;
+    this.beginClosing();
     this.coordinator.cancelAll("Server shutting down");
     clearInterval(this.authorizationExpiryTimer);
     this.scope?.close();

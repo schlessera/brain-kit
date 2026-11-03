@@ -53,5 +53,5 @@ test("live history keeps track-file native identity joins before source normaliz
     expect(live.at(-1)!.failure,"LIVE_HISTORY_RETAINS_NATIVE_FAILURE_JOIN").toEqual(ordinary.at(-1)!.failure);
     expect(live.at(-1)!.toolCalls).toEqual(ordinary.at(-1)!.toolCalls);
     expect(env!.items.filter(i=>i.kind === "typed").map(i=>i.text)).toContain("The loop is short.");
-  } finally { host.coordinator.reset(); await host.close(); db.close(); rmSync(root,{recursive:true,force:true}); }
+  } finally { await host.close(); db.close(); rmSync(root,{recursive:true,force:true}); }
 });

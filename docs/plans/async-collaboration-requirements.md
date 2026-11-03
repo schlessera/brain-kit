@@ -266,7 +266,7 @@ Stated before the requirements because five of them derive from it.
   promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:416-474`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
-  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:397-403`). Aborting does **not** undo completed tool side
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.
@@ -279,7 +279,7 @@ Stated before the requirements because five of them derive from it.
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
   `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
-  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
+  move into a `PreToolUse` hook (`export function enforcementHookFor`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
   credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:201-209`)),
