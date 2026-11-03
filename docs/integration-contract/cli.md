@@ -3,6 +3,108 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## External compute (additive, 0.45.0, #3107)
+
+`brain compute` exposes the [external compute](../decisions/external-compute.md)
+operation set. The CLI and the [`brain_compute_*` MCP tools](mcp.md#external-compute-tools-additive-0450-3107)
+call one core implementation (`createComputeOps`,
+`packages/core/src/lib/ops/compute.ts:248-328`) and print the same envelopes.
+
+```
+brain compute health [--provider ID]
+brain compute plan --provider ID [run options] -- COMMAND [ARGS...]
+brain compute run --provider ID [run options] [--detach] -- COMMAND [ARGS...]
+brain compute status JOB
+brain compute cancel JOB
+brain compute collect JOB
+brain compute abandon JOB --confirm
+brain compute reconcile
+```
+
+Run options: `--provider ID` (required; no instance is a default), `--cwd
+PATH`, `--env NAME=VALUE` (repeatable; non-secret values only),
+`--source PATH` (repeatable, repository-relative), `--artifact
+PATH[:MAX_BYTES]` (repeatable; default cap 1 MiB), `--lease SECONDS` and
+`--retain`. `--retain` (MCP `retain: true`) is refused with `policy_denied`
+unless the instance sets `retainOnRelease`; a job may only narrow retention,
+so `retain: false` is always allowed. A retained job holds one of its
+instance's `maxConcurrent` slots until its `retainedUntil` has passed. The
+command and its arguments follow a bare `--`. A flag a verb
+does not take is a usage error, and no flag names a caller: the caller is
+`{ kind: "cli", principal: <operating-system user> }`. A job is addressable
+only by the caller kind and principal that started it, so a job started
+through MCP is `job_unknown` here and the reverse.
+
+`abandon` and `reconcile` are CLI-only operator verbs. `abandon` accepts an
+unresolved `uncertain` outcome and needs `--confirm`; `reconcile` visits every
+unfinished job of this brain that no live process holds.
+
+**Envelopes.** Every verb prints one JSON document in machine mode.
+
+| Verb | Success |
+| --- | --- |
+| `health` | `{ ok: true, enabled, instances: [{ id, provider, status, reason, capabilities }] }`. `status` is `ready`, `provider_unknown` or `provider_unavailable`; `provider` and `capabilities` are `null` when the instance does not resolve. Without a `compute` key: `{ ok: true, enabled: false, instances: [] }`. Allocates nothing. |
+| `plan` | `{ ok: true, plan: { instance, provider, lease: { seconds, releaseAllowanceSeconds }, source: { files: [{ path, sha256, bytes }], hash }, artifacts: [{ path, maxBytes }], estimate: { usd, basis }, retain, slots: { used, max } } }`. No effect. |
+| `run`, `status`, `cancel`, `abandon` | `{ ok: true, job: Job }` |
+| `collect` | `{ ok: true, job: Job, output: { stdout, stderr, truncated }, artifacts: [{ path, status, bytes, sha256, file }] }`. `stdout` and `stderr` are at most 64 KiB each, `null` when nothing was stored; `file` is the artifact's path in the host compute state directory, `null` unless collected. |
+| `reconcile` | `{ ok: true, visited: [{ id, state, cleanup }], skipped: [{ id, reason }] }` |
+
+`Job` is `{ id, instance, provider, state, createdAt, updatedAt, lease: {
+seconds, deadline }, source: { hash, files }, exit, artifacts, cleanup: {
+state, retainedUntil, lastError }, cost, cancelRequested, uncertain,
+terminal, blocked, settled }`. Times are ISO 8601 UTC. `id` is an opaque `cj_` handle,
+never a vendor id. `state` is one of `admitted`, `allocating`, `staging`,
+`running`, `collecting`, `releasing`, `uncertain`, `succeeded`, `failed`,
+`cancelled`, `expired` or `abandoned`. `exit` is `null` or `{ code, signal,
+reason }` with `reason` `exited`, `signal`, `oom`, `provider_error`, `killed`
+or `unknown`. `artifacts` is `[{ path, status, bytes, sha256 }]` with `status`
+`pending`, `collected`, `missing`, `too_large` or `not_collected`.
+`cleanup.state` is `none`, `pending`, `released`, `release_failed`, `retained`
+or `unknown`, kept apart from `state` so a failed release never reads as
+success. `cost` is `{ estimate: { usd, basis: "ceiling" | "none" }, actual: {
+usd, coverage: "complete" | "partial" | "unknown", source: "provider" | "none"
+} }`; an unknown amount is `null`, never `0`. `uncertain` is `null` or `{
+step, reason }`, `terminal` is `null` or `{ state, at, reason }`, and
+`blocked` says why this visit could not advance a job no live process holds
+(its instance is unavailable or was reconfigured), else `null`. `settled`
+(additive, #3108) is `true` once no visit will change the job: it is terminal,
+its cleanup is final and its cost has settled against the caller's budget; a
+job that ended with its reservation still open is not settled. No sandbox or
+command id, environment value or credential appears in any envelope.
+
+**Refusals** print `{ ok: false, error: { code, message } }` and allocate
+nothing. `code` is one of `compute_disabled`, `provider_unknown`,
+`provider_unavailable`, `capability_unsupported`, `lease_required`,
+`policy_denied`, `approval_required`, `source_refused`, `budget_exceeded`,
+`concurrency_exhausted`, `accounting_unavailable` or `job_unknown`; `message`
+is prose. `plan` and `run` read the brain's
+[governance policy](../supported-inputs.md#governance-policy) and apply its
+`providers` rules with the instance id as recipient; an invalid policy file
+refuses them with `policy_denied`.
+
+**`run`.** Attached by default: after the command starts, the CLI advances
+the job through `status` with backoff (250 ms rising to 5 s) until it has
+ended and its cleanup is no longer `pending` or `release_failed`, giving up
+three visits after the job ended, and prints only the final envelope.
+SIGINT and SIGTERM are handled from before admission: the first one cancels
+the job, as soon as it has started when it arrives during allocation, staging
+or start, and prints the `cancel` envelope, whose `cleanup.state` says
+whether release was confirmed. A second one leaves at once with exit `130`
+(SIGINT) or `143` (SIGTERM), naming the job on stderr, or pointing at
+`brain compute reconcile` when no job was recorded yet. In human mode the job
+id is printed on stderr as soon as its record exists; machine mode still
+prints one final envelope on stdout. `--detach` prints the `run` envelope
+once the command has started.
+
+**Exit codes.** `0` success; `1` a usage error or a refusal; `2` an internal
+failure, an attached run that could not advance its job (`blocked`), or a
+`run` whose job ended with its cleanup not confirmed (`pending`,
+`release_failed` or `unknown`: a sandbox may still be running; stderr points
+at `brain compute reconcile`); `3` an attached or detached `run` whose job
+ended in a state other than `succeeded` with its cleanup confirmed; `130` or
+`143` a second SIGINT or SIGTERM during `run`. `status`, `cancel` and
+`collect` exit `0` whatever state they report.
+
 ## Apify operations (additive, 0.45.0, #3162)
 
 `brain apify` runs the seven fixed Apify operations the core MCP server's
@@ -505,7 +607,7 @@ resumption. The host must retain a successful complete export at least every
 | `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }], "state": "active" \| "dormant", "contextTokens": number }], "available": [{ "key", "description", "enabled": false }] }` — Existing fields and envelope are retained. The historical `enabled` array includes every configured module, even dormant ones. `key` is the module's `brain.config` key. `types` and `commands` are its declared type names and CLI words; `tools` stays the declared canonical names. `description` is from package.json, or null. Each configured module additionally includes `version: string | null` from package.json and `renderers: Record<string, { fences?: string[], extensions?: string[], client: string, static?: string }>` (empty object when absent). Dormant modules retain their declared renderer metadata; only active modules participate in dispatch. `/api/modules` passes through this metadata. `available` lists declared packages absent from config. `cron` is shape-constrained and empty for dormant modules. `contextTokens` is a nonnegative integer active-context estimate (see Module dormancy below). |
 | `brain module enable <name> --json` / `disable <name> --json` | `{ "module": string, "state": "active" \| "dormant", "changed": boolean, "context": { "entered": string[], "left": string[] } }` — Toggle a configured manifest name, preserving domain config and documents. Synchronize managed skills and owned instruction regions. Unchanged repeated commands return changed:false. Errors use the existing nonzero-exit/stderr convention. |
 | `brain --version` | text: the core package's SemVer version and a newline, nothing else (`0.37.0`). `-v` is the same. Only as the first argument |
-| `brain config check --json` | `{ "valid": true, "path": string \| null, "taxonomy": { "types": Record<string, { "dir": string \| null, "owner", "prefixes": string[] }>, "inbox", "canonical", "dirAnchors", "modules": string[] } }`, or `{ "valid": false, "error" }` with exit 1 when the config does not load. `prefixes` are each type's effective `match` prefixes (default `[dir]`), normalized to end in `/`; `inbox` is the fallback type for paths outside every prefix. Unchanged since the initial release; documented in 0.44.0 because hosted turns translate provider `types` selectors with `taxonomy.types[*].prefixes` and `taxonomy.inbox` ([which selectors](../supported-inputs.md#governance-policy), #2694). |
+| `brain config check --json` | `{ "valid": true, "path": string \| null, "taxonomy": { "types": Record<string, { "dir": string \| null, "owner", "prefixes": string[] }>, "inbox", "canonical", "dirAnchors", "modules": string[] } }`, or `{ "valid": false, "error" }` with exit 1 when the config does not load. `prefixes` are each type's effective `match` prefixes (default `[dir]`), normalized to end in `/`; `inbox` is the fallback type for paths outside every prefix. Unchanged since the initial release; documented in 0.44.0 because hosted turns translate provider `types` selectors with `taxonomy.types[*].prefixes` and `taxonomy.inbox` ([which selectors](../supported-inputs.md#governance-policy), #2694). The valid shape gains `compute` (additive, 0.45.0, #3108): `{ "enabled": false, "providers": {} }` without a `compute` key, else `{ "enabled": true, "providers": Record<id, { "provider": string \| null, "byValue": boolean, "apiKeyEnv": string \| null, "options": object \| null, "lease": { "maxSeconds" }, "maxConcurrent", "hourlyCeilingUsd", "retainOnRelease" }> }`, with absent limits `null`. A provider passed as a value is `provider: null`, `byValue: true`, `apiKeyEnv: null` and `options: null`. Credentials are named, never resolved; a hosting server reads the summary as data. |
 | `brain doctor --json` | `{ "checks": [{ "id", "status": "pass"\|"warn"\|"fail", "detail", "fix"? }] }` (new in brain-kit). Check ids other than `instructions-weight` are not part of this contract, and `detail` is prose. `instructions-weight` (added in 0.38.0, additively) estimates the tokens always loaded into a session (`CLAUDE.md` with its in-brain `@` imports, `AGENTS.md`, model-invocable skill descriptions), and is `warn` above the optional `brain.config` key `instructions.maxTokens` (default `8000`) |
 | `brain init --check` | `{ "bun": { "version", "ok" }, "git": { "repo" }, "hooksPath": { "set", "value" }, "config": { "exists", "valid", "initialized", "path", "error"? }, "contentDirs": { "present", "missing" }, "keys": { "GEMINI_API_KEY", "ANTHROPIC_API_KEY" } }` (new in brain-kit). `bun.version` is `null` when not running under Bun. `git.repo` says whether the root is inside a git work tree. `hooksPath.value` is git's `core.hooksPath`, `null` when unset. `config.path` is `null` when there is no config, and `error` is present only when the config failed to load (`valid: false`). `initialized` is true only when the config declares something (profile, taxonomy, modules, embeddings), so a brain holding the template's empty starter config reads as `exists: true, initialized: false` (added in 0.37.0). `contentDirs` splits the core types' directories into those that exist and those that do not. Each `keys` entry is a boolean — whether that variable is set — never the key |
 | `brain okf export --json` | `{ "outDir", "filesExported", "assetsCopied", "linksConverted", "linksDegraded", "degradedLinks", "indexFilesGenerated", "topLevelDirectories", "warnings" }` |

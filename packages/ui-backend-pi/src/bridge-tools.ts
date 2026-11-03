@@ -1,5 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { APIFY_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, REFERENCE_TOOL_CONTRACTS, handleApifyTool, handleInboxTool, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, REFERENCE_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -93,6 +93,8 @@ export interface PiBridgeToolOptions {
     turnTemp?: boolean;
     /** Shared reference source and managed worktrees (#2432). */
     reference?: boolean;
+    /** External compute on the host (#3108). */
+    compute?: boolean;
     /** The fixed Apify operations (#3162). */
     apify?: boolean;
   };
@@ -329,6 +331,16 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
     async execute(_id: string, input: unknown) {
       const result = await handleReferenceTool(contract.name, input, turn.bridge ?? {});
+      if (result.isError) throw new Error(result.text);
+      return textResult(result.text);
+    },
+  });
+  // External compute (#3108) runs on the host: its bridge binds the caller,
+  // the frozen policy, the approval card and the credentials; a refusal is a tool error.
+  if (capabilities?.compute) for (const contract of COMPUTE_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(id: string, input: unknown) {
+      const result = await handleComputeTool(contract.name, input, turn.bridge ?? {}, id);
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },

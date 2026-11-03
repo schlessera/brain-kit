@@ -23,7 +23,7 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
     return checks;
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
-    env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
+    env: { NODE_OPTIONS: "--max-old-space-size=6144" } });
   if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });

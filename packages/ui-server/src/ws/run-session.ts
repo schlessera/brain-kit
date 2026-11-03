@@ -718,7 +718,8 @@ async function runRetainedSession(
           governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
             ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
             ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined,
-          governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined
+          governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
+          governedHold ? { policy: governedHold.policy } : undefined
         );
         // A failed update is already on each application's Activity record,
         // and its paths stay queued for the next reader; the turn still ends.
@@ -904,6 +905,18 @@ async function runRetainedSession(
           ? "Turn timed out"
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
+        // External compute (#3108, ruling R7): a cancelled, timed-out,
+        // budget-stopped or revoked turn cancels the jobs it started; a turn
+        // that ended normally leaves them to the host driver, so a later turn
+        // of the conversation can collect them. Not awaited: release is bounded
+        // by each provider call, and the turn's end must not wait on a vendor.
+        if (host.computeTools) {
+          if (abortController.signal.aborted || turn.cancelled || revokedAdmission) {
+            const reason = turn.cancelled ? "the turn was cancelled" : revokedAdmission ? "the turn's authority was revoked"
+              : budgetFailure ? "the turn's budget stopped it" : "the turn was stopped";
+            void host.computeTools.cancelTurn(turn.turnId, reason).catch(error => host.log.emit({ severityText: "ERROR", body: `compute jobs of a stopped turn were not cancelled: ${String(error)}` }));
+          } else host.computeTools.endTurn(turn.turnId);
+        }
         await providerRelay?.stop();
         turnEgress?.stop();
         // The session's next turn reads these hosts back as contacted (G6).

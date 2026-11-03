@@ -104,6 +104,8 @@ export interface WsHostOptions {
   referenceWorktreeAccess?: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432); used only with `referenceWorktreeAccess`. */
   referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal Hosted external compute (#3108). */
+  computeTools?: import("../brain/compute-host.js").ComputeHost;
   /** @internal The Apify operations (#3162): interactive turns of both backends call them through the bridge. */
   apify?: import("../apify/host.js").ApifyHost;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -280,6 +282,8 @@ export class WsHost {
   readonly referenceWorktreeAccess: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432), present only with `referenceWorktreeAccess`. */
   readonly referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal Hosted external compute (#3108). */
+  readonly computeTools?: import("../brain/compute-host.js").ComputeHost;
   /** @internal The Apify operations (#3162). */
   readonly apify?: import("../apify/host.js").ApifyHost;
   /** @internal The open worker generation of each running turn. */
@@ -379,6 +383,7 @@ export class WsHost {
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
     if (this.referenceWorktreeAccess) this.referenceTools = options.referenceTools;
+    this.computeTools = options.computeTools;
     this.apify = options.apify;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;

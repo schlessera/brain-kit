@@ -612,7 +612,18 @@ synthetic merge `2771c2f5119e5b8aaf3234ae24452f6dfde86e70`, the same source
 as the cancelled job. Neither recovery nor these limits explains the original
 slowdown, whose cause the maintainer accepted as unknown for this repair.
 
-The compiler retains `tsc --noEmit` and the 4096 MiB `NODE_OPTIONS` setting;
+> **2026-11-03 — heap budget raised to 6144 MiB (maintainer ruling, #3103).**
+> The full-tree compiler outgrew 4096 MiB: main's verify typechecks reported
+> about 4.21 GB of compiler memory under that cap
+> (CI runs 41686585255, 41673315689, 41671155878), and the external compute
+> epic's exact-main candidate aborted on heap exhaustion with no diagnostic
+> (CI run 41690873045). Locally, `tsc --noEmit --extendedDiagnostics` reported
+> 4,890,699 KiB on main `971155274` and 4,926,845 KiB with the epic merged.
+> The runner reported about 14.8 GB available, so 6144 MiB restores headroom
+> without approaching capacity. Only the number changes; the command, the
+> diagnostics and the receipts below are unchanged.
+
+The compiler retains `tsc --noEmit` and the 6144 MiB `NODE_OPTIONS` setting;
 only verify appends `--extendedDiagnostics`, forwarded through Bun's existing
 package script. Compiler totals and memory describe that invocation, not
 process RSS or runner capacity. Bun's advertised Node compatibility version

@@ -21,7 +21,7 @@ test("--for ui-react prints exactly its forward closure in unchanged publish ord
   expect(dryRun("--jobs=2", "--for", "ui-react").out).toBe(result.out);
   expect(dryRun("--jobs=1").out).toBe(dryRun().out);
   expect(selectBuildPackages(repo, ["ui-react", "ui-server", "core"]).map(pkg => pkg.dir)).toEqual([
-    "common", "geo", "render-template", "scrape", "core", "ui-kit", "ui-render-puppeteer", "ui-sdk",
+    "common", "compute-boat", "geo", "render-template", "scrape", "core", "ui-kit", "ui-render-puppeteer", "ui-sdk",
     "ui-backend-claude", "ui-backend-pi", "ui-react", "ui-server",
   ]);
 });

@@ -13,12 +13,12 @@ test("Pi production session acquisition builds one full roster even voice-first 
     const make = async (_id: unknown, env: SessionEnv) => { observed = env; return { session: { sessionId: "voyage", dispose() {} } as never, turnContext: createTurnContext() }; };
     const pool = createSessionPool({ newSession: make, openSession: make } as never, false);
     const bridge: any = { emit() {}, requestPermission: async () => ({ behavior: "allow" }) };
-    if (mode === "typed") bridge.proposePolicyChange = async () => {};
+    if (mode === "typed") { bridge.proposePolicyChange = async () => {}; bridge.compute = async () => ({ ok: true }); }
     const { entry } = await pool.acquire({ prompt: "Return to Ithaca", signal: new AbortController().signal, bridge,
       ...(mode === "voice" ? { posture: "voice" } : {}), noGrantSurface: mode !== "typed" });
     const tools = createPiBridgeTools({ brainPath: "/tmp/odysseus", turn: entry.turnContext, capabilities: observed!.caps });
     rosters.push(JSON.stringify(tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))));
-    for (const name of names) expect(tools.some(tool => tool.name === name), `PI_FULL_ROSTER_${mode}_${name}`).toBe(true);
+    for (const name of [...names, "brain_compute_run", "brain_compute_collect"]) expect(tools.some(tool => tool.name === name), `PI_FULL_ROSTER_${mode}_${name}`).toBe(true);
     pool.finish(entry);
   }
   for (const roster of rosters.slice(1)) expect(roster, "PI_FIXED_VOICE_FIRST_ROSTER").toBe(rosters[0]);

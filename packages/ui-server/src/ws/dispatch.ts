@@ -3,7 +3,7 @@ import { ChatRetiredError } from "./chat-lifecycle.js";
 import { resolveChatFiles, withTrackFiles } from "../tracks/read.js";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { estimateDecodedBase64Bytes } from "./attachments.js";
-import { FOLLOW_UP_QUEUE_CAPABILITY, PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
+import { ACTIVITY_COMPUTE_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
 import type { AuthorizationContext } from "./turns.js";
@@ -597,7 +597,7 @@ export async function handleClientMessage(
       // a dead socket in the registry and keep the activity poller alive for the
       // life of the process.
       if (connection.closed) break;
-      host.activity?.stream.handleSubscribe(ws, msg, connection.authorization.principalId);
+      host.activity?.stream.handleSubscribe(ws, msg, connection.authorization.principalId, connection.capabilities?.[ACTIVITY_COMPUTE_CAPABILITY] === true);
       break;
     }
 

@@ -21,7 +21,7 @@ import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWork
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
-import { APIFY_TOOL_NAMES, visibleToolName } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
@@ -42,6 +42,18 @@ import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
 import { RELAYED_TURN_SETTINGS, RELAYED_TURN_TRAFFIC_ENV, telemetryConfigured } from "./relayed-turn-traffic.js";
 import type { TurnLockBinding } from "./turn-lock.js";
+
+/**
+ * The in-worker brain MCP server's compute tools (#3107). A hosted turn
+ * reaches external compute only through the host's `mcp__brain-ui__brain_compute_*`
+ * tools, which bind its caller, policy, approval and credentials; the worker
+ * copies would admit without any of them. Disallowed in every session, so the
+ * tool list never depends on configuration (provider-history.md).
+ */
+export const IN_WORKER_COMPUTE_TOOLS: readonly string[] = Object.freeze(COMPUTE_TOOL_CONTRACTS.map(contract => `mcp__brain__${contract.name}`));
+/** The prompt-brief keys of the compute contracts, as `SurfaceTools` names them. */
+const COMPUTE_SURFACE_KEYS = [["computeHealth", "brain_compute_health"], ["computePlan", "brain_compute_plan"], ["computeRun", "brain_compute_run"],
+  ["computeStatus", "brain_compute_status"], ["computeCancel", "brain_compute_cancel"], ["computeCollect", "brain_compute_collect"]] as const;
 
 export interface ClaudeSdkTurn {
   options: Options;
@@ -223,6 +235,9 @@ function assembleClaudeSdkTurn(
     // The host owns reference authority and refuses per call (#2432); an
     // approval card would add nothing a grant does not already decide.
     if (req.bridge.referenceAccess) allowed.push(visibleToolName("reference_source", "claude"), visibleToolName("reference_worktree", "claude"));
+    // External compute (#3108): the host decides authority and shows its own
+    // per-use approval card for a run, so a runtime card would ask twice.
+    if (req.bridge.compute) allowed.push(...COMPUTE_TOOL_CONTRACTS.map(contract => visibleToolName(contract.name, "claude")));
     // Apify (#3162): the host decides every call and asks per exact run; a
     // tool-level card would add a rememberable grant that authorizes nothing.
     if (req.bridge.apify && !req.noGrantSurface && req.posture !== "voice") allowed.push(...Object.values(APIFY_TOOL_NAMES).map(name => visibleToolName(name, "claude")));
@@ -285,6 +300,7 @@ function assembleClaudeSdkTurn(
       block: true,
       turnTemp: turnTempTool,
       reference: Boolean(req.bridge.referenceAccess),
+      compute: Boolean(req.bridge.compute),
     },
     req.turnBudgetMs
   );
@@ -293,7 +309,7 @@ function assembleClaudeSdkTurn(
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true,
+    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
@@ -304,7 +320,7 @@ function assembleClaudeSdkTurn(
       location: available("get_current_location"), mask: available("request_image_mask"), policyChange: available("propose_policy_change"),
       activity: available("query_activity"), inbox: { list: available("inbox_list"), get: available("inbox_get"),
         add: available("inbox_add"), resolveAction: available("resolve_action"), completeShare: available("complete_share") },
-      reference: available("reference_source") }),
+      reference: available("reference_source"), compute: available("brain_compute_run") }),
     ...(req.turnBudgetMs && req.turnBudgetMs > 0 ? { timeout: `The host hard budget for this turn is ${req.turnBudgetMs} ms (about ${Math.round(req.turnBudgetMs / 60000)} minutes); finish inside this cap.` } : {}),
     ...(req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}),
     ...(req.budgetContext ? { budget: req.budgetContext } : {}),
@@ -343,7 +359,7 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
+    disallowedTools: ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
@@ -450,6 +466,8 @@ function assembleClaudeSdkTurn(
       queryActivity,
       ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
       ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
+      // Never in an autonomous roster: its membership is exact server authority.
+      ...(!req.autonomous ? { compute: req.bridge } : {}),
       // Interactive sessions only: a restricted autonomous roster never lists Apify.
       ...(!req.autonomous ? { apify: req.bridge } : {}),
       ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
@@ -537,6 +555,7 @@ function buildAppend(
     block: boolean;
     turnTemp: boolean;
     reference: boolean;
+    compute: boolean;
   },
   turnBudgetMs: number | undefined
 ): string {
@@ -565,6 +584,7 @@ function buildAppend(
         turnTemp: tools.turnTemp && TURN_TEMP_TOOL_NAME,
         referenceSource: tools.reference && visibleToolName("reference_source", "claude"),
         referenceWorktree: tools.reference && visibleToolName("reference_worktree", "claude"),
+        ...Object.fromEntries(COMPUTE_SURFACE_KEYS.map(([key, name]) => [key, tools.compute && visibleToolName(name, "claude")])),
       },
     })
   );
