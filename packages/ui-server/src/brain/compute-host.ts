@@ -81,7 +81,7 @@ const InstanceSummary = z.strictObject({
   retainOnRelease: z.boolean().nullable(),
 });
 /** The `compute` field of `brain config check --json` (#3108). */
-export const HostedComputeSummary = z.strictObject({
+const HostedComputeSummary = z.strictObject({
   enabled: z.boolean(),
   providers: z.record(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/), InstanceSummary),
 });
@@ -89,7 +89,7 @@ export type HostedComputeConfig = z.infer<typeof HostedComputeSummary>;
 type InstanceConfig = z.infer<typeof InstanceSummary>;
 
 /** A configuration read: the summary, or why it could not be established. */
-export type ComputeConfigRead = { ok: true; config: HostedComputeConfig } | { ok: false; reason: string };
+type ComputeConfigRead = { ok: true; config: HostedComputeConfig } | { ok: false; reason: string };
 
 /** What one turn's compute calls are bound to. Supplied by the host's turn bridge, never by input. */
 export interface ComputeTurnContext {
@@ -118,7 +118,7 @@ export interface ComputeTurnContext {
 }
 
 /** Readiness of hosted compute, for `/api/status` `runtime.compute`. No vendor is called to produce it. */
-export interface ComputeReadiness {
+interface ComputeReadiness {
   enabled: boolean;
   /** Why hosted compute refuses every run, or null. */
   reason: string | null;
