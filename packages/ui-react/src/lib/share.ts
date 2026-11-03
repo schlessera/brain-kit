@@ -1,13 +1,11 @@
 import type { BrainUiRoot } from "../root.js";
 import type { RenderRequest } from "@schlessera/brain-ui-sdk/protocol";
 
-export type ShareKind = "file" | "text" | "richtext";
-
 /**
  * True when the browser supports navigator.share at all. Note this doesn't
  * guarantee that a specific payload is shareable — call canShareFiles too.
  */
-export function isShareSupported(): boolean {
+function isShareSupported(): boolean {
   return typeof navigator !== "undefined" && typeof navigator.share === "function";
 }
 

@@ -5,14 +5,14 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 /** One cron manifest entry in `brain module list --json`. */
-export interface BrainModuleListCronEntry {
+interface BrainModuleListCronEntry {
   name: string;
   schedule: string;
   command: string;
 }
 
 /** One enabled module in the core CLI's module-list payload. */
-export interface BrainModuleListEnabledModule {
+interface BrainModuleListEnabledModule {
   name: string;
   key: string;
   description: string | null;
@@ -22,7 +22,7 @@ export interface BrainModuleListEnabledModule {
 }
 
 /** One disabled-but-available module in the core CLI's module-list payload. */
-export interface BrainModuleListAvailableModule {
+interface BrainModuleListAvailableModule {
   key: string;
   description: string | null;
   enabled: false;

@@ -48,7 +48,7 @@ const TINT: Record<Sign, { bg: string; fg: string }> = {
 
 /** The rows `tinted` draws, split on newline and signed by first character.
  * Exported for tests; a consumer wanting the same split gets the same rows. */
-export function diffRows(text: string): { sign: Sign; text: string }[] {
+function diffRows(text: string): { sign: Sign; text: string }[] {
   return text.split("\n").map((line) => {
     const sign: Sign = line[0] === "-" || line[0] === "+" ? (line[0] as Sign) : " ";
     // A unified diff spells a context line as a blank sign and a separator,

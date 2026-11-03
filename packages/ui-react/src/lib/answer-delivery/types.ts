@@ -15,8 +15,6 @@ import type {
   ServerAskAnswerReceipt,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-export type AskKind = "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form";
-
 /** What the user submitted, in the shape of its kind. Immutable once queued. */
 export type AnswerPayload =
   | {
@@ -111,11 +109,6 @@ export interface AnswerDelivery {
   mirror?: boolean;
   /** This tab just submitted it: the card moves focus to its status. */
   focus?: boolean;
-}
-
-/** States in which the answer may still reach the host. */
-export function isUnconfirmed(state: DeliveryState): boolean {
-  return state === "saving" || state === "queued" || state === "awaiting";
 }
 
 /** States in which the card keeps its editable form, because nothing was admitted. */

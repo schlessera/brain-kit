@@ -38,7 +38,7 @@ import {
 } from "./types.js";
 
 /** What the queue needs from the connection. */
-export interface DeliveryTransport {
+interface DeliveryTransport {
   /** Send on the open socket; false when there is none. */
   send(message: ClientMessage): boolean;
   /** Connected, and the host's hello (or its absence) is known. */
@@ -60,7 +60,7 @@ export interface SubmitAnswer {
   focus?: boolean;
 }
 
-export interface AnswerDeliveryOptions {
+interface AnswerDeliveryOptions {
   chat: StoreApi<ChatState>;
   /** null: this page cannot store answers, so it cannot queue them either. */
   storage: AnswerStorage | null;
@@ -86,8 +86,6 @@ interface Entry {
   /** Cancel sending is removing it: nothing more may go out. */
   cancelling?: boolean;
 }
-
-export type AnswerDeliveryQueue = ReturnType<typeof createAnswerDelivery>;
 
 export function createAnswerDelivery(options: AnswerDeliveryOptions) {
   const { chat, transport } = options;

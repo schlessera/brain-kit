@@ -34,7 +34,7 @@ import { useState } from "react";
  * the group belongs to its caller. Its answer is a `tabStop` prop, driven by
  * {@link AskUserCard}, and it is documented on the component.
  */
-export interface Roving {
+interface Roving {
   /** `0` for the group's one tab stop, `-1` for every other eligible item. */
   tabIndexFor: (index: number) => 0 | -1;
   /** Wire to each item's `onFocus` so the stop follows the caret. */

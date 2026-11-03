@@ -2,7 +2,7 @@ import type { ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { TrackerState, TrackerView } from "./trackers.js";
 
 /** The three states a tracker announces when it changes into one (D52 §3). */
-export type AnnouncedState = Extract<TrackerState, "needs_you" | "failed" | "done">;
+type AnnouncedState = Extract<TrackerState, "needs_you" | "failed" | "done">;
 
 const ANNOUNCED: ReadonlySet<TrackerState> = new Set<AnnouncedState>(["needs_you", "failed", "done"]);
 

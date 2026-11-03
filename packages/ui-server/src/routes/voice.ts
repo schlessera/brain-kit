@@ -10,7 +10,7 @@ import { mintDeepgramToken } from "../voice/deepgram-token.js";
 import { getKeyterms, type KeytermSettings } from "../voice/keyterm-builder.js";
 import { pickSpeechProvider, speechCapabilities } from "../voice/speech-providers.js";
 
-export interface VoiceRoutesDeps {
+interface VoiceRoutesDeps {
   voice: VoiceConfig;
   keyterms: KeytermSettings;
   speechProvider?: SpeechProvider;

@@ -25,7 +25,7 @@ export interface NativeJournalMetadata {
   path: string; kind: "directory" | "file" | "symlink" | "other";
   mode: number; bytes: number; stamp: string; inode: string; target?: string;
 }
-export interface NativeJournalChange {
+interface NativeJournalChange {
   path: string; before: NativeJournalMetadata | null; after: NativeJournalMetadata | null;
 }
 export interface NativeJournalUnreadable {
@@ -235,7 +235,7 @@ class RootMetadataReader {
   close(): Promise<void> { return this.root?.close() ?? Promise.resolve(); }
 }
 
-export interface NativeJournalObservation {
+interface NativeJournalObservation {
   beforeRoot: NativeJournalCheckpoint; afterRoot: NativeJournalCheckpoint;
   changes: NativeJournalChange[];
   stats: { readEntries: number; walkedDirectories: number };
@@ -496,4 +496,3 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   };
 }
 
-export type NativeJournalObserver = ReturnType<typeof createNativeJournalObserver>;

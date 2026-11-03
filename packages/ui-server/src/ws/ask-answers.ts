@@ -53,7 +53,7 @@ const ANSWER_KIND: Record<AskAnswer["type"], AskKind> = {
 };
 
 /** The pending ask with this id, of whichever kind. The kinds share one id space. */
-export function findPendingAsk(coordinator: TurnCoordinator, requestId: string): PendingAsk | undefined {
+function findPendingAsk(coordinator: TurnCoordinator, requestId: string): PendingAsk | undefined {
   const ask = coordinator.pendingAskUser.get(requestId);
   if (ask) return { kind: "ask_user", entry: ask };
   const list = coordinator.pendingAskUserList.get(requestId);

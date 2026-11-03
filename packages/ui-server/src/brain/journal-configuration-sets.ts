@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
  * sorted, de-duplicated path list as JSON, so the same set always has the same
  * hash, whichever turn observed it and in whatever order.
  */
-export interface ConfigurationSet { hash: string; paths: string[] }
+interface ConfigurationSet { hash: string; paths: string[] }
 
 export function configurationSet(paths: Iterable<string>): ConfigurationSet {
   const sorted = [...new Set(paths)].sort();
@@ -15,9 +15,9 @@ export function configurationSet(paths: Iterable<string>): ConfigurationSet {
 }
 
 /** A turn row's view of its set: the referenced set, or a legacy per-turn array not moved yet. */
-export interface ConfigurationSetColumns { configuration_set: string | null; steering_inventory_missing: string }
+interface ConfigurationSetColumns { configuration_set: string | null; steering_inventory_missing: string }
 
-export type RecordedConfigurationSet = (ConfigurationSet & { recorded: true }) | { recorded: false; paths: [] };
+type RecordedConfigurationSet = (ConfigurationSet & { recorded: true }) | { recorded: false; paths: [] };
 
 /**
  * What a turn recorded. A legacy empty array cannot tell "recorded nothing"

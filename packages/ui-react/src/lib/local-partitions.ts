@@ -43,7 +43,7 @@ export interface PartitionHandle {
 }
 
 /** What a partition holds, without any of its content. */
-export interface PartitionSize {
+interface PartitionSize {
   partition: PartitionId;
   bytes: number;
   records: number;
@@ -92,7 +92,7 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 /** An estimate of what a value occupies: UTF-8 for text, the byte length of binary data. */
-export function measure(value: unknown, seen = new Set<object>()): number {
+function measure(value: unknown, seen = new Set<object>()): number {
   if (typeof value === "string") {
     let n = 0;
     for (let i = 0; i < value.length; i++) {
@@ -115,7 +115,7 @@ export function measure(value: unknown, seen = new Set<object>()): number {
   return n;
 }
 
-export interface LocalPartitionOptions {
+interface LocalPartitionOptions {
   /** The IndexedDB database: one per app origin, shared by every partition. */
   name: string;
   /** The account key the client holds now; null while it holds none. */

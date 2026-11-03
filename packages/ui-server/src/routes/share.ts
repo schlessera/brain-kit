@@ -93,7 +93,7 @@ function firstString(form: FormData, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-export interface ShareRoutesDeps {
+interface ShareRoutesDeps {
   brainRoot: string;
   /** ALLOWED_ORIGINS — the same-origin check's split-topology allowlist. */
   allowedOrigins: string[];
