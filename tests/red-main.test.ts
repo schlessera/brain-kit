@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
-import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures,
+import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures, recordExpedited,
   openRed, parseRedMain, type RedFailure, type RedMainRecord } from "../scripts/red-main";
 import { coordinate, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
 
@@ -309,5 +309,28 @@ describe("coordinator", () => {
     await coordinate(gh.io, mainRun(C, "success", 103));
     expect(gh.record().open).toBeNull();
     expect(existsSync(ROOT)).toBe(true);
+  });
+});
+
+describe("expedited fixes (#2940)", () => {
+  test("an expedited fix is recorded on the open record only for a declared fix, and parses back", () => {
+    const red = openRed(emptyRedMain(), { firstBad: B, run: 11, failures: [failure("tests/raft.test.ts")] }, NOW);
+    const fix = { pr: 8, head: C, base: B, squash: A, baseProbe: 301, headProbe: 302, feedbackRun: 91, actor: 101, at: NOW + 2 };
+    expect(() => recordExpedited(red, fix, NOW + 2)).toThrow("declared fix");
+    const recorded = recordExpedited(declareFix(red, 8, NOW + 1), fix, NOW + 2);
+    expect(recorded.open?.expedited).toEqual([fix]);
+    expect(recorded.last).toEqual({ action: "expedite", at: NOW + 2, run: 11 });
+    expect(parseRedMain(JSON.stringify(recorded))).toEqual(recorded);
+    expect(recordExpedited(recorded, fix, NOW + 3)).toBe(recorded);
+    expect(() => parseRedMain(JSON.stringify({ ...recorded, open: { ...recorded.open, expedited: [{ ...fix, actor: "odysseus" }] } }))).toThrow("Invalid red-main incident");
+  });
+
+  test("the coordinator ignores expedited fix probes", async () => {
+    const gh = fakeGitHub({ jobs: [] });
+    gh.set(openRed(emptyRedMain(), { firstBad: B, run: 100, failures: [failure("tests/raft.test.ts")] }, NOW));
+    const before = gh.record();
+    await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe fix 100 ${B}` });
+    expect(gh.record(), "FIX_PROBE_NEVER_CHANGES_THE_RECORD").toBe(before);
+    expect(gh.issues).toHaveLength(0); expect(gh.comments).toHaveLength(0); expect(gh.dispatched).toHaveLength(0);
   });
 });
