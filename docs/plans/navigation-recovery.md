@@ -397,9 +397,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:145-283`).
 
-- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:907`).
+- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:939`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:1103-1148`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:1108-1153`).
 
 - Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1263-1293`).
 

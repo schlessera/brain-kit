@@ -104,6 +104,8 @@ export interface WsHostOptions {
   referenceWorktreeAccess?: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432); used only with `referenceWorktreeAccess`. */
   referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal The Apify operations (#3162): interactive turns of both backends call them through the bridge. */
+  apify?: import("../apify/host.js").ApifyHost;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -278,6 +280,8 @@ export class WsHost {
   readonly referenceWorktreeAccess: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432), present only with `referenceWorktreeAccess`. */
   readonly referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal The Apify operations (#3162). */
+  readonly apify?: import("../apify/host.js").ApifyHost;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -375,6 +379,7 @@ export class WsHost {
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
     if (this.referenceWorktreeAccess) this.referenceTools = options.referenceTools;
+    this.apify = options.apify;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;

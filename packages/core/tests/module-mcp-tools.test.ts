@@ -9,7 +9,9 @@ import { brainConfigSchema } from "../src/lib/config";
 import { loadModules } from "../src/lib/module-loader";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
-const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive"];
+// Core's own tools in registration order: the eight document tools, then the fixed Apify operations (#3162).
+const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive",
+  "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"];
 const roots: string[] = [];
 const clients: Client[] = [];
 afterAll(async () => {

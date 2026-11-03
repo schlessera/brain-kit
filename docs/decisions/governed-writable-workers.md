@@ -283,8 +283,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:174-207`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:232-236`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:243-247`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -1337,9 +1337,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:343`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:346`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:557`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1522,7 +1522,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:935`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:940`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1940,7 +1940,7 @@ the Gemini Files lifecycle a local video needs, whose upload, poll and delete
 attempts are recorded at zero cost because the Files API is free.
 Each upstream attempt is recorded once, with the units the provider reported,
 and counts toward the turn, conversation and UTC-day scopes
-(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 The receipt's coverage names the relayed providers. Pricing follows the
 [cost-tracking rules](cost-tracking.md#relayed-cli-provider-requests-1673):
 unpriced tokens count toward the token stops, and missing usage is unknown and
@@ -1948,7 +1948,7 @@ never blocks by itself. An attempt is recorded as unknown spend just before it
 leaves and completed when it settles, so a crash leaves it disclosed. Before
 each request, and again just before dispatch, the relay asks whether any scope
 is blocked and refuses with `budget_exceeded` if one is
-(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:326-330`).
+(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:379-384`).
 A request that crosses a block does not stop the turn by itself, under the
 ruling: each further relayed request is refused, and the agent's next
 completed response, which sees the same scopes, stops the turn as any usage
@@ -1988,7 +1988,7 @@ rows remain historical inputs with explicit legacy attribution. Completed
 responses contribute once to their server-observed UTC day; legacy history
 uses its recorded start day. A terminal rollup never adds the live ledger a
 second time. The concrete ledger is (`createTurnBudgets`,
-`packages/ui-server/src/brain/turn-budgets.ts:228-350`).
+`packages/ui-server/src/brain/turn-budgets.ts:262-419`).
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
@@ -3641,7 +3641,7 @@ the path's existing cancellation or failure outcome.
 to pi cancellation before `prompt()`. The pool owns a late new or resumed
 acquisition until its awaited abort finishes, then disposes it and preserves
 the accepted cancellation (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:159-166`). After acquisition the
+`packages/ui-backend-pi/src/session-pool.ts:160-167`). After acquisition the
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
@@ -3927,7 +3927,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:310-327`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:313-330`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -3963,7 +3963,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:90-134`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely

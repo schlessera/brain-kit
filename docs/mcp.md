@@ -39,7 +39,8 @@ clients such as Claude Code put into the agent's context. It tells the agent
 that the brain is the source of truth for facts about its owner (named from
 `profile.name` in `brain.config`), which tool to use to search, brief, read and
 follow links, and to write through `brain_add` and `brain_update` rather than
-touching `brain.db`.
+touching `brain.db`. It also says the `brain_apify_*` tools are paid remote
+extraction under your governance policy, not web search.
 
 ## Tools
 
@@ -53,6 +54,7 @@ touching `brain.db`.
 | `brain_add` | write (non-destructive) | ingest result object |
 | `brain_update` | write (idempotent) | update result object |
 | `brain_archive` | write (idempotent) | archive result object |
+| `brain_apify_discover`, `brain_apify_inspect`, `brain_apify_prepare`, `brain_apify_run`, `brain_apify_status`, `brain_apify_results`, `brain_apify_abort` | open-world; only `run` and `abort` change anything | the Apify envelope, as `brain apify --json` prints it |
 
 Notes:
 
@@ -65,6 +67,12 @@ Notes:
   are written and the index syncs; the database is never the source of truth.
 - Search degradation (no embeddings key, model mismatch) is reported in
   `warnings`, identical to the CLI.
+- The Apify tools stay off until the governance policy sets
+  `apify.enabled: true`. They then need `APIFY_TOKEN` and `BRAIN_APIFY_LEDGER`
+  in the server's environment, and nobody can be asked from here: a run
+  needs an exact standing grant in the policy, otherwise it refuses as
+  `approval_required`. See [the CLI](cli.md#apify) and
+  [the contract](integration-contract/mcp.md#apify-tools-additive-0450-3162).
 
 ## Module tools
 
