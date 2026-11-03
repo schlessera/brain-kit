@@ -144,7 +144,8 @@ Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
 `focal_count`, `tree_cycle`, `grid`, `overlap`, `unroutable`, `layout`,
 `text_floor`, `contrast`, `axis`, `scene_bounds`, and `positional`. Common editorial warnings use
-`budget`; family advisories (including positional guidance) are listed with their
+`budget`; a node or group within the image margin of a named canvas warns
+`margin`; family advisories (including positional guidance) are listed with their
 grammars below.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
 `$.schema_version` with an instruction to upgrade the diagrams module.
@@ -208,11 +209,14 @@ Canvas dimensions are fixed for named presets: doc-inline 960×600, doc-wide
 and slide-16x9 1280×720, slide-4x3 1024×768, social-og 1200×632,
 social-square 1080×1080, print-a4-landscape 1120×792,
 print-a3-landscape 1584×1120 and print-letter-landscape 1056×816.
-`fit` encloses node extents plus 24px (minimum right/bottom extent 96px),
-computed groups, their painted border and heading masks. The origin may be
-negative, rounded outward to the 4px grid, so nodes keep their authored
-coordinates even when a padded group reaches above or left of zero. Width and
-height are dimensions from that origin, not maximum coordinates. Client,
+`fit` encloses everything painted (nodes, computed groups with their border
+and heading masks, routes, label masks, labels and cardinalities) plus a uniform
+12px image margin (`DIAGRAM_MARGIN`) on every side. The origin sits exactly at
+that margin and may be negative, so nodes keep their authored coordinates;
+width and height round up to the 4px grid. Width and height are dimensions from
+that origin, not maximum coordinates. On a named canvas, routes keep the same
+margin from the canvas edge, and the checker warns (`margin`) about a node or
+group closer than 12px to it. Client,
 static and flattened exports consume all four viewBox values; annotation bands,
 legend and screen frame use the same origin. Dependency cycles reserve their
 outside lane plus a margin. Routing never moves nodes or invents family layout.
