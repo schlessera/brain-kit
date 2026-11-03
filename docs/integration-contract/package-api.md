@@ -4375,3 +4375,15 @@ packet audio. Unsupported codec/container forms, including audio/mp4, retain
 conservative elapsed-wall timestamps for the rest of that recording. Old stored
 wall timestamps remain readable without migration. No field, stop reason or
 state is added. This semantic change ships in a minor before 1.0.
+
+<a id="composer-attach-label-additive-0450-3045"></a>
+
+## Composer attach label (additive, 0.45.0, #3045)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`attachLabel?: string`, the attach trigger's accessible name. Omitted or empty,
+it is "Attach — photo, camera, files" (previously the fixed
+"Attach — photo, camera, file"). An actionable trigger also paints that name as
+an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
+composer's, has neither. Existing props and defaults are otherwise unchanged,
+and no wire schema changes. `api-report/` records the added prop.
