@@ -529,7 +529,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:227-231`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:232-236`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -1065,7 +1065,7 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:626`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
 (`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
@@ -2092,7 +2092,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:334`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:344`).
 
 **What changes:**
 
@@ -2263,7 +2263,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:245-327`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:248-330`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -3792,7 +3792,7 @@ document reader whose normalized path is under `.brain-ui/inbox/` or
 outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call; and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:51-61`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:82-92`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
@@ -3827,6 +3827,52 @@ widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
 `packages/ui-server/src/brain/turn-egress.ts:60-166`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
+
+**Files the user marks untrusted — 2026-11-02
+([#2673](https://github.com/schlessera/brain-kit/issues/2673)).** A user can
+mark a brain file untrusted from Files, and the recorder above then treats an
+admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
+`Glob`, pi `read_file`, `edit_file` or `grep`, or brain-kit's own document
+reader, whose normalized brain-relative path is marked, or a search whose
+output names it, records `taint` with `source: "user_marked"` as the session's
+first source (`fileSource`,
+`packages/ui-server/src/activity/ingestion-taint.ts:74-79`). An untrusted area
+still names its own source first, and an absolute path outside the brain's
+host path is not matched against marks. A mark is looked up when the call
+completes; a lookup that fails counts as marked
+(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:236-242`).
+Shell reads are covered only by the Bash rules above, reads are never
+blocked, and a session that read the file before it was marked is not
+tainted retroactively.
+
+The marks are host records in the UI database, never `brain.db` or
+frontmatter, so they survive a restart and `brain index --force`
+(`untrustedMarkOperations`, `packages/ui-server/src/files/untrusted-marks.ts:51-63`).
+The maintainer settled five rules on 2026-10-23, and the host enforces each of
+them on direct requests (`mountUntrustedMarks`,
+`packages/ui-server/src/routes/files.ts:317-383`):
+
+- **Rename and move (B).** A mark is keyed by its brain-relative path. A file
+  that moves or disappears keeps its old-path record, which is listed as
+  missing so the owner can recover by marking the new path. Nothing follows
+  the rename, so the new path stays unmarked until it is marked, and the
+  old-path mark applies again if a file returns to that path.
+- **Authority (B).** Any authenticated principal that can already read the
+  file may mark it; marking grants no further access. Only the owner may clear
+  a mark, including a retained missing one. The owner is the human owner the
+  storage and history routes already admit, an `owner` or `ambient` principal
+  (`isHumanOwner`, `packages/ui-server/src/routes/files.ts:145-147`); no
+  role is added. Clearing stops new sessions being tainted by that file and
+  never removes a session's recorded taint.
+- **Visible scope (A).** Files views only: a toolbar control, viewer and tree
+  cues and a `Marked untrusted` list of user marks. Chat links and attachment
+  rows carry no cue.
+- **Missing records (A).** Only the owner may list or inspect a retained
+  record whose file is gone. Every other principal sees only marks on files it
+  can currently read, even a mark it made itself; the host leaves the rest out
+  of rows and counts.
+- **Marker identity (A).** The owner may see the marking principal's label.
+  Other principals' responses carry the marking date and no identity field.
 
 **The runtime's own traffic — 2026-11-02
 ([#3244](https://github.com/schlessera/brain-kit/issues/3244)).** The Claude
