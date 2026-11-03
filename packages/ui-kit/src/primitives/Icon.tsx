@@ -14,8 +14,8 @@
  * glyph directly, so swapping `icon` swaps the glyph, with no imperative
  * escape hatch and no timer.
  *
- * 88 keys, 86 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
- * render an x, `settings`/`filter` both render sliders — and all 88 are kept.
+ * 89 keys, 87 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
+ * render an x, `settings`/`filter` both render sliders — and all 89 are kept.
  * They render identically today but mean different things, and collapsing them
  * would leave a future icon set unable to tell them apart.
  *
@@ -70,6 +70,7 @@ import {
   Download,
   Ellipsis,
   EllipsisVertical,
+  Expand,
   FileImage,
   FileLock2,
   FilePenLine,
@@ -203,6 +204,8 @@ export const ICONS = {
   digest: Newspaper,
   health: ChartColumn,  // lucide renames `bar-chart-3`; the semantic key is the kit's vocabulary
   link: ArrowUpRight,
+  /** Open content in its dedicated full-size viewer (a diagram's zoom). */
+  enlarge: Expand,
   chat: MessageSquare,
   wifi: Wifi,
   battery: BatteryFull,
