@@ -242,7 +242,7 @@ export function createPermissionWiring(options: {
   //
   // BRAIN_UPDATE_TOOL is here for the same reason, and the reason is sharper:
   // the fallback card from canUseTool is kind "tool", which a remembered
-  // "always allow" answers without showing anything (ws/bridge.ts refuses to
+  // "always allow" answers without showing anything (ui-server refuses to
   // do that only for kind "command"). Without this line, a deployment that
   // NARROWED its allowlist would lose the archiving confirmation entirely
   // after one such grant — the tool removed from the allowlist behaving more

@@ -68,13 +68,12 @@ export async function openTurnBridge(
   ]);
   turn.retryPrompt = prompt;
   const { preference } = admission;
-  const bridge = await makeBridge(
-    host,
-    turn,
-    text,
-    backend.id,
+  const bridge = await makeBridge(host, turn, {
+    promptText: text,
+    backendId: backend.id,
     recorder,
-    resumeId
+    // Only a new conversation waits for its name; a resumed one has it.
+    onSessionNamed: resumeId
       ? undefined
       : (sid) => {
           // A new conversation is accepted the moment it has a name,
@@ -89,25 +88,26 @@ export async function openTurnBridge(
           recordDraftExchanges(host, sid, drafted);
           initial.handoffHooks?.onNamed(sid);
         },
-    failureRecording.observe,
+    // A terminal failure is recorded against the session it ended.
+    onTerminalFailure: failureRecording.observe,
     // A follow-up's pill label is its turn's request label (#1004).
-    () => current.label,
-    backend.brainApplicationPolicy?.({ profileId,
+    promptLabel: () => current.label,
+    applicationPolicy: backend.brainApplicationPolicy?.({ profileId,
       ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
-    governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
-    governedHold ? { origin, actualProfile: heldProfile(run),
+    protectedPaths: governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
+    workerProfile: governedHold ? { origin, actualProfile: heldProfile(run),
       ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,
-    budget?.observeUsage,
-    billing,
-    { current: () => run.mainModel, bind: model => {
+    onUsage: budget?.observeUsage,
+    pricingContext: billing,
+    mainModel: { current: () => run.mainModel, bind: model => {
       if (host.journal && governedHold && !host.journal.bindModel(run.turnId, turn.sessionId, model)) return;
       run.mainModel = model; recorder?.setMainModel(model);
     } },
-    governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
+    providerMasks: governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
       ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
       ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined,
-    governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined
-  );
+    turnData: governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
+  });
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
   held.settleIndex = () => settleTurnIndex(bridge).catch(() => {});
