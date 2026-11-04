@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
@@ -790,7 +791,7 @@ export async function makeBridge(
   const inboxAdd = bridge.inboxAdd;
   if (maskGuard && inboxAdd) bridge.inboxAdd = async input => {
     const tool = toolName("inbox_add");
-    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => folder.startsWith(`${SHARE_STAGING_DIR}/`))]);
+    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => isWithin(SHARE_STAGING_DIR, folder, { includeRoot: false }))]);
     if (host.brainPath) {
       let resolved: string | undefined;
       try { resolved = relative(realpathSync(host.brainPath), realpathSync(join(host.brainPath, SHARE_STAGING_DIR))); } catch { /* not staged yet */ }

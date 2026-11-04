@@ -1,4 +1,5 @@
 /** Concrete native-root ownership across app/cron crashes, separate from UI database creation. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { constants, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, realpathSync } from "node:fs";
@@ -32,14 +33,14 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
   const procIds = /^NSpid:\s*([^\n]+)$/m.exec(readFileSync("/proc/self/status", "utf8"))?.[1]?.trim().split(/\s+/);
   if (procIds?.length !== 1 || procIds[0] !== String(process.pid)) throw Error("Native lease recovery requires procfs mounted for this process's own PID namespace.");
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(boot) || !SELF.start || !/^[1-9][0-9]*$/.test(pidNamespace)) throw Error("Native lease recovery requires verified Linux boot and PID-namespace identities.");
-  if (options.statePath === brain || options.statePath.startsWith(brain + "/")) throw Error("Native root lease state must remain outside the brain.");
+  if (isWithin(brain, options.statePath)) throw Error("Native root lease state must remain outside the brain.");
   let ancestor = parent;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
   const futureParent = join(realpathSync(ancestor), relative(ancestor, parent));
-  if (futureParent === brain || futureParent.startsWith(brain + "/")) throw Error("Native root lease state is redirected into the brain; no directory may be created there.");
+  if (isWithin(brain, futureParent)) throw Error("Native root lease state is redirected into the brain; no directory may be created there.");
   mkdirSync(parent, { recursive: true, mode: 0o700 });
   const parentInfo = lstatSync(parent), actualParent = realpathSync(parent);
-  if (actualParent === brain || actualParent.startsWith(brain + "/") || !parentInfo.isDirectory()
+  if (isWithin(brain, actualParent) || !parentInfo.isDirectory()
     || parentInfo.isSymbolicLink() || (parentInfo.mode & 0o022) !== 0 || ![0, process.geteuid!()].includes(parentInfo.uid))
     throw Error("Native root leases require a protected app-state directory outside the brain.");
   if (!existsSync(options.statePath)) {

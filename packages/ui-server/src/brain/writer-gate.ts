@@ -21,6 +21,7 @@
  * translated to live there too, so every process plans them, across restarts
  * (#2836).
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -241,7 +242,7 @@ export function gateProcedures(db: Database, brain: string): WriteProcedures {
         if (plan.unpinnedHost) throw new Error("An active peer is an unpinned host writer; finish that peer and retry admission");
         // A descendant root also pins each ancestor. An ancestor root
         // alone does not retain an arbitrary child inside its subtree.
-        if (requested.some(path => !plan.roots.some(root => root === path || root.startsWith(`${path}/`)))) unretained = true;
+        if (requested.some(path => !plan.roots.some(root => isWithin(path, root)))) unretained = true;
       }
       return unretained;
     }).immediate(),

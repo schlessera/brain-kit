@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isEnvName } from "@schlessera/brain-common/internal/protected-paths";
@@ -45,7 +46,9 @@ function landing(root: string, path: string): string | undefined {
   return current;
 }
 
-const within = (path: string, folder: string) => path === folder || path.startsWith(folder === sep ? folder : `${folder}${sep}`);
+/** `/` holds every absolute path; any other folder appends the separator, even one already ending in it. */
+const within = (path: string, folder: string) =>
+  isWithin(folder, path, { separator: sep, trailingSeparator: folder === sep ? "boundary" : "append" });
 
 /** A brain-relative path as named, and where its links lead when that differs. */
 function places(brain: string, path: string): string[] {

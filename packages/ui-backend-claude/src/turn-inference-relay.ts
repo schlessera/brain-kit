@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync, linkSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -18,7 +19,7 @@ export function hostLoginFile(configDirectory: string, brainPath: string): { mas
   const file = join(configDirectory, ".credentials.json");
   if (!existsSync(file)) return { mask: [], inBrain: false };
   const real = realpathSync(file), brain = realpathSync(brainPath);
-  return real === brain || real.startsWith(`${brain}/`) ? { mask: [], inBrain: true } : { mask: [real], inBrain: false };
+  return isWithin(brain, real) ? { mask: [], inBrain: true } : { mask: [real], inBrain: false };
 }
 
 /** The same endpoint: canonical origin and base path, nothing else. */

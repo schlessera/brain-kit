@@ -6,6 +6,7 @@
  * long as the worker: its turn temp, relays, locks, stderr and limit reports.
  * Each step releases everything it acquired when it refuses.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { workerCleanupUnconfirmed, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -204,7 +205,7 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
       : workerSandbox ?? await prepareWorkerSandboxAsync(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {
-      if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return actual === cachedNpmModules || actual.startsWith(cachedNpmModules + "/"); } catch { return false; } })) {
+      if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return isWithin(cachedNpmModules, actual); } catch { return false; } })) {
         throw new BackendRequestError("Pi prepared npm resources cannot contain a private worker mask.");
       }
       sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), cachedNpmModules] };

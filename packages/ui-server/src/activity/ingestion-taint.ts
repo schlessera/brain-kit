@@ -1,4 +1,5 @@
 /** Which completed tool calls ingested untrusted content (G6); this grants no tool authority. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { posix } from "node:path";
 import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
@@ -49,7 +50,7 @@ function pathSource(path: string, brainPath: string | undefined): IngestionSourc
   }
   const absolute = path.startsWith("/") ? posix.normalize(path) : posix.resolve(brainPath!, path);
   for (const root of [brainPath && posix.normalize(brainPath).replace(/\/$/, ""), WORKER_AREA_ROOT]) {
-    if (root && absolute.startsWith(root + "/")) return leadingArea(absolute.slice(root.length + 1));
+    if (root && isWithin(root, absolute, { includeRoot: false })) return leadingArea(absolute.slice(root.length + 1));
   }
   return anyArea(absolute);
 }
@@ -67,7 +68,7 @@ function brainRelative(path: string, brainPath: string | undefined): string | nu
   else {
     const root = brainPath && posix.normalize(brainPath).replace(/\/$/, "");
     const absolute = posix.normalize(path);
-    if (!root || !absolute.startsWith(root + "/")) return null;
+    if (!root || !isWithin(root, absolute, { includeRoot: false })) return null;
     relative = absolute.slice(root.length + 1);
   }
   relative = relative.replace(/\/$/, "");

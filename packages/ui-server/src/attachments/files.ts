@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rm } from "node:fs/promises";
@@ -78,7 +79,7 @@ export async function unlinkAttachment(brainRoot: string, fileId: string): Promi
   try { info = await lstat(dir); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("An attachment directory is not a plain directory.");
-  if (await realpath(dir) !== dir || !dir.startsWith(root + "/")) throw new Error("An attachment directory left the root.");
+  if (await realpath(dir) !== dir || !isWithin(root, dir, { includeRoot: false })) throw new Error("An attachment directory left the root.");
   await rm(dir, { recursive: true, force: true });
 }
 

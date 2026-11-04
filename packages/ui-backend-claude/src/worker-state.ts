@@ -4,6 +4,7 @@
  * allowance (#1625): the server copies the snapshot in before the worker's
  * command starts and copies validated results out after its namespace is gone.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -166,11 +167,11 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   let ancestor = configured;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
   const canonical = resolve(realpathSync(ancestor), configured.slice(ancestor.length).replace(/^\//, ""));
-  if (canonical === brain || canonical.startsWith(`${brain}/`) || brain.startsWith(`${canonical}/`))
+  if (isWithin(brain, canonical) || isWithin(canonical, brain))
     throw new WorkerHostError("Claude config and transcripts must be outside the authoritative brain and its ancestors");
   directory(configured);
   const saved = realpathSync(configured);
-  if (saved === brain || saved.startsWith(`${brain}/`) || brain.startsWith(`${saved}/`))
+  if (isWithin(brain, saved) || isWithin(saved, brain))
     throw new WorkerHostError("Claude config and transcripts must be outside the authoritative brain and its ancestors");
   // Both fixtures and native CLI use the SDK's project-directory encoding.
   const project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
@@ -277,7 +278,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
       const notes: [string, Buffer][] = [];
       try {
       for (const file of files(join(root, project), "", { resolved: false })) {
-        if (file.startsWith(`${MEMORY}/`)) {
+        if (isWithin(MEMORY, file, { includeRoot: false })) {
           // Agent memory (#1626): only a `.md` note directly in the folder.
           // A provider-denied worker saves none, new or replacing (#2726):
           // its notes stay in its tmpfs and are discarded with it.

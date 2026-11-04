@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
 import { guardSqliteCleanup } from "./db/write-worker.js";
 import { createStorageHistory } from "./storage/history-store.js";
@@ -1130,7 +1131,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createStorageMaintenanceRoutes(storageMaintenance));
 
   const storageRemoval = createStorageRemoval(db, { brainPath: config.brainPath, retainedRoot: journalRoot, boundary, journal, gate: hostExecution.gate()!, lock: host.workerLock, storage,
-    protectedPaths: [...storageStores.map(store => store.path), ...config.storage?.gitRoots ?? []].filter(path => path === config.brainPath || path.startsWith(config.brainPath + "/")).map(path => path === config.brainPath ? "." : path.slice(config.brainPath.length + 1)),
+    protectedPaths: [...storageStores.map(store => store.path), ...config.storage?.gitRoots ?? []].filter(path => isWithin(config.brainPath, path)).map(path => path === config.brainPath ? "." : path.slice(config.brainPath.length + 1)),
     authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
   });
   bootCleanup.push(() => storageRemoval.close());
