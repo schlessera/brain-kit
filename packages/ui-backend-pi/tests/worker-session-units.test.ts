@@ -105,7 +105,7 @@ test("a prompted worker leaves its turn temp to promotion", async () => {
   const turnTemp = { root: join(root, "tmp"), closeAsync: async () => { closed++; } } as unknown as WorkerStateHandle;
   const supervision = superviseWorker({ child, reservation: { turnTempBytes: 1, release: () => {} } as unknown as Reservation, turnTemp,
     env: { caps: {} } as SessionEnv, turnContext: createTurnContext(), admission: { envelope: undefined, hostInference: undefined }, answerText: () => "" });
-  supervision.markPrompted();
+  supervision.claimTurnTempClose();
   exit(0);
   await child.exited; await Bun.sleep(0);
   expect(closed).toBe(0);
