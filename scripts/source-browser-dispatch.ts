@@ -12,6 +12,8 @@ const helperConsumers:Record<string,string>={
   "packages/ui-react/src/ws-client/inbound.ts":"18d84fd93fc0f5ced9114e5bd5f5270632d70105d10f254be999fa3677bcf163",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
+// Re-audited for #3155: chat.ts only gained `attachmentFiles` in its history
+// message mapping; chatFrameHandlers and its dispatch are unchanged.
 const declarations=[
   {
     "owner": "packages/ui-react/src/hooks/websocket-handlers/index.ts",
@@ -22,7 +24,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "5c314921924458ce67f6a815553740b3828b447a2b34031f222745fdfb3bd15c"
+        "source": "7293732dfe85e43815c013e86af467a6d57c33d0eb8232310938ed3a6d5e3048"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",

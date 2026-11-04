@@ -3,6 +3,7 @@ import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts
 import { createStore } from "zustand/vanilla";
 import type {
   SharedFileMeta,
+  AttachmentFile,
   LocalExchange,
   MessageBlock,
   MessageLink,
@@ -67,6 +68,8 @@ export interface ChatMessage {
    */
   attachments?: MessageAttachment[];
   files?: SharedFileMeta[];
+  /** Composer originals the message named (#3155). Stored is not read: no read state is implied. */
+  attachmentFiles?: AttachmentFile[];
   /** Attachment count for history-loaded messages without preview data. */
   attachmentCount?: number;
   /**
@@ -431,7 +434,8 @@ export interface ChatState {
     source?: MessageSource,
     attachments?: MessageAttachment[],
     effort?: { requestId: string; thinkingLevel?: ThinkingLevel },
-    files?: SharedFileMeta[]
+    files?: SharedFileMeta[],
+    attachmentFiles?: AttachmentFile[]
   ) => void;
   startAssistantMessage: (key: ChatKey, turnId?: string, requestId?: string) => void;
   appendText: (key: ChatKey, text: string) => void;

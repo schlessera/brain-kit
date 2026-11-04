@@ -6,8 +6,9 @@ linked in each section below. The
 schemas, bounds and proof briefs; its six §13 recommendations were approved
 at review on 2026-11-02. Admission, storage, ownership and cleanup are built
 ([what #3153 built](#what-3153-built)), and so is reading contents
-([what #3154 built](#what-3154-built)); the composer is open work in epic
-#3150.
+([what #3154 built](#what-3154-built)). The composer's first slice is built
+([what #3155 built so far](#what-3155-built-so-far)); the rest is open work in
+epic #3150.
 
 ## Sources and one pipeline
 
@@ -210,7 +211,44 @@ The shared reader of the design's §7, with these concrete choices:
   parsing; then add an Odysseus fixture and its outcome tests. The composer's
   Files picker has no `accept` filter, so it does not change.
 
-## Rejected alternatives
+## What #3155 built so far
+
+The composer's Files source, its upload queue and the draft binding of
+originals, on a host that advertises `composerFiles`:
+
+- **Menus as ruled.** Desktop shows Files… and paste-or-drop guidance, and no
+  Photo library or Camera. A phone keeps both beside Files. The Files input
+  has no `accept`, and paste and drop feed the same pipeline. A host without
+  `composerFiles` keeps the old menu and D52's tab-only track queue.
+- **One route for everything but images.** Every file that is not an image
+  goes to `POST /api/drafts/:draftId/files` as its raw bytes. The client
+  never routes by MIME type or extension; detection is the host's. Images
+  keep their existing frame processing. They do not upload an original yet,
+  so the image half of "a real file for every attachment" is still open.
+- **A queue item keeps one key for its whole life.** The idempotency key is
+  minted once per item. A lost answer becomes `unknown`, never "not stored".
+  It is uploaded again with the same key once on reconnect, or through
+  **Upload again**. A `503` waits and retries with that key. Only a received
+  `4xx` says *not stored*. `fetch` reports no upload progress, so the chip
+  says `uploading…` rather than invent a percentage.
+- **Stored originals are draft content.** A stored original joins
+  `ComposerDraft.files`, together with the draft id it was uploaded to (its
+  lineage). It is saved as `fileIds`, and it reads as saved only when an
+  acknowledged revision lists it. A file carried to another draft id, by a
+  rotation or a kept copy, cannot be bound there. It shows *not attached*,
+  blocks Send and is never listed in that id's save. The device copy of a
+  draft (#1014) keeps the references, so a restore cannot unbind them.
+- **Send waits for the binding.** Send holds while an upload or the save
+  that binds the originals is pending, and then sends `attachmentRefs` with
+  the acknowledged `draftRef`. A refused or failed upload, or a detached
+  file, blocks Send with a reason. Unread contents, and kinds with no
+  reader, never block it. The hold uses the composer's existing tab-local
+  hold. The durable held snapshot, recovery bubbles and queue-full notice of
+  design brief rev 5 wait for the snapshot list (#3588).
+- **Sent rows claim no read.** A sent message lists its originals by name,
+  kind and size. The read records are not delivered to clients yet (#3589),
+  so a row shows neither *read* nor *not read yet*.
+
 
 The rejected options were offered in the rulings above:
 
