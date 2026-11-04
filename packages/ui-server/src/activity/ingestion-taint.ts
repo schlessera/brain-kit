@@ -3,7 +3,7 @@ import { posix } from "node:path";
 import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
-export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "workspace_read" | "mcp_document"
+export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attachment" | "workspace_read" | "mcp_document"
   | "user_marked" | "fetching_command" | "unclassified_command" | "compute_output";
 
 /** Whether a brain-relative path carries the user's untrusted mark (#2673). */
@@ -24,13 +24,15 @@ const SEARCH_TOOLS = new Set(["Grep", "Glob", "grep"]);
 /** The untrusted area a brain-relative path leads with. */
 function leadingArea(relative: string): IngestionSource | null {
   const [first, second] = relative.split("/");
-  return first === "workspaces" ? "workspace_read" : first === ".brain-ui" && second === "inbox" ? "staged_share" : null;
+  return first === "workspaces" ? "workspace_read" : first === ".brain-ui" && second === "inbox" ? "staged_share"
+    : first === ".brain-ui" && second === "attachments" ? "chat_attachment" : null;
 }
 /** An area segment anywhere: for a view whose root the host cannot name. */
 function anyArea(path: string): IngestionSource | null {
   const segments = path.split("/");
   if (segments.includes("workspaces")) return "workspace_read";
-  return segments.some((segment, index) => segment === ".brain-ui" && segments[index + 1] === "inbox") ? "staged_share" : null;
+  if (segments.some((segment, index) => segment === ".brain-ui" && segments[index + 1] === "inbox")) return "staged_share";
+  return segments.some((segment, index) => segment === ".brain-ui" && segments[index + 1] === "attachments") ? "chat_attachment" : null;
 }
 /**
  * The untrusted area a path names. Relative paths resolve against the brain

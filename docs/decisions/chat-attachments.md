@@ -1,12 +1,12 @@
 # Generic chat attachments
 
-**Decided by the maintainer on 2026-10-29 and 2026-11-02**, before runtime
-implementation. The rulings are linked in each section below. This record
-holds approved policy only. Nothing in it is implemented yet. The
-[source-backed design](../plans/chat-attachments.md) turns the rulings into
-routes, schemas, bounds and proof briefs. Its numbered recommendations are not
-rulings until they are confirmed at review. Open work is epic #3150 in the
-tracker.
+**Decided by the maintainer on 2026-10-29 and 2026-11-02.** The rulings are
+linked in each section below. The
+[source-backed design](../plans/chat-attachments.md) turns them into routes,
+schemas, bounds and proof briefs; its six §13 recommendations were approved
+at review on 2026-11-02. Admission, storage, ownership and cleanup are built
+([what #3153 built](#what-3153-built)); content reading and the composer are
+open work in epic #3150.
 
 ## Sources and one pipeline
 
@@ -103,6 +103,51 @@ and [desktop menu A](https://github.com/schlessera/brain-kit/issues/3155#issueco
   with details on hover, tap and keyboard focus. Only active work animates,
   and reduced motion gets static glyphs. #3281 owns the shared component
   ([ruling](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6575242784)).
+
+## What #3153 built
+
+The server side of admission, storage, ownership and cleanup, as the design's
+§4 and §6 describe, with these concrete choices:
+
+- **Records and transactions.** The `attachment_files`, `attachment_refs`,
+  `attachment_reservations` and `attachment_receipts` tables sit in the
+  operational database beside the drafts, and every mutation runs on the
+  draft store's write channel. A save, an acceptance and a sweep mark
+  therefore see one serialized state. Reference owners are `draft` and
+  `outgoing` (both keyed by the draft id; a draft has at most one outgoing
+  snapshot) and `message` (keyed by the session id). The design's compound
+  owner ids were simplified this way because a draft id may itself contain
+  `:`, and one reference per session protects a file as well as one per turn.
+- **References on the wire.** A message names its originals in a new optional
+  `chat_message.attachmentRefs` field, not as a new variant of the existing
+  `files` union the design sketched. Adding a variant would retype
+  `ChatFileAttachment[]` for TypeScript readers, which the contract counts as
+  breaking. The separate field is additive and carries the same reference.
+- **What the provider sees.** The `<brain-attachments>` block says the
+  contents have not been read and that the agent may open an original at its
+  path. It does not name `read_attachment`, because that tool belongs to
+  #3154 and is not registered yet. Once it is, new messages may name it;
+  recorded messages keep the text they were sent with.
+- **Accounting.** The pool charges recorded originals in every state,
+  reservations and legacy draft image BLOBs. A save charges the draft
+  sub-limit only for originals no live draft or snapshot already references.
+  A reservation is the declared `Content-Length`, or 25,000,000 bytes without
+  one, and the commit replaces it with the real size in the same transaction
+  that re-checks the pool.
+- **Cleanup safety.** The sweep's mark re-selects by clock and requires no
+  reference; a reference insert requires `stored` in its own transaction.
+  Rebinding also clears the clock, so two independent guards keep a rebound
+  file. The mutation proof in the PR breaks each.
+- **Governed read-only mount.** `.brain-ui/attachments/` is mounted read-only
+  for governed workers through the same resolver that mounts protected paths,
+  but it is not a protected path: no policy names it, the turn manifest does
+  not list it, and nothing is quarantined when the host writes it during a
+  turn. The ordinary profile relies on the digest check alone.
+- **Session deletion.** The store's `releaseSession` removes a chat's
+  `message` references and starts their seven-day clocks. Calling it from chat
+  deletion belongs to #3231's flow.
+- **Kept as before.** `/share`, `/track-upload`, staged-track references,
+  inline images and D52's tab-only legacy track path behave as they did.
 
 ## Rejected alternatives
 

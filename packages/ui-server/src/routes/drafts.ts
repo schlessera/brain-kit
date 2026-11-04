@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES } from "@schlessera/brain-ui-sdk/protocol";
+import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES, type DraftOutgoing } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { AppEnv } from "../app-env.js";
 import { DraftAuthError, DraftError, type DraftImageType, type AwaitableDraftStore } from "../drafts/store.js";
@@ -93,6 +93,15 @@ function reference(value: unknown, label: string): string {
   return value;
 }
 
+const FILE_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+
+function fileIdList(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.length > 10 || value.some((id) => typeof id !== "string" || !FILE_ID.test(id))) {
+    throw invalid(`${label} must be an array of at most 10 file ids.`);
+  }
+  return value as string[];
+}
+
 export function createDraftRoutes(store: AwaitableDraftStore): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const run = (handler: (c: Context<AppEnv>, principalId: string) => Promise<Response>) => async (c: Context<AppEnv>) => {
@@ -128,17 +137,29 @@ export function createDraftRoutes(store: AwaitableDraftStore): Hono<AppEnv> {
     const ifMatch = ifMatchOf(c);
     const idempotencyKey = idempotencyKeyOf(c);
     const body = await readJson(c, MAX_SAVE_BODY_BYTES);
-    const { sessionId, text, attachmentIds } = body;
+    const { sessionId, text, attachmentIds, fileIds, outgoing } = body;
     if (sessionId !== null) reference(sessionId, "sessionId");
     if (typeof text !== "string") throw invalid("text must be a string.");
     if (!Array.isArray(attachmentIds) || attachmentIds.some((id) => typeof id !== "string" || !DRAFT_ID.test(id))) {
       throw invalid("attachmentIds must be an array of attachment ids.");
+    }
+    const files = fileIds === undefined ? undefined : fileIdList(fileIds, "fileIds");
+    let snapshot: DraftOutgoing | null | undefined;
+    if (outgoing === null) snapshot = null;
+    else if (outgoing !== undefined) {
+      if (!outgoing || typeof outgoing !== "object" || Array.isArray(outgoing)) throw invalid("outgoing must be an object or null.");
+      const o = outgoing as Record<string, unknown>;
+      if (typeof o.text !== "string") throw invalid("outgoing.text must be a string.");
+      if (o.state !== "held" && o.state !== "dispatched") throw invalid("outgoing.state must be held or dispatched.");
+      snapshot = { requestId: reference(o.requestId, "outgoing.requestId"), text: o.text, fileIds: fileIdList(o.fileIds, "outgoing.fileIds"), state: o.state };
     }
     return c.json(await store.save(principalId, draftId, {
       ifMatch, idempotencyKey,
       sessionId: sessionId as string | null,
       text,
       attachmentIds: attachmentIds as string[],
+      ...(files !== undefined ? { fileIds: files } : {}),
+      ...(snapshot !== undefined ? { outgoing: snapshot } : {}),
     }));
   }));
 

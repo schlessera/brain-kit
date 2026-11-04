@@ -150,7 +150,7 @@ export interface SessionCatalog {
    * so a catalog written before it still type-checks; without it every
    * replayed message reads as typed.
    */
-  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
