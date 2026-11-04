@@ -149,7 +149,7 @@ async function run(name: string, command: string[], limitMs: number) {
   const stdout = collect(child.stdout), stderr = collect(child.stderr), started = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const exit = await Promise.race([Promise.all([stdout.done, stderr.done, child.exited]).then(([, , code]) => code),
-    new Promise<undefined>(done => { timer = setTimeout(done, limitMs); })]);
+    new Promise<undefined>(done => { timer = setTimeout(() => done(undefined), limitMs); })]);
   clearTimeout(timer);
   if (exit === undefined) {
     child.kill("SIGKILL");

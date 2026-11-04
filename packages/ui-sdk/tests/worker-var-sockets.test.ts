@@ -47,7 +47,7 @@ test("all worker profiles hide every /var socket while explicit runtime files st
     const out = collect(child.stdout), err = collect(child.stderr);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const code = await Promise.race([Promise.all([out.done, err.done, child.exited]).then(([, , exit]) => exit),
-      new Promise<undefined>(done => { timer = setTimeout(done, FIXTURE_DEADLINE_MS); })]);
+      new Promise<undefined>(done => { timer = setTimeout(() => done(undefined), FIXTURE_DEADLINE_MS); })]);
     clearTimeout(timer);
     if (code === undefined) {
       child.kill("SIGKILL");
