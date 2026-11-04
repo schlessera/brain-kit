@@ -223,7 +223,7 @@ still gets `closed`/`ended`.
 **The timeout is said, not inferred.** The timer itself records the turn it
 ended, and the bridge stamps that turn's own cancelled terminal frames
 (`if (turn.timedOutTurnId === turnId`,
-`packages/ui-server/src/ws/bridge.ts:219-222`): `detail: "Turn timed out"`
+`packages/ui-server/src/ws/bridge-capabilities/emission.ts:79-82`): `detail: "Turn timed out"`
 on `status: cancelled`, and `outcomeDetail: "host_timeout"` on the
 cancelled `result`. A cancel, a revoked principal or a journal or egress
 abort leaves no such mark, even though each also aborts the turn's signal.
