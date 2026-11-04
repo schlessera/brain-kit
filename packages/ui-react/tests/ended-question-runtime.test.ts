@@ -300,7 +300,9 @@ describe.skipIf(!executablePath)("a question whose turn timed out, in Chrome", (
 
         // Send as message, from the keyboard: one ordinary new message.
         const sendAs = status.getByRole("button", { name: "Send as message", exact: true });
-        expect(await sendAs.evaluate((el) => el.getBoundingClientRect().height), "SEND_AS_TOUCH_HEIGHT").toBeGreaterThanOrEqual(44);
+        // #3252: a reaching Button keeps its kit paint and reaches 44px past it under a
+        // coarse pointer; its edges are probed in the pointer lanes (`hit-reach.*.pointer.tsx`).
+        expect(await sendAs.evaluate((el) => el.classList.contains("bk-hit") && (el as HTMLElement).style.minHeight !== "44px"), "SEND_AS_REACHES_NOT_INFLATED").toBe(true);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "ENDED_CARD_NO_OVERFLOW").toBe(true);
         await sendAs.focus();
         await page.keyboard.press("Enter");

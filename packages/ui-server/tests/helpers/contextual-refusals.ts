@@ -32,7 +32,7 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   const save = host.catalog.saveConversationTask!.bind(host.catalog);
   Object.defineProperty(host.catalog, "saveConversationTask", { value: (principal: string, receipt: Parameters<typeof save>[1]) =>
     rejectAdmission && receipt.state === "queued" ? Promise.reject(new Error("Fixture admission storage failure")) : save(principal, receipt) });
-  registerCleanup(async () => { for (const release of releases) release(); host.coordinator.reset(); await host.close(); db.close(); });
+  registerCleanup(async () => { for (const release of releases) release(); await host.close(); db.close(); });
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
   const handlers = createWsHandlers(host, testPrincipal());
@@ -112,6 +112,9 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   // A tombstoned refusal cannot acquire a different binding or execute later.
   const count = returned.length;
   await request("refused-0");
+  // Negative window: correct code answers a replayed tombstone with no frame at
+  // all, so nothing marks its handling. A later request as a FIFO marker would
+  // start a turn of its own and change the counts asserted here.
   await Bun.sleep(10);
   expect(turns).toHaveLength(accepted + 1);
   expect(f.sent.flatMap(f => provider === "gemini" ? f.toolResponse?.functionResponses ?? [] : f.delegation_id ? [f] : [])).toHaveLength(count);

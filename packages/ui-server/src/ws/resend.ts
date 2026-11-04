@@ -46,22 +46,22 @@ export function resendPendingAsks(host: WsHost, ws: WSContext, sessionId?: strin
   const { coordinator } = host;
   const wanted = (p: { turn: { sessionId: string | null } }) =>
     sessionId === undefined || p.turn.sessionId === sessionId;
-  for (const p of coordinator.pendingAskUser.values()) {
+  for (const p of coordinator.pendingAsks("ask_user").values()) {
     if (!wanted(p)) continue;
     host.sendMessage(
       ws,
       withTurnScope({ type: "ask_user_request", requestId: p.requestId, questions: p.questions }, p.turn, p.turnId)
     );
   }
-  for (const p of coordinator.pendingAskUserList.values()) {
+  for (const p of coordinator.pendingAsks("ask_user_list").values()) {
     if (!wanted(p)) continue;
     host.sendMessage(ws, withTurnScope({ type: "ask_user_list_request", requestId: p.requestId, ...p.request }, p.turn, p.turnId));
   }
-  for (const p of coordinator.pendingAskUserRank.values()) {
+  for (const p of coordinator.pendingAsks("ask_user_rank").values()) {
     if (!wanted(p)) continue;
     host.sendMessage(ws, withTurnScope({ type: "ask_user_rank_request", requestId: p.requestId, ...p.request }, p.turn, p.turnId));
   }
-  for (const p of coordinator.pendingAskUserForm.values()) {
+  for (const p of coordinator.pendingAsks("ask_user_form").values()) {
     if (!wanted(p)) continue;
     host.sendMessage(ws, withTurnScope({ type: "ask_user_form_request", requestId: p.requestId, ...p.request }, p.turn, p.turnId));
   }

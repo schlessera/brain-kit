@@ -6,7 +6,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../../ui-react/src/root.
 import { BrainMarkdown } from "../../../ui-react/src/components/chat/brain-markdown.js";
 import { FilePanel } from "../../../ui-react/src/components/files/file-panel.js";
 import { useUIStore } from "../../../ui-react/src/stores/ui-store.js";
-import { ConsumerDocument, consumerViewport, painted, bounds, accessible } from "./_consumer-parity.js";
+import { ConsumerDocument, consumerViewport, painted, bounds, accessible, target } from "./_consumer-parity.js";
 
 const path = ".brain/scratch/raft/overview.pdf";
 /** Metadata outcomes the runtime routes return, served through the root's
@@ -147,8 +147,7 @@ export const LayoutPhone = meta.story({
     await expect(screen.queryByText("private backend detail"), "server detail stays private").toBeNull();
     const retry = screen.getByRole("button", { name: "Try again" });
     const box = retry.getBoundingClientRect();
-    await expect(box.height, "artifact retry target height").toBeGreaterThanOrEqual(44);
-    await expect(box.width, "artifact retry target width").toBeGreaterThanOrEqual(44);
+    await target(retry, "artifact retry");
     // The runtime's own oracle: the document's layout hit test at each edge.
     for (const [x, y] of [[box.left + 1, box.top + box.height / 2], [box.right - 1, box.top + box.height / 2], [box.left + box.width / 2, box.top + 1], [box.left + box.width / 2, box.bottom - 1]] as const) {
       await expect(retry.contains(document.elementFromPoint(x, y)), `artifact retry edge hit test at ${Math.round(x)},${Math.round(y)}`).toBe(true);

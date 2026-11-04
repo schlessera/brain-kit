@@ -19,7 +19,7 @@ import { cn } from "../../lib/utils.js";
  * particular — the container passes the skill name it is working on, and
  * every row control is inert while any is running, as before.
  */
-export interface SkillsListProps {
+interface SkillsListProps {
   skills: SkillEntry[];
   /** The skill a mutation is running for, or null. */
   busy: string | null;
@@ -202,7 +202,7 @@ export function SkillsList(p: SkillsListProps) {
   );
 }
 
-export interface SkillEditorProps {
+interface SkillEditorProps {
   name: string;
   content: string;
   isNew: boolean;

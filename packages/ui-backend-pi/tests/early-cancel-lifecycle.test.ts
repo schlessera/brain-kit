@@ -212,6 +212,10 @@ for (const failure of ["startup failure", "initialization timeout"] as const) {
     if (failure === "initialization timeout") timeout();
     await reached.promise;
     controller.abort();
+    // Kept real time: a negative observation. The release is held in memory,
+    // but a startup failure that stopped awaiting it would still close the
+    // worker's turn temp on the native broker before settling. That close has
+    // no in-process signal, so only a window can show the turn did not settle.
     await Bun.sleep(50);
     expect(settled, "PI_START_FAILURE_AWAITS_RELEASE_DESPITE_CANCELLATION").toBe(false);
     released.resolve();

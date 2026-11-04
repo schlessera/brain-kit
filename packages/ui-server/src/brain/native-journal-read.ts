@@ -14,7 +14,7 @@ export interface NativeJournalReadContext {
 export const nativeJournalPermissionDenied = (error: unknown): boolean =>
   ["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException)?.code ?? "");
 
-export async function openNativeJournalFile(root: string, path: string): Promise<FileHandle> {
+async function openNativeJournalFile(root: string, path: string): Promise<FileHandle> {
   const parts = path.split("/");
   if (!path || path.startsWith("/") || path.includes("\0") || parts.some(part => !part || part === "." || part === "..")) throw new Error("Invalid native journal path.");
   let directory = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);

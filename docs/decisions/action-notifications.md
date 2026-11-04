@@ -197,9 +197,9 @@ Collection for a chat environment is not authenticated notification-zone
 binding or lifecycle freshness proof.
 
 Existing activity digest generation serializes its transaction
-(`generateActivityDigest`, `packages/ui-server/src/activity/digest.ts:31-39`)
+(`generateActivityDigest`, `packages/ui-server/src/activity/digest.ts:30-38`)
 and owns an activity-specific window/coverage marker
-(`generateInTx`, `packages/ui-server/src/activity/digest.ts:41-101`).
+(`generateInTx`, `packages/ui-server/src/activity/digest.ts:40-100`).
 Those mechanisms provide prior art; that global marker cannot represent
 client-context waiting episodes or discard older unreported decisions.
 

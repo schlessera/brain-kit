@@ -6,7 +6,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 
-export const scopeLimitName: Record<ScopeCapReceipt["dimension"], string> = {
+const scopeLimitName: Record<ScopeCapReceipt["dimension"], string> = {
   files_changed: "File limit", minutes: "Time limit", tool_calls: "Tool-call limit", turn_bytes: "Write allowance", free_space_floor: "Free-space floor",
 };
 export function scopeNumber(dimension: ScopeCapReceipt["dimension"], value: number): string {
@@ -75,8 +75,8 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
           { title: "Stop here", subtitle: !canContinue ? "This limit allows Stop only. Partial work remains." : "Ends this turn. Partial work remains.", disabled, onClick: () => send("stop") },
         ]} />
       {reason && <p className="mt-2 text-sm">{reason}</p>}
-      {(pending || error) && <Button label="Check status" disabled={!connected || activeSession !== sessionId} style={{ minHeight: 44 }} onClick={() => send("readback")} />}
-      {error && !pending && connected && !staleContinue && <Button label={`Try ${action.current === "continue" ? "Continue" : "Stop"} again`} disabled={activeSession !== sessionId} style={{ minHeight: 44 }} onClick={() => send(action.current)} />}
+      {(pending || error) && <Button label="Check status" disabled={!connected || activeSession !== sessionId} reach onClick={() => send("readback")} />}
+      {error && !pending && connected && !staleContinue && <Button label={`Try ${action.current === "continue" ? "Continue" : "Stop"} again`} disabled={activeSession !== sessionId} reach onClick={() => send(action.current)} />}
     </> : <p ref={row} tabIndex={-1} data-scope-receipt={receipt.eventId} className="text-sm break-words">{scopeReceiptText(receipt)}{blockedBy ? ". The free-space floor now requires Stop only." : ""}{receipt.reason ? `. ${receipt.reason}` : ""}</p>}
   </div>;
 }

@@ -23,7 +23,6 @@ import {
   at, listDirectory, makeDirectory, openStagingRoot, publishDirectory, removeEntry, verifyEntry, writeExclusive,
   type StagingDirectory, type StagingRoot,
 } from "./staging-fs.js";
-export { StagingTopologyError } from "./staging-fs.js";
 
 /**
  * Staging for an incoming system share.
@@ -47,7 +46,7 @@ export class EmptyShareError extends Error {
   }
 }
 
-export type ShareLimitReason =
+type ShareLimitReason =
   | "too_many_files"
   | "file_too_large"
   | "share_too_large"

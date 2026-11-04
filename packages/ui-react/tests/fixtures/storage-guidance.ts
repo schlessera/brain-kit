@@ -167,6 +167,12 @@ export function storageGuidanceFixture() {
   let status = 200,
     hold: Promise<void> | null = null;
   const reads: string[] = [];
+  // Guidance and history responses handed to the consumer, and those whose
+  // body it has read. The consumer's handling runs in the microtasks that
+  // follow, so a test can wait for a response to have been handled instead of
+  // a fixed window. A refused response is answered but never read.
+  let answered = 0,
+    delivered = 0;
   const request = async (url: string, init?: RequestInit) => {
     const path = new URL(url, "http://fixture.invalid").pathname;
     if (!path.endsWith("/guidance") && !path.endsWith("/history"))
@@ -178,10 +184,14 @@ export function storageGuidanceFixture() {
       responseStatus = status,
       wait = hold;
     if (wait) await wait; // Intentionally ignores abort: exercise the consumer's response ownership guard.
-    return Response.json(
+    const response = Response.json(
       responseStatus === 200 ? body : { error: "Synthetic authority response" },
       { status: responseStatus }
     );
+    const json = response.json.bind(response);
+    response.json = () => json().finally(() => { delivered++; });
+    answered++;
+    return response;
   };
   return {
     inventory,
@@ -189,6 +199,8 @@ export function storageGuidanceFixture() {
     history,
     request,
     reads,
+    answered: () => answered,
+    delivered: () => delivered,
     setStatus(value: number) {
       status = value;
     },

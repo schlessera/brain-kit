@@ -18,6 +18,7 @@ import { watchWriteSites } from "./helpers/write-sites.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { createPrincipal } from "../src/db/principals.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
+import { TurnCoordinator } from "../src/ws/turns.js";
 import { createSessionProfiles, SessionProfileError } from "../src/ws/session-profiles.js";
 import { expectRejection } from "./helpers/expect-rejection.js";
 import { createPolicyProposals } from "../src/brain/policy-proposal.js";
@@ -104,13 +105,17 @@ test("a turn's settled() waits for its roadblock commit", async () => {
   const db = createUiDb(":memory:");
   let release!: () => void;
   const held = new Promise<number>(done => { release = () => done(0); });
+  const entered = Promise.withResolvers<void>();
   const recorder = createTurnRecorder({ store: createActivityStore(db, { writer: "odysseus" }), governanceDb: db,
-    governanceWrites: { ...createGovernanceWrites(db), roadblocks: () => held } }, { turnId: "voyage", sessionId: null });
+    governanceWrites: { ...createGovernanceWrites(db), roadblocks: () => { entered.resolve(); return held; } } }, { turnId: "voyage", sessionId: null });
   try {
     recorder.finish("success");
     let settled = false;
-    void recorder.settled().then(() => { settled = true; });
-    await Bun.sleep(50);
+    const settling = recorder.settled().then(() => { settled = true; });
+    // Everything but the held roadblock write is in memory: once that write has
+    // started, one macrotask runs every continuation that does not wait for it.
+    await Promise.race([entered.promise, settling]);
+    await new Promise(resolve => setImmediate(resolve));
     expect(settled, "RECORDER_SETTLED_WAITS_FOR_ROADBLOCKS").toBe(false);
     release();
     await recorder.settled();
@@ -238,7 +243,7 @@ test("history readers wait for pending catalog writes; a failed acceptance's rev
   try {
     db.exec("CREATE TRIGGER refuse_odysseus BEFORE INSERT ON session_work WHEN NEW.request_id = 'refused' BEGIN SELECT RAISE(ABORT, 'Scylla'); END");
     const catalog = createSessionCatalog(() => db, quietLog);
-    const host = { catalog, coordinator: { unorderedSessions: new Set<string>() } } as never as Parameters<typeof acceptRequest>[0];
+    const host = { catalog, coordinator: new TurnCoordinator() } as never as Parameters<typeof acceptRequest>[0];
     expect(acceptRequest(host, "troy", "refused", null), "WORK_FAILED_ACCEPTANCE_HAS_A_REVISION").toBe(1);
     await catalog.settled!();
     expect(host.coordinator.unorderedSessions.has("troy"), "WORK_FAILED_ACCEPTANCE_UNORDERS").toBe(true);
@@ -291,7 +296,7 @@ test("only a session's newest acceptance orders or unorders it", () => {
   const settle: Array<(stored: boolean) => void> = [];
   let next: number | null = 1;
   const host = { catalog: { acceptWork: (_s: string, _r: string | null, _b: string | null, settled?: (stored: boolean) => void) => { settle.push(settled!); return next; } },
-    coordinator: { unorderedSessions: new Set<string>() } } as never as Parameters<typeof acceptRequest>[0];
+    coordinator: new TurnCoordinator() } as never as Parameters<typeof acceptRequest>[0];
   expect(acceptRequest(host, "troy", "req-1", null)).toBe(1);
   next = null;
   expect(acceptRequest(host, "troy", "req-2", null), "WORK_UNASSIGNED_ACCEPTANCE").toBeUndefined();
@@ -343,11 +348,15 @@ test("a replayed history waits for the classified blocks submitted before it (#2
     const catalog = createSessionCatalog(() => f.db, quietLog, undefined, { pricing: { resolve: () => null }, store: createActivityStore(f.db, { writer: "odysseus" }), writer: f.writer });
     let release!: () => void;
     const pending = new Promise<void>(done => { release = done; });
-    const classifier = { enabled: true, settled: () => pending, attach: (_sessionId: string, messages: never[]) => messages } as never;
+    const consulted = Promise.withResolvers<void>();
+    const classifier = { enabled: true, settled: () => { consulted.resolve(); return pending; }, attach: (_sessionId: string, messages: never[]) => messages } as never;
     const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "claude" })], "claude"), catalog, classifier, maxConcurrentSessions: () => 3 });
     let settled = false;
     const waiting = host.historySettled().then(() => { settled = true; });
-    await Bun.sleep(50);
+    // The classifier is in memory: once the replay has consulted it, one
+    // macrotask runs every continuation that does not wait for its blocks.
+    await Promise.race([consulted.promise, waiting]);
+    await new Promise(resolve => setImmediate(resolve));
     expect(settled, "HISTORY_WAITS_FOR_PENDING_CLASSIFIED_BLOCKS").toBe(false);
     release();
     await waiting;

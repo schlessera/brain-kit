@@ -22,7 +22,7 @@ import { readFileSync } from "fs";
 
 import { SPAN_OUTCOMES, type ActivityStore, type SpanOutcome, type SpanUsage } from "./store.js";
 
-export interface SpanSinkContext {
+interface SpanSinkContext {
   /** The run every ingested span belongs to. */
   runId: string;
   /** Parent for lines that name none — the cron root span. */
@@ -30,7 +30,7 @@ export interface SpanSinkContext {
   jobName?: string;
 }
 
-export interface SpanSinkResult {
+interface SpanSinkResult {
   /** Byte offset consumed so far — pass back on the next incremental call. */
   offset: number;
   ingested: number;

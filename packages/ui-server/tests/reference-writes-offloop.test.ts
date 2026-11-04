@@ -70,7 +70,15 @@ async function fixture() {
     } };
 }
 
-/** Observe an earlier held worker without occupying the app loop. */
+/**
+ * Observe an earlier held worker without occupying the app loop.
+ *
+ * Negative window inside a real 300–400 ms write-worker hold. Each caller then
+ * reads rows the worker commits straight to the database file, so the reads must
+ * run while the worker is still inside its hold: once the hold answers, the
+ * worker may already be committing the queued write. 30 ms gives a wrongly
+ * loop-side commit time to land while staying well inside the hold.
+ */
 async function pending<T>(work: Promise<T>, label: string) {
   let finished = false;
   void work.then(() => { finished = true; }, () => { finished = true; });

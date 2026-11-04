@@ -529,7 +529,7 @@ function unknownTone(unpriced: number, runs: number): { tone?: "dim" } {
 }
 
 /** A token count to three significant figures: `1.84 M`, `212 k`, `6.1 M`. */
-export function tokens(n: number): string {
+function tokens(n: number): string {
   const scale = (value: number, unit: string) => `${Number(value.toPrecision(3))} ${unit}`;
   if (n >= 1_000_000_000) return scale(n / 1_000_000_000, "B");
   if (n >= 1_000_000) return scale(n / 1_000_000, "M");
@@ -538,7 +538,7 @@ export function tokens(n: number): string {
 }
 
 /** The CLI's byte scale (`packages/core/src/cli/commands/stats.ts`, `bytes`). */
-export function bytes(n: number): string {
+function bytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = n;
   let unit = 0;

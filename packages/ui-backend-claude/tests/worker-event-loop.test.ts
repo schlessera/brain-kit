@@ -112,6 +112,11 @@ test.skipIf(!native)("a started worker's failed lifecycle stays handled until th
       signal: new AbortController().signal } as never);
     child.on("error", () => {}); child.stdout.resume(); child.stdin.end();
     await new Promise(done => child.once("exit", done));
+    // Kept real time: a negative observation. The facade's exit is emitted
+    // before the lifecycle settles; its rejection follows only once the state
+    // handle's broker close and the FIFO release finish on Bun's IO pool, and
+    // nothing outside the turn exposes that settlement. Awaiting it would
+    // attach the very handler whose absence this test checks.
     await Bun.sleep(50);
     expect(unhandled, "WORKER_LIFECYCLE_FAILURE_HANDLED_BEFORE_FINISH").toEqual([]);
     await expect(spawner.finish()).rejects.toThrow("scope freezer refused");
@@ -132,7 +137,10 @@ test.skipIf(!native)("a turn abort leaves a running worker to the SDK's own clos
     const exit = new Promise(done => child.once("exit", (code: number | null) => { exited = true; done(code); }));
     await ready;
     turn.abort();
-    await Bun.sleep(300);
+    // Abort listeners run synchronously inside abort(); one macrotask runs any
+    // continuation they scheduled. A kill sent by then stops the worker before
+    // it can read "grace", so the exit code and output below are the proof.
+    await new Promise(resolve => setImmediate(resolve));
     expect(exited, "TURN_ABORT_LEAVES_WORKER_TO_SDK_CLOSE").toBe(false);
     child.stdin.end("grace\n");
     expect(await exit).toBe(0);

@@ -67,7 +67,7 @@ function world() {
   };
   const main = client(owner.id, { [CHAT_DELETION_CAPABILITY]: true });
   const connection = { principal: owner, authorization: testAuthorization(owner.id) };
-  cleanups.push(() => { finish?.(); host.coordinator.reset(); host.close(); db.close(); });
+  cleanups.push(() => { finish?.(); host.coordinator.cancelAll("Test teardown"); host.close(); db.close(); });
   return {
     db, host, catalog, owner, other, main, client, connection,
     send: (msg: ClientMessage) => dispatch(host, main.ws, msg, connection),

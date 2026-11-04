@@ -2,7 +2,7 @@ import type { ShareBlockFormat } from "./share-block.js";
 
 type ShareSegment = { kind: "share"; format: ShareBlockFormat; title?: string; body: string };
 type TextSegment = { kind: "text"; text: string };
-export type Segment = TextSegment | ShareSegment;
+type Segment = TextSegment | ShareSegment;
 
 const SHARE_BLOCK_RE = /<share\b([^>]*)>([\s\S]*?)<\/share>/gi;
 const VALID_FORMATS: ReadonlySet<ShareBlockFormat> = new Set([
@@ -47,6 +47,3 @@ export function shareBlockRanges(input: string): Array<{ segment: Segment; start
 }
 
 
-export function splitShareBlocks(input: string): Segment[] {
-  return shareBlockRanges(input).map(({ segment }) => segment);
-}

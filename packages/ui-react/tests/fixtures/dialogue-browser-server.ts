@@ -237,6 +237,10 @@ const server = Bun.serve({
       if(body.parallelStarts && (frame as {type?:string}).type==="conversation_start") parallel!.handlers.onMessage({data:JSON.stringify({...frame as object,requestId:"pylos-parallel",disclosed:host.conversations!.profile(true)})} as MessageEvent,parallel!.ws);
     }
     if(body.parallelLeave && parallel){const opened=parallel.frames.find(f=>f.type==="conversation_opened");if(opened?.type!=="conversation_opened")throw Error("Parallel conversation did not open");parallel.handlers.onMessage({data:JSON.stringify({type:"conversation_stop",conversationId:opened.conversationId})} as MessageEvent,parallel.ws);}
+    // Kept, pacing only: each client frame's dispatch starts on a microtask
+    // and has no completion handle (createWsHandlers onMessage). The browser
+    // tests poll "step" replies until their condition holds, so this drain
+    // only lets one reply carry the frames' effects; it decides no outcome.
     await Bun.sleep(10);
     if(body.backendPrefix) emitPrefix?.(body.backendPrefix);
     if (body.seedTypedHistory) {
@@ -275,6 +279,8 @@ const server = Bun.serve({
     }
     let delivered=0;
     for (const frame of body.provider ?? []) {
+      // Kept, pacing for the interleaving under test: the task completes during
+      // delivery, between two provider frames. Tests poll for the outcome.
       if(body.finishDuring===delivered){if(body.resultText)FACT=body.resultText;complete?.();await Bun.sleep(5);}
       ingress.push(frame);delivered++;
       if (remote?.readyState === WebSocket.OPEN) remote.send(JSON.stringify(frame));
@@ -286,6 +292,9 @@ const server = Bun.serve({
     backendTailQuota=body.backendTailQuota===true; multipart=body.multipart===true;
     failResult=body.failResult===true;
     if (body.release) complete?.();
+    // Kept, pacing under the held writer, as above: the adapter consumes these
+    // frames while the quota or pressure hold is still in place. Tests poll
+    // for the outcome; historySettled below is the barrier when no writes are held.
     await Bun.sleep(20);
     await releaseQuota?.();
     if(body.expireWrites){deadlineClock?.expire();await new Promise<void>(resolve=>setImmediate(resolve));}

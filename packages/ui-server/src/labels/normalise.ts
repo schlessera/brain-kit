@@ -10,7 +10,7 @@ import { PILL_LABEL_MAX_CHARS } from "@schlessera/brain-ui-sdk/protocol";
 /** The longest label a pill is given: the SDK's bound. */
 export const LABEL_MAX_CHARS = PILL_LABEL_MAX_CHARS;
 /** The most words a label keeps; the model is asked for two to four. */
-export const LABEL_MAX_WORDS = 4;
+const LABEL_MAX_WORDS = 4;
 
 // C0/C1 controls, zero-width and bidirectional formatting characters.
 const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;

@@ -155,7 +155,7 @@ export function pickSpeechProvider(voice: VoiceConfig, supplied?: SpeechProvider
 }
 
 /** Validate a by-value implementation before invoking it or building keyterms. */
-export function assertSpeechProvider(provider: SpeechProvider): void {
+function assertSpeechProvider(provider: SpeechProvider): void {
   if (!provider || typeof provider !== "object" || typeof provider.id !== "string" ||
       !provider.id || provider.id !== provider.id.trim().toLowerCase()) {
     throw new Error("Invalid SpeechProvider: id must be a nonempty, trimmed, lowercase string.");

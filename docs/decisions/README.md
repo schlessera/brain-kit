@@ -49,10 +49,12 @@ somebody already learn the hard way?*
 | [sqlite-write-worker.md](sqlite-write-worker.md) | Why journal, Activity and native-lease commits run at `synchronous=FULL` on a per-database write worker thread, in submission order, while the event loop awaits them. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
 | [apify-capability.md](apify-capability.md) | Explicit Apify activation and discovery consent, pinned upstream evidence, and the selected bounded execution contract. |
+| [external-compute.md](external-compute.md) | Why external compute is a public `ComputeProvider` seam with explicit provider instances, host-owned job lifecycle, finite leases, unknown-cost admission and Boat as a separate first package. |
 | [design-feedback.md](design-feedback.md) | The design defects building the kit found, the measurement behind each, and the ruling that settled it. Cited by section number from `packages/ui-kit` source. |
 | [geo-operations.md](geo-operations.md) | Why one independent concrete geo library owns shared operations, with strict travel compatibility and explicit recovered-track evidence. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles, and how the `map` block draws places the model names on the same geometry. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
+| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: one source-to-processing pipeline, filesystem originals owned by acknowledged drafts and conversations, the 10/25 MB/50 MB envelope inside a 1 GiB pool, one-hour and seven-day cleanup, and a shared local reader delivering PDF/text contents on demand; policy approved before implementation. |
 | [chat-history-deletion.md](chat-history-deletion.md) | Authenticated own-chat local deletion, permanent minimized replay fences, retained independent records and accepted backup limits; policy approved before runtime implementation. |
 | [live-conversation.md](live-conversation.md) | Why Gemini Live and OpenAI GPT-Live share one host-owned conversation interface; the October 29 continuous-capture and bounded audible-recovery direction supersedes routine Resume requirements without certifying runtime readiness. |
 | [dictation-speech.md](dictation-speech.md) | Why external dictation providers reach the real server by value, how explicit selection and matching client registration work, what conformance freezes at 1.0, and why saved audio uses explicit server-side transcription with permanent classified receipts. |
@@ -182,7 +184,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it

@@ -72,7 +72,7 @@ function world() {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => { const id = c.req.header("x-odysseus-principal"); const p = id ? resolvePrincipal(db, id) : null; if (p) c.set("principal", p); await next(); });
   app.route("/api", createChatDeletionRoutes({ deletion: host.chatDeletion, principalValid: p => { const current = resolvePrincipal(db, p.id); return !!current && isUsablePrincipal(current, Date.now()); } }));
-  cleanups.push(async () => { host.coordinator.reset(); host.close(); await catalog.settled!(); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  cleanups.push(async () => { await host.close(); await catalog.settled!(); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); });
   return {
     db, catalog, owner, other, agent,
     /** One typed request, through dispatch and the run loop, settled on the writer. */

@@ -6,7 +6,7 @@ import { MAX_QUEUED_ANSWERS, type AnswerDelivery } from "./types.js";
 
 export type DeliveryAction = "cancel" | "copy" | "sendAsMessage" | "edit" | "reload" | "tryAgain";
 
-export interface DeliveryCopy {
+interface DeliveryCopy {
   tag: string;
   body?: string;
   meta?: string;
@@ -25,13 +25,13 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** "09:41", in local time. */
-export function clockTime(at: number): string {
+function clockTime(at: number): string {
   const d = new Date(at);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** "2 Oct 09:41", in local time. */
-export function dayAndTime(at: number): string {
+function dayAndTime(at: number): string {
   const d = new Date(at);
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${clockTime(at)}`;
 }

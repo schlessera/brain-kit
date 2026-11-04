@@ -78,7 +78,7 @@ describe("brain_read wrapper", () => {
 });
 
 describe("brain_read wrapper on a document over the output limit", () => {
-  // MAX_READ_BYTES in src/tools.ts.
+  // MAX_READ_BYTES in src/tool-kit.ts.
   const LIMIT = 100_000;
   const filler = "Filler line for the long document.\n".repeat(Math.ceil((LIMIT * 1.5) / 35));
   const LONG =

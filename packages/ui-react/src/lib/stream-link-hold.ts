@@ -25,7 +25,7 @@ const ADDRESS_END = /[\s)\]>,;!?]$/;
 /** A bare address the autolinker would pick up, touching the end of the line. */
 const BARE_ADDRESS = /(?:https?:\/\/|www\.|mailto:)\S*$|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*$/i;
 
-export interface LinkHold {
+interface LinkHold {
   /** The buffer up to the held tail: what is rendered. */
   shown: string;
   /** What is held back, `""` when nothing is. */

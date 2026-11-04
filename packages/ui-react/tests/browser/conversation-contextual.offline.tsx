@@ -25,7 +25,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const renderRequests: Array<{ content: string; contentType: string; format: string }> = [];
   const network = installFaultNetwork({ routes: (url, init) => {
@@ -112,9 +112,9 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   const upstream: any[] = [];
   const downstream: ServerMessage[] = [];
   let evidence: any;
-  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false, releaseValidation = false) => {
+  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false, releaseValidation = false, settledWork = false) => {
     const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data))); cursor = s.socket.sent.length;
-    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening, releaseValidation });
+    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening, releaseValidation, settledWork });
     upstream.push(...evidence.sent); downstream.push(...evidence.frames);
     for (const frame of evidence.frames) s.deliver(frame);
     return evidence;
@@ -182,6 +182,9 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
   await expect.poll(async () => { await s.pump(); return returns().length; }).toBe(1);
   const exact = s.evidence().tasks[0].read + " The host task has finished.";
   expect(returns()).toEqual([{ native: "recall-research", text: exact, scheduling: provider === "gemini" ? "WHEN_IDLE" : "session.commentary.append" }]);
+  // #3263: the provider receiving the result does not mean its acknowledgement
+  // has updated the delivery receipt yet; wait for the host to publish it.
+  await s.pump([], false, false, false, false, false, true);
   const receipt = s.downstream.filter(f => f.type === "conversation_work" && f.nativeHandle === "recall-research").at(-1)!;
   expect(receipt).toMatchObject({ provenance: "contextual", epoch: firstEpoch, state: "completed", delivery: provider === "gemini" ? "unknown" : "returned", taskId: expect.any(String), requestId: expect.any(String), turnId: expect.any(String) });
   expect(s.downstream.filter(f => f.type === "text_delta" && (f as any).turnId === (receipt as any).turnId).map(f => (f as any).text).join("")).toBe(exact);
@@ -915,6 +918,14 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} inline reco
   expect(s.client.state.getState().micOn).toBe(true);
   const messages = s.ui.stores.chat.getState().buffers[s.ui.stores.chat.getState().activeSessionId!]!.messages;
   expect(messages.filter(m => m.role === "user").every(m => m.source === "voice-context")).toBe(true);
+  // #3263: the rendered result and the task's settled receipt are separate
+  // publications. The host settles the work after the turn's index refresh,
+  // egress and journal finalization (`executeTurn`,
+  // `packages/ui-server/src/ws/session-run/turn.ts:87-145`), and delivery
+  // follows the provider's acknowledgement (`deliver`,
+  // `packages/ui-server/src/ws/conversation.ts:903-956`). Both can reach a
+  // later step than the text, so wait for the host's actual settled receipt.
+  await s.pump([], false, false, false, false, false, true);
   expect(Object.values(s.client.state.getState().work)).toContainEqual(expect.objectContaining({ state: "completed", delivery: provider === "gemini" ? "unknown" : "returned" }));
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(5);
   expect(s.host.querySelector("[data-transcript-qualifiers=recognized]")?.getAttribute("aria-label")).toContain(provider === "gemini" ? "Gemini Live; unverified" : "GPT-Live; unverified");

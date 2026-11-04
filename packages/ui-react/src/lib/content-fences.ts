@@ -1,5 +1,5 @@
 /** Closed CommonMark fences, including offsets needed to preserve surrounding source. */
-export interface ContentFence {
+interface ContentFence {
   start: number;
   end: number;
   source: string;

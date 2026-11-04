@@ -22,10 +22,19 @@ of the [six-part #943 design](https://github.com/schlessera/brain-kit/issues/943
 (2026-10-04) with its four residual answers, R1–R4 (2026-10-05). Where
 those later rulings do not replace it, the supplied navigation and
 parallel-session designs still bind; §8 lists what carries over. The measured input is
-[`docs/plans/navigation-recovery.md`](../../plans/navigation-recovery.md)
+[`docs/plans/navigation-recovery.md`](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/navigation-recovery.md)
 (#942). The row's adopted geometry is the
 [shared-row design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5998113323),
 which amends the #943 strip.
+
+> **2026-11-02 — The measured input left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #942, #943, #964, #965, #910, #951 and #979 are closed, and the Sessions
+> destination, host-backed drafts and latest-turn recovery are in source
+> (`const destinations`, `packages/ui-react/src/components/layout/desktop-routes.ts`;
+> `packages/ui-server/src/drafts/`). The report held measurements and
+> follow-up ownership, not rulings; every ruling it fed is in this entry. Read
+> it unchanged at the pinned link above. Its probes stay in the tree at
+> `scripts/probes/navigation-recovery/`.
 
 **What this amends.** D37 §1's destinations and New chat placement; D22's
 ≥1280 list pane and the space between transcript and composer; and the
@@ -655,6 +664,26 @@ question-answer rules are independent.
 > well. Browsers may skip the prompt on a page the user never interacted
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
+
+<a id="generic-attachment-originals-2026-11-02"></a>
+
+> **2026-11-02 — Generic attachment originals, maintainer amendment (#3150).**
+> Approved, not yet implemented. For the new generic composer path, staged
+> files stop being tab-only. Every attachment, images included, is a
+> filesystem original owned by the exact acknowledged draft revision, then by
+> the conversation that accepted the send. A saved draft and its file bindings
+> survive reload, tab close and a normal host restart. `saved` still requires
+> the host to acknowledge that exact revision, file bindings included.
+> Unacknowledged or legacy data never reads as saved. Unresolved sends protect
+> their files. The per-draft envelope becomes 10 files, 25,000,000 bytes each
+> and 50,000,000 together, plus the separate 65,536-byte text allowance. The
+> 100-draft and 268,435,456-byte host limits stay, inside a configurable 1 GiB
+> attachment pool. The tab-only rules above (#1112, #1150) still govern the
+> legacy track path on a host without the new capability. Everything else in
+> this record is unchanged. The rulings are in
+> [chat-attachments.md](../chat-attachments.md), and the proposed schema and
+> lifecycle in [the design](../../plans/chat-attachments.md#6-admission-storage-and-ownership-3153).
+> The implementation records what it built here.
 
 > **2026-10-07 — Drafts kept on this device across a reload, implemented by
 > #1014.** Every draft in the root's store, with its images, and the work

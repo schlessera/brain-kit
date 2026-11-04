@@ -13,7 +13,7 @@ export interface RecordedTurnFailure {
 }
 
 /** Position is among backend-normalized assistants, before local exchanges are inserted. */
-export function assistantCount(messages: SessionHistoryMessage[]): number {
+function assistantCount(messages: SessionHistoryMessage[]): number {
   return messages.filter((message) => message.role === "assistant").length;
 }
 

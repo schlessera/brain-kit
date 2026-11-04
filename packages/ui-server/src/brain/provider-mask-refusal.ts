@@ -8,7 +8,7 @@ import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/interna
 import { providerFolderRoots } from "./governance-policy.js";
 
 /** The named refusal code an application result, or a thrown read, carries. */
-export const PROVIDER_MASKED = "provider_masked";
+const PROVIDER_MASKED = "provider_masked";
 
 export interface ProviderMaskRefusal {
   /** The agent-facing tool name, as the governance event records it. */

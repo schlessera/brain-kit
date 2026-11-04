@@ -296,11 +296,11 @@ and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:1
 belongs to `createDraftClient` (`createDraftClient`,
 `packages/ui-react/src/lib/draft-client.ts:45-57`); browser reloadable work belongs
 to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).
-The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`; gating its
-resume case alone would leave HTTP, background readers and provider startup open.
+The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
+handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
 
 Existing ordinary history publication checks concurrent turn changes
-(`publishHistory`, `packages/ui-server/src/ws/host.ts:572-606`). Future deletion
+(`publishHistory`, `packages/ui-server/src/ws/host.ts:540-574`). Future deletion
 must additionally invalidate it even when no turn starts or ends. Startup reads
 native history, canonical evidence and completed facts, and freezes a snapshot
 (`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:9-74`). Recheck the

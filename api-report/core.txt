@@ -6,24 +6,50 @@
 export "." (./src/index.ts)
   type AgentRunner
   type AgentRuntime
+  type AllocateOutcome
+  type AllocateRequest
+  type AllocationKey
+  type ArtifactRequest
   type AssetTitleRule
   type AuditIssue
   BUILTIN_EMITTERS
   type BrainConfig
   type BrainStats
   type ChunkMatch
+  type CollectOutcome
+  type CollectedArtifact
   type CommandContext
+  type CommandHandle
   type CommandModule
+  type CommandSpec
+  type CommandStatus
   type CompletionProvider
+  type ComputeCapabilities
+  type ComputeContext
+  type ComputeExitReason
+  type ComputeFailed
+  type ComputeHealth
+  type ComputeJsonValue
+  type ComputeLogger
+  type ComputeOptionsSchema
+  type ComputeProvider
+  type ComputeRefusalCode
+  type ComputeRefused
+  type ComputeUncertain
   type ContentIndexQueries
   type ContentPart
+  type CostObservation
   DYNAMIC_ENV_READS
   type DynamicEnvReadSpec
   ENV_VARS
   type EmbeddingProvider
   type Enrichment
   type EnvVarSpec
+  type ExecOutcome
+  type FindOutcome
   type HygieneContext
+  type JobCost
+  type KillOutcome
   type LoadedModule
   type ModuleContribution
   type ModuleCronEntry
@@ -36,16 +62,20 @@ export "." (./src/index.ts)
   type ModuleTool
   type PropagationRule
   type Ranked
+  type ReleaseOutcome
   type RerankCandidate
   type RerankRequest
   type Reranker
   type ResolvedTypeSpec
   SCHEMA_VERSION
+  type SandboxRef
   type SearchMode
   type SearchResult
   type Severity
   type SkillEmitter
   type SkillManifest
+  type SourceBundle
+  type StageOutcome
   type StalenessVerdict
   type StatsThresholds
   Taxonomy
@@ -58,6 +88,7 @@ export "." (./src/index.ts)
   createEnrichment
   defineAgentRunner
   defineCompletionProvider
+  defineComputeProvider
   defineConfig
   defineEmbeddingProvider
   defineModule
@@ -74,7 +105,40 @@ export "./internal" (./src/internal.ts)
   type ArchiveResult
   BUILTIN_GOVERNANCE_POLICY
   type BrainContext
+  COMPUTE_JOB_ID
+  COMPUTE_PROVIDERS
+  COMPUTE_TOOL_NAMES
   type CollectStatsOptions
+  type ComputeApproval
+  type ComputeBudget
+  type ComputeBuiltin
+  type ComputeCaller
+  type ComputeClock
+  type ComputeCollectEnvelope
+  type ComputeCollection
+  type ComputeDriver
+  type ComputeDriverOptions
+  type ComputeEnvelope
+  type ComputeErrorEnvelope
+  type ComputeHealthEnvelope
+  type ComputeHealthInput
+  type ComputeHealthReport
+  type ComputeJobEnvelope
+  type ComputeJobInput
+  type ComputeJobOutput
+  type ComputeJobResult
+  type ComputeJobView
+  type ComputeOps
+  type ComputeOpsOptions
+  type ComputePlan
+  type ComputePlanEnvelope
+  type ComputeReconcileReport
+  type ComputeRefusal
+  type ComputeRequestInput
+  type ComputeRunRequest
+  type ComputeService
+  type ComputeServiceOptions
+  ComputeStateError
   type EffectiveGovernancePolicy
   type FrontmatterValue
   GEMINI_FLASH_MODEL
@@ -89,6 +153,7 @@ export "./internal" (./src/internal.ts)
   type IngestOutcome
   REVIEW_SEVERITY
   REVIEW_URGENCY
+  type ResolvedComputeInstance
   type ResolvedModuleRenderer
   SCRATCH_DIR
   SEARCH_SORTS
@@ -104,6 +169,14 @@ export "./internal" (./src/internal.ts)
   checkGovernancePolicy
   collectModuleRenderers
   collectStats
+  computeBrainKey
+  computeHealthInput
+  computeJobInput
+  computeJobView
+  computeRequestInput
+  createComputeDriver
+  createComputeOps
+  createComputeService
   estimateTokens
   geminiCompletions
   getContext
@@ -116,6 +189,9 @@ export "./internal" (./src/internal.ts)
   isInScratch
   isIsoDate
   isWriteRefusal
+  jobOutput
+  jobSettled
+  loadComputePackage
   loadVecSupport
   openDatabase
   parseGovernancePolicy
@@ -125,6 +201,8 @@ export "./internal" (./src/internal.ts)
   relevanceOnArchive
   rerankSetup
   resolveCompletionProvider
+  resolveComputeInstance
+  resolveComputeStateDir
   resolveEmbeddingProvider
   resolveGovernancePolicy
   resolveWritable
@@ -174,6 +252,7 @@ export "./module" (./src/module.ts)
   type WriteFileSafelyOptions
   WriteRefusedError
   assertScratchWritable
+  brainRelativeArgument
   buildTaxonomy
   configurationRoot
   geminiCompletions
@@ -244,6 +323,8 @@ export "./storage" (./src/storage.ts)
 export "./testing" (./src/testing/index.ts)
   type AgentRunnerContractHarness
   type CompletionProviderContractHarness
+  type ComputeLifecycleContractHarness
+  type ComputeProviderContractHarness
   type ContractTestPrimitives
   type EmbeddingProviderContractHarness
   type RerankerContractHarness
@@ -251,6 +332,8 @@ export "./testing" (./src/testing/index.ts)
   TOOL_EVENT_SEEN_FILE
   runAgentRunnerContract
   runCompletionProviderContract
+  runComputeLifecycleContract
+  runComputeProviderContract
   runEmbeddingProviderContract
   runRerankerContract
   runSkillEmitterContract
@@ -287,6 +370,27 @@ signatures (every public export and the types it is made of)
     export interface AgentRuntime {
         name: string;
         version?: string;
+    }
+  AllocateOutcome (packages/core/src/lib/seams.ts)
+    export type AllocateOutcome = {
+        kind: "ok";
+        sandbox: SandboxRef;
+    } | ComputeRefused | ComputeFailed | ComputeUncertain;
+  AllocateRequest (packages/core/src/lib/seams.ts)
+    export interface AllocateRequest {
+        key: AllocationKey;
+        leaseSeconds: number;
+        remoteExpirySeconds?: number;
+        retain: boolean;
+    }
+  AllocationKey (packages/core/src/lib/seams.ts)
+    export type AllocationKey = string;
+  ArtifactRequest (packages/core/src/lib/seams.ts)
+    export interface ArtifactRequest {
+        paths: {
+            path: string;
+            maxBytes: number;
+        }[];
     }
   AssetTitleRule (packages/core/src/lib/config.ts)
     export type AssetTitleRule = z.infer<typeof assetTitleRuleSchema>;
@@ -358,6 +462,24 @@ signatures (every public export and the types it is made of)
         type: string;
         regex: RegExp;
     }
+  CollectOutcome (packages/core/src/lib/seams.ts)
+    export type CollectOutcome = {
+        kind: "ok";
+        artifacts: CollectedArtifact[];
+    } | ComputeRefused | ComputeFailed | ComputeUncertain;
+  CollectedArtifact (packages/core/src/lib/seams.ts)
+    export type CollectedArtifact = {
+        path: string;
+        status: "collected";
+        data: Uint8Array;
+    } | {
+        path: string;
+        status: "missing";
+    } | {
+        path: string;
+        status: "too_large";
+        bytes?: number;
+    };
   CommandContext (packages/core/src/lib/module-types.ts)
     export interface CommandContext<C = unknown> {
         root: string;
@@ -367,12 +489,36 @@ signatures (every public export and the types it is made of)
         completions?: BrainConfig["completions"];
         stateDir?(): string;
     }
+  CommandHandle (packages/core/src/lib/seams.ts)
+    export interface CommandHandle {
+        sandbox: SandboxRef;
+        id: string;
+        data?: ComputeJsonValue;
+    }
   CommandModule (packages/core/src/lib/module-types.ts)
     export interface CommandModule<C = unknown> {
         summary: string;
         helpBlock?: string;
         run(args: string[], ctx: CommandContext<C>): Promise<number | void>;
     }
+  CommandSpec (packages/core/src/lib/seams.ts)
+    export interface CommandSpec {
+        argv: string[];
+        cwd?: string;
+        env: Record<string, string>;
+    }
+  CommandStatus (packages/core/src/lib/seams.ts)
+    export type CommandStatus = {
+        kind: "running";
+    } | {
+        kind: "exited";
+        code: number | null;
+        signal: string | null;
+        reason: ComputeExitReason;
+        stdout?: string;
+        stderr?: string;
+        truncated?: boolean;
+    } | ComputeFailed | ComputeUncertain;
   Community (packages/core/src/queries/types.ts)
     export interface Community {
         community: number;
@@ -402,6 +548,123 @@ signatures (every public export and the types it is made of)
     }
   CompletionsConfig (packages/core/src/lib/registry.ts)
     type CompletionsConfig = NonNullable<BrainConfig["completions"]>;
+  ComputeCapabilities (packages/core/src/lib/seams.ts)
+    export interface ComputeCapabilities {
+        commands: true;
+        detached: boolean;
+        idempotentAllocate: boolean;
+        findByKey: boolean;
+        stage: {
+            maxBytes: number;
+        } | false;
+        collect: {
+            maxBytes: number;
+        } | false;
+        retain: {
+            maxSeconds: number;
+        } | false;
+        maxLeaseSeconds: number;
+        remoteExpiry: boolean;
+        usage: "actual" | "none";
+    }
+  ComputeContext (packages/core/src/lib/seams.ts)
+    export interface ComputeContext {
+        instanceId: string;
+        options: unknown;
+        secret?: string;
+        signal: AbortSignal;
+        deadline: number;
+        fetch: typeof fetch;
+        log: ComputeLogger;
+    }
+  ComputeExitReason (packages/core/src/lib/seams.ts)
+    export type ComputeExitReason = "exited" | "signal" | "oom" | "provider_error" | "killed";
+  ComputeFailed (packages/core/src/lib/seams.ts)
+    export interface ComputeFailed {
+        kind: "failed";
+        reason: string;
+    }
+  ComputeHealth (packages/core/src/lib/seams.ts)
+    export type ComputeHealth = {
+        kind: "ok";
+        detail?: string;
+    } | {
+        kind: "unavailable";
+        reason: string;
+    };
+  ComputeJsonValue (packages/core/src/lib/seams.ts)
+    export type ComputeJsonValue = null | boolean | number | string | ComputeJsonValue[] | {
+        [key: string]: ComputeJsonValue;
+    };
+  ComputeLifecycleContractHarness (packages/core/src/testing/compute.ts)
+    export interface ComputeLifecycleContractHarness extends ComputeProviderContractHarness {
+        stateDir(): string;
+    }
+  ComputeLogger (packages/core/src/lib/seams.ts)
+    export interface ComputeLogger {
+        debug(message: string, data?: Record<string, unknown>): void;
+        warn(message: string, data?: Record<string, unknown>): void;
+    }
+  ComputeOptionsSchema (packages/core/src/lib/seams.ts)
+    export interface ComputeOptionsSchema {
+        safeParse(input: unknown): {
+            success: true;
+            data?: unknown;
+        } | {
+            success: false;
+            error?: {
+                message: string;
+            };
+        };
+    }
+  ComputeProvider (packages/core/src/lib/seams.ts)
+    export interface ComputeProvider {
+        readonly id: string;
+        readonly capabilities: ComputeCapabilities;
+        configSchema?: ComputeOptionsSchema;
+        health(ctx: ComputeContext): Promise<ComputeHealth>;
+        allocate(req: AllocateRequest, ctx: ComputeContext): Promise<AllocateOutcome>;
+        find?(key: AllocationKey, ctx: ComputeContext): Promise<FindOutcome>;
+        stage?(sandbox: SandboxRef, source: SourceBundle, ctx: ComputeContext): Promise<StageOutcome>;
+        exec(sandbox: SandboxRef, command: CommandSpec, ctx: ComputeContext): Promise<ExecOutcome>;
+        poll(handle: CommandHandle, ctx: ComputeContext): Promise<CommandStatus>;
+        kill(handle: CommandHandle, ctx: ComputeContext): Promise<KillOutcome>;
+        collect?(sandbox: SandboxRef, request: ArtifactRequest, ctx: ComputeContext): Promise<CollectOutcome>;
+        release(sandbox: SandboxRef, mode: "discard" | "retain", ctx: ComputeContext): Promise<ReleaseOutcome>;
+        usage?(sandbox: SandboxRef, ctx: ComputeContext): Promise<CostObservation>;
+    }
+  ComputeProviderContractHarness (packages/core/src/testing/compute.ts)
+    export interface ComputeProviderContractHarness {
+        name: string;
+        provider(): ComputeProvider;
+        context?(): {
+            options?: unknown;
+            secret?: string;
+            fetch?: typeof fetch;
+        };
+        commands: {
+            exit(code: number): string[];
+            sleep(seconds: number): string[];
+            write(path: string, text: string): string[];
+            printEnv(): string[];
+        };
+        liveSandboxes(): number | Promise<number>;
+        loseNextResponse?(method: "allocate"): void;
+        failNextTransport?(method: "allocate" | "poll"): void;
+    }
+  ComputeRefusalCode (packages/core/src/lib/seams.ts)
+    export type ComputeRefusalCode = "compute_disabled" | "provider_unknown" | "provider_unavailable" | "capability_unsupported" | "lease_required" | "policy_denied" | "approval_required" | "source_refused" | "budget_exceeded" | "concurrency_exhausted" | "accounting_unavailable" | "job_unknown";
+  ComputeRefused (packages/core/src/lib/seams.ts)
+    export interface ComputeRefused {
+        kind: "refused";
+        code: ComputeRefusalCode;
+        reason: string;
+    }
+  ComputeUncertain (packages/core/src/lib/seams.ts)
+    export interface ComputeUncertain {
+        kind: "uncertain";
+        reason: string;
+    }
   ContentIndexQueries (packages/core/src/queries/bound.ts)
     export interface ContentIndexQueries {
         readGraphMeta(): QueryResult<GraphMeta>;
@@ -450,6 +713,12 @@ signatures (every public export and the types it is made of)
         describe(name: string, fn: () => void): void;
         test(name: string, fn: () => void | Promise<void>): void;
         expect(actual: unknown): ContractMatchers;
+    }
+  CostObservation (packages/core/src/lib/seams.ts)
+    export interface CostObservation {
+        usd: number | null;
+        seconds: number | null;
+        coverage: "complete" | "partial" | "unknown";
     }
   DYNAMIC_ENV_READS (packages/core/src/config/env.ts)
     const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[];
@@ -505,8 +774,20 @@ signatures (every public export and the types it is made of)
         default?: string;
         required: boolean;
     }
+  ExecOutcome (packages/core/src/lib/seams.ts)
+    export type ExecOutcome = {
+        kind: "ok";
+        handle: CommandHandle;
+    } | ComputeRefused | ComputeFailed | ComputeUncertain;
   FactRule (packages/core/src/lib/config.ts)
     export type FactRule = z.infer<typeof factRuleSchema>;
+  FindOutcome (packages/core/src/lib/seams.ts)
+    export type FindOutcome = {
+        kind: "ok";
+        sandbox: SandboxRef;
+    } | {
+        kind: "not_found";
+    } | ComputeFailed | ComputeUncertain;
   GEMINI_FLASH_MODEL (packages/core/src/lib/llm-defaults.ts)
     const GEMINI_FLASH_MODEL: string;
   GeminiCompletionConfig (packages/core/src/providers/completions/gemini.ts)
@@ -540,6 +821,22 @@ signatures (every public export and the types it is made of)
         root: string;
         config: C;
     }
+  JobCost (packages/core/src/lib/seams.ts)
+    export interface JobCost {
+        estimate: {
+            usd: number | null;
+            basis: "ceiling" | "none";
+        };
+        actual: {
+            usd: number | null;
+            coverage: "complete" | "partial" | "unknown";
+            source: "provider" | "none";
+        };
+    }
+  KillOutcome (packages/core/src/lib/seams.ts)
+    export type KillOutcome = {
+        kind: "ok";
+    } | ComputeFailed | ComputeUncertain;
   LinkWalk (packages/core/src/queries/types.ts)
     export interface LinkWalk {
         edges: {
@@ -792,6 +1089,13 @@ signatures (every public export and the types it is made of)
         stale: string[];
         invalid: RegistryProblem[];
     }
+  ReleaseOutcome (packages/core/src/lib/seams.ts)
+    export type ReleaseOutcome = {
+        kind: "released";
+    } | {
+        kind: "retained";
+        until: number;
+    } | ComputeFailed | ComputeUncertain;
   RerankCandidate (packages/core/src/lib/seams.ts)
     export interface RerankCandidate {
         id: string;
@@ -863,6 +1167,11 @@ signatures (every public export and the types it is made of)
     }>;
   STORAGE_LIMITS (packages/core/src/lib/storage-inventory.ts)
     const STORAGE_LIMITS: Readonly<StorageLimits>;
+  SandboxRef (packages/core/src/lib/seams.ts)
+    export interface SandboxRef {
+        id: string;
+        data?: ComputeJsonValue;
+    }
   ScratchFailure (packages/core/src/lib/scratch.ts)
     export interface ScratchFailure {
         path: string;
@@ -946,6 +1255,20 @@ signatures (every public export and the types it is made of)
         schemaVersion: number;
         newestIndexedAt: string | null;
     }
+  SourceBundle (packages/core/src/lib/seams.ts)
+    export interface SourceBundle {
+        files: {
+            path: string;
+            sha256: string;
+            bytes: number;
+            read(): Promise<Uint8Array>;
+        }[];
+        hash: string;
+    }
+  StageOutcome (packages/core/src/lib/seams.ts)
+    export type StageOutcome = {
+        kind: "ok";
+    } | ComputeRefused | ComputeFailed | ComputeUncertain;
   StalenessVerdict (packages/core/src/lib/taxonomy.ts)
     export interface StalenessVerdict {
         days: number;
@@ -1253,6 +1576,19 @@ signatures (every public export and the types it is made of)
             fallbackApiKeyEnv: z.ZodOptional<z.ZodString>;
             provider: z.ZodUnion<readonly [z.ZodString, z.ZodCustom<CompletionProvider, CompletionProvider>]>;
         }, z.core.$strict>>;
+        compute: z.ZodOptional<z.ZodObject<{
+            providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+                apiKeyEnv: z.ZodOptional<z.ZodString>;
+                hourlyCeilingUsd: z.ZodOptional<z.ZodNumber>;
+                lease: z.ZodObject<{
+                    maxSeconds: z.ZodNumber;
+                }, z.core.$strict>;
+                maxConcurrent: z.ZodOptional<z.ZodNumber>;
+                options: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+                provider: z.ZodUnion<readonly [z.ZodString, z.ZodCustom<ComputeProvider, ComputeProvider>]>;
+                retainOnRelease: z.ZodOptional<z.ZodBoolean>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         embeddings: z.ZodOptional<z.ZodObject<{
             apiKeyEnv: z.ZodOptional<z.ZodString>;
             dimensions: z.ZodOptional<z.ZodNumber>;
@@ -1449,6 +1785,8 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
+  brainRelativeArgument (packages/core/src/lib/safe-path.ts)
+    export function brainRelativeArgument(root: string, arg: string): string;
   buildPathMatcher (packages/core/src/lib/reranker.ts)
     export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined;
   buildTaxonomy (packages/core/src/lib/taxonomy.ts)
@@ -1466,6 +1804,8 @@ signatures (every public export and the types it is made of)
     export function defineAgentRunner(runner: AgentRunner): AgentRunner;
   defineCompletionProvider (packages/core/src/lib/seams.ts)
     export function defineCompletionProvider(provider: CompletionProvider): CompletionProvider;
+  defineComputeProvider (packages/core/src/lib/seams.ts)
+    export function defineComputeProvider(provider: ComputeProvider): ComputeProvider;
   defineConfig (packages/core/src/lib/config.ts)
     export function defineConfig(config: BrainConfig): BrainConfig;
   defineEmbeddingProvider (packages/core/src/lib/seams.ts)
@@ -1606,7 +1946,7 @@ signatures (every public export and the types it is made of)
   resolveReranker (packages/core/src/lib/registry.ts)
     export function resolveReranker(config?: RerankerSettings): Reranker | undefined;
   resolveWritable (packages/core/src/lib/safe-path.ts)
-    export function resolveWritable(root: string, relOrAbs: string): string | null;
+    export function resolveWritable(root: string, relPath: string): string | null;
   restoreStorageAttachment (packages/core/src/lib/storage-attachments.ts)
     export function restoreStorageAttachment(root: string, path: string, expected: StorageAttachmentVersion, copy: (fd: number) => void, assertCurrent?: () => void): void;
   rewriteGeneratedRegion (packages/core/src/lib/generated-regions.ts)
@@ -1615,6 +1955,10 @@ signatures (every public export and the types it is made of)
     export function runAgentRunnerContract(harness: AgentRunnerContractHarness, primitives: ContractTestPrimitives): void;
   runCompletionProviderContract (packages/core/src/testing/completions.ts)
     export function runCompletionProviderContract(harness: CompletionProviderContractHarness, primitives: ContractTestPrimitives): void;
+  runComputeLifecycleContract (packages/core/src/testing/compute.ts)
+    export function runComputeLifecycleContract(harness: ComputeLifecycleContractHarness, primitives: ContractTestPrimitives): void;
+  runComputeProviderContract (packages/core/src/testing/compute.ts)
+    export function runComputeProviderContract(harness: ComputeProviderContractHarness, primitives: ContractTestPrimitives): void;
   runEmbeddingProviderContract (packages/core/src/testing/embeddings.ts)
     export function runEmbeddingProviderContract(harness: EmbeddingProviderContractHarness, primitives: ContractTestPrimitives): void;
   runRegistry (packages/core/src/lib/index-registry.ts)

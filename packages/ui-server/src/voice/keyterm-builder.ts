@@ -40,7 +40,7 @@ function overridesPath(brainPath: string): string {
   return join(brainPath, ".voice-overrides.md");
 }
 
-export interface KeytermsCache {
+interface KeytermsCache {
   version: number;
   keyterms: string[];
   generatedAt: number;
@@ -56,7 +56,7 @@ export interface KeytermsCache {
   degraded?: true;
 }
 
-export function loadOverrides(brainPath: string, log?: Logger): PronunciationOverride[] {
+function loadOverrides(brainPath: string, log?: Logger): PronunciationOverride[] {
   const path = overridesPath(brainPath);
   if (!existsSync(path)) return [];
   try {
@@ -154,7 +154,7 @@ export function writeCache(settings: KeytermSettings, cache: KeytermsCache): voi
   writeFileSync(path, JSON.stringify(cache, null, 2), "utf-8");
 }
 
-export function readCache(settings: KeytermSettings): KeytermsCache | null {
+function readCache(settings: KeytermSettings): KeytermsCache | null {
   const path = cachePath(settings);
   if (!existsSync(path)) return null;
   try {

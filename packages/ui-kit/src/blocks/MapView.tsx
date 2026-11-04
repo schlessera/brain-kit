@@ -382,7 +382,7 @@ export function mapViewBounds(
 
 /** `A`…`Z`, then `AA`, `AB`…: a letter per merge, never a number that could
  * be mistaken for a pin's own. */
-export function clusterLetter(index: number): string {
+function clusterLetter(index: number): string {
   let out = "";
   let i = index;
   do {

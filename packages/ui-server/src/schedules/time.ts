@@ -103,7 +103,7 @@ export function wallTimeInstant(zone: string, year: number, month: number, day: 
 // Cron
 // ---------------------------------------------------------------------------
 
-export interface CronSpec {
+interface CronSpec {
   minutes: number[];
   hours: number[];
   days: Set<number>;
@@ -258,4 +258,3 @@ export function cronInstantsBetween(spec: CronSpec, zone: string, fromMs: number
 }
 
 export const SCHEDULE_FRESHNESS_MS = DAY_MS;
-export { MINUTE_MS };

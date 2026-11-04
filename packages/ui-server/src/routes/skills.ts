@@ -32,7 +32,7 @@ import { resolveGitHubToken } from "../config/env.js";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
-export interface SkillRoutesDeps {
+interface SkillRoutesDeps {
   brainPath: string;
   /** Runs `brain skills sync`; resolves with a human-readable summary. */
   syncSkills: () => Promise<string>;

@@ -46,7 +46,7 @@ export const BREAKER_FAILURES = 3;
 /** First backoff once open; doubles per further failure. */
 export const BREAKER_BASE_MS = 30_000;
 /** The backoff never grows past this. */
-export const BREAKER_MAX_MS = 30 * 60_000;
+const BREAKER_MAX_MS = 30 * 60_000;
 
 export interface JevResult {
   outcome: JevOutcome;
@@ -63,7 +63,7 @@ export interface JevResult {
 /** The slice of `fetch` the client uses, so a test can hand in one that never resolves. */
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
-export interface JevClientOptions {
+interface JevClientOptions {
   apiKey: string | null;
   /** Injected so a test can hand in a fetch that never resolves. */
   fetch?: FetchLike;

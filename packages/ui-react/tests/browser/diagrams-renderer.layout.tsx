@@ -94,9 +94,9 @@ for(const [index,{width,theme}] of adoptedLayouts.entries())test(`the exact adop
  const previous=adoptedLayouts[index-1];setup(previous?.width??width);const adopted=await commands.diagramFixture();
  if(previous){
   document.documentElement.dataset.theme=previous.theme;mount(<DiagramContent source={adopted} theme={previous.theme} mode="chat"/>);await ready();
-  await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(previous.width===320?"320":"716");
+  await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(previous.width===320?"320":"720");
  }
- document.documentElement.dataset.theme=theme;host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(width===320?"320":"716");const svg=screenSvg()!;
+ document.documentElement.dataset.theme=theme;host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(width===320?"320":"720");const svg=screenSvg()!;
  expect(svg.querySelectorAll("[data-diagram-node]").length,"ADOPTED_EIGHT_DISTINCT_NODES").toBe(8);expect(svg.querySelectorAll("[data-diagram-edge]").length).toBe(7);fontFloor(svg);
  for(const group of svg.querySelectorAll("[data-diagram-node]")){const box=group.querySelector<SVGRectElement>("rect")!.getBBox();for(const label of group.querySelectorAll("text")){const bounds=label.getBBox();expect(bounds.x,"NODE_TEXT_LEFT_FIT").toBeGreaterThanOrEqual(box.x);expect(bounds.x+bounds.width,"NODE_TEXT_RIGHT_FIT").toBeLessThanOrEqual(box.x+box.width);expect(bounds.y,"NODE_TEXT_TOP_FIT").toBeGreaterThanOrEqual(box.y);expect(bounds.y+bounds.height,"NODE_TEXT_BOTTOM_FIT").toBeLessThanOrEqual(box.y+box.height);}}
  for(const label of svg.querySelectorAll<SVGTextElement>("[data-edge-label]")){const mask=svg.querySelector<SVGRectElement>(`[data-edge-mask="${label.dataset.edgeLabel}"]`)!.getBBox(),bounds=label.getBBox();expect(bounds.x).toBeGreaterThanOrEqual(mask.x);expect(bounds.x+bounds.width,"ACTUAL_LABEL_FITS_OPAQUE_MASK").toBeLessThanOrEqual(mask.x+mask.width);expect(bounds.y).toBeGreaterThanOrEqual(mask.y);expect(bounds.y+bounds.height).toBeLessThanOrEqual(mask.y+mask.height);}

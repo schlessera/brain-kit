@@ -39,7 +39,11 @@ test("pending output remains distinguishable from a completed channel", async ()
   let complete = false;
   const observation = hook.child("package-build", { pid: 42, stdout: heldOutput,
     stderr: new ReadableStream({ start(controller) { controller.close(); } }), exited: Promise.resolve(0) }).then(() => { complete = true; });
-  await Bun.sleep(20);
+  // The exit and the closed stderr are observed, and one macrotask later the
+  // held stdout is the only thing the completion can still be waiting on.
+  // The test's own timeout bounds this condition.
+  while (!(records.some((r) => r.event === "exit") && records.some((r) => r.event === "stderr-complete"))) await Bun.sleep(1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(records.some((r) => r.event === "exit")).toBe(true);
   expect(records.some((r) => r.event === "stderr-complete")).toBe(true);
   expect(records.some((r) => r.event === "stdout-complete")).toBe(false);

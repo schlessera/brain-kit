@@ -100,9 +100,14 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   try {
     server = Bun.serve({
       unix: socketPath,
-      async fetch(request, owner) {
-        // Streaming inference can idle between events for longer than the default.
-        owner.timeout(request, 0);
+      // Streaming inference can idle between events for longer than Bun's 10s
+      // default, e.g. while a model writes one large tool input. Bun 1.4 does
+      // not honour a per-request `timeout(request, 0)` once the response
+      // streams, so disable it here.
+      // bun-types declares idleTimeout only for hostname servers; the runtime
+      // honours it on a Unix socket too (#3441 regression tests prove it).
+      ...({ idleTimeout: 0 } as object),
+      async fetch(request) {
         const url = new URL(request.url);
         const path = url.pathname;
         if (request.method !== "POST") return refuse(request.method, path, 405, "Only inference requests are relayed");

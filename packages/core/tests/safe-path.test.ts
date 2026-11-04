@@ -94,10 +94,10 @@ describe("safeResolve — dangling and cyclic symlinks", () => {
     expect(safeResolve(root, "sneakydir/new.md")).toBeNull();
   });
 
-  test("accepts a dangling symlink whose target stays inside the root", () => {
+  test("refuses a dangling symlink even when its target stays inside the root (#3422)", () => {
     const root = makeRoot();
     symlinkSync(join(root, "not-yet.md"), join(root, "link.md"));
-    expect(safeResolve(root, "link.md")).toBe(join(realpathSync(root), "not-yet.md"));
+    expect(safeResolve(root, "link.md")).toBeNull();
   });
 
   test("rejects a dangling symlink cycle instead of looping", () => {

@@ -17,7 +17,7 @@ export interface ApifyEdit {
 
 export type ApifyFocusTarget = "provider" | "discovery" | "actors" | "grants" | "limits" | "today";
 
-export interface ApifyViewProps {
+interface ApifyViewProps {
   read: ApifySettingsRead;
   edit: ApifyEdit | null;
   /** The last outcome, announced politely. */

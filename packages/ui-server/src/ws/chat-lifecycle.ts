@@ -8,7 +8,7 @@
 import type { Database } from "bun:sqlite";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 
-export type RetiredKind = "session" | "dialogue_owner" | "conversation" | "task" | "request" | "native_task";
+type RetiredKind = "session" | "dialogue_owner" | "conversation" | "task" | "request" | "native_task";
 export const CHAT_STORES = ["native", "dialogue", "tasks", "projections", "drafts"] as const;
 export type ChatStore = (typeof CHAT_STORES)[number];
 export type ChatStoreOutcome = "pending" | "partial" | "unknown" | "removed";
@@ -131,7 +131,7 @@ function stored(db: Database, lifecycleId: string): Partial<Record<ChatStore, Ch
     .map(row => [row.store, row.outcome]));
 }
 /** Completed only when every selected store confirmed removal; unknown dominates partial, partial dominates pending. */
-export function cleanupStatus(stores: Partial<Record<ChatStore, ChatStoreOutcome>>): ChatRetirementStatus {
+function cleanupStatus(stores: Partial<Record<ChatStore, ChatStoreOutcome>>): ChatRetirementStatus {
   const outcomes = Object.values(stores);
   if (!outcomes.length) return "pending";
   if (outcomes.includes("unknown")) return "unknown";

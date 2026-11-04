@@ -17,6 +17,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync } from "fs";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
@@ -394,21 +395,57 @@ const MS_PER_DAY = 86_400_000;
 /** Silent edits count once the file is this many days newer than its `updated`. */
 const SILENT_EDIT_DAYS = 7;
 
+/** A document whose file changed after its frontmatter `updated`, as the index holds it. */
+export interface SilentEdit {
+  path: string;
+  title: string;
+  /** The file's modification time when it was indexed. */
+  file_mtime: string;
+  /** The frontmatter `updated` value. */
+  updated: string;
+}
+
 /**
- * Silently edited files: the same query `brain briefing` runs, without its
- * row limit, kept when the file is more than SILENT_EDIT_DAYS newer than its
- * frontmatter `updated`.
+ * The one silent-edit query: every non-archived document whose file is newer
+ * than its frontmatter `updated`, unless `brain accept-mtime` baselined that
+ * mtime. Most recently changed file first; `limit` keeps only the first that
+ * many. `brain briefing` lists these rows; hygiene keeps the ones that drifted
+ * far enough (`silentEditCandidates`).
  */
-export function silentEdits(db: Database): HygieneCandidate[] {
-  const rows = db
-    .prepare(
-      `SELECT file_mtime, updated, path FROM documents
+export function silentEdits(db: Database, opts: { limit?: number } = {}): SilentEdit[] {
+  // A negative LIMIT is no limit in SQLite, so one statement serves both.
+  return db
+    .query(
+      `SELECT file_mtime, updated, path, title FROM documents
        WHERE file_mtime > updated
          AND (accepted_mtime IS NULL OR file_mtime > accepted_mtime)
          AND status != 'archived'
-       ORDER BY path`
+       ORDER BY file_mtime DESC LIMIT ?`
     )
-    .all() as { file_mtime: string; updated: string; path: string }[];
+    .all(opts.limit ?? -1) as SilentEdit[];
+}
+
+/**
+ * Baseline the current file mtimes as non-suspicious, so `silentEdits` stops
+ * reporting them: one indexed document's, or (no path) every document's.
+ * Returns how many documents changed.
+ */
+export function acceptMtimes(db: Database, path?: string): number {
+  return path === undefined
+    ? db.run("UPDATE documents SET accepted_mtime = file_mtime WHERE file_mtime IS NOT NULL").changes
+    : db.run("UPDATE documents SET accepted_mtime = file_mtime WHERE path = ? AND file_mtime IS NOT NULL", [path]).changes;
+}
+
+/** SQLite's BINARY collation: byte order of the UTF-8 encodings. */
+const byUtf8 = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
+
+/**
+ * Silently edited files as hygiene candidates, in path order: the
+ * `silentEdits` rows whose file is more than SILENT_EDIT_DAYS newer than its
+ * frontmatter `updated`.
+ */
+export function silentEditCandidates(db: Database): HygieneCandidate[] {
+  const rows = silentEdits(db).sort((a, b) => byUtf8(a.path, b.path));
   const out: HygieneCandidate[] = [];
   for (const row of rows) {
     const drift = Math.floor((Date.parse(row.file_mtime) - Date.parse(row.updated)) / MS_PER_DAY);
@@ -652,7 +689,7 @@ export async function detectCandidates(
   } catch {
     failed.add("validation");
   }
-  const silent = silentEdits(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
+  const silent = silentEditCandidates(db).filter((c) => !inLog(c.path)).map((c) => withSource(c, { source: "hygiene", name: "silent-edit", severity: null }));
   // Media awaiting a decision (#2780): the same inventory `brain sync` counts.
   let media: MediaInventory | null = null;
   try {
@@ -712,7 +749,6 @@ export class HygieneLogError extends Error {}
 
 /** An entry heading: `### ` and one token ending in the ID's `-hash4`. */
 const ENTRY_HEADING = /^### +(\S+-[0-9a-f]{4})[ \t]*\r?$/;
-const FRONTMATTER = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
 
 /** A `## ` section of a log file, or (heading null) the text before the first one. */
 interface Segment {
@@ -735,14 +771,23 @@ interface LogFile {
 }
 
 /**
- * The frontmatter and body of a log file. A file that opens a frontmatter
- * block it does not close, or whose block is not a YAML mapping, is refused:
- * rewriting it would mean guessing where the frontmatter ends.
+ * The frontmatter and body of a log file, by the fences the indexer reads
+ * (`frontmatterBlock`, #2507): a byte order mark before the opening fence
+ * still opens a block. A file that opens a block it does not close with a
+ * `---` line, or whose block is not a YAML mapping, is refused: rewriting it
+ * would mean guessing where the frontmatter ends. That is stricter than the
+ * indexer on purpose, because this rewrites the body. A closing fence with
+ * more than whitespace after its dashes (`----`, `---x`) is refused too: the
+ * indexer ends the block there, an author probably did not. The frontmatter
+ * keeps the closing line's trailing whitespace and line ending.
  */
 function splitFrontmatter(text: string, rel: string): { frontmatter: string; body: string } {
-  if (!/^---[ \t]*\r?\n/.test(text)) return { frontmatter: "", body: text };
-  const frontmatter = FRONTMATTER.exec(text)?.[0];
-  if (!frontmatter) throw new HygieneLogError(`${rel}: the frontmatter is never closed with ---; fix it by hand, brain hygiene will not rewrite it`);
+  const block = frontmatterBlock(text);
+  if (!block) return { frontmatter: "", body: text };
+  // After the closing dashes: optional whitespace, then a line ending or the end of the file.
+  const rest = block.closed ? /^[ \t]*(?:\r?\n|$)/.exec(text.slice(block.innerEnd + 3)) : null;
+  if (!rest) throw new HygieneLogError(`${rel}: the frontmatter is never closed with a --- line; fix it by hand, brain hygiene will not rewrite it`);
+  const frontmatter = text.slice(0, block.innerEnd + 3 + rest[0].length);
   let data: unknown;
   try {
     data = parseFrontmatter(frontmatter, { dataOnly: true }).data;

@@ -345,10 +345,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
   try {
     server = Bun.serve({
       unix: socketPath,
-      async fetch(request, owner) {
-        // Image generation can take minutes before the first response byte;
-        // the request body has its own deadline below.
-        owner.timeout(request, 0);
+      // Image generation can take minutes, and a started response may pause
+      // for longer than Bun's 10s default; the request body has its own
+      // deadline below. Bun 1.4 does not honour a per-request
+      // `timeout(request, 0)` once the response streams, so disable it here.
+      // bun-types declares idleTimeout only for hostname servers; the runtime
+      // honours it on a Unix socket too (#3441 regression tests prove it).
+      ...({ idleTimeout: 0 } as object),
+      async fetch(request) {
         if (active >= MAX_PROVIDER_CONCURRENT_REQUESTS) {
           try { options.refused?.({ family: null, path: new URL(request.url).pathname, status: 503, reason: "relay_busy" }); } catch { /* Diagnostics only. */ }
           return Response.json({ type: "error", error: { type: "brain_provider_refused", message: "Provider relay busy" } }, { status: 503 });

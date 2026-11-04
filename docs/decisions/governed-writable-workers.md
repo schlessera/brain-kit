@@ -375,7 +375,7 @@ their own, keep repository-controlled code off the host
 Each case below was reproduced on a disposable fixture:
 
 - **The config's dependencies.** The host imports `brain.config.ts`
-  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:594`).
+  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:644`).
   The config can import local helpers and local module entries, and those
   files are not on any fixed list.
 - **Bun startup.** A newly created `bunfig.toml` preload runs before any
@@ -505,11 +505,11 @@ before application-lock admission, acquires its own complete native checkpoint
 asynchronously and runs a credential-free, read-only Git query. It releases
 that input after the worker drains, without creating or publishing a writable
 stage (`createScratchIgnoreQuery`,
-`packages/ui-server/src/brain/scratch-mask-query.ts:7-43`). Exit 1 means the
+`packages/ui-server/src/brain/scratch-mask-query.ts:8-44`). Exit 1 means the
 directory is not ignored. Launch failure, another exit or timeout means the
 rule could not be verified; the mask remains refused without forwarding worker
 stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
-`packages/ui-sdk/src/server/bridge-tools/mask.ts:224-235`).
+`packages/ui-sdk/src/server/bridge-tools/mask.ts:228-239`).
 
 **Credentials never reach a process that evaluates repository inputs.** A
 read-only host does not stop sandboxed code from stealing a credential it was
@@ -1074,14 +1074,14 @@ is gone as well, and never enters another mount, so runtime state below
 against its own budget, and a turn that cannot reserve it is refused as
 `worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
 reports usage and purges paths through the same descriptor
-(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-458`).
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:451-459`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
 After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:124-135`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:125-136`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -1104,10 +1104,10 @@ Live blocks still use streamed-text offsets; the client and server share
 the span rebasing function and discard ambiguous overlaps as plain Markdown.
 
 **Pinning.** A link into `.brain/scratch/` pins the target. Prune skips pinned
-files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:641`).
+files (`export function pruneScratch`, `packages/core/src/lib/scratch.ts:645`).
 A pin is released when every conversation that links the file is deleted or
 falls out of retention. If the scratch area still exceeds its size limit
-(`SCRATCH_MAX_BYTES`, `scratch.ts:58`) after unpinned files are pruned, the
+(`SCRATCH_MAX_BYTES`, `scratch.ts:62`) after unpinned files are pruned, the
 overage is reported. Pinned files are never deleted. A writer that prunes
 after writing into scratch also passes the paths it just produced, protected
 for that one call (`pinnedPaths`), so retained pins over the cap cannot make it
@@ -1392,9 +1392,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:346`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:405`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:557`).
+  return (`export function bashTool`, `packages/ui-backend-pi/src/file-tools.ts:151`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1409,15 +1409,15 @@ external editor throughout a native tool's execution.
 The parent observes the worker's resolved mount sources, including strict
 startup copies and writable area aliases; it does not substitute newer
 canonical bytes for a frozen view (`createWorkerFileObserver`,
-`packages/ui-sdk/src/server/worker-file-observer.ts:13`). A failed or changing
+`packages/ui-sdk/src/server/worker-file-observer.ts:15`). A failed or changing
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:107`).
+`packages/ui-backend-claude/src/permission-hooks.ts:155`).
 
 Claude keeps these observations in its backend-owned session map
-(`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:110`). Pi keeps them in its
+(`fileVersionsBySession: new Map()`,
+`packages/ui-backend-claude/src/turn-runner.ts:94`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
@@ -1500,10 +1500,10 @@ evidence is unproven.
 The pi backend reports evidence only from its own record of each call's RPCs.
 A call that names two tools, takes the write lock as a read, or reports only
 part of its read proves nothing (`export function provenToolExecution`,
-`packages/ui-backend-pi/src/worker-session.ts:48-56`). It reports nothing at
+`packages/ui-backend-pi/src/worker-session.ts:29-37`). It reports nothing at
 all for a worker that loads extensions. Extension handlers run on every tool
 event, bridge reads included, and can write at any time
-(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:457`).
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:139`).
 With extensions loaded, which is pi's default, every result is observed as
 before. The worker's reports are evidence only while it has run nothing but
 curated code. Once it admits a call outside the provable set (`bash`, `grep`,
@@ -1577,7 +1577,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:944`). The refresh usually finishes
+`packages/ui-server/src/ws/session-run/teardown.ts:54`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -2011,6 +2011,19 @@ over a block does. Nothing is reserved, so requests already in flight complete a
 are counted; a scope can end above its stop by those requests. A credentialed
 maintenance run is charged to the turn whose tool started it, otherwise to its
 UTC day alone, under the brain's current policy.
+
+**Hosted external compute (#3108).** Unlike a relayed request, an external
+compute job reserves before it allocates: its instance's hourly ceiling times
+its lease, against the turn, conversation and UTC-day scopes of the turn that
+starts it, in one immediate transaction under core's admission lock, so two
+callers cannot both take the last budget or slot. A job without a ceiling is
+admitted with its cost unknown and bounded by its lease, its instance's
+concurrency and the existing blocks
+([ruling 4](external-compute.md#rulings)). An unavailable ledger refuses the
+job. The reservation is settled once, with the provider's complete cost or as
+unknown, and counts until then. Approval, data routing and credential
+isolation are recorded in
+[the compute decision](external-compute.md#settled-by-3108).
 
 **Warnings.** Crossing a warn limit is recorded as a governance event. It
 appears once, beside the existing cost display. It is also added to the
@@ -2822,7 +2835,7 @@ every turn without a proven recipient:
     document's text there.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:99-105`), together with
+    `packages/ui-backend-pi/src/worker-session.ts:75-81`), together with
     that session's fixed system-prompt append. Its stored native file
     observations are content hashes, not text. Pi has no memory folder; its
     worker receives only `settings.json` (with `auth.json` and `models.json`
@@ -3726,7 +3739,7 @@ the accepted cancellation (`cancelAcquiredSession`,
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
-`packages/ui-backend-pi/src/worker-session.ts:758-774`). Its inactive path
+`packages/ui-backend-pi/src/worker-session.ts:212-228`). Its inactive path
 awaits exit and protocol consumption, the awaited turn-temp close above, then
 stdio release even if exit or cleanup refuses. Failed cleanup keeps the
 reservation charged and remains retryable. Disposal and Stop signalling keep
@@ -3888,7 +3901,7 @@ document reader whose normalized path is under `.brain-ui/inbox/` or
 outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call; and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:82-92`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:84-94`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
@@ -3932,7 +3945,7 @@ admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
 reader, whose normalized brain-relative path is marked, or a search whose
 output names it, records `taint` with `source: "user_marked"` as the session's
 first source (`fileSource`,
-`packages/ui-server/src/activity/ingestion-taint.ts:74-79`). An untrusted area
+`packages/ui-server/src/activity/ingestion-taint.ts:76-81`). An untrusted area
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked
@@ -4064,7 +4077,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 `context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
 
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
-  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:644-678`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
   `packages/ui-server/src/brain/host-boundary.ts:514-525`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
