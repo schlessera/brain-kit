@@ -149,7 +149,7 @@ receipts, recipe fingerprints and asset hashes are recorded in the public
 build manifest and export provenance. This is a tagged-source rebuild, not a
 measurement of installed npm tarballs.
 
-Every publishing run regenerates the demo bundle, product CSS, all PNG/PDF
+Every publishing run regenerates the demo bundle and its library file, product CSS, all PNG/PDF
 share exports and four fallback screenshots from the selected product UI. It then typechecks integration and runs real Chromium smoke checks of
 all four embedded views, plus end-to-end ranking/submission, scenario switching,
 allow/deny, dictation/edit/send, file navigation/frontmatter, wiki links,
