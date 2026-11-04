@@ -236,7 +236,10 @@ export function createMediaEffects(db: Database, options: {
         let result: z.infer<typeof applyResultSchema>;
         try {
           result = applyResultSchema.parse(await options.cli(["media", plan.action, request.findingId, "--expect-fingerprint", request.fingerprint,
-            ...(plan.destination ? ["--to", plan.destination] : []), "--expect-premise", plan.premiseDigest, "--journal", row.id]));
+            ...(plan.destination ? ["--to", plan.destination] : []),
+            // A broader change (#2781, rev 4 §7) is applied as it was planned and approved.
+            ...(plan.scope === "pattern" && plan.pattern ? ["--pattern", plan.pattern] : []), ...(plan.ignoreAdjust ? ["--ignore-adjust", plan.ignoreAdjust] : []),
+            "--expect-premise", plan.premiseDigest, "--journal", row.id, ...(plan.approvalDigest ? ["--expect-approval", plan.approvalDigest] : [])]));
         } catch { await journal.observe(); return compensate(row, plan, "apply-receipt-unknown"); }
         await journal.observe();
         if (result.status === "stale" || result.status === "refused") return refused(result.status, result.reason ?? result.status, result.refusals as HygieneMediaReceipt["refusals"]);

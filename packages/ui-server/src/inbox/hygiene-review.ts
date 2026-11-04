@@ -4,14 +4,16 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaPlan, HygieneMediaReceipt, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
-import { hygieneEffectSchema, hygieneInputSchema, hygieneMediaPlanSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygienePreviewResponse, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
+import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
+import { hygieneEffectSchema, hygieneInputSchema, hygieneMediaPlanSchema, hygieneMediaRefusalSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { MediaEffects } from "./media-effects.js";
 import type { BrainClient } from "../brain/client.js";
 import type { ReferenceWorktreeHygiene } from "../brain/reference-worktree-hygiene.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxResolver } from "./resolve.js";
 import { createInboxStore } from "./store.js";
+import { MAX_WS_MESSAGE_BYTES } from "../ws/shrink.js";
 
 import { findingSchema, IDLE_REVIEW, nextSchema, resultSchema, hygieneWrites, HygieneAuthorityError, type Result, type Attempt } from "./hygiene-writes.js";
 export { HygieneAuthorityError } from "./hygiene-writes.js";
@@ -24,7 +26,9 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   /** The gated dispatcher's current exact-operation envelope (#689); default empty. */
   allowedOperations?: Parameters<typeof createInboxResolver>[1]["allowedOperations"];
   /** The journal-backed media effects (#2781); without them no media effect is offered. */
-  media?: MediaEffects }) {
+  media?: MediaEffects;
+  /** The most a previewed Action may serialize to; default and ceiling {@link PREVIEW_RESPONSE_LIMIT_BYTES}. */
+  previewResponseBytes?: number }) {
   const now = deps.now ?? Date.now, store = createInboxStore(db, { now });
   const write = hygieneWrites(db, deps.timeZone);
   const resolver = createInboxResolver(db, { now, timeZone: deps.timeZone, allowedOperations: deps.allowedOperations ?? (() => []), applyHygiene: apply });
@@ -32,6 +36,13 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   let preparing: Promise<void> | null = null;
   let pauseGeneration = 0;
   const inFlight = new Set<string>();
+  const previewLimit = Math.min(deps.previewResponseBytes ?? PREVIEW_RESPONSE_LIMIT_BYTES, PREVIEW_RESPONSE_LIMIT_BYTES);
+  /**
+   * The one media preview scan this server runs (#2781, rev 4 §3.3). A newer
+   * preview from the same principal aborts it, killing its CLI scan; another
+   * principal's preview is refused `preview-busy`. Nothing waits or retries.
+   */
+  let scanning: { principalId: string; controller: AbortController } | null = null;
   function authority(principalId: string) {
     const p = resolvePrincipal(db, principalId);
     if (!p || !isUsablePrincipal(p, now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
@@ -42,14 +53,14 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
    * ordinal rules, and an operation that names a host finding is answered by
    * the host, never the CLI.
    */
-  async function cli(args: string[]): Promise<unknown> {
+  async function cli(args: string[], signal?: AbortSignal): Promise<unknown> {
     const host = deps.worktrees, [command] = args, target = args.at(-1) ?? "", at = args.indexOf("--finding");
     if (host && ((command === "next" && at >= 0 && host.owns(args[at + 1]!)) || (["check", "dismiss", "snooze", "resolve"].includes(command!) && host.owns(target))))
       return host.run(args);
     const own = host && (command === "list" || (command === "next" && at < 0)) ? host.run(args) : undefined;
     void own?.catch(() => {});
     if (!deps.brain.hygiene) throw new Error("Hygiene CLI is unavailable");
-    const listed = await deps.brain.hygiene(args);
+    const listed = await deps.brain.hygiene(args, signal ? { signal } : undefined);
     if (!host || !own) return listed;
     if (command === "list") return { ...(listed as object), entries: [...(listed as { entries: unknown[] }).entries, ...(await own as { entries: unknown[] }).entries] };
     if (listed && typeof listed === "object" && "blocker" in listed) return listed;
@@ -100,15 +111,38 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   function effect(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"]): HygieneEffect {
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
-  /** A media effect's CLI plan, or null when the CLI could not plan it (not detected, stale). */
-  async function mediaPlan(f: { id: string; fingerprint: string }, operation: MediaOperation, destination?: string): Promise<HygieneMediaPlan | null> {
-    const parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...(destination !== undefined ? ["--to", destination] : []), "--dry-run"]));
-    return parsed.success ? parsed.data : null;
+  /**
+   * A media effect's CLI plan, or null when the CLI could not plan it (not
+   * detected, stale). With `previewed`, a person asked for this preview: the
+   * one broader ignore entry that would still win over the track entry is
+   * then planned as an adjustment, shown with what stops being ignored and
+   * approved with the rest (M1 A). Several such entries stay refused.
+   */
+  async function mediaPlan(f: { id: string; fingerprint: string }, operation: MediaOperation, input: { destination?: string; pattern?: string; previewed?: boolean; signal?: AbortSignal; unplanned?: HygieneMediaRefusal[] } = {}): Promise<HygieneMediaPlan | null> {
+    const to = input.destination !== undefined ? ["--to", input.destination] : [], rule = input.pattern !== undefined ? ["--pattern", input.pattern] : [];
+    let last = await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...to, ...rule, "--dry-run"], input.signal);
+    let parsed = hygieneMediaPlanSchema.safeParse(last);
+    const only = parsed.success && parsed.data.refusals.length === 1 ? parsed.data.refusals[0]! : null;
+    if (input.previewed && only?.code === "ignore-adjustment-required" && only.path && !only.path.includes("\n")) {
+      input.signal?.throwIfAborted();
+      last = await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...to, ...rule, "--ignore-adjust", only.path, "--dry-run"], input.signal);
+      parsed = hygieneMediaPlanSchema.safeParse(last);
+    }
+    if (parsed.success) return parsed.data;
+    // Not a plan (not detected now, or stale): its named refusals, when the CLI gave any.
+    const refused = z.object({ refusals: z.array(hygieneMediaRefusalSchema).max(64) }).safeParse(last);
+    input.unplanned?.push(...(refused.success && refused.data.refusals.length > 0 ? refused.data.refusals : [{ code: "plan-unavailable" }]));
+    return null;
   }
-  /** The options' media plan: only a plan without refusals carries the premise that lets it apply. */
-  function withPlan(option: InboxOption, plan: HygieneMediaPlan | null, destination?: string): InboxOption {
+  /**
+   * The options' media plan: only a plan without refusals carries the premise
+   * that lets it apply. A broader change is bound to the principal who
+   * previewed it (rev 3 §5.4); no one else can confirm it.
+   */
+  function withPlan(option: InboxOption, plan: HygieneMediaPlan | null, destination?: string, principalId?: string): InboxOption {
     const e = option.effect as HygieneEffect;
-    return { ...option, effect: { ...e, destination, premiseDigest: plan && plan.refusals.length === 0 ? plan.premiseDigest : undefined }, media: plan ?? undefined };
+    const ready = plan !== null && plan.refusals.length === 0;
+    return { ...option, effect: { ...e, destination, premiseDigest: ready ? plan.premiseDigest : undefined, approvedBy: ready && plan.approvalDigest ? principalId : undefined }, media: plan ?? undefined };
   }
   /** A repair that takes no input but has no confirmed preview cannot be applied. */
   const missingPreview = (options: InboxOption[]) => options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
@@ -138,6 +172,11 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         for (const [operation, label, needsPath] of rows) {
           const option: InboxOption = { id: operation, label, effect: effect(finding, operation), ...(needsPath ? { input: { type: "path" as const } } : {}) };
           options.push(inboxOptionSchema.parse(needsPath ? option : withPlan(option, await mediaPlan(finding, operation))));
+          // Persist by a broader media.track rule (rev 4 §7): the person enters the
+          // rule, and its preview lists every current match before approval.
+          if (operation === "media-persist" && !scratch && !finding.path.startsWith(`${SHARE_STAGING_DIR}/`)) {
+            options.push(inboxOptionSchema.parse({ id: PERSIST_RULE, label: "Persist with a broader rule…", input: { type: "string", example: ruleExample(finding.path) }, effect: effect(finding, operation) }));
+          }
         }
       }
       // Media (#2780) can always be left pending for the rest of this pass.
@@ -230,23 +269,47 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (receipt.outcome === "undone" && state().status === "active" && !state().pendingActionId) await ensureNext(principalId);
     return { ...read(), mediaUndo: receipt };
   }
-  async function preview(principalId: string, request: { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }) {
+  /**
+   * A preview's 200 body (rev 5 §9/§11): the pending Action, the echoed
+   * `requestId`, and its named refusals, which are results, never errors.
+   */
+  function previewed(itemId: string, requestId: string | undefined, refusals: HygieneMediaRefusal[], plan?: HygieneMediaPlan | null): HygienePreviewResponse {
+    return { ...action(itemId), ...(requestId !== undefined ? { requestId } : {}), refusals, ...(plan?.media !== undefined ? { media: plan.media } : {}) };
+  }
+  async function preview(principalId: string, request: { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput; requestId?: string }): Promise<HygienePreviewResponse> {
     authority(principalId); hygieneInputSchema.parse(request.input);
     const item = action(request.itemId), { option, effect: selected } = resolver.inspect(principalId, { type: "inbox_resolve", itemId: item.id, optionId: request.optionId });
     if (item.version !== request.expectedVersion || item.status !== "pending" || busy(item.id)) throw new Error("Inbox version conflict");
     if (selected.kind === "hygiene" && isMediaOperation(selected.operation)) {
       if (!media) throw new Error("Media effects are unavailable");
-      const destination = typeof request.input === "string" ? request.input : undefined;
-      const plan = await mediaPlan({ id: selected.findingId, fingerprint: selected.fingerprint }, selected.operation, destination);
+      const text = typeof request.input === "string" ? request.input : undefined;
+      const rule = option.id === PERSIST_RULE, destination = rule ? undefined : text;
+      if (rule && text === undefined) throw new Error("A broader rule needs its pattern");
+      // One scan per server (rev 4 §3.3): another principal's is never aborted, the same principal's older one is.
+      if (scanning && scanning.principalId !== principalId) return previewed(item.id, request.requestId, [{ code: "preview-busy" }]);
+      scanning?.controller.abort();
+      const scan = { principalId, controller: new AbortController() };
+      scanning = scan;
+      let plan: HygieneMediaPlan | null;
+      const unplanned: HygieneMediaRefusal[] = [];
+      try { plan = await mediaPlan({ id: selected.findingId, fingerprint: selected.fingerprint }, selected.operation, { destination, pattern: rule ? text : undefined, previewed: true, signal: scan.controller.signal, unplanned }); }
+      catch (error) { if (!scan.controller.signal.aborted) throw error; plan = null; }
+      finally { if (scanning === scan) scanning = null; }
+      // A superseded scan stores nothing; its client renders only the newer request.
+      if (scan.controller.signal.aborted) return previewed(item.id, request.requestId, [{ code: "preview-superseded" }]);
       authority(principalId);
-      await write<void>("mediaPreview", now(), principalId, item, request, option.id, withPlan(option, plan, destination));
-      return action(item.id);
+      const planned = withPlan(option, plan, destination, principalId);
+      // The Action this stores is replicated and returned whole: one past the transport's limit is refused, never truncated.
+      const size = Buffer.byteLength(JSON.stringify({ ...item, options: item.options.map(o => o.id === option.id ? planned : o) }), "utf8");
+      if (size > previewLimit) return previewed(item.id, request.requestId, [{ code: "inventory-too-large", limit: "preview", effective: previewLimit, observed: size }]);
+      await write<void>("mediaPreview", now(), principalId, item, request, option.id, planned);
+      return previewed(item.id, request.requestId, plan?.refusals ?? unplanned, plan);
     }
     if (selected.kind !== "hygiene" || selected.operation !== "resolve" || !selected.handler) throw new Error("Not a repair option");
     const result = resultSchema.parse(await cli(["resolve", "--handler", selected.handler, "--input", JSON.stringify(request.input), "--expect-fingerprint", selected.fingerprint, "--dry-run", "--", selected.findingId]));
     authority(principalId);
     await write<void>("preview", now(), principalId, item, request, option, selected, result);
-    return action(item.id);
+    return previewed(item.id, request.requestId, []);
   }
   async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string, attemptId: string): Promise<Result> {
     // Leave pending is review state only: nothing is sent to the CLI.
@@ -254,6 +317,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (isMediaOperation(e.operation)) {
       const plan = action(request.itemId).options.find(o => o.id === request.optionId)?.media;
       if (!media || !plan) return { id: e.findingId, status: "refused", reason: "media-effects-unavailable" };
+      // A broader change applies only for the principal who previewed and approved it.
+      if (plan.approvalDigest && e.approvedBy !== principalId) return { id: e.findingId, status: "stale", reason: "stale-approval" };
       return mediaResult(e.findingId, await media.apply({ id: mediaOperationId(attemptId), principalId, findingId: e.findingId, fingerprint: e.fingerprint, plan }));
     }
     const args = e.operation === "resolve" ? ["resolve", "--handler", e.handler!, "--input", JSON.stringify(e.input), "--expect-fingerprint", e.fingerprint, "--expect-preview", e.previewToken!, "--", e.findingId]
@@ -340,6 +405,18 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     /** The app attaches the journal-backed media effects once its journal is ready. */
     attachMedia(effects: MediaEffects) { media = effects; } };
 }
+
+/**
+ * The most a previewed Action may serialize to (#2781, rev 4 §9): the
+ * transport's per-message limit, which the stored Action must fit to
+ * replicate. It bounds the CLI's own `preview` limit from above.
+ */
+export const PREVIEW_RESPONSE_LIMIT_BYTES = MAX_WS_MESSAGE_BYTES;
+
+/** Persist here by a broader `media.track` rule (#2781): the same effect, with the person's pattern. */
+const PERSIST_RULE = "media-persist-rule";
+/** The rule a person most likely means: every file in the same folder, or the name in any folder at the root. */
+const ruleExample = (path: string) => path.includes("/") ? `${path.slice(0, path.lastIndexOf("/"))}/*` : path;
 
 /** The four media review effects (#2781) and the `brain hygiene media` action each one runs. */
 const MEDIA_ACTIONS = { "media-delete": "delete", "media-move": "move", "media-persist": "persist", "media-keep-copy": "keep-copy" } as const;

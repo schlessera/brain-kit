@@ -47,7 +47,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:182-185`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:250-252`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:257-259`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -254,6 +254,18 @@ on a new card, never the old one. Undoing Keep a permanent copy also removes
 its `kept` entry after the copy and config are restored (rev 5 §5.7,
 `brain hygiene unkeep`), so the original is pending again rather than
 reopened as `copy-missing`.
+
+**Broader config changes (#2781, rev 3 §5.2-§5.4, rev 4 §7).** Persist here
+tracks one exact path by default. A broader `media.track` rule, or removing
+the one broader `media.ignore` entry that would still win (M1 A), changes how
+sync treats other files too, now and later. So its preview lists the files
+sync sees now that it matches, and the approval binds the config's bytes, the
+exact diff and a digest of those matches. A config edited, or a file that
+starts or stops matching, before apply makes the approval `stale-approval`.
+The host binds the principal: only the person who previewed a broader change
+can confirm it. Several conflicting ignore entries are never adjusted; they
+are named, for the owner to edit. `brain config media` is the same edit
+outside review, previewed and applied against the config's SHA-256.
 
 ## A disposition is not a repair or an authority grant
 

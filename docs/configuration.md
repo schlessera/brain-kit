@@ -837,6 +837,14 @@ characters, and a glob with no `/` also matches the file name alone.
 media: { ignore: ["assets/renders/*"], track: ["me/*.jpg"] }
 ```
 
+`brain config media <add-track|remove-track|add-ignore|remove-ignore>
+<pattern>` changes one entry without running the config: it previews the
+change with `--dry-run`, including the files sync sees now that the pattern
+matches, then applies it with `--expect-sha` from that preview. It works only
+when the lists are literal arrays in a directly exported object; anything
+else is refused, for you to edit by hand
+([cli.md](integration-contract/cli.md)).
+
 ## `sync`
 
 How `brain sync` integrates remote commits and settles what git cannot: a
@@ -970,7 +978,7 @@ the capability you need and read its command's requirements.
 | `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
 | `GOOGLE_API_KEY` | upstream Gemini SDK | Not a brain-kit key input. Providers pass their selected key explicitly; the SDK may emit a cosmetic dual-key warning. The variable is not temporarily unset. |
 | `BRAIN_MEDIA_PINNED_PATH_LIMIT` | `brain hygiene`, `brain sync` | Trusted host bound on the conversation-pinned scratch paths one media inventory reads. Default `5000`. Past it, review reports that conversation links were not fully checked. A value that is not a positive integer stops media detection. |
-| `BRAIN_MEDIA_REFERENCE_LIMITS` | `brain hygiene`, `brain sync` | Trusted host bounds on the declared reference scan behind every media finding, as `<limit>=<n>` pairs: `notes` (50000), `noteBytes` (256 MiB), `perNote` (4 MiB, at most `noteBytes`), `scanTime` in ms (20000), `refsPerFinding` (500), and for a media effect's plan `rewrittenNotes` (200) and `preview` in bytes (1 MiB). Past a limit the scan or plan is refused and nothing claims the references were checked. An invalid value stops media detection. |
+| `BRAIN_MEDIA_REFERENCE_LIMITS` | `brain hygiene`, `brain sync` | Trusted host bounds on the declared reference scan behind every media finding, as `<limit>=<n>` pairs: `notes` (50000), `noteBytes` (256 MiB), `perNote` (4 MiB, at most `noteBytes`), `scanTime` in ms (20000), `refsPerFinding` (500), and for a media effect's plan `rewrittenNotes` (200) and `preview` in bytes (1 MiB; a hosted review also refuses a previewed Action past its 512,000-byte transport limit, whatever this says). Past a limit the scan or plan is refused and nothing claims the references were checked. An invalid value stops media detection. |
 | `BRAIN_RERANK_MODE` | search | Selects `jev`, `heuristic` or `none`. An explicit `--rerank` still wins; neither can enable model judgment while `reranker.enabled` is false. |
 | `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Model search also requires `reranker.enabled: true`; absent key → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |

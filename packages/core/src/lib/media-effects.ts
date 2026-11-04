@@ -27,7 +27,9 @@ import { canonicalFindings, type HygieneFinding } from "./hygiene.js";
 import { caseFold } from "./case-fold.js";
 import { mediaPolicyClass, type MediaPolicy } from "./media.js";
 import { planMediaPolicyEdit, MediaConfigNotLiteral, readMediaPolicyLists, type MediaPolicyEdit } from "./media-config-edit.js";
+import { mediaMatches, patternRefusal, patternScope, type MediaMatches } from "./media-matches.js";
 import { buildMediaInventory, mediaCandidates, SCRATCH_PREFIX, type MediaInventory, type MediaItem } from "./media-inventory.js";
+import { MEDIA_PROBE_BYTES, probeMediaHead, type MediaProbe } from "./media-probe.js";
 import { DEFAULT_MEDIA_REFERENCE_LIMITS, noteReferences, type MediaReference, type MediaReferenceLimits } from "./media-references.js";
 import { SENSITIVE_PATTERNS } from "./sync/assess.js";
 import { matchesAnyPattern } from "./tool-leftovers.js";
@@ -84,9 +86,35 @@ export interface MediaEffectPlan {
   /** References a Move cannot rewrite, and a Delete will break. */
   blockers: Array<{ note: string; line: number; kind: MediaReference["kind"]; target: string }>;
   configDiff: { path: string; track: { before: string[]; after: string[] }; ignore: { before: string[]; after: string[] } } | null;
+  /**
+   * The config change's scope (rev 4 §7): `exact` adds one full path,
+   * `pattern` a broader rule; null when no config change is planned.
+   */
+  scope: "exact" | "pattern" | null;
+  /** The `media.track` entry the change adds, or null. */
+  pattern: string | null;
+  /** A broader `media.ignore` entry the change removes so the entry can win (M1 A), or null. */
+  ignoreAdjust: string | null;
+  /**
+   * What a broader change does to the files sync sees now: the added track
+   * entry's matches, and the removed ignore entry's. Null for an exact change.
+   */
+  matches: { track: MediaMatches; ignore: MediaMatches | null } | null;
+  /**
+   * Set when the change is broader than this one file: the approval binds
+   * the config SHA-256, the diff and every match, and apply needs it back
+   * (`stale-approval` otherwise). The host binds the principal.
+   */
+  approvalDigest: string | null;
   /** Bytes the caller must retain before any write: removed or overwritten pre-images. */
   captureBytes: number;
   copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  /**
+   * The source's dimensions and duration from one anchored read of its first
+   * 64 KiB (rev 5 §9), each null when its header does not say; null when the
+   * file cannot be read. Descriptive only: not part of the premise.
+   */
+  media: MediaProbe | null;
   /** The class sync gives the file where it ends up: `TRACK` is committed, null still awaits review. */
   resultClass: "TRACK" | "ARTIFACT" | null;
   files: MediaEffectFile[];
@@ -120,6 +148,10 @@ export interface MediaEffectRequest {
   action: MediaAction;
   expectFingerprint: string;
   destination?: string;
+  /** Persist here or a copy's tracking by a broader `media.track` rule that matches the file (rev 4 §7). */
+  pattern?: string;
+  /** The one broader `media.ignore` entry to remove so the track entry wins (M1 A). */
+  ignoreAdjust?: string;
 }
 
 export interface MediaEffectContext {
@@ -208,15 +240,17 @@ export function anchoredSha256(root: string, path: string): string | null {
   }
 }
 
-function readAnchored(root: string, path: string): Buffer {
+/** A regular file's bytes, reached without following any link. */
+export function readAnchored(root: string, path: string, max = Infinity): Buffer {
   const parent = openDir(root, posix.dirname(path) === "." ? "" : posix.dirname(path));
   try {
     const fd = openSync(at(parent, posix.basename(path)), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       if (!fstatSync(fd).isFile()) throw new Unsafe("not-contained", path);
       const chunks: Buffer[] = [], buffer = Buffer.alloc(64 * 1024);
-      let read: number;
-      while ((read = readSync(fd, buffer, 0, buffer.length, null)) > 0) chunks.push(Buffer.from(buffer.subarray(0, read)));
+      let read: number, total = 0;
+      // With `max`, only the file's first `max` bytes are read.
+      while (total < max && (read = readSync(fd, buffer, 0, Math.min(buffer.length, max - total), null)) > 0) { chunks.push(Buffer.from(buffer.subarray(0, read))); total += read; }
       return Buffer.concat(chunks);
     } finally {
       closeSync(fd);
@@ -306,17 +340,37 @@ function configFormat(path: string): "ts" | "json" {
 
 /**
  * The config change that makes `target` TRACK (rev 4 §7, M1 A), or why it
- * cannot be made here: already tracked needs none; a root-level name or a
- * `*` has no exact form (`not-expressible`); an ignore entry other than
- * this exact path needs a broader, separately approved adjustment.
+ * cannot be made here: already tracked needs none; without a `pattern`, a
+ * root-level name or a `*` has no exact form (`not-expressible`). A
+ * `pattern` is a broader rule and must match `target`. An ignore entry other
+ * than this exact path is removed only when it is the one entry named as
+ * `ignoreAdjust`; several conflicting entries always refuse, named.
  */
-function trackEdit(target: string, policy: MediaPolicy): { edit: MediaPolicyEdit | null; refusal: MediaRefusal | null } {
+function trackEdit(target: string, policy: MediaPolicy, rule: { pattern?: string; ignoreAdjust?: string } = {}): { edit: MediaPolicyEdit | null; refusal: MediaRefusal | null } {
+  const refuse = (code: string, path: string) => ({ edit: null, refusal: { code, path } });
+  if (rule.pattern !== undefined) {
+    const invalid = patternRefusal(rule.pattern);
+    if (invalid) return refuse(invalid, rule.pattern);
+    if (!matchesAnyPattern(target, [rule.pattern])) return refuse("pattern-mismatch", rule.pattern);
+  }
   const ignores = policy.ignore.filter((p) => matchesAnyPattern(target, [p]));
-  if (ignores.length === 0 && mediaPolicyClass(target, policy) === "TRACK") return { edit: null, refusal: null };
-  if (!target.includes("/") || target.includes("*")) return { edit: null, refusal: { code: "not-expressible", path: target } };
-  if (ignores.length > 0 && !(ignores.length === 1 && ignores[0] === target)) return { edit: null, refusal: { code: "ignore-adjustment-required", path: ignores.join("\n") } };
-  return { edit: { addTrack: target, ...(ignores.length === 1 ? { removeIgnore: target } : {}) }, refusal: null };
+  if (ignores.length === 0 && mediaPolicyClass(target, policy) === "TRACK") {
+    return rule.ignoreAdjust === undefined ? { edit: null, refusal: null } : refuse("ignore-adjust-unneeded", rule.ignoreAdjust);
+  }
+  if (rule.pattern === undefined && (!target.includes("/") || target.includes("*"))) return refuse("not-expressible", target);
+  let removeIgnore: string | undefined;
+  if (ignores.length === 1 && (ignores[0] === target || ignores[0] === rule.ignoreAdjust)) removeIgnore = ignores[0];
+  else if (ignores.length > 0) return refuse("ignore-adjustment-required", ignores.join("\n"));
+  if (rule.ignoreAdjust !== undefined && removeIgnore !== rule.ignoreAdjust) return refuse("ignore-adjust-unneeded", rule.ignoreAdjust);
+  return { edit: { addTrack: rule.pattern ?? target, ...(removeIgnore !== undefined ? { removeIgnore } : {}) }, refusal: null };
 }
+
+/** The policy an edit leaves. */
+const editedPolicy = (policy: MediaPolicy, edit: MediaPolicyEdit): MediaPolicy => ({
+  ...policy,
+  track: policy.track.includes(edit.addTrack!) ? policy.track : [...policy.track, edit.addTrack!],
+  ignore: policy.ignore.filter((p) => p !== edit.removeIgnore),
+});
 
 /** The media finding `id` names, with its inventory item, or null when it is not detected. */
 function mediaFinding(ctx: MediaEffectContext, inventory: MediaInventory, id: string): { finding: HygieneFinding; item: MediaItem } | null {
@@ -359,6 +413,8 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
       created = checked.created;
     }
   } else if (request.destination !== undefined) add({ code: "destination-unexpected" });
+  const rule = { ...(request.pattern !== undefined ? { pattern: request.pattern } : {}), ...(request.ignoreAdjust !== undefined ? { ignoreAdjust: request.ignoreAdjust } : {}) };
+  if ((request.pattern !== undefined || request.ignoreAdjust !== undefined) && request.action !== "persist" && request.action !== "keep-copy") add({ code: "pattern-unexpected" });
 
   const rewrites: MediaRewrite[] = [], blockers: MediaEffectPlan["blockers"] = [];
   const files: MediaEffectFile[] = [];
@@ -374,10 +430,11 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
 
   // Config for Persist here, and for a copy that sync must keep.
   let configDiff: MediaEffectPlan["configDiff"] = null, configFile: MediaEffectFile | null = null;
+  let change: Pick<MediaEffectPlan, "scope" | "pattern" | "ignoreAdjust" | "matches" | "approvalDigest"> = { scope: null, pattern: null, ignoreAdjust: null, matches: null, approvalDigest: null };
   const tracked = request.action === "persist" ? item.path : request.action === "keep-copy" ? destination : null;
   let resultClass: MediaEffectPlan["resultClass"] = request.action === "delete" ? null : mediaPolicyClass(destination ?? item.path, policy);
   if (tracked && refusals.length === 0) {
-    const { edit, refusal } = trackEdit(tracked, policy);
+    const { edit, refusal } = trackEdit(tracked, policy, rule);
     add(refusal);
     if (edit) {
       if (!ctx.configPath || !validPath(ctx.configPath)) add({ code: "config-not-literal" });
@@ -389,7 +446,16 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
           const lists = readMediaPolicyLists(text, configFormat(ctx.configPath));
           configDiff = { path: ctx.configPath, track: { before: lists.track, after: planned.lists.track }, ignore: { before: lists.ignore, after: planned.lists.ignore } };
           configFile = { path: ctx.configPath, role: "config", before: sha256(before), after: sha256(planned.text), bytes: before.length };
-          resultClass = mediaPolicyClass(tracked, { ...policy, track: [...policy.track, edit.addTrack!], ignore: policy.ignore.filter((p) => p !== edit.removeIgnore) });
+          const edited = editedPolicy(policy, edit);
+          resultClass = mediaPolicyClass(tracked, edited);
+          const broaderIgnore = edit.removeIgnore !== undefined && edit.removeIgnore !== tracked ? edit.removeIgnore : null;
+          change = { scope: edit.addTrack === tracked && patternScope(tracked) === "exact" ? "exact" : "pattern", pattern: edit.addTrack!, ignoreAdjust: broaderIgnore, matches: null, approvalDigest: null };
+          // A change broader than this one file is shown with its current matches and approved as a whole (rev 3 §5.2-§5.4).
+          if (change.scope === "pattern" || broaderIgnore !== null) {
+            const matches = { track: mediaMatches(root, edit.addTrack!, policy, edited), ignore: broaderIgnore === null ? null : mediaMatches(root, broaderIgnore, policy, edited) };
+            change.matches = matches;
+            change.approvalDigest = digest({ config: configFile.before, diff: configDiff, matches: [matches.track.digest, matches.ignore?.digest ?? null] });
+          }
         } catch (e) {
           add({ code: e instanceof MediaConfigNotLiteral ? "config-not-literal" : "config-invalid", path: ctx.configPath });
         }
@@ -440,8 +506,10 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
     rewrites,
     blockers,
     configDiff,
+    ...change,
     captureBytes: files.reduce((n, f) => n + (f.role === "directory" || f.before === null ? 0 : f.bytes), 0),
     copy: request.action === "keep-copy" ? { bytes: item.bytes, sha256: item.sha256, diskFreeAdvisory } : null,
+    media: probeSource(root, item.path),
     resultClass,
     files: refusals.length === 0 ? files : [],
     premiseDigest: "",
@@ -449,12 +517,17 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
   };
   // The premise binds everything apply depends on: the finding, every file's
   // expected bytes, the pins and the media policy (rev 4 §6).
-  plan.premiseDigest = digest({ id: plan.id, action: plan.action, fingerprint: plan.fingerprint, destination, files: plan.files, pins: item.pins, links, policy: { track: policy.track, ignore: policy.ignore } });
+  plan.premiseDigest = digest({ id: plan.id, action: plan.action, fingerprint: plan.fingerprint, destination, files: plan.files, pins: item.pins, links, policy: { track: policy.track, ignore: policy.ignore }, approval: plan.approvalDigest });
   const size = Buffer.byteLength(JSON.stringify(plan));
   if (size > limits.preview) {
     return { ...base, status: "refused", reason: "inventory-too-large", refusals: [{ code: "inventory-too-large", limit: "preview", effective: limits.preview, observed: size }] };
   }
   return plan;
+}
+
+/** The source's header facts, or null when it cannot be read where it was planned. */
+function probeSource(root: string, path: string): MediaProbe | null {
+  try { return probeMediaHead(readAnchored(root, path, MEDIA_PROBE_BYTES)); } catch { return null; }
 }
 
 /** `text` with every rewritable reference to `source` pointed at `destination`, or null when nothing changes. */
@@ -562,13 +635,18 @@ function removeExpected(root: string, path: string, expected: string): void {
  * written in plan order, each checked against its expected pre-image.
  * `verify` runs after the last write with the post-apply policy.
  */
-export function applyMediaEffect(ctx: MediaEffectContext, request: MediaEffectRequest & { expectPremise: string; journal: string }): MediaEffectResult {
+export function applyMediaEffect(ctx: MediaEffectContext, request: MediaEffectRequest & { expectPremise: string; journal: string; expectApproval?: string }): MediaEffectResult {
   const base = { id: request.id, action: request.action, journal: request.journal };
   if (process.platform !== "linux") return { ...base, status: "refused", reason: "platform-unsupported", files: [] };
   if (!/^[A-Za-z0-9._-]{1,128}$/.test(request.journal)) return { ...base, status: "refused", reason: "invalid-journal", files: [] };
   const plan = planMediaEffect(ctx, request);
   if (plan.status !== "preview") return { ...base, status: plan.status, reason: plan.reason, refusals: plan.refusals, files: [] };
   if (plan.refusals.length > 0) return { ...base, status: "refused", reason: plan.refusals[0]!.code, refusals: plan.refusals, files: [] };
+  // A broader change applies only as it was approved: the config, the diff and every match (rev 3 §5.4).
+  if (plan.approvalDigest !== null && request.expectApproval === undefined) return { ...base, status: "refused", reason: "approval-required", refusals: [{ code: "approval-required" }], files: [] };
+  if (request.expectApproval !== undefined && plan.approvalDigest !== request.expectApproval) {
+    return { ...base, status: "stale", reason: "stale-approval", refusals: [{ code: "stale-approval", ...(plan.configDiff ? { path: plan.configDiff.path } : {}) }], files: [] };
+  }
   if (plan.premiseDigest !== request.expectPremise) return { ...base, status: "stale", reason: "premise-changed", files: [] };
 
   const results: MediaEffectFileResult[] = plan.files.map((f) => ({ ...f, state: "unchanged" }));
@@ -605,7 +683,9 @@ export function applyMediaEffect(ctx: MediaEffectContext, request: MediaEffectRe
     if (config && plan.configDiff) {
       const text = readAnchored(root, config.path).toString("utf8");
       const tracked = request.action === "persist" ? source : plan.destination!;
-      const edit = trackEdit(tracked, ctx.policy).edit;
+      const edit = trackEdit(tracked, ctx.policy, {
+        ...(request.pattern !== undefined ? { pattern: request.pattern } : {}), ...(request.ignoreAdjust !== undefined ? { ignoreAdjust: request.ignoreAdjust } : {}),
+      }).edit;
       if (!edit) throw new StepFailed("premise-changed");
       const planned = planMediaPolicyEdit(text, configFormat(config.path), edit);
       if (sha256(planned.text) !== config.after) throw new StepFailed("premise-changed");

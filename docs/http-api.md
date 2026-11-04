@@ -1327,7 +1327,10 @@ principal; it is `no-store`, reads only recorded facts and changes nothing. See
 [the owner-only details](integration-contract/package-api.md#owner-only-private-worktree-details-additive-0440-2734).
 
 `POST /api/hygiene/review/preview` accepts a stored `itemId`, `optionId`,
-`expectedVersion` and bounded handler `input`. Owner/ambient operation authority
+`expectedVersion`, bounded handler `input` and an optional `requestId`, which
+the response echoes. A media preview runs one scan per server: the same
+principal's newer preview aborts the older one, and another principal's gets
+the `preview-busy` refusal in a 200 body. Owner/ambient operation authority
 is rechecked against the durable principal. These routes run only deterministic
 CLI operations; confirmation uses the existing `inbox_resolve` WebSocket path.
 See [the wire shapes and error codes](integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
