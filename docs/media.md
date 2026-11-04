@@ -67,6 +67,13 @@ A brain usually hits the pain well before those limits.
   the file name alone. `ignore` wins over `track`, and a secret-shaped name is
   never tracked, whatever `track` says. See
   [configuration.md](configuration.md#media).
+
+  `brain config media add-track "me/*.jpg" --dry-run` previews one change to
+  these lists: the files it affects now, the largest first, and which an
+  `ignore` entry still wins over. Applying it with the preview's
+  `--expect-sha` edits only that entry and leaves every other byte of the
+  config as it was. In hygiene review, *Persist with a broader rule…* does the
+  same for one media file, and asks you to approve the rule with its matches.
 - **The template's `.gitignore`** has a commented media section to start from.
 
 ## Git LFS for large masters

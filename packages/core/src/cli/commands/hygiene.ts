@@ -103,12 +103,19 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|unkeep
 
 const MEDIA_HELP = `
   media <delete|move|persist|keep-copy> <id> --expect-fingerprint <fp> [--to <path>]
-      [--dry-run | --expect-premise <digest> --journal <id>]
+      [--pattern <glob> [--ignore-adjust <entry>]]
+      [--dry-run | --expect-premise <digest> --journal <id> [--expect-approval <digest>]]
       A media finding's effect (#2781). --dry-run plans it and writes nothing:
       { "status": "preview", "id", "action", "fingerprint", "source", "destination",
-      "links", "references", "rewrites", "blockers", "configDiff", "captureBytes",
+      "links", "references", "rewrites", "blockers", "configDiff", "scope",
+      "pattern", "ignoreAdjust", "matches", "approvalDigest", "captureBytes",
       "copy", "resultClass", "files", "premiseDigest", "refusals" }. move and
-      keep-copy need --to. Apply needs the preview's premiseDigest and the
+      keep-copy need --to. persist and keep-copy track the file by its exact
+      path; --pattern tracks it by a broader media.track rule that matches it,
+      and --ignore-adjust removes the one broader media.ignore entry that would
+      still win. A broader change previews its current matches ("matches") and
+      an approvalDigest that apply needs back as --expect-approval; a change
+      since is "stale-approval". Apply needs the preview's premiseDigest and the
       caller's journal ID: the caller retains every listed pre-image first and
       compensates from it; this command never does. Apply returns { "status":
       "applied"|"stale"|"refused"|"interrupted", "id", "action", "journal",
@@ -329,12 +336,20 @@ export const hygieneCommand: CoreCommand = {
       const { applyMediaEffect, MEDIA_ACTIONS, planMediaEffect } = await import("../../lib/media-effects.js");
       const action = pos[1], id = pos[2];
       if (!MEDIA_ACTIONS.includes(action as MediaAction) || !id || pos.length !== 3) {
-        throw new UsageError("Usage: brain hygiene media <delete|move|persist|keep-copy> <id> --expect-fingerprint <fp> [--to <path>] [--dry-run | --expect-premise <digest> --journal <id>]");
+        throw new UsageError("Usage: brain hygiene media <delete|move|persist|keep-copy> <id> --expect-fingerprint <fp> [--to <path>] [--pattern <glob> [--ignore-adjust <entry>]] [--dry-run | --expect-premise <digest> --journal <id> [--expect-approval <digest>]]");
+      }
+      for (const flag of ["pattern", "ignore-adjust", "expect-approval"]) {
+        if (flags[flag] !== undefined && typeof flags[flag] !== "string") throw new UsageError(`--${flag} needs a value`);
       }
       if (typeof flags["expect-fingerprint"] !== "string") throw new UsageError("media needs --expect-fingerprint <fp>");
       if (flags.to !== undefined && typeof flags.to !== "string") throw new UsageError("--to needs a repo-relative path");
       if (cli.configError) throw new UsageError(`Invalid brain.config: ${cli.configError}; no changes made`);
-      const request = { id, action: action as MediaAction, expectFingerprint: flags["expect-fingerprint"], ...(typeof flags.to === "string" ? { destination: flags.to } : {}) };
+      const request = {
+        id, action: action as MediaAction, expectFingerprint: flags["expect-fingerprint"],
+        ...(typeof flags.to === "string" ? { destination: flags.to } : {}),
+        ...(typeof flags.pattern === "string" ? { pattern: flags.pattern } : {}),
+        ...(typeof flags["ignore-adjust"] === "string" ? { ignoreAdjust: flags["ignore-adjust"] } : {}),
+      };
       const configPath = cli.brain.configPath === null ? null : relative(cli.brain.root, cli.brain.configPath).split(sep).join("/");
       const ctx = { root: cli.brain.root, policy: mediaPolicy(cli.brain.config), configPath, limits: mediaReferenceLimits(resolveEnv().mediaReferenceLimits) };
       let result;
@@ -343,7 +358,10 @@ export const hygieneCommand: CoreCommand = {
         if (typeof flags["expect-premise"] !== "string" || typeof flags.journal !== "string") {
           throw new UsageError("Preview with --dry-run first, then apply with --expect-premise <premiseDigest> --journal <id>");
         }
-        result = applyMediaEffect(ctx, { ...request, expectPremise: flags["expect-premise"], journal: flags.journal });
+        result = applyMediaEffect(ctx, {
+          ...request, expectPremise: flags["expect-premise"], journal: flags.journal,
+          ...(typeof flags["expect-approval"] === "string" ? { expectApproval: flags["expect-approval"] } : {}),
+        });
       }
       emit(cli.json, result, () => console.log(JSON.stringify(result, null, 2)));
       return ["preview", "applied"].includes(result.status) ? 0 : 1;

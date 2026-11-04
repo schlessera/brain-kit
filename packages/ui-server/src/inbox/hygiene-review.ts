@@ -5,6 +5,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaPlan, HygieneMediaReceipt, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
+import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import { hygieneEffectSchema, hygieneInputSchema, hygieneMediaPlanSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { MediaEffects } from "./media-effects.js";
 import type { BrainClient } from "../brain/client.js";
@@ -100,15 +101,31 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   function effect(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"]): HygieneEffect {
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
-  /** A media effect's CLI plan, or null when the CLI could not plan it (not detected, stale). */
-  async function mediaPlan(f: { id: string; fingerprint: string }, operation: MediaOperation, destination?: string): Promise<HygieneMediaPlan | null> {
-    const parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...(destination !== undefined ? ["--to", destination] : []), "--dry-run"]));
+  /**
+   * A media effect's CLI plan, or null when the CLI could not plan it (not
+   * detected, stale). With `previewed`, a person asked for this preview: the
+   * one broader ignore entry that would still win over the track entry is
+   * then planned as an adjustment, shown with what stops being ignored and
+   * approved with the rest (M1 A). Several such entries stay refused.
+   */
+  async function mediaPlan(f: { id: string; fingerprint: string }, operation: MediaOperation, input: { destination?: string; pattern?: string; previewed?: boolean } = {}): Promise<HygieneMediaPlan | null> {
+    const to = input.destination !== undefined ? ["--to", input.destination] : [], rule = input.pattern !== undefined ? ["--pattern", input.pattern] : [];
+    let parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...to, ...rule, "--dry-run"]));
+    const only = parsed.success && parsed.data.refusals.length === 1 ? parsed.data.refusals[0]! : null;
+    if (input.previewed && only?.code === "ignore-adjustment-required" && only.path && !only.path.includes("\n")) {
+      parsed = hygieneMediaPlanSchema.safeParse(await cli(["media", MEDIA_ACTIONS[operation], f.id, "--expect-fingerprint", f.fingerprint, ...to, ...rule, "--ignore-adjust", only.path, "--dry-run"]));
+    }
     return parsed.success ? parsed.data : null;
   }
-  /** The options' media plan: only a plan without refusals carries the premise that lets it apply. */
-  function withPlan(option: InboxOption, plan: HygieneMediaPlan | null, destination?: string): InboxOption {
+  /**
+   * The options' media plan: only a plan without refusals carries the premise
+   * that lets it apply. A broader change is bound to the principal who
+   * previewed it (rev 3 §5.4); no one else can confirm it.
+   */
+  function withPlan(option: InboxOption, plan: HygieneMediaPlan | null, destination?: string, principalId?: string): InboxOption {
     const e = option.effect as HygieneEffect;
-    return { ...option, effect: { ...e, destination, premiseDigest: plan && plan.refusals.length === 0 ? plan.premiseDigest : undefined }, media: plan ?? undefined };
+    const ready = plan !== null && plan.refusals.length === 0;
+    return { ...option, effect: { ...e, destination, premiseDigest: ready ? plan.premiseDigest : undefined, approvedBy: ready && plan.approvalDigest ? principalId : undefined }, media: plan ?? undefined };
   }
   /** A repair that takes no input but has no confirmed preview cannot be applied. */
   const missingPreview = (options: InboxOption[]) => options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
@@ -138,6 +155,11 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         for (const [operation, label, needsPath] of rows) {
           const option: InboxOption = { id: operation, label, effect: effect(finding, operation), ...(needsPath ? { input: { type: "path" as const } } : {}) };
           options.push(inboxOptionSchema.parse(needsPath ? option : withPlan(option, await mediaPlan(finding, operation))));
+          // Persist by a broader media.track rule (rev 4 §7): the person enters the
+          // rule, and its preview lists every current match before approval.
+          if (operation === "media-persist" && !scratch && !finding.path.startsWith(`${SHARE_STAGING_DIR}/`)) {
+            options.push(inboxOptionSchema.parse({ id: PERSIST_RULE, label: "Persist with a broader rule…", input: { type: "string", example: ruleExample(finding.path) }, effect: effect(finding, operation) }));
+          }
         }
       }
       // Media (#2780) can always be left pending for the rest of this pass.
@@ -236,10 +258,12 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (item.version !== request.expectedVersion || item.status !== "pending" || busy(item.id)) throw new Error("Inbox version conflict");
     if (selected.kind === "hygiene" && isMediaOperation(selected.operation)) {
       if (!media) throw new Error("Media effects are unavailable");
-      const destination = typeof request.input === "string" ? request.input : undefined;
-      const plan = await mediaPlan({ id: selected.findingId, fingerprint: selected.fingerprint }, selected.operation, destination);
+      const text = typeof request.input === "string" ? request.input : undefined;
+      const rule = option.id === PERSIST_RULE, destination = rule ? undefined : text;
+      if (rule && text === undefined) throw new Error("A broader rule needs its pattern");
+      const plan = await mediaPlan({ id: selected.findingId, fingerprint: selected.fingerprint }, selected.operation, { destination, pattern: rule ? text : undefined, previewed: true });
       authority(principalId);
-      await write<void>("mediaPreview", now(), principalId, item, request, option.id, withPlan(option, plan, destination));
+      await write<void>("mediaPreview", now(), principalId, item, request, option.id, withPlan(option, plan, destination, principalId));
       return action(item.id);
     }
     if (selected.kind !== "hygiene" || selected.operation !== "resolve" || !selected.handler) throw new Error("Not a repair option");
@@ -254,6 +278,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (isMediaOperation(e.operation)) {
       const plan = action(request.itemId).options.find(o => o.id === request.optionId)?.media;
       if (!media || !plan) return { id: e.findingId, status: "refused", reason: "media-effects-unavailable" };
+      // A broader change applies only for the principal who previewed and approved it.
+      if (plan.approvalDigest && e.approvedBy !== principalId) return { id: e.findingId, status: "stale", reason: "stale-approval" };
       return mediaResult(e.findingId, await media.apply({ id: mediaOperationId(attemptId), principalId, findingId: e.findingId, fingerprint: e.fingerprint, plan }));
     }
     const args = e.operation === "resolve" ? ["resolve", "--handler", e.handler!, "--input", JSON.stringify(e.input), "--expect-fingerprint", e.fingerprint, "--expect-preview", e.previewToken!, "--", e.findingId]
@@ -340,6 +366,11 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     /** The app attaches the journal-backed media effects once its journal is ready. */
     attachMedia(effects: MediaEffects) { media = effects; } };
 }
+
+/** Persist here by a broader `media.track` rule (#2781): the same effect, with the person's pattern. */
+const PERSIST_RULE = "media-persist-rule";
+/** The rule a person most likely means: every file in the same folder, or the name in any folder at the root. */
+const ruleExample = (path: string) => path.includes("/") ? `${path.slice(0, path.lastIndexOf("/"))}/*` : path;
 
 /** The four media review effects (#2781) and the `brain hygiene media` action each one runs. */
 const MEDIA_ACTIONS = { "media-delete": "delete", "media-move": "move", "media-persist": "persist", "media-keep-copy": "keep-copy" } as const;
