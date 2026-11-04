@@ -272,7 +272,9 @@ requires minute `renew` and explicit `merge --lease`; `release` abandons it.
 The lease lasts five minutes with an absolute sixty-minute cap including
 queue, proof and merge. `acquire` prints a holder token once; `renew`,
 `release` and `merge --lease` need it (`--token`), so only the holding process
-can end or extend a live lease. Do not reacquire to extend an old proof window; a new
+can end or extend a live lease. A transient renewal failure is retried next
+tick, and a failed `renew <id>` keeps the lease; retry it within the minute.
+Do not reacquire to extend an old proof window; a new
 candidate/lease needs new confirmation. Maintainer `revoke '<reason>'` records
 actor/time/reason and immediately removes the old authority without waiving
 proof. Native candidates need separately qualified prefix integration; this
