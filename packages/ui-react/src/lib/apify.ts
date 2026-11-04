@@ -20,23 +20,23 @@ export function usd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-export function shortTime(iso: string | null | undefined): string {
+function shortTime(iso: string | null | undefined): string {
   if (!iso) return "an unknown time";
   const date = new Date(iso);
   return Number.isFinite(date.getTime()) ? `${date.toISOString().slice(11, 16)} UTC` : "an unknown time";
 }
-export function shortDate(iso: string): string {
+function shortDate(iso: string): string {
   const date = new Date(iso);
   return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : iso;
 }
 
 /** The account as the owner knows it: name and the id's last four characters. */
-export function accountLabel(account: { id: string; username: string | null } | null): string {
+function accountLabel(account: { id: string; username: string | null } | null): string {
   if (!account) return "an unknown account";
   return `${account.username ?? "account"} (…${account.id.slice(-4)})`;
 }
 
-export type ApifyProviderView =
+type ApifyProviderView =
   | "off" | "policy_invalid" | "token_needed" | "token_removed" | "ready" | "unavailable" | "account_changed";
 
 export interface ApifyProviderCard {
@@ -138,7 +138,7 @@ export function receiptApify(receipt: TurnBudgetReceipt | undefined, scope: Budg
 }
 
 /** Machine refusal codes from the Apify envelope, mapped to owner copy that names the limiting fact. */
-export interface ApifyRefusal { title: string; text: string; setting: "provider" | "discovery" | "actors" | "grants" | "limits" | "today" | null }
+interface ApifyRefusal { title: string; text: string; setting: "provider" | "discovery" | "actors" | "grants" | "limits" | "today" | null }
 export function refusalCopy(error: { code: string; reason?: string | null; message?: string }): ApifyRefusal {
   const reason = error.reason ?? "";
   switch (error.code) {
@@ -173,7 +173,7 @@ export function refusalCopy(error: { code: string; reason?: string | null; messa
  * reasons are the lower of the Apify limit and the overall budget less
  * inference, so the copy names both rather than guessing which one bound.
  */
-export function budgetName(reason: string): string {
+function budgetName(reason: string): string {
   const names: Record<string, string> = {
     run_usd: "the Apify per-run limit", turn_usd: "the lower of the Apify turn limit and this turn's overall budget",
     session_usd: "the lower of the Apify conversation limit and this conversation's overall budget", day_usd: "the Apify day limit for this account",

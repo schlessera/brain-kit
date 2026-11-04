@@ -15,7 +15,8 @@
  * and dashboard tables.
  */
 
-import { frontmatterLength } from "./document-parts.js";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
+
 import { codeRanges } from "./markdown-code.js";
 
 /** A region name: lowercase letters, digits and dashes. */
@@ -124,14 +125,17 @@ export function replaceGeneratedRegion(body: string, name: string, content: stri
  * Split a file into its frontmatter block, kept verbatim (`---` fences
  * included), and its body. Frontmatter is never re-serialized: hand-written
  * YAML keeps its layout. Where the block starts follows the rule core reads
- * documents by (`frontmatterLength`); a block that opens and never closes
- * throws, since which part is the body cannot be known.
+ * documents by (`frontmatterBlock`, #2507); a block that opens and never
+ * closes throws, since which part is the body cannot be known. The
+ * frontmatter ends with the closing fence's three dashes; its line ending
+ * starts the body.
  */
 export function splitFrontmatterBlock(raw: string): { frontmatter: string; body: string } {
-  if (frontmatterLength(raw) === 0) return { frontmatter: "", body: raw };
-  const close = raw.indexOf("\n---", 3);
-  if (close === -1) throw new Error("frontmatter has no closing --- line");
-  return { frontmatter: raw.slice(0, close + 4), body: raw.slice(close + 4) };
+  const block = frontmatterBlock(raw);
+  if (!block) return { frontmatter: "", body: raw };
+  if (!block.closed) throw new Error("frontmatter has no closing --- line");
+  const fenceEnd = block.innerEnd + 3;
+  return { frontmatter: raw.slice(0, fenceEnd), body: raw.slice(fenceEnd) };
 }
 
 /**

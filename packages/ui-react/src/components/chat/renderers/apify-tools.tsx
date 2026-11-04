@@ -59,7 +59,7 @@ function useApifyLimits(): { limits: ApifyLimitsRead | null; read: boolean } {
 }
 
 /** The exact run a person approves once (rev 1 §3): Actor, what is sent, who pays, cost and what is not covered. */
-export function ApifyRunReview({ tool }: { tool: ToolCallView }) {
+function ApifyRunReview({ tool }: { tool: ToolCallView }) {
   const root = useBrainUiRoot();
   const effective = useApifyLimits();
   const review = tool.input ?? {};

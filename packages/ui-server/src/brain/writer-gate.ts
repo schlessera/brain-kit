@@ -98,7 +98,7 @@ export interface WriterGate {
 }
 
 /** How often a waiting acquisition looks again. */
-export const GATE_POLL_MS = 200;
+const GATE_POLL_MS = 200;
 
 /**
  * How long provider folder admission waits for a peer whose plan predates the
@@ -107,7 +107,7 @@ export const GATE_POLL_MS = 200;
  * provider-policy turn, plan without them. The boot-time scratch prune is one;
  * on the native fixture it finishes within a second of the turn reaching it.
  */
-export const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
+const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
 
 const UNRETAINED_PEER = "An active peer did not retain the requested provider folders; finish that peer and retry admission";
 

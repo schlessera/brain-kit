@@ -29,7 +29,7 @@ alone does not excuse changing the documented results or error behavior.
 
 Two packages currently own graph SQL. UI-server opens a short-lived read-only
 connection (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:75-97`), interprets graph availability ([pre-migration `getGraphMeta`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437-L471)) and walks raw links for
-interactive neighborhoods ([pre-migration `getNeighborhood`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525-L540)). Core has its own cluster query (`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:181-204`).
+interactive neighborhoods ([pre-migration `getNeighborhood`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525-L540)). Core has its own cluster query (`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:142-159`).
 Their defaults and responses differ. A wrapper around one existing helper is
 not automatically a behavior-preserving replacement for the other.
 
@@ -118,7 +118,7 @@ neither justified a service or configurable query-provider seam.
 
 > **2026-10-05 — Implementation context (#697).** UI-server now declares the
 > optional peer and resolves the entry lazily, once per app
-> (`createCoreQueryAccess`, `packages/ui-server/src/core-queries.ts:192-227`). The
+> (`createCoreQueryAccess`, `packages/ui-server/src/core-queries.ts:193-228`). The
 > source-backed range is `>=0.40.0 <1.0.0`: the published 0.40.0 manifest is the
 > first to export `./queries`, its declarations name all nine operations and its
 > query source matches the source the server was migrated against; 0.39.0 has no

@@ -43,12 +43,7 @@ function getRecognitionCtor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-/** True when this browser supports the Web Speech API. */
-export function isWebSpeechAvailable(): boolean {
-  return getRecognitionCtor() !== null;
-}
-
-export interface WebSpeechClientOptions {
+interface WebSpeechClientOptions {
   onEvent: (evt: AsrEvent) => void;
   onError?: (err: Error) => void;
   onEnd?: () => void;

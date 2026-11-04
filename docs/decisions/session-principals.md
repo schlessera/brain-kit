@@ -96,13 +96,13 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:927` | mounted **before** the guard at `authGuard(authMode`, `app.ts:942`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:798`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:952` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:1158-1175` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:929` | mounted **before** the guard at `authGuard(authMode`, `app.ts:944`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:798`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:954` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:1160-1177` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:136-144` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:1131` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:1135` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:739` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:441` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `packages/ui-server/src/db/account-writes.ts:31-36` | inserts a credential; calls **neither** helper |
@@ -131,7 +131,7 @@ Two findings that are true today, independent of this plan:
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
   (`Revision negotiation`, `docs/integration-contract/wire.md:221-235`;
-  `Activity stream`, `:571-585`), so how attribution reaches a client is a
+  `Activity stream`, `:594-608`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -178,8 +178,8 @@ ceremony in flight can mint a session for a credential deleted meanwhile.
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:173`),
 turn startup awaits routing and billing before `startTurn`
-(`resolveTurnTarget`, `ws/run-session.ts:215`; `const billing = await resolveRunBilling`,
-`ws/run-session.ts:412`), and queued follow-ups execute later. Each connection holds a
+(`resolveTurnTarget`, `ws/run-session.ts:105`; `const billing = await resolveRunBilling`,
+`ws/session-run/turn.ts:35`), and queued follow-ups execute later. Each connection holds a
 server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
@@ -243,7 +243,7 @@ mint (owner only, router mounted AFTER the guard)
         ──► upgradeWebSocket((c) => createWsHandlers(host, c.get("principal")))
               (hono passes the context to createEvents:
                hono/helper/websocket/index.js:34)
-        ──► ConnectionState.principal (ws/dispatch.ts:14-17)
+        ──► ConnectionState.principal (ws/handlers/context.ts:14-15)
         ──► clients.add(ws, principalId)
         ──► QueuedFollowUp.principalId / RunningTurn.principalId
               (reset per queued follow-up, like lastResult)

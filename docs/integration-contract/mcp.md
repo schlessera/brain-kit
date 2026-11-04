@@ -17,6 +17,7 @@ Tool names and input schemas are stable:
 | `brain_list` | readOnly | `{ documents, warnings }` |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
+| `brain_compute_*` | see [External compute tools](#external-compute-tools-additive-0450-3107) | the `brain compute` envelope |
 | `brain_apify_discover` … `brain_apify_abort` (additive, 0.45.0) | open-world; read-only except `run` and `abort` | the Apify envelope; see [Apify tools](#apify-tools-additive-0450-3162) |
 
 `brain_search`, `brain_list` and `brain_graph` repeat their structuredContent
@@ -61,6 +62,55 @@ applies one:
 
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
+
+<a id="external-compute-tools-additive-0450-3107"></a>
+
+### External compute tools (additive, 0.45.0, #3107)
+
+`brain mcp` serves six `brain_compute_*` tools after the eight document tools
+and before module tools. They call the same core operation set as
+[`brain compute`](cli.md#external-compute-additive-0450-3107) and return the
+same envelopes: a success as `structuredContent` with its compact JSON text
+copy, a refusal as a tool result with `isError: true` carrying
+`{ ok: false, error: { code, message } }` in both. A schema violation is the
+usual tool error without `structuredContent`. An operation that fails inside
+the server instead of refusing (an unreadable state directory, for example)
+is also a tool error without `structuredContent`, with the fixed text
+`Error: <tool name> failed inside the brain MCP server; its log has the
+details`: the thrown message, which can name local paths, goes only to the
+server's stderr.
+
+| Tool | Annotations | Inputs | Result |
+|------|-------------|--------|--------|
+| `brain_compute_health` | readOnly, openWorld | `provider?` | the `health` envelope |
+| `brain_compute_plan` | readOnly, not openWorld | `provider`, `argv`, `cwd?`, `env?`, `source?`, `artifacts?` (`[{ path, max_bytes? }]`, default cap 1 MiB), `lease_seconds?`, `retain?` | the `plan` envelope |
+| `brain_compute_run` | not readOnly, not destructive, not idempotent, openWorld | as `brain_compute_plan` | the `run` envelope, returned once the command has started |
+| `brain_compute_status` | not readOnly, not destructive, idempotent, openWorld | `job` | the `status` envelope |
+| `brain_compute_cancel` | destructive, idempotent, openWorld | `job` | the `cancel` envelope |
+| `brain_compute_collect` | not readOnly, not destructive, idempotent, openWorld | `job` | the `collect` envelope |
+
+Every input schema is a closed object (`additionalProperties: false`), pinned
+with the others in `mcp-input-schemas.json`. No input names a caller, a
+principal, a session, a credential or a vendor id: the caller is
+`{ kind: "mcp", principal: <the server process's operating-system user> }`,
+and a job is addressable only by the caller kind and principal that started
+it. `status`, `cancel` and `collect` advance the job they report.
+
+The six tools are registered whatever the brain's configuration says, with
+fixed names, order, descriptions and schemas, so a session's tool roster does
+not change when compute is configured, disabled or reconfigured; an
+unconfigured or unavailable provider refuses at call time
+([provider-history.md](../decisions/provider-history.md)). Status and cost
+appear only in results the agent asked for.
+
+`brain_compute_run` does not wait for the job. While the server process
+lives it advances the jobs it started through the same `status` operation,
+one visit at a time with backoff (2 s rising to 15 s), at most 16 visits a
+pass to the least recently visited jobs first and up to 256 jobs tracked,
+until each has ended and its cleanup is settled. A job whose visits throw
+five times in a row is no longer advanced, and the server logs it on stderr. Closing the server stops those
+visits and cancels nothing: a job is then bounded by its lease, and the next
+`status`, `cancel`, `collect` or `brain compute reconcile` settles it.
 
 <a id="hosted-authoritative-application-tools"></a>
 
@@ -693,7 +743,7 @@ reclassify previously recorded history from today's environment (#293).
 
 `ModuleContribution.tools` declares lazy MCP definitions by local name.
 `brain mcp` imports these definitions at startup and serves them after the
-eight core tools, in module config order and then declaration order. A loader
+core tools (the eight document tools, then the six `brain_compute_*` tools from 0.45.0), in module config order and then declaration order. A loader
 may resolve a `ModuleTool` directly or an object with a `default` tool export.
 Other CLI commands do not import the definitions.
 
@@ -1008,6 +1058,47 @@ Interactive governed and strict turns have the tools; a voice turn may read
 source and `list`, and refuses the other worktree actions. Each call runs
 through the reference services, which check authority again
 ([managed worktrees](../decisions/managed-worktrees.md#agent-tools)).
+
+## External compute bridge tools (additive, 0.45.0, #3108)
+
+Both first-party backends attach six host-executed tools to their existing UI
+bridge: `brain_compute_health`, `brain_compute_plan`, `brain_compute_run`,
+`brain_compute_status`, `brain_compute_cancel` and `brain_compute_collect`.
+Claude names them `mcp__brain-ui__<name>` and loads them eagerly; pi attaches
+plain names. They stay in every interactive session's fixed roster, after
+`reference_worktree`; a turn without a host handler refuses the call instead.
+They are auto-allowed: the host decides authority and shows its own card for a
+run. Restricted autonomous rosters do not include them. In every Claude
+session the in-worker brain server's `mcp__brain__brain_compute_*` tools are
+disallowed, so a hosted turn reaches external compute only through the host.
+
+Inputs are exactly the strict inputs of the
+[MCP tools of #3107](#external-compute-tools-additive-0450-3107), and results
+their envelopes, with two host differences: a collect's artifacts carry no
+`file` (no host path reaches the agent), and every bound credential value is
+redacted. Principal, session, turn, policy, posture, profile, brain, state
+directory and credentials are never inputs; the host takes them from the
+authenticated turn. A job belongs to its conversation: a later turn of it may
+check, cancel or collect the job, whichever principal the host authorized for
+that conversation (a re-login is recorded on the job's Activity run), and any
+other conversation gets `job_unknown`. Input that does not parse, an extra key included, refuses
+`policy_denied` before the host sees it; a turn without a handler refuses
+`compute_disabled`.
+
+A run on an interactive typed turn asks for approval on a `command` card,
+every time, naming the instance, provider, lease, cost estimate or that it is
+unknown, retention, source files with their hash, argv, environment variable
+names, artifacts and whether the conversation is tainted; an edited card is a
+refusal. A voice turn, a turn without a grant surface and a turn with no
+client connected refuse `approval_required` without a card; a plan answers
+the same, without a card. Hosted runs accept only built-in providers and
+credentials the operator bound on the host; a provider value or an unbound
+`apiKeyEnv` is `provider_unavailable`. A `.env*` file, a Tier A protected
+path, and a source or `cwd` hidden by the turn's provider masks are
+`source_refused`. A job outlives a turn that ends normally; a cancelled,
+timed-out, budget-stopped or revoked turn cancels its jobs, including one it
+was still starting, before anything is allocated. The rules and
+their reasons are in [the compute decision](../decisions/external-compute.md#settled-by-3108).
 
 ## Hosted policy proposal (additive, #1662)
 

@@ -18,7 +18,7 @@ const MEDIA = /^audio\/(?:webm|ogg|mp4)(?:\s*;\s*codecs\s*=\s*(?:opus|"opus"))?$
 const PROVIDER_TIMEOUT_MS = 11 * 60 * 1000;
 
 /** An HTTP rejection is definitive. An error without that evidence is unknown. */
-export function transcriptionFailure(error: unknown): TranscriptionFailure {
+function transcriptionFailure(error: unknown): TranscriptionFailure {
   if (!(error instanceof SpeechTranscriptionError)) return { reason: "outcome_unknown", retryable: false };
   const status = error.providerStatus;
   const reasons = ["provider_error", "rate_limit", "provider_timeout", "media", "parameters", "validation", "authentication", "outcome_unknown"];

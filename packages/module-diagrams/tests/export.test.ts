@@ -78,3 +78,18 @@ test("FIFO and directory leaves cannot block diagram source or derived inspectio
  writeFileSync(join(root,"brain.config.ts"),'import {defineConfig} from "@schlessera/brain";export default defineConfig({});\n');expect((await boundedAudit(root)).map((issue:{category:string})=>issue.category)).toEqual(["diagram-source"]);
  }finally{cleanup(root);}
 });
+
+test("absolute CLI paths inside the brain are converted to brain-relative; outside, or through a link out, they are refused (#3422)",async()=>{
+ const root=makeTempBrain({empty:true}),outside=makeTempBrain({empty:true});
+ try{
+  configure(root);writeFileSync(join(root,"release.diagram.yaml"),source);symlinkSync(outside,join(root,"escape"),"dir");
+  const inside=await command(root,["diagram","export",join(root,"release.diagram.yaml"),"--out",join(root,"release.abs.svg"),"--json"]);
+  expect(inside.code,inside.stderr).toBe(0);expect(inside.value.input).toBe("release.diagram.yaml");expect(inside.value.output).toBe("release.abs.svg");
+  expect(existsSync(join(root,"release.abs.svg"))).toBe(true);
+  for(const out of [join(outside,"result.svg"),join(root,"escape","result.svg")]){
+   const refused=await command(root,["diagram","export","release.diagram.yaml","--out",out,"--json"]);
+   expect(refused.code).toBe(1);expect(refused.value.output).toBeNull();expect(refused.value.errors[0].message).toContain("must remain inside the brain");
+  }
+  expect(existsSync(join(outside,"result.svg"))).toBe(false);
+ }finally{cleanup(root);cleanup(outside);}
+});

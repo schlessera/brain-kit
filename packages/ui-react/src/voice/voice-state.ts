@@ -36,7 +36,7 @@ export interface VoiceState {
 }
 
 /** opening: waiting on the microphone; stopping: the final chunk is on its way. */
-export type LocalCapturePhase = "idle" | "opening" | "recording" | "stopping";
+type LocalCapturePhase = "idle" | "opening" | "recording" | "stopping";
 
 export function createVoiceStore() {
   return createStore<VoiceState>((set) => ({

@@ -1,5 +1,6 @@
 // ui-react's lower layers never import its components (#1380). `stores/`,
-// `lib/` and `connection.ts` are what components are built on; an import the
+// `lib/`, `connection.ts` and the `ws-client/` parts it composes (#1362) are
+// what components are built on; an import the
 // other way makes a store or a helper load React views, and makes a component
 // move break code that has nothing to do with rendering.
 import { readFileSync } from "node:fs";
@@ -7,7 +8,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const SRC = "packages/ui-react/src";
-const LOWER = [`${SRC}/stores/`, `${SRC}/lib/`, `${SRC}/connection.ts`];
+const LOWER = [`${SRC}/stores/`, `${SRC}/lib/`, `${SRC}/connection.ts`, `${SRC}/ws-client/`];
 const UPPER = `${SRC}/components/`;
 
 /** True for a repo-relative path the rule applies to. */
@@ -25,7 +26,7 @@ export function checkLayerDirection(source: string, file: string): string[] {
     const target = relative(".", resolve(dirname(file), literal.text)).split(sep).join("/");
     if (!`${target}/`.startsWith(UPPER)) return;
     const { line } = tree.getLineAndCharacterOfPosition(literal.getStart(tree));
-    findings.push(`${file}:${line + 1}: ${literal.text} — stores/, lib/ and connection.ts must not import components/; move the shared code into lib/`);
+    findings.push(`${file}:${line + 1}: ${literal.text} — stores/, lib/, connection.ts and ws-client/ must not import components/; move the shared code into lib/`);
   };
   function visit(node: ts.Node) {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) check(node.moduleSpecifier);

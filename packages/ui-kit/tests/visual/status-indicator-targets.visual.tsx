@@ -20,7 +20,7 @@ afterEach(async () => {
   if (root) flushSync(() => root!.unmount());
   host?.remove(); root = undefined; host = undefined;
   document.documentElement.style.fontSize = originalSize;
-  if (outer) { await commands.formViewport(outer.width, outer.height); outer = undefined; }
+  if (outer) { await commands.formViewport(outer.width - 100, outer.height - 120); outer = undefined; }
 });
 
 function premise() {

@@ -32,7 +32,7 @@ async function scene(ctx: TestContext, width = 320, theme: "light" | "dark" = "d
   const render = (content = <ChatPage />) => flushSync(() => root.render(<BrainUiProvider root={ui}>{content}</BrainUiProvider>));
   render(fullChat ? <ChatPage /> : <></>);
   const release = ui.connection.connect();
-  ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width, outer.height); });
+  ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
   return { ui, host, render, network };
 }

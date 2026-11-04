@@ -10,6 +10,13 @@
  * conversation can show a timeout rather than an unexplained stop. A cancel
  * someone asked for never says so, and an answer that won the race stays the
  * accepted one.
+ *
+ * The limit is the host's real registered timer, held on a test clock
+ * (docs/process/test-waits.md, "Production timer"). It is armed several
+ * awaits before the backend's startTurn, so on a loaded runner a real 300 ms
+ * limit could run out before a question asked 200 ms into startTurn, and the
+ * case then tested a question raised after its turn's drain (#3553). Both
+ * orders are now cases of their own.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -65,11 +72,61 @@ function ask(bridge: BackendBridge, kind: Kind): Promise<unknown> {
 }
 
 /**
- * A backend that waits `askAfterMs`, asks, and ends its turn the way the
+ * The host's turn-limit timer, held on a logical clock. Every `setTimeout`
+ * registered with the limit's delay is held; every other timer runs natively.
+ * `advanceTo` runs held callbacks that are due, in registration order.
+ */
+function turnLimitClock(limitMs: number) {
+  const descriptors = (["setTimeout", "clearTimeout"] as const).map(name => Object.getOwnPropertyDescriptor(globalThis, name)!);
+  const nativeSet = globalThis.setTimeout;
+  const nativeClear = globalThis.clearTimeout;
+  type Held = { delay: number; due: number; fn: () => void; cleared: boolean; fired: boolean };
+  const registrations: Held[] = [];
+  let now = 0;
+  const held = new Set<Held>();
+  Object.defineProperty(globalThis, "setTimeout", { ...descriptors[0], value: ((fn: (...a: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay !== limitMs) return nativeSet(fn, delay, ...args);
+    const timer: Held = { delay, due: now + delay, fn: () => fn(...args), cleared: false, fired: false };
+    registrations.push(timer); held.add(timer);
+    return timer as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout });
+  Object.defineProperty(globalThis, "clearTimeout", { ...descriptors[1], value: ((handle: unknown) => {
+    if (held.has(handle as Held)) { (handle as Held).cleared = true; held.delete(handle as Held); return; }
+    nativeClear(handle as ReturnType<typeof setTimeout>);
+  }) as typeof clearTimeout });
+  return {
+    registrations,
+    get now() { return now; },
+    advanceTo(ms: number) {
+      now = ms;
+      for (const timer of registrations) {
+        if (!held.has(timer) || timer.due > now) continue;
+        held.delete(timer); timer.fired = true; timer.fn();
+      }
+    },
+    restore() {
+      Object.defineProperty(globalThis, "setTimeout", descriptors[0]);
+      Object.defineProperty(globalThis, "clearTimeout", descriptors[1]);
+    },
+    descriptors,
+  };
+}
+
+/** A gate the test opens: the backend asks once it opens. */
+function gate() {
+  let open!: () => void;
+  const opened = new Promise<void>(resolve => { open = resolve; });
+  return { open, opened };
+}
+
+/**
+ * A backend that waits `askAfterMs` (or its `askWhen` gate), asks, and ends its turn the way the
  * Claude turn runner does: an aborted turn emits `status: cancelled` and a
  * cancelled `result`; an answered one waits `answerHoldMs` and succeeds.
  */
-function askingBackend(kind: Kind, timing: { askAfterMs: number; answerHoldMs?: number }) {
+type Timing = { askAfterMs?: number; askWhen?: Promise<void>; answerHoldMs?: number };
+
+function askingBackend(kind: Kind, timing: Timing) {
   const settlements: unknown[] = [];
   const failures: Error[] = [];
   const clock: { startedAt?: number; askedAt?: number; abortedAt?: number } = {};
@@ -84,7 +141,7 @@ function askingBackend(kind: Kind, timing: { askAfterMs: number; answerHoldMs?: 
       clock.startedAt = performance.now();
       signal.addEventListener("abort", () => { clock.abortedAt = performance.now(); }, { once: true });
       bridge.emit({ type: "session_info", sessionId: "s1", isNew: true, providerId: "default" });
-      await Bun.sleep(timing.askAfterMs);
+      await (timing.askWhen ?? Bun.sleep(timing.askAfterMs ?? 0));
       clock.askedAt = performance.now();
       try {
         settlements.push(await ask(bridge, kind));
@@ -124,7 +181,7 @@ async function waitFor(cond: () => boolean): Promise<void> {
 
 const asPrincipal = (id: string) => ({ principal: testPrincipal(id), authorization: testAuthorization(id) });
 
-async function started(kind: Kind, turnTimeoutMs: number, timing: { askAfterMs: number; answerHoldMs?: number }) {
+async function dispatched(kind: Kind, turnTimeoutMs: number, timing: Timing) {
   const fixture = askingBackend(kind, timing);
   setBackendForTests(fixture.backend);
   const host = testHost();
@@ -133,25 +190,40 @@ async function started(kind: Kind, turnTimeoutMs: number, timing: { askAfterMs: 
   const c = fakeClient();
   await createWsHandlers(host, testPrincipal()).onOpen({} as Event, c.ws);
   await dispatch(host, c.ws, { type: "chat_message", text: "Ask me" }, asPrincipal("test-principal"));
-  const requestType = kind === "ask_user" ? "ask_user_request" : `${kind}_request`;
-  await waitFor(() => c.sent.some((f) => f.type === requestType));
-  const request = c.sent.find((f) => f.type === requestType) as { turnId: string; sessionId: string };
   const send = async (msg: ClientMessage) => {
     const before = c.sent.length;
     await dispatch(host, c.ws, msg, asPrincipal("test-principal"));
     return c.sent.slice(before);
   };
   const terminal = () => c.sent.find((f) => f.type === "result") as Extract<ServerMessage, { type: "result" }> | undefined;
-  return { ...fixture, host, c, request, send, terminal };
+  return { ...fixture, host, c, send, terminal };
+}
+
+const requestTypeOf = (kind: Kind) => kind === "ask_user" ? "ask_user_request" : `${kind}_request`;
+
+async function started(kind: Kind, turnTimeoutMs: number, timing: Timing) {
+  const fixture = await dispatched(kind, turnTimeoutMs, timing);
+  await waitFor(() => fixture.c.sent.some((f) => f.type === requestTypeOf(kind)));
+  const request = fixture.c.sent.find((f) => f.type === requestTypeOf(kind)) as { turnId: string; sessionId: string };
+  return { ...fixture, request };
 }
 
 const receipts = (frames: ServerMessage[]) => frames.filter((f) => f.type === "ask_answer_receipt");
 const cancelledStatuses = (frames: ServerMessage[]) =>
   frames.filter((f): f is Extract<ServerMessage, { type: "status" }> => f.type === "status" && f.status === "cancelled");
 
+const pendingAsks = (host: Awaited<ReturnType<typeof dispatched>>["host"]) => host.coordinator.pendingAskUser.size
+  + host.coordinator.pendingAskUserList.size + host.coordinator.pendingAskUserRank.size + host.coordinator.pendingAskUserForm.size;
+
 describe("a pending question when the host's turn limit runs out", () => {
+  let clock: ReturnType<typeof turnLimitClock> | undefined;
   beforeEach(() => { resetForTests(); closeDb(); });
-  afterEach(() => { resetForTests(); closeDb(); });
+  afterEach(() => {
+    clock?.restore();
+    if (clock) expect(["setTimeout", "clearTimeout"].map(name => Object.getOwnPropertyDescriptor(globalThis, name)), "TURN_LIMIT_TIMER_DESCRIPTORS_RESTORED").toEqual(clock.descriptors);
+    clock = undefined;
+    resetForTests(); closeDb();
+  });
 
   for (const kind of KINDS) {
     describe(kind, () => {
@@ -159,18 +231,34 @@ describe("a pending question when the host's turn limit runs out", () => {
         // The question arrives two thirds of the way in. A limit restarted
         // by the question would end the turn no sooner than 300 ms after it.
         const TIMEOUT = 300;
-        const { host, c, request, send, failures, settlements, clock, terminal } = await started(kind, TIMEOUT, { askAfterMs: 200 });
+        clock = turnLimitClock(TIMEOUT);
+        const asks = gate();
+        const f = await dispatched(kind, TIMEOUT, { askWhen: asks.opened });
+        const { host, c, send, failures, settlements, terminal } = f;
+        // The limit is armed once, at the configured value, before the backend runs.
+        await waitFor(() => f.clock.startedAt !== undefined);
+        expect(clock.registrations.map(timer => timer.delay), "TURN_LIMIT_ARMED_ONCE_AT_CONFIGURED_VALUE").toEqual([TIMEOUT]);
+        clock.advanceTo(200);
+        asks.open();
+        await waitFor(() => c.sent.some((frame) => frame.type === requestTypeOf(kind)));
+        const request = c.sent.find((frame) => frame.type === requestTypeOf(kind)) as { turnId: string };
+        // The question neither pauses nor restarts the limit.
+        expect(clock.registrations.map(({ delay, due, cleared, fired }) => ({ delay, due, cleared, fired })), "TURN_LIMIT_NOT_RESTARTED_BY_QUESTION")
+          .toEqual([{ delay: TIMEOUT, due: TIMEOUT, cleared: false, fired: false }]);
+        clock.advanceTo(TIMEOUT - 1);
+        expect(clock.registrations[0]!.fired, "TURN_LIMIT_NOT_EARLY").toBe(false);
+        expect(pendingAsks(host)).toBe(1);
+        expect(terminal()).toBeUndefined();
+        // The original deadline, 100 ms after the question, ends it.
+        clock.advanceTo(TIMEOUT);
+        expect(clock.registrations[0]!.fired, "TURN_LIMIT_FIRES_AT_ORIGINAL_DEADLINE").toBe(true);
         await waitFor(() => terminal() !== undefined);
-        const elapsed = clock.abortedAt! - clock.startedAt!;
-        expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT - 5);
-        expect(elapsed).toBeLessThan(clock.askedAt! - clock.startedAt! + TIMEOUT);
 
         // The pending question was drained, not answered.
         await waitFor(() => failures.length === 1);
         expect(failures[0]!.message).toContain("Turn timed out");
         expect(settlements).toEqual([]);
-        expect(host.coordinator.pendingAskUser.size + host.coordinator.pendingAskUserList.size
-          + host.coordinator.pendingAskUserRank.size + host.coordinator.pendingAskUserForm.size).toBe(0);
+        expect(pendingAsks(host)).toBe(0);
 
         // The terminal says so: still cancelled, never a success.
         expect(cancelledStatuses(c.sent)).toEqual([expect.objectContaining({ detail: "Turn timed out", turnId: request.turnId })]);
@@ -183,10 +271,45 @@ describe("a pending question when the host's turn limit runs out", () => {
         expect(host.coordinator.askOutcome("req-1")?.state).not.toBe("accepted");
         expect(settlements).toEqual([]);
       });
+
+      test("a question raised after the limit ran out is refused at once, and the turn still ends with the host's limit", async () => {
+        // The order a loaded runner produced (#3553): the limit is armed before
+        // startTurn and runs out before the backend reaches its question.
+        const TIMEOUT = 300;
+        clock = turnLimitClock(TIMEOUT);
+        const asks = gate();
+        const f = await dispatched(kind, TIMEOUT, { askWhen: asks.opened });
+        const { host, c, send, failures, settlements, terminal } = f;
+        await waitFor(() => f.clock.startedAt !== undefined);
+        clock.advanceTo(TIMEOUT);
+        expect(clock.registrations.map(timer => timer.fired), "TURN_LIMIT_RAN_OUT_BEFORE_QUESTION").toEqual([true]);
+        asks.open();
+        await waitFor(() => terminal() !== undefined);
+        expect(f.clock.abortedAt! <= f.clock.askedAt!).toBe(true);
+
+        // Refused with the drain's reason, never shown, never left pending.
+        expect(failures.map(error => error.message)).toEqual(["Turn timed out"]);
+        expect(settlements).toEqual([]);
+        expect(c.sent.some((frame) => frame.type === requestTypeOf(kind)), "LATE_QUESTION_NOT_SHOWN").toBe(false);
+        expect(pendingAsks(host)).toBe(0);
+        expect(host.coordinator.askOutcome("req-1")).toMatchObject({ state: "closed", reason: "ended" });
+        expect(terminal()).toMatchObject({ outcome: "cancelled", outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL, isError: false });
+        await waitFor(() => host.coordinator.running.size === 0);
+
+        // Turn scope stamps the id on every frame; the result type does not declare it.
+        const turnId = (terminal() as { turnId?: string }).turnId;
+        expect(turnId).toBeString();
+        const late = await send(answerFrame(kind, { submissionId: "sub-late", turnId, sessionId: "s1" }));
+        expect(receipts(late)[0]).toMatchObject({ state: "closed", reason: "ended" });
+        expect(settlements).toEqual([]);
+      });
     });
   }
 
+  // The remaining cases hold their limit too: none of them may depend on the
+  // backend reaching its question before a real limit runs out.
   test("a cancel someone asked for is not reported as a timeout", async () => {
+    clock = turnLimitClock(5_000);
     const { host, c, failures, terminal } = await started("ask_user", 5_000, { askAfterMs: 0 });
     host.coordinator.cancelTurn(host.coordinator.bySession.get("s1")!, "Cancelled by user");
     await waitFor(() => failures.length === 1 && terminal() !== undefined);
@@ -196,6 +319,7 @@ describe("a pending question when the host's turn limit runs out", () => {
   });
 
   test("a timely answer is receipt-confirmed and the turn completes without a timeout", async () => {
+    clock = turnLimitClock(5_000);
     const { request, send, settlements, terminal } = await started("ask_user_list", 5_000, { askAfterMs: 0 });
     const frames = await send(answerFrame("ask_user_list", { submissionId: "sub-a", turnId: request.turnId, sessionId: "s1" }));
     expect(receipts(frames)[0]).toMatchObject({ state: "accepted", submissionId: "sub-a" });
@@ -206,9 +330,12 @@ describe("a pending question when the host's turn limit runs out", () => {
   });
 
   test("an answer that wins the race stays accepted when the limit then ends the turn", async () => {
+    clock = turnLimitClock(250);
     const { host, request, send, settlements, failures, terminal } = await started("ask_user_rank", 250, { askAfterMs: 0, answerHoldMs: 5_000 });
     const frames = await send(answerFrame("ask_user_rank", { submissionId: "sub-a", turnId: request.turnId, sessionId: "s1" }));
     expect(receipts(frames)[0]).toMatchObject({ state: "accepted" });
+    clock.advanceTo(250);
+    expect(clock.registrations.map(timer => timer.fired), "RACE_LIMIT_FIRES_AFTER_ACCEPTED_ANSWER").toEqual([true]);
     await waitFor(() => terminal() !== undefined);
     expect(terminal()).toMatchObject({ outcome: "cancelled", outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL });
     // Only the winning outcome settled: the answer, once, and no drain of it.

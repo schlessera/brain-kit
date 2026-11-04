@@ -13,6 +13,7 @@ import { Composer } from "../../src/components/chat/composer.js";
 import { ROOT_SERVER_DOCS_URL, WORKER_HOST_DOCS_URL } from "../../src/components/chat/worker-host-notice.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { touchFloor } from "./hit-reach.js";
 
 // The probe's longest named requirement: the fresh-/proc refusal with
 // bubblewrap's own words after it.
@@ -83,7 +84,7 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const)
     expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(box.right);
     const check = page.getByRole("button", { name: "Check again" });
     const target = check.element().getBoundingClientRect();
-    expect(target.height).toBeGreaterThanOrEqual(44);
+    expect(touchFloor(check.element() as HTMLElement), "Check again meets the touch floor (#3252)").toBe("met");
     expect(target.right).toBeLessThanOrEqual(width);
 
     // The composer still sends: the server, not the notice, refuses the turn.

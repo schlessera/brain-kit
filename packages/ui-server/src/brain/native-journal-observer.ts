@@ -6,6 +6,7 @@ import { open, lstat, readdir, readlink, type FileHandle } from "node:fs/promise
 import { parseNativeBrainDelta } from "@schlessera/brain-ui-sdk/internal";
 import type { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { nativeJournalPermissionDenied } from "./native-journal-read.js";
+import type { PhaseTimer } from "../activity/turn-lifecycle.js";
 
 /** Structural subset of the concrete private native manager/client. */
 export interface NativeJournalCheckpoint {
@@ -25,7 +26,7 @@ export interface NativeJournalMetadata {
   path: string; kind: "directory" | "file" | "symlink" | "other";
   mode: number; bytes: number; stamp: string; inode: string; target?: string;
 }
-export interface NativeJournalChange {
+interface NativeJournalChange {
   path: string; before: NativeJournalMetadata | null; after: NativeJournalMetadata | null;
 }
 export interface NativeJournalUnreadable {
@@ -235,7 +236,7 @@ class RootMetadataReader {
   close(): Promise<void> { return this.root?.close() ?? Promise.resolve(); }
 }
 
-export interface NativeJournalObservation {
+interface NativeJournalObservation {
   beforeRoot: NativeJournalCheckpoint; afterRoot: NativeJournalCheckpoint;
   changes: NativeJournalChange[];
   stats: { readEntries: number; walkedDirectories: number };
@@ -288,6 +289,10 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   const shutdown = new AbortController(), retained = new Set<string>();
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, shutdown.signal]) : shutdown.signal;
   async function checkpoint(signal: AbortSignal) {
+    // The lease owner refuses an aborted signal before recording any lease, so
+    // an id retained past that refusal could never be released (#3521). Check
+    // in the same synchronous step that hands the id to the manager.
+    signal.throwIfAborted();
     const id = randomUUID(); retained.add(id);
     try {
       const answer = await native.checkpoint(id, signal);
@@ -356,13 +361,15 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     })();
     return initializing;
   }
-  async function prepare(signal?: AbortSignal): Promise<NativeJournalObservation> {
+  async function prepare(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
     await initialize(signal);
     await reserveRelease();
     const active = signalFor(signal), before = root!;
     let after: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
     try {
+      let end = timing?.("observe_checkpoint");
       after = await checkpoint(active);
+      end?.(); end = timing?.("observe_delta");
       const job = await native.delta(before.id, after.id, active);
       // Observe an early transport failure without an unhandled rejection.
       void job.completed.catch(() => {});
@@ -382,6 +389,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         // before releasing roots the send process could still be reading.
         await job.completed.catch(() => {}); throw error;
       }
+      end?.(); end = timing?.("observe_metadata");
       const patches = new Map<string, NativeJournalMetadata | null | undefined>();
       reader = await RootMetadataReader.create(after, active, native, workerUid,
         path => patches.has(path) ? patches.get(path) ?? undefined : index.entries.get(path));
@@ -426,6 +434,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         }
       }
       active.throwIfAborted();
+      end?.();
       const changes: NativeJournalChange[] = [];
       for (const path of paths) {
         const previous = index.entries.get(path) ?? null, current = patches.get(path);
@@ -469,9 +478,9 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     ignoreEntries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return visible(index.ignoreInputs.values()); },
     unreadableEntries(): NativeJournalUnreadable[] { return [...missingInventory.values()]; },
     get(path: string): NativeJournalMetadata | undefined { if (closed) return unavailable("Native observer is closed."); return uncertain(path) ? undefined : index.entries.get(path); },
-    async observe(signal?: AbortSignal): Promise<NativeJournalObservation> {
+    async observe(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
       if (closed || inFlight || pending) unavailable("Native observation must be serialized and reconciled.");
-      const operation = prepare(signal); inFlight = operation;
+      const operation = prepare(signal, timing); inFlight = operation;
       try { return await operation; } finally { inFlight = undefined; }
     },
     /** Accounting of previous checkpoints whose release left the observation. */
@@ -496,4 +505,3 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   };
 }
 
-export type NativeJournalObserver = ReturnType<typeof createNativeJournalObserver>;

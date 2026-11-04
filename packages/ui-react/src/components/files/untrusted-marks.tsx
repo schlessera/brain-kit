@@ -14,11 +14,11 @@ import { ChevronLeft } from "lucide-react";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 
-export interface MarkedBy { label: string | null; you: boolean }
-export type MarkDetail =
+interface MarkedBy { label: string | null; you: boolean }
+type MarkDetail =
   | { path: string; marked: false; canClear: boolean }
   | { path: string; marked: true; markedAt: number; missing: boolean; markedBy?: MarkedBy; canClear: boolean };
-export interface MarkRow { path: string; marked: true; markedAt: number; missing: boolean; markedBy?: MarkedBy }
+interface MarkRow { path: string; marked: true; markedAt: number; missing: boolean; markedBy?: MarkedBy }
 
 /** What one host request came back as. `uncertain`: it may or may not have applied. */
 type Failure = "unsupported" | "not-found" | "forbidden" | "owner-required" | "unreachable" | "uncertain" | "signed-out";
@@ -61,7 +61,7 @@ const sendClear = (root: BrainUiRoot, path: string) => call<{ status: "cleared" 
   body => record(body) && (body.status === "cleared" || body.status === "already_cleared"));
 
 /** `12 Jul`: the design's mark date. */
-export function markDate(at: number): string {
+function markDate(at: number): string {
   return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 /** Who marked, for the owner only: the host sends no `markedBy` to anyone else. */
@@ -145,12 +145,12 @@ export function UntrustedMarksScope({ children }: { children: ReactNode }) {
 
 // ── One path's mark: the toolbar control, cue and rail ─────────────────────
 
-export type DetailState =
+type DetailState =
   | { status: "checking" } | { status: "unsupported" } | { status: "unknown" } | { status: "absent" }
   | { status: "ready"; mark: MarkDetail };
 
 /** The mark of the open file, read from the host whenever the path or the surface's revision changes. */
-export function useMarkDetail(path: string | null): [DetailState, () => void, (mark: MarkDetail) => void] {
+function useMarkDetail(path: string | null): [DetailState, () => void, (mark: MarkDetail) => void] {
   const root = useBrainUiRoot();
   const marks = useUntrustedMarks();
   const [state, setState] = useState<{ path: string | null; detail: DetailState }>({ path, detail: { status: "checking" } });
@@ -174,7 +174,7 @@ export function useMarkDetail(path: string | null): [DetailState, () => void, (m
 }
 
 /** `◆ untrusted · marked 12 Jul` (+ ` by …` for the owner): glyph and word, never colour alone. */
-export function MarkCue({ mark }: { mark: Extract<MarkDetail, { marked: true }> }) {
+function MarkCue({ mark }: { mark: Extract<MarkDetail, { marked: true }> }) {
   return (
     <div className="mt-0.5 flex items-start gap-1 text-[10px] [overflow-wrap:anywhere]" style={{ color: PURPLE }} data-untrusted-cue="">
       <span className="mt-px shrink-0" aria-hidden="true"><Icon icon="unverified" size={11} color={PURPLE} /></span>
@@ -198,7 +198,6 @@ const COPY = {
   stillUnknown: "Still couldn't check. Try again.",
   proxy: "On turns that run through the egress proxy, web access is limited to the untrusted allow-list and sites this chat already contacted. Your other web rules still apply.",
 } as const;
-export const PROXY_BULLET = COPY.proxy;
 
 /**
  * Send one intent for one captured path, and settle it from the host.
@@ -231,7 +230,7 @@ async function settle(root: BrainUiRoot, intent: Intent, path: string, onCheckin
 
 /** The dialog body's actions, stacked where they don't fit side by side at 320px. */
 function Actions({ cancelRef, children }: { cancelRef: RefObject<HTMLDivElement | null>; children: ReactNode }) {
-  return <div className="mt-4 flex flex-wrap-reverse justify-end gap-2 [&>*]:min-w-[120px] [&>*]:flex-1 tablet:[&>*]:flex-none" ref={cancelRef}>{children}</div>;
+  return <div className="mt-4 flex flex-wrap-reverse justify-end gap-2 any-pointer-coarse:gap-y-4 [&>*]:min-w-[120px] [&>*]:flex-1 tablet:[&>*]:flex-none" ref={cancelRef}>{children}</div>;
 }
 /** The kit Button is a `role="button"` element, not a native button. */
 const CONTROL = '[role="button"], button';
@@ -297,8 +296,8 @@ function ConfirmDialog({ intent, path, missing, reader, returnTo, onCancel, onDo
         </>}
         <PhaseLine phase={phase} />
         <Actions cancelRef={wrap}>
-          <Button tone="ghost" size="md" block={false} style={{ minHeight: 44 }} label="Cancel" onClick={onCancel} disabled={busy} />
-          {refused ? null : <Button tone={intent === "mark" ? "primary" : "danger"} size="md" block={false} style={{ minHeight: 44 }}
+          <Button tone="ghost" size="md" block={false} reach label="Cancel" onClick={onCancel} disabled={busy} />
+          {refused ? null : <Button tone={intent === "mark" ? "primary" : "danger"} size="md" block={false} reach
             label={retry ? "Try again" : action} onClick={() => void run()} disabled={busy} />}
         </Actions>
       </div>
@@ -333,7 +332,7 @@ export function useUntrustedToolbar(filePath: string | null, loaded: boolean, fi
     cue = (
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground" data-untrusted-unknown="">
         <span>Couldn't check the untrusted mark</span>
-        <TextButton tone="link" label="Retry" onClick={retry} style={{ minHeight: 44 }} />
+        <TextButton tone="link" label="Retry" onClick={retry} />
       </div>
     );
   } else if (detail.status === "ready") {
@@ -426,7 +425,7 @@ export function MarkedUntrustedList({ onAllFiles, onFind }: { onAllFiles(): void
   };
   return (
     <div className="flex flex-col" data-untrusted-list="">
-      <div className="px-2 pt-1"><TextButton tone="meta" label="All files" glyph={<ChevronLeft className="h-3.5 w-3.5" />} onClick={onAllFiles} style={{ minHeight: 44 }} /></div>
+      <div className="px-2 pt-1"><TextButton tone="meta" label="All files" glyph={<ChevronLeft className="h-3.5 w-3.5" />} onClick={onAllFiles} /></div>
       <div className="border-b border-border px-4 pb-3">
         <h3 ref={heading} tabIndex={-1} className="text-sm font-medium text-foreground" data-untrusted-heading="">Marked untrusted</h3>
         {list.status === "ready" ? <p className="mt-1 text-xs text-muted-foreground">{owner
@@ -437,7 +436,7 @@ export function MarkedUntrustedList({ onAllFiles, onFind }: { onAllFiles(): void
         : list.status === "refused" ? <p className="px-4 py-4 text-sm text-foreground">This list isn't available with your current access.</p>
         : list.status === "offline" || list.status === "unsupported" ? <div className="px-4 py-4">
             <p className="text-sm text-foreground">Can't reach your brain right now.</p>
-            <div className="mt-3"><Button label="Try again" tone="ghost" size="md" block={false} style={{ minHeight: 44 }} onClick={() => void marks.refresh()} /></div>
+            <div className="mt-3"><Button label="Try again" tone="ghost" size="md" block={false} reach onClick={() => void marks.refresh()} /></div>
           </div>
         : list.marks.length === 0 ? <div className="px-4 py-4" data-untrusted-empty="">
             <p className="text-sm text-foreground">{owner ? "No files are marked untrusted." : "No files you can open are marked untrusted."}</p>
@@ -495,10 +494,10 @@ function MissingFileDialog({ row, owner, onClose, onFind, onClear }: { row: Mark
         <p className="mt-3">There's no file at this path any more. It may have been moved, renamed or deleted. brain-kit doesn't follow moves, so a moved copy is not marked.</p>
         <p className="mt-3">To protect it, open the file at its new location and use Mark untrusted.</p>
         <p className="mt-3">This record stays so the mark comes back if a file returns to this path.</p>
-        <div className="mt-4 flex flex-col gap-2">
-          <Button tone="ghost" size="md" style={{ minHeight: 44 }} label="Find it in Files" onClick={onFind} />
-          {owner ? <Button tone="danger" size="md" style={{ minHeight: 44 }} label="Clear old mark" onClick={onClear} /> : null}
-          <div data-missing-close=""><Button tone="ghost" size="md" style={{ minHeight: 44 }} label="Close" onClick={onClose} /></div>
+        <div className="mt-4 flex flex-col gap-2 any-pointer-coarse:gap-y-4">
+          <Button tone="ghost" size="md" reach label="Find it in Files" onClick={onFind} />
+          {owner ? <Button tone="danger" size="md" reach label="Clear old mark" onClick={onClear} /> : null}
+          <div data-missing-close=""><Button tone="ghost" size="md" reach label="Close" onClick={onClose} /></div>
         </div>
       </div>
     </Overlay>

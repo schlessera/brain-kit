@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { ChatDeletionRefusal, ChatDeletionRequest } from "@schlessera/brain-ui-sdk/protocol";
+import type { ChatDeletionNotAdmitted, ChatDeletionRefusal, ChatDeletionRequest } from "@schlessera/brain-ui-sdk/protocol";
 import type { AppEnv } from "../app-env.js";
 import type { Principal } from "../db/principals.js";
 import type { ChatDeletion } from "../ws/chat-deletion.js";
@@ -15,6 +15,13 @@ const REFUSALS: Record<ChatDeletionRefusal, { status: 403 | 404 | 409; message: 
   unsupported: { status: 409, message: "This chat's backend cannot remove its history, so nothing was deleted." },
   busy: { status: 409, message: "This chat has work in progress. Stop or finish it first; nothing was deleted." },
 };
+
+/**
+ * One answer for every operation the caller has no retirement under: unknown,
+ * another principal's, a refused attempt, or a caller that cannot own one.
+ */
+const NOT_ADMITTED: ChatDeletionNotAdmitted = { error: "CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted",
+  message: "Nothing is deleted under this operation. A request still on its way can be admitted later." };
 
 function parse(body: unknown): ChatDeletionRequest | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
@@ -58,5 +65,28 @@ export function createChatDeletionRoutes(deps: { deletion: ChatDeletion; princip
       return c.json({ error: "CHAT_DELETION_REFUSED", reason: result.reason, message: refusal.message }, refusal.status);
     }
     return c.json(result.receipt);
+  })
+  /**
+   * `GET /api/chat-deletions/:operationId` (additive, #3455): the caller's
+   * current receipt for one operation, so a client that lost a POST's reply
+   * can ask without re-admitting it. Read-only: no admission, retry or
+   * cleanup. Anything else, including another principal's operation or an
+   * agent or ambient caller, is the same content-free `not_admitted`.
+   */
+  .get("/chat-deletions/:operationId", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const principal = c.get("principal");
+    if (!principal) return c.json({ error: "Authentication required", authRequired: true }, 401);
+    const operationId = c.req.param("operationId");
+    if (!id(operationId)) return c.json({ error: "INVALID_CHAT_DELETION", message: "Name one operation ID." }, 400);
+    let receipt;
+    try {
+      receipt = principal.kind === "owner" ? await deps.deletion.read(operationId, principal.id) : null;
+    } catch {
+      return c.json({ error: "CHAT_DELETION_FAILED", message: "The host could not read this deletion. Nothing is reported either way; try again." }, 500);
+    }
+    // Revoked while the catalog was read: the caller learns nothing.
+    if (!deps.principalValid(principal)) return c.json({ error: "Authentication required", authRequired: true }, 401);
+    return receipt ? c.json(receipt) : c.json(NOT_ADMITTED, 404);
   });
 }

@@ -17,7 +17,7 @@ import {
   readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, relative as relativePath, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dir, "../..");
 const [stage, adapter, scenario, root, donorPid] = process.argv.slice(2) as [string, "claude" | "pi", string, string, string?];
@@ -352,12 +352,42 @@ async function server(): Promise<void> {
   const lockSteps = new Map<string, number>();
   const requests: Array<{ tools: string[]; results: unknown[]; subagent: boolean }> = [];
   const witnesses: unknown[] = [];
+  // Every governed and strict turn reaches inference only through the host
+  // relay (#3314), which carries no `/witness` request. Each pre-tool executor
+  // also writes its report to the worker's scratch, which the host reads
+  // through the launcher's retained handle on the worker's private turn temp.
+  const { spyOn } = await import("bun:test");
+  const workers = await import("@schlessera/brain-ui-sdk/internal");
+  const scratches: string[] = [], scanned = new Set<string>();
+  const launchWorker = workers.launchAgentWorkerAsync;
+  spyOn(workers, "launchAgentWorkerAsync").mockImplementation(async input => {
+    const worker = await launchWorker(input);
+    if (worker.turnTemp) scratches.push(join(worker.turnTemp.root, relativePath("/tmp", workers.WORKER_SCRATCH)));
+    return worker;
+  });
+  const collectWitnesses = () => {
+    for (const dir of scratches) {
+      let names: string[];
+      try { names = readdirSync(dir).filter(name => /^witness-.+\.json$/.test(name)).sort(); } catch { continue; }
+      for (const name of names) {
+        const file = join(dir, name);
+        if (scanned.has(file)) continue;
+        let report: unknown;
+        try { report = JSON.parse(readFileSync(file, "utf8")); } catch { continue; } // still being written
+        scanned.add(file);
+        // One report per executor run, whichever channel brought it.
+        if (!witnesses.some(seen => JSON.stringify(seen) === JSON.stringify(report))) witnesses.push(report);
+      }
+    }
+  };
   const unavailable: string[] = [];
   const issued: Array<{ id: string; name: string; input: unknown; subagent: boolean }> = [];
   const inference = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/witness") { witnesses.push(await request.json()); return Response.json({}); }
     if (path !== "/v1/messages") return Response.json({});
+    // Executors that start before the first tool event have run by the first request.
+    collectWitnesses();
     calls++;
     const body = await request.json() as { tools?: Array<{ name: string }>; messages?: Array<{ content: unknown }> };
     const tools = body.tools?.map(t => t.name) ?? [];
@@ -391,6 +421,8 @@ async function server(): Promise<void> {
   process.env.PI_CODING_AGENT_DIR = agentDir;
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
   writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url, apiKey: "offline-fixture" } } }));
+  // A pi turn's relay sends its credential only to an origin listed for it (#3314): the loopback stub.
+  process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `anthropic=${url}`;
   const backend = adapter === "claude"
     ? createClaudeBackend({ brainPath, log: () => {}, profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
       buildEnv: () => ({ ANTHROPIC_BASE_URL: url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) }] })
@@ -443,18 +475,17 @@ async function server(): Promise<void> {
   host.clients.add({ send(text: string) {
     const frame = JSON.parse(text); frames.push(frame);
     if (frame.type === "tool_approval_request") {
-      const pending = host.coordinator.pendingApprovals.get(frame.toolUseId);
-      host.coordinator.pendingApprovals.delete(frame.toolUseId); pending?.resolve({ behavior: "allow" });
+      host.coordinator.claimApproval(frame.toolUseId)?.resolve({ behavior: "allow" });
     }
     if (frame.type === "mask_request") {
       maskRequests++;
-      const pending = host.coordinator.pendingMask.get(frame.requestId)!;
-      host.coordinator.pendingMask.delete(frame.requestId); pending.resolve(png);
+      host.coordinator.claimMask(frame.requestId)!.resolve(png);
     }
     if (frame.type === "ask_user_request") {
       askRequests++;
-      const pending = host.coordinator.pendingAskUser.get(frame.requestId)!;
-      host.coordinator.pendingAskUser.delete(frame.requestId); pending.resolve({ answers: { Policy: "context/policies/crew.md" } } as any);
+      const pending = host.coordinator.pendingAsk(frame.requestId)!;
+      host.coordinator.acceptAsk(pending, { submissionId: "policy-probe", principalId: "odysseus" });
+      (pending.entry.resolve as (result: unknown) => void)({ answers: { Policy: "context/policies/crew.md" } });
     }
   } } as any, "odysseus");
 
@@ -493,6 +524,7 @@ async function server(): Promise<void> {
       authorization.release();
     }
   } finally { clearTimeout(deadline); }
+  collectWitnesses();
   const applications = db.query("SELECT payload FROM activity_events WHERE event_type LIKE 'brain_application%'").all()
     .map((row: any) => JSON.parse(row.payload).v);
   const toolResults = frames.filter(f => f.type === "tool_result").map(f => ({ toolUseId: f.toolUseId, isError: f.isError, output: String(f.output ?? "") }));

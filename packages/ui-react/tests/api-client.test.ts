@@ -119,13 +119,19 @@ describe("billing overrides and pricing state", () => {
   test("activityRun defaults to the light detail without payload bodies", async () => {
     const cap = captureUrl({ runId: "run 1", detailPruned: false });
     await api.activityRun("run 1");
-    expect(cap.urls[0]).toBe("/api/activity/runs/run%201");
+    expect(cap.urls[0], "ACTIVITY_DETAIL_DECLARES_COMPUTE").toBe("/api/activity/runs/run%201?activityCompute=1");
+  });
+
+  test("activityRuns declares that this client parses compute-origin runs (#3108)", async () => {
+    const cap = captureUrl({ live: [], history: [] });
+    await api.activityRuns({ session: "sess ithaca" });
+    expect(cap.urls[0], "ACTIVITY_LIST_DECLARES_COMPUTE").toBe("/api/activity/runs?activityCompute=1&session=sess%20ithaca");
   });
 
   test("activityRun opts into payload events for the drill-in views", async () => {
     const cap = captureUrl({ runId: "r1", detailPruned: false });
     await api.activityRun("r1", { includePayloads: true });
-    expect(cap.urls[0]).toBe("/api/activity/runs/r1?include=payloads");
+    expect(cap.urls[0]).toBe("/api/activity/runs/r1?activityCompute=1&include=payloads");
   });
 
   test("pricingState rejects on an older server (404) so callers hide the indicator", async () => {

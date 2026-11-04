@@ -47,7 +47,7 @@ const applyResultSchema = z.looseObject({
 });
 const keptSchema = z.looseObject({ status: z.string(), reason: z.string().nullable().optional() });
 
-export class MediaEffectUnavailable extends Error {}
+class MediaEffectUnavailable extends Error {}
 
 /** The current version of a brain file as the journal records one, read without following links; null when absent. */
 function currentVersion(brain: string, path: string): JournalVersion | null | "other" {

@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -94,6 +94,33 @@ most 1,000 rows, explicitly marks truncation, and leaves the complete retained
 governance event query available. No permission/card or protocol revision is
 added.
 
+### Hosted external compute (additive, 0.45.0, #3108)
+
+A hosted external compute job is its own Activity root run, run id
+`compute:<job id>`, with the new span origin `compute`: kind `tool`, name
+`compute_job`, `jobName` the instance id, the conversation's `sessionId` and
+`principalId`, and attributes linking it to the turn
+(`brain.compute.turn`) and tool call (`brain.compute.tool_use`), with the
+lease, estimate and source hash. It records each state it is seen in as a
+`compute_state` event and ends `success`, `error`, `cancelled` or `timeout`
+with the cleanup fact in `brain.compute.cleanup`; `usage.costUsd` is set only
+for a complete provider cost. A job whose outcome is `uncertain` stays open
+with `brain.compute.stuck: true`. `ActivitySpanOrigin` and the span schema
+accept `compute`. A host sends a compute run, in snapshots and deltas, only to
+a connection whose `client_hello` declared `capabilities.activityCompute`
+(`ACTIVITY_COMPUTE_CAPABILITY`), which the shipped client does; an older
+client never receives one. HTTP Activity reads follow the same rule: `GET
+/api/activity/runs` lists compute runs, live and historical, only when the
+request declares `?activityCompute=1`, and `GET /api/activity/runs/:runId`
+for a `compute:` run without it answers `404` as an unknown run. The shipped
+client declares it on both.
+
+The outward `action` vocabulary gains `compute_run` (a run's approval
+decision, its target the instance id), in governance events and in the
+journal's `outwardActions` rows (`JournalOutwardAction.action`). The `taint`
+source vocabulary gains `compute_output`, recorded when a collect returns a
+remote machine's output. Older observers may ignore both.
+
 ### Completed inference usage and budgets (additive, #1669)
 
 `usage` carries `{ type, turnId, sessionId?, usage: TurnUsage, observedAt,
@@ -104,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4017-4023`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1949-1951`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4200-4206`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1973-1975`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -543,6 +570,29 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
+Optional `subPhases` (additive, #3355) attributes the governed and journal
+phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
+measuring to `failureObservedAt` or terminal time once the record is terminal,
+and null before. Every step lies inside its phase's paired milestones, and the
+`observe_*` steps lie inside `observe`. Steps are carried by the record's next
+milestone or terminal write, never written on their own. `name` is open
+vocabulary, so a consumer tolerates names it does not know. A step that does
+not apply to a turn is absent. The current names are:
+
+- `governed`: `inference_origin` (the backend's relay origin, looked up before
+  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
+  `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
+  `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
+  `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
+- `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
+  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
+  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+
+Records written before this field have no `subPhases`; nothing is backfilled.
+
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
 in nullable `reason`. Admission refusal, cancellation/revocation and failures
@@ -621,6 +671,22 @@ A run whose worker hit a host resource limit (additive, #1660) carries one
 since the last report, or null when it does not count). `fatal: true` means
 the limit ended the worker; the root then also carries `brain.failure_class`
 `worker_resource_limit`.
+<a id="module-discovery-outcome-additive-0450-3381"></a>
+A module discovery at crontab emission (additive in 0.45.0, #3381) is a `cron`
+root span with `jobName` `modules`, opened and ended at once by
+`brain-ui-cron crontab` once its bounded retries settle. `outcome` `error`
+means module cron was skipped and the crontab carries core jobs only; its
+reason is `module cron skipped: <cause>`, where the cause is the last
+attempt's: the `brain module list` exit code and stderr tail, unreadable
+output, a host not reconciled, or a missing native configuration. `success`
+means discovery yielded the module list. The root carries
+`brain.module_discovery.attempts` (a number) and
+`brain.module_discovery.skipped` (a boolean). The same outcome is the
+`modules` job's latest `cron_runs` row, which `GET /api/status` lists under
+`cronJobs`. It is written only to a UI database outside the brain that already
+exists or sits behind a qualified native host, so a host that never qualified
+and has no database reports on stderr alone. No module job can carry the
+name: theirs are always `<module>-<entry>`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
 written by the in-process scheduler or the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
@@ -1825,6 +1891,71 @@ that this draft's request started that session, which is the only proof
 `POST /api/drafts/:draftId/bind` accepts. Draft text and images never enter
 logs, push payloads or the transcript store.
 
+<a id="composer-file-attachments-additive-0450-3153"></a>
+
+### Composer file attachments (additive, 0.45.0, #3153)
+
+A host that stores composer originals sends
+`server_hello.capabilities.composerFiles: true` and, beside it,
+`server_hello.attachmentLimits: AttachmentLimits` (`maxFiles` 10,
+`maxFileBytes` 25000000, `maxTotalBytes` 50000000, `poolBytes` the configured
+attachment pool, default 1073741824). It is advertised only together with
+`sessionDrafts`. Without the flag a client offers no generic file and keeps
+D52's tab-only track path.
+
+- **`chat_message.attachmentRefs?: ChatAttachmentReference[]`**, each
+  `{ kind: "attachment"; fileId }`, at most 10. The message must carry the
+  `draftRef` of the draft the files were uploaded to. The host resolves every
+  id against its own records: the file must be `stored`, minted for that draft,
+  bound by its saved revision or outgoing snapshot, and its bytes on disk must
+  still match the recorded size and SHA-256 through no link. Anything else is
+  an `error` with code `ATTACHMENT_REJECTED` before a backend runs. The client
+  never supplies a path, kind, size or digest. The references are a separate
+  field rather than a new `files` variant so `ChatFileAttachment` keeps its
+  type.
+- **`ChatImageAttachment.fileId?`** links an inline frame to the original it
+  was prepared from. That original must be among the message's
+  `attachmentRefs`, and the message envelope charges it once. One envelope
+  covers a message: `files`, `attachmentRefs` and frames without a `fileId`
+  together hold at most 10 items and 50,000,000 original bytes.
+- **What the provider receives.** After the user text, and after the existing
+  `<brain-track-files>` block, the host appends one quoted
+  `<brain-attachments>` block. It lists `id`, `name`, `path`
+  (`.brain-ui/attachments/<fileId>/<name>`), `kind`, `bytes` and `sha256` for
+  each original, and `inline` for images. It says the contents have not been
+  read. Contents are never injected. A validated track is also listed in the
+  track block, at its attachment path. The block is recorded with the
+  message's source and is part of the turn's prompt, so it never changes
+  afterwards; Retry requires the same files, still matching, and a message
+  reference in that session.
+- **Acceptance.** When the host accepts the message (its `session_info`, or
+  its `status: queued`), the same transaction that settles the draft first
+  gives each named original a reference owned by the session, then clears the
+  outgoing snapshot whose `requestId` matches, then consumes the revision under
+  the existing rules. The originals stay for later turns.
+- **Replay.** `SessionHistoryMessage.attachmentFiles?: AttachmentFile[]`
+  carries the originals a user message sent, as recorded. The replayed
+  `content` is the user's own text: the host removes its blocks only when they
+  reproduce byte for byte. `files` keeps only legacy staged tracks.
+- **Session drafts additions.** `SessionDraftLimits` gains
+  `maxDraftFiles` (10), `maxDraftFileBytes` (25000000) and
+  `maxDraftFilesBytes` (50000000). `maxDraftBytes` keeps its value and now
+  bounds text and legacy inline images only. `maxTotalBytes` keeps its value
+  and also counts the originals live drafts and outgoing snapshots reference.
+  `DraftSaveRequest` gains `fileIds?` and `outgoing?`, `Draft` gains `files?`
+  and `outgoing?`, and `DraftSummary` gains `fileCount?`. The routes are in
+  the [HTTP API](../http-api.md#composer-file-attachments-additive-0450-3153).
+
+The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
+`ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,
+`ATTACHMENT_MAX_TOTAL_BYTES`, `ATTACHMENT_POOL_DEFAULT_BYTES`,
+`ATTACHMENT_UNBOUND_TTL_MS`, `ATTACHMENT_GRACE_MS`, the
+`ChatAttachmentReference`, `AttachmentKind`, `AttachmentReader`,
+`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `AttachmentErrorCode`
+and `AttachmentErrorResponse` types, and `attachmentFileSchema` and
+`attachmentLimitsSchema`. The governance `taint` event's `source` gains
+`chat_attachment`: reading under `.brain-ui/attachments/` taints the session
+as reading a staged share does.
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ### Explicit chat deletion (additive, #3230)

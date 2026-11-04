@@ -291,9 +291,8 @@ test("a governed turn whose runtime sends only relayed inference stays untainted
     const rerank = proxy.relayed("POST", new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"), new AbortController().signal);
     expect(await rerank.admit(), "UNTAINTED_SESSION_ADMITS_RERANKING").toBe(true);
     rerank.finish("completed");
-    // A relayed provider request is the turn's own egress (G5) and taints under G6 as it always did.
-    expect(events("taint").map(event => event.payload), "PROVIDER_RELAY_TAINT_UNCHANGED").toEqual([
-      { source: "egress_connection", tool: null, detail: "POST generativelanguage.googleapis.com:443" }]);
+    // A validated provider-relay request is a host relay's operation: it never taints (G6, #3246).
+    expect(events("taint"), "PROVIDER_RELAY_NEVER_TAINTS").toEqual([]);
     // WebFetch's own target, reached first in a fresh turn of a clean session.
     db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('calypso','Calypso',0,0)").run();
     const fresh = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-fetch", sessionId: () => "calypso",
@@ -324,7 +323,9 @@ test("on the write worker, a connection's bytes wait for its taint commit and a 
     // A slow commit ahead of the taint, as an fsync under load would be.
     const slow = held.call("slow", "Calypso", 400), started = Date.now();
     const first = get(proxy.socketPath, harbour.url.href);
-    await Bun.sleep(100);
+    // Until the proxy accepted the connection and submitted its taint, behind the
+    // slow commit; the bound stays well inside the 400 ms hold, so the taint seen is pending.
+    for (const end = Date.now() + 300; !writes.taint("turn-harbour", "ithaca") && Date.now() < end;) await Bun.sleep(1);
     expect(writes.taint("turn-harbour", "ithaca")?.source, "TURN_EGRESS_PENDING_TAINT_IN_FORCE").toBe("egress_connection");
     expect(await get(proxy.socketPath, island.url.href), "TURN_EGRESS_PENDING_TAINT_NARROWS_NEW_HOST").toBe(403);
     expect(await first).toBe(200);

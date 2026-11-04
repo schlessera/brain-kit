@@ -27,7 +27,7 @@ import { stagedArrival, stagedArrivalDigest, type StagedArrival } from "./arriva
 import { governancePolicyReaderFor } from "../brain/governance-policy.js";
 import { ProviderThreadRefusedError } from "../brain/provider-mask-refusal.js";
 
-export type InboxSubject = { item: string } | { checkpoint: string };
+type InboxSubject = { item: string } | { checkpoint: string };
 export type InboxProvenance =
   | { origin: "person"; evidence: string }
   | { origin: "server" }

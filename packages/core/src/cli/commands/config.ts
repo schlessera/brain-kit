@@ -42,6 +42,32 @@ function taxonomySummary(cli: CliContext): Record<string, unknown> {
   };
 }
 
+/**
+ * External compute as data, for a host that reads the configuration without
+ * running it (#3108). A built-in instance is reported whole; an instance
+ * whose provider is a value is reported by its id only, `provider: null` and
+ * `byValue: true`, because a value is code the host never runs. Credentials
+ * are named, never resolved.
+ */
+export function computeSummary(config: CliContext["brain"]["config"]): Record<string, unknown> {
+  const providers = config?.compute?.providers;
+  if (!providers) return { enabled: false, providers: {} };
+  const summary: Record<string, unknown> = {};
+  for (const id of Object.keys(providers).sort()) {
+    const entry = providers[id]!;
+    const limits = {
+      lease: { maxSeconds: entry.lease.maxSeconds },
+      maxConcurrent: entry.maxConcurrent ?? null,
+      hourlyCeilingUsd: entry.hourlyCeilingUsd ?? null,
+      retainOnRelease: entry.retainOnRelease ?? null,
+    };
+    summary[id] = typeof entry.provider === "string"
+      ? { provider: entry.provider, byValue: false, apiKeyEnv: entry.apiKeyEnv ?? null, options: entry.options ?? null, ...limits }
+      : { provider: null, byValue: true, apiKeyEnv: null, options: null, ...limits };
+  }
+  return { enabled: true, providers: summary };
+}
+
 /** Navigate a dotted path through a plain object/array. */
 function getPath(obj: unknown, path: string): unknown {
   let current: unknown = obj;
@@ -71,6 +97,7 @@ export const configCommand: CoreCommand = {
         valid: true,
         path: cli.brain.configPath,
         taxonomy: taxonomySummary(cli),
+        compute: computeSummary(cli.brain.config),
       };
       emit(cli.json, summary, () => {
         console.log(`Config OK: ${cli.brain.configPath ?? "(none — core defaults)"}`);

@@ -8,7 +8,7 @@ Approval supplies no automatic expiry, routine live cutoff or implementation
 release commitment.
 
 **Built (#3228):** the internal, content-free retirement ledger and gate
-(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:156-189`;
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:161-194`;
 migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
 serialized writer, resolves the exact identity set from recorded dialogue
 owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy
@@ -16,12 +16,13 @@ targets before retiring, and makes later dialogue/task writers and readers
 refuse the retired identities. It removes no content and reports every store
 pending until that store's owner confirms removal. A typed native-only chat
 with no recorded owner refuses as unknown ownership; no ownership is backfilled.
-Host-copy cleanup, the endpoint and UI are not built.
+Host-copy cleanup, the endpoint and UI are not built. (#3337, below, records an
+owner for typed chats created after it.)
 
 **Built (#3229):** first-party native removal behind the optional
 `historyRemoval` backend capability
 ([package contract](../integration-contract/package-api.md#native-history-removal-additive-3229)).
-Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:296-322`)
+Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:331-357`)
 and Pi (`removePiSession`, `packages/ui-backend-pi/src/session-storage.ts:101-117`)
 name their owned artifacts; the shared fence
 (`createSessionRetirement`, `packages/ui-sdk/src/server/native-history-removal.ts:117-224`)
@@ -34,11 +35,13 @@ restart reconciliation remains with the endpoint work.
 **Built (#3230):** the coordinated deletion and its endpoint
 ([HTTP](../http-api.md#explicit-chat-deletion-additive-3230),
 [wire](../integration-contract/wire.md#explicit-chat-deletion-additive-3230)).
-One operation (`createChatDeletion`, `packages/ui-server/src/ws/chat-deletion.ts:46-104`)
+One operation (`createChatDeletion`, `packages/ui-server/src/ws/chat-deletion.ts:46-114`)
 refuses busy work, retires the chat, ends its live epochs, notifies the owner's
 capable clients, then asks the native store and each host store to remove their
 copies; restart reconciliation resumes any unconfirmed store under the original
-operation. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:80-88`)
+operation. `GET /api/chat-deletions/:operationId` (#3455) reads that operation's
+current receipt for its owner and admits, retries and cleans nothing; every miss
+is one content-free `not_admitted`. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:80-88`)
 confirm removal only by reading back that nothing selected remains: dialogue
 records, task receipt text and result facts, session title/label and the text,
 digest and classification projections, and positively bound drafts with their
@@ -48,6 +51,39 @@ and masking lineage, Activity, Inbox, governance, journals and usage accounting 
 retained as independent records and disclosed. HTTP and WebSocket list, read,
 resume, recovery and live-startup paths refuse a retired chat after every await,
 and draft routes refuse drafts bound to it. Browser invalidation (#3231) is not built.
+
+**Built (#3337):** typed chats created from now on name their owner. Under the
+[2026-11-02 ruling](https://github.com/schlessera/brain-kit/issues/3337#issuecomment-6586465475),
+when an authenticated typed request creates a backend session, the host records a
+content-free `(session, principal)` binding (migration `076_chat_session_owners.sql`).
+The bridge offers the creator only on a new, non-host-work turn whose
+authorization is current
+(`const creator`, `packages/ui-server/src/ws/bridge.ts:257`). The write worker
+binds the creator only in the transaction that creates the session's row
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
+`resolveChat` counts the binding as one more ownership record beside dialogue
+owners and voice epochs, so a disagreement among them still refuses as ambiguous
+(`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). A typed
+chat's owner can now delete it through `POST /api/chat-deletions`. A chat whose
+session existed before the binding still refuses as `unavailable`, and so does a
+native-only session the host first sees on a resume. A foreign principal gets
+the same refusal as for a chat that does not exist.
+
+The binding is deliberately not a dialogue owner:
+
+- It has no generation, alias, conversation or record. It never opens or pages
+  dialogue, and no catalog read, list or retention pass joins it. A typed chat
+  is therefore reviewed at generation 1, as before, and undeleted chats page and
+  age exactly as they did.
+- It is written once, by session creation, and never by a resume, an adoption, a
+  later turn or host work. It is never reassigned or backfilled. A dialogue owner
+  instead begins with a live conversation or the adoption of a host-only history,
+  and it binds or merges into a session later.
+- It names the creating principal, not authority. Deletion still re-reads that
+  principal at commit: an agent, an ambient caller with no owner mapping, or a
+  revoked principal is refused as before, even if it created the session.
+- Like the retirement fences, it is content-free identity data and stays after the
+  chat's stores are cleaned.
 
 ## Selected local lifecycle
 
@@ -131,11 +167,11 @@ must be tested through their installed runtime, not inferred from directory name
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
   (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
-  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:157-185`).
+  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:179-207`).
   The live/archive roots are resolved by the backend
   (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
   Archive movement and crash recovery must join the same lifecycle fence
-  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:229-286`).
+  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:261-321`).
   Delete all owned branches/subagents/copies, not just the displayed branch.
   Unknown/unattributable archive remnants mean removal is incomplete.
 - **Native Pi history.** SessionManager JSONL trees retain inactive branches and
@@ -220,8 +256,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:248-261`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:290-293`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:254-267`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:297-300`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,
@@ -260,11 +296,11 @@ and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:1
 belongs to `createDraftClient` (`createDraftClient`,
 `packages/ui-react/src/lib/draft-client.ts:45-57`); browser reloadable work belongs
 to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).
-The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`; gating its
-resume case alone would leave HTTP, background readers and provider startup open.
+The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
+handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
 
 Existing ordinary history publication checks concurrent turn changes
-(`publishHistory`, `packages/ui-server/src/ws/host.ts:572-606`). Future deletion
+(`publishHistory`, `packages/ui-server/src/ws/host.ts:540-574`). Future deletion
 must additionally invalidate it even when no turn starts or ends. Startup reads
 native history, canonical evidence and completed facts, and freezes a snapshot
 (`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:9-74`). Recheck the
@@ -298,7 +334,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1268-1318`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1270-1320`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline
@@ -370,7 +406,7 @@ to `brain.db`, create a second operational authority, or reuse storage-maintenan
 removal as an arbitrary transcript-file eraser.
 
 Restore currently increments dialogue generations and closes native continuity
-(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:350-433`). That
+(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:427-482`). That
 invalidates cursors but does not know a deletion performed after the backup.
 A post-deletion export must carry its new ledger and scrubbed owned content;
 restoring it must preserve negative lookups and refuse old writes. An earlier

@@ -19,7 +19,7 @@ import { ICONS, type IconName } from "../primitives/Icon.js";
  * Not `Icon`: that component owns the box and hands nothing through to the
  * SVG, and the two attributes above have to sit on the SVG itself.
  */
-export interface CueProps {
+interface CueProps {
   icon: IconName;
   /** 11 in rows and cells, 12 in the trend pill, 13 in a tile. */
   size: number;

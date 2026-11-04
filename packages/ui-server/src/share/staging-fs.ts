@@ -12,7 +12,7 @@
  * the boundary inbox cleanup and the TTL prune already enforced by pathname.
  */
 import {
-  closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync,
+  closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync,
 } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
@@ -57,6 +57,8 @@ export interface StagingRoot {
   readonly dir: StagingDirectory;
   /** Refuses unless every component is still the directory that was opened, unlinked, at its visible path. */
   verify(): void;
+  /** Flush the staging directory and `.brain-ui` entries to disk. */
+  sync(): void;
   close(): void;
 }
 
@@ -64,9 +66,10 @@ export interface StagingRoot {
  * Open `.brain-ui/inbox` below the brain's canonical root without following
  * any link. With `create`, missing components are created in place; without
  * it, a missing component yields `null` (nothing is staged). A link, or a
- * non-directory where a component should be, refuses.
+ * non-directory where a component should be, refuses. `mode` applies to the
+ * components this call creates.
  */
-export function openStagingRoot(brainPath: string, create: boolean): StagingRoot | null {
+export function openStagingRoot(brainPath: string, create: boolean, mode = 0o755): StagingRoot | null {
   const brain = realpathSync(brainPath);
   const chain: StagingDirectory[] = [];
   try {
@@ -77,7 +80,7 @@ export function openStagingRoot(brainPath: string, create: boolean): StagingRoot
       catch (error) {
         if (errno(error) !== "ENOENT") throw error;
         if (!create) { for (const dir of chain.reverse()) closeSync(dir.fd); return null; }
-        try { mkdirSync(at(parent, part), { mode: 0o755 }); }
+        try { mkdirSync(at(parent, part), { mode }); }
         catch (mkdirError) { if (errno(mkdirError) !== "EEXIST") throw mkdirError; }
         chain.push(openDirectory(at(parent, part), visible));
       }
@@ -86,6 +89,7 @@ export function openStagingRoot(brainPath: string, create: boolean): StagingRoot
   return {
     dir: chain.at(-1)!,
     verify() { for (const dir of chain) verifyDirectory(dir, dir.path); },
+    sync() { for (const dir of chain.slice(-2)) fsyncSync(dir.fd); },
     close() { for (const dir of chain.splice(0).reverse()) closeSync(dir.fd); },
   };
 }
@@ -100,9 +104,14 @@ function verifyDirectory(dir: StagingDirectory, path: string): void {
 }
 
 /** Create a new directory inside `parent`, exclusively, and open it. */
-export function makeDirectory(parent: StagingDirectory, name: string): StagingDirectory {
-  mkdirSync(at(parent, validName(name)), { mode: 0o755 });
+export function makeDirectory(parent: StagingDirectory, name: string, mode = 0o755): StagingDirectory {
+  mkdirSync(at(parent, validName(name)), { mode });
   return openDirectory(at(parent, name), join(parent.path, name));
+}
+
+/** Open the existing directory `name` inside `parent`; a link or a non-directory refuses. */
+export function openEntry(parent: StagingDirectory, name: string): StagingDirectory {
+  return openDirectory(at(parent, validName(name)), join(parent.path, name));
 }
 
 /** Refuses unless `parent`'s entry `name` is still the directory `dir`. */

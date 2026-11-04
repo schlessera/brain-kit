@@ -7,6 +7,10 @@ const readers: Record<string,string> = {
   "packages/ui-react/tests/browser/offline/cold-capture/commands.ts": "f0d6d9512b1de67f1804d808dded17e29ee344be22283a734e07f3233fc340ee",
   "packages/ui-react/tests/browser/share-review/commands.ts": "a5f25033f06d388d2e0c83446f5cb7340d22626ea9afe1f7b6c3af92cc86f8ad"
 };
+/** The audited digest pinned for `owner`, if it is an audited reader. A reader
+ * whose bytes drift from it reads an unknown asset (fresh proof) until a
+ * post-merge re-audit refreshes the pin (#2408, ruling of 2026-11-04). */
+export function auditedReaderDigest(owner:string):string|undefined { return readers[owner]; }
 export function lockedBrowserAsset(root:string,owner:string,literal:string):LockedBrowserAsset|undefined {
   if(literal!=="../../node_modules/axe-core/axe.min.js"||!readers[owner]) return undefined;
   const source=resolve(root,owner);

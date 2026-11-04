@@ -131,7 +131,10 @@ for (const engine of ["gemini", "gpt"] as const) {
   test(`${engine}: no history and no resync keeps current setup shape`, async () => {
     const { provider, sockets } = loopback(engine);
     const s = await open(provider, "ithaca-second", 1);
-    await Bun.sleep(20);
+    // The socket delivers frames in order: once a later input frame has arrived,
+    // any history the adapter sent on setup has arrived before it.
+    s.appendAudio({ utteranceId: "u1", sequence: 0, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
+    await until(() => sockets[0]!.some(m => isInput(engine, m)));
     expect(historyTexts(engine, sockets[0]!)).toEqual([]);
     if (engine === "gemini") expect(sockets[0]![0].setup.historyConfig).toBeUndefined();
     await s.close();

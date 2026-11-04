@@ -20,6 +20,185 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Composer file attachments (additive, 0.45.0, #3153)
+
+A host advertising `capabilities.composerFiles` stores composer originals
+through `POST /api/drafts/:draftId/files` and reads them back through
+`GET /api/attachments/:fileId`. Drafts bind them with `fileIds` and an
+`outgoing` snapshot, and `chat_message.attachmentRefs` sends them. The agent
+gets each original's read-only path in a quoted `<brain-attachments>` block;
+contents are never injected. Every field is new and optional, and the existing
+draft, share and track shapes keep their meaning. `maxDraftBytes` now bounds
+text and legacy images only, as the maintainer's envelope ruling on #3153
+directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
+[the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
+[the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
+[package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+
+## Reading a chat deletion's outcome (additive, #3455)
+
+`GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
+lets an owner who lost a deletion's reply read its current `ChatDeletionReceipt`
+without re-admitting it. It only reads and adds no authority. Every miss is one
+content-free 404 `ChatDeletionNotAdmitted` (`reason: "not_admitted"`): an
+unknown operation, another principal's, a refused attempt, or a caller that cannot
+own one. The SDK exports that type
+([package API](integration-contract/package-api.md#reading-a-chat-deletions-outcome-additive-3455)).
+`POST /api/chat-deletions` and the receipt are unchanged. This ships in a minor.
+
+## Hosted external compute (additive, 0.45.0, #3108)
+
+A hosted chat turn reaches external compute through six host-executed bridge
+tools, `brain_compute_health` through `brain_compute_collect`
+(`mcp__brain-ui__brain_compute_*` on Claude, plain names on pi), in every
+interactive session's fixed roster. Their inputs and envelopes are those of
+#3107's MCP tools; the host binds the caller, the turn's frozen policy, the
+per-use approval card, the budget reservation and the credentials, and a
+collect names no host path. Claude sessions disallow the in-worker
+`mcp__brain__brain_compute_*` tools. `brain config check --json` gains a
+`compute` summary. Activity gains the `compute` span origin, sent only to
+clients declaring `capabilities.activityCompute`; governance events gain the
+outward action `compute_run` and the taint source `compute_output`;
+`/api/status` gains `runtime.compute`. The SDK gains the compute tool
+contracts, `handleComputeTool` and `BackendBridge.compute`, and the server the
+settings `BRAIN_UI_COMPUTE_KEYS` and `BRAIN_UI_COMPUTE_STATE_DIR`. Nothing
+changes for a host or brain that does not configure compute. See
+[the MCP component](integration-contract/mcp.md#external-compute-bridge-tools-additive-0450-3108),
+[the package component](integration-contract/package-api.md#hosted-external-compute-additive-0450-3108),
+[the wire component](integration-contract/wire.md#hosted-external-compute-additive-0450-3108),
+[the HTTP component](integration-contract/http.md#governance-events-additive-1651)
+and [the CLI component](integration-contract/cli.md). This ships in a minor;
+no breaking ruling is required.
+
+## External compute CLI and MCP tools (additive, 0.45.0, #3107)
+
+`brain compute` gains the verbs `health`, `plan`, `run`, `status`, `cancel`,
+`collect`, `abandon` and `reconcile`, and `brain mcp` six tools,
+`brain_compute_health`, `brain_compute_plan`, `brain_compute_run`,
+`brain_compute_status`, `brain_compute_cancel` and `brain_compute_collect`,
+registered after the eight document tools whether or not `compute` is
+configured. Both surfaces call one core operation set and print the same
+envelopes: `{ ok: true, ... }`, or `{ ok: false, error: { code, message } }`
+with the external-compute refusal codes and nothing allocated. A compute tool
+whose operation throws returns a fixed tool error text and logs the details
+on the server's stderr. A refusal exits
+`1`, a `run` whose job ended with its cleanup not confirmed exits `2`, one
+whose job ended other than `succeeded` exits `3`, and a second SIGINT or
+SIGTERM leaves an attached run with `130` or `143`. The
+`ComputeRunRequest` of the internal service gains an optional `retain`, which
+may only narrow the instance's `retainOnRelease` (`retain: true` elsewhere is
+`policy_denied`), and a retained job holds a concurrency slot until its
+retention ends. A new
+core skill, `external-compute`, is emitted by `brain skills sync`. Nothing
+changes for existing commands, tools or envelopes, and a brain without
+`compute` gets refusals only. See [the CLI component](integration-contract/cli.md#external-compute-additive-0450-3107)
+and [the MCP component](integration-contract/mcp.md#external-compute-tools-additive-0450-3107).
+This ships in a minor; no breaking ruling is required.
+
+## Boat external compute provider (additive, 0.45.0, #3106)
+
+The new lockstep package `@schlessera/brain-compute-boat` ships the `boat`
+built-in: `computeProvider`, `defaultKeyEnv`, `BOAT_CAPABILITIES`,
+`boatOptionsSchema`, `BoatOptions` and `BOAT_MACHINES`. Core declares it as an
+optional peer and imports it only when a `compute.providers` instance names
+`boat`; without it the instance stays `provider_unavailable`. Such an instance
+reads `BRAIN_COMPUTE_BOAT_API_KEY` unless it names `apiKeyEnv`, and accepts
+the options `machine`, `from`, `environment` and `org`. Nothing changes for a
+brain that does not name `boat`. No CLI word, MCP tool or JSON shape is added.
+See [the package component](integration-contract/package-api.md#boat-compute-provider-additive-3106)
+and [configuration](configuration.md#boat). This ships in a minor; no breaking
+ruling is required.
+
+## External compute provider seam (additive, 0.45.0, #3105)
+
+`ComputeProvider` becomes the thirteenth `@experimental` extension seam,
+exported from `@schlessera/brain` with `defineComputeProvider` and the types it
+is made of; `@schlessera/brain/testing` adds its provider and lifecycle
+conformance suites. `brain.config` gains the optional `compute.providers` key,
+and core reads two new optional environment inputs, `BRAIN_COMPUTE_STATE_DIR`
+and `XDG_STATE_HOME`. Nothing changes for a brain without `compute`: no
+provider, no network access, and compute operations refuse with
+`compute_disabled`. No CLI word, MCP tool or JSON shape is added yet.
+See [the package component](integration-contract/package-api.md#external-compute-seam-additive-3105)
+and [the decision](decisions/external-compute.md). This ships in a minor; no
+breaking ruling is required.
+
+## Strictest path containment answers (breaking before 1.0, 0.45.0, #3422)
+
+`safeResolve` and `resolveWritable` from `@schlessera/brain/module` now return
+`null` in these cases:
+
+- an absolute path, even inside the root;
+- any `..` segment;
+- `:` or `\` in a segment;
+- a dangling symlink;
+- a path any existing component of which leaves the root.
+
+The CLI is not affected for paths inside the brain. Before calling them, it
+converts an absolute path argument inside the brain (`--out`, document paths
+and the other CLI path flags) to a brain-relative path, through the additive
+`brainRelativeArgument` export. An absolute argument outside the brain is still
+refused, and so is one through a symlink that leaves it. The maintainer rulings
+are recorded [on the issue](https://github.com/schlessera/brain-kit/issues/3422#issuecomment-6599244174)
+and, for the CLI, [on the PR](https://github.com/schlessera/brain-kit/pull/3465#issuecomment-6602766385). See [the package API component](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422).
+This ships in the 0.45.0 minor with the `breaking` label and a changeset that
+names the break.
+
+## Provider-relay requests and session taint (breaking before 1.0, #3246)
+
+Under the [maintainer's option C](https://github.com/schlessera/brain-kit/issues/3246),
+a validated request through the brain CLI's provider relay no longer taints a
+governed session (G6), and a tainted session no longer narrows it with
+`taint.egress.allow`. So `brain_context` reranking and WebFetch work in either
+order. Before, whichever came first tainted the session, and the other then
+failed with `taint_allowlist`. Reranking degraded with a `provider_unavailable`
+event.
+
+This changes documented taint-policy semantics. No configuration or wire
+shape changes. A relayed request still records its own `egress_connection`,
+never with `inference: true`. That record gains one additive field: the
+optional `provider: true` literal, mirroring `inference: true` and set only
+by a validated provider-relay operation
+([governance events](http-api.md#governance-events-additive-1651)). A later turn excludes
+those records when it rebuilds the session's contacted hosts, so a provider
+request never lets worker `CONNECT` reach the provider's host after taint, in
+the same turn or a later one. Records written before this field stay
+unmarked. The relayed request is still refused by the
+ordinary egress deny or allowlist rules, an unlisted origin, recipient or
+route, the byte ceilings, budget stops and cancellation. Worker HTTP and
+`CONNECT` traffic cannot claim the exemption, even to a provider's host, and
+the operation grants that traffic no contacted host.
+
+**Migration.** After untrusted input, taint alone no longer keeps content
+from a session's approved providers. To fence a provider, use `egress.deny`,
+an `allowlist` egress mode, or the exact origins in
+`BRAIN_UI_CLI_PROVIDER_ORIGINS`. There is no new opt-out field. See
+[the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
+[supported inputs](supported-inputs.md).
+
+## Module state area (additive, 0.45.0, #3380)
+
+A module keeps durable state in `<brain>/.brain-ui/modules/<module-name>/`,
+gitignored by the area's own `.gitignore`. Module commands get it as the new
+optional `CommandContext.stateDir()`, and `@schlessera/brain/module` exports
+`MODULE_STATE_DIR`, `moduleStatePath`, `moduleStateDir` and
+`ModuleStateError`. A scheduled module job in a maintenance worker writes it
+through the worker's data root, and output staging publishes it back after
+each run. A module command's `EROFS` outside the brain now exits 2 with a
+message naming the host execution boundary and the state area. See
+[the package API component](integration-contract/package-api.md#module-state-area).
+
+## Module discovery outcome at crontab emission (additive, 0.45.0, #3381)
+
+`brain-ui-cron crontab` retries a failed module discovery a bounded number of
+times, names each failed attempt's cause on stderr, and records the final
+outcome as a finished `modules` job: one `cron_runs` row, so authenticated
+`GET /api/status` lists it under `cronJobs`, and one `cron` root span in
+Activity. A skipped module cron is an `error` whose reason starts
+`module cron skipped:`; a successful discovery is a `success`. The crontab's
+bytes do not change. See [wire semantics](integration-contract/wire.md#module-discovery-outcome-additive-0450-3381).
+This ships in a minor; no breaking ruling is required.
+
 ## Turn timeouts and runtime stop notices (additive, 0.45.0, #3356)
 
 A turn the host's hard elapsed-time limit ended stays `outcome: "cancelled"`,
@@ -229,6 +408,18 @@ and schema ([package API](integration-contract/package-api.md#explicit-chat-dele
 No existing field, frame or route changes meaning for an undeleted chat. This
 ships in a minor; the [approved policy](decisions/chat-history-deletion.md) is the
 explicit retention exception, and no breaking ruling is required.
+
+## Typed chat owner bindings (additive, #3337)
+
+A typed chat whose backend session an authenticated request created now records
+that principal as its owner, so `POST /api/chat-deletions` accepts it from that
+owner ([HTTP](http-api.md#explicit-chat-deletion-additive-3230)). Chats created
+before the binding still refuse as `unavailable`. Foreign callers get the same
+answer as for a chat that does not exist. The session catalog's
+`persistSessionStub` gains an optional `ownerPrincipalId`
+([package API](integration-contract/package-api.md#typed-chat-owner-bindings-additive-3337)).
+No request, receipt, frame or field shape changes, and paging and retention of
+undeleted chats are unchanged. This ships in a minor.
 
 ## Native history removal (additive, #3229)
 

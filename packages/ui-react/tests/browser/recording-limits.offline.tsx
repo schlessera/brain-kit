@@ -188,6 +188,9 @@ test("source starvation reports only encoded audio", async (ctx) => {
   const capture = await c.store.start({ timesliceMs: 250 });
   await c.committed(2);
   await mic.contexts[0]!.suspend();
+  // Kept: the starvation is real time under test. The suspended source must
+  // stay silent for longer than the 800 ms margin asserted below, while the
+  // wall clock runs, so no condition or fake clock can stand in for it.
   await new Promise(resolve => setTimeout(resolve, 1200));
   await mic.contexts[0]!.resume();
   await c.committed(c.committedCount() + 2);

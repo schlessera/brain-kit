@@ -6,7 +6,7 @@ import { removeStagedArrival } from "../share/staging-fs.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
 import { reapInboxThreadLifetimes } from "./lifetime.js";
 
-export interface CleanupItemOutcome { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
+interface CleanupItemOutcome { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
 export interface CleanupReport { cleaned: number; failed: number; deferred: number; cancelled: boolean; truncated: boolean; items: CleanupItemOutcome[] }
 export interface CleanupRequest { signal?: AbortSignal; assertAuthorized?: () => void; onItem?: (item: CleanupItemOutcome) => void | Promise<void> }
 

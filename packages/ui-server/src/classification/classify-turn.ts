@@ -68,9 +68,9 @@ export class TurnTextCollector {
   }
 }
 
-export type PassOutcome = "skipped_no_candidates" | "swapped" | "kept" | JevOutcome;
+type PassOutcome = "skipped_no_candidates" | "swapped" | "kept" | JevOutcome;
 
-export interface ClassificationPassDeps {
+interface ClassificationPassDeps {
   jev: JevClient;
   db: () => Database;
   log: Logger;
@@ -79,7 +79,7 @@ export interface ClassificationPassDeps {
   writer?: SqliteWriter;
 }
 
-export interface ClassificationPassRecord {
+interface ClassificationPassRecord {
   outcome: PassOutcome;
   candidates: number;
   blocks: number;

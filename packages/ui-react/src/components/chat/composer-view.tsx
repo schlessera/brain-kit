@@ -28,12 +28,12 @@ import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/pr
  * Paste-to-attach is caught here too: the kit's textarea has no paste
  * handler of its own, and the event bubbles to this frame with its files.
  */
-export interface ComposerAttachment {
+interface ComposerAttachment {
   previewUrl: string;
   name: string;
 }
 
-export interface ComposerProvider {
+interface ComposerProvider {
   label: string;
   /** The model is fixed for this conversation; effort remains editable. */
   locked: boolean;
@@ -155,7 +155,7 @@ export function ComposerView(p: ComposerViewProps) {
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
           <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
-          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissDictationNotice} />
+          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissDictationNotice} />
         </div>
       )}
       {p.captureNotice && p.captureNotice !== p.dictationNotice && (
@@ -164,7 +164,7 @@ export function ComposerView(p: ComposerViewProps) {
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
           <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
-          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissCaptureNotice} />}
+          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissCaptureNotice} />}
         </div>
       )}
       {p.attachErrors.length > 0 && (

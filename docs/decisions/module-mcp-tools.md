@@ -49,7 +49,7 @@ places.
 Before this ruling a module could contribute taxonomy, skills, one CLI word,
 hygiene checks, index rules, excludes and cron, but no tools
 (`export interface ModuleContribution`,
-`packages/core/src/lib/module-types.ts:136-164`).
+`packages/core/src/lib/module-types.ts:147-175`).
 
 ## Alternatives rejected
 
@@ -79,7 +79,7 @@ hygiene checks, index rules, excludes and cron, but no tools
 - **Unload or hide a tool when its module goes dormant, mid-process.** #527
   excludes runtime unloading. `brain.config.ts` is loaded with a dynamic
   `import()` (`const mod = await import(tsPath)`,
-  `packages/core/src/lib/config.ts:607`), and a process caches that import,
+  `packages/core/src/lib/config.ts:657`), and a process caches that import,
   so a running server cannot reliably see a config change anyway. Promising
   it would be promising something the loader cannot deliver.
 

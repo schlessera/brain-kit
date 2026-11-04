@@ -14,48 +14,64 @@
  */
 
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
+import { frontmatterBlock, frontmatterLength } from "@schlessera/brain-common/internal/frontmatter-block";
 
-import { frontmatterLength } from "./document-parts.js";
 import { stringifyDocument } from "./frontmatter.js";
 
 /** A new value: a string, a list of strings (written in flow style), or null to remove the key. */
 export type FrontmatterValue = string | string[] | null;
 
-interface Token {
+/** A scalar's offsets in the block, quotes included, its quote, and its value with quotes and escapes read. */
+export interface ScalarToken {
   start: number;
   end: number;
   quote: '"' | "'" | null;
+  value: string;
 }
 
-/** The frontmatter's inner text: after the opening `---` line, up to the closing `---` line. */
-function frontmatterBounds(text: string): { start: number; end: number } | null {
-  const length = frontmatterLength(text);
-  if (length === 0) return null;
-  // The first `\n---` after the opening fence, as frontmatterLength finds it:
-  // a later `---` or `----` line is a horizontal rule in the body.
-  const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
-  const close = text.indexOf("\n---", bom + 3);
-  const start = text.indexOf("\n") + 1;
-  return close !== -1 && start > 0 && start <= close + 1 ? { start, end: close + 1 } : null;
+type Token = Omit<ScalarToken, "value">;
+
+/**
+ * The frontmatter's inner text: after the opening `---` line, up to the
+ * closing `---` line, by the fences `parseFrontmatter` reads (#2507). Null
+ * when there is no block, or when it is never closed: an edit cannot know
+ * where the body starts. `brain tags --apply` uses the same bounds.
+ */
+export function frontmatterBounds(text: string): { start: number; end: number } | null {
+  const block = frontmatterBlock(text);
+  return block?.closed ? { start: block.innerStart, end: block.innerEnd } : null;
 }
 
-/** One scalar at `i`: quoted to its closing quote, or plain up to the line end or ` #`. */
-function readScalar(block: string, i: number): Token | null {
-  const quote = block[i];
+/**
+ * One scalar at `i`: quoted to its closing quote on the same line, or plain up
+ * to the line end, a character in `stops`, or ` #`. Null when there is none.
+ * Shared with `brain tags --apply`, which stops a flow entry at `,` and `]`.
+ */
+export function readScalar(text: string, i: number, stops = ""): ScalarToken | null {
+  const quote = text[i];
   if (quote === '"' || quote === "'") {
-    for (let j = i + 1; j < block.length; j++) {
-      const c = block[j];
+    let value = "";
+    for (let j = i + 1; j < text.length; j++) {
+      const c = text[j];
       if (c === "\n" || c === "\r") return null;
-      if (quote === '"' && c === "\\") j++;
-      else if (quote === "'" && c === "'" && block[j + 1] === "'") j++;
-      else if (c === quote) return { start: i, end: j + 1, quote };
+      if (quote === '"' && c === "\\") {
+        const next = text[++j];
+        value += next === "n" ? "\n" : next === "t" ? "\t" : next ?? "";
+      } else if (quote === "'" && c === "'" && text[j + 1] === "'") {
+        value += "'";
+        j++;
+      } else if (c === quote) {
+        return { start: i, end: j + 1, quote, value };
+      } else {
+        value += c;
+      }
     }
     return null;
   }
   let j = i;
-  while (j < block.length && block[j] !== "\n" && block[j] !== "\r" && !/^[ \t]#/.test(block.slice(j, j + 2))) j++;
-  const raw = block.slice(i, j).replace(/[ \t]+$/, "");
-  return raw ? { start: i, end: i + raw.length, quote: null } : null;
+  while (j < text.length && !stops.includes(text[j]!) && text[j] !== "\n" && text[j] !== "\r" && !/^[ \t]#/.test(text.slice(j, j + 2))) j++;
+  const raw = text.slice(i, j).replace(/[ \t]+$/, "");
+  return raw ? { start: i, end: i + raw.length, quote: null, value: raw } : null;
 }
 
 /** A one-line flow sequence at `i`: up to its `]`, quoted entries skipped whole. */

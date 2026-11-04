@@ -14,6 +14,30 @@ import type { CommandModule } from "../lib/module-types.js";
 import { CORE_COMMANDS } from "./commands/index.js";
 import type { CliContext } from "./types.js";
 import { UsageError } from "./io.js";
+import { isReadOnlyFileSystemError, moduleStateDir, readOnlyBoundaryMessage } from "../lib/module-state.js";
+import { realpathSync } from "fs";
+import { maintenanceConfigRoots } from "../config/env.js";
+import { sep } from "path";
+
+/**
+ * A module command's write to a read-only path outside the brain (#3380).
+ * Inside a worker that is the host execution boundary; the error names it
+ * and the module's state area instead of surfacing a bare `EROFS`. A write
+ * the brain itself refused keeps core's `read_only_brain` refusal.
+ */
+export class ModuleReadOnlyPathError extends Error {
+  constructor(message: string, options: { cause: unknown }) {
+    super(message, options);
+    this.name = "ModuleReadOnlyPathError";
+  }
+}
+
+function outsideBrain(root: string, path: string | undefined): boolean {
+  if (!path) return true;
+  let brain = root;
+  try { brain = realpathSync(root); } catch { /* compare lexically */ }
+  return !(path === brain || path.startsWith(brain + sep) || path === root || path.startsWith(root + sep));
+}
 
 export interface RegisteredCommand {
   name: string;
@@ -77,16 +101,25 @@ export function buildRegistry(brain: BrainContext): Registry {
             throw new UsageError(dormantMessage);
           }
           const cmd = await loadModuleCommand(loader as Loader);
-          return cmd.run(args, {
-            root: cli.brain.root,
-            json: cli.json,
-            // The module's own validated config + the merged taxonomy, so a
-            // module command never re-loads brain.config (the old reload path
-            // silently fell back to schema defaults on error).
-            config: mod.config,
-            taxonomy: cli.brain.taxonomy,
-            completions: cli.brain.config?.completions,
-          });
+          const root = cli.brain.root;
+          const moduleName = mod.manifest.name;
+          try {
+            return await cmd.run(args, {
+              root,
+              json: cli.json,
+              // The module's own validated config + the merged taxonomy, so a
+              // module command never re-loads brain.config (the old reload path
+              // silently fell back to schema defaults on error).
+              config: mod.config,
+              taxonomy: cli.brain.taxonomy,
+              completions: cli.brain.config?.completions,
+              stateDir: () => moduleStateDir(root, moduleName),
+            });
+          } catch (error) {
+            if (!isReadOnlyFileSystemError(error) || !outsideBrain(root, error.path)) throw error;
+            throw new ModuleReadOnlyPathError(readOnlyBoundaryMessage({ moduleName, command: [word, ...args].join(" "), path: error.path,
+              worker: Boolean(maintenanceConfigRoots().data) }), { cause: error });
+          }
         },
         async describe() {
           if (dormantMessage) return { summary: dormantMessage };
