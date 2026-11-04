@@ -8,6 +8,12 @@ import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 
+/** A flag a held probe procedure sets once it runs, and a promise for that moment. */
+function entry() {
+  const flag = new Int32Array(new SharedArrayBuffer(4));
+  return { flag, async entered() { const waiting = Atomics.waitAsync(flag, 0, 0); if (waiting.async) await waiting.value; } };
+}
+
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "write-worker-odysseus-")), path = join(root, "ui.db"), db = createUiDb(path), writer = openSqliteWriter(db);
   const log = (table = "odysseus_log") => (db.query(`SELECT label FROM ${table} ORDER BY n`).all() as { label: string }[]).map(row => row.label);
@@ -67,8 +73,8 @@ test("an app-connection transaction that reads, then writes, waits for its turn 
     const voyage = f.writer.channel(probe, { table: "odysseus_log" }); await voyage.ready;
     f.db.exec("CREATE TABLE IF NOT EXISTS odysseus_harbour (port TEXT)");
     // The worker commits while the app's transaction sits between its read and its write.
-    const commit = voyage.call("slow", "Aeolus", 150);
-    await Bun.sleep(20);
+    const worker = entry(), commit = voyage.call("slow", "Aeolus", 150, worker.flag);
+    await worker.entered();
     f.db.transaction(() => {
       f.db.query("SELECT count(*) FROM odysseus_log").get();
       Bun.sleepSync(300);
@@ -83,8 +89,8 @@ test("app writes, autocommit or not, never land while a worker procedure runs", 
   const f = fixture();
   try {
     const voyage = f.writer.channel(probe, { table: "odysseus_log" }); await voyage.ready;
-    const gap = voyage.call<[number, number]>("gap", 300);
-    await Bun.sleep(50);
+    const worker = entry(), gap = voyage.call<[number, number]>("gap", 300, worker.flag);
+    await worker.entered();
     f.db.query("INSERT INTO odysseus_log (label) VALUES ('Aeolus')").run();
     f.db.transaction(() => f.db.query("INSERT INTO odysseus_log (label) VALUES ('Circe')").run())();
     f.db.run("INSERT INTO odysseus_log (label) VALUES ('Scylla')");
@@ -148,6 +154,7 @@ import * as probe from ${JSON.stringify(join(import.meta.dir, "fixtures/write-wo
 const db = createUiDb(${JSON.stringify(join(root, "ui.db"))}), voyage = openSqliteWriter(db).channel(probe, { table: "odysseus_log" });
 await voyage.call("log", "Ithaca"); console.log("committed");\n`);
     const child = Bun.spawn([process.execPath, script], { stdout: "pipe", stderr: "pipe" });
+    // Failure maximum: an idle worker lets the child exit at once; the 10 s branch only names a held process.
     const exited = await Promise.race([child.exited, Bun.sleep(10_000).then(() => "running")]);
     if (exited === "running") child.kill();
     expect(exited, "WRITE_WORKER_IDLE_DOES_NOT_HOLD_PROCESS").toBe(0);

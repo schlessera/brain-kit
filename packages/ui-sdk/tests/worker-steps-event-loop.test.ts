@@ -127,16 +127,23 @@ test("a scratch mask's ignore check runs its real maintenance worker with the ev
   } finally { f.cleanup(); }
 });
 
-/** A supervisor request that takes `ms`, counting the ticks that fire while it is outstanding. */
+/**
+ * A supervisor request, counting the ticks that fire while it is outstanding.
+ * The blocking form holds the thread for `ms`, as a synchronous round trip
+ * would: no timer can fire inside it, so it counts none however long it takes.
+ * The awaited form is outstanding until the 1 ms ticker has actually fired,
+ * the one thing an event loop left free does, instead of for `ms`.
+ */
 function statusRequests(replies: IdentityWorkerStatus[], ms: number) {
   const seen = { requests: 0, ticksDuringRequests: 0 };
   let ticks = 0;
-  const timer = setInterval(() => { ticks++; }, 1);
+  const ticked: Array<() => void> = [];
+  const timer = setInterval(() => { ticks++; for (const resolve of ticked.splice(0)) resolve(); }, 1);
   const status = () => workerStep<IdentityWorkerStatus>(() => {
     const before = ticks; Bun.sleepSync(ms); seen.ticksDuringRequests += ticks - before;
     return replies[Math.min(seen.requests++, replies.length - 1)]!;
   }, async () => {
-    const before = ticks; await Bun.sleep(ms); seen.ticksDuringRequests += ticks - before;
+    const before = ticks; await new Promise<void>(resolve => { ticked.push(resolve); }); seen.ticksDuringRequests += ticks - before;
     return replies[Math.min(seen.requests++, replies.length - 1)]!;
   });
   return { seen, status, stop: () => clearInterval(timer) };
@@ -177,7 +184,11 @@ test("a broker release that cannot confirm cleanup after the exit refuses that e
       finish: () => { finished = true; }, release: async () => { throw new identity.WorkerIdentityCleanupError("worker_identity_cleanup_unconfirmed: fixture"); } })
       .then(code => code, (error: unknown) => error);
     expect(identity.workerCleanupUnconfirmed(refusal), "IDENTITY_EXIT_RELEASE_FAILURE_OBSERVABLE").toBe(true);
-    await Bun.sleep(20);
+    // The release rejected before the exit's refusal was observed, and every
+    // step here is in memory. Bun reports an unhandled rejection once the
+    // microtasks drain, before the next macrotask; under `bun test` the runner
+    // fails this test with it, as it did after the former 20 ms window.
+    await new Promise(resolve => setImmediate(resolve));
     expect(unhandled, "IDENTITY_RELEASE_FAILURE_HANDLED").toEqual([]);
   } finally { process.off("unhandledRejection", record); requests.stop(); }
 });
@@ -205,21 +216,28 @@ test("an exit settles only once its release has, and a failed supervision is ref
 });
 
 test("a supervisor lost while a status request is outstanding refuses once and ignores the late answer", async () => {
-  const requests = statusRequests([{ exited: true, code: 0 }], 150);
+  // The request is held open, so it is outstanding by construction rather
+  // than by a sleep shorter than its reply.
+  const entered = Promise.withResolvers<void>(), reply = Promise.withResolvers<void>(), answered = Promise.withResolvers<void>();
+  let requests = 0;
+  const status = () => workerStep<IdentityWorkerStatus>(() => { throw new Error("IDENTITY_STATUS_MUST_NOT_BLOCK"); }, async () => {
+    entered.resolve(); await reply.promise; requests++;
+    setTimeout(answered.resolve, 0); // after the late answer's own continuation has run
+    return { exited: true, code: 0 };
+  });
   const owner = supervision();
   let lose!: (code: number) => void;
-  try {
-    const exit = identityWorkerExit(requests.status, new Promise<number>(resolve => { lose = resolve; }), owner.hooks);
-    await Bun.sleep(150);
-    expect(requests.seen.requests, "IDENTITY_REQUEST_OUTSTANDING").toBe(0);
-    lose(1);
-    const refusal = await exit.catch((error: unknown) => error);
-    expect((refusal as WorkerHostError).requirement).toBe("worker_identity_supervisor_lost (1)");
-    await Bun.sleep(200);
-    expect(requests.seen.requests).toBe(1);
-    // The late answer neither settles again nor releases the broker a second time.
-    expect(owner.state()).toEqual({ finished: true, released: 0 });
-  } finally { requests.stop(); }
+  const exit = identityWorkerExit(status, new Promise<number>(resolve => { lose = resolve; }), owner.hooks);
+  await entered.promise;
+  expect(requests, "IDENTITY_REQUEST_OUTSTANDING").toBe(0);
+  lose(1);
+  const refusal = await exit.catch((error: unknown) => error);
+  expect((refusal as WorkerHostError).requirement).toBe("worker_identity_supervisor_lost (1)");
+  reply.resolve();
+  await answered.promise;
+  expect(requests).toBe(1);
+  // The late answer neither settles again nor releases the broker a second time.
+  expect(owner.state()).toEqual({ finished: true, released: 0 });
 });
 
 test("a separate-UID maintenance launch waits for its helper worker with the event loop free", async () => {
@@ -591,6 +609,13 @@ function heldRootSeam(f: ReturnType<typeof fixture>, status: () => IdentityWorke
   };
 }
 
+/**
+ * Kept real time. With 3000 ms it is a failure maximum. With 50 ms it is a
+ * negative race: the control stand-in answers a broker close only after 100 ms,
+ * in a separate process, so a non-final close that waited for the last
+ * handle's close would still be pending. No in-process event precedes that
+ * answer.
+ */
 const settledWithin = <T>(promise: Promise<T>, ms: number) =>
   Promise.race([promise.then(() => "settled", () => "settled"), Bun.sleep(ms).then(() => "pending")]);
 

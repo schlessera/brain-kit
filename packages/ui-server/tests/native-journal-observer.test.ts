@@ -288,7 +288,8 @@ test("repeating a commit hands its checkpoint over once, and retries it after a 
     const result=await f.observer.observe();
     await Promise.all([result.commit(),result.commit()]);
     const first=await f.next();requested.push(first.id);first.settle(new Error("Odysseus release refused"));await f.observer.releasesSettled();
-    await Bun.sleep(50);expect(f.waiting,"NATIVE_REPEATED_COMMIT_RELEASES_ONCE").toEqual([]);
+    // The release owner has no timers: settled releases leave only continuations, which one macrotask runs.
+    await new Promise(resolve=>setImmediate(resolve));expect(f.waiting,"NATIVE_REPEATED_COMMIT_RELEASES_ONCE").toEqual([]);
     await result.commit();
     const retry=await f.next();requested.push(retry.id);retry.settle();await f.observer.releasesSettled();
     expect(requested,"NATIVE_REPEATED_COMMIT_RETRIES_FAILED_RELEASE").toEqual([result.beforeRoot.id,result.beforeRoot.id]);

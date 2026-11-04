@@ -59,7 +59,7 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a Claude worke
 test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a Claude worker reports its exit before its stdio release, and settles after it", async () => {
   const { fifos, spawner, spawn } = fixture();
   const release = Promise.withResolvers<void>();
-  let releasing = false;
+  let releasing = false as boolean;
   const workers = spawner(worker => {
     const real = worker.released.bind(worker);
     worker.released = () => { releasing = true; return release.promise.then(real); };
@@ -76,7 +76,11 @@ test.skipIf(process.platform !== "linux" || !Bun.which("bwrap"))("a Claude worke
   child.stdout.on("data", chunk => { output += String(chunk); });
   await once(child.stdout, "end");
   expect(output, "POST_EXIT_DRAIN_COMPLETES").toBe("Ithaca");
-  await Bun.sleep(50);
+  // The release has been requested; one macrotask then runs any settlement
+  // that does not wait for it, since the held release is all that remains.
+  // The test's own timeout bounds this condition.
+  while (!releasing) await Bun.sleep(1);
+  await new Promise(resolve => setTimeout(resolve, 0));
   expect({ releasing, settled }, "SETTLEMENT_WAITS_FOR_RELEASE").toEqual({ releasing: true, settled: false });
   release.resolve();
   await finished;
