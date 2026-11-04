@@ -161,6 +161,18 @@ gains optional `chatDeletion` and the session catalog optional `cleanChatStore` 
 [HTTP](../http-api.md#explicit-chat-deletion-additive-3230) and
 [wire](wire.md#explicit-chat-deletion-additive-3230) components.
 
+<a id="typed-chat-owner-bindings-additive-3337"></a>
+
+## Typed chat owner bindings (additive, #3337)
+
+In `@schlessera/brain-ui-server`, the session catalog's `persistSessionStub`
+takes an optional fifth argument, `ownerPrincipalId`. The bridge passes it only
+when an authenticated typed request created the session. The catalog records it
+as the chat's content-free owner binding only if that call creates the
+session's row. A custom catalog that ignores the argument keeps today's
+behaviour, so typed-only chats stay undeletable. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities` adds optional `historyRemoval?: boolean`, and
