@@ -97,7 +97,9 @@ test("saves that overlap land in call order, so the last change is the durable o
   const versions = new NativeFileVersions(); await versions.retain(storage);
   const before = nativeFileVersion(file);
   // The first save's fsync is the slow one, so an unordered second save would
-  // finish first and the older uncertainty would overwrite it.
+  // finish first and the older uncertainty would overwrite it. A barrier that
+  // held the first fsync until the second one starts would deadlock correct
+  // code, which never starts it while the first is pending; the delay is the stimulus.
   const probe = await open(tmpdir(), "r"), handle = Object.getPrototypeOf(probe) as { sync(): Promise<void> };
   await probe.close();
   const sync = handle.sync;

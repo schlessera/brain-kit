@@ -131,7 +131,9 @@ for (const path of ["masked CLI", "turn tree"] as const) for (const abort of [fa
     try {
       expect(await Promise.race([calling.promise.then(() => true), work.then(() => false), Bun.sleep(10_000).then(() => false)]), "SETTLEMENT_REACHES_RELEASE").toBe(true);
       expect(await Promise.race([child!.exited, Bun.sleep(10_000).then(() => "no exit")]), "EXIT_REPORTED_WHILE_RELEASE_PENDING").toBe(0);
-      await Bun.sleep(25);
+      // Exit is reported and the release has been requested: only the withheld release
+      // stands before settlement, so one macrotask runs every other continuation.
+      await new Promise(resolve => setImmediate(resolve));
       expect(settled, "SETTLEMENT_WAITS_FOR_RELEASE").toBe(false);
       if (abort) controller.abort();
       release.resolve();

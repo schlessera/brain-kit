@@ -10,6 +10,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { discoveryLayout } from "../../src/lib/discovery-layout.js";
+import { touchFloor } from "./hit-reach.js";
 
 const full = snapshot as GraphSubgraphResponse;
 const originalMeta = metaSnapshot as GraphMetaResponse;
@@ -317,7 +318,10 @@ for (const fixture of ["sparse", "dense", "truncated", "stale"] as const)
       if (width >= 900) await userEvent.keyboard("{Escape}");
       const expand = page.getByRole("button", { name: `Expand ${owner.node.title || owner.node.path}`, exact: true });
       const expandElement = expand.element() as HTMLElement;
-      expect(expandElement.getBoundingClientRect().height).toBeGreaterThanOrEqual(width < 900 ? 44 : 24);
+      expect(expandElement.getBoundingClientRect().height).toBeGreaterThanOrEqual(24);
+      // #3252: the phone node card's Expand keeps its sm paint and reaches
+      // 44px past it under a coarse pointer (`hit-reach.app.pointer.tsx`).
+      if (width < 900) expect(touchFloor(expandElement), "Expand meets the touch floor").toBe("met");
       expect(ui.stores.graph.getState().discoveryExpansionFor(owner.node).count).toBeUndefined();
       const status = host.querySelector('[role="status"]')!;
       const announcements: string[] = [];

@@ -22,6 +22,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork, type FaultNetwork } from "./offline/fault-network.ts";
+import { OWNED, edgeOwners } from "./hit-reach.js";
 
 const ITHACA = "odysseus-ithaca";
 const SPEECH = "wss://speech.invalid/v1/listen";
@@ -192,9 +193,10 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (con
     }
     expect(readable(text), "computed explanation contrast reaches 4.5:1").toBeGreaterThanOrEqual(4.5);
     expect(readable(dismiss(s)), "computed Dismiss contrast reaches 4.5:1").toBeGreaterThanOrEqual(4.5);
-    expect(target.width).toBeGreaterThanOrEqual(44); expect(target.height).toBeGreaterThanOrEqual(44);
-    expect(document.elementFromPoint(target.left + 1, target.top + target.height / 2)?.closest('[aria-label="Dismiss dictation notice"]')).toBe(dismiss(s));
-    expect(document.elementFromPoint(target.right - 1, target.top + target.height / 2)?.closest('[aria-label="Dismiss dictation notice"]')).toBe(dismiss(s));
+    // #3252: Dismiss keeps its kit paint and reaches 44px past it under a
+    // coarse pointer; every edge of that target is its own.
+    expect(target.height, "Dismiss keeps its sm paint rather than drawing 44px").toBeLessThan(44);
+    expect(edgeOwners(dismiss(s), matchMedia("(any-pointer: coarse)").matches ? 44 : 0), "Dismiss owns each edge of its target").toEqual(OWNED);
     expect(getComputedStyle(notice(s)!).animationName).toBe("none");
     expect(getComputedStyle(notice(s)!).transitionDuration).toBe("0s");
     const focusable = [...s.host.querySelectorAll<HTMLElement>('button, [role="button"], textarea')].filter(el => el.tabIndex >= 0);

@@ -89,8 +89,8 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     <ApifyTurnNotice state={apify} />
     <Disclosure label={label} badge={summary?.configurationCoverage === "incomplete" ? { icon: "unproven", label: "configuration coverage incomplete" } : undefined} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>
-        <div className="flex items-start justify-between gap-2 min-h-11"><p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
-          <IconButton icon="fyi" size="sm" tone="mute" name="Turn facts" expanded={factsOpen} controls={factsId} style={{ width: 44, height: 44, flex: "none" }} onClick={() => setFactsOpen(value => !value)} />
+        <div className="flex items-start justify-between gap-2"><p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
+          <IconButton icon="fyi" size="sm" tone="mute" name="Turn facts" expanded={factsOpen} controls={factsId} style={{ flex: "none" }} onClick={() => setFactsOpen(value => !value)} />
         </div>
         {factsOpen && <div id={factsId} className="grid gap-3 min-w-0">
         {summary?.profile && <p>{summary.actor === "user" ? "Original worker profile" : "Profile"}: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : summary.actor === "user" ? "User history operation." : "Interactive turn."}</p>}
@@ -119,9 +119,9 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
           {name.startsWith("Search index") && <p>The search index is rebuilt from your notes, so only its size and timestamps were recorded. Its bytes were not kept; it cannot be reviewed or restored, and history revert leaves it for the next rebuild.</p>}
           {name.startsWith("Ignored paths") && <p>These paths match the brain's ignore rules, so only size and timestamps were observed and no bytes were kept. Equal sizes do not mean equal content. The journal does not identify which process wrote them.</p>}
           {name.startsWith("Other entries") && <p>Not a regular file or symlink. Its contents were not kept.</p>}
-          <ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} data-journal-change={change.path} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+          <ul className="grid gap-2 any-pointer-coarse:gap-y-4 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} data-journal-change={change.path} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           <span className="break-all min-w-0">{change.path}{change.conflict && <span className="block text-muted-foreground">Conflict: distinct versions observed in a shared window.</span>}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.before?.ignored || change.after?.ignored ? " · ignored" : ""}{change.actor === "user" ? " · Approved by you" : ""}</span></span>
-          {!change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
+          {!change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} reach onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
         </li>)}</ul></section>)}
         {!!details?.missing.some(item => item.reason !== "configuration_inputs_not_fully_identified") && <section className="grid gap-2 min-w-0"><h3 className="font-medium">Retained versions unavailable</h3><p>These observed versions cannot be reviewed or restored.</p>
           {details.missing.filter(item => item.reason !== "configuration_inputs_not_fully_identified").map((item, index) => <p key={`${item.path}-${index}`} className="break-all">{item.path} · {({ interrupted_observation: "Observation was interrupted", journal_capacity: "Journal storage was full", journal_unavailable: "Journal storage was unavailable", revert_not_observed: "The revert was not observed" } as Record<string, string>)[item.reason] ?? item.reason}</p>)}
@@ -143,16 +143,16 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {selected?.tainted === true && selected.taintSourceEventId && <p className="text-sm">Review recommended: this steering observation follows recorded untrusted input (source event {selected.taintSourceEventId}).</p>}
         {selected?.conflict && <section className="grid gap-3 min-w-0" aria-label="Observed conflict versions">
           <p className="text-sm">Distinct versions were observed while turns overlapped. These links do not identify an exclusive writer. Versions overwritten between observations cannot be recovered.</p>
-          <div className="flex flex-wrap gap-2">{selected.conflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} style={{minHeight:44}} onClick={()=>{
+          <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">{selected.conflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} reach onClick={()=>{
             const change=details?.changes.find(change=>change.path===selected.path&&change.sequence===ref.sequence);
             if(change)setSelected(change);
           }} />)}</div>
           {selectedObservation && revert.canResolve && <div className="grid gap-3">
             <p className="text-sm">Selected: retained after observation {selectedObservation.sequence}. Current file must still match reviewed observation {selected.conflict.latest.sequence}; later changes are skipped.</p>
-            <Button label={`Keep observation ${selectedObservation.sequence}`} style={{minHeight:44}} disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selected.conflict!.latest)} />
+            <Button label={`Keep observation ${selectedObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selected.conflict!.latest)} />
             {otherObservation && <>
               <label className="grid gap-2 text-sm">Other observed version<select aria-label="Other observed version" className="min-h-11 min-w-0 rounded border bg-background px-3 text-foreground" value={otherObservation.sequence} onChange={event=>setOtherSequence(Number(event.target.value))}>{otherObservations.map(ref=><option key={ref.sequence} value={ref.sequence}>After observation {ref.sequence}</option>)}</select></label>
-              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} style={{minHeight:44}} disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selected.conflict!.latest,otherObservation)} />
+              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selected.conflict!.latest,otherObservation)} />
             </>}
           </div>}
         </section>}
@@ -161,7 +161,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {preview?.inline ? <div className="max-h-[60vh] overflow-auto min-w-0"><DiffBlock tinted variant="inset" text={diffText(computeDiffRows(preview.before ?? "", preview.after ?? ""))} /></div> : preview && <p>Inline diff unavailable ({preview.reason}). Raw versions remain available below.</p>}
         {!previewError && selected && sessionId && turnId && <div className="flex flex-wrap gap-3 text-sm">{(["before", "after"] as const).map(side => selected[side]?.hash && <a key={side} className="inline-flex min-h-11 items-center underline" href={`${root.apiBase()}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${selected.sequence}/${side}`} download>Download {side} ({selected[side]?.bytes} bytes)</a>)}</div>}
         {selected && revert.action(selected.path)}
-        <Button label="Close" style={{ minHeight: 44 }} onClick={() => setSelected(null)} />
+        <Button label="Close" reach onClick={() => setSelected(null)} />
       </div>
     </Overlay>
     {revert.announcement}

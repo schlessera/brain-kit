@@ -1,7 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Button, IconButton, Callout, Label, ListRow, Placeholder } from "@schlessera/brain-ui-kit";
 import type { IconName, Tone } from "@schlessera/brain-ui-kit";
-import { useMediaQuery } from "../../hooks/use-media-query.js";
 
 /**
  * The Sessions list, rendered from props (S7, the `chat` directory). It is
@@ -115,8 +114,6 @@ export interface SessionListProps {
 const ITEM = '[data-session-item] > [role="button"], [data-session-item] [data-session-main] > [role="button"]';
 
 export function SessionList(p: SessionListProps) {
-  // New conversation is New chat at ≥1280: a 44px reach under a coarse pointer (#951).
-  const coarse = useMediaQuery("(any-pointer: coarse)", false);
   const working = p.working ?? [];
   const tracked = new Set(working.map((w) => w.id));
   const groups = p.groups
@@ -167,9 +164,8 @@ export function SessionList(p: SessionListProps) {
           size="md"
           center
           ariaDisabled={p.newWhy !== undefined}
-          // 44px under a coarse pointer, taken from the row's own padding, so
-          // the list below keeps its height.
-          {...(coarse ? { style: { minHeight: 44, marginBlock: -4 } } : {})}
+          // Reaches 44px past its paint under a coarse pointer (#951, #3252).
+          reach
           subtitle={p.newWhy}
           onClick={() => { if (p.newWhy === undefined) p.onNew(); }}
         />
