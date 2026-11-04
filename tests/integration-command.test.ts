@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { GitReservationStore, emptyReservation, reservationTransition, MAX_MS } from "../scripts/integration-reservation";
+import { GitReservationStore, emptyReservation, holderDigest, reservationTransition, MAX_MS } from "../scripts/integration-reservation";
 import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { receiptBlock, type CheckReceipt } from "../scripts/check-receipt";
 import { invocationChild } from "../scripts/test-invocation-child";
@@ -40,6 +40,8 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 const NOW = Date.parse("2026-07-12T00:00:00Z");
+// The acquiring process's holder secret (#3303); a second process knows the public id but not this.
+const TOKEN = "5".repeat(64), OTHER = "6".repeat(64);
 function startScenario(mode: string, beforeRead?: () => Promise<void>) {
   const owner: Scenario = { settled: false, beforeRead };
   scenarios.add(owner);
@@ -76,7 +78,7 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   setup(root, "push", "origin", `${base}:refs/heads/main`, `${synthetic}:refs/heads/proof-fixture`, `${squash}:refs/heads/squash-fixture`);
   const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head, base };
   const id = "1".repeat(32), store = new GitReservationStore(root), snapshot = store.read();
-  const state = mode === "missing" || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
+  const state = mode === "missing" || mode === "acquire" || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id, ...(mode.startsWith("legacy-") ? {} : { token: TOKEN }) }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
   expect(store.publish(snapshot, state)).toBe(true);
   if (mode.startsWith("red-main") || mode.startsWith("expedite-")) {
     const failure = { test: mode === "expedite-category" ? null : "tests/raft.test.ts", category: mode === "expedite-category" ? "browser" as const : "unit" as const,
@@ -168,8 +170,14 @@ fi`); chmodSync(shim, 0o755);
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
     Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
-  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id]), "--issues", delivered.join(","),
-    ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])], {
+  // `<renew|release>-<holder|none|wrong>` runs the lease command as a separate process with the same actor and public id.
+  const lifecycle = /^(?:legacy-)?(renew|release)-(holder|none|wrong)$/.exec(mode);
+  const presented = (kind: string) => kind === "holder" ? ["--token", TOKEN] : kind === "wrong" ? ["--token", OTHER] : [];
+  const command = mode === "acquire" ? ["acquire", "7"] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
+    : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id,
+      ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), "--issues", delivered.join(","),
+    ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
+  const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), ...command], {
     cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
   });
   owner.child = child;
@@ -191,12 +199,12 @@ fi`); chmodSync(shim, 0o755);
 }
 
 test("shared merge executable rejects missing, stale, wrong-owner and changed-candidate authority before merge", async () => {
-  for (const mode of ["missing", "wrong-id", "wrong-owner", "expired", "changed-base", "proof-failure", "wrong-checkout", "wrong-milestone", "revoked-during-proof", "changed-head", "missing-selection", "unexpected-skip"]) {
+  for (const mode of ["missing", "wrong-id", "wrong-owner", "wrong-token", "no-token", "expired", "changed-base", "proof-failure", "wrong-checkout", "wrong-milestone", "revoked-during-proof", "changed-head", "missing-selection", "unexpected-skip"]) {
     const result = await scenario(mode);
     expect(result.dispatched, `NO_MERGE_WITH_INVALID_AUTHORITY:${mode}`).toBe(false);
     expect(result.code, result.err).toBe(1);
     const expected = mode === "changed-base" ? "ordinary exact-main candidate" : mode === "proof-failure" ? "Complete current-candidate CI and contract proof required"
-      : mode === "changed-head" ? "mismatched candidate reservation" : mode === "missing-selection" ? "aggregate policy" : mode === "unexpected-skip" ? "Actual selected job inventory differs" : mode === "wrong-checkout" ? "Selected job ran a different checkout" : mode === "wrong-milestone" ? "Release milestone mismatch" : "Missing, expired, superseded";
+      : mode === "changed-head" ? "mismatched candidate reservation" : mode === "missing-selection" ? "aggregate policy" : mode === "unexpected-skip" ? "Actual selected job inventory differs" : mode === "wrong-checkout" ? "Selected job ran a different checkout" : mode === "wrong-milestone" ? "Release milestone mismatch" : mode === "no-token" ? "merge --lease needs --token" : "Missing, expired, superseded";
     expect(result.err).toContain(expected);
   }
 });
@@ -206,6 +214,44 @@ test("shared merge executable preserves actual proof and squash identities and r
   expect(result.code, result.err).toBe(2); expect(result.dispatched).toBe(true);
   expect(result.out).toContain('"merged":true'); expect(result.out).toContain("pending; inspect actual main jobs");
   expect(result.state.active).toBeNull(); expect(result.state.last?.action).toBe("release");
+});
+
+test("a second process with the holder's actor and public lease id cannot release or renew a live lease; the holder can (#3303)", async () => {
+  for (const command of ["release", "renew"] as const) {
+    for (const presented of ["none", "wrong"] as const) {
+      const foreign = await scenario(`${command}-${presented}`);
+      expect(foreign.code, `FOREIGN_${command.toUpperCase()}_REFUSED:${presented}: ${foreign.err}`).toBe(1);
+      expect(foreign.err).toContain(presented === "none" ? `${command} needs --token` : "Lease identity does not belong to this invocation");
+      expect(foreign.state.active, `LIVE_LEASE_KEPT:${command}-${presented}`).toMatchObject({ id: "1".repeat(32), expires: NOW + 300_000 });
+      expect(foreign.state.last?.action).toBe("acquire");
+    }
+    const holder = await scenario(`${command}-holder`);
+    expect(holder.code, holder.err).toBe(0);
+    expect(holder.state.last?.action).toBe(command);
+    if (command === "release") expect(holder.state.active).toBeNull();
+    else expect(holder.state.active).toMatchObject({ id: "1".repeat(32), expires: NOW + 300_000 });
+    expect(JSON.stringify(holder.state), "TOKEN_NEVER_PUBLISHED").not.toContain(TOKEN);
+  }
+});
+
+test("explicit acquire prints its holder token once and publishes only its digest; confirm prints none (#3303)", async () => {
+  const acquired = await scenario("acquire");
+  expect(acquired.code, acquired.err).toBe(0);
+  const printed = JSON.parse(acquired.out) as { acquired: { id: string }; token: string };
+  expect(printed.token).toMatch(/^[a-f0-9]{64}$/);
+  expect(acquired.state.active).toMatchObject({ id: printed.acquired.id, holder: holderDigest(printed.token) });
+  expect(JSON.stringify(acquired.state)).not.toContain(printed.token);
+  expect(acquired.out.split(printed.token)).toHaveLength(2);
+  const confirmed = await scenario("confirm-valid");
+  expect(confirmed.code, confirmed.err).toBe(2);
+  expect(confirmed.out).not.toContain('"token"');
+  expect(confirmed.state.last).toMatchObject({ action: "release", previous: { holder: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+});
+
+test("a lease acquired by pre-token code keeps the id-and-actor rule for its remaining term (#3303 cutover)", async () => {
+  const legacy = await scenario("legacy-release-none");
+  expect(legacy.code, legacy.err).toBe(0);
+  expect(legacy.state.active).toBeNull(); expect(legacy.state.last?.action).toBe("release");
 });
 
 test("confirmation executable renews automatically, releases cancellation and cannot renew beyond the cap", async () => {

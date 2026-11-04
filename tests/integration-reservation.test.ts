@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { assertLease, emptyReservation, GitReservationStore, LEASE_MS, MAX_MS, RENEW_MS,
+import { assertLease, emptyReservation, GitReservationStore, holderDigest, holderToken, LEASE_MS, MAX_MS, RENEW_MS,
   parseReservation, reservationServerTime, reservationTransition } from "../scripts/integration-reservation";
 
 const dirs: string[] = [];
@@ -43,6 +43,43 @@ test("revocation records actor, time, reason and identity and immediately fences
   expect(() => assertLease(state, "1".repeat(32), 101, candidate, 1)).toThrow();
   state = reservationTransition(state, acquire("2".repeat(32)), 202, 2);
   expect(() => reservationTransition(state, { kind: "release", id: "1".repeat(32) }, 101, 3)).toThrow("does not own");
+});
+
+test("only the holder token renews, releases or authorizes a live lease; revoke still fences it with a reason (#3303)", () => {
+  const token = holderToken(), other = holderToken(), id = "1".repeat(32);
+  expect(token).toMatch(/^[a-f0-9]{64}$/); expect(other).not.toBe(token);
+  let state = reservationTransition(emptyReservation(), { ...acquire(id), token }, 101, 0);
+  expect(state.active!.holder).toBe(holderDigest(token));
+  expect(JSON.stringify(state), "TOKEN_NEVER_IN_PUBLIC_STATE").not.toContain(token);
+  // Same actor, same public id: a second process without the secret is refused.
+  for (const presented of [undefined, other, "", "x".repeat(64)]) {
+    expect(() => reservationTransition(state, { kind: "release", id, token: presented }, 101, 1), `FOREIGN_RELEASE:${presented}`).toThrow("does not own");
+    expect(() => reservationTransition(state, { kind: "renew", id, token: presented }, 101, 1), `FOREIGN_RENEW:${presented}`).toThrow("wrong-holder");
+    expect(() => assertLease(state, id, 101, candidate, 1, presented)).toThrow("wrong-holder");
+  }
+  state = reservationTransition(state, { kind: "renew", id, token }, 101, RENEW_MS);
+  expect(state.active).toMatchObject({ holder: holderDigest(token), expires: RENEW_MS + LEASE_MS });
+  expect(assertLease(state, id, 101, candidate, RENEW_MS, token).id).toBe(id);
+  expect(reservationTransition(state, { kind: "release", id, token }, 101, RENEW_MS + 1).active).toBeNull();
+  const revoked = reservationTransition(state, { kind: "revoke", maintainer: true, reason: "Abandoned proof window" }, 202, RENEW_MS + 1);
+  expect(revoked.last).toMatchObject({ action: "revoke", reason: "Abandoned proof window", previous: { id, holder: holderDigest(token) } });
+  expect(() => reservationTransition(revoked, { kind: "renew", id, token }, 101, RENEW_MS + 2)).toThrow("No reservation");
+  // Once expired a lease needs no release: the next acquisition simply replaces it.
+  expect(reservationTransition(state, { ...acquire("2".repeat(32)), token: other }, 202, state.active!.expires).active!.holder).toBe(holderDigest(other));
+  expect(() => reservationTransition(emptyReservation(), { ...acquire(id), token: "short" }, 101, 0)).toThrow("holder token");
+});
+
+test("a pre-token lease keeps the id-and-actor rule, and a malformed holder digest fails closed (#3303 cutover)", () => {
+  const id = "1".repeat(32);
+  const legacy = reservationTransition(emptyReservation(), acquire(id), 101, 0);
+  expect(Object.hasOwn(legacy.active!, "holder")).toBe(false);
+  expect(reservationTransition(legacy, { kind: "renew", id }, 101, 1).active!.expires).toBe(1 + LEASE_MS);
+  expect(reservationTransition(legacy, { kind: "release", id }, 101, 1).active).toBeNull();
+  const held = reservationTransition(emptyReservation(), { ...acquire(id), token: holderToken() }, 101, 0);
+  for (const holder of ["", "A".repeat(64), "a".repeat(63), 7, null]) {
+    expect(() => parseReservation(JSON.stringify({ ...held, active: { ...held.active, holder } })), `HOLDER:${String(holder)}`).toThrow("lease");
+  }
+  expect(parseReservation(JSON.stringify(held))).toEqual(held);
 });
 
 test("the authoritative clock rejects missing, stale, malformed and failed HTTP evidence", () => {
