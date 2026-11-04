@@ -1,7 +1,7 @@
 /** Exact-candidate reservation lifecycle and cooperative, proof-checked merge. */
 import { randomUUID } from "node:crypto";
 import { scanText } from "./check-leakage";
-import { GitReservationStore, assertLease, holderToken, holds, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
+import { GitReservationStore, assertLease, holderToken, holds, LEASE_MS, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
 import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
 import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from "./red-main";
@@ -9,6 +9,17 @@ import { isAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
 import type { API } from "./proof-reuse";
+
+/**
+ * A refusal no retry can cure: the candidate changed or the reservation no longer
+ * holds this lease. Anything else on the renewal or proof-poll path (a push,
+ * ls-remote or API transport error, an HTTP 5xx, an unavailable clock) is
+ * retried on the next tick while the lease is provably still live (#3302).
+ */
+class Fatal extends Error {}
+const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).trim().split("\n").slice(0, 3).join(" | ");
+/** Never act on a lease that may have expired: give up one renewal interval before it could. */
+const SAFETY_MS = LEASE_MS - RENEW_MS;
 
 async function gh(...args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -22,6 +33,10 @@ if (import.meta.main) {
   let own: Lease | undefined, token: string | undefined, store: GitReservationStore | undefined;
   let actor = 0, repository = "";
   let timer: ReturnType<typeof setInterval> | undefined, pending = Promise.resolve(), lost: unknown;
+  // Local monotonic time until which the owned lease is certainly live, and of the last successful renewal.
+  let liveUntil = 0, renewedAt = 0, pollFailingSince: number | undefined;
+  /** `started` precedes the server clock read, so the local deadline never outlasts the lease. */
+  const held = (lease: Lease, started: number, serverNow: number) => { liveUntil = started + lease.expires - serverNow; renewedAt = started; };
   const clock = async () => reservationServerTime(await gh("api", "--include", "-H", "Cache-Control: no-cache",
     `repos/${repository}/git/ref/heads/main?integration_clock=${randomUUID()}`));
   const api: API = { async json(path) { return JSON.parse(await gh("api", `repos/${repository}/${path}`)); },
@@ -35,8 +50,10 @@ if (import.meta.main) {
   }
   async function change(operation: Operation) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const snapshot = store!.read(), next = reservationTransition(snapshot.state, operation, actor, await clock());
-      if (scanText("coordination", JSON.stringify(next)).length) throw new Error("Public coordination state failed the leakage gate");
+      const snapshot = store!.read(), now = await clock();
+      let next: ReturnType<typeof reservationTransition>;
+      try { next = reservationTransition(snapshot.state, operation, actor, now); } catch (error) { throw new Fatal(describe(error)); }
+      if (scanText("coordination", JSON.stringify(next)).length) throw new Fatal("Public coordination state failed the leakage gate");
       if (store!.publish(snapshot, next)) return next;
       await Bun.sleep(100 * 2 ** attempt);
     }
@@ -44,13 +61,15 @@ if (import.meta.main) {
   }
   async function renew() {
     if (!own) throw new Error("No owned reservation");
-    if (!sameCandidate(await candidate(own.candidate.pr), own.candidate)) throw new Error("Candidate head/base changed; reacquisition and new confirmation required");
+    const started = performance.now();
+    if (!sameCandidate(await candidate(own.candidate.pr), own.candidate)) throw new Fatal("Candidate head/base changed; reacquisition and new confirmation required");
     const state = await change({ kind: "renew", id: own.id, token }); own = state.active!;
+    held(own, started, state.updated);
   }
   async function acquire(desired: Candidate) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const secret = holderToken();
-      try { const lease = (await change({ kind: "acquire", candidate: desired, token: secret })).active!; token = secret; return lease; }
+      const secret = holderToken(), started = performance.now();
+      try { const state = await change({ kind: "acquire", candidate: desired, token: secret }), lease = state.active!; token = secret; held(lease, started, state.updated); return lease; }
       catch (error) {
         if (!String(error).includes("Integration busy:") || attempt === 2) throw error;
         console.error(String(error)); await Bun.sleep(1000 * 2 ** attempt);
@@ -90,8 +109,31 @@ if (import.meta.main) {
       if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr).trim());
     } catch (error) { console.error(`Expedited fix merged but its record is incomplete; record it by hand: ${String(error)}`); }
   }
+  /** One renewal tick: a transient failure is logged and retried next tick until the safety margin (#3302). */
+  async function tick() {
+    if (lost) return;
+    try { await renew(); }
+    catch (error) {
+      if (error instanceof Fatal) { lost = error; return; }
+      const since = Math.round((performance.now() - renewedAt) / 1000);
+      console.error(`Lease renewal failed ${since}s after the last success; retrying next tick: ${describe(error)}`);
+      if (performance.now() >= liveUntil - RENEW_MS) lost = new Error(`No lease renewal succeeded for ${since}s (safety margin ${SAFETY_MS / 1000}s before possible expiry); last error: ${describe(error)}`);
+    }
+  }
   function heartbeat() {
-    timer = setInterval(() => { pending = pending.then(async () => { if (!lost) try { await renew(); } catch (error) { lost = error; } }); return pending; }, RENEW_MS);
+    timer = setInterval(() => { pending = pending.then(tick); return pending; }, RENEW_MS);
+  }
+  /** A proof read that fails transiently is retried next tick; a refusal is not, and polling gives up with the lease's margin. */
+  async function poll<T>(read: () => Promise<T>): Promise<T | undefined> {
+    try { const value = await read(); pollFailingSince = undefined; return value; }
+    catch (error) {
+      if (error instanceof Fatal) throw error;
+      pollFailingSince ??= performance.now();
+      const failing = Math.round((performance.now() - pollFailingSince) / 1000);
+      console.error(`Proof poll failed (failing for ${failing}s); retrying next tick: ${describe(error)}`);
+      if (failing * 1000 >= SAFETY_MS) throw new Error(`Proof polls failed for ${failing}s; last error: ${describe(error)}`);
+      return undefined;
+    }
   }
   async function stopHeartbeat() { if (timer) clearInterval(timer); timer = undefined; await pending; }
   async function milestones(pr: number, issueRefs: string[]) {
@@ -218,7 +260,9 @@ if (import.meta.main) {
       if (state.active?.holder !== undefined && token === undefined) throw new Error(`${command} needs --token <token>, printed once by the acquire that took this lease; another holder's lease ends only by expiry or revoke`);
       if (!state.active || state.active.id !== target || state.active.actor !== actor || !holds(state.active, token)) throw new Error("Lease identity does not belong to this invocation");
       own = state.active;
-      if (command === "renew") { await renew(); console.log(JSON.stringify(own)); own = undefined; }
+      // A failed renew exits nonzero and leaves the lease for the next renewal or expiry;
+      // only an explicit release (or confirm/merge's own completion) ends it (#3302).
+      if (command === "renew") try { await renew(); console.log(JSON.stringify(own)); } finally { own = undefined; }
       else { console.log(JSON.stringify(await change({ kind: "release", id: own.id, token }))); own = undefined; }
     } else if (["acquire", "confirm", "merge"].includes(command ?? "")) {
       if (!/^[1-9]\d*$/.test(target ?? "") || !Number.isSafeInteger(Number(target))) throw new Error("A PR number is required");
@@ -242,7 +286,8 @@ if (import.meta.main) {
         const state = store.read().state;
         if (state.active?.id === lease && state.active.holder !== undefined && token === undefined) throw new Error("merge --lease needs --token <token>, printed once by the acquire that took this lease");
         if (state.active?.id === lease && state.active.actor === actor && holds(state.active, token)) own = state.active;
-        assertLease(state, lease, actor, desired, await clock(), token);
+        const started = performance.now(), now = await clock();
+        held(assertLease(state, lease, actor, desired, now, token), started, now);
         await merge(issues, fixesRun);
       } else if (command === "confirm" && fixesRun !== undefined) {
         own = await acquire(desired);
@@ -260,9 +305,9 @@ if (import.meta.main) {
         if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
         await gh("pr", "ready", String(desired.pr), "--repo", repository);
         while (!lost) {
-          const { baseProbe, headProbe, feedback } = await expeditedEvidence(desired, fixesRun, after);
-          const pending = [baseProbe, headProbe].some(probe => probe?.status !== "completed") || !feedback || feedback.changeset === null ||
-            (feedback.changeset === "success" && feedback.verify === null);
+          const evidence = await poll(() => expeditedEvidence(desired, fixesRun, after));
+          const pending = !evidence || [evidence.baseProbe, evidence.headProbe].some(probe => probe?.status !== "completed") || !evidence.feedback ||
+            evidence.feedback.changeset === null || (evidence.feedback.changeset === "success" && evidence.feedback.verify === null);
           if (!pending) { await stopHeartbeat(); await merge(issues, fixesRun, after); break; }
           await Bun.sleep(RENEW_MS);
         }
@@ -281,13 +326,16 @@ if (import.meta.main) {
           if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
           await gh("pr", "ready", String(desired.pr), "--repo", repository);
           while (!lost) {
-            const run = await latestIntegrationRun(api, "ci.yml", desired);
-            if (run?.id > (previousRun?.id ?? 0) && run.status === "completed") {
+            const observed = await poll(async () => {
+              const run = await latestIntegrationRun(api, "ci.yml", desired);
+              if (!(run?.id > (previousRun?.id ?? 0) && run.status === "completed")) return null;
               const jobs = await api.json(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
               const metadata = jobs.jobs?.find((job: { name: string }) => job.name === "changeset");
               const log = metadata ? await api.log(metadata.id) : "";
-              if (/"cadence":\s*"(?:draft|feedback)"/.test(log)) { await Bun.sleep(RENEW_MS); continue; }
-              if (run.conclusion !== "success") throw new Error(`Candidate proof ${run.conclusion}; reservation released without retry`);
+              return /"cadence":\s*"(?:draft|feedback)"/.test(log) ? null : run;
+            });
+            if (observed) {
+              if (observed.conclusion !== "success") throw new Error(`Candidate proof ${observed.conclusion}; reservation released without retry`);
               await stopHeartbeat(); await merge(issues); break;
             }
             await Bun.sleep(RENEW_MS);

@@ -1320,7 +1320,18 @@ lasts five minutes, renews every minute and expires absolutely sixty minutes
 after acquisition, including runner queue, proof and merge time. Renewal never
 resets that cap. A changed head/base, terminal failure/cancellation, abandonment
 or delivery releases ownership; a stopped process loses it after its last
-five-minute term. An expired or superseded identity cannot renew itself or
+five-minute term. A transient renewal failure does not
+([#3302](https://github.com/schlessera/brain-kit/issues/3302)). Transient means a push or ls-remote
+transport error, an HTTP 5xx, or an unavailable clock or candidate read. Each
+failed attempt is logged and retried on the next minute's tick. `confirm` gives
+up only when the candidate changed, when the reservation no longer holds its
+lease, or when no renewal has succeeded for four minutes, one renewal interval
+before the lease could expire. The deadline is measured locally from before the
+last successful renewal's clock read, so it never outlasts the lease. A failed
+read while polling for candidate proof is retried the same way, for at most
+four minutes. A failed standalone `renew <id>` exits nonzero and leaves the
+lease in place for the next renewal or for expiry. Only an explicit `release`,
+or `confirm`/`merge` finishing or cleaning up, releases a lease. An expired or superseded identity cannot renew itself or
 release a successor.
 
 Only the holding process can renew, release or merge under a live lease
@@ -1532,7 +1543,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:66-70`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:85-89`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
