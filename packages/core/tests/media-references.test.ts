@@ -168,38 +168,72 @@ describe("Q1 bounds: admitted at the boundary, refused one past it", () => {
   const ARGOS = "# Argos\n";
   const NOTE = "![](ithaca/harbour-dawn.jpg)\n".length;
   const TOTAL = ARGOS.length + NOTE * 2;
+  /** An admitted scan is the whole inventory: every note opened, every reference found. */
+  const COMPLETE = { status: "complete", notes: 3, bytes: TOTAL };
+  const inventory = (scan: ReturnType<typeof scanMediaReferences>) =>
+    scan.status === "complete" ? scan.references.get(HARBOUR)!.map((r) => [r.note, r.kind, r.line]).sort() : scan;
+  const BOTH = [["places/ithaca.md", "image", 1], ["places/sparta.md", "image", 1]];
 
   test("notes", () => {
     const root = three();
-    expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ notes: 3 }) }).status).toBe("complete");
+    const at = scanMediaReferences(root, [HARBOUR], { limits: limits({ notes: 3 }) });
+    expect(at, "NOTES_BOUNDARY").toMatchObject(COMPLETE);
+    expect(inventory(at), "NOTES_BOUNDARY_INVENTORY").toEqual(BOTH);
     expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ notes: 2 }) })).toMatchObject({ status: "refused", refusal: { code: "inventory-too-large", limit: "notes", effective: 2, observed: 3 } });
   });
 
   test("noteBytes", () => {
     const root = three();
     const at = scanMediaReferences(root, [HARBOUR], { limits: limits({ noteBytes: TOTAL, perNote: NOTE }) });
-    expect(at).toMatchObject({ status: "complete", bytes: TOTAL });
+    expect(at, "NOTE_BYTES_BOUNDARY").toMatchObject(COMPLETE);
+    expect(inventory(at), "NOTE_BYTES_BOUNDARY_INVENTORY").toEqual(BOTH);
     expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ noteBytes: TOTAL - 1, perNote: NOTE }) })).toMatchObject({ status: "refused", refusal: { code: "inventory-too-large", limit: "noteBytes", effective: TOTAL - 1 } });
   });
 
   test("perNote", () => {
     const root = three();
-    expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ perNote: NOTE }) }).status).toBe("complete");
+    const at = scanMediaReferences(root, [HARBOUR], { limits: limits({ perNote: NOTE }) });
+    expect(at, "PER_NOTE_BOUNDARY").toMatchObject(COMPLETE);
+    expect(inventory(at), "PER_NOTE_BOUNDARY_INVENTORY").toEqual(BOTH);
     expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ perNote: NOTE - 1 }) })).toMatchObject({ status: "refused", refusal: { code: "inventory-too-large", limit: "perNote", effective: NOTE - 1, observed: NOTE } });
   });
 
-  test("scanTime, on the injected monotonic clock", () => {
+  test("scanTime, on the injected monotonic clock: admitted at exactly the limit, refused one millisecond past it", () => {
     const root = three();
+    // The scan starts at 0, and every later reading is `elapsed`: each check sees exactly that much time gone.
+    const frozen = (elapsed: number) => { let first = true; return () => (first ? ((first = false), 0) : elapsed); };
+    const at = scanMediaReferences(root, [HARBOUR], { limits: limits({ scanTime: 20 }), now: frozen(20) });
+    expect(at, "SCAN_TIME_BOUNDARY").toMatchObject(COMPLETE);
+    expect(inventory(at), "SCAN_TIME_BOUNDARY_INVENTORY").toEqual(BOTH);
+    expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ scanTime: 20 }), now: frozen(21) }), "SCAN_TIME_PLUS_ONE")
+      .toMatchObject({ status: "refused", refusal: { code: "inventory-too-large", limit: "scanTime", effective: 20, observed: 21 } });
+    // A clock that keeps running past the limit mid-scan is refused too, never reported partly scanned.
     const ticking = () => { let t = 0; return () => (t += 10); };
-    const at = scanMediaReferences(root, [HARBOUR], { limits: limits({ scanTime: 1000 }), now: ticking() });
-    expect(at.status).toBe("complete");
-    expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ scanTime: 20 }), now: ticking() })).toMatchObject({ status: "refused", refusal: { code: "inventory-too-large", limit: "scanTime", effective: 20 } });
+    expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ scanTime: 20 }), now: ticking() })).toMatchObject({ status: "refused", refusal: { limit: "scanTime", effective: 20 } });
   });
 
   test("refsPerFinding", () => {
     const root = three();
-    expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ refsPerFinding: 2 }) })).toMatchObject({ status: "complete" });
+    const at = scanMediaReferences(root, [HARBOUR], { limits: limits({ refsPerFinding: 2 }) });
+    expect(at, "REFS_BOUNDARY").toMatchObject(COMPLETE);
+    expect(inventory(at), "REFS_BOUNDARY_INVENTORY").toEqual(BOTH);
     expect(scanMediaReferences(root, [HARBOUR], { limits: limits({ refsPerFinding: 1 }) })).toMatchObject({ status: "refused", refusal: { code: "inventory-too-large", limit: "refsPerFinding", effective: 1, observed: 2 } });
+  });
+
+  test("the defaults are the Q1 A values, written out rather than read back", () => {
+    expect({ ...DEFAULT_MEDIA_REFERENCE_LIMITS }, "Q1_DEFAULTS").toEqual({
+      notes: 50000,
+      noteBytes: 268435456,
+      perNote: 4194304,
+      scanTime: 20000,
+      refsPerFinding: 500,
+      rewrittenNotes: 200,
+      preview: 1048576,
+    });
+    expect(Object.isFrozen(DEFAULT_MEDIA_REFERENCE_LIMITS)).toBe(true);
+    // An unset host value is the defaults, and so is a scan given no limits.
+    expect(mediaReferenceLimits(undefined)).toEqual({ ...DEFAULT_MEDIA_REFERENCE_LIMITS });
+    expect(scanMediaReferences(brain(), [HARBOUR]).limits, "Q1_DEFAULTS_SCAN").toBe(DEFAULT_MEDIA_REFERENCE_LIMITS);
   });
 
   test("trusted host limits are validated, partial, and refused rather than guessed", () => {
