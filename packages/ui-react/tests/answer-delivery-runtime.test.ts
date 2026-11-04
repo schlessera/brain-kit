@@ -335,54 +335,57 @@ async function waitForState(page: Page, requestId: string, wanted: string, timeo
 const online = (page: Page) => page.evaluate(() => window.dispatchEvent(new Event("online")));
 
 describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
-  for (const theme of ["dark", "light"] as const) {
-    for (const width of [320, 1280]) {
-      test(`1887: Other has explicit current-text Submit at ${width}px in ${theme}`, async () => {
-        const { context, net } = await newContext(width === 320);
-        try {
-          const page = await openPage(context);
-          // The delivery harness is otherwise deliberately unstyled. These
-          // layout cases need the real built consumer and kit stylesheets.
-          for (const css of ["../../ui-kit/dist/styles.css", "../dist/styles.css"]) {
-            await page.addStyleTag({ content: await Bun.file(resolve(import.meta.dir, css)).text() });
-          }
-          await page.setViewportSize({ width, height: 900 });
-          await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-          expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), "OTHER_LAYOUT_USES_REAL_THEME").toBe(theme);
-          const id = await ask(page, "ask_user");
-          await page.getByRole("radio", { name: /Other/ }).click();
-          const field = page.getByRole("textbox", { name: "Your own answer", exact: true });
-          const submit = page.getByRole("button", { name: "Submit", exact: true });
-          await field.fill("Scheria — Σχερίη");
-          expect(await submit.count(), "OTHER_CUSTOM_TEXT_HAS_EXPLICIT_SUBMIT").toBe(1);
-          await field.fill("   ");
-          expect(await submit.getAttribute("aria-disabled"), "BLANK_OTHER_SUBMIT_DISABLED").toBe("true");
-          await field.press("Enter");
-          expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(0);
-          await field.fill("Scheria — Σχερίη");
-          // Editing survives switching away and back; the predefined choice
-          // replaces Other in a single-select without submitting either draft.
-          await page.getByRole("radio", { name: new RegExp(HARBOUR) }).click();
-          expect(await field.count()).toBe(0);
-          await page.getByRole("radio", { name: /Other/ }).click();
-          expect(await field.inputValue()).toBe("Scheria — Σχερίη");
-          await field.fill("Aeaea — Αἰαίη");
-          await field.focus();
-          await page.keyboard.press("Tab");
-          await page.keyboard.press("Tab");
-          expect(await submit.evaluate(el => el === document.activeElement), "OTHER_SUBMIT_KEYBOARD_REACHABLE").toBe(true);
-          expect(await submit.evaluate(el => el.getBoundingClientRect().height), "OTHER_SUBMIT_TOUCH_HEIGHT").toBeGreaterThanOrEqual(44);
-          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "OTHER_CARD_NO_OVERFLOW").toBe(true);
-          if (width === 320) await submit.tap();
-          else await submit.press("Space");
-          await waitForState(page, id, "answered");
-          expect(settlements.get(id), "OTHER_CURRENT_TEXT_SETTLES_ORIGINAL_REQUEST_ONCE").toEqual([
-            { answers: { "Which harbour first?": "Aeaea — Αἰαίη" } },
-          ]);
-          expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(1);
-        } finally { await context.close(); }
-      });
-    }
+  // Theme selects only colour tokens and `color-scheme`; no Other card
+  // geometry, focus or settlement path branches on it. The paired cells keep
+  // both painted themes and both widths (touch tap at 320px, Space at 1280px).
+  // `Conversation/Answer theme` owns the consumer card's paint in both themes
+  // (docs/process/theme-parity.md#answer-and-journal-coverage-runtime-cells).
+  for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
+    test(`1887: Other has explicit current-text Submit at ${width}px in ${theme}`, async () => {
+      const { context, net } = await newContext(width === 320);
+      try {
+        const page = await openPage(context);
+        // The delivery harness is otherwise deliberately unstyled. These
+        // layout cases need the real built consumer and kit stylesheets.
+        for (const css of ["../../ui-kit/dist/styles.css", "../dist/styles.css"]) {
+          await page.addStyleTag({ content: await Bun.file(resolve(import.meta.dir, css)).text() });
+        }
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+        expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), "OTHER_LAYOUT_USES_REAL_THEME").toBe(theme);
+        const id = await ask(page, "ask_user");
+        await page.getByRole("radio", { name: /Other/ }).click();
+        const field = page.getByRole("textbox", { name: "Your own answer", exact: true });
+        const submit = page.getByRole("button", { name: "Submit", exact: true });
+        await field.fill("Scheria — Σχερίη");
+        expect(await submit.count(), "OTHER_CUSTOM_TEXT_HAS_EXPLICIT_SUBMIT").toBe(1);
+        await field.fill("   ");
+        expect(await submit.getAttribute("aria-disabled"), "BLANK_OTHER_SUBMIT_DISABLED").toBe("true");
+        await field.press("Enter");
+        expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(0);
+        await field.fill("Scheria — Σχερίη");
+        // Editing survives switching away and back; the predefined choice
+        // replaces Other in a single-select without submitting either draft.
+        await page.getByRole("radio", { name: new RegExp(HARBOUR) }).click();
+        expect(await field.count()).toBe(0);
+        await page.getByRole("radio", { name: /Other/ }).click();
+        expect(await field.inputValue()).toBe("Scheria — Σχερίη");
+        await field.fill("Aeaea — Αἰαίη");
+        await field.focus();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Tab");
+        expect(await submit.evaluate(el => el === document.activeElement), "OTHER_SUBMIT_KEYBOARD_REACHABLE").toBe(true);
+        expect(await submit.evaluate(el => el.getBoundingClientRect().height), "OTHER_SUBMIT_TOUCH_HEIGHT").toBeGreaterThanOrEqual(44);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "OTHER_CARD_NO_OVERFLOW").toBe(true);
+        if (width === 320) await submit.tap();
+        else await submit.press("Space");
+        await waitForState(page, id, "answered");
+        expect(settlements.get(id), "OTHER_CURRENT_TEXT_SETTLES_ORIGINAL_REQUEST_ONCE").toEqual([
+          { answers: { "Which harbour first?": "Aeaea — Αἰαίη" } },
+        ]);
+        expect(net.frames.filter(f => f.dir === "up" && f.type === "ask_user_response")).toHaveLength(1);
+      } finally { await context.close(); }
+    });
   }
 
   test("1887: multi-select Other retains predefined picks and refuses composing Enter", async () => {
