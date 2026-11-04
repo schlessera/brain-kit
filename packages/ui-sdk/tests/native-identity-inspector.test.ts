@@ -82,6 +82,9 @@ test("an interrupted or timed-out inspection is unknown and the next one starts 
   // Opening a FIFO for reading blocks until a writer appears: the loop program waits.
   await expect(inspect.run("loop", fifo), "NATIVE_INSPECTOR_TIMEOUT_UNKNOWN").rejects.toMatchObject({ code: "unknown", message: expect.stringContaining("operation timeout exceeded") });
   const controller = new AbortController(), pending = inspect.run("loop", fifo, controller.signal);
+  // Kept real time (#3332): the abort must land while the interpreter is blocked
+  // in the kernel's FIFO open. Nothing portable reports that state (the wait
+  // channel is not readable on every host), so the run gets 100 ms to reach it.
   setTimeout(() => controller.abort(new Error("Odysseus stopped the inspection")), 100);
   await expect(pending, "NATIVE_INSPECTOR_ABORT_UNKNOWN").rejects.toMatchObject({ code: "unknown", message: expect.stringContaining("Odysseus stopped the inspection") });
   expect(lastLine((await inspect.run("root", root)).errors)).toBe("RuntimeError: not a subvolume root");

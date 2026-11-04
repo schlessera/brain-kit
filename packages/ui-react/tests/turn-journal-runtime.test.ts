@@ -98,7 +98,7 @@ async function scene(width = 1280, theme = "dark", replay = false, conflict = fa
 // Keep native widths, live/replay, zoom, keyboard focus, HTTP download bytes and
 // real Revert/Undo file effects here with deterministic theme selection.
 const journalRuntimeCells = [[320, "dark"], [1280, "light"]] as const;
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
+for (const [width, theme] of journalRuntimeCells) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
   const { context, page, outside } = await scene(width, theme);
   let release: (() => void) | undefined, hold = false, fail = false, reads = 0;
   let started: (() => void) | undefined;

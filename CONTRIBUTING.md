@@ -288,9 +288,13 @@ available, with the pinned image and diagnostics unchanged.
 
 Browser shards use a committed per-project/file timing table, not live CI
 artifacts or a fixed allowlist. Unknown specs get a positive one-second weight;
-invalid tables fail visibly. Refresh explicitly from two successful browser jobs:
-`bun scripts/refresh-browser-costs.ts <run-id> <attempt>`. Review the source
-head/checkout/tree, job IDs and seconds/median metadata alongside the table.
+invalid tables fail visibly. Refresh explicitly from one successful CI run
+attempt in which every shard of the domain, as configured in `PROOF_SHARDS`
+(`scripts/proof-shards.ts`), ran fresh and succeeded:
+`bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
+(browser by default). Cancelled, partial or retained-only proof supplies no
+measurements. Review the source head/checkout/tree, job IDs and seconds/median
+metadata alongside the table.
 Unsharded discovery is unchanged and existing browser file concurrency is kept.
 
 `bun run test:browser` runs every configured browser project in the pinned

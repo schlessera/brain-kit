@@ -9,7 +9,7 @@ import { ConsumerDocument, consumerViewport, painted, bounds, accessible, target
 
 const turnId = "odysseus-journal";
 const skill = ".claude/skills/voyage-log/SKILL.md";
-const summary: TurnJournalSummary = { state: "complete", changedFiles: 3, steeringFiles: 1, keptFiles: 3, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: true, observedAt: Date.UTC(2026, 6, 12) };
+const summary: TurnJournalSummary = { state: "complete", changedFiles: 3, steeringFiles: 1, keptFiles: 3, costUsd: null, costIsEstimate: null, profile: "governed", actor: "interactive", model: null, policyHash: null, sharedAttribution: true, observedAt: Date.UTC(2026, 6, 12), configurationCoverage: "incomplete" };
 const version = { kind: "file" as const, mode: 420, bytes: 32, hash: "odysseus-retained", ignored: false };
 const observations = [3, 4].map(sequence => ({ turnId, sequence, side: "after" as const }));
 const changes: TurnJournalChange[] = [
@@ -17,7 +17,7 @@ const changes: TurnJournalChange[] = [
   { sequence: 2, path: "notes/voyage.md", scope: "", class: "content", actor: "agent", before: version, after: version, overlappingTurnIds: [] },
   ...observations.map(({ sequence }) => ({ sequence, path: "notes/crossing.md", scope: "", class: "content" as const, actor: "agent" as const, before: version, after: version, overlappingTurnIds: ["athena-journal"], conflict: { versions: observations, latest: observations[1]! } })),
 ];
-const details: TurnJournalDetails = { turnId, sessionId: "ithaca", summary, changes, missing: [], outwardActions: ["approved", "declined"].map((decision, i) => ({ id: i + 1, at: summary.observedAt!, tool: "Bash", action: "git_push", target: "github.com/odysseus/voyage.git", decision: decision as "approved" | "declined", historyRewrite: false, revertible: false })) };
+const details: TurnJournalDetails = { turnId, sessionId: "ithaca", summary, changes, missing: ["ithaca", "pylos"].map(name => ({ path: `workspaces/${name}/brain.config.ts`, reason: "configuration_inputs_not_fully_identified" as const })), outwardActions: ["approved", "declined"].map((decision, i) => ({ id: i + 1, at: summary.observedAt!, tool: "Bash", action: "git_push", target: "github.com/odysseus/voyage.git", decision: decision as "approved" | "declined", historyRewrite: false, revertible: false })) };
 
 function JournalTheme({ onOperation }: { width: number; onOperation: (body: unknown) => void }) {
   const [root] = useState(() => {
@@ -108,6 +108,21 @@ export const Phone = meta.story({
       await expect(screen.getByRole("button", { name: "Undo" })).toBeVisible();
     }
     await expect(args.onOperation).toHaveBeenCalledTimes(3);
+    // The configuration coverage family's runtime cells are 320px dark and
+    // 1280px light; this owns its badge and inventory paint in both themes.
+    const badge = disclosure.querySelector<HTMLElement>("[data-disclosure-badge]")!;
+    await expect(badge.getBoundingClientRect().width, "coverage badge is visible").toBeGreaterThanOrEqual(13);
+    await expect(badge.getBoundingClientRect().right, "coverage badge outside truncation").toBeLessThanOrEqual(disclosure.getBoundingClientRect().right);
+    const coverage = screen.getByRole("button", { name: "Configuration coverage incomplete · 2 inputs not fully identified" });
+    await expect(coverage.getBoundingClientRect().height, "coverage disclosure target height").toBeGreaterThanOrEqual(44);
+    coverage.focus(); await userEvent.keyboard("{Enter}");
+    const inventory = await screen.findByRole("region", { name: "Configuration inputs not fully identified, 2" });
+    await expect(within(inventory).getAllByRole("listitem")).toHaveLength(2);
+    const search = screen.getByRole("searchbox", { name: "Find a path" });
+    await expect(search.getBoundingClientRect().height, "coverage search target height").toBeGreaterThanOrEqual(44);
+    await userEvent.type(search, "pylos");
+    await bounds(inventory, "coverage inventory");
+    await accessible(coverage.closest<HTMLElement>("[data-turn-journal]")!);
     // Fixture receipts establish UI dispatch only, never real file restoration.
   },
 });

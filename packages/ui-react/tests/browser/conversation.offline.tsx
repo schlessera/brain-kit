@@ -1258,7 +1258,8 @@ for (const reason of ["disconnected", "provider_closed"] as const) test(`recover
   expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
   expect(s.client.state.getState().text).toBe("Ask Nestor about the ships");
   // Withhold the replacement receipt: consent alone cannot reopen capture.
-  await new Promise(resolve => setTimeout(resolve, 30));
+  // The closure was handled as it was delivered, and a capture opens the
+  // microphone synchronously, so no window is needed to see that none started.
   assertPrivate();
   expect(mic.opens()).toBe(1);
   s.opened(2);

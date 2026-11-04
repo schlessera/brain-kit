@@ -94,17 +94,20 @@ test("held acquisition prevents collector launch and held finish prevents servin
     const held = queue.call("slow", "Ithaca acquire", 300);
     let answered = false;
     const starting = Promise.resolve(f.storage.start(f.owner.id, true)).then(value => { answered = true; return value; });
-    await Bun.sleep(20);
-    expect(answered, "STORAGE_SCAN_START_WAITS_FOR_LEASE").toBe(false);
-    expect(collectorCalls, "STORAGE_SCAN_NO_COLLECTOR_BEFORE_LEASE_COMMIT").toBe(0);
+    // Each commit below is queued on the write worker behind a hold, whose
+    // replies arrive in order: nothing that follows it has run when the hold answers.
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.db.query("SELECT job_id FROM storage_scan_leases").get()).toBeNull();
-    await held; await starting;
+    const leasing = await held.then(() => ({ answered, collectorCalls }));
+    expect(leasing.answered, "STORAGE_SCAN_START_WAITS_FOR_LEASE").toBe(false);
+    expect(leasing.collectorCalls, "STORAGE_SCAN_NO_COLLECTOR_BEFORE_LEASE_COMMIT").toBe(0);
+    await starting;
     await enteredFinish.promise;
-    await Bun.sleep(20);
-    expect(collectorCalls, "STORAGE_SCAN_COLLECTOR_REALLY_RAN").toBe(1);
-    expect(leaseSeen, "STORAGE_SCAN_COLLECTOR_SEES_COMMITTED_LEASE").toBe(true);
-    expect(f.storage.status(f.owner.id).snapshot, "STORAGE_SCAN_NO_RESULT_BEFORE_FINISH_COMMIT").toBeNull();
-    await heldFinish; await f.storage.idle();
+    const finishing = await heldFinish!.then(() => ({ collectorCalls, leaseSeen, snapshot: f.storage.status(f.owner.id).snapshot }));
+    expect(finishing.collectorCalls, "STORAGE_SCAN_COLLECTOR_REALLY_RAN").toBe(1);
+    expect(finishing.leaseSeen, "STORAGE_SCAN_COLLECTOR_SEES_COMMITTED_LEASE").toBe(true);
+    expect(finishing.snapshot, "STORAGE_SCAN_NO_RESULT_BEFORE_FINISH_COMMIT").toBeNull();
+    await f.storage.idle();
     expect(f.storage.status(f.owner.id).snapshot, "STORAGE_SCAN_RESULT_AFTER_FINISH_COMMIT").not.toBeNull();
     expect(f.db.query("SELECT job_id FROM storage_scan_leases").get()).toEqual({ job_id: null });
   } finally { collect.mockRestore(); finish.mockRestore(); await f.close(); }
@@ -125,12 +128,13 @@ test("collector completion waits for registration and unregister commits", async
         unregister(pid) { registeredBeforeUnregister = registered; unregistration = queue.call("slow", "Ithaca unregister", 300); unregistering.resolve(); return f.shared.unregister(scan, pid); },
       },
     }).then(value => { done = true; return value; });
-    await registering.promise; await Bun.sleep(20);
-    expect(done, "STORAGE_SCAN_COLLECTOR_WAITS_FOR_REGISTER").toBe(false);
-    await registration; await unregistering.promise; await Bun.sleep(20);
+    // Each commit is queued on the write worker behind a hold, whose replies
+    // arrive in order: the collector has not completed when the hold answers.
+    await registering.promise;
+    expect(await registration!.then(() => done), "STORAGE_SCAN_COLLECTOR_WAITS_FOR_REGISTER").toBe(false);
+    await unregistering.promise;
     expect(registeredBeforeUnregister, "STORAGE_SCAN_REGISTER_BEFORE_UNREGISTER").toBe(true);
-    expect(done, "STORAGE_SCAN_COLLECTOR_WAITS_FOR_UNREGISTER").toBe(false);
-    await unregistration;
+    expect(await unregistration!.then(() => done), "STORAGE_SCAN_COLLECTOR_WAITS_FOR_UNREGISTER").toBe(false);
     expect(await result).toEqual({ destination: "Ithaca" });
     expect(f.shared.check(scan).workers_json).toBe("[]");
     await f.shared.finish(scan, false, false, at);
@@ -170,10 +174,11 @@ test("maintenance route waits for its receipt and cancellation waits for its dur
     const held = queue.call("slow", "Ithaca start", 300);
     let answered = false;
     const response = Promise.resolve(app.request("/api/storage/maintenance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, operation: "pack-git" }) })).then(value => { answered = true; return value; });
-    await Bun.sleep(20);
-    expect(answered, "STORAGE_MAINTENANCE_ROUTE_WAITS_FOR_RECEIPT").toBe(false);
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.db.query("SELECT id FROM storage_maintenance_operations").get()).toBeNull();
-    await held;
+    // The receipt is queued on the write worker behind the hold, whose replies
+    // arrive in order: the route has not answered when the hold answers.
+    expect(await held.then(() => answered), "STORAGE_MAINTENANCE_ROUTE_WAITS_FOR_RECEIPT").toBe(false);
     const answer = await response;
     expect(answer.status).toBe(202);
     expect(await answer.json(), "STORAGE_MAINTENANCE_ROUTE_COMMITTED_RECEIPT").toMatchObject({ id, state: "waiting" });
@@ -182,10 +187,11 @@ test("maintenance route waits for its receipt and cancellation waits for its dur
     expect(f.db.query("SELECT state FROM storage_maintenance_operations").get(), "STORAGE_MAINTENANCE_RUNNING_INTENT_BEFORE_OWNER").toEqual({ state: "running" });
     const slowCancel = queue.call("slow", "Ithaca cancel", 300);
     const cancelling = m.operations.cancel(f.owner.id, id);
-    await Bun.sleep(20);
-    expect(m.ownerCancelled(), "STORAGE_MAINTENANCE_NO_ABORT_BEFORE_CANCEL_COMMIT").toBe(false);
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.db.query("SELECT cancel_requested FROM storage_maintenance_operations").get()).toEqual({ cancel_requested: 0 });
-    await slowCancel; await cancelling; await m.cancelled.promise; await m.operations.idle();
+    // The cancel flag is queued behind the hold: the owner is not aborted when the hold answers.
+    expect(await slowCancel.then(() => m.ownerCancelled()), "STORAGE_MAINTENANCE_NO_ABORT_BEFORE_CANCEL_COMMIT").toBe(false);
+    await cancelling; await m.cancelled.promise; await m.operations.idle();
     expect(f.db.query("SELECT cancel_requested FROM storage_maintenance_operations").get()).toEqual({ cancel_requested: 1 });
     expect(await m.operations.receipt(f.owner.id, id)).toMatchObject({ state: "unknown", reason: "owner_outcome_unknown" });
     expect(await sites.log(), "STORAGE_MAINTENANCE_START_WRITE_CANCEL_WORKER_FULL").toEqual(Array(5).fill("storage_maintenance_operations"));
@@ -221,10 +227,13 @@ test("a held scan cancellation leaves authority intact until its commit", async 
     const scan = (await f.shared.acquire(f.owner.id, randomUUID(), scope, 1, true, at))!;
     await queue.ready;
     const held = queue.call("slow", "Ithaca cancel", 300);
-    const cancelling = f.shared.cancel(scan);
-    await Bun.sleep(20);
+    let cancelled = false;
+    const cancelling = Promise.resolve(f.shared.cancel(scan)).then(() => { cancelled = true; });
+    // Read while the worker is still inside the hold: an inline commit would show here.
     expect(f.shared.check(scan).cancel_requested, "STORAGE_SCAN_AUTHORITY_UNTIL_CANCEL_COMMIT").toBe(0);
-    await held; await cancelling;
+    // The cancel commit is queued behind the hold: it has not settled when the hold answers.
+    expect(await held.then(() => cancelled), "STORAGE_SCAN_CANCEL_SETTLES_AFTER_ITS_COMMIT").toBe(false);
+    await cancelling;
     expect(() => f.shared.check(scan), "STORAGE_SCAN_AUTHORITY_REVOKED_AFTER_CANCEL_COMMIT").toThrow("storage-scan-authority-lost");
     await f.shared.finish(scan, false, true, at);
   } finally { await f.close(); }
@@ -269,9 +278,11 @@ test("staging removal waits for the maintenance item intent on the worker", asyn
     const sites = await watchWriteSites(f.db, f.writer, ["storage_scan_leases", "storage_maintenance_operations"]);
     await queue.ready;
     await m.operations.start(f.owner.id, { id, operation: "cleanup-staging" });
-    await entered.promise; await Bun.sleep(20);
-    expect(existsSync(target), "STORAGE_STAGING_RETAINED_UNTIL_ITEM_INTENT_COMMIT").toBe(true);
-    await held; await m.operations.idle();
+    // The item intent is queued on the write worker behind the hold, whose
+    // replies arrive in order: removal has not run when the hold answers.
+    await entered.promise;
+    expect(await held!.then(() => existsSync(target)), "STORAGE_STAGING_RETAINED_UNTIL_ITEM_INTENT_COMMIT").toBe(true);
+    await m.operations.idle();
     expect(durableBeforeRemoval, "STORAGE_STAGING_ITEM_INTENT_DURABLE_BEFORE_REMOVAL").toBe(true);
     expect(existsSync(target)).toBe(false);
     expect(await m.operations.receipt(f.owner.id, id)).toMatchObject({ state: "complete", outcome: { items: [{ id: itemId, state: "cleaned" }] } });
