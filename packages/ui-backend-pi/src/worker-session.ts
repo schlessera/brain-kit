@@ -114,7 +114,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const { workerSandbox, workerLock, workerSignal, toolExecution } = admission.hostEnv;
   const { child, sandbox, sandboxNote, turnTemp } = await launchPiWorker({ backend, env, admission, restricted, resumeId, execHelpers, confirmPatterns,
     startupStarted, turnContext });
-  const { closeTurnTemp, releases, markPrompted, diagnostic, reportLimitHits, limitEnded, send, stdioReleased } = superviseWorker({ child, reservation,
+  const { closeTurnTemp, releases, claimTurnTempClose, diagnostic, reportLimitHits, limitEnded, send, stdioReleased } = superviseWorker({ child, reservation,
     turnTemp, env, turnContext, admission, answerText: () => receipts.answerText() });
   function live(): void {
     if (!state.active || state.ended || !turnContext.bridge || !turnContext.signal || turnContext.signal.aborted) {
@@ -168,7 +168,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) {
-    fail(error);
+    claimTurnTempClose(); fail(error);
     try { await child.exited; } finally { await stdioReleased(); }
     // A worker that never ran a turn frees its turn temp here, awaited (#2854).
     // A refused close keeps the reservation; the startup error stays the refusal.
@@ -189,7 +189,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       if (state.error) throw state.error;
       if (state.active || state.ended) throw new Error("Pi worker turn already started or finished");
       state.active = true;
-      markPrompted();
+      claimTurnTempClose();
       // The send is inside the lifecycle: an oversized prompt still ends the
       // worker and removes its turn temp.
       const preparedPrompt = promptContext?.prepare(text, {
@@ -214,7 +214,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       // and the runner must join even if the first abort already set it (#2880).
       return aborting ??= (async () => {
         if (!state.active) {
-          state.ended = true; child.stdin.end(); child.kill("SIGKILL");
+          state.ended = true; claimTurnTempClose(); child.stdin.end(); child.kill("SIGKILL");
           try { await child.exited; await received; }
           finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
           return;
