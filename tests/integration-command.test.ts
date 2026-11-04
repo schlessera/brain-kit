@@ -93,10 +93,15 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   const refs = Array.from({ length: count }, (_, index) => `odysseus/brain-kit#${index + 9}`);
   const delivered = mode.endsWith("-missing") ? refs.slice(0, -1) : mode.endsWith("-malformed") ? [...refs.slice(0, -1), "bad"] : refs;
   const library = resolve(import.meta.dir, "../scripts/integration-reservation.ts");
-  const shim = join(bin, "git");
+  const shim = join(bin, "git"), failPush = join(dir, "fail-push");
   // Sixty real remote-CAS renewals must fit the unchanged deadline. Only the
   // origin display is synthetic; exec Git directly for every actual operation.
+  // While fail-push holds a positive count, a push fails like a transient remote 5xx and leaves the ref unmoved (#3302).
   writeFileSync(shim, `#!/bin/sh
+if [ "$1" = push ] && [ -s '${failPush}' ] && [ "$(cat '${failPush}')" -gt 0 ]; then
+  echo $(( $(cat '${failPush}') - 1 )) > '${failPush}'
+  echo 'remote: Internal Server Error' >&2; echo 'error: failed to push some refs' >&2; exit 1
+fi
 if [ "$#" -eq 3 ] && [ "$1" = remote ] && [ "$2" = get-url ] && [ "$3" = origin ]; then
   printf '%s\\n' 'https://github.com/odysseus/brain-kit.git'
 else
@@ -129,12 +134,12 @@ fi`); chmodSync(shim, 0o755);
     const jobs=[job(1,"changeset"),job(2,"proof"),...categories.flatMap((name,index)=>name==="browser"&&s.mode.startsWith("browser-")
       ?[1,2,3].filter(shard=>s.mode!=="browser-missing-third"||shard!==3).map(shard=>job(20+shard,"browser ("+shard+")"))
       :[job(index+3,name,"skipped")])];
-    const run=(id,workflow)=>({id,run_attempt:1,event:"pull_request",head_sha:head,status:s.mode.startsWith("confirm-")&&workflow==="ci"&&s.requested&&(s.mode==="confirm-cap"||s.now===${NOW})?"queued":"completed",conclusion:s.mode==="proof-failure"&&workflow==="ci"?"failure":s.mode==="confirm-cancel"&&s.requested&&workflow==="ci"?"cancelled":"success",repository:{html_url:candidate.repository},head_repository:{html_url:candidate.repository},pull_requests:[{number:7}]});
+    const run=(id,workflow)=>({id,run_attempt:1,event:"pull_request",head_sha:head,status:s.mode.startsWith("confirm-")&&workflow==="ci"&&s.requested&&(["confirm-cap","confirm-outage","confirm-changed","confirm-revoked"].includes(s.mode)||s.now===${NOW}||(s.mode==="confirm-transient"&&s.now<${NOW}+180000))?"queued":"completed",conclusion:s.mode==="proof-failure"&&workflow==="ci"?"failure":s.mode==="confirm-cancel"&&s.requested&&workflow==="ci"?"cancelled":"success",repository:{html_url:candidate.repository},head_repository:{html_url:candidate.repository},pull_requests:[{number:7}]});
     const checkout="[command]git log -1 --format=%H\\n2026-07-12T00:00:00Z "+(s.mode==="wrong-checkout"?"c".repeat(40):actual.sha)+"\\n";
     let value;
     if(args[0]==="repo")value=repo;
     else if(args[0]==="pr"&&args[1]==="view")value={closingIssuesReferences:refs.map(ref=>({url:"https://github.com/"+ref.replace("#","/issues/")}))};
-    else if(args[0]==="pr"&&args[1]==="ready"){s.draft=args.includes("--undo");if(!s.draft)s.requested=true;value="ready";}
+    else if(args[0]==="pr"&&args[1]==="ready"){s.draft=args.includes("--undo");if(!s.draft){s.requested=true;const fail={"confirm-transient":1,"confirm-outage":99}[s.mode];if(fail)writeFileSync(${JSON.stringify(failPush)},String(fail));}value="ready";}
     else if(args[0]==="pr"&&args[1]==="merge") {writeFileSync(${JSON.stringify(sentinel)},"merged");s.merged=true;const result=Bun.spawnSync([${JSON.stringify(realGit)},"--git-dir",remote,"update-ref","refs/heads/main",squash]);if(result.exitCode)throw new Error("Fixture main update failed");value="merged";}
     else if(args[0]==="api") {
       const path=args.find(x=>x.startsWith("repos/"))??args[1];
@@ -142,12 +147,14 @@ fi`); chmodSync(shim, 0o755);
         writeFileSync(${JSON.stringify(join(dir, "held.tmp"))},JSON.stringify({pid:process.pid,start:readFileSync("/proc/self/stat","utf8").split(") ").at(-1).split(" ")[19]}));renameSync(${JSON.stringify(join(dir, "held.tmp"))},${JSON.stringify(join(dir, "held"))});
         await new Promise(()=>setInterval(()=>{},1000));
       }
+      if(s.mode==="confirm-poll-transient"&&s.requested&&s.now>${NOW}&&!s.pollFailed&&path.includes("actions/workflows/ci.yml/runs")){s.pollFailed=true;writeFileSync(file,JSON.stringify(s));console.error("Get 'https://api.github.com/"+path+"': dial tcp 192.0.2.1:443: connect: connection refused");process.exit(1);}
+      if(s.mode==="confirm-revoked"&&s.requested&&!s.revoked&&path.includes("actions/workflows/ci.yml/runs")){const store=new GitReservationStore(root), snap=store.read();store.publish(snap,reservationTransition(snap.state,{kind:"revoke",maintainer:true,reason:"Abandon controlled fixture"},202,s.now));s.revoked=true;}
       if(args.includes("--include")){console.log("HTTP/2.0 200 OK\\nDate: "+new Date(s.now).toUTCString()+"\\n\\n{}");writeFileSync(file,JSON.stringify(s));process.exit(0);}
       if(path==="user")value={id:101,login:"odysseus"};
       else if(path.includes("actions/workflows/red-main-probe.yml/runs"))value={workflow_runs:[[301,base,probes[401]],[302,head,probes[402]]].map(([id,sha,p])=>({id,run_attempt:1,status:"completed",conclusion:p.exitCode?"failure":"success",display_title:"red-main probe fix 11 "+sha}))};
       else if(["/runs/301/attempts/1/jobs","/runs/302/attempts/1/jobs"].some(x=>path.includes(x)))value={jobs:[{id:path.includes("/301/")?401:402,name:"probe",status:"completed"}]};
       else if(path.endsWith("actions/jobs/401/logs")||path.endsWith("actions/jobs/402/logs"))value="2026-07-12T00:00:00Z BRAIN_RED_MAIN_PROBE "+JSON.stringify({purpose:"fix",...probes[path.includes("/401/")?401:402]});
-      else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
+      else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"||(s.mode==="confirm-changed"&&s.requested&&s.now>${NOW})?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:[]};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
@@ -169,11 +176,13 @@ fi`); chmodSync(shim, 0o755);
     const originalSet=globalThis.setInterval,originalClear=globalThis.clearInterval,originalSleep=Bun.sleep;
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
+    performance.now=()=>JSON.parse(readFileSync(${JSON.stringify(apiState)},"utf8")).now-${NOW};
     Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
   // `<renew|release>-<holder|none|wrong>` runs the lease command as a separate process with the same actor and public id.
   const lifecycle = /^(?:legacy-)?(renew|release)-(holder|none|wrong)$/.exec(mode);
   const presented = (kind: string) => kind === "holder" ? ["--token", TOKEN] : kind === "wrong" ? ["--token", OTHER] : [];
-  const command = mode === "acquire" ? ["acquire", "7"] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
+  if (mode === "renew-push-fail") writeFileSync(failPush, "1");
+  const command = mode === "acquire" ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
     : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id,
       ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), "--issues", delivered.join(","),
     ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
@@ -252,6 +261,46 @@ test("a lease acquired by pre-token code keeps the id-and-actor rule for its rem
   const legacy = await scenario("legacy-release-none");
   expect(legacy.code, legacy.err).toBe(0);
   expect(legacy.state.active).toBeNull(); expect(legacy.state.last?.action).toBe("release");
+});
+
+test("a standalone renew whose ref push fails exits nonzero and leaves the lease in place (#3302)", async () => {
+  const result = await scenario("renew-push-fail");
+  expect(result.code, result.err).toBe(1);
+  expect(result.err).toContain("failed to push some refs");
+  expect(result.state.active, "FAILED_RENEW_KEEPS_LEASE").toMatchObject({ id: "1".repeat(32), expires: NOW + 300_000 });
+  expect(result.state.last?.action, "NO_RELEASE_AFTER_FAILED_RENEW").toBe("acquire");
+});
+
+test("confirmation survives transient renewal and proof-poll failures and aborts only on lost authority or the safety margin (#3302)", async () => {
+  const transient = await scenario("confirm-transient");
+  expect(transient.code, `TRANSIENT_RENEWAL_RETRIED: ${transient.err}`).toBe(2);
+  expect(transient.dispatched).toBe(true);
+  expect(transient.err.match(/Lease renewal failed/g), transient.err).toHaveLength(1);
+  expect(transient.err).toContain("Lease renewal failed 60s after the last success; retrying next tick: remote: Internal Server Error");
+  expect(transient.state.last?.action).toBe("release");
+
+  const poll = await scenario("confirm-poll-transient");
+  expect(poll.code, `TRANSIENT_POLL_RETRIED: ${poll.err}`).toBe(2);
+  expect(poll.dispatched).toBe(true);
+  expect(poll.err).toContain("Proof poll failed (failing for 0s); retrying next tick:");
+  expect(poll.err).toContain("connection refused");
+
+  const outage = await scenario("confirm-outage");
+  expect(outage.code, outage.err).toBe(1);
+  expect(outage.dispatched).toBe(false);
+  expect(outage.err.match(/Lease renewal failed/g), outage.err).toHaveLength(4);
+  expect(outage.err).toContain("No lease renewal succeeded for 240s (safety margin 240s before possible expiry); last error: remote: Internal Server Error");
+  // The lease was last renewed at acquisition, so it is still live at the 240 s abort.
+  expect(outage.state.active?.expires).toBe(NOW + 300_000);
+
+  for (const [mode, message] of [["confirm-changed", "Candidate head/base changed"], ["confirm-revoked", "No reservation to renew"]] as const) {
+    const lost = await scenario(mode);
+    expect(lost.code, lost.err).toBe(1);
+    expect(lost.dispatched).toBe(false);
+    expect(lost.err).toContain(message);
+    expect(lost.err, `ABORT_ON_FIRST_TICK:${mode}`).not.toContain("Lease renewal failed");
+    expect(lost.state.last).toMatchObject(mode === "confirm-revoked" ? { action: "revoke", at: NOW } : { action: "release", at: NOW + 60_000 });
+  }
 });
 
 test("confirmation executable renews automatically, releases cancellation and cannot renew beyond the cap", async () => {
