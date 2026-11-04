@@ -188,7 +188,7 @@ export function storeDraft(d: ComposerDraft): StoredDraft {
     sessionId: d.sessionId,
     text: d.text,
     attachments: d.attachments.map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, bytes: a.bytes, name: a.name })),
-    ...(d.files.length ? { files: d.files.map((f) => ({ file: f.file, lineage: f.lineage })) } : {}),
+    ...(d.files?.length ? { files: d.files.map((f) => ({ file: f.file, lineage: f.lineage })) } : {}),
     editedAt: d.editedAt,
     deviceOnly: d.deviceOnly === true,
     ...(d.deviceConflict ? { deviceConflict: d.deviceConflict } : {}),
@@ -733,7 +733,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           const current = state.drafts[targetId];
           const before = current?.text ?? "";
           const base: ComposerDraft = current ?? {
-            draftId: targetId, sessionId: owner, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
+            draftId: targetId, sessionId: owner, text: "", attachments: [], files: [], editedAt: Date.now(), edit: 0, host: null,
             uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
           };
           const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };

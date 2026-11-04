@@ -358,9 +358,36 @@ type ApprovalInput = { type: string; target: string | null; at: number; node: nu
 type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
 type ProfileRead = { path: string; status?: number; body?: string; failure?: string };
 type Device = { profileReads: ProfileRead[]; context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
-async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
+/**
+ * Without composer files: the real host's hello reaches the page without
+ * `capabilities.composerFiles` and `attachmentLimits`, as an older host's
+ * would (design §9, "new client, old host"). The client then keeps D52's
+ * tab-only staged-track path, which the cases that prove it (#1112, #1150)
+ * need; on a host with composer files a track is a draft-bound original
+ * instead (#3155).
+ */
+async function withoutComposerFiles(context: BrowserContext) {
+  await context.routeWebSocket(`${origin.replace("http", "ws")}/**`, (socket) => {
+    const host = socket.connectToServer();
+    host.onMessage((message) => {
+      if (typeof message === "string" && message.includes('"server_hello"')) {
+        const frame = JSON.parse(message) as Record<string, unknown> & { type: string; capabilities?: Record<string, boolean> };
+        if (frame.type === "server_hello") {
+          const { attachmentLimits: _limits, ...rest } = frame;
+          const { composerFiles: _files, ...capabilities } = frame.capabilities ?? {};
+          socket.send(JSON.stringify({ ...rest, capabilities }));
+          return;
+        }
+      }
+      socket.send(message);
+    });
+  });
+}
+
+async function device(run: Run, opts: { clock?: boolean; update?: boolean; legacyHost?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  if (opts.legacyHost) await withoutComposerFiles(context);
   // The whole app applies the root's stored theme to the document, so the
   // run's theme is stored under the fixture root's prefix before it loads.
   await context.addInitScript((theme) => {
@@ -1268,9 +1295,9 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       }
     }, 240_000);
 
-    test(`${run.name}: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
+    test(`${run.name}: on a host without composer files, a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
       const tag = `(${run.name})`;
-      const a = await device(run);
+      const a = await device(run, { legacyHost: true });
       const plan = `Plan: Route to Pylos ${tag}`;
       const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
       const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
@@ -1355,7 +1382,7 @@ const leaveRuns: Run[] = [
   { name: "1280 desktop, light, fine pointer", theme: "light", options: { viewport: { width: 1280, height: 800 } } },
 ];
 
-describe.skipIf(!executablePath)("a staged track guards the tab it lives in", () => {
+describe.skipIf(!executablePath)("on a host without composer files, a staged track guards the tab it lives in", () => {
   const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
   const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
   const remove = (page: Page) => page.getByRole("button", { name: `Remove ${name}`, exact: true });
@@ -1410,7 +1437,7 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
   for (const run of leaveRuns) for (const ending of ["removed", "sent"] as const) {
     test(`${run.name}: a reload asks while A holds a staged track out of view, and not once it is ${ending}`, async () => {
       const tag = `(${run.name}, leave, ${ending})`;
-      const a = await device(run, { update: true });
+      const a = await device(run, { update: true, legacyHost: true });
       try {
         // Nothing staged: nothing asked.
         await press(run, composer(a.page));
@@ -1433,7 +1460,7 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
 
     test(`${run.name}: a waiting update holds while A holds a staged track, then reloads once without asking when it is ${ending}`, async () => {
       const tag = `(${run.name}, update, ${ending})`;
-      const a = await device(run, { update: true });
+      const a = await device(run, { update: true, legacyHost: true });
       try {
         const id = await stageInA(run, a, tag);
         const before = await loads(a.page);

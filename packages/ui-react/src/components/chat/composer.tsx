@@ -34,7 +34,7 @@ import { trackPending, trackReady } from "../../lib/track-uploads.js";
 import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { filesFor } from "../../lib/draft-files.js";
 import { queuedBlocking, queuedPending } from "../../lib/attachment-queue.js";
-import { bindableFiles, type DraftFile } from "../../stores/draft-state.js";
+import { bindableFiles, draftFiles as draftFilesOf, type DraftFile } from "../../stores/draft-state.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
@@ -507,7 +507,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const currentQueued = fileQueue.files;
     const currentDraft = root.stores.drafts.getState().drafts[draftId];
     const currentFiles = currentDraft ? bindableFiles(currentDraft) : [];
-    const hasAttachments = attachments.length > 0 || currentTracks.length > 0 || currentQueued.length > 0 || (currentDraft?.files.length ?? 0) > 0;
+    const hasAttachments = attachments.length > 0 || currentTracks.length > 0 || currentQueued.length > 0 || draftFilesOf(currentDraft).length > 0;
     if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting || sessionProfile.saving || sessionProfile.awaitingDraftFacts) return;
     if (restorationOf(root.stores.chat.getState())) return;
 
@@ -667,9 +667,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const d = root.stores.drafts.getState().drafts[draftIdRef.current];
     const queued = fileQueue.files;
     if (queued.some(queuedBlocking)) return { blocked: "Your draft is kept. Retry or remove the file that wasn't stored before sending." };
-    if (d && d.files.some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
+    if (d && draftFilesOf(d).some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
     if (queued.some(queuedPending)) return { pending: true };
-    if (!d || d.files.length === 0) return {};
+    if (!d || draftFilesOf(d).length === 0) return {};
     if (d.failure && d.failure.kind !== "unsaved") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
     if (d.conflict) return { blocked: "Your draft is kept. Choose which version to keep before sending its files." };
     // Sent only from an acknowledged revision: the message names it.
@@ -941,7 +941,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           onRetryQueuedFile={(id) => fileQueue.retry(id)}
           onRemoveStoredFile={(fileId) => {
             const current = root.stores.drafts.getState().drafts[draftId];
-            if (current) root.stores.drafts.getState().edit(draftId, sessionId, { files: current.files.filter((f) => f.file.fileId !== fileId) });
+            if (current) root.stores.drafts.getState().edit(draftId, sessionId, { files: draftFilesOf(current).filter((f) => f.file.fileId !== fileId) });
           }}
           fileAnnouncement={fileAnnouncement}
           attachErrors={attachErrors}

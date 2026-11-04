@@ -118,14 +118,33 @@ beforeAll(async () => {
   styles.textContent = await commands.formConsumerStyles();
   document.head.append(styles);
 });
+/**
+ * The offline lane's Chromium has no network, so `navigator.onLine` is false
+ * there and the queue would rightly wait for a connection. The fixture host is
+ * reachable, so each scene says online, and the complete own-property state of
+ * `navigator.onLine` is restored afterwards.
+ */
+let onLine: PropertyDescriptor | undefined | null = null;
+function emulateOnline() {
+  if (onLine === null) onLine = Object.getOwnPropertyDescriptor(navigator, "onLine");
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+}
+function restoreOnline() {
+  if (onLine === null) return;
+  if (onLine) Object.defineProperty(navigator, "onLine", onLine);
+  else Reflect.deleteProperty(navigator, "onLine");
+  onLine = null;
+}
 afterEach(() => {
   for (const s of scenes.splice(0)) { flushSync(() => s.renderer.unmount()); s.root.dispose(); s.host.remove(); }
   vi.unstubAllGlobals();
+  restoreOnline();
 });
 afterAll(async () => { styles.remove(); await page.viewport(viewport.width, viewport.height); });
 
 async function mount(width = 1280, height = 800) {
   await page.viewport(width, height);
+  emulateOnline();
   const files = fileHost();
   const root = createBrainUiRoot({ storage: null, request: files.request });
   const frames: ClientMessage[] = [];

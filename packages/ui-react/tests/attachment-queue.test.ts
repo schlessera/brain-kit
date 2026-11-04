@@ -44,7 +44,7 @@ test("a PDF goes to the neutral draft route unfiltered, as its own raw bytes, an
   } finally { h.queue.dispose(); }
 });
 
-test("a lost answer is unknown, never 'not stored'; reconnecting uploads it again once under the same key", async () => {
+test("a lost answer is unknown, never 'not stored'; the drop's reconnect uploads it again once under the same key", async () => {
   const h = harness((call) => { if (call === 1) throw new TypeError("Failed to fetch"); return Response.json(stored(FILE_ID), { status: 201 }); });
   try {
     h.queue.add([permit()], DRAFT, { count: 0, bytes: 0 }, null);
@@ -54,18 +54,20 @@ test("a lost answer is unknown, never 'not stored'; reconnecting uploads it agai
     expect(`${copy.status} ${copy.detail}`).not.toMatch(/not stored|nothing was stored/i);
     h.queue.setOnline(false);
     expect(h.calls).toHaveLength(1);
+    expect(h.queue.files[0]!.state, "it waits for the connection, with the others").toBe("paused");
     h.queue.setOnline(true);
     await settle(() => h.done.length === 1);
     expect(h.calls).toHaveLength(2);
     const key = (n: number) => new Headers(h.calls[n]!.init.headers).get("idempotency-key");
     expect(key(1), "the re-upload replays the same key").toBe(key(0));
-    // Only once on its own: a second reconnect does not ask again.
+    // Stored now: a later reconnect asks nothing more.
     h.queue.setOnline(false); h.queue.setOnline(true);
     expect(h.calls).toHaveLength(2);
   } finally { h.queue.dispose(); }
 });
 
-test("Upload again replays the same key; a busy host is asked again with it too", async () => {
+test("while connected, a lost answer waits for Upload again, which replays the same key; a busy host is asked again with it too", async () => {
+  // No automatic loop while the page is online: only Upload again asks.
   const h = harness((call) => {
     if (call === 1) throw new TypeError("Failed to fetch");
     if (call === 2) return Response.json({ error: "busy" }, { status: 503 });
@@ -74,6 +76,8 @@ test("Upload again replays the same key; a busy host is asked again with it too"
   try {
     h.queue.add([permit()], DRAFT, { count: 0, bytes: 0 }, null);
     await settle(() => h.queue.files[0]?.state === "unknown");
+    await Bun.sleep(20);
+    expect(h.calls, "nothing asks again on its own while connected").toHaveLength(1);
     h.queue.retry(h.queue.files[0]!.id);
     await settle(() => h.calls.length === 2 && h.queue.files[0]?.state === "waiting");
     // The busy host is asked again after its pause, not at once.

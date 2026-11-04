@@ -98,7 +98,7 @@ test("a send takes exactly its originals out of the draft; the content comes bac
   expect(ref, "a clean revision is named").toEqual({ draftId: s.id, revision: 1 });
   expect(s.drafts.getState().drafts[s.id]!.files).toEqual([]);
   s.drafts.getState().sendFailed("req-permit");
-  expect(s.drafts.getState().drafts[s.id]!.files.map((f) => f.file.fileId)).toEqual([PERMIT.fileId]);
+  expect(s.drafts.getState().drafts[s.id]!.files!.map((f) => f.file.fileId)).toEqual([PERMIT.fileId]);
 });
 
 test("a host draft restores its originals with this id's lineage, and a device copy keeps them", () => {

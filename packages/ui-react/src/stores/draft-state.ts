@@ -49,8 +49,11 @@ export interface DraftFile {
   lineage: string;
 }
 
+const NO_FILES: readonly DraftFile[] = [];
+/** A draft's originals; none when it was built without the field. */
+export const draftFiles = (d: Pick<ComposerDraft, "files"> | undefined): readonly DraftFile[] => d?.files ?? NO_FILES;
 /** The originals of a draft its own id can bind. */
-export const bindableFiles = (d: Pick<ComposerDraft, "draftId" | "files">): DraftFile[] => d.files.filter((f) => f.lineage === d.draftId);
+export const bindableFiles = (d: Pick<ComposerDraft, "draftId" | "files">): DraftFile[] => draftFiles(d).filter((f) => f.lineage === d.draftId);
 
 /** What the host acknowledged for a draft: its revision, and the local edit it holds. */
 interface DraftHostCopy {
@@ -70,8 +73,12 @@ export interface ComposerDraft {
   sessionId: string | null;
   text: string;
   attachments: PendingAttachment[];
-  /** Stored composer originals, in display order (#3155). Saved only when `host.fileIds` lists them. */
-  files: DraftFile[];
+  /**
+   * Stored composer originals, in display order (#3155). Saved only when
+   * `host.fileIds` lists them. Optional: a draft built by older code or a
+   * kept device record has none; read it through `draftFiles`.
+   */
+  files?: DraftFile[];
   /** Local clock of the last change: the Sessions row's age and the compare sheet's time. */
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
@@ -436,7 +443,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       const returned = owned ? send.attachments : send.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
       const attachments = [...returned, ...d.attachments.filter((a) => !send.attachments.includes(a))];
       const sentFiles = send.attachmentFiles ?? [];
-      const files = [...sentFiles, ...d.files.filter((f) => !sentFiles.some((s) => s.file.fileId === f.file.fileId))];
+      const files = [...sentFiles, ...draftFiles(d).filter((f) => !sentFiles.some((s) => s.file.fileId === f.file.fileId))];
       const back = { ...d, text, attachments, files, edit: d.edit + 1, editedAt: now() };
       // One change: the content is back in the draft in the same state that
       // settles the send, so nothing observing the store ever sees neither.
@@ -637,7 +644,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d) {
           const remaining = d.attachments.filter((a) => !input.attachments.includes(a));
           const sentFiles = input.attachmentFiles ?? [];
-          const files = d.files.filter((f) => !sentFiles.some((s) => s.file.fileId === f.file.fileId));
+          const files = draftFiles(d).filter((f) => !sentFiles.some((s) => s.file.fileId === f.file.fileId));
           const text = d.text === consumedText ? "" : d.text;
           put({ ...d, text, attachments: remaining, files, edit: d.edit + 1, editedAt: now(), deviceOnly: false });
         }
@@ -871,7 +878,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const hostFiles = draft.files ?? [];
         if (local.text === draft.text && local.attachments.length === draft.attachments.length
           && local.attachments.every((a, i) => a.attachment.data === draft.attachments[i]!.bytes)
-          && local.files.length === hostFiles.length && local.files.every((f, i) => f.lineage === draft.draftId && f.file.fileId === hostFiles[i]!.fileId)) {
+          && draftFiles(local).length === hostFiles.length && draftFiles(local).every((f, i) => f.lineage === draft.draftId && f.file.fileId === hostFiles[i]!.fileId)) {
           // Bound on another device meanwhile: it is that session's draft here too.
           put({ ...local, sessionId: local.sessionId ?? draft.sessionId, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null, uncertain: false });
           return;

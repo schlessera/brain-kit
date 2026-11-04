@@ -45,8 +45,6 @@ export interface QueuedFile {
   status?: string;
   /** The longer explanation for the same state. */
   detail?: string;
-  /** An `unknown` item asks again on its own once, when the connection comes back. */
-  autoRetried?: boolean;
 }
 
 /** Pending items hold Send; failed and refused ones block it until removed or retried. */
@@ -249,18 +247,15 @@ export function createAttachmentQueue(options: AttachmentQueueOptions) {
       pump();
     },
     setOnline(value: boolean) {
-      const was = online;
       online = value;
       if (!value) {
         for (const controller of running.values()) controller.abort();
-        items = items.map((item) => (item.state === "waiting" || item.state === "uploading" ? { ...item, state: "paused" } : item));
+        // A request that got no answer a moment before the page saw the drop
+        // was the drop's (#1013): it waits with the others, and each reconnect
+        // uploads it again once, under its same key (rev 5 §1).
+        items = items.map((item) => (item.state === "waiting" || item.state === "uploading" || item.state === "unknown" ? { ...item, state: "paused" } : item));
       } else {
-        items = items.map((item) => {
-          if (item.state === "paused") return { ...item, state: "waiting" };
-          // Reconnected after a lost answer: ask once more on its own (rev 5 §1).
-          if (!was && item.state === "unknown" && !item.autoRetried) return { ...item, state: "waiting", autoRetried: true };
-          return item;
-        });
+        items = items.map((item) => (item.state === "paused" ? { ...item, state: "waiting" } : item));
       }
       notify(); pump();
     },
