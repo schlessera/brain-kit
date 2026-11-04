@@ -83,11 +83,14 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
     // A loopback destination routed through an external proxy is not local.
     if ((init as RequestInit & { proxy?: unknown } | undefined)?.proxy) refuse(`fetch proxy for ${request.url}`);
     const mode = request.redirect;
+    // A Unix socket never leaves the host; `new Request` drops Bun's `unix`
+    // option, so every hop passes it on or a socket request becomes TCP.
+    const unix = (init as RequestInit & { unix?: string } | undefined)?.unix;
     for (let hop = 0; ; hop++) {
       const replay = request.clone();
       let replayBody = replay.body;
       try {
-        const response = await nativeFetch(request, { redirect: "manual" });
+        const response = await nativeFetch(request, { redirect: "manual", ...(unix ? { unix } : {}) } as RequestInit);
         const location = REDIRECTS.has(response.status) ? response.headers.get("location") : null;
         if (mode === "manual" || location === null) {
           if (hop) Object.defineProperty(response, "redirected", { value: true });

@@ -167,6 +167,8 @@ export async function prepareTurnEgress(options: {
     allow: options.policy.taint.egress.allow,
     tainted: () => tainted ||= firstTaint() !== null,
     contacted: (host: string) => contacted.has(host),
+    // A refusal names what tainted the session, as the card does (#3431).
+    cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     // Voice has no grant surface; it keeps refusing without a card (#3430).
     ...(options.origin === "interactive" ? { approve: approveTainted } : {}),
   } : undefined;

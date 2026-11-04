@@ -20,6 +20,18 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Refusals say why (additive, #3431)
+
+A relayed provider request refused by the CLI provider relay keeps its `403`
+and `error.type`, and the body gains `error.reason`: the turn egress proxy's
+cause (`denied_host`, `not_allowlisted`, `byte_cap`, `taint_allowlist` or
+`outward_not_approved`) for a request the proxy refused, otherwise the relay's
+own refusal reason. `error.message` then states that cause in words. A proxy
+refusal of worker HTTP or CONNECT traffic now carries a status text and body
+naming its cause; neither is a contract shape. No governance event or reason
+changes. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
 ## Tainted destinations ask (additive, #3430)
 
 In a tainted interactive session behind the turn egress proxy, a connection to

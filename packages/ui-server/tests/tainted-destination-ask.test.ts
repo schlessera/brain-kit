@@ -164,11 +164,18 @@ test("voice refuses a narrowed host without a card, as before", async () => {
   try {
     const refused = await get(proxy.socketPath, island.url.href);
     expect(refused.status, "TAINTED_VOICE_REFUSES").toBe(403);
-    expect(refused.body, "TAINTED_VOICE_BARE_REFUSAL").toBe("");
+    // The tool learns taint was the cause, which source and what the user can do (#3431).
+    expect(refused.statusText, "TAINTED_VOICE_STATUS_TEXT").toBe("Forbidden - untrusted session, host not allowed");
+    expect(refused.body, "TAINTED_VOICE_REASON_NAMES_SOURCE").toBe("Blocked: this session read untrusted content (it fetched a web page), and 127.0.0.2 "
+      + "is not on its taint allow-list or among the hosts it already reached. Do not retry it; tell the user. They can add the host to "
+      + "taint.egress.allow in the brain's governance policy, or continue in a new session.\n");
+    const head = await tunnel(proxy.socketPath, `127.0.0.2:${island.port}`);
+    expect(head, "TAINTED_VOICE_CONNECT_REASON_VISIBLE").toStartWith("HTTP/1.1 403 Forbidden - untrusted session, host not allowed\r\n");
+    expect(head).toContain("(it fetched a web page)");
     expect(asks, "TAINTED_VOICE_NO_CARD").toEqual([]);
     expect(calls).toBe(0);
     proxy.stop();
-    expect(events(db, "egress_connection")).toMatchObject([{ outcome: "denied", reason: "taint_not_allowed" }]);
+    expect(events(db, "egress_connection")).toMatchObject([{ outcome: "denied", reason: "taint_not_allowed" }, { outcome: "denied", reason: "taint_not_allowed" }]);
   } finally { proxy.stop(); island.stop(true); db.close(); }
 });
 
@@ -179,11 +186,20 @@ test("deny and allowlist mode refuse first, without a card", async () => {
   try {
     for (const policy of [{ schema_version: 1, egress: { deny: ["127.0.0.2"] } }, { schema_version: 1, egress: { mode: "allowlist", allow: ["ithaca.invalid"] } }] as GovernancePolicyInput[]) {
       const proxy = await turn(db, bridge, { policy });
-      try { expect((await get(proxy.socketPath, island.url.href)).status).toBe(403); } finally { proxy.stop(); }
+      try {
+        const refused = await get(proxy.socketPath, island.url.href);
+        expect(refused.status).toBe(403);
+        // Each says which list refused it, over HTTP and CONNECT alike (#3431).
+        const list = policy.egress?.deny ? "deny" : "allow";
+        expect(refused.statusText, "EGRESS_REFUSAL_STATUS_NAMES_LIST").toBe(`Forbidden - host ${list === "deny" ? "on" : "not on"} the egress ${list} list`);
+        expect(refused.body, "EGRESS_REFUSAL_BODY_NAMES_LIST").toStartWith(`Blocked: 127.0.0.2 is ${list === "deny" ? "on" : "not on"} this brain's egress ${list} list.`);
+        expect(await tunnel(proxy.socketPath, `127.0.0.2:${island.port}`), "EGRESS_REFUSAL_CONNECT_NAMES_LIST")
+          .toStartWith(`HTTP/1.1 403 Forbidden - host ${list === "deny" ? "on" : "not on"} the egress ${list} list\r\n`);
+      } finally { proxy.stop(); }
     }
     expect(asks.requests, "TAINTED_DENY_AND_ALLOWLIST_NO_CARD").toEqual([]);
     expect(calls).toBe(0);
-    expect(events(db, "egress_denial").map(payload => payload.reason)).toEqual(["denied_host", "not_allowlisted"]);
+    expect(events(db, "egress_denial").map(payload => payload.reason)).toEqual(["denied_host", "denied_host", "not_allowlisted", "not_allowlisted"]);
   } finally { island.stop(true); db.close(); }
 });
 
