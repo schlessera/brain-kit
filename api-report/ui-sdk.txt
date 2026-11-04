@@ -90,6 +90,7 @@ export "." (./src/index.ts)
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatAttachmentReference
+  type ChatDeletionNotAdmitted
   type ChatDeletionOutcome
   type ChatDeletionReceipt
   type ChatDeletionRefusal
@@ -613,6 +614,7 @@ export "./client" (./src/client/index.ts)
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatAttachmentReference
+  type ChatDeletionNotAdmitted
   type ChatDeletionOutcome
   type ChatDeletionReceipt
   type ChatDeletionRefusal
@@ -1506,6 +1508,7 @@ export "./protocol" (./src/protocol.ts)
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatAttachmentReference
+  type ChatDeletionNotAdmitted
   type ChatDeletionOutcome
   type ChatDeletionReceipt
   type ChatDeletionRefusal
@@ -2235,6 +2238,7 @@ export "./server" (./src/server/index.ts)
   CONVERSATION_CAPABILITY_KEYS
   CONVERSATION_LIMITS
   type ChatAttachmentReference
+  type ChatDeletionNotAdmitted
   type ChatDeletionOutcome
   type ChatDeletionReceipt
   type ChatDeletionRefusal
@@ -6316,6 +6320,12 @@ signatures (every public export and the types it is made of)
     export interface ChatAttachmentReference {
         kind: "attachment";
         fileId: string;
+    }
+  ChatDeletionNotAdmitted (packages/ui-sdk/src/protocol.ts)
+    export interface ChatDeletionNotAdmitted {
+        error: "CHAT_DELETION_NOT_ADMITTED";
+        reason: "not_admitted";
+        message: string;
     }
   ChatDeletionOutcome (packages/ui-sdk/src/protocol.ts)
     export type ChatDeletionOutcome = "pending" | "partial" | "unknown" | "removed";

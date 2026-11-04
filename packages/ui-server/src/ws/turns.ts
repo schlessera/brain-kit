@@ -471,6 +471,8 @@ export class TurnCoordinator {
   readonly #handoffs = new Map<string, PendingHandoff>();
   readonly #handoffPreparations = new Map<string, HandoffPreparation>();
   readonly #askOutcomes = new Map<string, AskOutcome>();
+  /** The last drain of each turn's interactive requests, by the turn id it ended (#3553). */
+  readonly #drained = new WeakMap<RunningTurn, { turnId: string; reason: string }>();
   readonly #authorizationRegistry = new Map<AuthorizationContext, number>();
 
   constructor(options: TurnCoordinatorOptions = {}) {
@@ -1001,8 +1003,35 @@ export class TurnCoordinator {
     this.#onApprovalSettled?.(toolUseId, record);
   }
 
+  /**
+   * Why this turn's interactive requests were drained, when they were for
+   * this turn id. A drain runs once, so a request a backend raises after it
+   * (a turn limit that ran out before the question reached the bridge) would
+   * never settle and would park startTurn until restart (#3553). Openers
+   * refuse with this reason instead.
+   */
+  drainedReason(turn: RunningTurn, turnId: string): string | undefined {
+    const drained = this.#drained.get(turn);
+    return drained?.turnId === turnId ? drained.reason : undefined;
+  }
+
+  /**
+   * Refuse an ask raised after its turn's drain: record it closed as ended,
+   * as the drain would have, and return the drain's reason. Undefined when
+   * the turn's requests were not drained and the ask may open.
+   */
+  refuseDrainedAsk(p: { turn: RunningTurn; turnId: string; requestId: string }): string | undefined {
+    const reason = this.drainedReason(p.turn, p.turnId);
+    if (reason !== undefined) this.closeAsk(p, "ended");
+    return reason;
+  }
+
   /** Resolve/reject every pending interactive request belonging to one turn. */
   drainPendingForTurn(turn: RunningTurn, reason: string): void {
+    // A drain of an aborted turn ends its interactive requests; every such
+    // caller aborts first. The first one's reason is the one kept.
+    if (turn.abortController?.signal.aborted && this.#drained.get(turn)?.turnId !== turn.turnId)
+      this.#drained.set(turn, { turnId: turn.turnId, reason });
     for (const [id, p] of this.#pendingApprovals) {
       if (p.turn !== turn) continue;
       p.resolve({ behavior: "deny", message: reason });

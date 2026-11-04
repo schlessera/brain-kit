@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:174-193`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:177-196`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -118,6 +118,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
 | `POST /api/chat-deletions` | `mounted supported handler: POST /api/chat-deletions` | CD |
+| `GET /api/chat-deletions/:operationId` | `mounted supported handler: GET /api/chat-deletions/:operationId` | CD |
 | `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
@@ -528,4 +529,9 @@ unbound draft controls, replay refusal, honest partial/unknown outcomes, restart
 reconciliation, and the endpoint's owner, agent, ambient, foreign, stale and revoked
 cases. [The WebSocket host test](../packages/ui-server/tests/ws-chat-deletion.test.ts)
 covers busy refusal, a resume held across retirement, admission and recovery refusal
-and targeted `chat_retired` delivery.
+and targeted `chat_retired` delivery. The same file covers the read-only operation
+lookup (#3455): the owner's receipt, partial progress, a restart and a retry, one
+byte-identical `not_admitted` for unknown, foreign, refused, agent and ambient
+callers, a read admitting and cleaning nothing, and revocation during the read;
+[the real-host test](../packages/ui-server/tests/chat-deletion-http.test.ts) repeats
+the owner, foreign, agent and unknown answers through `createApp` and cookies.

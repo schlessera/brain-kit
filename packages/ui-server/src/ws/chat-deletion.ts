@@ -87,6 +87,16 @@ export function createChatDeletion(deps: ChatDeletionDeps) {
       return { status: "retired", receipt: chatDeletionReceipt((current ?? result) as Retired) };
     },
     /**
+     * The caller's current receipt for one operation, or null when nothing is
+     * retired under it for this principal (#3455). A pure read: it never
+     * admits, retries or resumes cleanup, and it waits for committed catalog
+     * writes as `chatRetirement` does.
+     */
+    async read(operationId: string, principalId: string): Promise<ChatDeletionReceipt | null> {
+      const current = await deps.catalog.chatRetirement?.(operationId, principalId);
+      return current?.status === "retired" ? chatDeletionReceipt(current) : null;
+    },
+    /**
      * Restart reconciliation: finish every retirement a store has not
      * confirmed, under its original operation. Fences were already durable;
      * live holders of an earlier process are gone with it.

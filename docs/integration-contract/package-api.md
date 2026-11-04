@@ -131,6 +131,18 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="reading-a-chat-deletions-outcome-additive-3455"></a>
+
+## Reading a chat deletion's outcome (additive, #3455)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ChatDeletionNotAdmitted`, the 404 body of
+`GET /api/chat-deletions/:operationId` when nothing is retired under that
+operation for the caller. In `@schlessera/brain-ui-server`, the chat deletion
+service gains `read(operationId, principalId)`, which returns the caller's
+current receipt or null and never admits or cleans up. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ## Explicit chat deletion (additive, #3230)
@@ -148,6 +160,18 @@ gains optional `chatDeletion` and the session catalog optional `cleanChatStore` 
 `unfinishedChatRetirements`, host wiring reachable from its exports. Semantics are in the
 [HTTP](../http-api.md#explicit-chat-deletion-additive-3230) and
 [wire](wire.md#explicit-chat-deletion-additive-3230) components.
+
+<a id="typed-chat-owner-bindings-additive-3337"></a>
+
+## Typed chat owner bindings (additive, #3337)
+
+In `@schlessera/brain-ui-server`, the session catalog's `persistSessionStub`
+takes an optional fifth argument, `ownerPrincipalId`. The bridge passes it only
+when an authenticated typed request created the session. The catalog records it
+as the chat's content-free owner binding only if that call creates the
+session's row. A custom catalog that ignores the argument keeps today's
+behaviour, so typed-only chats stay undeletable. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
 
 ## Native history removal (additive, #3229)
 

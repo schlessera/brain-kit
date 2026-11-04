@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 170 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 171 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -148,6 +148,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Read latest original history receipt | Bound to current principal/session/source turn; never retries effects. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/:operationId` | S | Reconcile one original operation | Same bound identity; missing receipt stays unavailable. |
 | POST | `/api/chat-deletions` | S | Delete the caller's own chat's local history | Authenticated owner only; stable caller operation identity; content-free per-store outcomes (#3230). |
+| GET | `/api/chat-deletions/:operationId` | S | Read one deletion operation's current receipt | Read-only and owner-scoped; one content-free `not_admitted` for every miss (#3455). |
 | POST | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Start a user-only journaled revert or restoration | Stable caller operation identity; raw stale-state comparison; gate and shared server locks. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
@@ -203,7 +204,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 170 declared endpoints are mounted regardless of backend, renderer or
+All 171 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1144,7 +1145,12 @@ recorded owner; the same answer whichever), 409 `stale` (the backend or
 generation differs from `expected`), 409 `unsupported` (the chat's backend does
 not advertise and implement native removal) or 409 `busy` (a running or starting
 turn, queued follow-ups or unsettled live-conversation work; stop or finish it
-first). Otherwise the chat is retired and the answer is 200 with the SDK's
+first). A chat's recorded owner is its dialogue owner, its voice conversation's
+principal or, since #3337 (additive), the authenticated principal whose typed
+request created its backend session. A typed chat whose session already existed
+before that binding (or that the host first saw on a resume) has no recorded
+owner and stays `unavailable`; none is backfilled. Otherwise the chat is
+retired and the answer is 200 with the SDK's
 `ChatDeletionReceipt`: `operationId`, the terminal `generation`, the overall
 `status`, each selected store's outcome (`native` for a backend session,
 `dialogue`, `tasks`, `projections`, `drafts`) and `retained`, which always lists
@@ -1158,6 +1164,29 @@ receipt exists is 500 `{ error: "CHAT_DELETION_FAILED", message }`, never a
 reported deletion. Receipts and errors carry no chat text, title, raw path or
 free-form failure. No success claims secure erasure, provider forgetting or an
 undone effect, and an older backup can restore deleted text.
+
+**GET /api/chat-deletions/:operationId** (additive, #3455) reads one operation's
+outcome without re-admitting it, so a client that lost a POST's reply can ask
+what happened. It only reads: it never admits a deletion, retries or resumes
+cleanup, and it adds no authority. For the authenticated caller it answers 200
+with the current `ChatDeletionReceipt` when a retirement is recorded under that
+`operationId` for that principal; `status` and `stores` reflect the latest
+recorded cleanup, so a read after a restart or a retry shows progress. Every
+other case is 404 with the SDK's `ChatDeletionNotAdmitted`, `{ error:
+"CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted", message }`, byte-identical
+whether the operation is unknown, another principal's, a refused attempt (refusals
+are not recorded) or asked by a principal that cannot own one (an agent, or an
+ambient caller without an owner mapping). It never echoes a title, session id,
+history owner id or backend. `not_admitted` means nothing was retired under
+that operation at the moment of the read: a request still in transit can be
+admitted afterwards, and `chat_retired` then follows as usual. The read waits
+for committed catalog writes. An `operationId` longer than 2048 characters is
+400 `{ error: "INVALID_CHAT_DELETION", message }`; unauthenticated is 401; a
+principal revoked between the lookup and the response gets the guard's 401, not
+the receipt; a storage failure is 500 `{ error: "CHAT_DELETION_FAILED", message }`,
+which reports neither outcome. Every response is `Cache-Control: no-store`. A
+host without the route answers its ordinary not-found, which carries no
+`reason`, so a client can tell an older host from `not_admitted`.
 
 Draft routes refuse a draft bound to a deleted chat with 410
 `{ error: "DRAFT_CHAT_RETIRED", message }`, list omits it, and `GET` answers 404.

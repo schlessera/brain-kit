@@ -1960,7 +1960,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:492`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:499`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2507,9 +2507,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:353-360`;
+`packages/ui-sdk/src/server/worker-protection.ts:379-388`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:363-401`).
+`packages/ui-sdk/src/server/worker-protection.ts:391-432`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,

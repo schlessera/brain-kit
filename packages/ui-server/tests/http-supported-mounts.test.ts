@@ -101,6 +101,9 @@ const checks: Record<string, Check> = {
   "POST /api/chat-deletions": { init: json("POST", { operationId: "fixture-deletion", target: { sessionId: "fixture-session" }, expected: { backendId: "fixture", generation: 1 } }),
     status: 404, body: { error: "CHAT_DELETION_REFUSED", reason: "unavailable" }, verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
       expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
+  "GET /api/chat-deletions/:operationId": { path: "/api/chat-deletions/fixture-deletion", status: 404, body: { error: "CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted" },
+    verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
   "POST /api/sessions/:sessionId/turns/:turnId/revert": { path: "/api/sessions/fixture-session/turns/unknown/revert", status: 409, init: json("POST", { id: "odysseus_unknown" }), body: { error: "This turn is not available for a user history operation." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
@@ -278,9 +281,15 @@ test("a dirty failed mount discards its resources before the next independent ca
     // the failed and rebuilt shared environments have completely shut down.
     const fresh = await prepare("GET /api/auth/principals", t => { timers.own(t); });
     try {
-      // Settle the journal's startup idle pass (#3386) first: its native calls
-      // would otherwise hold a seventh socket while the six below connect.
-      await fresh.t.app.wsHost.journal?.maintain();
+      // The journal's startup maintenance pass commits an observation and hands
+      // its previous checkpoint to a background release (#2872), whose native
+      // request can still hold a socket while the six below connect (#3550).
+      // Join the pass and that release before counting this case's sockets.
+      const journal = fresh.t.app.wsHost.journal;
+      expect(journal).toBeDefined();
+      await journal!.ready;
+      await journal!.maintain();
+      await journal!.releasesSettled();
       const native = createNativeBrainManagerClient(fresh.t.app.config.nativeBrain!);
       await Promise.all(Array.from({ length: 6 }, () => native.ready()));
       const freshKey = httpMountAgentKey(fresh.t);
