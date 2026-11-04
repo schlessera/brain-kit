@@ -14,8 +14,8 @@ const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
  * any host on these ports is outward; the hosts are HTTP mail-send APIs and
  * provider relays on alternate ports. `outward.hosts` adds the rest.
  */
-export const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
-export const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
+const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
+const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
   "api.fastmail.com", "api.sendgrid.com", "smtp.sendgrid.net", "api.mailgun.net", "api.eu.mailgun.net", "smtp.mailgun.org",
   "smtp.eu.mailgun.org", "api.postmarkapp.com", "smtp.postmarkapp.com", "api.resend.com", "smtp.resend.com"] as const;
 
@@ -25,6 +25,7 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
   workspace_read: "read a file under workspaces/", mcp_document: "read a document from an external MCP server",
   user_marked: "read a file marked untrusted", egress_connection: "received data from another site",
   fetching_command: "ran a command that fetches content", unclassified_command: "ran a command that may have fetched content",
+  chat_attachment: "opened a chat attachment", apify_result: "received Apify results", compute_output: "collected an external compute job's output",
 };
 
 /**
@@ -137,8 +138,8 @@ export async function prepareTurnEgress(options: {
     } catch { fail(); }
   };
   /**
-   * Any admitted connection other than the inference relay taints the session
-   * (G6), recorded before its first byte. Sticky: once read, never re-read.
+   * Any admitted connection other than a host relay taints the session (G6),
+   * recorded before its first byte. Sticky: once read, never re-read.
    */
   // A taint submitted but not yet committed counts (#2850).
   const firstTaint = () => db ? writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId()) : null;
@@ -174,8 +175,10 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean }): Promise<void> => {
-    if (destination.inference) return;
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean }): Promise<void> => {
+    // A host relay's operation neither taints the session nor makes its host
+    // one the worker's own traffic may reach once tainted (G6, #3246).
+    if (destination.inference || destination.provider) return;
     contacted.add(destination.host);
     if (!writes || tainted) return;
     tainted = true;

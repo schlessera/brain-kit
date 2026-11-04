@@ -325,7 +325,7 @@ function ClusterLegend({ palette }: { palette: CanvasPalette }) {
             </div>
           )}
           {clusters.community !== null && (
-            <Button tone="quiet" size="sm" icon="dismiss" label="Clear topic filter" block={false} style={{ minHeight: 44, margin: "4px 8px 0" }} onClick={() => setClustersParams({ community: null })} />
+            <Button tone="quiet" size="sm" icon="dismiss" label="Clear topic filter" block={false} reach style={{ margin: "4px 8px 0" }} onClick={() => setClustersParams({ community: null })} />
           )}
       </Tray>
     </div>

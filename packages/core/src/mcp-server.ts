@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * brain MCP server (stdio). Ports scripts/mcp-server.ts verbatim in tool shape:
- * the same 8 `brain_*` tools with identical names, input schemas, annotations,
+ * the same 8 `brain_*` tools (plus the six `brain_compute_*` tools, #3107) with identical names, input schemas, annotations,
  * and structuredContent shapes (the integration contract). What changed is the
  * wiring beneath: initContext() supplies root/taxonomy/config instead of the
  * module-level ROOT/DB_PATH, providers resolve from brain.config (embeddings
@@ -28,6 +28,8 @@ import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
 import { SEARCH_SORTS } from "./lib/types.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
+import { APIFY_DESCRIPTIONS, APIFY_INPUT_SCHEMAS, APIFY_OPERATIONS, APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
+import { createStandaloneApify, type StandaloneApify } from "./lib/apify/standalone.js";
 import { indexStaleness } from "./lib/ops/staleness.js";
 import {
   contextBriefing,
@@ -39,6 +41,18 @@ import {
   searchDocuments,
 } from "./lib/ops/read.js";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "./lib/ops/write.js";
+import {
+  COMPUTE_TOOL_NAMES,
+  computeHealthInput,
+  computeJobInput,
+  computeRequestInput,
+  createComputeDriver,
+  createComputeOps,
+  localPrincipal,
+  type ComputeDriver,
+  type ComputeEnvelope,
+  type ComputeOps,
+} from "./lib/ops/compute.js";
 
 // Server-side result caps — agents can ask for less, never more. Search and
 // graph clamp a larger value; `brain_list` rejects one (`listLimitSchema`).
@@ -84,7 +98,9 @@ export function serverInstructions(profileName?: string): string {
     `brain_context for a briefing on one within a token budget. Use brain_read to read one ` +
     `document and brain_graph to follow its wiki-links. Record new information with brain_add ` +
     `and change a document with brain_update. Never edit brain.db: it is a disposable index ` +
-    `rebuilt from the markdown files.`
+    `rebuilt from the markdown files. The brain_apify_* tools reach Apify's paid remote ` +
+    `extractors under the brain's governance policy; they are not web search, and discovering ` +
+    `or inspecting an Actor never runs it.`
   );
 }
 
@@ -482,6 +498,144 @@ function registerWriteTools(server: McpServer, t: CoreTools): void {
   // processing goes through the /process-notes skill (or `brain process`).
 }
 
+/**
+ * A compute envelope as a tool result: the envelope as structuredContent and
+ * its compact JSON text. A refusal is a tool error carrying the same
+ * envelope, so an agent sees the stable code.
+ */
+const computeResult = (envelope: ComputeEnvelope) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
+  structuredContent: envelope as unknown as Record<string, unknown>,
+  ...(envelope.ok ? {} : { isError: true }),
+});
+
+/**
+ * The six `brain_compute_*` tools, always registered in this order with
+ * fixed descriptions, whatever the config says: the tool roster an agent
+ * session starts with never depends on whether compute is configured, and a
+ * disabled or unconfigured provider refuses at call time
+ * (docs/decisions/provider-history.md). Every handler calls the shared
+ * operation set; none reads job state itself. The caller is this process's
+ * principal; no input names one.
+ */
+export function registerComputeTools(server: McpServer, ops: ComputeOps, driver: ComputeDriver): void {
+  const [health, plan, run, status, cancel, collect] = COMPUTE_TOOL_NAMES;
+  // A refusal is an envelope; anything thrown is a host failure (an
+  // unreadable state directory, a misconfigured host) whose message can name
+  // local paths. The agent gets the usual tool error with a fixed text and
+  // the details stay in the server's stderr log.
+  const guarded = (name: string) => async (call: () => Promise<ComputeEnvelope>) => {
+    try {
+      return computeResult(await call());
+    } catch (e) {
+      console.error(`brain MCP: ${name} failed:`, e);
+      return errorResult(new Error(`${name} failed inside the brain MCP server; its log has the details`));
+    }
+  };
+
+  server.registerTool(
+    health,
+    {
+      description:
+        "List the configured external compute instances, their capabilities and readiness. Allocates nothing and costs nothing. Use before planning a job; with no compute configuration it reports enabled: false.",
+      inputSchema: computeHealthInput,
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async (input) => guarded(health)(() => ops.health(input))
+  );
+
+  server.registerTool(
+    plan,
+    {
+      description:
+        "Check a job against admission without any effect: the lease it would hold, the exact source files and their hash, the artifacts, the cost estimate (null when unknown) and free slots, or the refusal it would get. Nothing is uploaded or allocated.",
+      inputSchema: computeRequestInput,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (input) => guarded(plan)(() => ops.plan(input))
+  );
+
+  server.registerTool(
+    run,
+    {
+      description:
+        "Start a command on a named external compute instance and return its opaque job id once it has started; the job keeps running after this call. Uploads only the declared source files and may cost money. Prefer local execution for cheap work. Follow with brain_compute_status, then brain_compute_collect, or brain_compute_cancel.",
+      inputSchema: computeRequestInput,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (input) =>
+      guarded(run)(async () => {
+        const envelope = await ops.run(input);
+        if (envelope.ok && envelope.job.terminal === null) driver.track(envelope.job.id);
+        return envelope;
+      })
+  );
+
+  server.registerTool(
+    status,
+    {
+      description:
+        "Advance and report one of your compute jobs: state, exit status, cleanup fact (released, retained, release_failed, none or unknown) and cost, where an unknown cost is null, never zero.",
+      inputSchema: computeJobInput,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => guarded(status)(() => ops.status(input))
+  );
+
+  server.registerTool(
+    cancel,
+    {
+      description:
+        "Cancel one of your compute jobs: stops its command and releases its sandbox, and reports whether release was confirmed. Cost already incurred remains.",
+      inputSchema: computeJobInput,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => guarded(cancel)(() => ops.cancel(input))
+  );
+
+  server.registerTool(
+    collect,
+    {
+      description:
+        "Return one of your compute jobs with its bounded stdout and stderr (at most 64 KiB each) and its artifacts as files in the host's compute state directory with their sha256. Artifacts are not brain content.",
+      inputSchema: computeJobInput,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async (input) => guarded(collect)(() => ops.collect(input))
+  );
+}
+
+/** Read-only Apify operations: they read the catalog or an owned run and spend nothing. */
+const APIFY_READ_ONLY = new Set(["discover", "inspect", "prepare", "status", "results"]);
+
+/**
+ * brain_apify_discover … brain_apify_abort (#3162): fixed names and strict
+ * schemas, shared with `brain apify` and both chat backends. Each calls the
+ * same standalone operation `brain apify` calls, under this process's own
+ * policy, token and shared ledger; nothing here can ask anyone, so a run
+ * needs an exact standing grant. Discovered Actor schemas are returned as
+ * data: choosing an Actor never adds or removes a tool.
+ */
+export function registerApifyTools(server: McpServer, apify: () => StandaloneApify): void {
+  for (const operation of APIFY_OPERATIONS) {
+    server.registerTool(APIFY_TOOL_NAMES[operation], {
+      description: APIFY_DESCRIPTIONS[operation],
+      inputSchema: APIFY_INPUT_SCHEMAS[operation],
+      annotations: APIFY_READ_ONLY.has(operation)
+        ? { readOnlyHint: true, openWorldHint: true }
+        : { readOnlyHint: false, destructiveHint: operation === "abort", idempotentHint: false, openWorldHint: true },
+    }, async (input: unknown, extra: { signal: AbortSignal }) => {
+      try {
+        const envelope = await apify().call(operation, input, { signal: extra.signal });
+        return { ...(envelope.ok ? {} : { isError: true }), content: [{ type: "text" as const, text: JSON.stringify(envelope) }],
+          structuredContent: envelope as unknown as Record<string, unknown> };
+      } catch (e) {
+        return errorResult(e);
+      }
+    });
+  }
+}
+
 export async function startMcpServer(
   brainContext?: BrainContext,
   configError?: string
@@ -538,12 +692,20 @@ export async function startMcpServer(
   );
   registerReadTools(server, tools);
   registerWriteTools(server, tools);
+  const computeOps = createComputeOps({ root: brain.root, config: brain.config, caller: { kind: "mcp", principal: localPrincipal() } });
+  const computeDriver = createComputeDriver(computeOps);
+  registerComputeTools(server, computeOps, computeDriver);
+  // Jobs this server started are advanced while it lives; leases bound them after.
+  server.server.onclose = () => computeDriver.stop();
+  let apify: StandaloneApify | undefined;
+  registerApifyTools(server, () => apify ??= createStandaloneApify({ root: brain.root }));
 
   // Core's names are registered first. Module tools are fixed for this
   // process and registered before connect, so no list-changed event is sent.
   const owners = new Map<string, string | null>([
     "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph",
-    "brain_add", "brain_update", "brain_archive",
+    "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOL_NAMES,
+    ...APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]),
   ].map((name) => [name, null]));
   moduleWarnings.push(...await registerModuleTools(server, brain.modules, brain.root, brain.taxonomy, owners));
 

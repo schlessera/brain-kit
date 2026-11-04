@@ -35,6 +35,7 @@
 
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import {
+  APIFY_TOOL_NAMES,
   checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
@@ -59,7 +60,8 @@ export interface PermissionGateOptions {
 export function piToolAvailabilityRefusal(turn: TurnContext, name: string): string | undefined {
   if (turn.autonomous) return undefined;
   const visual = ["ask_user_list", "ask_user_rank", "ask_user_form", "request_image_mask"];
-  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share"];
+  // Apify stays inside interactive typed turns (#3162): voice and no-grant turns keep their memberships.
+  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share", ...Object.values(APIFY_TOOL_NAMES)];
   if ([...visual, ...interactive].includes(name) && (turn.noGrantSurface || turn.posture === "voice"))
     return `Tool "${name}" requires an interactive typed grant surface.`;
   const handlers: Record<string, string> = {
@@ -68,6 +70,9 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     propose_policy_change: "proposePolicyChange", inbox_list: "inboxList", inbox_get: "inboxGet",
     inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare", brain_read_base: "readBrainBase",
     reference_source: "referenceAccess", reference_worktree: "referenceAccess",
+    brain_compute_health: "compute", brain_compute_plan: "compute", brain_compute_run: "compute",
+    brain_compute_status: "compute", brain_compute_cancel: "compute", brain_compute_collect: "compute",
+    ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")

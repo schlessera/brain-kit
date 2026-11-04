@@ -6,7 +6,7 @@ export interface SearchHit {
   snippet?: string | null;
   score?: number | null;
 }
-export interface SearchResults { results: SearchHit[]; warnings: string[] }
+interface SearchResults { results: SearchHit[]; warnings: string[] }
 
 export function openableSearchPath(path: string): boolean {
   return Boolean(path) && !/^[\/\\]|^[a-z][a-z\d+.-]*:|[\u0000-\u001f\u007f\\?#]/i.test(path)

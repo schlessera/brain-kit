@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { join, resolve } from "node:path";
 import { captureSurface } from "../../scripts/capture-turn-surface.js";
 import { observedSkills } from "../../scripts/turn-surface-skills.js";
 
@@ -11,8 +12,11 @@ assert.deepEqual(networkInterfaces, ["lo"], "OWNED_CLAUDE_REQUIRES_OFFLINE_NAMES
 const root = resolve(import.meta.dir, "../../tmp"); mkdirSync(root, { recursive: true });
 const outside = mkdtempSync(join(root, "odysseus-cli-placement-"));
 const inside = mkdtempSync(join(tmpdir(), "odysseus-cli-placement-"));
-const sdk = dirname(Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../../packages/ui-backend-claude/src")));
-const installed = join(sdk, `node_modules/@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`);
+// Resolve the platform binary from the SDK entry, as the SDK itself does, so
+// nested and hoisted layouts both find the package the SDK would launch.
+const sdkRequire = createRequire(Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../../packages/ui-backend-claude/src")));
+const installed = sdkRequire.resolve(`@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`);
+const manifest = JSON.parse(readFileSync(sdkRequire.resolve("./manifest.json"), "utf8"));
 try {
   const paths = [outside, inside].map(root => {
     writeFileSync(join(root, "package.json"), '{"name":"odysseus-owned-cli-control"}\n');
@@ -20,6 +24,7 @@ try {
   });
   const digest = (path: string) => new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
   const installedDigest = digest(installed), runtimeDigests = paths.map(digest);
+  assert.equal(installedDigest, manifest.platforms[`linux-${process.arch}`].checksum, "OWNED_CLAUDE_NATIVE_MATCHES_SDK_MANIFEST");
   assert.deepEqual(runtimeDigests, [installedDigest, installedDigest], "OWNED_CLAUDE_NATIVE_BYTES_MATCH");
   const results = [];
   for (const path of paths) {

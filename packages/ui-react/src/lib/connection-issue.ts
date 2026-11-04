@@ -5,7 +5,7 @@ import type { VpnStatus } from "../stores/connection-store.js";
 export const REFUSAL_ATTEMPTS = 3;
 
 /** ws/connection.ts closes with this when ClientSet.add refuses the socket. */
-export const CONNECTION_LIMIT_CLOSE_CODE = 4008;
+const CONNECTION_LIMIT_CLOSE_CODE = 4008;
 
 export type ConnectionIssue =
   | "unauthorized"

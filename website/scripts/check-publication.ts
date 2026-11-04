@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { sourceInputHash, snapshotName } from './publication-source.ts';
+import { sourceInputDigests, sourceInputHash, snapshotName } from './publication-source.ts';
 
 const built = await Bun.file(resolve(import.meta.dir, '../dist/build-manifest.json')).json();
 assert(Object.keys(built.files).length > 0, 'The artifact fixture must have emitted files');
 const root = await mkdtemp(resolve(tmpdir(), 'brain-kit-pages-proof-'));
 await Bun.write(resolve(root, 'source.txt'), 'unchanged build input\n');
 const clean = { ...built, dirty: false, base: '/brain-kit/' };
-const snapshot = { sourceSha: built.sourceSha, sourceDirty: false, brainKit: built.brainKit, inputHash: await sourceInputHash(root) };
+const snapshot = { sourceSha: built.sourceSha, sourceDirty: false, brainKit: built.brainKit, inputHash: await sourceInputHash(root), inputFiles: await sourceInputDigests(root) };
 const shares = { sourceSha: built.sourceSha, recipeHash: built.exportRecipeHash, brainKit: built.brainKit };
 const previews = await Bun.file(resolve(import.meta.dir, '../dist/assets/previews/provenance.json')).json();
 async function check(manifest = clean, source = snapshot, exports = shares, failure?: string) {
@@ -35,11 +35,22 @@ try {
   await check(clean, snapshot, { ...shares, recipeHash: 'stale' }, 'Exports were not regenerated');
   await check(clean, snapshot, { ...shares, brainKit: { ...shares.brainKit, version: '0.0.0' } }, 'Exports belong to another product build');
   await Bun.write(resolve(root, 'source.txt'), 'unexpected source mutation\n');
-  await check(clean, snapshot, shares, 'Publication source inputs changed during the build');
+  await check(clean, snapshot, shares, 'Publication source inputs changed during the build: modified source.txt');
   await Bun.write(resolve(root, 'source.txt'), 'unchanged build input\n');
   await check();
   // The product build takes the workspace output lease (scripts/workspace-lease.mjs).
   await Bun.write(resolve(root, 'tmp/workspace-operation/output.lock'), '');
+  await check();
+  // ...and leaves its receipt beside it (scripts/build-receipt.ts).
+  await Bun.write(resolve(root, 'tmp/build-4242-00000000-0000-0000-0000-000000000000-probe.json'), '{}');
+  await check();
+  // The demo build regenerates the worker's library file (website/scripts/build.ts).
+  await Bun.write(resolve(root, 'website/public/demo/library.json'), '{}');
+  await check();
+  // Anything else under tmp/ is still a source input.
+  await Bun.write(resolve(root, 'tmp/notes.json'), '{}');
+  await check(clean, snapshot, shares, 'Publication source inputs changed during the build: added tmp/notes.json');
+  await rm(resolve(root, 'tmp/notes.json'));
   await check();
   console.log('Publication proof passed: matching artifact accepted; dirty/changed source, wrong website/product/base and stale or mismatched exports refused by the actual publication command.');
 } finally { await rm(root, { recursive: true, force: true }); }

@@ -39,7 +39,7 @@ export function syncMediaCounts(root: string, policy: MediaPolicy, assessed: rea
   try {
     references = { limits: mediaReferenceLimits(resolveEnv().mediaReferenceLimits) };
   } catch {
-    references = { limits: { notes: 0, noteBytes: 1, perNote: 1, scanTime: 1, refsPerFinding: 1 } };
+    references = { limits: { notes: 0, noteBytes: 1, perNote: 1, scanTime: 1, refsPerFinding: 1, rewrittenNotes: 1, preview: 1 } };
   }
   const findings = canonicalFindings(mediaCandidates(mediaInventory(root, policy, assessed, pins, references)));
   let entries: HygieneLogEntry[] = [];

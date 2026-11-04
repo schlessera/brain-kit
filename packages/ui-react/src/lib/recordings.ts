@@ -7,7 +7,7 @@ import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
 export const RECORDING_MAX_MS = 600_000;
-export const RECORDING_WALL_BACKSTOP_MS = 660_000;
+const RECORDING_WALL_BACKSTOP_MS = 660_000;
 const LIMIT_FLUSH_MARGIN_MS = 250;
 // Internal scheduler tolerance: modest callback jitter is not evidence of lost audio.
 const AUDIO_TIMER_LATENESS_MS = 1000;
@@ -86,7 +86,7 @@ export interface RecordingStore {
   onEvent(listener: (event: RecordingEvent) => void): () => void;
   dispose(): void;
 }
-export interface RecordingStoreOptions {
+interface RecordingStoreOptions {
   partitions: LocalPartitions;
   heldAccountKey: () => string | null;
   root: BrainUiServices;
@@ -102,6 +102,7 @@ export function recordingTime(ms: number): string {
 }
 export const RECORDING_UNAVAILABLE = "This recording is no longer available on this device.";
 export const TRANSCRIPT_CHANGED = "Transcript changed in another tab. Review it before adding it to your draft.";
+const STILL_CHECKING = "Recordings are still being checked. Try again in a moment.";
 const notEnough = "Not enough space on this device to record. Free space by transcribing or discarding recordings.";
 async function hash(blobs: Blob[]): Promise<string> {
   const bytes = await new Blob(blobs).arrayBuffer();
@@ -203,12 +204,22 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     bytes = Math.max(0, bytes);
     return { bytes, canRecord: bytes >= MIN_BYTES, message: bytes >= MIN_BYTES ? null : notEnough };
   }
-  async function acquire(): Promise<() => Promise<void>> {
+  // Holds of the exclusive lock by this store for anything but capture: its
+  // own recovery, sync and mutations (#3326). While one is held, a refusal
+  // names this store's own check instead of another tab. A capture hold, and
+  // any holder outside this store, keeps the cross-tab message.
+  let maintaining = 0;
+  async function acquire(capture = false): Promise<() => Promise<void>> {
     if (!navigator.locks) throw new DOMException("This browser cannot coordinate recording tabs.", "NotSupportedError");
     return new Promise((resolve, reject) => {
       const requested = navigator.locks.request(LOCK, { ifAvailable: true }, async (lock) => {
-        if (!lock) { reject(new Error("Recording in another Brain tab")); return; }
-        await new Promise<void>((unlock) => resolve(async () => { unlock(); await requested; }));
+        if (!lock) { reject(new Error(maintaining > 0 ? STILL_CHECKING : "Recording in another Brain tab")); return; }
+        if (!capture) maintaining++;
+        await new Promise<void>((unlock) => resolve(async () => {
+          unlock();
+          // Count the hold until the native lock is actually released.
+          try { await requested; } finally { if (!capture) maintaining--; }
+        }));
       });
       void requested.catch(reject);
     });
@@ -279,7 +290,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           if (!sameGeneration(partition, pending.generation)) throw new PartitionRefusedError(partition);
         };
         try {
-          release = preflight?.release ?? await acquire();
+          release = preflight?.release ?? await acquire(true);
           checkStart();
           const free = await budget();
           checkStart();
@@ -488,7 +499,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const partition = heldPartition();
         const generation = partitions.writerGeneration(partition);
         openingGeneration = generation;
-        release = await acquire();
+        release = await acquire(true);
         const free = await budget();
         if (!free.canRecord) { emit("refused", notEnough); throw new Error(notEnough); }
         signal.throwIfAborted();

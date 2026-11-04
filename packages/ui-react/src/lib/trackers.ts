@@ -40,7 +40,7 @@ export interface TrackerRecord {
   seen: TrackerSeen | null;
 }
 
-export interface TrackerSeen {
+interface TrackerSeen {
   turnId: string;
   revision: number;
   basis: "proof" | "acknowledged";
@@ -344,7 +344,7 @@ export function applyUnavailable(evidence: TrackerEvidence, reason: SessionRecov
 }
 
 /** States, in display order (D52 §4). */
-export const TRACKER_STATES = [
+const TRACKER_STATES = [
   "needs_you",
   "failed",
   "unconfirmed",
@@ -357,7 +357,7 @@ export const TRACKER_STATES = [
 ] as const;
 export type TrackerState = (typeof TRACKER_STATES)[number];
 
-export type TrackerCantCheck = SessionRecoveryUnavailable;
+type TrackerCantCheck = SessionRecoveryUnavailable;
 
 export interface TrackerView {
   sessionId: string;
@@ -383,7 +383,7 @@ export interface TrackerView {
   settled: boolean;
 }
 
-export interface TrackerContext {
+interface TrackerContext {
   /** `server_hello.capabilities.sessionRecovery`; null before any hello. */
   recoverySupported: boolean | null;
   /** A send in this session with no acceptance proof (D52 §5). */

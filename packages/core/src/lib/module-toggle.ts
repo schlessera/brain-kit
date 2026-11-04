@@ -6,7 +6,7 @@ import { planModuleFlag } from "./module-config-edit.js";
 import { planModuleInstructions } from "./module-instructions.js";
 import { discoverSkills } from "./skills/discover.js";
 import { syncSkills } from "./skills/sync.js";
-import { safeResolve, writeFileSafely } from "./safe-path.js";
+import { safeResolveHeld, writeFileSafely } from "./safe-path.js";
 import type { LoadedModule } from "./module-types.js";
 import { readGeneratedRegion } from "./generated-regions.js";
 
@@ -25,7 +25,7 @@ export function toggleModule(cli: CliContext, name: string, enabled: boolean): {
   }
   const state = enabled ? "active" : "dormant";
   const modules: LoadedModule[] = brain.modules.map((m) => m === mod ? { ...m, state } : m);
-  const path = safeResolve(brain.root, brain.configPath);
+  const path = safeResolveHeld(brain.root, brain.configPath);
   if (!path) throw new UsageError("Config resolves outside the brain root; no changes made");
   const original = readFileSync(path, "utf8");
   // All source, ownership, discovery and emitter checks precede every write.

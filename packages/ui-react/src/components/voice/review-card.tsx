@@ -24,12 +24,12 @@ export function ReviewCard({
         </p>
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-border/40 px-2 py-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-          <Button tone="quiet" size="sm" icon="dismiss" label="Discard" block={false} style={{ minHeight: 44 }} onClick={onDiscard} />
-          <Button tone="quiet" size="sm" icon="edit" label="Edit" block={false} style={{ minHeight: 44 }} onClick={onEdit} />
-          <Button tone="quiet" size="sm" icon="mic" label="Add" ariaLabel="Append more voice" block={false} style={{ minHeight: 44 }} onClick={onAppend} />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 any-pointer-coarse:gap-y-4">
+          <Button tone="quiet" size="sm" icon="dismiss" label="Discard" block={false} reach onClick={onDiscard} />
+          <Button tone="quiet" size="sm" icon="edit" label="Edit" block={false} reach onClick={onEdit} />
+          <Button tone="quiet" size="sm" icon="mic" label="Add" ariaLabel="Append more voice" block={false} reach onClick={onAppend} />
         </div>
-        <Button tone="primary" size="md" icon="send" label="Send" block={false} style={{ minHeight: 44, flexShrink: 0 }} onClick={onSend} />
+        <Button tone="primary" size="md" icon="send" label="Send" block={false} reach style={{ flexShrink: 0 }} onClick={onSend} />
       </div>
     </div>
   );

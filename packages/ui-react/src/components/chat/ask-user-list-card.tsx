@@ -31,7 +31,7 @@ import { DISMISSED_NOTE } from "./ask-user-card.js";
 import type { RecordHead } from "./answer-text.js";
 
 /** "you answered 7 · 3m ago", or without the time when none is known. */
-export function listAnsweredMeta(count: number, total: number, answeredAt: number | undefined): string {
+function listAnsweredMeta(count: number, total: number, answeredAt: number | undefined): string {
   const what = count === total ? `you answered ${count}` : `you answered ${count} of ${total}`;
   return answeredAt === undefined ? what : `${what} · ${formatRelativeTime(answeredAt)}`;
 }
@@ -64,6 +64,7 @@ export function AskUserListExchangeCard({
   notes,
   cancelled,
   lapsedNote,
+  endedPrompt,
   answeredAt,
   onSubmit,
   onCancel,
@@ -77,6 +78,11 @@ export function AskUserListExchangeCard({
   notes?: Record<string, string>;
   cancelled?: boolean;
   lapsedNote?: string;
+  /**
+   * The turn that asked has ended (#3356): the card stays editable under
+   * this prompt, and its Submit no longer answers the request.
+   */
+  endedPrompt?: string;
   answeredAt?: number;
   onSubmit: (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
   onCancel: (requestId: string) => void;
@@ -127,7 +133,7 @@ export function AskUserListExchangeCard({
         key={reopened ? "reopened" : "live"}
         {...base}
         state="pending"
-        prompt={`${root.config.assistantName} needs your input`}
+        prompt={endedPrompt ?? `${root.config.assistantName} needs your input`}
         singleKeys={singleKeys}
         onSubmit={({ answers, notes: kept }) => {
           if (reopened) {

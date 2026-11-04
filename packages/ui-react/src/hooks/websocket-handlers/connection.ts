@@ -42,8 +42,8 @@ export const connectionFrameHandlers = {
   // Root-owned conversation routing consumes permission outcomes before demux;
   // ordinary chat progress keeps its existing handlers.
   tool_resolution: () => {},
-  // Pending follow-ups (#1002) are consumed by the connection before demux.
-  session_queue: () => {},
+  // Pending follow-ups (#1002): a connection-wide frame, never demultiplexed.
+  session_queue: (msg, context) => context.queueReport(msg),
   // Browser invalidation is #3231's: this client does not declare
   // `chatDeletion`, so the host never sends it this frame.
   chat_retired: () => {},

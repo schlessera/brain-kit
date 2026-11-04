@@ -1,5 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
-import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
+import { afterAll, beforeAll, expect, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -36,7 +36,7 @@ async function scene(ctx: TestContext, width = 320, theme: "light" | "dark" = "d
   const render = (content = <ChatPage />) => flushSync(() => root.render(<BrainUiProvider root={ui}>{content}</BrainUiProvider>));
   render(fullChat ? <ChatPage /> : <></>);
   const release = ui.connection.connect();
-  ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width, outer.height); });
+  ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
   return { ui, host, render };
 }
@@ -61,7 +61,11 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   const box = trigger.getBoundingClientRect();
   expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
   for (const [x,y] of [[box.left + 2,box.top + box.height/2],[box.right-2,box.top+box.height/2],[box.left+box.width/2,box.top+2],[box.left+box.width/2,box.bottom-2]]) expect(document.elementFromPoint(x,y)?.closest("button")).toBe(trigger);
+  // The qualifier's 300 ms show delay and 150 ms hide grace run on a fake
+  // clock, so "every pending timer has run" is a step, not a window.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
   trigger.focus();
+  flushSync(() => vi.advanceTimersByTime(300));
   await expect.poll(() => document.querySelector('[role="tooltip"]')?.textContent).toContain("Words may be uncertain; speaker unverified.");
   const hint = document.querySelector<HTMLElement>('[role="tooltip"]')!;
   expect(hint.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
@@ -70,8 +74,9 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   expect(getComputedStyle(trigger).outlineWidth).toBe("2px");
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => document.querySelector('[role="tooltip"]')).toBeNull();
-  await new Promise(r => setTimeout(r, 350));
+  flushSync(() => vi.runOnlyPendingTimers());
   expect(document.querySelector('[role="tooltip"]'), "Escape suppresses while still focused").toBeNull();
+  vi.useRealTimers();
   await userEvent.keyboard("{Enter}");
   const dialog = document.querySelector<HTMLDialogElement>('dialog[open]')!;
   expect(dialog, "native Enter opens evidence").not.toBeNull();
@@ -104,12 +109,16 @@ test("pointer can read tooltip then tap details; playback and restoration are in
   const s = await scene(ctx, 320, "light", 1, false);
   s.render(<><TranscriptSymbols /><ConversationOutput output={{ conversationId: "odysseus-voice", epoch: 1, sessionId: SESSION, providerId: "gpt-live", outputId: "restored-raft", generated: "The water skins belong beside the mast.", playback: "discarded" }} restored /></>);
   const trigger = qualifier(s.host, "generated");
+  // As above: the show delay and hide grace run on a fake clock.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
   await userEvent.hover(trigger);
+  flushSync(() => vi.advanceTimersByTime(300));
   await expect.poll(() => document.querySelector('[role="tooltip"]')?.textContent).toContain("Remaining reply not spoken locally. Earlier spoken portion unknown.");
   const hint = document.querySelector<HTMLElement>('[role="tooltip"]')!;
   await userEvent.hover(hint);
-  await new Promise(r => setTimeout(r, 350));
+  flushSync(() => vi.runOnlyPendingTimers());
   expect(hint.isConnected, "hoverable explanation persists").toBe(true);
+  vi.useRealTimers();
   await userEvent.keyboard("{Escape}");
   expect(document.querySelector('[role="tooltip"]')).toBeNull();
   const box = trigger.getBoundingClientRect();

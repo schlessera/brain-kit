@@ -64,6 +64,11 @@ async function piTurn(script: string, hold: "init" | "prompt" | "started" | "non
       if (pool || hold === "none" || !String(chunk).includes(`"type":"${hold}"`)) return;
       const held = pool = holdWorkPool(fifos.dir);
       const ended = (stream: NodeJS.ReadableStream) => new Promise(done => stream.once("end", done));
+      // Kept real time: the delay is the stimulus. It makes Bun's own close of
+      // its descriptor duplicates late, so a turn that settles at exit or at
+      // end of output settles with them still open. Freeing the pool when the
+      // turn asks for release would let a turn that asks without awaiting the
+      // answer race the pool's close.
       void Promise.all([ended(launched.stdout), ended(launched.stderr)]).then(() => Bun.sleep(250)).then(held.release);
     })) as typeof launched.stdin.write;
     return launched;
@@ -110,7 +115,10 @@ test.skipIf(!native)("a pi turn waits for its worker's stdio release, however lo
   const turn = piTurn(ANSWERING, "none", { promise: release.promise, called: calling.resolve }).then(outcome => { settled = true; return outcome; });
   cleanup.push(() => release.resolve());
   expect(await Promise.race([calling.promise.then(() => true), Bun.sleep(10_000).then(() => false)]), "PI_TURN_REACHES_RELEASE").toBe(true);
-  await Bun.sleep(100);
+  // The release is the turn's last teardown step and is withheld in memory.
+  // Everything after it is in-process work, so one macrotask after the call is
+  // when a turn that did not await the release would already have settled.
+  await new Promise(resolve => setImmediate(resolve));
   expect(settled, "PI_TURN_PENDING_WHILE_RELEASE_WITHHELD").toBe(false);
   release.resolve();
   const { open, refused, result } = await turn;

@@ -7,7 +7,7 @@ import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createProviderMaskGuard, ProviderMaskRefusedError, ProviderRecordsRefusedError } from "../brain/provider-mask-refusal.js";
 import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
-import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
+import { HOST_TIMEOUT_OUTCOME_DETAIL, SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
@@ -30,6 +30,9 @@ import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";
 import type { RunningTurn } from "./turns.js";
+
+/** The words a timed-out turn's `status: cancelled` carries in `detail`. */
+const TURN_TIMED_OUT = "Turn timed out";
 import { acceptDraft } from "./drafts.js";
 import type { WsHost } from "./host.js";
 import type { TurnRecorder } from "../activity/recorder.js";
@@ -78,7 +81,9 @@ export async function makeBridge(
    * The admitted turn's data tree (#2848, #2846) and, for a worker on the
    * startup view, that view's root: where its `Read` of a brain path resolves.
    */
-  turnData?: { tree: TurnDataTree; view?: string }
+  turnData?: { tree: TurnDataTree; view?: string },
+  /** The governed turn's frozen policy: hosted external compute is admitted only under it (#3108). */
+  governance?: { policy: TurnGovernancePolicy }
 ): Promise<BackendBridge> {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -93,6 +98,7 @@ export async function makeBridge(
   // message named an existing session. Captured like requestId: a late frame
   // settles only this request's draft.
   const draftRef = turn.draftRef;
+  const attachmentFileIds = turn.attachmentFileIds;
   const draftPrincipalId = turn.principalId;
   const resumedSession = turn.sessionId !== null;
   let draftSettled = false;
@@ -210,6 +216,13 @@ export async function makeBridge(
         && !turn.sessionId && msg.type === "error" && !msg.sessionId && !msg.failure
         && msg.code === "agent_error" && msg.message === "The turn was cancelled before a session was acquired.")
         msg = { type: "status", status: "cancelled", detail: "Cancelled before starting", requestId };
+      // The host's hard turn limit, not someone's cancel, ended this turn:
+      // its cancelled terminal says so, so the conversation can (#3356). Only
+      // the timed-out turn's own frames, and never over a real cancel.
+      if (turn.timedOutTurnId === turnId && turn.turnId === turnId && !turn.cancelled) {
+        if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_TIMED_OUT };
+        else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL };
+      }
       if (msg.type === "error" && requestId) msg = { ...msg, requestId };
       if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
         msg = { ...msg, ...(requestId ? { requestId } : {}), ...(thinkingLevel !== undefined ? { thinkingLevel } : {}) };
@@ -236,10 +249,14 @@ export async function makeBridge(
         // injected backend that omits (or mislabels) it still scopes the
         // client's tool rendering correctly.
         msg = { ...msg, backendId };
-        coordinator.bySession.set(msg.sessionId, turn);
+        coordinator.bindSession(msg.sessionId, turn);
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.
-        catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+        // An authenticated typed request that created this session also binds
+        // its owner, content-free, so the owner can delete it (#3337). Resumes
+        // and host work bind nothing; the write binds only a new row.
+        const creator = !resumedSession && work === undefined && turn.turnId === turnId && authorization.valid && host.isPrincipalAuthorized(principalId) ? principalId : undefined;
+        catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
         // Submitted after the catalog row; every share read/effect joins this queue.
@@ -268,7 +285,8 @@ export async function makeBridge(
         }
         if (draftRef && !draftSettled) {
           draftSettled = true;
-          acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
+          acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId,
+            ...(attachmentFileIds?.length ? { fileIds: attachmentFileIds } : {}) });
         }
         if (pendingSessionNamed) {
           const named = pendingSessionNamed;
@@ -310,7 +328,7 @@ export async function makeBridge(
           && work === undefined
           // File Retry needs a pre-reservation read to verify the exact original.
           // Older catalogs can still retain their text/image-only requests.
-          && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
+          && ((!turn.retryRequest.files?.length && !turn.retryRequest.attachmentRefs?.length) || catalog.peekRetry)) {
           if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
             msg = { ...msg, retryOfTurnId: turnId };
           }
@@ -404,10 +422,6 @@ export async function makeBridge(
         return Promise.resolve({ behavior: "allow" });
       }
       return new Promise<PermissionDecision>((resolve) => {
-        if (coordinator.collidesAcrossTurns(coordinator.pendingApprovals, req.toolUseId, turn)) {
-          resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
-          return;
-        }
         // The decision stamps the wait/execution boundary on the tool span
         // (grant) or lands the denied outcome (deny) before the backend's
         // own error tool_result can mislabel it — write-once protects it.
@@ -428,12 +442,18 @@ export async function makeBridge(
           );
           resolve(decision);
         };
-        coordinator.pendingApprovals.set(req.toolUseId, {
-          turn,
-          turnId,
-          request: req,
-          resolve: recorded,
-        });
+        // A request raised after the turn's drain is expired the way the
+        // drain expires one, or it would never settle (#3553).
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) {
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: drained });
+          recorded({ behavior: "deny", message: drained });
+          return;
+        }
+        if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded })) {
+          resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
+          return;
+        }
         if (!host.clients.hasClients()) {
           // Not a failure — the card is parked and re-delivered on reconnect
           // (see resendPendingInteractive) — but the wait was invisible before
@@ -504,23 +524,12 @@ export async function makeBridge(
       : {}),
     askUser: (requestId, questions) => {
       return new Promise<AskUserResult>((resolve, reject) => {
-        if (
-          coordinator.collidesAcrossTurns(coordinator.pendingAskUser, requestId, turn) ||
-          coordinator.pendingAskUserList.has(requestId) ||
-          coordinator.pendingAskUserRank.has(requestId) ||
-          coordinator.pendingAskUserForm.has(requestId)
-        ) {
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
+        if (!coordinator.openAsk("ask_user", { turn, turnId, requestId, questions, resolve, reject })) {
           reject(new Error("Duplicate ask-user request id"));
           return;
         }
-        coordinator.pendingAskUser.set(requestId, {
-          turn,
-          turnId,
-          requestId,
-          questions,
-          resolve,
-          reject,
-        });
         host.sendToClients(
           withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)
         );
@@ -535,25 +544,14 @@ export async function makeBridge(
     },
     askUserList: (requestId, request) => {
       return new Promise<AskUserListResult>((resolve, reject) => {
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
         // One id space across all ask kinds: a single `ask_user_cancel`
         // dismisses any of them, so an id pending as one must not open as the other.
-        if (
-          coordinator.collidesAcrossTurns(coordinator.pendingAskUserList, requestId, turn) ||
-          coordinator.pendingAskUser.has(requestId) ||
-          coordinator.pendingAskUserRank.has(requestId) ||
-          coordinator.pendingAskUserForm.has(requestId)
-        ) {
+        if (!coordinator.openAsk("ask_user_list", { turn, turnId, requestId, request, resolve, reject })) {
           reject(new Error("Duplicate ask-user request id"));
           return;
         }
-        coordinator.pendingAskUserList.set(requestId, {
-          turn,
-          turnId,
-          requestId,
-          request,
-          resolve,
-          reject,
-        });
         host.sendToClients(
           withTurnScope({ type: "ask_user_list_request", requestId, ...request }, turn, turnId)
         );
@@ -568,11 +566,13 @@ export async function makeBridge(
     },
     askUserRank: (requestId, request) => {
       // Cancellation shares one id space across all four ask kinds.
-      if (coordinator.pendingAskUserRank.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId) || coordinator.pendingAskUserForm.has(requestId)) {
+      if (coordinator.pendingAsk(requestId)) {
         return Promise.reject(new Error("Duplicate ask-user request id"));
       }
       return new Promise<AskUserRankResult>((resolve, reject) => {
-        coordinator.pendingAskUserRank.set(requestId, { turn, turnId, requestId, request, resolve, reject });
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
+        coordinator.openAsk("ask_user_rank", { turn, turnId, requestId, request, resolve, reject });
         host.sendToClients(withTurnScope({ type: "ask_user_rank_request", requestId, ...request }, turn, turnId));
         host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
       });
@@ -580,11 +580,13 @@ export async function makeBridge(
     askUserFormLimits: host.askUserFormLimits,
     askUserForm: (requestId, request) => {
       const validated = askUserFormSpec(request, host.askUserFormLimits);
-      if (coordinator.pendingAskUserForm.has(requestId) || coordinator.pendingAskUser.has(requestId) || coordinator.pendingAskUserList.has(requestId) || coordinator.pendingAskUserRank.has(requestId)) {
+      if (coordinator.pendingAsk(requestId)) {
         return Promise.reject(new Error("Duplicate ask-user request id"));
       }
       return new Promise<AskUserFormResult>((resolve, reject) => {
-        coordinator.pendingAskUserForm.set(requestId, { turn, turnId, requestId, request: validated, resolve, reject });
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
+        coordinator.openAsk("ask_user_form", { turn, turnId, requestId, request: validated, resolve, reject });
         host.sendToClients(withTurnScope({ type: "ask_user_form_request", requestId, ...validated }, turn, turnId));
         host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
       });
@@ -597,11 +599,12 @@ export async function makeBridge(
       }
       const requestId = coordinator.nextLocationRequestId();
       return new Promise<LocationFix>((resolve, reject) => {
-        if (coordinator.collidesAcrossTurns(coordinator.pendingLocation, requestId, turn)) {
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) return reject(new Error(drained));
+        if (!coordinator.openLocation(requestId, { turn, turnId, resolve, reject })) {
           reject(new Error("Duplicate location request id"));
           return;
         }
-        coordinator.pendingLocation.set(requestId, { turn, turnId, resolve, reject });
         host.sendToClients(
           withTurnScope({ type: "location_request", requestId, options }, turn, turnId)
         );
@@ -622,11 +625,12 @@ export async function makeBridge(
       }
       const requestId = coordinator.nextMaskRequestId();
       return new Promise<Uint8Array>((resolve, reject) => {
-        if (coordinator.collidesAcrossTurns(coordinator.pendingMask, requestId, turn)) {
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) return reject(new Error(drained));
+        if (!coordinator.openMask(requestId, { turn, turnId, resolve, reject })) {
           reject(new Error("Duplicate mask request id"));
           return;
         }
-        coordinator.pendingMask.set(requestId, { turn, turnId, resolve, reject });
         host.sendToClients(
           withTurnScope({ type: "mask_request", requestId, imagePath, instruction }, turn, turnId)
         );
@@ -757,6 +761,29 @@ export async function makeBridge(
   // Reference source and managed worktrees (#2432): the host's record of this
   // turn supplies principal, views and generation; the call carries its input only.
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(turnId, principalId, call, signal);
+  // External compute (#3108): the host binds the caller, the frozen policy,
+  // the approval surface, the mask guard and the credentials; the call
+  // carries the instance, the command and the job only. Governed turns only:
+  // the budget ledger and the frozen policy are theirs.
+  if (host.computeTools && governance && (backendId === "claude" || backendId === "pi")) {
+    const posture = work?.posture === "voice" ? "voice" : "interactive";
+    bridge.compute = host.computeTools.forTurn({ turnId, principalId, sessionId: () => turn.sessionId ?? undefined,
+      policy: governance.policy.policy, policyHash: governance.policy.hash, posture, noGrantSurface: posture === "voice", autonomous: false,
+      hasClient: () => host.clients.hasClients(), ...(maskGuard ? { maskGuard } : {}), toolName,
+      requestPermission: request => bridge.requestPermission(request),
+      isCurrent: () => !signal.aborted && isAuthorized(),
+      govern: event => catalog.recordGovernanceEvent?.({ ...event, turnId, sessionId: turn.sessionId, actor: posture,
+        model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never) });
+  }
+  // Apify (#3162): the context comes from this turn, never from the call. The
+  // approval surface is this bridge's own, so voice and revoked turns refuse
+  // as they do for every other card; the host also refuses a non-interactive turn.
+  if (host.apify && (backendId === "claude" || backendId === "pi")) {
+    const apify = host.apify;
+    bridge.apify = call => apify.call({ turnId, principalId, sessionId: () => collectedSessionId ?? null,
+      posture: work?.posture === "voice" ? "voice" : "interactive",
+      approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
+  }
   // Intake stages the submitted item under the share staging directory and
   // reconciles what is already staged there, so a mask at, above or inside
   // that directory, or one it resolves into, refuses the whole addition.
@@ -781,7 +808,7 @@ export async function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

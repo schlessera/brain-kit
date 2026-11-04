@@ -81,7 +81,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and per-turn XDG layout once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:901-942`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:910-951`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:592-657`).
@@ -89,7 +89,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain. The backend selects runtime HOME separately.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:823-853`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:832-862`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -153,7 +153,7 @@ through the roadblock path. This is a worker write boundary, not an immutable
 view: host-side changes to that directory remain visible. A backend may select a different runtime HOME
 as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:901-942`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:910-951`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -267,17 +267,17 @@ The `read_only_brain` code and its
 
 **Serving.** The file routes refuse any symlink at or below `.brain` for a
 scratch path, and a scratch listing omits links
-(`const scratchRequest`, `packages/ui-server/src/files/walker.ts:115`).
+(`const policy: ContainmentPolicy = isScratchPath(rel)`, `packages/ui-server/src/files/walker.ts:96-98`).
 Elsewhere in the brain an in-brain link resolves as before. Those checks
 run before the open, so a file whose requested or resolved path lies in
 `.brain/scratch/` or `workspaces/` is then read once, from its resolved
 path, through descriptors that never follow a link (each directory from the brain root opened with
 `O_NOFOLLOW | O_DIRECTORY` through the previous one, the file with
 `O_NOFOLLOW`), and the route serves that snapshot; the size cap bounds it
-(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:157-193`).
+(`export function readAnchoredSnapshot`, `packages/ui-server/src/files/walker.ts:115-151`).
 Core's prune reads every entry with `lstat`, and on Linux removes each file
 and emptied directory through its parent's descriptor in the same way
-(`function anchored`, `packages/core/src/lib/scratch.ts:513-543`), because a
+(`function anchored`, `packages/core/src/lib/scratch.ts:517-547`), because a
 hosted agent can swap a scratch directory for a link while the host prunes.
 
 ## Measurements

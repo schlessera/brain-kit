@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { sourceInputHash, snapshotName } from './publication-source.ts';
+import { describeInputChanges, sourceInputDigests, sourceInputHash, snapshotName } from './publication-source.ts';
 
 const root = process.argv[2] ? resolve(process.argv[2]) : resolve(import.meta.dir, '../..');
 const snapshot = await Bun.file(resolve(root, snapshotName)).json();
 const file = Bun.file(resolve(root, 'website/dist/build-manifest.json'));
 const manifest = await file.json();
 assert.equal(snapshot.sourceDirty, false, 'Website checkout was dirty');
-assert.equal(await sourceInputHash(root), snapshot.inputHash, 'Publication source inputs changed during the build');
+const inputHash = await sourceInputHash(root);
+assert.equal(inputHash, snapshot.inputHash, inputHash === snapshot.inputHash ? '' : `Publication source inputs changed during the build${describeInputChanges(snapshot.inputFiles, await sourceInputDigests(root))}`);
 if (snapshot.editorialRoot) assert.equal(await sourceInputHash(snapshot.editorialRoot), snapshot.editorialInputHash, 'Canonical editorial inputs changed during the build');
 assert.equal(manifest.sourceSha, process.env.WEBSITE_SOURCE_SHA, 'Website source does not match the selected commit');
 assert.equal(manifest.dirty, false, 'Artifact has changed source inputs');

@@ -39,7 +39,8 @@ clients such as Claude Code put into the agent's context. It tells the agent
 that the brain is the source of truth for facts about its owner (named from
 `profile.name` in `brain.config`), which tool to use to search, brief, read and
 follow links, and to write through `brain_add` and `brain_update` rather than
-touching `brain.db`.
+touching `brain.db`. It also says the `brain_apify_*` tools are paid remote
+extraction under your governance policy, not web search.
 
 ## Tools
 
@@ -53,6 +54,13 @@ touching `brain.db`.
 | `brain_add` | write (non-destructive) | ingest result object |
 | `brain_update` | write (idempotent) | update result object |
 | `brain_archive` | write (idempotent) | archive result object |
+| `brain_compute_health` | read-only (asks the provider) | configured compute instances and readiness |
+| `brain_compute_plan` | read-only | admission without effect: lease, source manifest, estimate |
+| `brain_compute_run` | external effect, may cost money | starts a job and returns its id once started |
+| `brain_compute_status` | external effect (advances the job) | state, exit, cleanup and cost |
+| `brain_compute_cancel` | destructive | cancels and reports whether release was confirmed |
+| `brain_compute_collect` | external effect (advances the job) | bounded output and artifact references |
+| `brain_apify_discover`, `brain_apify_inspect`, `brain_apify_prepare`, `brain_apify_run`, `brain_apify_status`, `brain_apify_results`, `brain_apify_abort` | open-world; only `run` and `abort` change anything | the Apify envelope, as `brain apify --json` prints it |
 
 Notes:
 
@@ -65,13 +73,28 @@ Notes:
   are written and the index syncs; the database is never the source of truth.
 - Search degradation (no embeddings key, model mismatch) is reported in
   `warnings`, identical to the CLI.
+- The six `brain_compute_*` tools (0.45.0+) are the
+  [`brain compute`](cli.md#external-compute) operations with the same
+  envelopes. They are listed whether or not `compute` is configured, so the
+  tool roster never depends on it; without a configured instance they refuse
+  with `compute_disabled`. Jobs belong to the server process's user and are
+  not visible to `brain compute` in a shell. `brain_compute_run` returns once
+  the command has started, and the server keeps advancing the jobs it started
+  until it exits. See the
+  [contract](integration-contract/mcp.md#external-compute-tools-additive-0450-3107).
+- The Apify tools stay off until the governance policy sets
+  `apify.enabled: true`. They then need `APIFY_TOKEN` and `BRAIN_APIFY_LEDGER`
+  in the server's environment, and nobody can be asked from here: a run
+  needs an exact standing grant in the policy, otherwise it refuses as
+  `approval_required`. See [the CLI](cli.md#apify) and
+  [the contract](integration-contract/mcp.md#apify-tools-additive-0450-3162).
 
 ## Module tools
 
 Available in 0.40.0+. Published 0.39.0 serves the eight core tools only.
 
 Enabled modules may declare tools served as `<module>_<local>`, after the
-eight core tools in config and declaration order. Discover them through
+core tools in config and declaration order. Discover them through
 `tools/list`; their descriptions, input and output schemas, and annotations
 travel with each entry. Server instructions continue to describe core tools.
 Module tools follow the same compatibility policy as core tools, with each

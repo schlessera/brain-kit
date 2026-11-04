@@ -8,6 +8,8 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useTurnRevert } from "./use-turn-revert.js";
 import { computeDiffRows, diffText } from "../../lib/diff.js";
+import { ApifyTurnCost, ApifyTurnNotice, useApifyTurn } from "./apify-turn-cost.js";
+import { usd } from "../../lib/apify.js";
 
 /** One initially collapsed receipt for a host turn, including known no-change turns. */
 export function TurnJournal({ turnId, summary, live = false }: { turnId?: string; summary?: TurnJournalSummary; live?: boolean }) {
@@ -56,8 +58,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const steering = summary?.steeringFiles == null ? "Steering unknown" : `${summary.steeringFiles} steering`;
   const cost = summary?.costUsd == null ? "Cost unknown" : `${summary.costIsEstimate ? "Estimated " : ""}$${summary.costUsd.toFixed(4)}`;
   const budget = summary?.budget;
+  const apify = useApifyTurn(budget, sessionId, turnId);
+  // Apify stays its own figure beside inference, never folded into one exact sum (#3163).
+  const apifyLabel = apify.share.state === "unknown" ? " + Apify unknown" : apify.share.state === "known" && apify.share.apifyUsd > 0 ? ` + Apify up to ${usd(apify.share.apifyUsd)}` : "";
   const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
-  const label = `${changes} · ${steering} · ${cost} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
+  const label = `${changes} · ${steering} · ${cost}${apifyLabel} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {
     // Equal text does not update the live region; authoritative cost/state
     // changes do. Never retain another session's or expired turn's status.
@@ -81,10 +86,11 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
     {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
+    <ApifyTurnNotice state={apify} />
     <Disclosure label={label} badge={summary?.configurationCoverage === "incomplete" ? { icon: "unproven", label: "configuration coverage incomplete" } : undefined} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>
-        <div className="flex items-start justify-between gap-2 min-h-11"><p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
-          <IconButton icon="fyi" size="sm" tone="mute" name="Turn facts" expanded={factsOpen} controls={factsId} style={{ width: 44, height: 44, flex: "none" }} onClick={() => setFactsOpen(value => !value)} />
+        <div className="flex items-start justify-between gap-2"><p>{state === "expired" ? "Retained details expired. Raw versions and review actions are unavailable." : state === "unknown" || state === "unrecorded" ? "No retained journal is available for this turn. Change counts and costs are unknown." : "Only versions observed while this turn was running are retained. Writes overwritten between observations cannot be recovered."}</p>
+          <IconButton icon="fyi" size="sm" tone="mute" name="Turn facts" expanded={factsOpen} controls={factsId} style={{ flex: "none" }} onClick={() => setFactsOpen(value => !value)} />
         </div>
         {factsOpen && <div id={factsId} className="grid gap-3 min-w-0">
         {summary?.profile && <p>{summary.actor === "user" ? "Original worker profile" : "Profile"}: {summary.profile}. {summary.actor === "voice" ? "Voice turn." : summary.actor === "user" ? "User history operation." : "Interactive turn."}</p>}
@@ -92,9 +98,10 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {budget ? <div className="grid gap-2" data-inference-budget>
           <p>Completed-response list-price usage: {budget.listPriceCostUsd === null ? "unknown" : `${budget.listPriceIsEstimate ? "estimated " : ""}$${budget.listPriceCostUsd.toFixed(4)}`}. This is not a subscription invoice or the effective cost above.</p>
           <p>{budget.coverage}.</p>
-          {budget.scopes.map(item=><p key={item.scope}>{item.scope === "day" ? "UTC day" : item.scope === "session" ? "Conversation lifetime" : "Turn"}: {item.costUsd === null ? "price unknown" : `$${item.costUsd.toFixed(4)} observed lower bound`}; {item.tokens === null ? "tokens unknown" : `${item.tokens.toLocaleString()} tokens`}. Warn ${item.warnUsd}; stop ${item.blockUsd}.{item.warnTokens !== undefined ? ` Unpriced token warning: ${item.warnTokens.toLocaleString()}.` : ""} Unpriced token stop: {item.blockTokens.toLocaleString()}.{item.legacyRuns ? " Includes legacy Activity totals; their recorded transcript attribution may be cumulative." : ""}{item.warning ? " Warning threshold reached." : ""}{item.blocked ? " Stop threshold reached." : ""}{item.resetAt ? ` Resets ${new Date(item.resetAt).toISOString()}.` : ""}</p>)}
+          {budget.scopes.map(item=><p key={item.scope}>{item.scope === "day" ? "UTC day" : item.scope === "session" ? "Conversation lifetime" : "Turn"}: {item.costUsd === null ? "price unknown" : `$${item.costUsd.toFixed(4)} observed lower bound`}; {item.tokens === null ? "tokens unknown" : `${item.tokens.toLocaleString()} tokens`}. Warn ${item.warnUsd}; stop ${item.blockUsd}.{item.warnTokens !== undefined ? ` Unpriced token warning: ${item.warnTokens.toLocaleString()}.` : ""} Unpriced token stop: {item.blockTokens.toLocaleString()}.{item.apifyUsd !== undefined ? ` Includes up to ${usd(item.apifyUsd)} admitted Apify liability.` : ""}{item.legacyRuns ? " Includes legacy Activity totals; their recorded transcript attribution may be cumulative." : ""}{item.warning ? " Warning threshold reached." : ""}{item.blocked ? " Stop threshold reached." : ""}{item.resetAt ? ` Resets ${new Date(item.resetAt).toISOString()}.` : ""}</p>)}
           <p>Measured {new Date(budget.observedAt).toISOString()}. Retained measurements are historical, not the current balance.</p>
         </div> : <p>Inference limits: unknown.</p>}
+        <ApifyTurnCost state={apify} />
         {summary?.scope ? <section className="grid gap-2"><h3>Scope limits</h3><p>{summary.scope.calls} tool calls · {Number(summary.scope.minutes.toFixed(3))} min · {summary.scope.changedPaths ?? "Unknown"} distinct changed paths · {summary.scope.observedBytes ?? "Unknown"} observed bytes.</p>
           <p>Ceilings: {summary.scope.limits.tool_calls} calls · {summary.scope.limits.minutes} min · {summary.scope.limits.files_changed} paths · {summary.scope.limits.turn_bytes} bytes. Independent hard timeout: {summary.scope.hardTimeoutMs / 60_000} min. Host resource and storage limits also remain binding.</p>
           <ul className="grid gap-2">{summary.scope.receipts.map(receipt => <li key={receipt.eventId} className="break-words">{scopeReceiptText(receipt)}. Cap: {scopeNumber(receipt.dimension, receipt.cap)}; observed overshoot: {scopeNumber(receipt.dimension, receipt.overshoot)}.</li>)}</ul>
@@ -112,9 +119,9 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
           {name.startsWith("Search index") && <p>The search index is rebuilt from your notes, so only its size and timestamps were recorded. Its bytes were not kept; it cannot be reviewed or restored, and history revert leaves it for the next rebuild.</p>}
           {name.startsWith("Ignored paths") && <p>These paths match the brain's ignore rules, so only size and timestamps were observed and no bytes were kept. Equal sizes do not mean equal content. The journal does not identify which process wrote them.</p>}
           {name.startsWith("Other entries") && <p>Not a regular file or symlink. Its contents were not kept.</p>}
-          <ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} data-journal-change={change.path} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+          <ul className="grid gap-2 any-pointer-coarse:gap-y-4 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} data-journal-change={change.path} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           <span className="break-all min-w-0">{change.path}{change.conflict && <span className="block text-muted-foreground">Conflict: distinct versions observed in a shared window.</span>}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.before?.ignored || change.after?.ignored ? " · ignored" : ""}{change.actor === "user" ? " · Approved by you" : ""}</span></span>
-          {!change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
+          {!change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} reach onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
         </li>)}</ul></section>)}
         {!!details?.missing.some(item => item.reason !== "configuration_inputs_not_fully_identified") && <section className="grid gap-2 min-w-0"><h3 className="font-medium">Retained versions unavailable</h3><p>These observed versions cannot be reviewed or restored.</p>
           {details.missing.filter(item => item.reason !== "configuration_inputs_not_fully_identified").map((item, index) => <p key={`${item.path}-${index}`} className="break-all">{item.path} · {({ interrupted_observation: "Observation was interrupted", journal_capacity: "Journal storage was full", journal_unavailable: "Journal storage was unavailable", revert_not_observed: "The revert was not observed" } as Record<string, string>)[item.reason] ?? item.reason}</p>)}
@@ -123,7 +130,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {!!details?.outwardActions?.length && <section className="min-w-0"><h3 className="font-medium">Outward actions</h3>
           <p className="mt-2">These receipts record approval, not external completion. External actions are irreversible here; restoring local files cannot undo them.</p>
           <ul className="grid gap-2 mt-2">{details.outwardActions.map(action => <li key={action.id} className="break-all min-w-0">
-            {({ git_push: "Git push", gh_write: "GitHub write", mcp_tool: "Outward tool", http_write: "HTTP write", outward_host_connect: "Outward connection" })[action.action]} · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]} · {action.target ?? "Destination unresolved"}{action.historyRewrite ? " · Remote history rewrite" : ""}
+            {({ git_push: "Git push", gh_write: "GitHub write", mcp_tool: "Outward tool", http_write: "HTTP write", outward_host_connect: "Outward connection", compute_run: "External compute job" })[action.action]} · {({ policy_allowed: "Allowed by policy", approved: "Approved", declined: "Declined", refused: "Refused" })[action.decision]} · {action.target ?? "Destination unresolved"}{action.historyRewrite ? " · Remote history rewrite" : ""}
           </li>)}</ul>
           {details.outwardActionsTruncated && <p className="mt-2">Showing the first 1,000 outward receipts. More remain in the retained governance records.</p>}
         </section>}
@@ -136,16 +143,16 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {selected?.tainted === true && selected.taintSourceEventId && <p className="text-sm">Review recommended: this steering observation follows recorded untrusted input (source event {selected.taintSourceEventId}).</p>}
         {selected?.conflict && <section className="grid gap-3 min-w-0" aria-label="Observed conflict versions">
           <p className="text-sm">Distinct versions were observed while turns overlapped. These links do not identify an exclusive writer. Versions overwritten between observations cannot be recovered.</p>
-          <div className="flex flex-wrap gap-2">{selected.conflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} style={{minHeight:44}} onClick={()=>{
+          <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">{selected.conflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} reach onClick={()=>{
             const change=details?.changes.find(change=>change.path===selected.path&&change.sequence===ref.sequence);
             if(change)setSelected(change);
           }} />)}</div>
           {selectedObservation && revert.canResolve && <div className="grid gap-3">
             <p className="text-sm">Selected: retained after observation {selectedObservation.sequence}. Current file must still match reviewed observation {selected.conflict.latest.sequence}; later changes are skipped.</p>
-            <Button label={`Keep observation ${selectedObservation.sequence}`} style={{minHeight:44}} disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selected.conflict!.latest)} />
+            <Button label={`Keep observation ${selectedObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selected.conflict!.latest)} />
             {otherObservation && <>
               <label className="grid gap-2 text-sm">Other observed version<select aria-label="Other observed version" className="min-h-11 min-w-0 rounded border bg-background px-3 text-foreground" value={otherObservation.sequence} onChange={event=>setOtherSequence(Number(event.target.value))}>{otherObservations.map(ref=><option key={ref.sequence} value={ref.sequence}>After observation {ref.sequence}</option>)}</select></label>
-              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} style={{minHeight:44}} disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selected.conflict!.latest,otherObservation)} />
+              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selected.conflict!.latest,otherObservation)} />
             </>}
           </div>}
         </section>}
@@ -154,7 +161,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {preview?.inline ? <div className="max-h-[60vh] overflow-auto min-w-0"><DiffBlock tinted variant="inset" text={diffText(computeDiffRows(preview.before ?? "", preview.after ?? ""))} /></div> : preview && <p>Inline diff unavailable ({preview.reason}). Raw versions remain available below.</p>}
         {!previewError && selected && sessionId && turnId && <div className="flex flex-wrap gap-3 text-sm">{(["before", "after"] as const).map(side => selected[side]?.hash && <a key={side} className="inline-flex min-h-11 items-center underline" href={`${root.apiBase()}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${selected.sequence}/${side}`} download>Download {side} ({selected[side]?.bytes} bytes)</a>)}</div>}
         {selected && revert.action(selected.path)}
-        <Button label="Close" style={{ minHeight: 44 }} onClick={() => setSelected(null)} />
+        <Button label="Close" reach onClick={() => setSelected(null)} />
       </div>
     </Overlay>
     {revert.announcement}

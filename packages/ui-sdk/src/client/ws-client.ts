@@ -26,7 +26,7 @@
  * Bun and Node 22+ all provide. State belongs to the consumer; this owns the
  * socket.
  */
-import { ASK_RECEIPTS_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "../protocol.js";
+import { ACTIVITY_COMPUTE_CAPABILITY, ASK_RECEIPTS_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "../protocol.js";
 import type { ClientMessage, ServerMessage } from "../protocol.js";
 import { parseServerMessage } from "../schemas.js";
 
@@ -252,7 +252,7 @@ export class BrainUiClient {
             JSON.stringify({
               type: "client_hello",
               protocolRev: PROTOCOL_REV,
-              capabilities: { [ASK_RECEIPTS_CAPABILITY]: true, [FOLLOW_UP_QUEUE_CAPABILITY]: true, toolResolution: true, sessionDialogue: true },
+              capabilities: { [ASK_RECEIPTS_CAPABILITY]: true, [FOLLOW_UP_QUEUE_CAPABILITY]: true, toolResolution: true, sessionDialogue: true, [ACTIVITY_COMPUTE_CAPABILITY]: true },
             })
           );
         } catch {

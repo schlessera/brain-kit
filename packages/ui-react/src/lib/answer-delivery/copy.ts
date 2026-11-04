@@ -6,7 +6,7 @@ import { MAX_QUEUED_ANSWERS, type AnswerDelivery } from "./types.js";
 
 export type DeliveryAction = "cancel" | "copy" | "sendAsMessage" | "edit" | "reload" | "tryAgain";
 
-export interface DeliveryCopy {
+interface DeliveryCopy {
   tag: string;
   body?: string;
   meta?: string;
@@ -18,17 +18,20 @@ export interface DeliveryCopy {
 /** The line under `Send as message` (ruling R1). */
 export const SEND_AS_MESSAGE_NOTE = "Sends a new chat message; it doesn't answer this question.";
 
+/** What replaces it once `Send as message` was used (#3356). */
+export const SENT_AS_MESSAGE_NOTE = "Sent as a new chat message; it didn't answer this question.";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** "09:41", in local time. */
-export function clockTime(at: number): string {
+function clockTime(at: number): string {
   const d = new Date(at);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** "2 Oct 09:41", in local time. */
-export function dayAndTime(at: number): string {
+function dayAndTime(at: number): string {
   const d = new Date(at);
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${clockTime(at)}`;
 }

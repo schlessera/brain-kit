@@ -612,7 +612,18 @@ synthetic merge `2771c2f5119e5b8aaf3234ae24452f6dfde86e70`, the same source
 as the cancelled job. Neither recovery nor these limits explains the original
 slowdown, whose cause the maintainer accepted as unknown for this repair.
 
-The compiler retains `tsc --noEmit` and the 4096 MiB `NODE_OPTIONS` setting;
+> **2026-11-03 — heap budget raised to 6144 MiB (maintainer ruling, #3103).**
+> The full-tree compiler outgrew 4096 MiB: main's verify typechecks reported
+> about 4.21 GB of compiler memory under that cap
+> (CI runs 41686585255, 41673315689, 41671155878), and the external compute
+> epic's exact-main candidate aborted on heap exhaustion with no diagnostic
+> (CI run 41690873045). Locally, `tsc --noEmit --extendedDiagnostics` reported
+> 4,890,699 KiB on main `971155274` and 4,926,845 KiB with the epic merged.
+> The runner reported about 14.8 GB available, so 6144 MiB restores headroom
+> without approaching capacity. Only the number changes; the command, the
+> diagnostics and the receipts below are unchanged.
+
+The compiler retains `tsc --noEmit` and the 6144 MiB `NODE_OPTIONS` setting;
 only verify appends `--extendedDiagnostics`, forwarded through Bun's existing
 package script. Compiler totals and memory describe that invocation, not
 process RSS or runner capacity. Bun's advertised Node compatibility version
@@ -1012,6 +1023,19 @@ Only a reviewed re-audit moves the audited revision
   merges needs renewed review, or stays unqualified and keeps fresh proof.
   Automatic pin refreshes and per-file ownership are not part of this
   procedure.
+- **Audited readers.** The same rule covers the audited command readers
+  (`const readers`, `scripts/locked-browser-assets.ts:6-9`;
+  `const auditedReaders`, `scripts/generated-build-inputs.ts:37-41`)
+  ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer
+  ruling 2026-11-04). A legitimate change to a reader makes its asset binding
+  unknown, so proof runs fresh; it never fails a test, and the changing PR does
+  not refresh the reader's pin. The reader's self-test holds the repository's
+  actual reader to whichever side of its pin its bytes are on: matching bytes
+  must yield the installed receipt and drifted bytes must yield no receipt
+  (`test("the repo reader`, `tests/locked-browser-assets.test.ts:26-33`). Its
+  positive control reads the reader from the frozen owner. The post-merge
+  re-audit moves that owner and refreshes the reader's pins in both maps
+  together.
 
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
@@ -1061,7 +1085,7 @@ Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative
 asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
 frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
-remain fresh. This is exact-file validation, not a scan of `node_modules` or a
+remain fresh; a changed reader stays fresh until its post-merge re-audit. This is exact-file validation, not a scan of `node_modules` or a
 claim that arbitrary installed files belong to a domain.
 
 Two exact source-owned literal payloads—the rectangle SVG fixture and the

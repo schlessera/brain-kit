@@ -276,15 +276,15 @@ test("turn stop synchronously records an active CONNECT exactly once", async () 
     expect(records).toHaveLength(1);
   } finally { proxy.stop(); client.destroy(); for (const peer of peers) peer.destroy(); origin.close(); await closed; }
 });
-test("a tainted turn reaches only taint-allowed or already contacted hosts; the inference relay is exempt", async () => {
-  let calls = 0; const records: EgressRecord[] = [], admitted: Array<{ host: string; inference: boolean }> = [];
+test("a tainted turn reaches only taint-allowed or already contacted hosts; the inference and provider relays are exempt", async () => {
+  let calls = 0; const records: EgressRecord[] = [], admitted: Array<{ host: string; inference: boolean; provider: boolean }> = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
   let tainted = false; const contacted = new Set<string>(), allow: string[] = [];
   const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 65536, taint: { allow, tainted: () => tainted, contacted: host => contacted.has(host) },
-    admitted: destination => admitted.push({ host: destination.host, inference: destination.inference }) });
+    admitted: destination => admitted.push({ host: destination.host, inference: destination.inference, provider: destination.provider }) });
   try {
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_CLEAN_TURN_UNCHANGED").toBe(200);
-    expect(admitted, "EGRESS_ADMISSION_REPORTED").toEqual([{ host: "127.0.0.1", inference: false }]);
+    expect(admitted, "EGRESS_ADMISSION_REPORTED").toEqual([{ host: "127.0.0.1", inference: false, provider: false }]);
     tainted = true;
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_REFUSES_UNLISTED_HOST").toBe(403);
     expect(calls).toBe(1);
@@ -293,6 +293,15 @@ test("a tainted turn reaches only taint-allowed or already contacted hosts; the 
     // The relay's own admission is never narrowed.
     const relay = proxy.inference("POST", new URL(`${origin.url.href}v1/messages`), new AbortController().signal);
     expect(await relay.admit(), "EGRESS_TAINT_EXEMPTS_INFERENCE").toBe(true); relay.finish("completed");
+    // So is a validated provider-relay operation (#3246); it is reported as one, never as inference.
+    const provider = proxy.relayed("POST", new URL(`${origin.url.href}v1beta/models/gemini-2.5-flash:generateContent`), new AbortController().signal);
+    expect(await provider.admit(), "EGRESS_TAINT_EXEMPTS_PROVIDER_RELAY").toBe(true); provider.finish("completed");
+    expect(admitted.at(-1), "EGRESS_PROVIDER_ADMISSION_REPORTED").toEqual({ host: "127.0.0.1", inference: false, provider: true });
+    expect(records.at(-1)?.inference, "EGRESS_PROVIDER_RECORD_NOT_INFERENCE").toBeUndefined();
+    expect(records.at(-1)?.provider, "EGRESS_PROVIDER_RECORD_MARKED").toBe(true);
+    // Worker and inference records never carry the provider tag.
+    expect(records.slice(0, -1).map(record => [record.inference, record.provider]), "EGRESS_ONLY_PROVIDER_RECORD_MARKED")
+      .toEqual([[undefined, undefined], [undefined, undefined], [undefined, undefined], [true, undefined]]);
     contacted.add("127.0.0.1");
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_KEEPS_CONTACTED_HOST").toBe(200);
     contacted.clear(); allow.push("127.0.0.1");

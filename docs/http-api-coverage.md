@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:174-193`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:177-196`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -58,6 +58,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
 | `GET /api/activity/stats` | `mounted supported handler: GET /api/activity/stats` | R |
+| `GET /api/attachments/:fileId` | `mounted supported handler: GET /api/attachments/:fileId` | X |
 | `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P, Z |
 | `POST /api/auth/logout` | `mounted supported handler: POST /api/auth/logout` | A, P |
 | `GET /api/auth/methods` | `mounted supported handler: GET /api/auth/methods` | P |
@@ -90,6 +91,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `DELETE /api/drafts/:draftId` | `mounted supported handler: DELETE /api/drafts/:draftId` | X |
 | `POST /api/drafts/:draftId/attachments` | `mounted supported handler: POST /api/drafts/:draftId/attachments` | X |
 | `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
+| `POST /api/drafts/:draftId/files` | `mounted supported handler: POST /api/drafts/:draftId/files` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/governance/events` | `mounted supported handler: GET /api/governance/events` | GV |
@@ -116,6 +118,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
 | `POST /api/chat-deletions` | `mounted supported handler: POST /api/chat-deletions` | CD |
+| `GET /api/chat-deletions/:operationId` | `mounted supported handler: GET /api/chat-deletions/:operationId` | CD |
 | `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
@@ -173,10 +176,10 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:293-313`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
-- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:65-82`)
-- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:159-175`)
-- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:177-186`)
-- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:213-230`)
+- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:66-83`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:160-176`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:178-187`)
+- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:214-231`)
 
 **A — Password access and revocation.**
 
@@ -238,10 +241,10 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **F — Content and byte ranges.**
 
-- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:299-305`)
-- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:324-329`)
+- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:310-316`)
+- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:335-340`)
 - `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:102-104`)
-- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:335-348`)
+- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:346-359`)
 - `Safari's two-byte probe gets a 206 with its length, and the frame headers` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`Safari's two-byte probe gets a 206 with its length, and the frame headers`, `packages/ui-server/tests/files-raw-range.test.ts:222-231`)
 - `a range that starts past the end is a 416 naming the size` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a range that starts past the end is a 416 naming the size`, `packages/ui-server/tests/files-raw-range.test.ts:87-92`)
 - `a HEAD request ignores Range, which applies to GET only` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a HEAD request ignores Range, which applies to GET only`, `packages/ui-server/tests/files-raw-range.test.ts:102-107`)
@@ -443,7 +446,7 @@ poke method refusal and conditional static assets. HEAD dispatch suppresses
 the body; configured OPTIONS preflight is tested before authentication, with
 unconfigured and denied-origin controls.
 
-The `mounted internal router: GET PATH` tests reach pi-auth, web-search,
+The `mounted internal router: GET PATH` tests reach pi-auth, web-search, apify,
 tool-permissions, skills, graph and vpn-check through the real app and require
 successful JSON responses (`mounted internal router:`,
 `packages/ui-server/tests/http-internal-mounts.test.ts:8-17`). The inventory
@@ -526,4 +529,9 @@ unbound draft controls, replay refusal, honest partial/unknown outcomes, restart
 reconciliation, and the endpoint's owner, agent, ambient, foreign, stale and revoked
 cases. [The WebSocket host test](../packages/ui-server/tests/ws-chat-deletion.test.ts)
 covers busy refusal, a resume held across retirement, admission and recovery refusal
-and targeted `chat_retired` delivery.
+and targeted `chat_retired` delivery. The same file covers the read-only operation
+lookup (#3455): the owner's receipt, partial progress, a restart and a retry, one
+byte-identical `not_admitted` for unknown, foreign, refused, agent and ambient
+callers, a read admitting and cleaning nothing, and revocation during the read;
+[the real-host test](../packages/ui-server/tests/chat-deletion-http.test.ts) repeats
+the owner, foreign, agent and unknown answers through `createApp` and cookies.

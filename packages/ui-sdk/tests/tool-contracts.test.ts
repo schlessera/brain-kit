@@ -16,6 +16,7 @@ import {
   TURN_TEMP_CONTRACT,
   REFERENCE_SOURCE_CONTRACT,
   REFERENCE_WORKTREE_CONTRACT,
+  COMPUTE_TOOL_CONTRACTS,
   bridgeContractForToolName,
   parseToolPayload,
   toolBriefLines,
@@ -60,6 +61,8 @@ describe("the contract list is the single source", () => {
         turnTemp: TURN_TEMP_CONTRACT.name,
         referenceSource: REFERENCE_SOURCE_CONTRACT.name,
         referenceWorktree: REFERENCE_WORKTREE_CONTRACT.name,
+        computeHealth: "brain_compute_health", computePlan: "brain_compute_plan", computeRun: "brain_compute_run",
+        computeStatus: "brain_compute_status", computeCancel: "brain_compute_cancel", computeCollect: "brain_compute_collect",
       },
     });
     for (const contract of BRIDGE_TOOL_CONTRACTS) {
@@ -99,6 +102,7 @@ describe("the contract list is the single source", () => {
       TURN_TEMP_CONTRACT.brief(TURN_TEMP_CONTRACT.name),
       REFERENCE_SOURCE_CONTRACT.brief(REFERENCE_SOURCE_CONTRACT.name),
       REFERENCE_WORKTREE_CONTRACT.brief(REFERENCE_WORKTREE_CONTRACT.name),
+      ...COMPUTE_TOOL_CONTRACTS.map(contract => contract.brief(contract.name)),
     ]);
   });
 });
@@ -155,6 +159,15 @@ describe("show_block", () => {
     // (`tests/visual/receipt-value-budget.visual.tsx`), so a value the model
     // judges is written to fit.
     expect(description).toContain("a toned value fits one phone line at 25 characters");
+  });
+
+  test("suggestions are called before the closing sentence, so a turn never ends on the call (#3519)", () => {
+    // Ending on the call leaves the final response without text; the Claude CLI
+    // then nudges for visible output and the model writes the answer again.
+    const line = SHOW_BLOCK_CONTRACT.description.split("\n").find(item => item.startsWith("suggestions:"))!;
+    expect(line, "SUGGESTIONS_BEFORE_FINAL_SENTENCE").toContain("Call it at most once, before the answer's final sentence");
+    expect(line).toContain("drawn under the finished answer wherever you call it");
+    expect(line).not.toContain("Call it last");
   });
 
   test("suggestions: one or two one-line follow-ups, never a third, never a tone", () => {

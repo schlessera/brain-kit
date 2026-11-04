@@ -9,10 +9,20 @@ The maintainer's three 2026-10-02 rulings on
 
 These choices bind implementation. They do not establish production containment,
 enable autonomous execution or make a release commitment. The
-[finite investigation](../plans/policy-write-boundary.md) remains evidence about
+[finite investigation](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/policy-write-boundary.md) remains evidence about
 its measured fixture. The [async collaboration decision](async-collaboration.md)
 and [voice decision](voice-permission.md#containment-shared-with-51-deliberately-not-identical)
 continue to bind authority and tool membership.
+
+> **2026-11-02 — The investigation left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #672, #674 and #676 are closed, and the workers and validated application
+> route this record selects are built, so the investigation is no longer a
+> plan. Every ruling it asked for is recorded below, and its six measured
+> escapes are retained as proof obligations in
+> [Evidence the implementation still owes](#evidence-the-implementation-still-owes).
+> Its measurements, mutation receipt and recorded environment are unchanged at
+> the pinned link above; the spike it ran is on the
+> [measurement archive](measurement-archive.md#policy-write-boundary-spike-750).
 
 ## Every writer enters through the boundary
 
@@ -43,7 +53,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:110-499`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:122-511`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:29-118`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -497,13 +507,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1325-1581`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1339-1595`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:1099-1123`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:1113-1137`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -513,7 +523,7 @@ host (`function* launchAgentWorkerSteps`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:56`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:54`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
@@ -639,8 +649,8 @@ as it exited. So the state is checked when the result arrives, the terminal
 result is held until the worker has exited and its state has been copied out,
 and the state is checked again then. A `statfs` of the tmpfs with no whole page
 free at either point, or a write error the worker reported, names the turn
-`worker_state_exceeded` (`const unsaved`,
-`packages/ui-backend-claude/src/turn-runner.ts:312-319`). A result, success or
+`worker_state_exceeded` (`unsaved(result`,
+`packages/ui-backend-claude/src/turn-terminal.ts:117-124`). A result, success or
 error, becomes an error result with that class and keeps its usage, so the
 client never presents unsaved output as saved; what was written before the
 limit is persisted with the usual checks, and if that copy-out is refused the
@@ -651,9 +661,9 @@ the worker prints after it, and a refusal is recognized by its class from any
 copy of the module. A host cancellation outranks it. Cancellation is checked
 again after worker settlement, so a buffered SDK success or error cannot
 replace an accepted cancellation while exit or copy-out is pending
-(`releaseTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:323-341`).
+(`async release`, `packages/ui-backend-claude/src/turn-terminal.ts:127-141`).
 Generated terminals also await worker settlement before emission
-(`emitTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:385-425`).
+(`async emitGenerated`, `packages/ui-backend-claude/src/turn-terminal.ts:159-198`).
 **Residual:** a turn that fills the tmpfs and frees space again between those
 two checks is named only if the runtime printed the write error.
 
@@ -677,3 +687,78 @@ exported; a server killed mid-turn leaves no worker behind; and the actual
 Claude runtime's full-state turn ends as `worker_state_exceeded` with its
 unsaved answer absent from history. A root-run server's copy-in, limit and
 copy-out were also measured in that container.
+
+### The start gate fails closed on its holder's death — 2026-11-03
+
+Ruling on [#3392](https://github.com/schlessera/brain-kit/issues/3392). It
+amends the runtime-state mechanism above (step 4 and the
+`--block-fd`/`--info-fd` alternative) and the live launch that moved to
+bubblewrap's `--block-fd` with the separate-identity work
+([#2069](https://github.com/schlessera/brain-kit/pull/2069)).
+
+**Decision.** A status-gated live launch no longer uses bubblewrap's
+`--block-fd`. The fixed host launch shell still opens the server-held gate FIFO
+as fd 4 after the bootstrap's descriptor filter. bubblewrap passes it into the
+sandbox, where the trusted absolute `/bin/sh` reads one line from it, requires
+exactly `go`, closes fd 4 and only then execs the payload. EOF, a partial line
+or any other line ends the sandbox with exit 125. `release()` writes `go\n`
+(`const START_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:65`).
+
+**Why.** bubblewrap proceeds past `--block-fd` on EOF: its sandbox child reads
+one byte and ignores the result. That child arms `PR_SET_PDEATHSIG` only after
+the read, in its init process and again before exec (source review of
+[bubblewrap 0.11.1](https://github.com/containers/bubblewrap/releases/tag/v0.11.1)),
+so `--die-with-parent` does not cover the gate window. In the spike's probe
+(a rootless container with no network, Bun 1.4.4, bubblewrap 0.11.1), when
+the server died between spawn and release, the kernel closed the gate writer and the
+unqualified payload ran 25/25 (24/25 with `--die-with-parent`). With the
+in-sandbox gate it ran 0/25 in each server-death case: EOF, a lone `g`, and
+`go` with no newline.
+
+Two guards now hold the window. With no `--block-fd` read in the way, the
+sandbox's PID 1 arms its parent-death signal before it forks the gate shell, so
+a dead server's `--die-with-parent` chain usually ends the namespace first.
+Where the gate does read end-of-file (its writer closed while bubblewrap
+lives), the gate's own refusal keeps the payload out. #3387's ordering, which
+kills a refused launch's sandbox before closing its gate, stays as a further
+guard.
+
+**What changes in the descriptor rule.** The gate descriptor now exists inside
+the sandbox, but only in the trusted shell, before any payload process exists.
+It is closed before `exec`: the payload's descriptor table has no fd 4. Payload
+stdin is still the protocol pipe, byte for byte. The bootstrap still refuses
+every unexpected inherited descriptor. The status child PID is bubblewrap's
+PID-1 reaper, as it already was after release.
+
+Step 4 above now reads: if the server dies before release, the gate shell
+reads EOF or the namespace is killed with bubblewrap, and the payload never
+starts. After release, `--die-with-parent` ends the worker.
+
+**Alternatives rejected.**
+
+- *A trusted keeper holding the gate writer:* its own death reopens the hole
+  (25/25 when killed with the server). It also needs a PID hand-off, and
+  becomes a broker to close the hand-off gap.
+- *`--sync-fd`:* signals sandbox exit outwards. It is not a gate.
+- *`--userns-block-fd`:* gates before the mounts exist, needs the server to
+  write the uid/gid maps, and fails closed only by accident or by hanging.
+- *A heartbeat gate:* needs an in-sandbox reader anyway and adds timers.
+- *A pre-frozen cgroup:* optional per host, with an unfrozen window from spawn
+  to freeze.
+
+**Cost.** One extra shell exec: about 0.5 ms from release to payload start
+(p50 1.89 ms against 1.41 ms).
+
+**Proof.** `packages/ui-sdk/tests/gate-holder-crash.test.ts` runs the real
+governed launch in a separate server process, SIGKILLs it during setup and
+after setup before release (synchronous and asynchronous launches, and after a
+partial or wrong gate line), waits until every process of the launch is dead
+and requires no payload marker. Further cases close the gate's writer while the
+server lives, so only the gate's refusal of EOF and of a partial line stands
+between it and the payload. A released control starts the payload exactly once,
+with descriptors 0-2 only and stdin byte-identical.
+
+**Not covered.** The separate-UID identity helper gates with its own
+`--block-fd` pipe. Whether its death fails closed is tracked in
+[#3402](https://github.com/schlessera/brain-kit/issues/3402). Post-release
+server death is unchanged.
