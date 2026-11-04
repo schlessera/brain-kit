@@ -1,4 +1,4 @@
-import { chatContextText, withChatFiles, type MessageAttachment } from "../attachments/context.js";
+import { chatContextText, isChatFilesPrompt, type MessageAttachment } from "../attachments/context.js";
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 /**
  * How each user message was produced, kept between the turn and its replay.
@@ -124,7 +124,7 @@ export function attachMessageSources(
         const candidateHash = messageTextHash(candidate);
         const candidateOrdinal = seen.get(candidateHash) ?? 0;
         const recorded = stored.get(`${candidateHash}:${candidateOrdinal}`);
-        if ((recorded?.files || recorded?.attachmentFiles) && withChatFiles(candidate, recorded.files, recorded.attachmentFiles as MessageAttachment[] | undefined) === content) {
+        if ((recorded?.files || recorded?.attachmentFiles) && isChatFilesPrompt(content, candidate, recorded.files, recorded.attachmentFiles as MessageAttachment[] | undefined)) {
           content = candidate; hash = candidateHash; ordinal = candidateOrdinal; metadata = recorded;
         }
       }
@@ -188,7 +188,7 @@ function attachLiveSources(db: Database, sessionId: string, messages: SessionHis
         let files: unknown;try{files=JSON.parse(row?.track_files ?? "null");}catch{continue;}
         if(files!==null&&(!Array.isArray(files)||!files.length||files.length>10||!files.every(f=>sharedFileMetaSchema.safeParse(f).success)))continue;
         const attached=decodeAttachmentFiles(row?.attachment_files ?? null);
-        if((files===null&&!attached)||withChatFiles(key.text,(files ?? undefined) as SharedFileMeta[]|undefined,attached)!==m.content)continue;
+        if((files===null&&!attached)||!isChatFilesPrompt(m.content,key.text,(files ?? undefined) as SharedFileMeta[]|undefined,attached))continue;
       }
       return {...unknown,content:key.text,source:parsed.data,...(id.turnId && row?.turn_id===id.turnId?{turnId:id.turnId}:{})};
     }

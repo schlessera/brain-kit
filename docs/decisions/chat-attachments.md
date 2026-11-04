@@ -5,8 +5,9 @@ linked in each section below. The
 [source-backed design](../plans/chat-attachments.md) turns them into routes,
 schemas, bounds and proof briefs; its six §13 recommendations were approved
 at review on 2026-11-02. Admission, storage, ownership and cleanup are built
-([what #3153 built](#what-3153-built)); content reading and the composer are
-open work in epic #3150.
+([what #3153 built](#what-3153-built)), and so is reading contents
+([what #3154 built](#what-3154-built)); the composer is open work in epic
+#3150.
 
 ## Sources and one pipeline
 
@@ -125,9 +126,8 @@ The server side of admission, storage, ownership and cleanup, as the design's
   breaking. The separate field is additive and carries the same reference.
 - **What the provider sees.** The `<brain-attachments>` block says the
   contents have not been read and that the agent may open an original at its
-  path. It does not name `read_attachment`, because that tool belongs to
-  #3154 and is not registered yet. Once it is, new messages may name it;
-  recorded messages keep the text they were sent with.
+  path. #3153 did not name `read_attachment`, which was not registered yet;
+  #3154 changed new messages' wording, and recorded messages keep theirs.
 - **Accounting.** The pool charges recorded originals in every state,
   reservations and legacy draft image BLOBs. A save charges the draft
   sub-limit only for originals no live draft or snapshot already references.
@@ -148,6 +148,67 @@ The server side of admission, storage, ownership and cleanup, as the design's
   deletion belongs to #3231's flow.
 - **Kept as before.** `/share`, `/track-upload`, staged-track references,
   inline images and D52's tab-only legacy track path behave as they did.
+
+## What #3154 built
+
+The shared reader of the design's §7, with these concrete choices:
+
+- **One tool, every interactive session.** `read_attachment` is a host bridge
+  tool on both backends, registered with the stable roster whether or not a
+  session has attachments. A turn may read only originals a `message`
+  reference of its own session names; draft and outgoing bindings grant no
+  read. Every call re-checks the record, the link-free path, the size and
+  the SHA-256 through the same `readVerified` the routes use, and taints the
+  session as `chat_attachment`. Authority is the host's, so the tool is
+  auto-allowed and shows no card. A third-party backend does not get it: like
+  the other host tools, it is offered to the first-party backends, whose
+  every bridge call the host re-authorizes.
+- **The block names the tool.** New messages say `Call read_attachment with
+  an id to read PDF or text`. A message recorded with #3153's wording still
+  replays and retries, because both wordings are matched byte for byte
+  (`isChatFilesPrompt`, `includesAttachments`).
+- **The extractor gets bytes, not a descriptor.** The design passed the
+  verified original as a file descriptor. The host already holds the exact
+  bytes it just verified, so the child reads them on stdin: it opens no path,
+  and nothing can change between the check and the read. It runs with
+  `PATH` as its only environment. The installed pdf.js 6.3.289 has no
+  `isEvalSupported` option and no eval path; `useWorkerFetch: false` and
+  `disableFontFace: true` remain.
+- **Bounds, measured.** The design's values stand: 20 pages and 65,536 bytes
+  per call, 262,144 bytes per turn, 30 s wall clock, `RLIMIT_CPU` 20 s,
+  `RLIMIT_DATA` 1 GiB, two children per host with the rest queued, and turn
+  cancellation killing a running child and dropping a queued one. On a
+  24,376,768-byte, 500-page Odysseus logbook (560 lines a page, Bun 1.4.4,
+  16 cores), reading pages 1–20, 241–260 or 481–500 stopped at the output
+  bound after 8 pages in 0.61–0.63 s wall, 0.70–0.72 s CPU and 110 MiB peak
+  RSS; parsing all of 481–500 without an output bound took 1.29 s wall,
+  1.53 s CPU and 120 MiB. That leaves about 13 times the CPU and 8 times
+  the memory. A single pass over all 500 pages, which no call can request,
+  was killed by the 20 s CPU limit. Without `prlimit` only the wall clock
+  applies. A child killed by `SIGXCPU`, `SIGKILL` or an aborted allocation
+  under the limits reads as `failed: resource_limit`.
+- **Text and tracks.** Text, and a validated track's text, are read in place
+  by byte range with a strict UTF-8 decode, cut on a code point; the cursor
+  is the next byte offset. Images, archives and binaries are `unavailable`
+  with copy saying why. Cursors carry the first 12 hex digits of the file's
+  digest, so a cursor never continues another file.
+- **Clipped results say so.** A PDF result names the pages it covers and, when
+  that is not the whole document, its page count. Truncation names `next`,
+  and the turn-budget cut says to continue in a later turn.
+- **Read records.** `attachment_reads` (migration 078) keeps one row per call
+  that reached an authorized original: file, session, turn, outcome and
+  scope, never text. It drives #3155's sent-row status and never reaches a
+  provider. Session release and the sweep's forget remove a session's or a
+  file's rows. There is no derived cache, so nothing new is charged to the
+  pool.
+- **Adding a reader.** A reader is concrete code, not a registry: add a rule
+  to `detectKind` (`packages/ui-server/src/attachments/detect.ts`) and a
+  `reader` value to `AttachmentReader` and migration 077's check; route it in
+  `createAttachmentReader` (`packages/ui-server/src/attachments/read.ts`),
+  with a case in the extractor child
+  (`packages/ui-server/src/attachments/extract-worker.ts`) when it needs
+  parsing; then add an Odysseus fixture and its outcome tests. The composer's
+  Files picker has no `accept` filter, so it does not change.
 
 ## Rejected alternatives
 
