@@ -4,8 +4,8 @@ import { trackContextText, withTrackFiles } from "../tracks/read.js";
 /** A composer original as one message sent it: `inline` when an image frame of it travelled too. */
 export type MessageAttachment = AttachmentFile & { inline?: boolean };
 
-export const ATTACHMENT_CONTEXT_OPEN = "\n\n<brain-attachments>\n";
-export const ATTACHMENT_CONTEXT_CLOSE = "\n</brain-attachments>";
+const ATTACHMENT_CONTEXT_OPEN = "\n\n<brain-attachments>\n";
+const ATTACHMENT_CONTEXT_CLOSE = "\n</brain-attachments>";
 
 /**
  * The quoted reference block appended after the user text (#3153,
@@ -26,7 +26,7 @@ export function withAttachments(text: string, files: readonly MessageAttachment[
 }
 
 /** Validated track metadata of every track among the attachments, for the existing track block. */
-export function attachmentTracks(files: readonly MessageAttachment[] | undefined): SharedFileMeta[] {
+function attachmentTracks(files: readonly MessageAttachment[] | undefined): SharedFileMeta[] {
   return (files ?? []).flatMap((f) => f.kind === "track" && f.track ? [f.track] : []);
 }
 

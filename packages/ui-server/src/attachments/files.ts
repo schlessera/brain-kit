@@ -24,7 +24,7 @@ export async function attachmentRoot(brainRoot: string): Promise<string> {
   return root;
 }
 
-export type VerifiedRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: "missing" | "changed" };
+type VerifiedRead = { ok: true; bytes: Uint8Array } | { ok: false; reason: "missing" | "changed" };
 
 /**
  * Read one recorded original, verified against its record: a regular file

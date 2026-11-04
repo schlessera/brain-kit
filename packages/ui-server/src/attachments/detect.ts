@@ -7,7 +7,7 @@ import { TRACK_MAX_FILE_BYTES, type AttachmentKind, type AttachmentReader, type 
  * whether `trackRejected` is worth saying, and nothing else. Detection cannot
  * fail; the fallback is `binary`. It never claims the contents were read.
  */
-export interface Detection {
+interface Detection {
   kind: AttachmentKind;
   reader: AttachmentReader;
   /** The media type detection established; null leaves the client's hint. */

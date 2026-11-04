@@ -95,10 +95,6 @@ export function readAttachments(db: Database, fileIds: readonly string[]): Map<s
   return rows;
 }
 
-export function hasRef(db: Database, fileId: string, owner: AttachmentOwner, ownerId: string): boolean {
-  return db.query("SELECT 1 FROM attachment_refs WHERE file_id = ? AND owner = ? AND owner_id = ?").get(fileId, owner, ownerId) !== null;
-}
-
 export function hasAnyRef(db: Database, fileId: string): boolean {
   return db.query("SELECT 1 FROM attachment_refs WHERE file_id = ? LIMIT 1").get(fileId) !== null;
 }

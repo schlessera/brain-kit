@@ -68,7 +68,7 @@ function mediaHint(c: Context): string {
   return MEDIA_TYPE.test(bare) ? bare : "application/octet-stream";
 }
 
-export interface AttachmentRoutesDeps {
+interface AttachmentRoutesDeps {
   brainRoot: string;
   store: AwaitableDraftStore;
   /** This server process, for reservations. */
