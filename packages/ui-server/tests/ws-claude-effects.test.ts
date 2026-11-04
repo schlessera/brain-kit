@@ -29,8 +29,8 @@ async function fixture(voice = false, backendId = "claude") {
   const authorization = host.coordinator.openAuthorization({ principalId: "odysseus", valid: true, expiresAt: Number.MAX_SAFE_INTEGER });
   const turn = { turnId: "raft-turn", principalId: "odysseus", authorization, startedAt: 1, abortController: new AbortController(),
     ...(voice ? { work: { posture: "voice" } } : {}) } as RunningTurn;
-  const bridge = await makeBridge(host, turn, "Odysseus", backendId, undefined, undefined, undefined, undefined,
-    { lock: createKeyedLock(), available: ["write"], autoAllowed: ["write"] });
+  const bridge = await makeBridge(host, turn, { promptText: "Odysseus", backendId,
+    applicationPolicy: { lock: createKeyedLock(), available: ["write"], autoAllowed: ["write"] } });
   return { bridge, turn, revoke: () => { authorized = false; }, sent: () => sends,
     cleanup() { authorization.release(); host.close(); stream.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }

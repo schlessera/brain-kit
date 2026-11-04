@@ -38,6 +38,7 @@ export function createDraftWrites(db: Database, options: DraftStoreOptions, writ
     attachmentPoolBytes: reads.attachmentPoolBytes,
     attachments: reads.attachments, attachmentRef: reads.attachmentRef,
     attachmentReferenced: reads.attachmentReferenced, attachmentInventory: reads.attachmentInventory,
+    attachmentReads: reads.attachmentReads,
     save: (...args) => write("save", args),
     upload: (...args) => write("upload", args),
     remove: (...args) => write("remove", args),
@@ -52,6 +53,7 @@ export function createDraftWrites(db: Database, options: DraftStoreOptions, writ
     markMissing: (...args) => write("markMissing", args),
     adoptOrphan: (...args) => write("adoptOrphan", args),
     releaseSession: (...args) => write("releaseSession", args),
+    recordAttachmentRead: (...args) => write("recordAttachmentRead", args),
     async settled() { await pending; },
   };
 }

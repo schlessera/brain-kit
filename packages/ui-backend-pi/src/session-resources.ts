@@ -72,6 +72,7 @@ export function createSessionResources(options: {
         reference: caps.reference,
         compute: caps.compute,
         apify: caps.apify,
+        attachments: caps.attachments,
       },
     });
     return { tools, turnContext };

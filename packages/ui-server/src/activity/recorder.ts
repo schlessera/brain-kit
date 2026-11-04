@@ -84,6 +84,12 @@ export interface TurnRecorder {
   settled(): Promise<void>;
   setMainModel(model: string): void;
   setWorkerProfile(profile: GovernanceProfile): void;
+  /**
+   * The turn's worker reaches the network only through the turn egress proxy,
+   * whose admitted connections record their own taint (G6, #3429). Its shell
+   * calls then no longer pass through the command classifier.
+   */
+  setEgressProxied(): void;
   /** The run id (one run per turn). */
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
@@ -190,6 +196,8 @@ export function createTurnRecorder(
   let cancelledCallIds: string[] = [];
   let roadblocksRecorded = false;
   let providerUnavailableRecorded = 0;
+  /** Set once the turn's egress proxy is up; its connection taint replaces the shell classifier (#3429). */
+  let shellProxied = false;
   const traceCall = (toolUseId: string, toolName?: string): TracedCall | undefined => {
     let call = calls.get(toolUseId);
     if (!call && toolName && calls.size < MAX_TRACED_CALLS) {
@@ -289,6 +297,7 @@ export function createTurnRecorder(
     settled: () => writes.settled(),
     setMainModel(model) { if (!finished) mainModel = model; },
     setWorkerProfile(profile) { turn.profile = profile; },
+    setEgressProxied() { shellProxied = true; },
     runId,
 
     observeFrame(msg) {
@@ -333,7 +342,7 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
-            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath, marked), tool: msg.toolName });
+            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName });
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta

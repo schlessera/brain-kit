@@ -9,7 +9,9 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * BEFORE that split (at epic/1342-turn-path-split 2efaf6c23), never computed by
  * the code under test. It was re-recorded once from the unsplit main tree
  * (418b037ae, after #3103 added the compute tools) when that landed, and the
- * split tree still matches it byte for byte. Regenerate it only for a reviewed, intended change to
+ * split tree still matches it byte for byte. #3154 re-recorded it with this helper for one reviewed
+ * change: `read_attachment` joins the stable roster of every mode, and nothing else moves.
+ * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */
 for (const mode of SNAPSHOT_MODES) test(`the SDK options for a fixed ${mode} request are byte-identical to the captured tree`, async () => {

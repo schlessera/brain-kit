@@ -3,6 +3,7 @@ import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, openSync, closeSync, writeSync, ftruncateSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { finished } from "node:stream/promises";
 import { createFixtureWorkerStartupView as createWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { text } from "node:stream/consumers";
 import { WORKER_OUTPUT } from "../src/server/worker-output.js";
@@ -85,7 +86,8 @@ test("strict persistent-area aliases cannot expose a governed peer's later confi
     let output = "", errors = "";
     worker.stdout.on("data", chunk => { output += String(chunk); }); worker.stderr.on("data", chunk => { errors += String(chunk); });
     worker.stdin.end("go\n");
-    expect(await worker.exited, errors).toBe(0);
+    const [code] = await Promise.all([worker.exited, finished(worker.stdout), finished(worker.stderr)]);
+    expect(code, errors).toBe(0);
     expect(output, "STRICT_OUTPUT_ALIAS_FROZEN").toBe("Odysseus before launch\n");
   } finally { worker.kill("SIGKILL"); }
 });

@@ -321,7 +321,7 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   under the GitHub skill. This applies to every merge, including docs/test/CI
   work and `Refs` slices; choose the confirmed upcoming release for unreleased
   work and preserve the initial release of unchanged shipped behavior. Then
-  use `bun scripts/integrate.ts merge <pr> --lease <id> --issues owner/repo#N,...`
+  use `bun scripts/integrate.ts merge <pr> --lease <id> --token <token> --issues owner/repo#N,...`
   for the shared reservation-checked ordinary squash, or follow the stack
   merge/evidence procedure for native stacked PRs. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in

@@ -3855,6 +3855,11 @@ export interface HygieneEffect {
   destination?: string;
   /** The previewed media plan's premise; apply refuses `stale` when the brain no longer matches it. */
   premiseDigest?: string;
+  /**
+   * The principal who previewed a broader config change (#2781, rev 3 §5.4).
+   * Only that principal can confirm it; anyone else gets `stale-approval`.
+   */
+  approvedBy?: string;
 }
 /** A media finding's four effects (#2781). */
 export type HygieneMediaAction = "delete" | "move" | "persist" | "keep-copy";
@@ -3874,9 +3879,44 @@ export interface HygieneMediaPlan {
   rewrites: Array<{ note: string; line: number; kind: string; before: string; after: string }>;
   blockers: Array<{ note: string; line: number; kind: string; target: string }>;
   configDiff: { path: string; track: { before: string[]; after: string[] }; ignore: { before: string[]; after: string[] } } | null;
+  /** The config change's scope (#2781, rev 4 §7): one exact path, or a broader rule; absent or null without a config change. */
+  scope?: "exact" | "pattern" | null;
+  /** The `media.track` entry the change adds. */
+  pattern?: string | null;
+  /** A broader `media.ignore` entry the change removes so the track entry wins (M1 A). */
+  ignoreAdjust?: string | null;
+  /** A broader change's current matches: the added track entry's, and the removed ignore entry's. */
+  matches?: { track: HygieneMediaMatches; ignore: HygieneMediaMatches | null } | null;
+  /** Set for a broader change: what its approval binds (config SHA-256, diff, every match). */
+  approvalDigest?: string | null;
   copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  /**
+   * The source's dimensions and duration from its first 64 KiB (#2781, rev 5
+   * §9), each null when its header does not say; null when unreadable. Absent
+   * from a CLI before it. Descriptive only: it is not part of the premise.
+   */
+  media?: HygieneMediaProbe | null;
   resultClass: "TRACK" | "ARTIFACT" | null;
   refusals: HygieneMediaRefusal[];
+}
+/** A media file's pixel size and duration in whole milliseconds, each null when unknown. */
+export interface HygieneMediaProbe { width: number | null; height: number | null; durationMs: number | null }
+/**
+ * The files sync sees now that a media list pattern matches (#2781, rev 3
+ * §5.2), with the class the lists give each before and after the change.
+ * `anyFolder`: a pattern without `/` matches by file name everywhere, now and
+ * in future.
+ */
+export interface HygieneMediaMatches {
+  pattern: string;
+  anyFolder: boolean;
+  count: number;
+  bytes: number;
+  changed: number;
+  ignoredStill: number;
+  sensitive: number;
+  largest: Array<{ path: string; bytes: number | null; before: "TRACK" | "ARTIFACT" | "SENSITIVE" | null; after: "TRACK" | "ARTIFACT" | "SENSITIVE" | null }>;
+  digest: string;
 }
 export type HygieneMediaFileState = "created" | "changed" | "removed" | "restored" | "unchanged" | "left-changed" | "conflict";
 /**
@@ -3936,7 +3976,27 @@ export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" 
 export interface HygieneReviewMediaUndoCommand { operation: "undo-media"; journalId: string }
 /** Every body `POST /hygiene/review` accepts. */
 export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
-export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
+export interface HygienePreviewRequest {
+  itemId: string; optionId: string; expectedVersion: number; input: HygieneInput;
+  /** Additive (#2781, rev 5 §9): the client's own identity for this preview, echoed back so only the latest renders. */
+  requestId?: string;
+}
+/**
+ * `POST /hygiene/review/preview`'s 200 body: the pending Action, as before,
+ * plus the route-boundary fields (additive, #2781, rev 5 §9/§11).
+ */
+export type HygienePreviewResponse = InboxActionItem & {
+  /** The request's `requestId`, when it sent one. */
+  requestId?: string;
+  /**
+   * Named refusals, a result rather than an error: a media plan's own, or the
+   * route's when no plan was stored (`preview-busy`, `preview-superseded`,
+   * `inventory-too-large` with `limit: "preview"`). Empty when nothing refused.
+   */
+  refusals: HygieneMediaRefusal[];
+  /** The previewed media plan's `media`, when the option previewed is a media effect. */
+  media?: HygieneMediaProbe | null;
+};
 export interface HygieneReviewRead {
   review: HygieneReviewState;
   action: InboxActionItem | null;
