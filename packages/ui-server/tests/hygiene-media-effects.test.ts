@@ -540,3 +540,41 @@ test("POST /hygiene/review/preview: a named refusal is a 200 result, a throw 409
   expect(read(f.root, LOOM)).toBe("loom bytes");
   expect(read(f.root, "brain.config.json")).toBe(config);
 });
+
+/** As if the server died after the effect wrote, before its outcome committed. */
+const crashAfterWrite = (f: Awaited<ReturnType<typeof setup>>, journalId: string) =>
+  f.journal.writeOperation([journalStatement("UPDATE turn_journal_media_operations SET state='applying',pid=?,pid_start=? WHERE id=?", 2 ** 22 + 7, "0", journalId)]);
+
+test("a restart compensates an interrupted Keep a permanent copy: the copy, its rule and its kept entry go, the original and pins stay, never re-applied", async () => {
+  const f = await setup();
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  const pins = read(f.root, ".brain/scratch-pins/pins.json");
+  const kept = await f.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg");
+  expect(kept.outcome).toBe("kept");
+  await crashAfterWrite(f, kept.journalId);
+  await f.effects.recover();
+  expect(f.effects.receipt(kept.journalId, "odysseus"), "MEDIA_RECOVERY_COPY_COMPENSATED").toMatchObject({ outcome: "compensated", reason: "interrupted" });
+  expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg")), "MEDIA_RECOVERY_COPY_REMOVED").toBe(false);
+  expect(read(f.root, "brain.config.json"), "MEDIA_RECOVERY_COPY_CONFIG").toBe("{}\n");
+  expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_RECOVERY_COPY_UNKEPT").not.toContain("harbour-dawn");
+  expect(read(f.root, SCRATCH), "MEDIA_RECOVERY_COPY_ORIGINAL").toBe("dawn bytes");
+  expect(read(f.root, ".brain/scratch-pins/pins.json"), "MEDIA_RECOVERY_COPY_PINS").toBe(pins);
+  await f.effects.recover();
+  expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg")), "MEDIA_RECOVERY_COPY_ONCE").toBe(false);
+});
+
+test("a restart after an interrupted Move leaves an edit made since as a conflict (partial) and restores everything else", async () => {
+  const f = await setup();
+  const moved = await f.apply(LOOM, "move", "places/loom.png");
+  await crashAfterWrite(f, moved.journalId);
+  // Telemachus edits the rewritten note before the server comes back.
+  put(f.root, NOTE, "Telemachus wrote this after the move\n");
+  await f.effects.recover();
+  const receipt = f.effects.receipt(moved.journalId, "odysseus")!;
+  expect(receipt.outcome, "MEDIA_RECOVERY_PARTIAL").toBe("partial");
+  expect(receipt.files.find(x => x.path === NOTE)?.state, "MEDIA_RECOVERY_PARTIAL_CONFLICT").toBe("conflict");
+  expect(read(f.root, NOTE), "MEDIA_RECOVERY_NO_OVERWRITE").toBe("Telemachus wrote this after the move\n");
+  expect(read(f.root, LOOM), "MEDIA_RECOVERY_PARTIAL_SOURCE").toBe("loom bytes");
+  expect(existsSync(join(f.root, "places/loom.png")), "MEDIA_RECOVERY_PARTIAL_DESTINATION").toBe(false);
+});
