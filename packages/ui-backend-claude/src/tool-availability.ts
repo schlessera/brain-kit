@@ -10,6 +10,7 @@ const handlers: Record<string, string> = {
   brain_compute_health: "compute", brain_compute_plan: "compute", brain_compute_run: "compute",
   brain_compute_status: "compute", brain_compute_cancel: "compute", brain_compute_collect: "compute",
   ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
+  read_attachment: "readAttachment",
   brain_add: "applyBrain", brain_update: "applyBrain", brain_archive: "applyBrain",
   write_file: "applyBrain", edit_file: "applyBrain", apply_staged_changes: "applyBrain",
 };
