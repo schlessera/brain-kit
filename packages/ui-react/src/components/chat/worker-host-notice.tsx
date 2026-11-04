@@ -35,7 +35,7 @@ function WorkerHostNoticeView({ requirement, checking, onCheck }: WorkerHostNoti
         </Callout>
       </div>
       <Button label={checking ? "Checking…" : "Check again"} tone="quiet" size="sm" block={false} disabled={checking}
-        style={{ minHeight: 44 }} onClick={onCheck} />
+        reach onClick={onCheck} />
     </div>
   );
 }

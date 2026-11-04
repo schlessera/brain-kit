@@ -22,6 +22,7 @@ import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { SideRail } from "../../src/components/layout/side-rail.js";
 import { MobileTabBar } from "../../src/components/layout/mobile-tab-bar.js";
 import { createInboxFixtureServer, type InboxFixtureServer } from "../fixtures/inbox-fixture-server.js";
+import { OWNED, edgeOwners } from "./hit-reach.js";
 
 const DAY = 86_400_000;
 const T0 = Date.now();
@@ -796,7 +797,16 @@ for (const theme of ["dark", "light"] as const) {
       const { locator } = await migrationScene(row, theme);
       const el = locator.element() as HTMLElement;
       const box = el.getBoundingClientRect();
-      const small = [3, 8].includes(row) && !matchMedia("(any-pointer: coarse)").matches;
+      const coarse = matchMedia("(any-pointer: coarse)").matches;
+      if (el.classList.contains("bk-hit")) {
+        // #3252: a reaching Button keeps its kit paint; under a coarse pointer
+        // its 44px target, probed 1px inside each edge, is its own.
+        expect(el.style.minHeight, `row ${row} does not draw a 44px box`).not.toBe("44px");
+        el.scrollIntoView({ block: "center" });
+        expect(edgeOwners(el, coarse ? 44 : 0), `row ${row} owns each edge of its target`).toEqual(OWNED);
+        return;
+      }
+      const small = [3, 8].includes(row) && !coarse;
       const floor = small ? 28 : 44;
       expect({ width: box.width >= floor, height: box.height >= floor }, `row ${row} target at least ${floor}px`).toEqual({ width: true, height: true });
     });

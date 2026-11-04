@@ -226,6 +226,8 @@ async function settled(f: Awaited<ReturnType<typeof fixture>>) {
   if (f.o.child) expect(await until(() => !alive(f.o.child!), 1000), "OWNED_CHILD_MUST_STOP").toBe(true);
 }
 
+// The zero-delay `heartbeat` timer is the observation (#3332): it fires only if
+// stop confirmation yields to the event loop instead of spinning on it.
 test("snapshot fork ordering: first signal follows real fork acknowledgement", async () => {
   const f = await fixture(); let heartbeat = false;
   const { worker, signals } = observed(f, () => injectFork(f));
@@ -262,20 +264,22 @@ test("missing children file uses real PPid fallback", async () => {
 });
 
 test("every thread must confirm stop before the snapshot", async () => {
-  const f = await fixture(true); injectFork(f); bind(f.outer); let heartbeat = false, nonleaderRead = false, prematureSnapshot = false;
+  const f = await fixture(true); injectFork(f); bind(f.outer); let nonleaderRead = false, prematureSnapshot = false;
+  // A non-leader thread reports itself running for its first two polls, then
+  // its real stopped state; counted, so no timer decides when it confirms.
+  let unconfirmedReads = 2, lastReadUnconfirmed = false;
   const original = fs.readFileSync;
   const spy = spyOn(fs, "readFileSync").mockImplementation(((path: unknown, ...args: unknown[]) => {
     const name = String(path); const value = Reflect.apply(original, fs, [path, ...args]);
     if (name.startsWith(`/proc/${f.outer.pid}/task/`) && name.endsWith("/stat") && name !== `/proc/${f.outer.pid}/task/${f.outer.pid}/stat`) {
-      nonleaderRead = true;
-      if (!heartbeat && typeof value === "string") return value.replace(/\) [Tt] /, ") S ");
+      nonleaderRead = true; lastReadUnconfirmed = false;
+      if (unconfirmedReads > 0 && typeof value === "string") { unconfirmedReads--; lastReadUnconfirmed = true; return value.replace(/\) [Tt] /, ") S "); }
     }
-    if (name.startsWith(`/proc/${f.outer.pid}/task/`) && name.endsWith("/children") && !heartbeat) prematureSnapshot = true;
+    if (name.startsWith(`/proc/${f.outer.pid}/task/`) && name.endsWith("/children") && lastReadUnconfirmed) prematureSnapshot = true;
     return value;
   }) as typeof fs.readFileSync); restores.push(() => spy.mockRestore());
-  setTimeout(() => { heartbeat = true; }, 10);
   cancellation.killWorker(f.outer); await settled(f); await complete(f.outer);
-  expect(nonleaderRead && !prematureSnapshot, "ALL_THREADS_CONFIRMED_BEFORE_SNAPSHOT").toBe(true);
+  expect(nonleaderRead && !prematureSnapshot && unconfirmedReads === 0, "ALL_THREADS_CONFIRMED_BEFORE_SNAPSHOT").toBe(true);
 });
 
 test("empty outer terminates and a fork request while stopped cannot create a child", async () => {

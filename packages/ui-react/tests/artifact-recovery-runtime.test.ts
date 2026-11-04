@@ -322,8 +322,10 @@ for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
       expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-file-title"))).toBe(true);
       expect(await page.getByRole("status").count()).toBe(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const retry = await page.getByRole("button", { name: "Try again", exact: true }).boundingBox();
-      expect(retry!.height, "RETRY_44PX_TARGET").toBeGreaterThanOrEqual(44);
+      // #3252: Try again keeps its md paint and reaches 44px past it under a
+      // coarse pointer (probed in `hit-reach.app.pointer.tsx`); this Chromium
+      // is a fine pointer, so its own edges are checked below at its paint.
+      expect(await page.getByRole("button", { name: "Try again", exact: true }).evaluate(element => element.classList.contains("bk-hit") && (element as HTMLElement).style.minHeight !== "44px"), "RETRY_REACHES_NOT_INFLATED").toBe(true);
       expect(await page.getByRole("button", { name: "Try again", exact: true }).evaluate(element => {
         const r = element.getBoundingClientRect();
         return [[r.left + 1, r.top + r.height / 2], [r.right - 1, r.top + r.height / 2], [r.left + r.width / 2, r.top + 1], [r.left + r.width / 2, r.bottom - 1]]

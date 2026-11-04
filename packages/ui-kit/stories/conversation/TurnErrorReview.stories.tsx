@@ -4,6 +4,7 @@ import { expect, waitFor, within } from "storybook/test";
 import { TurnError } from "../../../ui-react/src/components/chat/turn-error.js";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
 import { createBrainUiRoot } from "../../../ui-react/src/root.js";
+import { target } from "./_consumer-parity.js";
 
 const message = { id: "fixture", role: "assistant" as const, content: "", toolCalls: [], parts: [], isStreaming: false, timestamp: 0,
   failure: { errorClass: "invalid_request", status: 400, message: "Provider rejected this request." } };
@@ -23,7 +24,7 @@ export const Copy = meta.story({
     const body = within(canvasElement.ownerDocument.body);
     const dialog = body.getByRole("dialog", { name: "What will be copied" });
     await waitFor(() => expect(within(dialog).getByRole("textbox", { name: "Exact outgoing text" })).toBeVisible());
-    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Copy" }).getBoundingClientRect().height).toBeGreaterThanOrEqual(44));
+    await target(await within(dialog).findByRole("button", { name: "Copy" }), "copy dialog Copy");
   },
 });
 export const Report = meta.story({

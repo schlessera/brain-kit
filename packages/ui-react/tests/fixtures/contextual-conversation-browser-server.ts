@@ -140,11 +140,31 @@ const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry
   conversationProvider: provider });
 const handlers = createWsHandlers(host, testPrincipal());
 const frames: ServerMessage[] = [];
-const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
+// #3263: the latest `conversation_work` receipt the host sent for each request.
+// A task's result text reaches the client before the host settles the work:
+// settlement waits for the turn's index refresh, egress and journal
+// finalization, and delivery then waits for the provider's acknowledgement.
+// A step with `settledWork` waits on that actual publication, not elapsed time.
+const receipts = new Map<string, { state: string; delivery: string }>();
+const receiptWaiters = new Set<() => void>();
+const workSettled = () => receipts.size > 0 && [...receipts.values()].every(r => r.state !== "queued" && r.state !== "running" && r.delivery !== "pending");
+const ws = { send: (data: string) => {
+  const frame = JSON.parse(data) as ServerMessage; frames.push(frame);
+  if (frame.type === "conversation_work") { receipts.set(frame.requestId, frame); for (const wake of receiptWaiters) wake(); }
+} } as WSContext;
+/** Failure maximum only: below the 15 s browser test timeout, so the unchanged
+ * client assertion reports the receipt it actually holds instead of a hang. */
+const awaitSettledWork = (deadlineMs = 5000) => new Promise<"settled" | "deadline">(resolve => {
+  if (workSettled()) return resolve("settled");
+  const finish = (result: "settled" | "deadline") => { clearTimeout(timer); receiptWaiters.delete(wake); resolve(result); };
+  const wake = () => { if (workSettled()) finish("settled"); };
+  const timer = setTimeout(() => finish("deadline"), deadlineMs);
+  receiptWaiters.add(wake);
+});
 await handlers.onOpen(undefined as never, ws);
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (req.method !== "POST") return new Response(null, { status: 405 });
-  const body = await req.json() as { client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; failHistory?: boolean; releaseOpening?: boolean; releaseValidation?: boolean };
+  const body = await req.json() as { client: unknown[]; provider: unknown[]; release?: boolean; identify?: boolean; failHistory?: boolean; releaseOpening?: boolean; releaseValidation?: boolean; settledWork?: boolean };
   for (const frame of body.client) {
     if(holdValidation && !validationHeld && (frame as {type?:string}).type === "conversation_start") holdStartValidation=true;
     handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
@@ -157,8 +177,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (body.releaseValidation) releaseValidation();
   if (body.identify) identify();
   if (body.release) release();
+  // Kept, pacing only: the reply is a snapshot, and tests poll "step" until
+  // their condition holds, so this drain only batches more frames into it.
   await Bun.sleep(10);
-  return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, opening, validationHeld, validationCalls, historyPending: pendingHistory.length > 0, providerOpens, providerCloses, missingChatExists: catalog.hasSession!("odysseus-ithaca"), effect: existsSync(join(root, "notes/contextual-raft.md")) });
+  const settledWork = body.settledWork ? await awaitSettledWork() : undefined;
+  return Response.json({ settledWork, frames: frames.splice(0), sent: sent.splice(0), tasks, released, opening, validationHeld, validationCalls, historyPending: pendingHistory.length > 0, providerOpens, providerCloses, missingChatExists: catalog.hasSession!("odysseus-ithaca"), effect: existsSync(join(root, "notes/contextual-raft.md")) });
 } });
 process.on("SIGTERM", async () => { releaseValidation(); releaseOpening(); release(); await host.close(); for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history fixture closed.")); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

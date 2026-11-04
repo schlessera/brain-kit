@@ -51,7 +51,7 @@ export function ConversationTaskContext({ message, sessionId, result, entries = 
       {receipt?.reason && <p>{receipt.reason}</p>}
     </TranscriptQualifiers>
     {receipt?.reason && ["error", "refused", "unknown"].includes(receipt.state) && <p>{receipt.reason}</p>}
-    {linked && onReveal ? <Button label={result ? "View request" : "View result"} tone="ghost" block={false} style={{ minHeight: 44 }} onClick={() => onReveal(linked.key)} /> : result ? <p>Request details unavailable</p> : null}
+    {linked && onReveal ? <Button label={result ? "View request" : "View result"} tone="ghost" block={false} reach onClick={() => onReveal(linked.key)} /> : result ? <p>Request details unavailable</p> : null}
   </div>;
 }
 

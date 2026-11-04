@@ -1023,6 +1023,19 @@ Only a reviewed re-audit moves the audited revision
   merges needs renewed review, or stays unqualified and keeps fresh proof.
   Automatic pin refreshes and per-file ownership are not part of this
   procedure.
+- **Audited readers.** The same rule covers the audited command readers
+  (`const readers`, `scripts/locked-browser-assets.ts:6-9`;
+  `const auditedReaders`, `scripts/generated-build-inputs.ts:37-41`)
+  ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer
+  ruling 2026-11-04). A legitimate change to a reader makes its asset binding
+  unknown, so proof runs fresh; it never fails a test, and the changing PR does
+  not refresh the reader's pin. The reader's self-test holds the repository's
+  actual reader to whichever side of its pin its bytes are on: matching bytes
+  must yield the installed receipt and drifted bytes must yield no receipt
+  (`test("the repo reader`, `tests/locked-browser-assets.test.ts:26-33`). Its
+  positive control reads the reader from the frozen owner. The post-merge
+  re-audit moves that owner and refreshes the reader's pins in both maps
+  together.
 
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
@@ -1072,7 +1085,7 @@ Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative
 asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
 frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
-remain fresh. This is exact-file validation, not a scan of `node_modules` or a
+remain fresh; a changed reader stays fresh until its post-merge re-audit. This is exact-file validation, not a scan of `node_modules` or a
 claim that arbitrary installed files belong to a domain.
 
 Two exact source-owned literal payloads—the rectangle SVG fixture and the

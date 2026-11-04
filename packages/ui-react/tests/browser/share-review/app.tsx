@@ -31,6 +31,26 @@ window.addEventListener("pagehide", () => {
   if (onlineDescriptor) Object.defineProperty(navigator, "onLine", onlineDescriptor);
   else delete (navigator as { onLine?: boolean }).onLine;
 });
+// Review admission takes the native lock `brain-ui:share-review:<id>` with
+// `ifAvailable` (`holdShareReview`, src/lib/share-review.ts). A request that
+// admits the review stays open while this tab owns it; every other request
+// settles once its attempt ends: the lock was taken elsewhere, the original
+// could not be recovered for this account, or recovery failed. Counting
+// requests and settlements lets a test wait for this tab's admission decision
+// instead of a fixed window. The native lock itself is untouched.
+const locks = navigator.locks;
+const lockRequest = locks.request;
+const admission = { requested: 0, settled: 0 };
+Object.defineProperty(locks, "request", { configurable: true, value(this: LockManager, ...args: Parameters<LockManager["request"]>) {
+  const pending = (lockRequest as (...args: Parameters<LockManager["request"]>) => Promise<unknown>).apply(this, args);
+  if (String(args[0]).startsWith("brain-ui:share-review:")) {
+    admission.requested++;
+    const settle = () => { admission.settled++; };
+    pending.then(settle, settle);
+  }
+  return pending;
+} });
+window.addEventListener("pagehide", () => Reflect.deleteProperty(locks, "request"));
 let holdAdmission = false;
 let refuseSend = false;
 let pendingAdmission: { requestId: string } | undefined;
@@ -81,6 +101,7 @@ const fixture = {
   refuseSend: () => { refuseSend = true; },
   startConfirm: () => { void intake!.confirm(ui.stores.share.getState().queue[0]!); },
   pending: () => pendingAdmission !== undefined,
+  admission: () => ({ ...admission }),
   accept: () => {
     if (!pendingAdmission) return;
     const { requestId } = pendingAdmission;

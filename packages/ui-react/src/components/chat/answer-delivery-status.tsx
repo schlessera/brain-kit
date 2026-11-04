@@ -110,7 +110,7 @@ export function AnswerDeliveryStatus({
       </p>
       {copy.body ? <p className="text-sm text-foreground/90">{copy.body}</p> : null}
       {actions.length > 0 || copy.meta ? (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 any-pointer-coarse:gap-y-4">
           {actions.map((action) => (
             <Button
               key={action}
@@ -119,7 +119,7 @@ export function AnswerDeliveryStatus({
               size="sm"
               block={false}
               onClick={() => run(action)}
-              style={{ minHeight: 44 }}
+              reach
             />
           ))}
           {copy.meta ? (

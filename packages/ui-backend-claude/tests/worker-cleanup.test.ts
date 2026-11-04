@@ -24,7 +24,7 @@ test.skipIf(!native)("Claude keeps a worker's reservation charged until its awai
   mkdirSync(brain); mkdirSync(saved); mkdirSync(home); writeFileSync(join(saved, "settings.json"), "{}");
   const sandbox = prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] });
   const original = internal.launchAgentWorkerAsync;
-  let gate = Promise.withResolvers<void>(), closing = Promise.withResolvers<void>();
+  let gate = Promise.withResolvers<void>(), closing = Promise.withResolvers<void>(), stateClosed = Promise.withResolvers<void>();
   const retries: Array<() => Promise<void>> = [];
   // The real worker and handles; only the turn temp's awaited close is held at a gate.
   const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async input => {
@@ -33,6 +33,9 @@ test.skipIf(!native)("Claude keeps a worker's reservation charged until its awai
     retries.push(close);
     turnTemp.close = () => { throw new Error("CLAUDE_SYNC_TURN_TEMP_CLOSE_ON_AN_ASYNC_LAUNCH"); };
     turnTemp.closeAsync = async () => { closing.resolve(); await gate.promise; await close(); };
+    // The state handle's real close runs beside the held one; its completion is observed, not waited out.
+    const state = worker.state!, closeState = state.closeAsync.bind(state);
+    state.closeAsync = async () => { await closeState(); stateClosed.resolve(); };
     return worker;
   });
   // Retries run when the test says so, not on a timer racing the worker's release wait.
@@ -50,13 +53,16 @@ test.skipIf(!native)("Claude keeps a worker's reservation charged until its awai
     const confirmed = createStateLedger();
     const finished = turn(confirmed);
     await closing.promise;
-    await Bun.sleep(20);
+    // Everything the release awaits besides the held gate has completed, and one
+    // macrotask runs any continuation of it: only the gate now holds the release.
+    await stateClosed.promise;
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(confirmed.live, "CLAUDE_RESERVATION_HELD_WHILE_CLOSE_PENDING").toBe(1);
     gate.resolve();
     await finished;
     expect(confirmed.live, "CLAUDE_CONFIRMED_CLOSE_RELEASES_RESERVATION").toBe(0);
 
-    gate = Promise.withResolvers<void>(); closing = Promise.withResolvers<void>();
+    gate = Promise.withResolvers<void>(); closing = Promise.withResolvers<void>(); stateClosed = Promise.withResolvers<void>();
     const refused = createStateLedger();
     const refusing = turn(refused);
     await closing.promise;

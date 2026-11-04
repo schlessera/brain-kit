@@ -19,6 +19,7 @@ because the code has become the better answer to "what does this do".
 | [eleven-realtime-evaluation.md](eleven-realtime-evaluation.md) | Documentation-stage evaluation of Eleven Realtime v1 Max as a third live-conversation engine, the API choice, the unresolved nonblocking-result question and the prepared live probe. | [#3100](https://github.com/schlessera/brain-kit/issues/3100) |
 | [host-owned-web-search.md](host-owned-web-search.md) | Pinned MCP/full-extension comparison, offline worker prototypes and authority boundaries for executor selection. | [#1863](https://github.com/schlessera/brain-kit/issues/1863) |
 | [module-renderers.md](module-renderers.md) | The content-renderer seam, Mermaid on it, the diagram spec, computed geometry, the brain-kit skin, surface and print matrix, ordering, and the upstream sync procedure. | [#2079](https://github.com/schlessera/brain-kit/issues/2079) |
+| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: source inventory, capability matrix, routing, admission/ownership/cleanup schema, bounded on-demand reader, composer states and the proof briefs for #3153–#3155. | [#3150](https://github.com/schlessera/brain-kit/issues/3150) |
 | [chat-history-deletion.md](chat-history-deletion.md) | Approved local deletion policy with unbuilt lifecycle design, retained-record boundaries and proof obligations. | [#3234](https://github.com/schlessera/brain-kit/issues/3234) |
 
 ## What does not live here

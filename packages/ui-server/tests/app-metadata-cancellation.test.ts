@@ -151,6 +151,7 @@ for (const trigger of ["caller abort", "app close", "loopback abort", "pre-abort
         closing = fixture.app.close();
         expect((await fixture.fetch("/api/health")).status, "CLOSING_APP_REFUSES_NEW_HTTP_DISPATCH").toBe(503);
       }
+      // Failure maximum: on success the status settles first and the timer is cleared.
       const outcome = await Promise.race([
         pending!.then(response => response.status),
         new Promise<"still queued">((resolve) => { timer = setTimeout(() => resolve("still queued"), 1500); }),

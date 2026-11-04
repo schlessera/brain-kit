@@ -104,9 +104,13 @@ test("review: provider closure during pending opening settles without late captu
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed" });
   s.client.mute();
   s.opened(2);
-  await new Promise(resolve => setTimeout(resolve, 100));
-  expect(s.client.state.getState().micOn).toBe(false);
+  // Frames are handled as they are delivered, and a capture opens the
+  // microphone synchronously, so once epoch 2 is applied any capture its
+  // opening or readiness allowed has already called getUserMedia. Without a
+  // new capture session the microphone cannot turn on later.
+  await expect.poll(() => s.client.state.getState().profile?.epoch).toBe(2);
   expect(mic.opens()).toBe(1);
+  expect(s.client.state.getState().micOn).toBe(false);
 });
 
 test("review: hiding during replacement opening cannot delete the retained conversation", async ctx => {
