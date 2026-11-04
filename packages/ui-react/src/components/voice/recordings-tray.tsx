@@ -9,7 +9,6 @@ import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type Recordin
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
-const target = { minHeight: 44, minWidth: 44 };
 const EMPTY_ROWS: Recording[] = [];
 const size = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 export function recordingClock(row: Recording): string {
@@ -225,33 +224,33 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
       </>}
       {!localOnly && provider && !offline && row.partition !== "unassigned" && !terminal && !["transcript-ready", "accepted", "transcribing"].includes(row.state) && !uploadConfirm && <div className="mt-2">
-        <Button label={retry ? "Retry" : "Transcribe"} ariaLabel={`${retry ? "Retry transcription of" : "Transcribe"} ${name}`} block={false} style={target} disabled={busy || !row.chunkCount} onClick={() => { setUploadConfirm(true); setError(""); }} />
+        <Button label={retry ? "Retry" : "Transcribe"} ariaLabel={`${retry ? "Retry transcription of" : "Transcribe"} ${name}`} block={false} reach disabled={busy || !row.chunkCount} onClick={() => { setUploadConfirm(true); setError(""); }} />
       </div>}
       {uploadConfirm && provider && !offline && <div role="group" aria-label={`Upload ${name}`} className="mt-2">
         <p className="text-xs">Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server for transcription? Your server sends it to {provider === "deepgram" ? "Deepgram" : provider}.</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button label="Upload and transcribe" block={false} style={target} disabled={busy} onClick={() => {
+        <div className="mt-2 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+          <Button label="Upload and transcribe" block={false} reach disabled={busy} onClick={() => {
             setUploadConfirm(false); setUploadPercent(0);
             void run(async () => { await recordings.transcribe(row.partition, row.id, setUploadPercent, retry); }).finally(() => { if (mounted.current) setUploadPercent(null); });
           }} />
-          <Button label="Cancel" tone="ghost" block={false} style={target} disabled={busy} onClick={() => setUploadConfirm(false)} />
+          <Button label="Cancel" tone="ghost" block={false} reach disabled={busy} onClick={() => setUploadConfirm(false)} />
         </div>
       </div>}
       {(busy && uploadPercent !== null || row.state === "transcribing") && <p role="status" className="mt-2 text-xs">{busy && uploadPercent !== null && uploadPercent < 100 ? `Uploading… ${uploadPercent}%` : "Transcribing…"}</p>}
       {row.transcriptionMessage && <p role="status" className="mt-2 text-xs">{row.transcriptionMessage}</p>}
-      <div ref={actions} className="mt-2 flex flex-wrap gap-2">
-        {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={working || !text.trim()} onClick={accept} />}
-        {!localOnly && row.partition === "unassigned" && onAssociate && <Button label="Add to my account…" block={false} style={target} disabled={busy} onClick={onAssociate} />}
-        <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={working || row.chunkCount === 0} onClick={play} />
-        <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} style={target} disabled={working} onClick={() => setConfirm(true)} />
+      <div ref={actions} className="mt-2 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+        {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} reach disabled={working || !text.trim()} onClick={accept} />}
+        {!localOnly && row.partition === "unassigned" && onAssociate && <Button label="Add to my account…" block={false} reach disabled={busy} onClick={onAssociate} />}
+        <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} reach disabled={working || row.chunkCount === 0} onClick={play} />
+        <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} reach disabled={working} onClick={() => setConfirm(true)} />
       </div>
       {row.chunkCount === 0 && <p className="mt-2 text-xs text-muted-foreground">Audio is no longer available on this device. Your transcript is kept.</p>}
       {url && <audio controls autoPlay src={url} aria-label={`Playback of ${name}`} className="mt-2 w-full" />}
       {confirm && <div role="group" aria-label={`Delete ${name}`} className="mt-2">
         <p className="text-xs">Delete the recording and its transcript from this device?</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button label="Delete" ariaLabel={`Delete ${name}`} tone="danger" block={false} style={target} disabled={busy} onClick={() => void run(onDiscard)} />
-          <div ref={keep}><Button label="Keep" tone="ghost" block={false} style={target} disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
+        <div className="mt-2 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+          <Button label="Delete" ariaLabel={`Delete ${name}`} tone="danger" block={false} reach disabled={busy} onClick={() => void run(onDiscard)} />
+          <div ref={keep}><Button label="Keep" tone="ghost" block={false} reach disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
         </div>
       </div>}
       {!localOnly && (offline || !provider) && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>}

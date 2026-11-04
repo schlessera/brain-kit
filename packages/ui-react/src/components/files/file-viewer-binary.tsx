@@ -126,7 +126,7 @@ function PreviewUnavailable({ content, rawUrl, filename }: { content: FileConten
         download={filename}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-1 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-raised"
+        className="bk-hit mt-1 inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-raised"
       >
         <Download className="h-3.5 w-3.5" />
         Download

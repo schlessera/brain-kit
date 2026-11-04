@@ -102,21 +102,24 @@ export async function bounds(element: HTMLElement, label: string) {
 export async function targets(element: HTMLElement, label: string) {
   const controls = [...element.querySelectorAll<HTMLElement>('button,[role="button"],[role="checkbox"],select')];
   await expect(controls.length, `${label} has real controls`).toBeGreaterThan(0);
-  for (const control of controls) {
-    const box = control.getBoundingClientRect();
-    // A reaching control (`.bk-hit`, #3252) keeps its kit paint and reaches 44px
-    // past it under a coarse pointer; a fine pointer has no 44px floor. Its edges
-    // are probed in ui-react's hit-reach pointer tests.
-    if (control.classList.contains("bk-hit")) {
-      await expect(control.style.minHeight, `${label}: ${control.textContent} is not inflated`).not.toBe("44px");
-      if (matchMedia("(any-pointer: coarse)").matches) {
-        await expect(getComputedStyle(control, "::after").position, `${label}: ${control.textContent} reach is active`).toBe("absolute");
-      }
-      continue;
+  for (const control of controls) await target(control, `${label}: ${control.textContent}`);
+}
+
+/** One control's 44px target. A reaching control (`.bk-hit`, #3252) keeps its
+ * kit paint and reaches 44px past it under a coarse pointer; a fine pointer has
+ * no 44px floor. Its edges are probed in ui-react's hit-reach pointer tests. Any
+ * other control must paint the 44px box itself. */
+export async function target(control: HTMLElement, label: string) {
+  if (control.classList.contains("bk-hit")) {
+    await expect(control.style.minHeight, `${label} is not inflated`).not.toBe("44px");
+    if (matchMedia("(any-pointer: coarse)").matches) {
+      await expect(getComputedStyle(control, "::after").position, `${label} reach is active`).toBe("absolute");
     }
-    await expect(box.height, `${label}: ${control.textContent} target height`).toBeGreaterThanOrEqual(44);
-    await expect(box.width, `${label}: ${control.textContent} target width`).toBeGreaterThanOrEqual(44);
+    return;
   }
+  const box = control.getBoundingClientRect();
+  await expect(box.height, `${label} target height`).toBeGreaterThanOrEqual(44);
+  await expect(box.width, `${label} target width`).toBeGreaterThanOrEqual(44);
 }
 
 /** Check each transient state too; the unchanged addon gate also checks the

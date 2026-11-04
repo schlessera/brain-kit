@@ -305,7 +305,7 @@ export function DecisionCard({
             <div data-decision-changed="" className="flex flex-col gap-2">
               <Callout tone="gold" text={`This decision changed while you were reading it. Changed: ${change.fields.join(" · ")}`} />
               {!change.reviewed ? (
-                <Button label="Review changes" tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} onClick={() => reviewChanges(item.id)} />
+                <Button label="Review changes" tone="ghost" size="sm" block={false} reach onClick={() => reviewChanges(item.id)} />
               ) : (
                 <ChangeReview before={change.before} after={item} fields={change.fields} />
               )}
@@ -413,7 +413,7 @@ function ExtraEffects({ view }: { view: DecisionView }) {
       {view.unavailable.map((u) => (
         <div key={u.option.id} className="flex flex-col gap-1.5">
           <EffectPreview {...u.effect} />
-          <Button label={u.option.label} subtitle="Not available in this version" tone="ghost" size="sm" block={false} disabled onClick={() => {}} style={{ minHeight: 44 }} />
+          <Button label={u.option.label} subtitle="Not available in this version" tone="ghost" size="sm" block={false} disabled onClick={() => {}} />
         </div>
       ))}
     </>
