@@ -1,4 +1,5 @@
 /** Btrfs topology management belongs to the trusted host, never a worker. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { realpathSync, statfsSync } from "node:fs";
 
 const BTRFS_MAGIC = 0x9123683e;
@@ -84,7 +85,7 @@ export function workerFilesystemFilter(brain: string, command: readonly string[]
   const found = Bun.which("python3");
   if (!found) throw new Error("Btrfs workers require Python 3 and libseccomp.so.2 on the trusted host");
   const python = realpathSync(found);
-  if (python === brain || python.startsWith(`${brain}/`)) {
+  if (isWithin(brain, python)) {
     throw new Error("Btrfs worker filtering requires a trusted Python outside the brain");
   }
   return [python, "-I", "-S", "-c", WORKER_FILESYSTEM_FILTER_PROGRAM, ...command];

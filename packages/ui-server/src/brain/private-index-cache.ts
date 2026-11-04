@@ -32,6 +32,7 @@
  * expiry, restart) only costs the next clean build: nothing here is
  * authoritative, and `brain.db` stays disposable.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash } from "node:crypto";
 import { chmodSync, chownSync, lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, type BigIntStats } from "node:fs";
 import { tmpdir } from "node:os";
@@ -112,7 +113,6 @@ export type PrivateIndexChanges = { kind: "unchanged" } | { kind: "additions"; p
   /** `documents`: only Markdown or asset files changed, so the configuration and the masks it decides did not. */
   | { kind: "rebuild"; reason: string; documents?: true };
 
-const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 /**
  * The folders a masked build of the view at `root` sees as empty: the turn's
@@ -121,7 +121,7 @@ const within = (path: string, folder: string) => path === folder || path.startsW
  */
 export function privateIndexBuildFolders(masked: readonly string[], root: string): string[] {
   const state = PRIVATE_INDEX_STATE_FOLDERS.filter(name => lstatSync(join(root, name), { throwIfNoEntry: false })?.isDirectory());
-  return [...new Set([...masked.filter(folder => !state.some(top => within(folder, top))), ...state])].sort();
+  return [...new Set([...masked.filter(folder => !state.some(top => isWithin(top, folder))), ...state])].sort();
 }
 
 /**
@@ -135,8 +135,8 @@ export function privateIndexInert(folders: readonly string[], roots?: { before: 
   const state = PRIVATE_INDEX_STATE_FOLDERS.filter(name => roots && [roots.before, roots.after].every(root => {
     try { return lstatSync(join(root, name)).isDirectory(); } catch { return false; }
   }));
-  return path => within(path, ".git") || within(path, INDEX_DIR) || within(path, CACHE_DIR) || folders.some(folder => within(path, folder))
-    || state.some(folder => path.startsWith(`${folder}/`));
+  return path => isWithin(".git", path) || isWithin(INDEX_DIR, path) || isWithin(CACHE_DIR, path) || folders.some(folder => isWithin(folder, path))
+    || state.some(folder => isWithin(folder, path, { includeRoot: false }));
 }
 
 /** A new file the incremental index adds without touching an existing row. */
@@ -256,7 +256,7 @@ async function copyFiles(from: string, to: string, names: readonly string[], mod
 function hiddenParent(maskPaths: readonly string[]): string | undefined {
   let parent: string;
   try { parent = realpathSync(tmpdir()); } catch { return undefined; }
-  return [`/tmp`, ...maskPaths].some(masked => within(parent, masked)) ? parent : undefined;
+  return [`/tmp`, ...maskPaths].some(masked => isWithin(masked, parent)) ? parent : undefined;
 }
 
 /** Bases a crashed server left behind: its process is gone, so nothing else owns them. */

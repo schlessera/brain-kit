@@ -16,6 +16,7 @@
  *     Stale symlinks (removed skills / old package paths) are pruned.
  */
 
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "fs";
 import { join, relative, sep } from "path";
 
@@ -95,7 +96,7 @@ export function syncSkills(ctx: SkillSources, opts: SyncOptions = {}): SyncResul
 
 /** Relative link when the skill lives inside the repo, absolute otherwise. */
 function linkTargetFor(agentsSkillsDir: string, skillDir: string, root: string): string {
-  const inside = skillDir === root || skillDir.startsWith(root + sep);
+  const inside = isWithin(root, skillDir, { separator: sep });
   return inside ? relative(agentsSkillsDir, skillDir) : skillDir;
 }
 
