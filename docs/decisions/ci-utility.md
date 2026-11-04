@@ -1361,7 +1361,15 @@ three attempts with bounded backoff. There is no persistent or FIFO queue.
 
 Use `confirm <pr> --issues owner/repo#N,...` before requesting costly ordinary
 candidate proof. The command acquires, requests draft-to-ready confirmation,
-renews while waiting, and calls its shared merge path after success. Nonowners
+renews while waiting, and calls its shared merge path after success. Before
+it acquires, it reads the newest contract run for the exact head
+([#3573](https://github.com/schlessera/brain-kit/issues/3573)). The merge path
+accepts contract proof only from that run, and the ready transition does not
+start one. So a missing, cancelled or failed newest run refuses confirmation
+before any candidate CI is requested, naming the remedy: a fresh contract run,
+started by a body edit or a label change. An older passing run never stands in
+for a newer one, because the gate reads the current title and labels. A
+pending run is waited for, without a reservation, for at most ten minutes. Nonowners
 may code and run fast feedback but must hold competing confirmation and merges.
 `confirm` keeps the holder token in memory only. For a separately managed
 proof window, `acquire <pr>` prints the explicit lease ID and, once, its holder
@@ -1549,7 +1557,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:85-89`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:87-91`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
