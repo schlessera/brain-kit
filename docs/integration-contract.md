@@ -75,6 +75,26 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
 
+## Reading composer attachments on demand (additive, 0.45.0, #3154)
+
+Both first-party backends gain one host-executed bridge tool, `read_attachment`
+(`mcp__brain-ui__read_attachment` on Claude, the plain name on pi), in every
+interactive session's fixed roster whether or not the session has
+attachments. It reads one original that a message of the calling session was
+sent: PDF text by page, at most 20 pages per call, or a text file by byte
+range, at most 65,536 bytes per call and 262,144 per turn, with a `next`
+cursor for the rest. Its result names its outcome (`read`, `partial`,
+`no_text`, `encrypted`, `malformed`, `failed`, `unavailable`, `changed` or
+`refused`) and exactly what it covers; contents are quoted as data. New
+messages' `<brain-attachments>` block names the tool; messages recorded before
+it keep their wording and still replay. The SDK gains the tool contract,
+`AttachmentReadResult`, `handleReadAttachment`, `formatAttachmentRead` and
+`BackendBridge.readAttachment`. Nothing else changes; a host without composer
+files answers `unavailable`. See
+[the MCP component](integration-contract/mcp.md#read_attachment-additive-0450-3154)
+and [the package component](integration-contract/package-api.md#reading-composer-attachments-additive-0450-3154).
+This ships in a minor.
+
 ## Reading a chat deletion's outcome (additive, #3455)
 
 `GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))

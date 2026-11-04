@@ -40,6 +40,16 @@ import { TurnTextCollector } from "../classification/classify-turn.js";
 import { JournalCapacityError } from "../brain/journal-objects.js";
 import { JournalStorageUnavailable } from "../brain/journal-accounting.js";
 import { AUTHORITY_HOLD_WAIT_MS, waitForAuthority, waitWhile, type AuthorityHold } from "../brain/authority-hold.js";
+import { createExtractor } from "../attachments/extract.js";
+import { createAttachmentReader, type AttachmentReader } from "../attachments/read.js";
+
+/** One attachment reader per host, so the extractor's concurrency bound is host-wide (#3154). */
+const attachmentReaders = new WeakMap<object, AttachmentReader>();
+function attachmentReaderOf(host: object): AttachmentReader {
+  let reader = attachmentReaders.get(host);
+  if (!reader) attachmentReaders.set(host, reader = createAttachmentReader(createExtractor()));
+  return reader;
+}
 
 const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
 
@@ -784,6 +794,12 @@ export async function makeBridge(
       posture: work?.posture === "voice" ? "voice" : "interactive",
       approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
   }
+  // Attachment reads (#3154): the session, principal and turn are this
+  // turn's; the call names a file and a scope only. The budget is per turn.
+  if (host.drafts && host.brainPath && (backendId === "claude" || backendId === "pi")) {
+    const store = host.drafts, brainRoot = host.brainPath, reader = attachmentReaderOf(host), budget = { used: 0 };
+    bridge.readAttachment = input => reader.read({ brainRoot, store, sessionId: collectedSessionId ?? turn.sessionId, turnId, signal, budget }, input);
+  }
   // Intake stages the submitted item under the share staging directory and
   // reconciles what is already staged there, so a mask at, above or inside
   // that directory, or one it resolves into, refuses the whole addition.
@@ -808,7 +824,7 @@ export async function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "readAttachment"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

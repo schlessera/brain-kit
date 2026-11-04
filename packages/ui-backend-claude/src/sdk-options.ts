@@ -21,7 +21,7 @@ import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWork
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
-import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, visibleToolName } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
@@ -255,6 +255,9 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // Apify (#3162): the host decides every call and asks per exact run; a
     // tool-level card would add a rememberable grant that authorizes nothing.
     if (req.bridge.apify && !req.noGrantSurface && req.posture !== "voice") allowed.push(...Object.values(APIFY_TOOL_NAMES).map(name => visibleToolName(name, "claude")));
+    // Attachment reads (#3154): the host authorizes each id against this
+    // session's own references; a card would ask to read what the user sent.
+    if (req.bridge.readAttachment) allowed.push(visibleToolName(READ_ATTACHMENT_TOOL_NAME, "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -575,6 +578,8 @@ function turnMcpServer(
     ...(!req.autonomous ? { compute: req.bridge } : {}),
     // Interactive sessions only: a restricted autonomous roster never lists Apify.
     ...(!req.autonomous ? { apify: req.bridge } : {}),
+    // Every interactive session, with or without attachments, so a file never changes the roster.
+    ...(!req.autonomous ? { attachments: req.bridge } : {}),
     ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
       try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
     }) } : {}),
